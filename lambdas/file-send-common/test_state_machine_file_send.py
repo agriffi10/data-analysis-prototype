@@ -29,6 +29,8 @@ _HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "control-plane-common"))
 sys.path.insert(0, str(_HERE.parent / "file-send-validate-authorize"))
 sys.path.insert(0, str(_HERE.parent / "file-send-inspect-source"))
+sys.path.insert(0, str(_HERE.parent / "file-send-build-transfer-manifest"))
+sys.path.insert(0, str(_HERE.parent / "file-send-collect-transfer-results"))
 
 os.environ.setdefault("COGNITO_USER_POOL_ID", "us-east-1_testpool")
 os.environ.setdefault("COGNITO_APP_CLIENT_ID", "test-app-client")
@@ -36,6 +38,8 @@ os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
 os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
+import file_send_build_transfer_manifest as b
+import file_send_collect_transfer_results as c
 import file_send_inspect_source as i
 import file_send_validate_authorize as v
 from cpcommon import clients
@@ -55,7 +59,10 @@ def _machine() -> dict:
     Raises:
       None.
     """
-    return json.loads(re.sub(r"\$\{[a-z_0-9]+\}", "PLACEHOLDER", _ASL.read_text()))
+    # Two steps, because a placeholder in a VALUE position is a number (TimeoutSeconds,
+    # MaxConcurrency) and a quoted one is a string.
+    raw = re.sub(r":\s*\$\{[a-z_0-9]+\}", ": 0", _ASL.read_text())
+    return json.loads(re.sub(r"\$\{[a-z_0-9]+\}", "PLACEHOLDER", raw))
 
 
 def _validated_output() -> dict:
@@ -140,6 +147,127 @@ def _planned_output() -> dict:
 
     clients._s3 = _FakeS3()
     return i.handler(_validated_output(), None)
+
+
+#: The guard record a REFUSED recipient produces. Used to drive the two verbs after the guard
+#: without any S3 at all: with nobody accepted the manifest is skipped and the collector has no
+#: export to read, which is the machine's own "everybody already had it" path.
+_REFUSED = {
+    "status": "failed",
+    "recipient": {"kind": "user", "name": "bob"},
+    "reason": "conflict",
+    "detail": "notes.txt",
+}
+
+
+def _manifest_output() -> dict:
+    """build-transfer-manifest's real return value, driven off inspect-source's real output.
+
+    Args:
+      None.
+
+    Returns:
+      The request with its ``transfer`` block.
+
+    Raises:
+      None.
+    """
+    return b.handler({**_planned_output(), "guardResults": [_REFUSED]}, None)
+
+
+def _summary_output() -> dict:
+    """collect-transfer-results' real return value, driven off the manifest verb's real output.
+
+    Args:
+      None.
+
+    Returns:
+      The request the terminal summary is shaped from.
+
+    Raises:
+      None.
+    """
+    return c.handler(_manifest_output(), None)
+
+
+#: The real return value of every Task whose ``OutputPath`` makes the verb's output the whole
+#: state. Chained from one another rather than written down, so the availability model below is
+#: derived from what the verbs actually emit — a hand-written fixture would agree with a
+#: hand-written assertion and prove nothing.
+_TASK_OUTPUTS = {
+    "ValidateAuthorize": _validated_output,
+    "InspectSource": _planned_output,
+    "BuildTransferManifest": _manifest_output,
+    "CollectTransferResults": _summary_output,
+}
+
+
+def _exit_keys(name: str, state: dict, entry: set) -> set:
+    """The top-level keys addressable AFTER a state runs.
+
+    Step Functions' own three rules, and nothing else: an ``OutputPath`` of ``$.Payload``
+    replaces the state with the verb's return value, a ``ResultPath`` of ``$.x`` adds one key to
+    what was already there, and a ``Pass`` with ``Parameters`` emits exactly what it names.
+
+    Args:
+      name: The state's name, which is how its verb's real output is found.
+      state: The state.
+      entry: The keys addressable on entry.
+
+    Returns:
+      The keys addressable on exit.
+
+    Raises:
+      None.
+    """
+    if state.get("Type") == "Pass" and not state.get("ResultPath"):
+        return {key.removesuffix(".$") for key in state.get("Parameters", {})}
+    if state.get("OutputPath") == "$.Payload":
+        return set(_TASK_OUTPUTS[name]()) if name in _TASK_OUTPUTS else entry
+    result_path = state.get("ResultPath")
+    if isinstance(result_path, str) and result_path.startswith("$."):
+        return entry | {result_path[2:].split(".")[0]}
+    return entry
+
+
+def _entry_keys(states: dict) -> dict:
+    """What is addressable on entry to every state on the SUCCESS path, derived by walking it.
+
+    This is the model the catch walk needs, and deriving it is the whole point: the earlier
+    version read the immediately preceding ``Pass``, which was true while the machine was two
+    Tasks and silently gave up the moment a Map or a Choice sat between them — reporting an
+    empty set, which every assertion passes against.
+
+    A state reachable by two paths gets the INTERSECTION of what they supply, because a key that
+    only one branch adds is not one a downstream state may read. ``mapRun`` is exactly that: the
+    Choice's skip branch reaches the collector without it.
+
+    Args:
+      states: The machine's states.
+
+    Returns:
+      State name to the set of top-level keys addressable on entry.
+
+    Raises:
+      None.
+    """
+    entry = {"ValidateAuthorize": set()}
+    frontier = ["ValidateAuthorize"]
+    while frontier:
+        name = frontier.pop()
+        state = states[name]
+        out = _exit_keys(name, state, entry[name])
+        targets = [state.get("Next")] if state.get("Next") else []
+        if state.get("Type") == "Choice":
+            targets = [choice["Next"] for choice in state["Choices"]] + [state.get("Default")]
+        for target in targets:
+            if not target or target not in states:
+                continue
+            merged = out if target not in entry else entry[target] & out
+            if target not in entry or merged != entry[target]:
+                entry[target] = merged
+                frontier.append(target)
+    return entry
 
 
 def _task_output_prefix(states: dict, task_name: str) -> str:
@@ -237,24 +365,42 @@ def test_the_verb_emits_nothing_the_machine_silently_drops():
     assert set(_validated_output()) == _validated_reads(states)
 
 
-def test_the_planned_state_reads_only_keys_inspect_source_emits():
-    """The same cross-check one state further on (SPEC-165). A Task hands its output on whole,
-    so nothing between two Tasks would notice a renamed field — this Pass is where it fails."""
+def test_the_summary_reads_only_keys_the_collector_emits():
+    """The same cross-check at the machine's OTHER end (SPEC-166). ``ShapeSummary`` is the last
+    Pass and the execution's output, so a key renamed between the collector and it kills a run
+    that has already copied everything — the most expensive moment on this plane to fail.
+
+    Read as first path SEGMENTS, because the summary reaches into ``$.actor.username``: a
+    JSONPath into an absent PARENT is the same uncatchable States.Runtime as a missing key.
+    """
     states = _machine()["States"]
+    reads = {path.split(".")[0] for path in _reads_through(states, "CollectTransferResults", "ShapeSummary")}
 
-    reads = _planned_reads(states)
-
-    assert reads, "the Planned state reads nothing through the task's output path"
-    assert reads <= set(_planned_output()), (
-        f"the machine reads {sorted(reads - set(_planned_output()))} which inspect-source does "
-        f"not return — an absent key raises an uncatchable States.Runtime on the SUCCESS path"
+    assert reads, "the summary reads nothing through the collector's output path"
+    assert reads <= set(_summary_output()), (
+        f"the machine reads {sorted(reads - set(_summary_output()))} which "
+        f"collect-transfer-results does not return"
     )
 
 
-def test_inspect_source_emits_nothing_the_machine_silently_drops():
-    """The other direction: the plan key, the count and the byte total are what SPEC-166 reads,
-    and a field the verb computed that no state carries forward is either dead or a bug."""
-    assert set(_planned_output()) == _planned_reads(_machine()["States"])
+def test_the_summary_carries_everything_SPEC_167_notifies_from():
+    """The other direction, and narrower than "every key the verb emits" deliberately: the
+    collector passes the whole request through, so most of what it returns is plumbing the
+    terminal is right to drop. What the summary must NOT drop is the four things a notification
+    is built from — who sent it, what they sent, how much of it, and every recipient's outcome.
+    """
+    emitted = set(_machine()["States"]["ShapeSummary"]["Parameters"])
+
+    assert {"sender.$", "itemNames.$", "objectCount.$", "recipients.$"} <= emitted
+
+
+def test_the_summary_drops_what_the_run_no_longer_needs():
+    """The state that becomes the execution OUTPUT should not carry the plan key, the transfer
+    block or the selection: they are the heaviest terms on the state and nothing downstream
+    reads them."""
+    emitted = {key.removesuffix(".$") for key in _machine()["States"]["ShapeSummary"]["Parameters"]}
+
+    assert not emitted & {"copyPlanKey", "transfer", "mapRun", "guardResults", "source"}
 
 
 @pytest.mark.parametrize("task", ["ValidateAuthorize", "InspectSource"])
@@ -325,25 +471,18 @@ def _catches(states: dict):
     Step Functions' own:
 
     * With a ``ResultPath`` of ``$.x``, the error is merged INTO the task's input, so the state
-      is that input plus ``x``. The input is whatever the preceding Pass emitted.
+      is that input plus ``x``. The input is what ``_entry_keys`` derived by walking the success
+      path — which is what makes this work across a Map and a Choice, where reading the
+      immediately preceding ``Pass`` gave an empty set and every assertion passed vacuously.
     * Without one, the error REPLACES the state, so nothing is addressable at ``$.something`` —
       which is why a pre-identity seed can only read the context object.
     """
-    predecessor = {
-        state["Next"]: name
-        for name, state in states.items()
-        if state.get("Next")
-    }
+    on_entry = _entry_keys(states)
     for name, state in states.items():
         for catch in state.get("Catch", []) or []:
             if not catch.get("Next"):
                 continue
-            before = states.get(predecessor.get(name) or "", {})
-            available = (
-                {k.removesuffix(".$") for k in before.get("Parameters", {})}
-                if before.get("Type") == "Pass"
-                else set()
-            )
+            available = set(on_entry.get(name, set()))
             result_path = catch.get("ResultPath", "$")
             if result_path == "$":
                 available = set()
@@ -399,11 +538,31 @@ def test_the_catch_walk_actually_walked_something():
     """Guards the guard: a machine whose catches stopped being found would pass vacuously."""
     catches = list(_catches(_machine()["States"]))
 
-    assert {"ValidateFailureSeed", "InspectFailureSeed", "Failed"} == {t for _f, t, _a in catches}
+    assert {"ValidateFailureSeed", "RequestFailureSeed", "Failed"} == {t for _f, t, _a in catches}
     assert any(available for _f, _t, available in catches), (
         "no catch on this machine preserves anything — the availability model has gone trivial "
         "and every assertion above passes against an empty set"
     )
+
+
+def test_every_post_validate_catch_reaches_the_one_shared_seed():
+    """SPEC-166 added four more catches, and every one of them must land on the seed that
+    supplies ``$.raw`` — the field ``RecordFailure`` reads unconditionally and which no
+    post-validate state carries. A catch routed straight at ``RecordFailure``, as every other
+    plane's are, raises an uncatchable States.Runtime BEFORE ``NotifyFailure``."""
+    states = _machine()["States"]
+    post_validate = {
+        failing: target for failing, target, _a in _catches(states) if failing != "ValidateAuthorize"
+    }
+
+    assert post_validate == {
+        "InspectSource": "RequestFailureSeed",
+        "GuardRecipients": "RequestFailureSeed",
+        "BuildTransferManifest": "RequestFailureSeed",
+        "TransferObjects": "RequestFailureSeed",
+        "CollectTransferResults": "RequestFailureSeed",
+        "NotifyFailure": "Failed",
+    }
 
 
 def test_the_inspect_catch_makes_the_validated_request_available():
@@ -431,7 +590,7 @@ def test_the_post_validate_catch_keeps_the_verified_actor():
     catches = _machine()["States"]["InspectSource"]["Catch"]
 
     assert [c["ResultPath"] for c in catches] == ["$.error"]
-    assert _machine()["States"]["InspectFailureSeed"]["Parameters"]["actor.$"] == "$.actor"
+    assert _machine()["States"]["RequestFailureSeed"]["Parameters"]["actor.$"] == "$.actor"
 
 
 # ── SPEC-166 FR-004: which role holds which grant ───────────────────────────
@@ -651,3 +810,134 @@ def test_the_copy_timeout_matches_this_planes_deployed_verb():
         rf'"copy-objects"\s*=\s*\{{[^}}]*timeout\s*=\s*{transfer_config.COPY_TIMEOUT_SECONDS}\b',
         locals_tf,
     ), f"file-send's copy-objects timeout is not {transfer_config.COPY_TIMEOUT_SECONDS}s"
+
+
+# ── SPEC-166 FR-002: the Distributed Map's own shape ────────────────────────
+
+
+def _states_including_map_items(states: dict, prefix: str = ""):
+    """Every state, including the ones inside a Map's ItemProcessor.
+
+    Args:
+      states: A states block.
+      prefix: The qualified-name prefix for nested states.
+
+    Yields:
+      ``(qualified name, state)``.
+
+    Raises:
+      None.
+    """
+    for name, state in states.items():
+        yield prefix + name, state
+        if "ItemProcessor" in state:
+            yield from _states_including_map_items(
+                state["ItemProcessor"]["States"], f"{prefix}{name}/"
+            )
+
+
+def _distributed_maps(states: dict):
+    """Every state whose ItemProcessor runs in DISTRIBUTED mode, qualified by nesting."""
+    return [
+        name
+        for name, state in _states_including_map_items(states)
+        if (state.get("ItemProcessor") or {}).get("ProcessorConfig", {}).get("Mode") == "DISTRIBUTED"
+    ]
+
+
+def test_the_transfer_map_is_top_level_and_not_nested():
+    """FR-002 AC3, and the reason the copy is not simply the guard Map's third step: a
+    Distributed Map inside another Map is the structure SPEC-160 rejected, because one fan-out
+    over a flat (recipient x object) manifest covers every recipient and the nesting question
+    never arises. Asserted on the QUALIFIED name, so a Map moved inside the guard fails here."""
+    maps = _distributed_maps(_machine()["States"])
+
+    assert maps == ["TransferObjects"], f"the distributed maps are {maps}"
+
+
+def test_the_guard_map_stays_inline():
+    """It is one listing per recipient whose refusal must not abort a sibling — a distributed
+    fan-out would buy nothing and cost a child execution each."""
+    guard = _machine()["States"]["GuardRecipients"]
+
+    assert guard["ItemProcessor"]["ProcessorConfig"] == {"Mode": "INLINE"}
+    assert guard["ItemProcessor"]["States"]["CheckTargetAbsent"]["Catch"][0]["Next"] == "RecipientFaulted"
+
+
+def test_the_children_are_STANDARD_and_tolerate_every_item_failure():
+    """Both halves of FR-003's premise. STANDARD because a batch may hold a multi-GiB object
+    whose multipart copy would blow EXPRESS's five-minute ceiling, and because EXPRESS's
+    at-least-once semantics would re-run whole batches. ToleratedFailurePercentage 100 because
+    the Map Run MUST finish for the collector to attribute it — a run that failed would take
+    every recipient's outcome with it."""
+    transfer = _machine()["States"]["TransferObjects"]
+
+    assert transfer["ItemProcessor"]["ProcessorConfig"]["ExecutionType"] == "STANDARD"
+    assert transfer["ToleratedFailurePercentage"] == 100
+
+
+def test_the_batch_copier_has_no_catch_of_its_own():
+    """A batch that fails after its retries must FAIL its child execution: that is what files it
+    under FAILED_n.json, where the collector can attribute every item it carried. A Catch here
+    would succeed the child and lose the whole batch silently."""
+    copy_state = _machine()["States"]["TransferObjects"]["ItemProcessor"]["States"]["CopyObjects"]
+
+    assert "Catch" not in copy_state
+    assert copy_state["End"] is True
+
+
+def test_the_map_is_skipped_by_a_choice_that_tests_IsPresent_first():
+    """FR-002 AC5. An ItemReader pointed at a manifest that was never written fails the state,
+    so the empty case must not reach it — and the guard on that Choice is not optional: a Choice
+    on an ABSENT path raises States.Runtime, which is uncatchable and which ``Default`` does NOT
+    cover. Asserted as ORDER, because IsPresent second is the bug."""
+    choice = _machine()["States"]["HasTransferItems"]
+    conditions = choice["Choices"][0]["And"]
+
+    assert conditions[0] == {"Variable": "$.transfer.itemCount", "IsPresent": True}
+    assert conditions[1]["NumericGreaterThan"] == 0
+    assert choice["Default"] == "CollectTransferResults"
+
+
+def test_both_choice_branches_reach_the_one_shaping_verb():
+    """One verb on both branches rather than two paths that can disagree: on the skip branch
+    there is no run to read and the guard's refusals are carried forward unchanged."""
+    choice = _machine()["States"]["HasTransferItems"]
+
+    assert choice["Choices"][0]["Next"] == "TransferObjects"
+    assert _machine()["States"]["TransferObjects"]["Next"] == "CollectTransferResults"
+
+
+def test_the_map_exports_its_results_and_keeps_only_the_pointer():
+    """The state's own output is the small {MapRunArn, ResultWriterDetails} pointer — an array
+    of every child's result would breach the 256 KB state limit at the scale this Map exists
+    for, and the breach lands ON the Map, destroying every per-recipient outcome."""
+    transfer = _machine()["States"]["TransferObjects"]
+
+    assert transfer["ResultWriter"]["Resource"] == "arn:aws:states:::s3:putObject"
+    assert transfer["ResultPath"] == "$.mapRun"
+    assert transfer["ItemReader"]["ReaderConfig"]["InputType"] == "JSONL"
+
+
+def test_the_rendered_batch_numbers_are_the_engines_own():
+    """FR-002 AC4. Terraform cannot import Python, so the ASL carries literals fed from
+    locals.tf — and the locals are held against ``cpcommon.transfer.config`` by the cap suite.
+    What this asserts is the other half: that the ASL reads those locals rather than hard-coding
+    numbers beside them."""
+    raw = _ASL.read_text()
+
+    assert '"MaxItemsPerBatch": ${transfer_max_items_per_batch}' in raw
+    assert '"MaxConcurrency": ${transfer_map_max_concurrency}' in raw
+
+
+def test_the_machine_declares_a_top_level_timeout():
+    """FR-005 AC1. Without it a Standard workflow's ceiling is Step Functions' own default of
+    ONE YEAR. TOP-LEVEL, not a task field — the distinction SPEC-157 settled — so it is asserted
+    at the document root rather than anywhere it might merely look right."""
+    machine = _machine()
+
+    assert "TimeoutSeconds" in machine, "the machine can run for a year"
+    assert '"TimeoutSeconds": ${state_machine_timeout_seconds}' in _ASL.read_text()
+    assert not any(
+        "TimeoutSeconds" in state for _name, state in _states_including_map_items(machine["States"])
+    )

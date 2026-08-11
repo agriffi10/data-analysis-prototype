@@ -29,8 +29,6 @@ import pathlib
 import re
 import sys
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 
 from cpcommon import errors
@@ -320,10 +318,86 @@ _S3_PAGE_SIZE = 1000
 #: point of the timeout model is to survive a bad day, not to describe a good one.
 _ROUND_TRIP_SECONDS = 0.2
 
-#: The state-machine ceiling the IDENTICAL copy engine already runs under on table-share
-#: (SPEC-161's top-level TimeoutSeconds). Named here as the target SPEC-166 must adopt when it
-#: adds this plane's timeout — this cap is measured against it in advance rather than after.
-_TRANSFER_CEILING_SECONDS = 10_800
+#: A child execution's own cost — the StartExecution, the cold start and the poll — charged once
+#: per ROUND of the Map's concurrency. Deliberately generous: it is the term a bytes-only model
+#: drops entirely, and at 50,000 items in batches of 8 there are hundreds of rounds.
+_CHILD_EXECUTION_OVERHEAD_SECONDS = 3
+
+#: How much more a parsed JSON document costs in memory than its bytes. Items here are dominated
+#: by two ~1 KB strings, so the true factor is nearer 1.3; 3 is the pessimistic direction, which
+#: is the safe one for a bound.
+_PARSED_OBJECT_OVERHEAD = 3
+
+
+def _locals_text() -> str:
+    """The file-send Terraform locals, as text.
+
+    Read as DATA rather than restated, for the reason the browser cap mirror is: two homes for
+    one number is how a bound quietly stops matching the thing it bounds.
+    """
+    return (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "infra"
+        / "modules"
+        / "file-send"
+        / "locals.tf"
+    ).read_text()
+
+
+def _verb_row(name: str):
+    """One verb's configured timeout and memory, from the Terraform locals."""
+    row = re.search(
+        rf'"{name}"\s*=\s*\{{[^}}]*timeout\s*=\s*(\d+)[^}}]*memory\s*=\s*(\d+)', _locals_text()
+    )
+    assert row, f"{name} is no longer in the file-send locals, or its row changed shape"
+    return int(row.group(1)), int(row.group(2))
+
+
+def _verb_timeout(name: str) -> int:
+    """One verb's configured timeout, in seconds."""
+    return _verb_row(name)[0]
+
+
+def _verb_memory(name: str) -> int:
+    """One verb's configured memory, in MB."""
+    return _verb_row(name)[1]
+
+
+def _machine_timeout_seconds() -> int:
+    """The state machine's own top-level TimeoutSeconds, from the Terraform locals.
+
+    Every cap that bounds the RUN is measured against this, and it lives in Terraform — so it is
+    read rather than restated. A ceiling raised in one place and asserted in another is how a cap
+    comes to certify something it never checked.
+    """
+    found = re.search(r"state_machine_timeout_seconds\s*=\s*(\d+)", _locals_text())
+    assert found, "the file-send machine has no top-level TimeoutSeconds in its locals"
+    return int(found.group(1))
+
+
+def _guard_map_concurrency() -> int:
+    """The guard Map's fan-out, from the Terraform locals."""
+    found = re.search(r"guard_map_max_concurrency\s*=\s*(\d+)", _locals_text())
+    assert found, "the guard Map's concurrency is no longer a named local"
+    return int(found.group(1))
+
+
+def _transfer_item_bytes() -> int:
+    """One manifest line at S3's worst-case key length, serialised.
+
+    Pessimistic in a way real items cannot be: the destination key is derived FROM the source
+    key, so both cannot independently be 1024 bytes. Over-counting is the safe direction.
+    """
+    item = {
+        "recipient": "r" * 63,
+        "kind": "space",
+        "srcBucket": "b" * 63,
+        "srcKey": "s" * _MAX_KEY_BYTES,
+        "destBucket": "d" * 63,
+        "destKey": "x" * _MAX_KEY_BYTES,
+        "size": 10 * 1024**3,
+    }
+    return len(json.dumps(item, separators=(",", ":")).encode())
 
 
 def _verb_sizing():
@@ -418,8 +492,7 @@ def test_the_item_half_of_the_timeout_model_is_the_dominant_one():
 
 
 def test_a_full_size_selection_copies_inside_the_engines_ceiling():
-    """The makespan model for SEND_MAX_TOTAL_BYTES — **conditional on a per-object cap**, which
-    this plane does not have yet, so read the tripwire below with it.
+    """The makespan model for SEND_MAX_TOTAL_BYTES, at the rate the engine actually delivers.
 
     ``cpcommon.transfer`` schedules a whole object per worker and part-copies serially inside
     one, so the denominator is a MAKESPAN — ``MAP_MAX_CONCURRENCY x
@@ -427,59 +500,157 @@ def test_a_full_size_selection_copies_inside_the_engines_ceiling():
     reading of the same constants suggests. Table-share found that mistake twice, in review
     rounds, after it read as satisfied both times.
 
-    **What this figure assumes, and what it therefore does NOT certify.** 500 MB/s is only
-    reachable when the bytes are spread over the whole worker pool. One object is copied by ONE
-    worker at ``CONSERVATIVE_STREAM_BYTES_PER_SECOND``, so the true floor on the makespan is
-    ``largest_object / 25 MB/s`` — and with no per-object cap the worst legal case at these caps
-    is a single 1 TiB object at **43,980 s**, four times over the ceiling. That is not a defect
-    in this cap; it is the per-object cap's absence, which SPEC-166 closes along with the
-    ``TimeoutSeconds`` this compares against. Until then this test certifies the DISTRIBUTED
-    case only.
+    500 MB/s is reachable only when the bytes are SPREAD over the worker pool, which is why the
+    per-object cap below is not optional: one object is one worker at 25 MB/s whatever this
+    figure says.
     """
     rate = transfer_config.MAP_MAX_CONCURRENCY * transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
     seconds = config.SEND_MAX_TOTAL_BYTES / rate
 
-    assert seconds < _TRANSFER_CEILING_SECONDS / 2, (
+    assert seconds < _machine_timeout_seconds() / 2, (
         f"one distributed copy of a cap-size selection is {seconds:.0f}s at "
-        f"{rate / 1000**2:.0f} MB/s, against the {_TRANSFER_CEILING_SECONDS}s ceiling the same "
-        f"engine runs under"
+        f"{rate / 1000**2:.0f} MB/s, against the machine's own ceiling"
     )
 
 
-def test_the_single_object_worst_case_is_the_reason_a_per_object_cap_is_owed():
-    """The arithmetic the test above deliberately does not cover, kept as a number rather than a
-    sentence so SPEC-166 inherits the size of the problem instead of re-deriving it.
+def test_a_cap_size_object_copies_inside_the_batch_verbs_own_timeout():
+    """WHAT SIZES SEND_MAX_OBJECT_BYTES, and note it is NOT the machine's ceiling.
 
-    Table-share recorded this exact shape: while its total cap was 20 GiB the per-object bound
-    was implicit, and raising the total to 1 TiB removed it with nothing replacing it. This
-    plane starts at 1 TiB.
+    A batch is exactly one round of the worker pool (``MAX_ITEMS_PER_BATCH ==
+    COPY_CONCURRENCY``), so a batch costs its slowest object — and that object is copied by ONE
+    worker whose multipart loop is serial. The budget it has to fit inside is therefore
+    ``COPY_TIMEOUT_SECONDS``, the batch verb's own Lambda timeout, not the three hours the run
+    has. Two thirds of it, so a retry of a slow-but-not-hopeless batch still fits.
     """
-    serial = config.SEND_MAX_TOTAL_BYTES / transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
+    makespan = config.SEND_MAX_OBJECT_BYTES / transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
 
-    assert serial > _TRANSFER_CEILING_SECONDS, (
-        "a single cap-size object now copies inside the ceiling — the per-object cap SPEC-166 "
-        "owes may no longer be load-bearing, so re-check before dropping it"
+    assert makespan < transfer_config.COPY_TIMEOUT_SECONDS * 2 / 3, (
+        f"a {config.SEND_MAX_OBJECT_BYTES / 1024**3:,.0f} GiB object takes {makespan:,.0f}s at "
+        f"{transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND / 1e6:.0f} MB/s per stream, "
+        f"against copy-objects' {transfer_config.COPY_TIMEOUT_SECONDS}s timeout"
     )
-    assert serial > 4 * _TRANSFER_CEILING_SECONDS
 
 
-@pytest.mark.parametrize("cap", ["SEND_MAX_TRANSFER_BYTES", "SEND_MAX_OBJECT_BYTES"])
-def test_the_caps_SPEC_166_owes_are_still_absent_and_that_is_deliberate(cap):
-    """The honest statement of what SPEC-165 does not do, for BOTH deferred caps.
+def test_the_per_object_cap_is_what_closes_the_single_object_hole():
+    """The gap SPEC-165 recorded as owed, asserted as CLOSED rather than as arithmetic.
 
-    ``SEND_MAX_TRANSFER_BYTES``: every recipient gets a full copy, so the transfer is
-    ``recipients x total_bytes`` — 50 TiB at these caps. ``SEND_MAX_OBJECT_BYTES``: one object is
-    one worker, so a single large object blows the makespan model above regardless of the total.
-    Both are measured against a ``TimeoutSeconds`` this machine does not have.
-
-    Written as a test so each gap is a recorded expectation rather than an oversight: when
-    SPEC-166 adds one, this FAILS, and its replacement is the real bound. An earlier version
-    covered only the first, which left the per-object gap living in prose — the weaker half of
-    the pair, and the one whose absence undermines a test that reads as satisfied.
+    Without a per-object cap the worst legal case at ``SEND_MAX_TOTAL_BYTES`` was one 1 TiB
+    object on one worker — 43,980s, four times the machine ceiling — while every distributed
+    model read as satisfied. The claim worth holding is that the cap changes that ANSWER: the
+    largest single object this plane accepts must now fit the ceiling with room to spare, and
+    the uncapped case must still not.
     """
-    assert not hasattr(config, cap), (
-        f"SPEC-166 added {cap} — replace this case with one computing it against the machine's "
-        f"TimeoutSeconds, and update the SEND_MAX_TOTAL_BYTES docstring"
+    rate = transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
+    capped = config.SEND_MAX_OBJECT_BYTES / rate
+    uncapped = config.SEND_MAX_TOTAL_BYTES / rate
+
+    assert capped < _machine_timeout_seconds() / 2
+    assert uncapped > 4 * _machine_timeout_seconds(), (
+        "a single source-cap-size object now copies inside the ceiling, so the per-object cap "
+        "may no longer be load-bearing — re-check before touching it"
+    )
+
+
+def test_the_worst_case_manifest_fits_in_the_verbs_memory():
+    """WHAT SIZES SEND_MAX_TRANSFER_ITEMS, computed against the memory in Terraform.
+
+    The builder holds the item list, its serialised form and the encoded bytes at once; the
+    collector parses an export carrying every batch's input back again, and a parsed dict of
+    long strings costs more than its JSON bytes. Half the configured memory is left for the
+    interpreter and botocore, which a cold Lambda has already spent tens of megabytes on.
+    """
+    manifest_mb = _verb_memory("build-transfer-manifest")
+    collector_mb = _verb_memory("collect-transfer-results")
+    manifest_bytes = _transfer_item_bytes() * config.SEND_MAX_TRANSFER_ITEMS
+
+    assert 3 * manifest_bytes < (manifest_mb * 1024**2) / 2, (
+        f"a worst-case manifest of {config.SEND_MAX_TRANSFER_ITEMS:,} items is "
+        f"{manifest_bytes / 1024**2:.0f} MB and peaks near {3 * manifest_bytes / 1024**2:.0f} MB "
+        f"against {manifest_mb} MB — raise the memory in infra/modules/file-send/locals.tf or "
+        f"lower the cap"
+    )
+    assert _PARSED_OBJECT_OVERHEAD * manifest_bytes < (collector_mb * 1024**2) / 2, (
+        f"the collector cannot parse a {manifest_bytes / 1024**2:.0f} MB export in "
+        f"{collector_mb} MB"
+    )
+
+
+def test_the_transfer_item_cap_is_a_bound_neither_source_cap_could_express():
+    """20,000 objects is legal and so are 50 recipients, and every manifest item is a full copy.
+    The claim is that the product cap BITES before those two do — otherwise it is decoration."""
+    unbounded_product = config.SEND_MAX_OBJECTS * config.SEND_MAX_RECIPIENTS
+
+    assert unbounded_product > config.SEND_MAX_TRANSFER_ITEMS, (
+        "the per-source caps now imply the transfer cap, so it no longer bounds anything"
+    )
+
+
+def test_the_whole_run_fits_the_machines_ceiling():
+    """WHAT SIZES SEND_MAX_TRANSFER_BYTES, and the one place every term is added up.
+
+    The copy is not the only thing inside the ceiling, and a model that only counted it would be
+    the aggregate-bandwidth mistake wearing a different hat. Four terms, each read from the
+    locals or the engine's constants rather than restated here:
+
+    * the transfer itself, at the MAKESPAN rate (500 MB/s), not the aggregate;
+    * the per-child overhead of ``SEND_MAX_TRANSFER_ITEMS`` in batches of ``MAX_ITEMS_PER_BATCH``
+      at ``MAP_MAX_CONCURRENCY`` — a real term at 50,000 items, and one bytes alone cannot see;
+    * the guard Map, which is ``ceil(recipients / its concurrency)`` rounds of a whole verb
+      timeout;
+    * the four serial verbs either side of it.
+
+    They are summed rather than checked one at a time because they all happen in the same run.
+    """
+    rate = transfer_config.MAP_MAX_CONCURRENCY * transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
+    copying = config.SEND_MAX_TRANSFER_BYTES / rate
+
+    batches = -(-config.SEND_MAX_TRANSFER_ITEMS // transfer_config.MAX_ITEMS_PER_BATCH)
+    rounds = -(-batches // transfer_config.MAP_MAX_CONCURRENCY)
+    child_overhead = rounds * _CHILD_EXECUTION_OVERHEAD_SECONDS
+
+    guard_rounds = -(-config.SEND_MAX_RECIPIENTS // _guard_map_concurrency())
+    guarding = guard_rounds * _verb_timeout("check-target-absent")
+
+    serial = sum(
+        _verb_timeout(verb)
+        for verb in (
+            "validate-authorize",
+            "inspect-source",
+            "build-transfer-manifest",
+            "collect-transfer-results",
+        )
+    )
+
+    worst = copying + child_overhead + guarding + serial
+
+    assert worst < _machine_timeout_seconds(), (
+        f"the worst legal run is {worst:,.0f}s — copy {copying:,.0f}s + child overhead "
+        f"{child_overhead:,.0f}s + guard {guarding:,.0f}s + serial verbs {serial:,.0f}s — "
+        f"against a {_machine_timeout_seconds():,}s ceiling. Lower a cap or raise the timeout "
+        f"in infra/modules/file-send/locals.tf, and do not raise the rate without evidence"
+    )
+
+
+def test_the_transfer_byte_cap_is_measured_on_the_product_and_not_the_source():
+    """The distinction table-share's own timeout was short by a factor of 50 for. Asserted as a
+    relationship: the transfer cap must exceed one source, or a single-recipient send at the
+    source cap would be refused — and it must be beneath the unbounded product, or it bounds
+    nothing."""
+    assert config.SEND_MAX_TOTAL_BYTES < config.SEND_MAX_TRANSFER_BYTES
+    assert config.SEND_MAX_TRANSFER_BYTES < config.SEND_MAX_TOTAL_BYTES * config.SEND_MAX_RECIPIENTS
+
+
+def test_the_rendered_asl_carries_the_engines_own_batch_numbers():
+    """Terraform cannot import Python, so the ASL's ItemBatcher and MaxConcurrency are literals
+    fed from locals.tf. Two homes for one number is how a batch silently grows past the limit it
+    was sized against, so the locals are read back and compared with the constants."""
+    text = _locals_text()
+
+    assert re.search(
+        rf"transfer_max_items_per_batch\s*=\s*{transfer_config.MAX_ITEMS_PER_BATCH}\b", text
+    )
+    assert re.search(
+        rf"transfer_map_max_concurrency\s*=\s*{transfer_config.MAP_MAX_CONCURRENCY}\b", text
     )
 
 

@@ -1,8 +1,8 @@
-# ── File-send Step Function (SPEC-164 FR-001) ────────────────────────────────
-# Standard state machine — validate-authorize, inspect-source, then a placeholder
-# terminal. The per-recipient guard and the Distributed-Map copy (SPEC-166) insert
-# after Planned; the SPEC-152 failure path (a seed → RecordFailure → NotifyFailure →
-# Failed) is complete from day one.
+# ── File-send Step Function (SPEC-164 FR-001, completed by SPEC-166) ─────────
+# Standard state machine — validate-authorize and inspect-source once per request,
+# then the guard Map, the top-level Distributed-Map transfer, the collector and the
+# per-recipient summary. The SPEC-152 failure path (a seed → RecordFailure →
+# NotifyFailure → Failed) has been complete since day one.
 #
 # The state machine runs under its OWN role (iam.tf, sfn-permissions: InvokeFunction
 # on the verbs + log delivery); the verb Lambdas run under the ONE shared execution
@@ -11,16 +11,13 @@
 # since a Pipe cannot use REQUEST_RESPONSE against a Standard machine (SPEC-157) and
 # this plane's outcome is a notification, not a response.
 #
-# STILL NO TOP-LEVEL TimeoutSeconds, and SPEC-165 re-checked the reasoning rather than
-# inheriting it. SPEC-161 established that a Standard workflow without one runs for a
-# YEAR, and that the timeout cannot notify on its own (AWS catchers do not cover
-# top-level execution failures) so it must ship WITH an EventBridge TIMED_OUT rule
-# invoking notify-failure through a second door. This machine is now two Tasks, and
-# every one of its states is bounded by its own Lambda timeout — 15s + 120s, with the
-# Retry ceilings on top. There is still nothing here that can wedge for hours, because
-# there is still nothing here that WAITS: no Map, no poll loop, no copy. SPEC-166 adds
-# all three, and it must add the timeout, the rule and the deploy-role events: grant
-# that manages the rule together with them.
+# THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY. SPEC-165
+# recorded that this machine could not wedge for hours because nothing in it WAITED: no
+# Map, no poll loop, no copy. SPEC-166 adds all three, so it adds the timeout — and with
+# it the EventBridge rule below and the deploy-role events: grant that manages that
+# rule, because a timeout that cannot notify is SPEC-152 satisfied on paper and silent
+# in practice. The arithmetic behind the number is in locals.tf, where a test computes
+# it from the caps.
 
 resource "aws_cloudwatch_log_group" "orchestrator" {
   name              = local.sfn_log_group_name
@@ -36,6 +33,17 @@ resource "aws_sfn_state_machine" "file_send" {
     validate_authorize_function_arn = aws_lambda_function.functions["validate-authorize"].arn
     inspect_source_function_arn     = aws_lambda_function.functions["inspect-source"].arn
     notify_failure_function_arn     = aws_lambda_function.functions["notify-failure"].arn
+    # SPEC-166.
+    check_target_absent_function_arn      = aws_lambda_function.functions["check-target-absent"].arn
+    build_transfer_manifest_function_arn  = aws_lambda_function.functions["build-transfer-manifest"].arn
+    copy_objects_function_arn             = aws_lambda_function.functions["copy-objects"].arn
+    collect_transfer_results_function_arn = aws_lambda_function.functions["collect-transfer-results"].arn
+    guard_map_max_concurrency             = local.guard_map_max_concurrency
+    # Mirrored from cpcommon/transfer/config.py; a test holds the two together.
+    transfer_max_items_per_batch = local.transfer_max_items_per_batch
+    transfer_map_max_concurrency = local.transfer_map_max_concurrency
+    # A TOP-LEVEL ASL field. See the local for the arithmetic.
+    state_machine_timeout_seconds = local.state_machine_timeout_seconds
   })
 
   logging_configuration {
@@ -48,4 +56,43 @@ resource "aws_sfn_state_machine" "file_send" {
     aws_iam_role_policy.sfn,
     aws_cloudwatch_log_group.orchestrator,
   ]
+}
+
+# ── SPEC-166 FR-005: the timed-out run's only route to a notification ─────────
+# A top-level TimeoutSeconds expiry terminates the execution OUTRIGHT. Step Functions catchers
+# cover Task, Parallel and Map states but NOT top-level execution failures, so the machine's own
+# RecordFailure -> NotifyFailure path is unreachable on this one failure and the sender would be
+# told nothing at all — the exact silence SPEC-152 exists to close. Listening for TIMED_OUT on an
+# EventBridge bus is the documented remedy, and this is it. Same shape as table-share's, which is
+# the point: two planes with one failure mode should not have two answers to it.
+#
+# TIMED_OUT ONLY, never FAILED. Every other whole-request failure already reaches NotifyFailure
+# through a Catch, so matching FAILED here would send a second notification for every one of them.
+resource "aws_cloudwatch_event_rule" "execution_timed_out" {
+  name        = "${local.state_machine_name}-timed-out"
+  description = "Notify the sender when a file-send execution is stopped by the state machine's own timeout."
+
+  event_pattern = jsonencode({
+    "source"      = ["aws.states"]
+    "detail-type" = ["Step Functions Execution Status Change"]
+    "detail" = {
+      status          = ["TIMED_OUT"]
+      stateMachineArn = [local.state_machine_arn]
+    }
+  })
+}
+
+resource "aws_cloudwatch_event_target" "execution_timed_out" {
+  rule = aws_cloudwatch_event_rule.execution_timed_out.name
+  arn  = aws_lambda_function.functions["notify-failure"].arn
+}
+
+# Resource-based grant so the rule (events.amazonaws.com) may invoke the notifier — the same
+# reason the DLQ drain's sweep needs no invoke role. Scoped to this rule's ARN.
+resource "aws_lambda_permission" "execution_timed_out" {
+  statement_id  = "AllowEventBridgeExecutionTimedOut"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.functions["notify-failure"].function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.execution_timed_out.arn
 }

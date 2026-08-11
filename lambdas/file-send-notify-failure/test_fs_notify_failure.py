@@ -18,6 +18,7 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
 import fs_notify_failure as n
+import pytest
 
 
 def _capture():
@@ -181,3 +182,106 @@ if __name__ == "__main__":
     import pytest
 
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── SPEC-166 FR-005: the second door ────────────────────────────────────────
+
+
+def _timed_out(input_json=None, included=True):
+    """An EventBridge Step Functions status-change event for a timed-out execution.
+
+    The execution's input is what the Pipe forwarded — the raw SQS batch — so the sender comes
+    from the verified token in it, exactly as the ASL door's fallback does.
+    """
+    detail = {"status": "TIMED_OUT", "inputDetails": {"included": included}}
+    if input_json is not None:
+        detail["input"] = input_json
+    return {"detail-type": "Step Functions Execution Status Change", "detail": detail}
+
+
+def test_a_timed_out_execution_notifies_the_sender():
+    """The failure the ASL door CANNOT reach. Step Functions catchers cover Task, Parallel and
+    Map states but not top-level execution failures, so a run that exhausts TimeoutSeconds is
+    terminated outright: no state runs, no Catch fires, and without this door the sender is told
+    nothing at all — the exact silence SPEC-152 exists to close."""
+    sent = _capture()
+    n.auth.verified_username_ignoring_expiry = lambda token, **kw: "alice"
+
+    n.handler(_timed_out(json.dumps(_raw())), None)
+
+    assert len(sent) == 1
+    assert sent[0][0] == "alice"
+
+
+def test_the_timeout_message_is_not_the_generic_failure_sentence():
+    """A timeout is the one whole-request failure that can leave a recipient holding PART of a
+    send — the guard and the copy may both have run — so "try again" alone would be wrong
+    advice, and trying again would then conflict on what did arrive."""
+    sent = _capture()
+    n.auth.verified_username_ignoring_expiry = lambda token, **kw: "alice"
+
+    n.handler(_timed_out(json.dumps(_raw())), None)
+
+    assert "part" in sent[0][1].lower()
+    assert sent[0][1] != n.messages.failure_message("unexpected_error")
+
+
+def test_the_timeout_door_verifies_the_token_and_never_trusts_the_body():
+    """The body is attacker-controlled: it reached the queue from a browser. Notifying whoever
+    it names would let anyone deliver text to any inbox."""
+    sent = _capture()
+
+    def _reject(token, **kw):
+        raise ValueError("bad signature")
+
+    n.auth.verified_username_ignoring_expiry = _reject
+
+    n.handler(_timed_out(json.dumps(_raw())), None)
+
+    assert sent == []
+
+
+def test_the_timeout_door_ignores_expiry_deliberately():
+    """By construction the token IS expired by the time a three-hour timeout fires. The
+    relaxation is the DLQ drain's, through the same separately-named entry point, and it is safe
+    for the same reason: this path grants nothing, it only addresses a message."""
+    sent = _capture()
+    n.auth.verified_username = lambda token, **kw: (_ for _ in ()).throw(ValueError("expired"))
+    n.auth.verified_username_ignoring_expiry = lambda token, **kw: "alice"
+
+    n.handler(_timed_out(json.dumps(_raw())), None)
+
+    assert sent and sent[0][0] == "alice"
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        _timed_out(),
+        _timed_out("", included=False),
+        _timed_out("not json"),
+        {"detail-type": "Step Functions Execution Status Change", "detail": "not an object"},
+    ],
+    ids=["no-input", "omitted-input", "unparseable", "detail-not-an-object"],
+)
+def test_an_unattributable_timeout_is_a_logged_no_op_rather_than_a_raise(event):
+    """A raise here would be an async Lambda failure, and EventBridge RETRIES those — turning
+    one unattributable event into three."""
+    sent = _capture()
+    n.auth.verified_username_ignoring_expiry = lambda token, **kw: "alice"
+
+    n.handler(event, None)
+
+    assert sent == []
+
+
+def test_the_asl_door_is_unaffected_by_the_second_one():
+    """The two doors are dispatched on the detail-type, not on the presence of a `detail` field:
+    the ASL door's payload is a request object, and a request could in principle carry any field
+    name."""
+    sent = _capture()
+
+    n.handler(_request({"Error": "States.DataLimitExceeded"}, actor="alice", raw=None), None)
+
+    assert len(sent) == 1
+    assert "part" not in sent[0][1].lower()

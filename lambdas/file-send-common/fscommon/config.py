@@ -94,14 +94,46 @@ Attributes:
     runs under on table-share. ``test_a_full_size_selection_copies_inside_the_engines_ceiling``
     computes it.
 
-    **SPEC-166 must add the recipient product cap and the machine ``TimeoutSeconds`` together.**
-    This cap alone permits 50 recipients x 1 TiB = 50 TiB, which no plausible throughput moves;
-    that is table-share's ``SHARE_MAX_TRANSFER_BYTES`` lesson, and it is deferred here rather
-    than guessed because the ceiling it must be measured against does not exist on this machine
-    yet. A per-object cap is deferred with it, for the same reason and to the same place: what
-    sizes one is the copy verb's batch makespan against ``COPY_TIMEOUT_SECONDS``, and the copy
-    plan already carries every object's size, so 166 enforces it with no second listing and
-    still before any byte moves.
+    **It says nothing about the transfer, and the three caps below are what do.** This cap alone
+    permits 50 recipients x 1 TiB = 50 TiB, which no plausible throughput moves. SPEC-166 added
+    them together with the machine's ``TimeoutSeconds``, because a product cap is meaningless
+    until there is a ceiling to measure it against.
+  SEND_MAX_OBJECT_BYTES: Cap on ONE object, and the cap without which the makespan model above
+    certifies only the distributed case. 500 MB/s is reachable only when the bytes are spread
+    over the whole worker pool; ONE object is copied by ONE worker at
+    ``CONSERVATIVE_STREAM_BYTES_PER_SECOND``, and ``copy_one``'s multipart loop is serial. So
+    what sizes this is a single batch's makespan against ``COPY_TIMEOUT_SECONDS`` — the batch
+    verb's own Lambda timeout — and not the machine's ceiling.
+
+    At 10 GiB that is ~429 s of a 900 s budget, which is the same value and the same arithmetic
+    as table-share's ``SHARE_MAX_OBJECT_BYTES``: the two planes share the engine, the batch size
+    and the timeout, so a different number here would mean one of them was wrong. Without it the
+    worst legal case at ``SEND_MAX_TOTAL_BYTES`` was a single 1 TiB object on one worker —
+    43,980 s, four times over the machine ceiling — which SPEC-165 recorded as owed rather than
+    absent.
+  SEND_MAX_TRANSFER_ITEMS: Cap on ``objects x REQUESTED recipients``, which is the manifest's
+    length. Measured on the requested count, before the guard, because a cap that only bites
+    after the destinations have been listed has already let the work happen.
+
+    **What sizes it is the two verbs either side of the Map holding that manifest in memory**,
+    not the copying: the builder holds the item list, its serialised form and the encoded bytes
+    at once, and the collector parses an export that carries every batch's input back again. At
+    S3's worst-case keys an item is ~2.6 KB, so 50,000 items is ~130 MB and peaks near 390 MB
+    against the 2048 MB in ``locals.tf`` — which the test READS, so raising this without raising
+    the memory fails the build.
+
+    Neither per-source cap can express it: 20,000 objects is legal and so are 50 recipients, and
+    every manifest item is a full copy, so the product is a million lines nothing else bounds.
+  SEND_MAX_TRANSFER_BYTES: Cap on ``total bytes x REQUESTED recipients`` — what the Map actually
+    moves, since every recipient gets a full copy.
+
+    **What sizes it is the whole run's makespan against the machine's ``TimeoutSeconds``**, at
+    ``MAP_MAX_CONCURRENCY x CONSERVATIVE_STREAM_BYTES_PER_SECOND`` = 500 MB/s and NOT the ~4
+    GB/s an aggregate-bandwidth reading of the same constants suggests. Table-share made that
+    mistake twice, in review rounds, after it read as satisfied both times. 3 TiB is ~6,600 s;
+    the guard Map, the serial verbs and the per-child overhead of 50,000 items in batches of 8
+    take the worst run to ~8,900 s inside the 10,800 s ceiling, and the test computes every term
+    rather than asserting the total.
   SHARED_FILES_FOLDER: The destination inbox folder, one level under the recipient's space
     root and namespaced by sender — ``{target}/shared_files/{sender}/{item}``. Mirrors
     ``shared_tables/``, so two senders never collide and provenance is visible in the file
@@ -132,6 +164,12 @@ SEND_MAX_ITEM_BYTES = 96 * 1024
 SEND_MAX_OBJECTS = 20_000
 
 SEND_MAX_TOTAL_BYTES = 1024**4
+
+SEND_MAX_OBJECT_BYTES = 10 * 1024**3
+
+SEND_MAX_TRANSFER_ITEMS = 50_000
+
+SEND_MAX_TRANSFER_BYTES = 3 * 1024**4
 
 SHARED_FILES_FOLDER = "shared_files"
 

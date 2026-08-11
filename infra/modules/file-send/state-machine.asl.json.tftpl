@@ -1,5 +1,6 @@
 {
-  "Comment": "File-send control plane (SPEC-164 front door + SPEC-165 source resolution). validate-authorize verifies the ID token into the actor, authorizes the SOURCE the sender is sending FROM, confirms every selected item sits inside that source root, and annotates each recipient as reachable or not; inspect-source then expands that selection into a copy plan in the admin bucket and threads back only its key, the object count and the byte total. NOTHING IS COPIED — SPEC-166 adds the recipient guard, the Distributed-Map transfer and the real terminals after Planned. The two FailureSeeds/RecordFailure/NotifyFailure are the SPEC-152 whole-request failure path, present from day one because a plane that ships without it leaves 'it just never came back' reachable for the user. TWO seeds, because the two failure windows differ: before the actor exists the error REPLACES the state and the request survives only in $$.Execution.Input, while after it the catch merges under a ResultPath and the verified actor is already on the state. Both must supply $.raw, which RecordFailure reads unconditionally and which no post-validate state carries. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
+  "Comment": "File-send control plane (SPEC-164 front door, SPEC-165 source resolution, SPEC-166 the transfer). validate-authorize verifies the ID token into the actor, authorizes the SOURCE the sender is sending FROM, confirms every selected item sits inside that source root, and annotates each recipient as reachable or not; inspect-source expands that selection into a copy plan in the admin bucket, enforces the transfer caps and threads back only the plan's key, the object count and the byte total. The recipient work then splits in three, exactly as table-share's does and for the same reasons: a GUARD Map (check-target-absent per recipient, per-item Catch so one conflict never aborts a sibling), a TOP-LEVEL DISTRIBUTED MAP copying every (recipient x object) pair from a JSONL manifest, and collect-transfer-results attributing item failures back to recipients. ShapeSummary carries the per-recipient terminal SPEC-167 notifies from. The two FailureSeeds/RecordFailure/NotifyFailure are the SPEC-152 whole-request failure path, present from day one because a plane that ships without it leaves 'it just never came back' reachable for the user. TWO seeds, because the two failure windows differ: before the actor exists the error REPLACES the state and the request survives only in $$.Execution.Input, while after it the catch merges under a ResultPath and the verified actor is already on the state. Both must supply $.raw, which RecordFailure reads unconditionally and which no post-validate state carries. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
+  "TimeoutSeconds": ${state_machine_timeout_seconds},
   "StartAt": "ValidateAuthorize",
   "States": {
     "ValidateAuthorize": {
@@ -71,27 +72,242 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.error",
-          "Next": "InspectFailureSeed"
+          "Next": "RequestFailureSeed"
         }
       ],
-      "Next": "Planned"
+      "Next": "GuardRecipients"
     },
-    "Planned": {
+    "GuardRecipients": {
+      "Type": "Map",
+      "Comment": "SPEC-166 FR-001. The conflict guard, per recipient, INLINE — one delimited listing of that recipient's inbox each, whose refusal must not abort a sibling. Its per-item Catch is deliberately NOT the refusal path: check-target-absent returns the two refusals it EXPECTS (an unresolved recipient, a name conflict) as a record, because a conflict has to name the colliding item and a TerminalError cannot carry one to a user. The Catch is left for the faults nobody predicted, which the collector decodes with cpcommon.errors.failure_reason.",
+      "ItemsPath": "$.recipients",
+      "MaxConcurrency": ${guard_map_max_concurrency},
+      "ItemSelector": {
+        "recipient.$": "$$.Map.Item.Value",
+        "request.$": "$"
+      },
+      "ResultPath": "$.guardResults",
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "CheckTargetAbsent",
+        "States": {
+          "CheckTargetAbsent": {
+            "Type": "Task",
+            "Comment": "Returns the guard record whole — {status, recipient, reason, detail} — so the item's output IS the record. On the clear path the recipient carries the destination bucket and root it resolved, which is what lets the manifest builder compute a destination per object without resolving one per object.",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${check_target_absent_function_arn}",
+              "Payload.$": "$"
+            },
+            "OutputPath": "$.Payload",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "TransientError"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.error",
+                "Next": "RecipientFaulted"
+              }
+            ],
+            "End": true
+          },
+          "RecipientFaulted": {
+            "Type": "Pass",
+            "Comment": "The unpredicted fault, recorded in the SAME SHAPE as a refusal so the collector reads one list rather than two. `reason` is empty here on purpose: the real one is inside the RAW {Error, Cause} carried alongside, and only cpcommon.errors.failure_reason may decode it — States.StringToJson raises an uncatchable States.Runtime whenever a Cause is absent or is not JSON (#252). A Catch leaves the ITEM's input on the state, so $.recipient is the annotated recipient, not the resolved one.",
+            "Parameters": {
+              "status": "failed",
+              "recipient.$": "$.recipient",
+              "reason": "",
+              "detail": "",
+              "error.$": "$.error"
+            },
+            "End": true
+          }
+        }
+      },
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RequestFailureSeed"
+        }
+      ],
+      "Next": "BuildTransferManifest"
+    },
+    "BuildTransferManifest": {
+      "Type": "Task",
+      "Comment": "SPEC-166 FR-002. Writes the JSONL manifest the Distributed Map reads: one line per (accepted recipient x planned object), each destination built by fscommon.paths.destination_key. A refused recipient contributes nothing and is carried forward untouched. Emits $.transfer with the manifest location, the results prefix and the item count the Choice below gates on.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${build_transfer_manifest_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RequestFailureSeed"
+        }
+      ],
+      "Next": "HasTransferItems"
+    },
+    "HasTransferItems": {
+      "Type": "Choice",
+      "Comment": "SPEC-166 FR-002. Skips the Distributed Map when every recipient was refused: an ItemReader pointed at a manifest that was never written fails the state, and there is nothing to copy anyway. IsPresent is tested BEFORE the numeric comparison and is not optional — a Choice on an ABSENT path raises States.Runtime, which is uncatchable and which `Default` does NOT cover.",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.transfer.itemCount", "IsPresent": true },
+            { "Variable": "$.transfer.itemCount", "NumericGreaterThan": 0 }
+          ],
+          "Next": "TransferObjects"
+        }
+      ],
+      "Default": "CollectTransferResults"
+    },
+    "TransferObjects": {
+      "Type": "Map",
+      "Comment": "SPEC-166 FR-002. The copy, as a TOP-LEVEL Distributed Map over a flat (recipient x object) manifest — deliberately NOT nested inside the guard Map, so one fan-out covers every recipient and the nesting question never arises. Child executions are STANDARD, not EXPRESS: a batch may hold a multi-GiB object whose multipart copy would blow EXPRESS's 5-minute ceiling, and EXPRESS's at-least-once semantics would re-run whole batches. ToleratedFailurePercentage is 100 so an item failure never fails the Map Run and never aborts a sibling — the run MUST finish for collect-transfer-results to attribute it. ResultWriter exports to S3 so this state's own output is the small {MapRunArn, ResultWriterDetails} pointer rather than an array that would breach the 256 KB state limit at the scale this Map exists for. Its states:/S3 permissions belong to the STATE MACHINE role, not the Lambda execution role.",
+      "ItemReader": {
+        "Resource": "arn:aws:states:::s3:getObject",
+        "ReaderConfig": {
+          "InputType": "JSONL"
+        },
+        "Parameters": {
+          "Bucket.$": "$.transfer.manifestBucket",
+          "Key.$": "$.transfer.manifestKey"
+        }
+      },
+      "ItemBatcher": {
+        "MaxItemsPerBatch": ${transfer_max_items_per_batch}
+      },
+      "MaxConcurrency": ${transfer_map_max_concurrency},
+      "ToleratedFailurePercentage": 100,
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "StartAt": "CopyObjects",
+        "States": {
+          "CopyObjects": {
+            "Type": "Task",
+            "Comment": "One batch of transfer items per invocation. No Catch: a batch that fails after its retries must FAIL its child execution, because that is what files it under FAILED_n.json where the collector can attribute every item it carried. A deterministic single-item fault does not get here at all — the verb reports it per item and succeeds, and the collector reads those out of SUCCEEDED_n.json.",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${copy_objects_function_arn}",
+              "Payload.$": "$"
+            },
+            "OutputPath": "$.Payload",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "TransientError"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "ResultWriter": {
+        "Resource": "arn:aws:states:::s3:putObject",
+        "Parameters": {
+          "Bucket.$": "$.transfer.resultsBucket",
+          "Prefix.$": "$.transfer.resultsPrefix"
+        }
+      },
+      "ResultPath": "$.mapRun",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RequestFailureSeed"
+        }
+      ],
+      "Next": "CollectTransferResults"
+    },
+    "CollectTransferResults": {
+      "Type": "Task",
+      "Comment": "SPEC-166 FR-003. Reads the Map Run's export and turns item-level failures back into per-recipient outcomes, because the fan-out is no longer per recipient. Reached on BOTH branches of the Choice: on the skip branch there is no run to read and it carries the guard's refusals forward, which keeps one shaping verb rather than two paths that can disagree. It also derives the item NAMES the summary reports, which is the last state holding the selection they come from.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${collect_transfer_results_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RequestFailureSeed"
+        }
+      ],
+      "Next": "ShapeSummary"
+    },
+    "ShapeSummary": {
       "Type": "Pass",
-      "Comment": "THE PLACEHOLDER TERMINAL (SPEC-165). Everything that will be copied is known and written down, and not one byte has moved. SPEC-166 replaces this state's Next with the per-recipient conflict guard and the Distributed-Map transfer; the shape it emits is what those states will consume, so it is written as the real thing rather than a bare Succeed. It doubles as the cross-check on inspect-source's own output, exactly as Validated does for the validator.",
+      "Comment": "The whole-request success terminal (SPEC-166 FR-003), and the shape SPEC-167's notifications read: who sent what, how much of it, and one entry per recipient — never a list of failed keys, which is the unbounded term that breaches the 256 KB limit. It is ALSO the ASL/verb cross-check for collect-transfer-results, the same job Validated does for the validator: a Task hands its output on whole, so nothing in a Task-to-Task chain would notice a renamed field, while a Pass naming each key fails the build via test_state_machine_file_send.py. Everything the run no longer needs — the plan key, the transfer block, the source's item list — is dropped here rather than carried into the execution output.",
       "Parameters": {
         "requestId.$": "$.requestId",
-        "actor.$": "$.actor",
-        "source.$": "$.source",
-        "recipients.$": "$.recipients",
-        "copyPlanKey.$": "$.copyPlanKey",
+        "sender.$": "$.actor.username",
+        "itemNames.$": "$.itemNames",
         "objectCount.$": "$.objectCount",
-        "totalBytes.$": "$.totalBytes",
-        "status": "planned"
+        "recipients.$": "$.outcomes"
       },
       "Next": "Succeeded"
     },
-    "InspectFailureSeed": {
+    "RequestFailureSeed": {
       "Type": "Pass",
       "Comment": "The failure seed for every state after the request identity exists. It differs from ValidateFailureSeed in the one way that matters: the request IS on the state here, so the actor comes from $.actor — the verified username the validator already produced — rather than being recovered from a token. $.raw still comes from the CONTEXT OBJECT: notify-failure falls back to it when the actor is empty, and RecordFailure reads it unconditionally, so a Pass that did not supply it would raise an uncatchable States.Runtime on the failure path (a fleet-wide test enforces exactly that). It costs nothing on the success path, which never runs this state.",
       "Parameters": {

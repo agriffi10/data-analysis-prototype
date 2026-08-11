@@ -13,12 +13,16 @@ exception is for the logs and the Step Functions record, and the sentence the us
 composed here.
 
 Attributes:
-  _BODIES: Reason code to the clause following the "Couldn't send ..." prefix. The three cap
-    bodies carry a marker rather than the number, so the sentence is filled from ``config`` by
-    ``failure_message`` and cannot drift from the constant that enforces it. ``{itemName}`` is
-    the one marker filled from the RAISE SITE instead — it is the sender's own folder name, not
-    a number this module can know, and it is deliberately spelled ``itemName`` rather than
-    ``name`` because ``name`` already means the recipient's name in ``failure_message``.
+  _BODIES: Reason code to the clause following the "Couldn't send ..." prefix. The cap bodies
+    that CAN name a number carry a marker rather than the number, so the sentence is filled from
+    ``config`` by ``failure_message`` and cannot drift from the constant that enforces it. The
+    two product caps deliberately name none: the limit is ``objects x recipients``, and a
+    sentence quoting either factor alone would read as a rule the code does not have.
+
+    ``{itemName}`` is the one marker filled from the RAISE SITE instead — it is the sender's own
+    folder name, not a number this module can know, and it is deliberately spelled ``itemName``
+    rather than ``name`` because ``name`` already means the recipient's name in
+    ``failure_message``.
   resolver: The domain-scoped resolver, carrying this plane's prefix, access-denied clause and
     fallback.
 """
@@ -60,11 +64,27 @@ _BODIES = {
         "that selection holds more than {maxObjects} files. Please send fewer folders."
     ),
     "source_too_large": "that selection is too large to send. Please send fewer files or folders.",
+    "object_too_large": (
+        "one of those files is bigger than {maxObjectSize} and can't be sent. "
+        "Please send it another way."
+    ),
+    "too_many_transfer_items": (
+        "that many files to that many people is too much to send in one go. "
+        "Please send to fewer recipients, or send fewer files."
+    ),
+    "transfer_too_large": (
+        "that much data to that many people is too much to send in one go. "
+        "Please send to fewer recipients, or send fewer files."
+    ),
     "conflict": (
         'they already have something called "{itemName}" from you, and nothing was '
         "overwritten. Please rename it, or ask them to move what is already there."
     ),
     "copy_failed": "some of the files could not be copied.",
+    "send_timed_out": (
+        "the send was still running after several hours and was stopped. Some recipients may "
+        "have received part of it, so please check before sending again."
+    ),
     "transfer_results_unreadable": (
         "the copy ran but its results could not be read, so we can't confirm what arrived. "
         "Please check before sending again."
@@ -132,5 +152,6 @@ def failure_message(
             "maxItems": str(config.SEND_MAX_ITEMS),
             "maxRecipients": str(config.SEND_MAX_RECIPIENTS),
             "maxObjects": f"{config.SEND_MAX_OBJECTS:,}",
+            "maxObjectSize": f"{config.SEND_MAX_OBJECT_BYTES // 1024**3} GB",
         },
     )

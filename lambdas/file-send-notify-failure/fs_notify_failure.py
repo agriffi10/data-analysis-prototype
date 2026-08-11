@@ -18,13 +18,31 @@ carries ``actor: null``; the machine's failure seed reads the Pipe's original bo
 function would take its no-recipient branch on every single failure — satisfied on paper, silent
 in practice.
 
-**ONE DOOR AT THIS STAGE.** Table-share's twin has a second — an EventBridge ``TIMED_OUT``
-rule — because SPEC-161 gave that machine a top-level ``TimeoutSeconds``, which terminates a
-run outright where no Catch fires. This machine has neither: it calls one 15-second validator
-and stops. SPEC-166 adds the long Distributed-Map copy, and the timeout, the rule and this
-function's second door must arrive together with it.
+**IT HAS TWO DOORS SINCE SPEC-166, and the second exists because the first cannot reach one
+failure.** The ASL door above is a state, so it is reached by a ``Catch`` — and Step Functions
+catchers cover Task, Parallel and Map states but **not top-level execution failures**. A run
+that exhausts the machine's own ``TimeoutSeconds`` is terminated outright: no state runs, no
+Catch fires, and this function is never invoked. The documented remedy is the second door: an
+EventBridge rule on ``Step Functions Execution Status Change`` with ``status: TIMED_OUT``
+invokes this same function with an event of a completely different shape.
+
+The two doors cannot double-notify. The ASL door is reached only through a ``Catch``, which a
+timeout never fires; the EventBridge door matches ``TIMED_OUT`` only, never ``FAILED``, so an
+execution that reached ``Fail`` normally does not appear on it.
+
+The timeout door has to recover the sender the hard way. The execution input is what the Pipe
+forwarded — the raw SQS batch — so the actor is the **verified claim from the ID token in that
+body**, never the body's own assertion. Expiry is deliberately not enforced: the timeout fires
+hours after the token was minted, and by construction it is always expired. That relaxation is
+the DLQ drain's, taken through the same separately-named entry point, and it is safe for the
+same reason — this path grants nothing, it only addresses a message.
+
+Attributes:
+  _TIMEOUT_DETAIL_TYPE: The EventBridge detail-type the timeout door matches on.
+  _TIMEOUT_REASON: Reason code for a run the state machine's own timeout stopped.
 """
 
+import json
 import logging
 
 from cpcommon import auth, events, observability
@@ -35,6 +53,86 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 observability.init(service="file-send")
+
+_TIMEOUT_DETAIL_TYPE = "Step Functions Execution Status Change"
+
+_TIMEOUT_REASON = "send_timed_out"
+
+
+def _is_execution_timeout(event) -> bool:
+    """Reports whether this invocation came through the EventBridge door.
+
+    Matched on the detail-type rather than on the presence of ``detail``, because the ASL door's
+    payload is a request object and a request could in principle carry any field name. The
+    status is NOT re-checked here — the rule pattern matches ``TIMED_OUT`` alone, and a second
+    check in Python would silently swallow anything a future pattern widening let through
+    instead of notifying about it.
+
+    Args:
+      event: The Lambda event.
+
+    Returns:
+      True when this is a Step Functions execution status-change event.
+
+    Raises:
+      None.
+    """
+    return isinstance(event, dict) and event.get("detail-type") == _TIMEOUT_DETAIL_TYPE
+
+
+def _on_execution_timed_out(event) -> dict:
+    """Notifies the sender that the whole run was stopped by the machine's own timeout.
+
+    The wording is deliberately not the generic failure sentence. A timeout is the one
+    whole-request failure that can leave a recipient holding PART of a send: the guard and the
+    copy may both have run and the collector may not have, so "try again" alone would be wrong
+    advice — and trying again would then conflict on what did arrive.
+
+    Args:
+      event: The EventBridge event.
+
+    Returns:
+      The recovered request, for the log and for symmetry with the ASL door.
+
+    Raises:
+      None. Every failure degrades to no verified sender, which is logged as a no-op. That
+      includes a ``detail`` of the wrong type: a raise here would be an async Lambda failure,
+      and EventBridge retries those, turning one unattributable event into three.
+    """
+    detail = event.get("detail") or {}
+    username = ""
+    if not isinstance(detail, dict):
+        logger.info("timed-out execution event carries no detail object")
+    else:
+        included = (detail.get("inputDetails") or {}).get("included")
+        raw = detail.get("input")
+        if included is False or not isinstance(raw, str) or not raw:
+            logger.info("timed-out execution carries no input; nobody can be attributed")
+        else:
+            try:
+                username = _sender_from_raw_request(json.loads(raw))
+            except ValueError as exc:
+                logger.info("could not attribute the timed-out execution: %s", exc)
+
+    if not username:
+        observability.warning(
+            "no verified actor on a timed-out execution; nothing to notify",
+            outcome="no-recipient",
+            reason=_TIMEOUT_REASON,
+            notified=False,
+        )
+        return {"actor": {"username": ""}, "error": {"Error": "States.Timeout", "Cause": None}}
+
+    notify.emit_notification(username, messages.failure_message(_TIMEOUT_REASON))
+    logger.info("notified %s that their send timed out", username)
+    observability.info(
+        "notified the sender that the execution timed out",
+        outcome="notified",
+        reason=_TIMEOUT_REASON,
+        actor=username,
+        notified=True,
+    )
+    return {"actor": {"username": username}, "error": {"Error": "States.Timeout", "Cause": None}}
 
 
 def _sender_from_raw_request(raw) -> str:
@@ -120,8 +218,15 @@ def handler(event, context) -> dict:
     own actor field is attacker-controlled, and notifying it would let anyone deliver text to
     any inbox.
 
+    Two entry shapes reach this one handler, dispatched on the detail-type: the ASL state's
+    request object, and EventBridge's status-change event for a run the machine's own
+    ``TimeoutSeconds`` stopped. One function rather than two because they end in the same
+    place — one verified actor, one sentence, one queue — and a second function would be a
+    second copy of the emit with a second chance to drift.
+
     Args:
-      event: The failed request carrying the raw Step Functions error.
+      event: The failed request carrying the raw Step Functions error, or an EventBridge
+        ``Step Functions Execution Status Change`` event.
       context: The Lambda context, unused.
 
     Returns:
@@ -131,6 +236,9 @@ def handler(event, context) -> dict:
       None. The execution has already failed; the only thing this function can add is a
       message, and a crash here would replace a friendly notification with nothing.
     """
+    if _is_execution_timeout(event):
+        return _on_execution_timed_out(event)
+
     request = dict(event) if isinstance(event, dict) else {}
     actor = request.get("actor")
     username = actor.get("username") if isinstance(actor, dict) else None

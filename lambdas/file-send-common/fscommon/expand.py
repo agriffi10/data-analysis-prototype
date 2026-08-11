@@ -40,6 +40,7 @@ from cpcommon.errors import TerminalError
 from .authz import assert_not_results_folder
 from .config import (
     ATHENA_RESULTS_FOLDER,
+    SEND_MAX_OBJECT_BYTES,
     SEND_MAX_OBJECTS,
     SEND_MAX_TOTAL_BYTES,
     USER_SETTINGS_FOLDER,
@@ -312,9 +313,9 @@ def expand(source: dict) -> tuple[list, int]:
 
     Raises:
       TerminalError: ``overlapping_items`` or ``colliding_item_names`` for a selection that
-        cannot be laid out, ``source_missing`` for an absent file, ``too_many_objects`` or
-        ``source_too_large`` at the caps, ``nothing_to_send`` when the selection resolves to no
-        objects at all, or a containment reason from the re-check.
+        cannot be laid out, ``source_missing`` for an absent file, ``too_many_objects``,
+        ``source_too_large`` or ``object_too_large`` at the caps, ``nothing_to_send`` when the
+        selection resolves to no objects at all, or a containment reason from the re-check.
       TransientError: On a retryable S3 fault.
     """
     bucket, root = source["bucket"], normalize_root(source["root"])
@@ -325,6 +326,12 @@ def expand(source: dict) -> tuple[list, int]:
     objects, total_bytes = [], 0
     for entry in items:
         for name, rel_key, src_key, size in _expand_item(bucket, root, entry):
+            if size > SEND_MAX_OBJECT_BYTES:
+                raise TerminalError(
+                    "object_too_large",
+                    f"an object of {size} bytes is over the per-object cap of "
+                    f"{SEND_MAX_OBJECT_BYTES}",
+                )
             objects.append({"item": name, "relKey": rel_key, "srcKey": src_key, "size": size})
             total_bytes += size
             if len(objects) > SEND_MAX_OBJECTS:

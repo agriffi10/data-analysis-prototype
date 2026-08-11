@@ -36,6 +36,10 @@ _RAISED_BY_THE_PLANE = (
     "conflict",
     "copy_failed",
     "transfer_results_unreadable",
+    "send_timed_out",
+    "object_too_large",
+    "too_many_transfer_items",
+    "transfer_too_large",
 )
 
 
