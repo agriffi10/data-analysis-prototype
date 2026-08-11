@@ -4,12 +4,21 @@
 # permission policies are .tftpl templates rendered with templatefile() (no inline
 # jsonencode IAM, per architecture.md).
 #
-# The execution policy grants exactly what validate-authorize needs and nothing this
-# spec does not provision: the registry read that authorizes a shared source, the
-# Cognito check that resolves a `user` recipient, the notifications queue, the logs
-# queue, and its own log group. NO S3 GRANT ON THE DATA BUCKETS — this verb reads keys
-# as strings and never touches an object. SPEC-165 adds the source ListBucket/GetObject
-# and SPEC-166 the shared_files/ writes.
+# The execution policy grants exactly what the shipped verbs need and nothing this arc
+# does not yet provision: the registry read that authorizes a shared source, the Cognito
+# check that resolves a `user` recipient, the notifications queue, the logs queue, its
+# own log group, and — since SPEC-165 — the source listing/read plus the copy plan write.
+#
+# THE SOURCE GRANTS ARE BUCKET-WIDE, AND THE ISOLATION IS NOT IN THEM. A per-user
+# condition is not expressible here: the sender is a runtime value from a verified token,
+# not a principal tag on this role (the role IS the privileged path — that is the whole
+# reason the plane exists). The isolation is fscommon.authz + fscommon.paths, applied
+# before any listing and re-applied to every key the listing returns, which is why those
+# two modules carry the heaviest tests on this plane. Same shape, same reasoning, as
+# table-share's execution role.
+#
+# STILL ABSENT: any write to the data buckets. Nothing here copies yet — SPEC-166 adds
+# the shared_files/ writes, scoped to that prefix in both buckets.
 #
 # AdminGetUser ALONE, deliberately: table-share's twin statement also carries
 # cognito-idp:ListUsers, which nothing in this repo calls — every existence check in the

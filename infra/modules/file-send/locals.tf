@@ -37,7 +37,9 @@ locals {
   # "file-send-<suffix>"); value = the handler + the task's real timeout/memory need
   # (a small validator is not a long parallel S3 copy — lambdas.md §4).
   #
-  # TWO VERBS AT THIS STAGE, deliberately: SPEC-164 builds the front door and stops.
+  # THREE VERBS AT THIS STAGE: SPEC-164's front door plus SPEC-165's source
+  # resolution. The per-recipient guard, the Distributed-Map copy and the real
+  # terminals are SPEC-166.
   #
   # Every module name is plane-qualified so two planes' identically-named verbs cannot
   # collide on sys.modules under one `pytest lambdas/` process (the tbcommon-package
@@ -50,6 +52,18 @@ locals {
     # recipients. Its work is one registry read plus one Cognito call per recipient —
     # network-bound and small, so the table-share validator's sizing holds here.
     "validate-authorize" = { handler = "file_send_validate_authorize.handler", timeout = 15, memory = 256 }
+    # SPEC-165. Expands the selection and holds the whole copy plan in memory before
+    # writing it, which is the ONLY thing that sizes this row — not the listing, which
+    # pages at 1000 keys and costs 20 round trips at SEND_MAX_OBJECTS.
+    #
+    # THE MEMORY IS THE CAP'S OTHER HALF, and fscommon/config.py says so from its side:
+    # each plan entry carries the absolute source key, the relative key and the owning
+    # item name, so at S3's worst-case 1024-byte keys 20,000 objects serialise to ~48 MB
+    # with the in-memory list of dicts several times that again.
+    # test_the_worst_case_copy_plan_fits_in_the_verbs_memory READS THIS NUMBER and
+    # computes the plan against it, so raising SEND_MAX_OBJECTS without raising this
+    # fails the build rather than the invocation.
+    "inspect-source" = { handler = "file_send_inspect_source.handler", timeout = 120, memory = 1024 }
     # SPEC-152's notification of last resort: one decode + one SQS send, reached only
     # on a whole-request failure path.
     #

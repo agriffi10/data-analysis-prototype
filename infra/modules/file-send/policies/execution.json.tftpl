@@ -20,6 +20,33 @@
       "Resource": "${user_pool_arn}"
     },
     {
+      "Sid": "CopyPlanWrite",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "${admin_bucket_arn}/file-send/*"
+    },
+    {
+      "Sid": "SourceDataList",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": [
+        "${user_space_bucket_arn}",
+        "${shared_space_bucket_arn}"
+      ]
+    },
+    {
+      "Sid": "SourceDataRead",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*",
+        "${shared_space_bucket_arn}/*"
+      ]
+    },
+    {
       "Sid": "NoDataObjectDelete",
       "Effect": "Deny",
       "Action": "s3:DeleteObject",
