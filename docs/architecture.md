@@ -360,7 +360,7 @@ table over them in the recipient's DB.
   told (a user directly; a space via its **owner only**, never the members). Failures notify the
   sender only.
 
-### Send Files — SPEC-164 (front door only; 165→167 in progress)
+### Send Files — SPEC-164, 165 (front door + source resolution; 166→167 in progress)
 
 "Send these files to Bob": copy a user's selected files and folders into another person's or
 space's `shared_files/{sender}/` inbox. The browser cannot write into another user's prefix —
@@ -378,13 +378,38 @@ share did.
   dead-lettered send *and* write the raw JWT to CloudWatch. `MessageGroupId` is the SHA-256 of
   `{bucket}/{spaceRoot}` (a hash — SQS caps it at 128 chars, an S3 key reaches 1024);
   `MessageDeduplicationId` is the `requestId`, the only double-submit guard.
-- **SFN:** `ValidateAuthorize → Validated → Succeeded`, with
-  `ValidateFailureSeed → RecordFailure → NotifyFailure → Failed` complete from day one. **The
-  failure seed reads the request back from `$$.Execution.Input`** — the validate task's input is
-  the Pipe's JSON *array*, so its catch cannot carry a `ResultPath` and the error replaces the
-  state; without the context read, `NotifyFailure` would take its no-recipient branch on every
-  failure. Threading the request through the state was tried and rejected: the Pipe record carries
-  the same selection again as an escaped string, so it roughly doubles the payload for the whole run.
+- **SFN:** `ValidateAuthorize → Validated → InspectSource → Planned → Succeeded`, with
+  `ValidateFailureSeed`/`InspectFailureSeed → RecordFailure → NotifyFailure → Failed` complete from
+  day one. **The failure seeds read the request back from `$$.Execution.Input`** — the validate
+  task's input is the Pipe's JSON *array*, so its catch cannot carry a `ResultPath` and the error
+  replaces the state; without the context read, `NotifyFailure` would take its no-recipient branch
+  on every failure. Threading the request through the state was tried and rejected: the Pipe record
+  carries the same selection again as an escaped string, so it roughly doubles the payload for the
+  whole run. **TWO seeds, not one, and the second is not decoration:** `RecordFailure` reads
+  `$.raw`, which exists on no post-validate state, so a catch routed straight to it — as every
+  other plane's catches are — raises an uncatchable `States.Runtime` and the sender hears nothing.
+  The fleet guard identifies a seed structurally by `error.$ == "$"` and **cannot see the second
+  shape** (`"$.error"`, because that catch carries a `ResultPath`); the plane's own suite walks
+  every catch instead.
+- **Expansion happens once, in `inspect-source`, and travels by pointer** (SPEC-165). A `file` item
+  HEADs; a `folder` walks `cpcommon.s3_listing` past its 1,000-key pagination boundary. The plan
+  goes to `{admin}/file-send/{requestId}/copy-plan.json` — the object list is two orders of
+  magnitude over the 256 KB payload limit, so inline was never tunable — and only
+  `{copyPlanKey, objectCount, totalBytes}` return to the state. Each entry carries its owning item
+  name, its key **relative to that item**, its absolute source key and its size: everything
+  SPEC-166's manifest builder needs with no second listing.
+- **The destination is `{targetRoot}shared_files/{sender}/{item}[/{relKey}]`**, built by ONE
+  function in `fscommon.paths` with a sweep forbidding a second. Namespacing by sender mirrors
+  `shared_tables/{table}/`, so two senders never collide and provenance is visible in the file
+  browser with no metadata lookup — and the layout is independent of the sender's own folder
+  depth. Three refusals protect it: an **overlapping** selection, and two items whose **names**
+  would collide, are whole-request terminals; a **repeated** item collapses.
+- **The exclusion rule is this plane's own, anchored at the SPACE ROOT** — `is_ignored`'s rules are
+  anchored at the *listing prefix*, which here is whichever item the user picked, so reusing it
+  would silently drop a user-made `reports/athenaresults/` and any `_drafts/` from a copy.
+  `list_data_objects` took an optional `ignore` predicate rather than being forked. A genuinely
+  empty **file** is sent; a folder **placeholder** (zero bytes, trailing slash) is not, so an empty
+  subfolder does not survive a send.
 - **Authorization is about the SOURCE only.** A `personal` source must equal the verified username
   (never a lookup — the username IS the prefix); a `shared` source needs `is_active_member`, i.e.
   the space's own status is `active`. A member whose join chip reads *pending* is authorized —
@@ -398,7 +423,15 @@ share did.
   (a) and (b), and SPEC-165 expands a folder by listing its prefix. Folder keys are normalised to a
   trailing slash for the same reason. (c) is a **new rule for this plane** —
   `protectedFolders.ts` keeps three divergent lists and none refuses copying *out* of it.
-- **Two caps, because there are two quantities.** `SEND_MAX_ITEMS` (200) bounds the per-item work;
+- **Four caps, because there are four quantities.** `SEND_MAX_OBJECTS` (20,000) bounds what the
+  selection EXPANDS to — sized by the plan held in memory, against `inspect-source`'s configured
+  1024 MB, which a test reads back from `locals.tf`. Its timeout twin is sized per-ITEM, not
+  per-page: a `file` costs its own serial HeadObject, so 200 files is 200 round trips where 20,000
+  objects is 20. `SEND_MAX_TOTAL_BYTES` (1 TiB) bounds one selection's bytes at
+  `cpcommon.transfer`'s **makespan** rate (500 MB/s, never the aggregate 4 GB/s). **The recipient
+  product cap and the per-object cap are deliberately SPEC-166's** — both are measured against the
+  machine's `TimeoutSeconds`, which does not exist yet; a test fails when the first arrives.
+- The other two are the request-shape caps. `SEND_MAX_ITEMS` (200) bounds the per-item work;
   `SEND_MAX_ITEM_BYTES` (96 KiB) bounds the serialised selection against the chain it travels —
   SQS body → the Pipe's record with that body **re-escaped** → `StartExecution`'s 256 KB limit. A
   count cap cannot bound bytes (a control character escapes to six), and a byte cap measured

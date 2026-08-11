@@ -1,7 +1,7 @@
 # Spec: Send Files — Source Resolution & Copy Plan (inspect-source)
 
 **ID:** SPEC-165
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-10
 **Depends On:** SPEC-164 (validated request + authorized source root), SPEC-090 (the copy-plan-as-pointer precedent), SPEC-160 (`cpcommon.transfer`), SPEC-150 (protected folders)
 
