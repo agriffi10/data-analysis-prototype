@@ -1,7 +1,7 @@
 # Spec: Feature Flags — Document, Publish Pipeline & Browser Data Layer
 
 **ID:** SPEC-162
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-10
 **Depends On:** SPEC-146/147 (the advisory-document precedent), SPEC-155 (`lib/s3Json.ts` `readJsonDocument`), SPEC-138 (a bad gate value is a hard error)
 

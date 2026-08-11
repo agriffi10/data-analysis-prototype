@@ -69,6 +69,20 @@ resource "aws_cognito_identity_pool_roles_attachment" "portal" {
 # principal tag and the Glue database name (SPEC-033), it is already visible on every
 # shared-space roster (SPEC-075), and a prefix-search feature discloses the set by
 # construction. Recorded in docs/decisions.md rather than left implicit here.
+#
+# SPEC-162 added the SECOND such statement, ReadTheFeatureFlags: s3:GetObject on
+# ${bucket_arn}/_config/*, published by .github/workflows/deploy-config.yml. It is the same
+# shape as the directory's, for the same reasons, with the same two omissions — no ListBucket
+# widening (so `_config/` is invisible to the file browser) and no write of any kind (the
+# deploy role is the only writer). The document is advisory in the strongest sense: a feature
+# flag is PRESENTATION, never authorization, so turning one off revokes no grant here or
+# anywhere else. A reader who treats it as a security boundary has misread it.
+#
+# The bucket choice is deliberate and is the whole reason this statement is one line: this
+# bucket already has a CORS configuration, its host is already in the enforcing CSP
+# connect-src, and the portal role is already on the bucket policy's principal allowlist. The
+# admin bucket has none of the three. `lambdas/test_feature_flags_config.py` asserts all three
+# rather than assuming them, because a broken read here falls back silently to all-on.
 resource "aws_iam_role_policy" "portal_permissions" {
   name = "user-space-access"
   role = aws_iam_role.portal.id

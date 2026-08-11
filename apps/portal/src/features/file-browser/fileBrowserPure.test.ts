@@ -207,6 +207,18 @@ describe('protectedFolders', () => {
       expect(isRootFolderNamed('team-data/_data-quality-reports/', 'team-data/', HIDDEN_BROWSER_FOLDERS)).toBe(true);
     });
 
+    it('hides _config/ from BOTH lists, in parity with _directory/ (SPEC-162)', () => {
+      // Both are bucket-ROOT folders, so these per-prefix lists cannot actually reach
+      // either — the portal role's prefix-conditioned ListBucket is what really keeps them
+      // out of the browser. They are listed for parity, because the lists have already
+      // drifted apart from each other once and adding to both is cheaper than reasoning
+      // about which one matters.
+      expect(HIDDEN_BROWSER_FOLDERS).toContain('_config');
+      expect(PICKER_LOCKED_FOLDERS).toContain('_config');
+      expect(HIDDEN_BROWSER_FOLDERS).toContain('_directory');
+      expect(PICKER_LOCKED_FOLDERS).toContain('_directory');
+    });
+
     it('matches a named folder only at the user root', () => {
       expect(isRootFolderNamed('alice/user_settings/', 'alice/', HIDDEN_BROWSER_FOLDERS)).toBe(true);
       // A nested folder that merely shares the name is a normal user folder.

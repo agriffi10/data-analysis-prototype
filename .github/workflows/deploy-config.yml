@@ -1,0 +1,96 @@
+name: Publish Config
+
+# Publishes the feature-flag document to every environment's user-space bucket (SPEC-162).
+#
+# SEPARATE FROM Deploy App ON PURPOSE. Flipping a flag must not require rebuilding and
+# redeploying the SPA — the document is fetched at runtime, so a publish is the whole change.
+# That is also why the upload carries `no-cache`: a flag flipped now must be in force on the
+# next fetch, not after a bundle's worth of cache lifetime.
+#
+# A red publish is a red deploy. Watch it to completion like the other three.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'config/**'
+      # The validator reads this workflow's matrix for its upload targets, so a change to
+      # either of these can invalidate a document that was valid when it merged.
+      - '.github/workflows/deploy-config.yml'
+      - 'scripts/validate_feature_flags.py'
+  workflow_dispatch:
+
+# One publish at a time. The upload addresses a single fixed key, so two concurrent runs
+# would race to last-writer-wins on it; serializing makes the last merge the winner, which
+# is the correct outcome for a deploy. Not cancel-in-progress, for the same reason
+# deploy-app.yml isn't: a cancelled run leaves the question of what is live open.
+concurrency:
+  group: deploy-config
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+
+    strategy:
+      matrix:
+        # THIS MATRIX IS THE ONLY DECLARATION OF WHERE THE DOCUMENT IS PUBLISHED, and
+        # `scripts/validate_feature_flags.py` reads it: an `environment_name` here with no
+        # matching key in config/feature-flags.json's `environments` block fails the job, and
+        # so does the reverse. Keep the key named `environment_name` — plain `environment:` is
+        # a GitHub Actions job keyword, and the validator refuses to treat one as the other.
+        #
+        # `bucket_var` names a repository VARIABLE rather than holding a bucket name, so the
+        # bucket has exactly one home (the same variable the app builds against) and cannot
+        # drift between the deploy and the document it reads.
+        include:
+          - environment_name: prod
+            bucket_var: VITE_S3_USER_SPACE_BUCKET
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Before any AWS call: a malformed document must never reach a bucket, and the same
+      # check ran on the PR. This is the second run, against what is actually about to be
+      # uploaded. No package install — the validator is standard-library only for exactly
+      # this reason.
+      - name: Validate the flag document
+        run: python3 scripts/validate_feature_flags.py
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
+
+      # An unset repository variable interpolates to the EMPTY STRING, which would make the
+      # copy below target `s3:///_config/...` — a confusing AWS-side error far from its cause.
+      # Assign, then test: `echo "B=$(...)"` never fails a step, and a numeric-or-empty default
+      # reads as success (the shell facts SPEC-138's gates were rebuilt around).
+      - name: Resolve the destination bucket
+        id: bucket
+        env:
+          BUCKET: ${{ vars[matrix.bucket_var] }}
+        run: |
+          if [ -z "$BUCKET" ]; then
+            echo "::error::repository variable ${{ matrix.bucket_var }} is unset — ${{ matrix.environment_name }} has no destination bucket"
+            exit 1
+          fi
+          echo "name=$BUCKET" >> "$GITHUB_OUTPUT"
+
+      # ONE EXACT KEY. No `sync`, no `--delete`, no prefix: `_directory/usernames.json` lives
+      # one prefix over in this same bucket, and a mis-scoped reconcile that removed it would
+      # break username typeahead everywhere (SPEC-146/147) for a feature nothing user-facing
+      # depends on yet.
+      - name: Publish the flag document
+        run: |
+          aws s3 cp config/feature-flags.json \
+            "s3://${{ steps.bucket.outputs.name }}/_config/feature-flags.json" \
+            --cache-control 'no-cache' \
+            --content-type 'application/json'

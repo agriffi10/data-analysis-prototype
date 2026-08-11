@@ -41,3 +41,4 @@ whole new area appears.
 | Auth | `component-inventory/auth-feature.md` |
 | User directory | `component-inventory/user-directory-feature.md` |
 | Table share | `component-inventory/table-share-feature.md` |
+| Feature flags | `component-inventory/feature-flags-feature.md` |

@@ -2,6 +2,7 @@ import {type ReactNode, useEffect} from 'react';
 import {Navigate, Outlet, useLocation} from 'react-router';
 import {useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../features/auth';
+import {useFeatureFlags} from '../features/feature-flags';
 import {UploadQueueProvider} from '../features/file-browser';
 import {prefetchNotifications} from '../features/notifications';
 import {setReturnPath} from '../lib/returnPath';
@@ -53,6 +54,20 @@ export function ProtectedLayout() {
   useEffect(() => {
     void prefetchNotifications(queryClient, username);
   }, [queryClient, username]);
+
+  // SPEC-162 resolves the feature flags here and DISCARDS the result — SPEC-163 is what
+  // reads them. This is not a placeholder: without a mount the whole feature is
+  // tree-shaken out of the production bundle, and then the `_config/*` grant, the
+  // bucket-policy allowlist, the CORS preflight, the CSP `connect-src` entry, the key
+  // spelling and the credential timing are all UNEXERCISED in production while every
+  // gate is green. That is SPEC-137's shape exactly. The read is also what FR-009's live
+  // check observes, and it cannot observe a request nothing issues.
+  //
+  // Session-scoped for the same reason the upload queue is: one fetch per sign-in,
+  // cached for an hour, so a route change does not re-read a document that changes on a
+  // deploy. It hides nothing and cannot fail the shell — an unusable document resolves
+  // to the compiled-in all-on defaults.
+  useFeatureFlags();
 
   if (devBypass)
     return (

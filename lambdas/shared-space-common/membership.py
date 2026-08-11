@@ -6,10 +6,11 @@ assigning and clearing those slots. Reading the user doubles as the user pool ex
 All operations are idempotent and replay-safe.
 """
 
-import config
 from cpcommon import clients, observability
 from cpcommon import config as cpconfig
 from registry import ProvisioningError
+
+import config
 
 
 def normalize_members(raw: list | None, owner: str) -> list[str]:

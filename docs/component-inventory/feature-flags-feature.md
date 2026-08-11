@@ -1,0 +1,24 @@
+# Feature-flags feature (`apps/portal/src/features/feature-flags/`)
+
+Part of the component inventory (`docs/component-inventory.md` is the router).
+Public surface only — the code is the source of truth; verify signatures before relying on them.
+
+> **A FLAG IS PRESENTATION, NEVER AUTHORIZATION.** Turning a feature off hides its tab and its entry
+> points; it revokes no IAM grant, no queue permission and no credential scope. **No service and no
+> `lib/` module may import this feature** — `featureFlags.service.test.ts` enumerates
+> `features/**/*.service.ts` and `lib/**` and fails if one does (SPEC-162 FR-006).
+
+> **The fallback is silent and all-on.** An unusable document resolves to the compiled-in defaults
+> and reports `'fallback'`, so a blocked read renders exactly like a healthy environment. Consumers
+> get no signal and want none — the accepted cost is that during an outage a deliberate "off" does
+> not take effect.
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `getFeatureFlags(environment)` | `featureFlags.service.ts` | Reads `_config/feature-flags.json` from `userSpaceBucket()` through the shared `readJsonDocument`. **STRICTER than `getUserDirectory()` on purpose:** an unparseable body, a non-object, an unsupported `version`, an unusable `defaults` block and a MISSING object are all `{success: false}` — collapsing them to an empty success would make `'fallback'` unreportable. A single malformed VALUE is tolerated for that key only. `environment` may be `undefined` (an unwired `VITE_ENVIRONMENT`); an unnamed environment resolves to the document's `defaults` and is a SUCCESS. `ServiceResult<FeatureFlags>`, never throws (SPEC-162). |
+| `useFeatureFlags()` | `useFeatureFlags.ts` | `{flags, status}`. `flags` always holds all four keys as booleans and holds the compiled-in defaults while the fetch is in flight — everything visible, then something may go away, never the reverse. `staleTime` 1h, `retry: false`, gated on a signed-in user. `status` is `'loading' \| 'ready' \| 'fallback'`. Emits a **dev-only** `console.debug` naming which way the read went (FR-009); stripped from production builds (SPEC-162). |
+| `FEATURE_FLAG_DEFAULTS` | `featureFlagDefaults.ts` | What is in force when the document cannot be used: every flag `true`. A test asserts it equals `config/feature-flags.json`'s `defaults` block, so the file and the fallback cannot drift (SPEC-162). |
+| `FEATURE_FLAG_KEYS` | `featureFlagDefaults.ts` | The four keys as an iterable. The resolver walks THIS, not the document — which is what guarantees a resolved set is complete whatever the document named (SPEC-162). |
+| `FEATURE_FLAGS_KEY` | `featureFlags.service.ts` | `_config/feature-flags.json`. The portal role holds `GetObject` here and nothing else (SPEC-162). |
+| `featureFlagKeys` | `featureFlagKeys.ts` | TanStack key factory. Carries the ENVIRONMENT, unlike `userDirectoryKeys` — one document resolves differently per environment, and a key that could not tell them apart would serve one under the other's name (SPEC-162). |
+| `FeatureFlagKey`, `FeatureFlags`, `FeatureFlagsStatus`, `FeatureFlagDocument` | `featureFlags.types.ts` | The four flag names, the complete resolved set, what consumers branch on, and the published document's shape (SPEC-162). |

@@ -13,9 +13,10 @@ catches its own; the exact message strings; and the whole authorizer.
 
 from typing import cast
 
-import config
 from cpcommon import auth as cpauth
 from cpcommon.errors import AuthError
+
+import config
 
 
 class AuthorizationError(Exception):
