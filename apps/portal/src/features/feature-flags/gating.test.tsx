@@ -94,6 +94,20 @@ function withPendingFlags() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Defaults for BOTH boundaries, at the top level. The report route's fetch waits on
+  // `connectionsLoading`, so a `readSharedConnectionsCache` left as a bare `vi.fn()` resolves
+  // to `undefined` and whether the query ever becomes enabled is a race — which passed
+  // locally and failed in CI, on the positive control rather than on an assertion.
+  vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-space');
+  vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-space');
+  vi.mocked(readSharedConnectionsCache).mockResolvedValue({
+    success: true,
+    data: {version: 1, connections: []}
+  } as never);
+  vi.mocked(listFiles).mockResolvedValue({
+    success: true,
+    data: {files: [], folders: [], nextToken: undefined}
+  } as never);
   withFlags({});
 });
 
@@ -347,15 +361,9 @@ describe('FR-005 — the ?space= deep link with shared workspaces off', () => {
   // resolved raises "That shared space is no longer available", which would be a false
   // statement about a space that is perfectly fine and returns the moment the flag flips.
   it('resolves to the personal space, with no banner and no shared-bucket read', async () => {
-    vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-space');
-    vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-space');
     vi.mocked(readSharedConnectionsCache).mockResolvedValue({
       success: true,
       data: {version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]}
-    } as never);
-    vi.mocked(listFiles).mockResolvedValue({
-      success: true,
-      data: {files: [], folders: [], nextToken: undefined}
     } as never);
     withFlags({sharedWorkspaces: false});
 
@@ -375,15 +383,9 @@ describe('FR-005 — the ?space= deep link with shared workspaces off', () => {
   });
 
   it('DOES resolve the space when the flag is on — the control for the assertion above', async () => {
-    vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-space');
-    vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-space');
     vi.mocked(readSharedConnectionsCache).mockResolvedValue({
       success: true,
       data: {version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]}
-    } as never);
-    vi.mocked(listFiles).mockResolvedValue({
-      success: true,
-      data: {files: [], folders: [], nextToken: undefined}
     } as never);
     withFlags({});
 
