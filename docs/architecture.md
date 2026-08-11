@@ -285,33 +285,43 @@ table over them in the recipient's DB.
 - **Recipients:** a `user` must exist in the User Pool; a `space` is **any space by name** — the
   sender need not be a member (deliberate, recorded: the execution role does the write). The sender
   must have **source** access (own DB, or active member of the source space).
-- **Copy:** parallel server-side `CopyObject` (multipart above 5 GiB), key layout preserved. Caps:
-  `SHARE_MAX_OBJECTS` / `SHARE_MAX_TOTAL_BYTES` / `SHARE_MAX_RECIPIENTS` (50) /
-  `SHARE_MAX_DEFINITION_BYTES`.
-  > **Superseded (SPEC-160, shipped 2026-08-10):** the copy is a **Step Functions Distributed Map**
-  > over a flat `(recipient × object)` manifest, **not** one Lambda per recipient and **not S3 Batch
-  > Operations**. Batch Ops cannot rewrite a key — `TargetKeyPrefix` prepends to the *full* source
-  > key, so a job cannot produce `bob/shared_tables/sales/…` from `alice/tables/sales/…` — and it
-  > caps objects at 5 GB where this path already handles more via `UploadPartCopy`. The copy code
-  > itself is unchanged and now lives on `cpcommon.transfer`. **The caps still stand** — 160 changed
-  > the mechanism only, so it is provably behaviour-neutral; SPEC-161 moves the ceiling. Full entry:
-  > `decisions.md` → *Table Share*.
-  > **Superseded (SPEC-161, shipped 2026-08-10):** the ceiling moved. `SHARE_MAX_OBJECTS` is
-  > **20,000**, `SHARE_MAX_TOTAL_BYTES` **1 TiB**, a new **`SHARE_MAX_TRANSFER_ITEMS` (20,000)**
-  > bounds `recipients × objects` — the manifest's real limit, which neither other cap expresses —
-  > a new **`SHARE_MAX_OBJECT_BYTES` (10 GiB)** bounds one object — with `MAX_ITEMS_PER_BATCH`
-  > **50 → 8 (= `COPY_CONCURRENCY`)**, because a batch costs `ceil(items/workers)` rounds of its
-  > slowest object — and **`SHARE_MAX_TRANSFER_BYTES` (3 TiB)** bounds `recipients × bytes`, since
-  > the Map copies the source once per recipient.
-  > `SHARE_MAX_RECIPIENTS` (50) is unchanged. `SHARE_MAX_DEFINITION_BYTES` still exists but bounds
-  > something else now: the definition **travels by pointer** (`definitionKey` →
-  > `table-share/{hash}/definition.json`), so its 64 KiB is a sanity check against **Athena's
-  > 262,144-byte query-string quota**, not against the state payload. The machine also declares a
-  > top-level **`TimeoutSeconds` of 10,800** — which **cannot itself reach `NotifyFailure`** (AWS
-  > catchers do not cover top-level execution failures), so it ships with an **EventBridge
-  > `TIMED_OUT` rule** invoking the same verb through a second door. Full entries: `decisions.md` →
-  > *Everything unbounded on the state travels by pointer* and *Every control-plane machine that can
-  > run for hours*.
+- **Copy:** a **top-level Step Functions Distributed Map** over a flat `(recipient × object)` JSONL
+  manifest in the admin bucket, batched into parallel server-side `CopyObject` (multipart above
+  5 GiB), key layout preserved. **Not** one Lambda per recipient, and **not S3 Batch Operations** —
+  Batch Ops cannot rewrite a key (`TargetKeyPrefix` prepends to the *full* source key, so a job
+  cannot produce `bob/shared_tables/sales/…` from `alice/tables/sales/…`) and caps objects at 5 GB
+  where this path already handles more via `UploadPartCopy`. **Do not re-propose it** — the refusal
+  is a property of the API. The copy code lives on `cpcommon.transfer` (SPEC-160).
+
+- **Caps (current, SPEC-161).** Every one is a **whole-request terminal in `inspect-source`**,
+  raised before either artifact is written, and every one is **computed by a test** from the
+  constants rather than asserted as a number.
+
+  | constant | value | what sizes it |
+  |---|---|---|
+  | `SHARE_MAX_OBJECTS` | 20,000 | `inspect-source`'s listing time (20 `ListObjectsV2` pages) |
+  | `SHARE_MAX_TOTAL_BYTES` | 1 TiB | **one copy of the source** — says nothing about the transfer |
+  | `SHARE_MAX_OBJECT_BYTES` | 10 GiB | a batch's **makespan** vs `copy-objects`' 900 s |
+  | `SHARE_MAX_TRANSFER_ITEMS` | 20,000 | `recipients × objects` — the manifest write + the collector's read-back |
+  | `SHARE_MAX_TRANSFER_BYTES` | 3 TiB | `recipients × bytes` — the state machine's `TimeoutSeconds` |
+  | `SHARE_MAX_RECIPIENTS` | 50 | the inline Map's state + per-item error detail (unchanged since 090) |
+  | `SHARE_MAX_DEFINITION_BYTES` | 64 KiB | **Athena's 262,144-byte query-string quota**, not the state payload |
+  | `MAX_ITEMS_PER_BATCH` | 8 | `= COPY_CONCURRENCY`, so a batch is exactly one round of the pool |
+  | `TimeoutSeconds` | 10,800 | `SHARE_MAX_TRANSFER_BYTES` at a makespan rate, minus both Maps and the serial verbs |
+
+  **The two product caps exist because the per-source caps cannot express them:** every manifest
+  item is a full copy, so both what the Map lists and what it moves scale with the recipient count.
+  20,000 objects is fine and 50 recipients is fine and together they are a million lines; 1 TiB is
+  fine and 50 recipients is fine and together they are 50 TiB. **Read `decisions.md` before changing
+  any of these** — five review rounds found four bounds measured against the wrong quantity, and the
+  tests are what hold the models now.
+
+  The cloned definition **travels by pointer** (`definitionKey` → `table-share/{hash}/definition.json`),
+  which is why its cap bounds Athena rather than the payload. The `TimeoutSeconds` **cannot itself
+  reach `NotifyFailure`** — AWS catchers do not cover top-level execution failures — so it ships
+  with an **EventBridge `TIMED_OUT` rule** invoking the same verb through a second door. Full
+  entries: `decisions.md` → *Everything unbounded on the state travels by pointer* and *Every
+  control-plane machine that can run for hours*.
 - **Per-recipient attribution is a verb, not a Map item (SPEC-160).** The fan-out is over
   `(recipient × object)` pairs, so `collect-transfer-results` reads the Map Run's export and decides
   who gets a table: **one failed item ⇒ no table for that recipient**. It reads **both**
