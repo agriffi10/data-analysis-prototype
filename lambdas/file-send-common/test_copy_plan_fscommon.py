@@ -36,9 +36,18 @@ class _S3Error(Exception):
         super().__init__(code)
 
 
+class _Body:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def read(self):
+        return self._payload
+
+
 class _FakeS3:
-    def __init__(self, error_code=None):
+    def __init__(self, error_code=None, body=None):
         self._error_code = error_code
+        self._body = body
         self.puts = []
 
     def put_object(self, Bucket, Key, Body, ContentType):
@@ -47,9 +56,14 @@ class _FakeS3:
         self.puts.append({"Bucket": Bucket, "Key": Key, "Body": Body, "ContentType": ContentType})
         return {}
 
+    def get_object(self, Bucket, Key):
+        if self._error_code:
+            raise _S3Error(self._error_code)
+        return {"Body": _Body(self._body)}
 
-def _install(error_code=None):
-    fake = _FakeS3(error_code)
+
+def _install(error_code=None, body=None):
+    fake = _FakeS3(error_code, body)
     clients._s3 = fake
     return fake
 
@@ -129,6 +143,153 @@ def test_a_deterministic_write_failure_propagates_rather_than_retrying():
 
     with pytest.raises(_S3Error):
         copy_plan.write({"requestId": "req-1"}, _SOURCE, "alice", _OBJECTS, 91746)
+
+
+def test_every_artifact_of_one_request_shares_one_folder():
+    """SPEC-166 FR-002/FR-005. The plan, the manifest and the Map Run's export sit under one
+    ``file-send/{requestId}/`` folder, which is what makes ONE lifecycle rule expire all three —
+    a manifest written a prefix over would outlive every rule this plane has."""
+    request = {"requestId": "req-1"}
+    folder = f"{copy_plan.PREFIX}/req-1/"
+
+    assert copy_plan.plan_key(request).startswith(folder)
+    assert copy_plan.transfer_manifest_key(request).startswith(folder)
+    assert copy_plan.transfer_results_prefix(request).startswith(folder)
+
+
+def test_the_three_artifacts_never_collide_with_each_other():
+    """One folder, three distinct objects. The results PREFIX carries no trailing slash — Step
+    Functions appends its own Map Run component and manifest basename below it."""
+    request = {"requestId": "req-1"}
+    keys = {
+        copy_plan.plan_key(request),
+        copy_plan.transfer_manifest_key(request),
+        copy_plan.transfer_results_prefix(request),
+    }
+
+    assert len(keys) == 3
+    assert not copy_plan.transfer_results_prefix(request).endswith("/")
+
+
+def test_the_manifest_key_is_execution_stable_rather_than_execution_unique():
+    """The deliberate difference from table-share, whose manifest key carries the execution
+    name because it has NO request id — its keys are a digest, two overlapping executions of one
+    share collide on it, and a manifest's lines depend on which recipients the guard accepted.
+
+    Here the id is the browser's per-submit ``MessageDeduplicationId``: a second execution
+    carrying it could only come from a redelivery of the same SQS message, which the Pipe's
+    deterministic execution name refuses with ``ExecutionAlreadyExists``. What the key must buy
+    is that a RETRY of the manifest verb rewrites one object rather than leaving two, and that
+    is what this asserts."""
+    request = {"requestId": "req-1"}
+
+    assert copy_plan.transfer_manifest_key(request) == copy_plan.transfer_manifest_key(request)
+    assert copy_plan.transfer_manifest_key(request) != copy_plan.transfer_manifest_key(
+        {"requestId": "req-2"}
+    )
+
+
+@pytest.mark.parametrize(
+    "derive", [copy_plan.transfer_manifest_key, copy_plan.transfer_results_prefix]
+)
+@pytest.mark.parametrize("request_id", [None, "", "   ", 7])
+def test_no_transfer_artifact_invents_a_key_either(derive, request_id):
+    """The same refusal as the plan's, on both new keys: a key built from ``None`` is a real
+    object in a real bucket, and a shared fallback key would let two requests overwrite each
+    other's manifest."""
+    with pytest.raises(TerminalError):
+        derive({"requestId": request_id})
+
+
+def _plan_body(**overrides):
+    """A well-formed plan document, as ``write`` produces it, with fields overridden per test."""
+    return json.dumps(
+        {
+            "source": _SOURCE,
+            "sender": "alice",
+            "objects": _OBJECTS,
+            "objectCount": len(_OBJECTS),
+            "totalBytes": 91746,
+            **overrides,
+        }
+    ).encode()
+
+
+def test_the_plan_reads_back_whole():
+    """The manifest builder needs the sender and the source bucket as well as the objects — the
+    plan is the object that knows which sender its keys were expanded for."""
+    _install(body=_plan_body())
+
+    plan = copy_plan.load("file-send/req-1/copy-plan.json")
+
+    assert plan["sender"] == "alice"
+    assert plan["source"]["bucket"] == "user-bkt"
+    assert plan["objects"] == _OBJECTS
+
+
+@pytest.mark.parametrize(
+    ("body", "why"),
+    [
+        (b"not json", "not json at all"),
+        (b'["objects"]', "not an object"),
+        (_plan_body(objects=[], objectCount=0), "no objects"),
+        (_plan_body(sender=""), "no sender"),
+        (_plan_body(source={"root": "alice/"}), "no source bucket"),
+        (_plan_body(objects=_OBJECTS[:1]), "SHORT of the count it records"),
+        (_plan_body(objectCount="2"), "a count that is not a number"),
+        (_plan_body(objects=[{"relKey": "", "size": 1}], objectCount=1), "an entry with no item name"),
+        (_plan_body(objects=[{"item": "notes.txt", "size": 1}], objectCount=1), "an entry with no source key"),
+    ],
+)
+def test_an_unreadable_plan_is_terminal_rather_than_partially_used(body, why):
+    """Fail-closed, and the direction is the whole point: a plan short of its objects would
+    produce a manifest short of its lines, the copy would succeed over it, and every recipient
+    would be told the send went well while holding only some of what was sent."""
+    _install(body=body)
+
+    with pytest.raises(TerminalError):
+        copy_plan.load("file-send/req-1/copy-plan.json")
+
+
+def test_a_truncated_plan_is_caught_by_the_count_it_records_itself():
+    """The case a non-empty check cannot see, and the one that matters most: a plan short of its
+    objects produces a manifest short of its LINES, the copy succeeds over it, and every
+    recipient is told the send went well while holding some of what was sent. The plan records
+    its own objectCount at write time, so the check is one comparison."""
+    _install(body=_plan_body(objects=_OBJECTS[:1]))
+
+    with pytest.raises(TerminalError) as caught:
+        copy_plan.load("file-send/req-1/copy-plan.json")
+
+    assert caught.value.reason == "copy_failed"
+
+
+def test_what_write_produces_is_what_load_accepts():
+    """The two halves are held together rather than each asserted against a fixture: a field
+    added to the writer and not to the reader's checks (or the reverse) is how a document
+    validates against a shape nothing writes."""
+    fake = _install()
+    copy_plan.write({"requestId": "req-1"}, _SOURCE, "alice", _OBJECTS, 91746)
+    written = fake.puts[0]["Body"]
+    _install(body=written)
+
+    assert copy_plan.load("file-send/req-1/copy-plan.json")["objects"] == _OBJECTS
+
+
+def test_a_throttled_plan_read_is_transient_so_the_retry_reruns_the_verb():
+    _install(error_code="SlowDown")
+
+    with pytest.raises(TransientError):
+        copy_plan.load("file-send/req-1/copy-plan.json")
+
+
+def test_a_missing_plan_is_terminal_because_no_retry_writes_it():
+    """inspect-source wrote it earlier in this same execution, so absence means the object is
+    gone or was never written — which retrying the reader cannot fix."""
+    _install(error_code="NoSuchKey")
+
+    with pytest.raises(TerminalError):
+        copy_plan.load("file-send/req-1/copy-plan.json")
 
 
 def test_importing_this_module_alone_can_still_raise_its_refusal():

@@ -17,8 +17,13 @@
 # two modules carry the heaviest tests on this plane. Same shape, same reasoning, as
 # table-share's execution role.
 #
-# STILL ABSENT: any write to the data buckets. Nothing here copies yet — SPEC-166 adds
-# the shared_files/ writes, scoped to that prefix in both buckets.
+# THE ONLY WRITE INTO A USER'S SPACE IS UNDER shared_files/ (SPEC-166 FR-004). The
+# copy needs PutObject plus the two multipart actions an object over S3's 5 GiB
+# single-copy limit takes, and they are scoped to `*/shared_files/*` in both data
+# buckets — so this role can write into an inbox and NOWHERE ELSE in anybody's prefix.
+# It mirrors table-share's shipped `*/shared_tables/*` grant one for one, which is the
+# point: two planes writing into user space under one pattern is reviewable, two
+# patterns is not.
 #
 # AdminGetUser ALONE, deliberately: table-share's twin statement also carries
 # cognito-idp:ListUsers, which nothing in this repo calls — every existence check in the
@@ -88,15 +93,18 @@ resource "aws_iam_role_policy" "sfn" {
   name = "permissions"
   role = aws_iam_role.sfn.id
 
-  # InvokeFunction on the verbs + log delivery, and nothing else at this stage. When
-  # SPEC-166 adds the Distributed Map, ITS permissions belong HERE and not on the
-  # execution role (SPEC-160 FR-006): the state machine is what calls StartExecution
-  # for each child and what reads the ItemReader / writes the ResultWriter objects.
-  # Putting them on the Lambda role renders, applies and unit-tests green, then fails
-  # on the first real send with AccessDenied at the ItemReader.
+  # InvokeFunction on the verbs + log delivery, plus (SPEC-166) the Distributed Map's
+  # own permissions — which belong HERE and not on the execution role (SPEC-160
+  # FR-006): the state machine is what calls StartExecution for each child and what
+  # reads the ItemReader object / writes the ResultWriter export. Putting them on the
+  # Lambda role renders, applies and unit-tests green, then fails on the first real
+  # send with AccessDenied at the ItemReader.
   policy = templatefile("${path.module}/policies/sfn-permissions.json.tftpl", {
-    function_arns_json = jsonencode(local.file_send_function_arns)
-    sfn_log_group_arn  = local.sfn_log_group_arn
+    function_arns_json           = jsonencode(local.file_send_function_arns)
+    sfn_log_group_arn            = local.sfn_log_group_arn
+    state_machine_arn            = local.state_machine_arn
+    child_execution_arn_wildcard = local.child_execution_arn_wildcard
+    admin_bucket_arn             = local.admin_bucket_arn
   })
 }
 

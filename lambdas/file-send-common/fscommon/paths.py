@@ -148,6 +148,35 @@ def relative_key(item_key: str, object_key: str) -> str:
     return object_key[len(item_key) :]
 
 
+def inbox_prefix(target_root: str, sender: str) -> str:
+    """Returns the prefix one sender's inbox occupies inside a recipient's space.
+
+    ``{targetRoot}shared_files/{sender}/`` — everything that sender has ever sent to that
+    recipient, and nothing anyone else sent. It is factored out of ``destination_key`` below
+    rather than written twice because SPEC-166's conflict guard needs the prefix without a key:
+    it asks what item names the inbox ALREADY holds, which is one listing at this prefix rather
+    than a probe per selected item. A guard that composed the prefix itself would be the second
+    builder the sweep in ``test_paths_fscommon`` exists to forbid.
+
+    Args:
+      target_root: The recipient's space root, with or without its trailing slash.
+      sender: The verified sender's username.
+
+    Returns:
+      The inbox prefix, ending in a slash so a listing under it cannot match a sibling whose
+      name merely starts the same way.
+
+    Raises:
+      TerminalError: ``forbidden`` when the target root is empty or the sender is missing.
+        Either would widen the prefix to somebody else's data — an empty sender lists every
+        sender's inbox, and the guard would then refuse a name a different sender used.
+    """
+    root = normalize_root(target_root)
+    if not sender:
+        raise TerminalError("forbidden", "an inbox prefix needs the sender")
+    return f"{root}{SHARED_FILES_FOLDER}/{sender}/"
+
+
 def destination_key(target_root: str, sender: str, item: str, rel_key: str) -> str:
     """Builds the ONE destination key for a sent object.
 
@@ -174,8 +203,7 @@ def destination_key(target_root: str, sender: str, item: str, rel_key: str) -> s
         missing. Each would fold the destination up a level — an empty sender would put one
         person's files where the inbox itself belongs.
     """
-    root = normalize_root(target_root)
     if not sender or not item:
         raise TerminalError("forbidden", f"destination needs a sender and an item name, got {sender!r}/{item!r}")
-    base = f"{root}{SHARED_FILES_FOLDER}/{sender}/{item}"
+    base = f"{inbox_prefix(target_root, sender)}{item}"
     return f"{base}/{rel_key}" if rel_key else base

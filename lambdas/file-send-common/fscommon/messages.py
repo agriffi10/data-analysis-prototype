@@ -60,6 +60,15 @@ _BODIES = {
         "that selection holds more than {maxObjects} files. Please send fewer folders."
     ),
     "source_too_large": "that selection is too large to send. Please send fewer files or folders.",
+    "conflict": (
+        'they already have something called "{itemName}" from you, and nothing was '
+        "overwritten. Please rename it, or ask them to move what is already there."
+    ),
+    "copy_failed": "some of the files could not be copied.",
+    "transfer_results_unreadable": (
+        "the copy ran but its results could not be read, so we can't confirm what arrived. "
+        "Please check before sending again."
+    ),
 }
 
 

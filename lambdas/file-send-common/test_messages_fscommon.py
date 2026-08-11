@@ -31,6 +31,11 @@ _RAISED_BY_THE_PLANE = (
     "invalid_recipients",
     "too_many_recipients",
     "results_not_sendable",
+    # SPEC-166. The transfer's own vocabulary: two per-recipient outcomes and one
+    # whole-request one.
+    "conflict",
+    "copy_failed",
+    "transfer_results_unreadable",
 )
 
 
@@ -98,6 +103,25 @@ def test_a_raise_site_token_cannot_shadow_the_trusted_context():
 
     assert "9999" not in text
     assert "admin" not in text
+
+
+def test_a_conflict_names_the_recipient_and_the_item_that_was_already_there():
+    """SPEC-166 FR-001 AC5, from the wording end. "Couldn't send" alone would leave the sender
+    guessing which of the things they selected was the problem — and the item name is the one
+    piece of context they can act on, by renaming it or asking the recipient to move theirs."""
+    text = messages.failure_message("conflict", kind="user", name="bob", tokens={"itemName": "notes.txt"})
+
+    assert 'user "bob"' in text
+    assert '"notes.txt"' in text
+    assert "{" not in text
+
+
+def test_a_conflict_says_nothing_was_overwritten():
+    """The reassurance is the point of the sentence as much as the refusal is: a send that
+    stops has done nothing, and a sender who cannot tell the difference will go looking."""
+    text = messages.failure_message("conflict", kind="user", name="bob", tokens={"itemName": "notes.txt"})
+
+    assert "nothing was overwritten" in text
 
 
 def test_no_body_carries_a_raw_key_or_aws_text():

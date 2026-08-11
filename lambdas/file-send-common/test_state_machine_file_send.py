@@ -16,6 +16,8 @@ Attributes:
   _ASL: The rendered-at-apply state machine template.
 """
 
+import fnmatch
+import json
 import os
 import pathlib
 import re
@@ -53,8 +55,6 @@ def _machine() -> dict:
     Raises:
       None.
     """
-    import json
-
     return json.loads(re.sub(r"\$\{[a-z_0-9]+\}", "PLACEHOLDER", _ASL.read_text()))
 
 
@@ -73,8 +73,6 @@ def _validated_output() -> dict:
     Raises:
       None.
     """
-    import json
-
     v.auth.verified_username = lambda token, **kw: "alice"
     v.reg.load = lambda name: None
     v.cognito.user_exists = lambda name: True
@@ -434,3 +432,222 @@ def test_the_post_validate_catch_keeps_the_verified_actor():
 
     assert [c["ResultPath"] for c in catches] == ["$.error"]
     assert _machine()["States"]["InspectFailureSeed"]["Parameters"]["actor.$"] == "$.actor"
+
+
+# ── SPEC-166 FR-004: which role holds which grant ───────────────────────────
+
+_MODULE = _HERE.parent.parent / "infra" / "modules" / "file-send"
+_SFN_POLICY = _MODULE / "policies" / "sfn-permissions.json.tftpl"
+_EXECUTION_POLICY = _MODULE / "policies" / "execution.json.tftpl"
+
+
+def _policy(path):
+    """The rendered policy.
+
+    A bare placeholder in a value position (the ``jsonencode``d ARN list) is stubbed to a
+    string, a quoted one to its contents — the same two-step the ASL above needs.
+
+    Args:
+      path: The policy template.
+
+    Returns:
+      The parsed policy document.
+
+    Raises:
+      None.
+    """
+    raw = re.sub(r":\s*\$\{[^}]+\}", ': "STUB"', path.read_text())
+    return json.loads(re.sub(r"\$\{[^}]+\}", "STUB", raw))
+
+
+def _raw_policy(path):
+    """The policy with each placeholder left as its own NAME rather than one shared literal.
+
+    ``_policy`` collapses every ARN placeholder to ``STUB``, which cannot tell the admin bucket
+    from the two space buckets — so a resource-scoping assertion made against it would pass on a
+    grant that had stopped covering the bucket it names.
+
+    Args:
+      path: The policy template.
+
+    Returns:
+      The parsed policy document with named placeholders.
+
+    Raises:
+      None.
+    """
+    raw = re.sub(r":\s*\$\{([a-z_]+)\}", r': "\1"', path.read_text())
+    return json.loads(re.sub(r"\$\{([a-z_]+)\}", r"\1", raw))
+
+
+def _actions(policy):
+    """Every action the policy grants or denies, flattened.
+
+    Args:
+      policy: A parsed policy document.
+
+    Returns:
+      The set of action strings.
+
+    Raises:
+      None.
+    """
+    actions = set()
+    for statement in policy["Statement"]:
+        action = statement["Action"]
+        actions.update([action] if isinstance(action, str) else action)
+    return actions
+
+
+def _resources(statement):
+    """One statement's resources as a list, whatever shape it was written in.
+
+    Args:
+      statement: One policy statement.
+
+    Returns:
+      The resource list.
+
+    Raises:
+      None.
+    """
+    resource = statement["Resource"]
+    return resource if isinstance(resource, list) else [resource]
+
+
+def test_the_state_machine_role_holds_the_distributed_maps_permissions():
+    """FR-004 AC3. It is the STATE MACHINE that starts each child execution and that reads the
+    ItemReader object and writes the ResultWriter export."""
+    actions = _actions(_policy(_SFN_POLICY))
+
+    assert "states:StartExecution" in actions
+    assert "states:DescribeExecution" in actions
+    assert {"s3:GetObject", "s3:PutObject", "s3:ListMultipartUploadParts", "s3:AbortMultipartUpload"} <= actions
+
+
+def test_the_lambda_execution_role_gains_nothing_from_the_map():
+    """FR-004 AC3 — THE SWAP NOTHING ELSE WOULD CATCH. Granting these to the execution role
+    renders green, applies green and passes every other policy assertion in this repo; it fails
+    on the first real send, at the ItemReader, with an AccessDenied naming a role nobody was
+    looking at. Inherited from SPEC-160 FR-006 rather than rediscovered."""
+    actions = _actions(_policy(_EXECUTION_POLICY))
+
+    assert not {a for a in actions if a.startswith("states:")}, (
+        "the Distributed Map's states: actions are on the LAMBDA execution role"
+    )
+
+
+def test_stop_execution_is_not_granted():
+    """Nothing here stops a child; StartExecution + DescribeExecution is the documented
+    least-privilege pair."""
+    assert "states:StopExecution" not in _actions(_policy(_SFN_POLICY))
+
+
+def test_the_only_write_into_a_users_space_is_an_inbox():
+    """FR-004 AC1. The scoping is the isolation: this role is on the user-space bucket's
+    principal allowlist, so an unscoped PutObject would let a bug in any verb write anywhere in
+    anybody's prefix. Read from the NAMED-placeholder form, because the collapsed one cannot
+    tell the two data buckets from the admin bucket.
+
+    Matched by GLOB rather than by the literal action, so a statement widened to ``s3:*`` or
+    ``s3:Put*`` is caught as the write it is instead of slipping past a name comparison."""
+    writes = [
+        statement
+        for statement in _raw_policy(_EXECUTION_POLICY)["Statement"]
+        if statement["Effect"] == "Allow"
+        and any(
+            fnmatch.fnmatch("s3:PutObject", action)
+            for action in _actions({"Statement": [statement]})
+        )
+    ]
+    into_user_space = [
+        resource
+        for statement in writes
+        for resource in _resources(statement)
+        if resource.startswith(("user_space_bucket_arn", "shared_space_bucket_arn"))
+    ]
+
+    assert into_user_space, "the copy has no destination grant at all"
+    assert all("/shared_files/" in resource for resource in into_user_space), (
+        f"a write into user space is not scoped to an inbox: {into_user_space}"
+    )
+
+
+def test_the_inbox_grant_carries_the_multipart_actions_a_large_object_needs():
+    """FR-002 AC6. An object over S3's 5 GiB single-copy limit takes UploadPartCopy, and the
+    copier aborts a failed upload so it never leaves one accruing storage. Missing either, a
+    large send fails at the object rather than at the plan."""
+    inbox = next(
+        statement
+        for statement in _raw_policy(_EXECUTION_POLICY)["Statement"]
+        if statement.get("Sid") == "SharedFilesWrite"
+    )
+
+    assert {"s3:PutObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"} == set(
+        inbox["Action"]
+    )
+
+
+def test_the_delete_deny_still_covers_every_bucket_this_plane_touches():
+    """FR-004 AC2. A send is a copy: it never deletes the sender's copy and never overwrites at
+    the destination, so the Deny makes "this plane deletes nothing" structural rather than
+    behavioural — including over the admin bucket, whose artifacts a lifecycle rule expires."""
+    deny = next(
+        statement
+        for statement in _raw_policy(_EXECUTION_POLICY)["Statement"]
+        if statement["Effect"] == "Deny" and statement["Action"] == "s3:DeleteObject"
+    )
+
+    assert set(_resources(deny)) == {
+        "user_space_bucket_arn/*",
+        "shared_space_bucket_arn/*",
+        "admin_bucket_arn/*",
+    }
+
+
+def test_no_new_wildcard_resource_appears():
+    """FR-004 AC5 — the SPEC-139 plan scan's IAM findings must not grow. The one pre-existing
+    ``Resource: "*"`` is Step Functions' own log delivery, which has no ARN to scope to; this
+    pins the count at that one rather than forbidding it."""
+    for path in (_SFN_POLICY, _EXECUTION_POLICY):
+        wildcards = [s.get("Sid") for s in _policy(path)["Statement"] if s["Resource"] == "*"]
+        assert wildcards in ([], ["StepFunctionLogDelivery"]), f"new wildcards in {path.name}: {wildcards}"
+
+
+def test_the_transfer_grants_name_THIS_planes_prefix_and_machine():
+    """The copy-paste this file's own provenance makes likely, and the one thing the action-set
+    assertions above cannot see.
+
+    ``_policy`` collapses every ARN placeholder to one literal, so a policy still pointing at
+    ``${admin_bucket_arn}/table-share/*`` — or starting executions of table-share's machine —
+    renders, applies and passes every other test here, then fails on the first real send at the
+    ItemReader. Read from the NAMED-placeholder form, where those two are different strings.
+    """
+    statements = {s["Sid"]: s for s in _raw_policy(_SFN_POLICY)["Statement"]}
+
+    for sid in ("ReadTransferManifest", "WriteTransferResults"):
+        assert _resources(statements[sid]) == ["admin_bucket_arn/file-send/*"], (
+            f"{sid} does not scope to this plane's own admin-bucket prefix"
+        )
+    assert _resources(statements["StartDistributedMapChildExecutions"]) == ["state_machine_arn"]
+    assert _resources(statements["DescribeDistributedMapChildExecutions"]) == [
+        "child_execution_arn_wildcard"
+    ]
+
+
+def test_the_copy_timeout_matches_this_planes_deployed_verb():
+    """The budget every makespan bound in ``cpcommon.transfer`` divides by, held against the
+    function that actually has it.
+
+    The equivalent test in ``control-plane-common`` reads TABLE-SHARE's locals and nothing else,
+    so before this one, lowering file-send's ``copy-objects`` timeout would have left the engine
+    computing batch sizes against a budget this plane no longer had — with a green suite.
+    """
+    from cpcommon.transfer import config as transfer_config
+
+    locals_tf = (_HERE.parent.parent / "infra" / "modules" / "file-send" / "locals.tf").read_text()
+
+    assert re.search(
+        rf'"copy-objects"\s*=\s*\{{[^}}]*timeout\s*=\s*{transfer_config.COPY_TIMEOUT_SECONDS}\b',
+        locals_tf,
+    ), f"file-send's copy-objects timeout is not {transfer_config.COPY_TIMEOUT_SECONDS}s"

@@ -633,10 +633,17 @@ jobs:
           - { name: table-share-collect-transfer-results, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           - { name: table-share-create-table, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
           - { name: table-share-notify-failure, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          # File-send verbs (SPEC-164, SPEC-165). All three attach cpcommon + fscommon; the
-          # plane's front door plus its source resolution, with the transfer in SPEC-166.
+          # File-send verbs (SPEC-164→166). The front door, the source resolution, and the
+          # transfer. `fscommon: false` on copy-objects is the same deliberate row table-share
+          # carries on its own batch copier: the copier is cpcommon.transfer with a reason code,
+          # it reaches for nothing on this plane, and a test asserts that — so attaching the
+          # domain layer would be cold-start cost for an import it does not make.
           - { name: file-send-validate-authorize, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           - { name: file-send-inspect-source, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
+          - { name: file-send-check-target-absent, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
+          - { name: file-send-build-transfer-manifest, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
+          - { name: file-send-copy-objects, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: false }
+          - { name: file-send-collect-transfer-results, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           - { name: file-send-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           # Data-quality verbs (SPEC-108). All nine attach cpcommon + dqcommon; only
           # inspect-source also attaches the data-quality polars layer (it must read
