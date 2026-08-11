@@ -360,7 +360,7 @@ table over them in the recipient's DB.
   told (a user directly; a space via its **owner only**, never the members). Failures notify the
   sender only.
 
-### Send Files — SPEC-164, 165 (front door + source resolution; 166→167 in progress)
+### Send Files — SPEC-164, 165, 166 (the plane delivers; 167 gives it a face)
 
 "Send these files to Bob": copy a user's selected files and folders into another person's or
 space's `shared_files/{sender}/` inbox. The browser cannot write into another user's prefix —
@@ -378,8 +378,9 @@ share did.
   dead-lettered send *and* write the raw JWT to CloudWatch. `MessageGroupId` is the SHA-256 of
   `{bucket}/{spaceRoot}` (a hash — SQS caps it at 128 chars, an S3 key reaches 1024);
   `MessageDeduplicationId` is the `requestId`, the only double-submit guard.
-- **SFN:** `ValidateAuthorize → Validated → InspectSource → Planned → Succeeded`, with
-  `ValidateFailureSeed`/`InspectFailureSeed → RecordFailure → NotifyFailure → Failed` complete from
+- **SFN:** `ValidateAuthorize → Validated → InspectSource → GuardRecipients → BuildTransferManifest
+  → HasTransferItems → TransferObjects → CollectTransferResults → ShapeSummary → Succeeded`, with
+  `ValidateFailureSeed`/`RequestFailureSeed → RecordFailure → NotifyFailure → Failed` complete from
   day one. **The failure seeds read the request back from `$$.Execution.Input`** — the validate
   task's input is the Pipe's JSON *array*, so its catch cannot carry a `ResultPath` and the error
   replaces the state; without the context read, `NotifyFailure` would take its no-recipient branch
@@ -428,20 +429,36 @@ share did.
   1024 MB, which a test reads back from `locals.tf`. Its timeout twin is sized per-ITEM, not
   per-page: a `file` costs its own serial HeadObject, so 200 files is 200 round trips where 20,000
   objects is 20. `SEND_MAX_TOTAL_BYTES` (1 TiB) bounds one selection's bytes at
-  `cpcommon.transfer`'s **makespan** rate (500 MB/s, never the aggregate 4 GB/s). **The recipient
-  product cap and the per-object cap are deliberately SPEC-166's** — both are measured against the
-  machine's `TimeoutSeconds`, which does not exist yet; a test fails when the first arrives.
+  `cpcommon.transfer`'s **makespan** rate (500 MB/s, never the aggregate 4 GB/s). **SPEC-166 added
+  three more, each against a different budget**: `SEND_MAX_OBJECT_BYTES` (10 GiB) against
+  `COPY_TIMEOUT_SECONDS`, because one object is one worker and a batch is one round of the pool;
+  `SEND_MAX_TRANSFER_ITEMS` (50,000) against the memory the two verbs either side of the Map hold
+  the manifest in; `SEND_MAX_TRANSFER_BYTES` (3 TiB) against the machine's own ceiling. Both
+  product caps are measured on the **requested** recipient count, before the guard.
 - The other two are the request-shape caps. `SEND_MAX_ITEMS` (200) bounds the per-item work;
   `SEND_MAX_ITEM_BYTES` (96 KiB) bounds the serialised selection against the chain it travels —
   SQS body → the Pipe's record with that body **re-escaped** → `StartExecution`'s 256 KB limit. A
   count cap cannot bound bytes (a control character escapes to six), and a byte cap measured
   against the state alone permits a request whose execution cannot start. The producer mirrors
   both, held to the Python constants by a test.
-- **Deliberately absent at this stage:** no `TimeoutSeconds` and no `TIMED_OUT` rule (nothing here
-  can wedge for hours — SPEC-166 adds all three *with* the deploy-role `events:` grant), no
-  LF-admin designation (no table is created), and no S3 grant on the data buckets (this verb reads
-  keys as strings). A `NoDataObjectDelete` **Deny** ships from the first apply: a send never
-  deletes and never overwrites.
+- **The transfer is the shape SPEC-160 established, reused rather than re-derived** (SPEC-166): a
+  fast inline **guard Map** (one delimited listing of `{targetRoot}shared_files/{sender}/` per
+  recipient — a `MaxKeys=1` probe per item **cannot** answer the question, because `/` is not the
+  lowest byte a key may carry), a `(recipient × object)` JSONL manifest beside the plan, a
+  **top-level** Distributed Map with `STANDARD` children and `ToleratedFailurePercentage: 100`, and
+  `collect-transfer-results` reading `SUCCEEDED_n` **as well as** `FAILED_n`/`PENDING_n` and
+  reconciling the count against the manifest. A recipient is `ok` only if none of its items failed;
+  an earlier terminal is never overwritten. **The guard's expected refusals are RETURN VALUES**, not
+  exceptions, because a conflict must name the colliding item and a `TerminalError` cannot carry one
+  to a user.
+- **`TimeoutSeconds` (10,800) is top-level and ships WITH its rule** (SPEC-166): catchers do not
+  cover top-level execution failures, so an EventBridge `TIMED_OUT` rule (never `FAILED`) invokes
+  `notify-failure` through a second door — which on this plane needs `states:DescribeExecution` to
+  read the input back, because EventBridge drops an input this plane's own cap allows to approach
+  200 KB. A `NoDataObjectDelete` **Deny** ships from the first apply, and the only write into a
+  user's space is `*/shared_files/*`.
+- **Still absent:** any notification of an outcome (SPEC-167), and no LF-admin designation — no
+  table is created here.
 - **The execution role is on the user-space bucket policy's allowlist (FR-006)** — see that
   spec-delivery doc before building any future plane that touches Bucket 1.
 
