@@ -23,12 +23,14 @@ locals {
   # ONE shared execution role for every verb Lambda, matching every plane since
   # SPEC-062 consolidated the per-verb roles away. Its permission policy
   # (execution.json.tftpl) grows with the arc: logs + notifications + the registry
-  # read and Cognito checks validate-authorize needs (164); the source listing lands
-  # with SPEC-165 and the destination writes with SPEC-166. ARN is a constructed
-  # string (known at plan time) so root can thread it into the user-space bucket
-  # policy's allowlist without a cycle — see FR-006.
+  # read and Cognito check validate-authorize needs (164); the source listing lands
+  # with SPEC-165 and the destination writes with SPEC-166.
+  #
+  # NO execution_role_arn LOCAL HERE. Root constructs its own twin for the user-space
+  # bucket-policy allowlist (FR-006), and a second construction of the same string in
+  # this module would be one more place for it to drift from the role that actually
+  # exists — with the failure appearing as a runtime AccessDenied, not a plan error.
   execution_role_name = "${var.project_name}-${var.environment}-file-send-execution-role"
-  execution_role_arn  = "arn:aws:iam::${var.account_id}:role/${var.project_name}-${var.environment}-file-send-execution-role"
 
   # The single-task verb Lambdas. Keyed by the function SUFFIX (= the
   # lambdas/file-send-<suffix>/ subdir AND the deploy-lambdas.yml matrix name
@@ -36,9 +38,13 @@ locals {
   # (a small validator is not a long parallel S3 copy — lambdas.md §4).
   #
   # TWO VERBS AT THIS STAGE, deliberately: SPEC-164 builds the front door and stops.
-  # Module names carry the file_send_ prefix so they cannot collide with another
-  # plane's identically-named verb on sys.modules under one `pytest lambdas/` process
-  # (the tbcommon-package lesson, applied to verb modules).
+  #
+  # Every module name is plane-qualified so two planes' identically-named verbs cannot
+  # collide on sys.modules under one `pytest lambdas/` process (the tbcommon-package
+  # lesson, applied to verb modules). The qualifier is the FULL name for a verb and the
+  # SHORT prefix for notify-failure — file_send_validate_authorize.py beside
+  # fs_notify_failure.py — which is not an inconsistency: it is the fleet-wide
+  # convention every plane already follows (ts_/tb_/dq_/ss_notify_failure).
   file_send_functions = {
     # Parses the request, verifies the token, authorizes the source and annotates
     # recipients. Its work is one registry read plus one Cognito call per recipient —

@@ -88,8 +88,18 @@ One envelope, validated before anything else runs.
 
 #### Acceptance Criteria:
 
-- [ ] The message carries `requestId`, `actor.idToken`, `source` (space kind + name + the selected
-      items) and `recipients[]`; unknown top-level fields are rejected, not ignored.
+- [ ] The message carries `requestId`, `actor` (**the raw ID token, at the top level**), `source`
+      (space kind + name + the selected items) and `recipients[]`; unknown top-level fields are
+      rejected, not ignored.
+      **Amended during PR2 (2026-08-11) — this AC originally said `actor.idToken`, nested.** The
+      envelope must match what SPEC-126's shared DLQ drain reads, and that reader is flat:
+      `dlq_drain._notify_one` does `body.get(token_field)` and hands the result straight to
+      `verified_username_ignoring_expiry`. A nested token would make the drain fail to derive a
+      recipient on every dead-lettered send — silently, since it swallows and returns — which is
+      FR-001 AC6 unmet. It is also the *redaction* contract: `_redacted` replaces top-level keys
+      only, so a nested token would be written to CloudWatch verbatim, and an expired token is
+      still a signed assertion about a real user. Flattening keeps one envelope shape across all
+      five planes instead of teaching a shared security path a second one.
 - [ ] `MessageGroupId` is the **SHA-256 hex digest** of `{bucket}/{sourceSpaceRoot}` — a hash, never
       the raw path (SQS caps the group id at 128 characters while S3 keys reach 1024, the reason
       recorded for data quality).
@@ -191,7 +201,9 @@ reads like a code bug.
 # The enqueued request
 {
   "requestId": "9f2c…",
-  "actor":  { "idToken": "eyJ…" },
+  # The RAW token, top-level — see FR-002 AC1. The shared DLQ drain reads and redacts
+  # this field flatly, and table-share's envelope has the same shape.
+  "actor": "eyJ…",
   "source": {
     "space": { "kind": "personal", "name": "alice" },      # or {"kind":"shared","name":"marketing"}
     "items": [ { "kind": "file",   "key": "alice/reports/q1.csv" },

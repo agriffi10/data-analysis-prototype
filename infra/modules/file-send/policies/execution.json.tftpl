@@ -16,10 +16,7 @@
     {
       "Sid": "RecipientUserCheck",
       "Effect": "Allow",
-      "Action": [
-        "cognito-idp:AdminGetUser",
-        "cognito-idp:ListUsers"
-      ],
+      "Action": "cognito-idp:AdminGetUser",
       "Resource": "${user_pool_arn}"
     },
     {
