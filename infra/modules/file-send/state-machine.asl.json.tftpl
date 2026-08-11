@@ -1,0 +1,111 @@
+{
+  "Comment": "File-send control plane (SPEC-164 skeleton — the front door only). validate-authorize verifies the ID token into the actor, authorizes the SOURCE the sender is sending FROM, confirms every selected item sits inside that source root, and annotates each recipient as reachable or not. Nothing is listed, planned or copied: SPEC-165 inserts source resolution and the copy plan after ValidateAuthorize, SPEC-166 the recipient guard, the Distributed-Map transfer and the real terminals. ValidateFailureSeed/RecordFailure/NotifyFailure are the SPEC-152 whole-request failure path, present from day one because a plane that ships without it leaves 'it just never came back' reachable for the user. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
+  "StartAt": "ValidateAuthorize",
+  "States": {
+    "ValidateAuthorize": {
+      "Type": "Task",
+      "Comment": "Verifies the ID token into the actor, authorizes the source space, checks every selected item is inside the authorized root, enforces the request-shape caps, and annotates recipients. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state for the next steps. TransientError (a throttled Cognito/S3 read) is retried, never terminalized.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${validate_authorize_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ValidateFailureSeed"
+        }
+      ],
+      "Next": "Validated"
+    },
+    "Validated": {
+      "Type": "Pass",
+      "Comment": "THE PLACEHOLDER TERMINAL (SPEC-164). The request has been proved legitimate and nothing has been touched. SPEC-165 replaces this state's Next with source resolution; the shape it emits is what the next verb will consume, so it is written as the real thing rather than a bare Succeed.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor",
+        "source.$": "$.source",
+        "recipients.$": "$.recipients",
+        "status": "validated"
+      },
+      "Next": "Succeeded"
+    },
+    "ValidateFailureSeed": {
+      "Type": "Pass",
+      "Comment": "A validate-authorize failure can occur BEFORE the request identity exists (its input was the raw SQS array), so its Catch has no ResultPath to merge into and replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared RecordFailure path is uniform for every whole-request failure. This is the one Catch on this plane without a ResultPath, and the reason is that there is no verified actor at that point to discard — every catch added downstream of here carries one (SPEC-152's shared-space defect).",
+      "Parameters": {
+        "requestId": null,
+        "actor": null,
+        "source": null,
+        "error.$": "$"
+      },
+      "Next": "RecordFailure"
+    },
+    "RecordFailure": {
+      "Type": "Pass",
+      "Comment": "The single recorded-failure state every whole-request Catch reaches (identity is null for a pre-identity validate failure). Shapes the structured outcome the notifier reads, then fails the execution. It carries the RAW $.error {Error, Cause}, not a decoded reason: States.StringToJson raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON (#252), which would kill the execution before it could record anything. Decode with cpcommon.errors.failure_reason, never in ASL.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor",
+        "source.$": "$.source",
+        "status": "failed",
+        "error.$": "$.error"
+      },
+      "Next": "NotifyFailure"
+    },
+    "NotifyFailure": {
+      "Type": "Task",
+      "Comment": "SPEC-152 FR-001. Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error, a state timeout, a task that could not be invoked — where @notifies_on_failure never ran and the sender would otherwise be told nothing at all. WHOLE-REQUEST ONLY. The duplicate it has to avoid is the whole-request verb's own decorator emit, which the verb suppresses in Python by reading Lambda's Error name. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${notify_failure_function_arn}",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.notified",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.notifyError",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Failed"
+    },
+    "Succeeded": {
+      "Type": "Succeed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "FileSendFailed",
+      "Cause": "The file-send control plane recorded an unrecoverable whole-request error (see the RecordFailure state output for the structured { status:'failed', error } outcome)."
+    }
+  }
+}

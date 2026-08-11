@@ -422,9 +422,15 @@ def test_dlq_arns_reads_the_env_and_tolerates_a_malformed_value(monkeypatch):
 
 
 def test_the_sweep_drains_every_configured_dlq_and_notifies_from_the_token(monkeypatch):
-    # One message on each of the four wired DLQs, each carrying the token in ITS domain's field
-    # (table-share uses `actor`, the rest `idToken`) — so this also pins that the sweep preserves
+    # One message on each wired DLQ, each carrying the token in ITS domain's field (table-share
+    # and file-send use `actor`, the rest `idToken`) — so this also pins that the sweep preserves
     # the per-domain token-field resolution the event-source path had.
+    #
+    # The expectations below are DERIVED from SOURCES rather than written out, because the
+    # fixture is too: a literal 4 was really asserting "nobody has added a plane", which is
+    # test_every_request_dlq_the_repo_provisions_is_either_wired_or_named_as_excluded's job and
+    # is checked against the IaC rather than against this dict. Here the count would only ever
+    # restate the loop above it.
     sqs = _install()
     arns = [_arn(segment) for segment in dlq_drain.SOURCES]
     monkeypatch.setenv("DLQ_ARNS", json.dumps(arns))
@@ -435,8 +441,8 @@ def test_the_sweep_drains_every_configured_dlq_and_notifies_from_the_token(monke
 
     result = dlq_drain.handler({}, None)  # a scheduled event carries no Records
 
-    assert result == {"drained": 4}
-    assert sorted(b["username"] for b in _bodies(sqs)) == ["user0", "user1", "user2", "user3"]
+    assert result == {"drained": len(dlq_drain.SOURCES)}
+    assert sorted(b["username"] for b in _bodies(sqs)) == [f"user{i}" for i in range(len(dlq_drain.SOURCES))]
 
 
 def test_the_sweep_deletes_each_message_it_drains(monkeypatch):

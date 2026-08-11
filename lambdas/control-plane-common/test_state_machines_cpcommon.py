@@ -34,7 +34,7 @@ _THROWING_INTRINSICS = ("States.StringToJson", "States.ArrayGetItem", "States.Ma
 
 #: Every control plane whose machine must satisfy the invariants below. Named rather than
 #: counted so a renamed or deleted module fails loudly instead of shrinking the sample.
-_EXPECTED_ARCS = {"data-quality", "shared-spaces", "table-builder", "table-share"}
+_EXPECTED_ARCS = {"data-quality", "shared-spaces", "table-builder", "table-share", "file-send"}
 
 #: Every state field in which ASL EVALUATES intrinsic functions. The scan below walked
 #: ``Parameters`` alone while its docstring claimed every state type — true of state types,
