@@ -169,7 +169,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 161 — Table Share at Scale: Raised Caps, Wide Definitions & Long Runs | Completed |
 | 162 — Feature Flags: Document, Publish Pipeline & Browser Data Layer | Completed |
 | 163 — Feature Flags: Gating Nav, Routes & Cross-Feature Entry Points | Completed |
-| 164 — Send Files: Foundation Infrastructure & validate-authorize | Draft |
+| 164 — Send Files: Foundation Infrastructure & validate-authorize | Completed |
 | 165 — Send Files: Source Resolution & Copy Plan | Draft |
 | 166 — Send Files: Recipient Guard, Distributed-Map Transfer & Terminals | Draft |
 | 167 — Send Files: "Send to…" UI & Notification Producer | Draft |

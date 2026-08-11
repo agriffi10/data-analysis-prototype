@@ -1,8 +1,8 @@
 # Spec: Send Files — Foundation Infrastructure, Request Contract & validate-authorize
 
 **ID:** SPEC-164
-**Status:** Draft
-**Last Updated:** 2026-08-10
+**Status:** Completed
+**Last Updated:** 2026-08-11
 **Depends On:** SPEC-088/089 (the table-share plane as the pattern), SPEC-107/125/156 (`cpcommon`), SPEC-126 (DLQ drain), SPEC-152 (`NotifyFailure` on every plane), SPEC-160 (`cpcommon.transfer`)
 
 ## Overview

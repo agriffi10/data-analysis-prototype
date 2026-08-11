@@ -123,10 +123,10 @@ catalog-wide Describe, which fixes the `AccessDenied`-vs-`EntityNotFound` read f
 
 ## Control Planes (privileged async pipelines)
 
-Four features perform privileged, cross-user, multi-step AWS work that browser-scoped credentials
-must not: shared-space lifecycle, table creation, table sharing, and data-quality checks. Each is a
-deliberate, recorded reversal of "no backend" for its mutations only — the rest of the app stays
-browser-direct.
+Five features perform privileged, cross-user, multi-step AWS work that browser-scoped credentials
+must not: shared-space lifecycle, table creation, table sharing, data-quality checks, and sending
+files to another person or space. Each is a deliberate, recorded reversal of "no backend" for its
+mutations only — the rest of the app stays browser-direct.
 
 ### The shared pattern
 
@@ -359,6 +359,58 @@ table over them in the recipient's DB.
 - **Notifications:** the sender hears every per-recipient outcome; on success the recipient is also
   told (a user directly; a space via its **owner only**, never the members). Failures notify the
   sender only.
+
+### Send Files — SPEC-164 (front door only; 165→167 in progress)
+
+"Send these files to Bob": copy a user's selected files and folders into another person's or
+space's `shared_files/{sender}/` inbox. The browser cannot write into another user's prefix —
+that is the isolation model working — so this needs a privileged path for the same reason table
+share did.
+
+- **Its own plane, not a mode of table share.** The two share an *algorithm*
+  (`cpcommon.transfer`, SPEC-160) and nothing else: different request contract, different
+  authorization question, different failure vocabulary. One queue and one DLQ under two unrelated
+  features would let a malformed send dead-letter someone's table share.
+- **The envelope is FLAT** — `{requestId, actor (raw ID token, top level), source: {space, items},
+  recipients[]}` — and unknown top-level fields are **rejected, not ignored**. The flatness is a
+  contract with SPEC-126's drain, not a style choice: `_notify_one` reads `body.get("actor")` and
+  `_redacted` replaces top-level keys only, so a nested token would notify nobody on a
+  dead-lettered send *and* write the raw JWT to CloudWatch. `MessageGroupId` is the SHA-256 of
+  `{bucket}/{spaceRoot}` (a hash — SQS caps it at 128 chars, an S3 key reaches 1024);
+  `MessageDeduplicationId` is the `requestId`, the only double-submit guard.
+- **SFN:** `ValidateAuthorize → Validated → Succeeded`, with
+  `ValidateFailureSeed → RecordFailure → NotifyFailure → Failed` complete from day one. **The
+  failure seed reads the request back from `$$.Execution.Input`** — the validate task's input is
+  the Pipe's JSON *array*, so its catch cannot carry a `ResultPath` and the error replaces the
+  state; without the context read, `NotifyFailure` would take its no-recipient branch on every
+  failure. Threading the request through the state was tried and rejected: the Pipe record carries
+  the same selection again as an escaped string, so it roughly doubles the payload for the whole run.
+- **Authorization is about the SOURCE only.** A `personal` source must equal the verified username
+  (never a lookup — the username IS the prefix); a `shared` source needs `is_active_member`, i.e.
+  the space's own status is `active`. A member whose join chip reads *pending* is authorized —
+  SPEC-073 settled that access is granted at add time. Recipients are **not** an authorization
+  question: any space by name, any existing user, unreachable ones annotated and carried.
+- **Containment is two rules and a third about ancestors**, and it is the one place here where a
+  bug is a cross-tenant read. (a) trailing-slash-normalised root, so `alice2/` never passes as
+  inside `alice/`; (b) any `.`/`..` **path segment** refused outright, because
+  `"alice/../bob/x".startswith("alice/")` is `True`; (c) `athenaresults/` refused as the folder,
+  as anything under it, **and as any folder that contains it** — selecting the space root passes
+  (a) and (b), and SPEC-165 expands a folder by listing its prefix. Folder keys are normalised to a
+  trailing slash for the same reason. (c) is a **new rule for this plane** —
+  `protectedFolders.ts` keeps three divergent lists and none refuses copying *out* of it.
+- **Two caps, because there are two quantities.** `SEND_MAX_ITEMS` (200) bounds the per-item work;
+  `SEND_MAX_ITEM_BYTES` (96 KiB) bounds the serialised selection against the chain it travels —
+  SQS body → the Pipe's record with that body **re-escaped** → `StartExecution`'s 256 KB limit. A
+  count cap cannot bound bytes (a control character escapes to six), and a byte cap measured
+  against the state alone permits a request whose execution cannot start. The producer mirrors
+  both, held to the Python constants by a test.
+- **Deliberately absent at this stage:** no `TimeoutSeconds` and no `TIMED_OUT` rule (nothing here
+  can wedge for hours — SPEC-166 adds all three *with* the deploy-role `events:` grant), no
+  LF-admin designation (no table is created), and no S3 grant on the data buckets (this verb reads
+  keys as strings). A `NoDataObjectDelete` **Deny** ships from the first apply: a send never
+  deletes and never overwrites.
+- **The execution role is on the user-space bucket policy's allowlist (FR-006)** — see that
+  spec-delivery doc before building any future plane that touches Bucket 1.
 
 ### Data Quality — SPEC-108→114, 123, 124
 
