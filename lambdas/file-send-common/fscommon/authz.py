@@ -7,21 +7,21 @@ the execution role does the write, matching table-share's recorded decision.
 
 The registry read and its predicates live in ``cpcommon.registry``; this module holds the
 file-send question and its wording.
+
+The ``messages`` import is load-bearing rather than tidy: ``TerminalError`` validates its reason
+at the RAISE site against the registered table, and importing that module is what registers
+this plane's codes. Every verb pulls it in transitively through ``fscommon.notify``, so this
+module worked without it — but a future module importing only ``authz`` would get a
+``ValueError`` where it wrote a refusal, which is a worse failure than the one it was reporting.
 """
 
 from cpcommon import config
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
 
-from . import messages as _messages  # noqa: F401  (registers this plane's reason codes)
+from . import messages as _messages  # noqa: F401
 from .config import ATHENA_RESULTS_FOLDER, SPACE_KINDS
 from .paths import normalize_root
-
-# The import above is load-bearing rather than tidy: ``TerminalError`` validates its reason at
-# the RAISE site against the registered table, and importing ``messages`` is what registers it.
-# Every verb pulls it in transitively through ``fscommon.notify`` today, so this module worked —
-# but a future module that imports only ``authz`` would get a ValueError where it wrote a
-# refusal, which is a worse failure than the one it was trying to report.
 
 
 def authorize_source(username: str, space) -> dict:

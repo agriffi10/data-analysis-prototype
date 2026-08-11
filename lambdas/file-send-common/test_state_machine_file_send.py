@@ -106,18 +106,74 @@ def _read_paths(parameters: dict) -> set[str]:
     return reads
 
 
+def _validated_state_prefix(states: dict) -> str:
+    """The JSONPath prefix at which the verb's output sits when ``Validated`` runs.
+
+    DERIVED FROM THE MACHINE, never hard-coded, and that is the whole point of this helper. An
+    earlier version of this file matched the literal ``"$.result.validated."`` — so deleting the
+    ``ResultSelector`` or renaming the ``ResultPath`` left every assertion below passing against
+    a machine that raised an uncatchable ``States.Runtime`` on its first real execution.
+    Verified by mutation: both edits kept the whole suite green.
+
+    Args:
+      states: The machine's states.
+
+    Returns:
+      The prefix ``Validated``'s Parameters must read through, e.g. ``"$."``.
+
+    Raises:
+      AssertionError: If the task's output plumbing is a shape this cross-check cannot follow,
+        which is itself a finding rather than something to route around.
+    """
+    task = states["ValidateAuthorize"]
+    result_path = task.get("ResultPath")
+    output_path = task.get("OutputPath")
+
+    if output_path is not None:
+        assert output_path == "$.Payload", (
+            f"the task's OutputPath is {output_path!r}: the state after it is no longer the "
+            f"verb's return value, and every JSONPath below reads the wrong object"
+        )
+        assert result_path is None, "OutputPath and ResultPath together — pick one"
+        return "$."
+
+    selector = task.get("ResultSelector") or {}
+    assert list(selector.values()) == ["$.Payload"], (
+        f"the task keeps its result under {selector!r} rather than selecting the Lambda "
+        f"Payload — $.result would carry the invoke envelope, not the verb's output"
+    )
+    key = next(iter(selector)).removesuffix(".$")
+    return f"{result_path}.{key}."
+
+
+def _validated_reads(states: dict) -> set[str]:
+    """The verb-output keys the ``Validated`` state reads, at whatever prefix the machine uses.
+
+    Args:
+      states: The machine's states.
+
+    Returns:
+      The leaf key names.
+
+    Raises:
+      None.
+    """
+    prefix = _validated_state_prefix(states)
+    return {
+        value[len(prefix) :]
+        for key, value in states["Validated"]["Parameters"].items()
+        if key.endswith(".$") and str(value).startswith(prefix)
+    }
+
+
 def test_the_success_path_reads_only_keys_the_verb_emits():
     """The happy-path half nothing else covers."""
     states = _machine()["States"]
     validated = _validated_output()
 
-    reads = {
-        value[len("$.result.validated.") :]
-        for key, value in states["Validated"]["Parameters"].items()
-        if key.endswith(".$") and str(value).startswith("$.result.validated.")
-    }
+    reads = _validated_reads(states)
 
-    assert reads, "the Validated state no longer reads through $.result.validated"
+    assert reads, "the Validated state reads nothing through the task's output path"
     assert reads <= set(validated), (
         f"the machine reads {sorted(reads - set(validated))} which validate-authorize does not "
         f"return — an absent key raises an uncatchable States.Runtime on the SUCCESS path"
@@ -128,44 +184,55 @@ def test_the_verb_emits_nothing_the_machine_silently_drops():
     """The other direction, which is not a crash but a contract drift: a field the verb went to
     the trouble of computing and that no state carries forward is either dead or a bug."""
     states = _machine()["States"]
-    validated = _validated_output()
 
-    carried = {
-        value[len("$.result.validated.") :]
-        for key, value in states["Validated"]["Parameters"].items()
-        if key.endswith(".$") and str(value).startswith("$.result.validated.")
-    }
-
-    assert set(validated) == carried
+    assert set(_validated_output()) == _validated_reads(states)
 
 
-def test_the_raw_request_survives_a_validate_failure():
-    """SPEC-152's guarantee on this plane depends on it. The Catch merges the error beside the
-    captured request rather than replacing it, so notify-failure can recover the sender from
-    the token — without which it would take its no-recipient branch on every failure."""
+def test_the_task_output_plumbing_is_the_shape_the_cross_check_assumes():
+    """Stated on its own so a mutation to the plumbing fails HERE, with a message about the
+    plumbing, rather than as a confusing key mismatch two tests away."""
+    assert _validated_state_prefix(_machine()["States"]) == "$."
+
+
+def test_the_failure_seed_recovers_the_request_from_the_context_object():
+    """SPEC-152's guarantee on this plane depends on this one JSONPath.
+
+    The validate task's input is the raw SQS ARRAY, so its Catch has no object to merge into
+    and the error REPLACES the state — the request, and with it the only copy of the caller's
+    token, is gone. ``$$.Execution.Input`` is the surviving copy, and without it notify-failure
+    takes its no-recipient branch on every single failure: satisfied on paper, silent in
+    practice, on exactly the cold-start and timeout failures the state exists for.
+
+    Reading it from the CONTEXT rather than threading it through the state is also what keeps
+    the payload honest — the Pipe record carries the same selection again as an escaped string,
+    so threading it would roughly double the state for the whole run.
+    """
     states = _machine()["States"]
+    seed = states["ValidateFailureSeed"]["Parameters"]
 
-    catches = states["ValidateAuthorize"]["Catch"]
-    assert all(c.get("ResultPath") == "$.error" for c in catches), (
-        "the validate Catch no longer merges — the request, and with it the only copy of the "
-        "caller's token, is replaced by the error object"
-    )
-    assert "raw" in _read_paths(states["ValidateFailureSeed"]["Parameters"])
+    assert seed.get("raw.$") == "$$.Execution.Input"
+    assert seed.get("error.$") == "$", "the seed must capture the error the Catch replaced the state with"
     assert "raw" in _read_paths(states["RecordFailure"]["Parameters"])
 
 
-def test_the_capture_state_runs_before_anything_else():
-    machine = _machine()
+def test_the_request_is_not_threaded_through_the_success_path():
+    """The payload cost of the alternative, pinned. Both places the request could ride are
+    checked: the task's own output, and the notifier's merge-back."""
+    states = _machine()["States"]
 
-    assert machine["StartAt"] == "CaptureRequest"
-    assert machine["States"]["CaptureRequest"]["Parameters"] == {"raw.$": "$"}
+    assert "raw" not in _validated_reads(states)
+    assert states["NotifyFailure"].get("ResultPath", "unset") is None, (
+        "NotifyFailure merges its result back onto a state that already carries the whole "
+        "request — nothing reads $.notified, and the copy can breach the payload limit"
+    )
 
 
-def test_the_verb_is_handed_the_captured_request_and_not_the_wrapper():
-    """A wrapper the verb was never taught about would make every request malformed."""
+def test_the_verb_is_handed_the_pipes_batch_unwrapped():
+    """The validator reads record[0] of the raw SQS array; anything else makes every request
+    malformed."""
     task = _machine()["States"]["ValidateAuthorize"]
 
-    assert task["Parameters"]["Payload.$"] == "$.raw"
+    assert task["Parameters"]["Payload.$"] == "$"
 
 
 @pytest.mark.parametrize("state", ["ValidateFailureSeed", "RecordFailure"])

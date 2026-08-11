@@ -452,8 +452,8 @@ def test_the_byte_guard_measures_the_serialised_form_and_not_the_character_count
     the config test models, so the two cannot drift."""
     _setup()
     # Same character COUNT on both sides — only the escaping differs, which is the whole point.
-    escaped = [{"kind": "file", "key": "alice/" + ('"' * 600)} for _ in range(SEND_MAX_ITEMS)]
-    plain = [{"kind": "file", "key": "alice/" + ("k" * 600)} for _ in range(SEND_MAX_ITEMS)]
+    escaped = [{"kind": "file", "key": "alice/" + ('"' * 300)} for _ in range(SEND_MAX_ITEMS)]
+    plain = [{"kind": "file", "key": "alice/" + ("k" * 300)} for _ in range(SEND_MAX_ITEMS)]
 
     assert len(json.dumps(escaped).encode()) > SEND_MAX_ITEM_BYTES > len(json.dumps(plain).encode())
     _expect_reason(_event(items=escaped), "selection_too_large")
@@ -466,6 +466,43 @@ def test_selecting_the_space_root_is_refused_because_it_contains_the_results_fol
     _setup(actor="alice")
 
     _expect_reason(_event(items=[{"kind": "folder", "key": "alice/"}]), "results_not_sendable")
+
+
+def test_a_folder_key_is_normalised_to_a_trailing_slash():
+    """SPEC-165 expands a folder with a prefix listing, so `alice/athenaresult` without a
+    trailing slash would match `alice/athenaresults/…` and carry the query results out through
+    a door the results rule never sees. Normalising first closes it, and also makes the key the
+    expansion will actually use the key this verb checked."""
+    _setup(actor="alice")
+
+    out = v.handler(_event(items=[{"kind": "folder", "key": "alice/reports"}]), None)
+
+    assert out["source"]["items"] == [{"kind": "folder", "key": "alice/reports/"}]
+
+
+def test_normalising_is_what_stops_a_near_miss_folder_reaching_the_results():
+    """`alice/athenaresult` is a real, different folder and must send. The danger was never the
+    KEY — it was the PREFIX LISTING SPEC-165 will do with it: `ListObjectsV2(Prefix=
+    "alice/athenaresult")` matches `alice/athenaresults/…` and would carry the query results out
+    through a door the results rule never sees. Normalising to a trailing slash is the fix, and
+    this pins that the key handed onward is the one that cannot do it."""
+    _setup(actor="alice")
+
+    out = v.handler(_event(items=[{"kind": "folder", "key": "alice/athenaresult"}]), None)
+
+    key = out["source"]["items"][0]["key"]
+    assert key == "alice/athenaresult/"
+    assert not "alice/athenaresults/".startswith(key), "the normalised prefix still reaches the results folder"
+
+
+def test_a_file_key_is_left_exactly_as_given():
+    """Only folders are normalised. An object key is bytes, and appending to one would name a
+    different object."""
+    _setup(actor="alice")
+
+    out = v.handler(_event(items=[{"kind": "file", "key": "alice/reports"}]), None)
+
+    assert out["source"]["items"] == [{"kind": "file", "key": "alice/reports"}]
 
 
 def test_a_recipient_name_longer_than_cognito_allows_is_a_contract_violation():

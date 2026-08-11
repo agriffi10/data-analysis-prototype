@@ -74,13 +74,17 @@ The infrastructure, following the shared control-plane pattern.
       decoding the raw `{Error, Cause}` through `cpcommon.errors.failure_reason` — the SPEC-152 fleet
       test covers the new machine with no exemption.
 - [ ] Every catch carries `ResultPath` so the verified actor is not discarded (the shared-space
-      defect SPEC-152 fixed). **Satisfied via a `CaptureRequest` Pass state (added PR3,
-      2026-08-11).** The Pipe's input is a JSON *array*, so a catch on the first task has no object
-      to merge into and the error REPLACES the state — taking the request, and with it the only
-      copy of the caller's token, out of reach. `NotifyFailure` could then never address anyone,
-      on precisely the failures it exists for. Wrapping the array once under `$.raw` makes every
-      catch a merge and lets the notifier recover the sender from the verified token, as the DLQ
-      drain does.
+      defect SPEC-152 fixed) — **except the one on `validate-authorize`, which cannot, and whose
+      purpose is met another way (PR3, 2026-08-11).** Its input is the Pipe's JSON *array*, so
+      there is no object to merge into and the error REPLACES the state, taking the request and
+      the only copy of the caller's token with it. `NotifyFailure` would then take its
+      no-recipient branch on every failure — satisfied on paper, silent in practice, on exactly
+      the cold-start and timeout failures it exists for. The failure seed reads the request back
+      from **`$$.Execution.Input`** instead: it survives whatever the catch did, costs nothing on
+      the success path, and reading `$$` in a *Pass* state is SPEC-157's recorded shape. Threading
+      the request through the state was tried first and rejected — the Pipe record carries the
+      same selection again as an escaped string, so it roughly doubled the payload for the whole
+      run.
 - [ ] The new request DLQ is in SPEC-126's swept list, so a dead-lettered send becomes a user
       notification.
 - [ ] `lambdas/test_deploy_matrix.py` covers every new function: the deploy matrix and what each

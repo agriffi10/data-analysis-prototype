@@ -38,6 +38,9 @@ _MAX_KEY_BYTES = 1024
 
 _WORST_ESCAPE = "\x01"
 
+#: A Cognito ID token, which rides in the same body as the selection.
+_MAX_TOKEN_BYTES = 1200
+
 
 def _selection_bytes(items: int, key_char: str) -> int:
     """Serialised size of the normalised selection, which is what the byte cap measures.
@@ -80,6 +83,68 @@ def _worst_case_validated_state(selection_bytes: int, recipients: int) -> int:
     return len(json.dumps(envelope, separators=(",", ":")).encode()) + selection_bytes
 
 
+def _pipe_record(items: list) -> int:
+    """Serialised size of the execution input the Pipe hands to ``StartExecution``.
+
+    **The link an obvious model leaves out.** The Pipe wraps the SQS body into a record as an
+    escaped JSON string, so every ``"`` the selection already spent two bytes on costs four
+    here — a quote-heavy selection arrives at twice its measured size. Step Functions caps this
+    input at 256 KB exactly as it caps a state, so a request over it cannot start an execution
+    at all: no verb runs, no Catch fires, and nothing notifies anyone.
+
+    Args:
+      items: The selection, as the browser sends it.
+
+    Returns:
+      The serialised byte length of the Pipe's forwarded batch.
+
+    Raises:
+      None.
+    """
+    body = json.dumps(
+        {
+            "requestId": "0" * 36,
+            "actor": "t" * _MAX_TOKEN_BYTES,
+            "source": {"space": {"kind": "personal", "name": "a" * 64}, "items": items},
+            "recipients": [
+                {"kind": "space", "name": "s" * 64} for _ in range(config.SEND_MAX_RECIPIENTS)
+            ],
+        },
+        separators=(",", ":"),
+    )
+    record = [
+        {
+            "messageId": "m" * 36,
+            "receiptHandle": "r" * 1024,
+            "body": body,
+            "attributes": {"MessageGroupId": "g" * 64, "MessageDeduplicationId": "d" * 36},
+            "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:dat-prod-file-send-requests.fifo",
+        }
+    ]
+    return len(json.dumps(record, separators=(",", ":")).encode())
+
+
+def _items_at_the_byte_cap(key_char: str) -> list:
+    """The largest selection of ``key_char`` keys the byte cap accepts.
+
+    Args:
+      key_char: The character every key is made of.
+
+    Returns:
+      The selection.
+
+    Raises:
+      None.
+    """
+    count = 0
+    while (
+        count + 1 <= config.SEND_MAX_ITEMS
+        and _selection_bytes(count + 1, key_char) <= config.SEND_MAX_ITEM_BYTES
+    ):
+        count += 1
+    return [{"kind": "folder", "key": key_char * _MAX_KEY_BYTES} for _ in range(count)]
+
+
 def test_the_validated_state_stays_under_the_payload_limit():
     """The real bound: the byte cap plus a full recipient list, which is what rides together."""
     size = _worst_case_validated_state(config.SEND_MAX_ITEM_BYTES, config.SEND_MAX_RECIPIENTS)
@@ -88,6 +153,34 @@ def test_the_validated_state_stays_under_the_payload_limit():
         f"a worst-case validated state is {size} bytes, over the {_STATE_PAYLOAD_LIMIT}-byte "
         f"limit — and SPEC-166's Map throws States.DataLimitExceeded outside every Catch"
     )
+
+
+def test_a_selection_at_the_byte_cap_can_actually_START_an_execution():
+    """THE LINK THE FIRST TWO MODELS BOTH MISSED, in opposite ways.
+
+    The first version measured the item COUNT against the state and ignored escaping. The
+    second measured the serialised selection against the state and ignored that the Pipe
+    escapes it AGAIN into the execution input. A cap that permits a request whose execution
+    cannot start is the worst of the three: the user hears nothing, because the failure happens
+    before any state exists to catch it.
+    """
+    for char in ("k", '"', _WORST_ESCAPE):
+        record = _pipe_record(_items_at_the_byte_cap(char))
+
+        assert record < _STATE_PAYLOAD_LIMIT, (
+            f"a byte-cap selection of {char!r} keys reaches the Pipe as a {record}-byte "
+            f"execution input, over the {_STATE_PAYLOAD_LIMIT}-byte limit"
+        )
+
+
+def test_the_failure_state_carries_the_request_and_still_fits():
+    """The failure path reads the whole request back from $$.Execution.Input, so the recorded
+    object is the record PLUS the error. If that breached, the notification would be lost on
+    exactly the failures the state exists to report."""
+    for char in ("k", '"'):
+        recorded = _pipe_record(_items_at_the_byte_cap(char)) + 4 * 1024
+
+        assert recorded < _STATE_PAYLOAD_LIMIT, f"failure state for {char!r} keys is {recorded}"
 
 
 def test_the_byte_cap_leaves_room_for_the_fields_spec_165_adds():
@@ -160,12 +253,17 @@ def test_the_byte_cap_holds_at_the_worst_legal_escaping():
 
 def test_the_model_is_not_trivially_satisfied():
     """Guards the guard. A model that measured almost nothing would pass every test above at any
-    cap at all, which is precisely how a bound comes to certify something it never checked."""
-    used = _worst_case_validated_state(config.SEND_MAX_ITEM_BYTES, config.SEND_MAX_RECIPIENTS)
+    cap at all, which is precisely how a bound comes to certify something it never checked.
 
-    assert used > _STATE_PAYLOAD_LIMIT // 2, (
-        f"the modelled state is only {used} bytes — that is not a worst case, it is an empty "
-        f"model wearing one"
+    Measured on the PIPE RECORD rather than the state, because that is the binding link: the
+    state at the cap is a comfortable ~104 KB and the record is ~200 KB, and a guard pointed at
+    the roomy one would go quiet exactly when the tight one started to matter.
+    """
+    record = _pipe_record(_items_at_the_byte_cap('"'))
+
+    assert record > _STATE_PAYLOAD_LIMIT // 2, (
+        f"the modelled execution input is only {record} bytes — that is not a worst case, it "
+        f"is an empty model wearing one"
     )
 
 

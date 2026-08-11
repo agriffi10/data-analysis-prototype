@@ -18,7 +18,15 @@ Attributes:
     rather than ignored (FR-002): a field the producer thinks it is sending and this verb
     silently drops is a contract break that shows up as behaviour nobody asked for, and the
     cheapest moment to catch a renamed field is the first one.
-  _ITEM_KINDS: The two selection kinds a request may carry.
+  _ITEM_KINDS: The two selection kinds a request may carry. A ``folder`` key is normalised to a
+    trailing slash before any rule runs: SPEC-165 expands a folder with a prefix listing, so
+    ``alice/athenaresult`` without one would match ``alice/athenaresults/`` and carry the query
+    results out through a door the results rule never sees.
+  _MAX_RECIPIENT_NAME: Cognito's own limit on a username. A longer name is not "no such user" —
+    ``AdminGetUser`` rejects it as an invalid parameter, which the shared lookup classifies as
+    TRANSIENT, so the machine would retry three times and then fail the WHOLE request over one
+    bad recipient that should have been annotated and carried. Bounded here, where it is what it
+    actually is: a contract violation.
 """
 
 import json
@@ -44,10 +52,6 @@ _ALLOWED_FIELDS = frozenset({"requestId", "actor", "source", "recipients"})
 
 _ITEM_KINDS = frozenset({"file", "folder"})
 
-#: Cognito's own limit on a username. A longer name is not "no such user" — ``AdminGetUser``
-#: rejects it as an invalid parameter, which the shared lookup classifies as TRANSIENT, so the
-#: machine would retry three times and then fail the WHOLE request over one bad recipient that
-#: should have been annotated and carried. Bounded here, where it is a contract violation.
 _MAX_RECIPIENT_NAME = 128
 
 
@@ -92,6 +96,12 @@ def _normalize_items(items, source: dict) -> list:
     are whole-request terminals rather than per-item skips — a request naming a key outside
     the sender's own space is not a request with one bad row in it.
 
+    The byte guard at the end bounds a different quantity from the count cap above: the count
+    bounds the per-item work, this bounds what rides on the state and reaches the Pipe. S3 keys
+    are arbitrary UTF-8 and JSON escaping expands a quote to two bytes and a control character
+    to six, so a count that fits comfortably in ASCII can be several times the payload limit in
+    bytes. Measured on the normalised form, which is what actually travels.
+
     Args:
       items: The raw selection from the request.
       source: The authorized source, carrying the root prefix.
@@ -126,15 +136,12 @@ def _normalize_items(items, source: dict) -> list:
         key = entry.get("key")
         if not isinstance(key, str) or not key:
             raise TerminalError("invalid_items", "item key missing")
+        if kind == "folder" and not key.endswith("/"):
+            key = f"{key}/"
         paths.assert_inside_root(root, key)
         authz.assert_not_results_folder(root, key)
         normalized.append({"kind": kind, "key": key})
 
-    # The count cap above bounds the WORK; this bounds the STATE, and they are different
-    # quantities. S3 keys are arbitrary UTF-8 and JSON escaping expands a quote to two bytes
-    # and a control character to six, so a count that fits comfortably in ASCII can be five
-    # times the payload limit in bytes. Measured on the normalised form, which is what
-    # actually rides.
     serialized = len(json.dumps(normalized, separators=(",", ":")).encode())
     if serialized > SEND_MAX_ITEM_BYTES:
         raise TerminalError(

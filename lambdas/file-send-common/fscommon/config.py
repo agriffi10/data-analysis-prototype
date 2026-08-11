@@ -39,13 +39,20 @@ Attributes:
 
     The product reading is comfortable: the file browser pages at 25, so this is eight full
     pages of selection.
-  SEND_MAX_ITEM_BYTES: Cap on the SERIALISED selection, which is the term that actually rides
-    on the Step Functions state. **What sizes it is the 256 KB state payload**, minus the
-    recipient list at its own cap, the envelope, and headroom for the fields SPEC-165 adds when
-    it resolves this same state. Breaching the payload limit raises
-    ``States.DataLimitExceeded``; on a Task that is catchable, but on SPEC-166's Map it is
-    thrown outside every Catch and destroys every per-recipient outcome the Map exists to
-    preserve — so the bound is set here, before the Map that will need it exists.
+  SEND_MAX_ITEM_BYTES: Cap on the SERIALISED selection, which is the term that actually rides.
+    **What sizes it is not one limit but a chain, and the middle link is the one an obvious
+    model misses.** The browser's SQS body carries the selection; the EventBridge Pipe wraps
+    that body into a record as an ESCAPED JSON STRING and hands it to ``StartExecution`` as the
+    execution input; Step Functions caps that input at 256 KB exactly as it caps a state. The
+    escaping is not a rounding error — every ``"`` the selection already spent two bytes on
+    costs four in the record — so a quote-heavy selection reaches the record at **twice** its
+    measured size. At 96 KiB the worst case is a ~200 KB record and a ~204 KB failure state,
+    both clear of the limit, and the success state is ~104 KB, leaving room for the fields
+    SPEC-165 adds when it resolves this same state.
+
+    An earlier value of 192 KiB was measured against the validated output ALONE and would have
+    permitted a request whose execution could not start. ``test_config_fscommon`` now computes
+    all three links, so a change to one without the others fails the build.
 
     Checked AFTER normalisation rather than on the raw body: the item count is already bounded
     by then, so measuring the real serialised form costs nothing and measures the real thing.
@@ -70,7 +77,7 @@ SEND_MAX_RECIPIENTS = 50
 
 SEND_MAX_ITEMS = 200
 
-SEND_MAX_ITEM_BYTES = 192 * 1024
+SEND_MAX_ITEM_BYTES = 96 * 1024
 
 SHARED_FILES_FOLDER = "shared_files"
 
