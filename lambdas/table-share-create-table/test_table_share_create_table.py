@@ -7,6 +7,7 @@ terminal/transient routing. Runnable under pytest or directly:
 python3 test_table_share_create_table.py.
 """
 
+import json
 import os
 import sys
 
@@ -50,7 +51,21 @@ _DEFINITION = {
 }
 
 
+_DEFINITION_KEY = "table-share/h/definition.json"
+
+
 def _event(definition=_DEFINITION):
+    """One Map item, with the definition staged behind its pointer (SPEC-161 FR-002).
+
+    The stub stands in for ``copy_plan.load_definition``, which is the seam the verb now
+    fetches through. It round-trips through JSON deliberately: returning the caller's own dict
+    would make the equivalence test below compare ``render(x)`` with ``render(x)`` and pass
+    however badly the real writer and reader mangled the definition in between.
+
+    No local restore: conftest's SPEC-153 FR-004 snapshot covers shared-layer module
+    namespaces, tscommon included.
+    """
+    m.copy_plan.load_definition = lambda key: json.loads(json.dumps(definition))
     return {
         "recipient": {
             "kind": "user",
@@ -64,9 +79,8 @@ def _event(definition=_DEFINITION):
             "actor": "alice",
             "source": {"database": "alice", "table": "orders"},
             "tableName": "orders_copy",
-            "tableDefinition": definition,
+            "definitionKey": _DEFINITION_KEY,
             "location": {"bucket": "user-bkt", "prefix": "alice/sales/"},
-            "objects": [{"relKey": "part-0.parquet", "size": 10}],
         },
     }
 
@@ -155,6 +169,75 @@ def test_column_comment_is_carried_and_escaped():
     }
     m.handler(_event(definition=commented), None)
     assert "`id` bigint COMMENT 'the \\'primary\\' id'" in fake.calls[0]["query"]
+
+
+def test_the_definition_is_fetched_from_the_key_on_the_request():
+    """SPEC-161 FR-002 AC1 — the verb reads a pointer, never a value on the state."""
+    fake = _setup()
+    fetched = []
+    event = _event()
+    m.copy_plan.load_definition = lambda key: (fetched.append(key) or _DEFINITION)
+
+    m.handler(event, None)
+
+    assert fetched == [_DEFINITION_KEY]
+    assert "tableDefinition" not in event["request"]
+    assert "`id` bigint, `amount` double" in fake.calls[0]["query"]
+
+
+def test_the_pointer_renders_the_same_ddl_the_inline_definition_did():
+    """SPEC-161 FR-002 AC2 — byte-identical, asserted rather than assumed.
+
+    The move is only safe if it is a pure change of transport. Rendering the SAME definition
+    through the renderer directly and through the verb's fetch-then-render path must produce
+    one string; anything the pointer did to the definition on the way (a re-serialisation that
+    reorders properties, a lost comment) shows up here as a diff and nowhere else.
+
+    The fetch stub round-trips through JSON, so this exercises the serialisation the real
+    writer and reader perform. Run over a definition with comments, projection properties and
+    SerDe parameters rather than the bare one, because those are the parts a round-trip could
+    plausibly disturb.
+    """
+    fake = _setup()
+    rich = {
+        **_DEFINITION,
+        "columns": [
+            {"name": "id", "type": "bigint", "comment": "the 'primary' id"},
+            {"name": "amount", "type": "double", "comment": "in \\ units"},
+        ],
+    }
+    recipient = _event()["recipient"]
+    inline = m.ddl.render_create_external(
+        rich,
+        recipient["database"],
+        "orders_copy",
+        f"s3://{recipient['destBucket']}/{recipient['destPrefix']}",
+    )
+
+    m.handler(_event(definition=rich), None)
+
+    assert fake.calls[0]["query"] == inline
+
+
+def test_an_unreadable_definition_fails_only_this_recipient():
+    """SPEC-161 FR-002 AC5 — no table over a partial definition, and no sibling harmed.
+
+    A TerminalError here ends the finish Map's ITEM, which is what leaves the other recipients
+    running. The assertion that matters alongside the reason is that Athena was never called:
+    a definition with no columns renders a syntactically valid CREATE over the recipient's
+    freshly-copied data, and that table reads as a success and returns nothing.
+    """
+    fake = _setup()
+    event = _event()
+    m.copy_plan.load_definition = lambda key: (_ for _ in ()).throw(
+        TerminalError("definition_unreadable", f"could not read table definition {key}: nope")
+    )
+
+    with pytest.raises(TerminalError) as excinfo:
+        m.handler(event, None)
+
+    assert excinfo.value.reason == "definition_unreadable"
+    assert fake.calls == [], "no DDL may run when the definition could not be read"
 
 
 def test_athena_terminal_failure_propagates_as_create_failed():

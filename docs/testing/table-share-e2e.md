@@ -175,6 +175,13 @@ keys + sizes, shared ignore rules incl. `_`/`.`-prefixed path segments) → enfo
 `SHARE_MAX_OBJECTS` (1000) / `SHARE_MAX_TOTAL_BYTES` (20 GiB) → emit the copy plan
 `{tableDefinition, location, objects[], partitioned}` merged over the request.
 
+> **Superseded (SPEC-161).** The caps are now `SHARE_MAX_OBJECTS` 20,000 /
+> `SHARE_MAX_TOTAL_BYTES` 1 TiB / `SHARE_MAX_OBJECT_BYTES` 10 GiB, plus two product caps on the
+> recipient count — `SHARE_MAX_TRANSFER_ITEMS` (20,000) and `SHARE_MAX_TRANSFER_BYTES` (3 TiB) —
+> and the emitted shape is
+> `{definitionKey, location, copyPlanKey, objectCount, partitioned}` — the definition
+> travels by pointer too. See the SPEC-161 section below.
+
 **Supported source shapes (v1):** base `EXTERNAL_TABLE`, flat or
 partition-projection. Terminal reasons: `source_is_view` / `source_not_external` /
 `source_catalog_partitioned` / `source_location_unsupported` (LOCATION must be
@@ -239,3 +246,135 @@ siblings; the success path ends in `RecipientSucceeded` (`{recipient, status:'ok
 > `tableDefinition` still rides inline and is now capped by `SHARE_MAX_DEFINITION_BYTES`,
 > since columns/comments/table-properties are user-controlled and a 1,000-column
 > commented table breached even after the pointer landed.
+
+> **Superseded (SPEC-161):** `tableDefinition` no longer rides inline either.
+> `inspect-source` writes it to `{admin_bucket}/table-share/{hash}/definition.json` and
+> emits `definitionKey`; `create-table` fetches it. `SHARE_MAX_DEFINITION_BYTES` still
+> exists but bounds something else now — Athena's 262,144-byte query-string quota, since
+> the definition renders into one `CREATE EXTERNAL TABLE` — and is 64 KiB, not 32.
+
+---
+
+## SPEC-161 — the caps, the wide definition, and the long run
+
+Three changes, none of them to the transfer mechanism (that is SPEC-160):
+
+- **Caps re-sized.** `SHARE_MAX_OBJECTS` 20,000 (bound: `inspect-source`'s listing
+  time), `SHARE_MAX_TOTAL_BYTES` 1 TiB (bound: one copy of the source only),
+  `SHARE_MAX_OBJECT_BYTES` 10 GiB (bound: a batch's makespan), and two **product** caps on
+  the recipient count, because every manifest item is a full copy —
+  `SHARE_MAX_TRANSFER_ITEMS` 20,000 (bound: the manifest write and the collector's
+  read-back) and `SHARE_MAX_TRANSFER_BYTES` 3 TiB (bound: the state machine's timeout).
+  `SHARE_MAX_RECIPIENTS` stays 50; `MAX_ITEMS_PER_BATCH` 50 → 8.
+- **The definition travels by pointer**, as `definitionKey`.
+- **`TimeoutSeconds` 10,800** (top-level), plus an **EventBridge `TIMED_OUT` rule** — the
+  timeout alone cannot notify anyone, because Step Functions catchers do not cover top-level
+  execution failures.
+
+### Checks
+
+1. **Unit tests** — `pytest lambdas/` covers all of it: the item-cap arithmetic and
+   its refusal detail, DDL byte-equivalence across the pointer, the unreadable-definition
+   path, the top-level timeout, the retention margin, and a fleet-wide sweep for the
+   retired refusal phrasing.
+2. **Live check (OWED).** Everything below is one signed-in session plus one CLI read.
+
+#### Fixture
+
+A source table of **several hundred part files totalling well over 20 GiB** — the case
+that motivated the arc, and the one the old caps refused twice over.
+
+```bash
+# Confirm the fixture is actually over both old caps before sharing it.
+aws s3 ls --recursive --summarize s3://<user-space-bucket>/<you>/<source-prefix>/ | tail -3
+# Expect: "Total Objects:" in the hundreds, "Total Size:" > 21474836480
+```
+
+#### 1. The share that used to be refused
+
+In the portal: **Query → the source table → Share table**, recipient `<a real user>`,
+result name `scale_check`. Submit.
+
+- Expect a **success** notification naming the recipient. Before this spec the same
+  request produced *"the source table is too large to share."*
+- The recipient signs in and queries `SELECT count(*) FROM <their-db>.scale_check` —
+  it returns the source's row count, not zero.
+
+```bash
+# The item count is in the structured log, one line per run.
+aws s3 cp s3://<admin-bucket>/logs/service=table-share/year=<Y>/month=<M>/day=<D>/data.jsonl - \
+  | grep 'transfer manifest built'
+# Expect one event carrying recipients=1 and items=<the object count>.
+```
+
+#### 2. The refusal that names the count and the cap
+
+Share the **same** table to enough recipients that `recipients × objects` exceeds
+20,000 (with ~500 objects, 41 recipients does it).
+
+- Expect a failure notification: *"Couldn't share "…": that's too many files to copy
+  to that many recipients at once. Please share to fewer recipients, or share a
+  smaller table."*
+- The **detail** — operator-facing, in the execution record and the logs, not the
+  notification — reads `N recipients x M objects is <product> transfer items (cap 20000)`.
+- Confirm **nothing was written**: the execution failed at `InspectSource`, so there is
+  no manifest and no definition for this run.
+
+```bash
+aws s3 ls s3://<admin-bucket>/table-share/ --recursive | grep -c transfer-manifest
+# Expect the count NOT to have grown from before step 2.
+```
+
+#### 3. The 100-column definition survived the pointer
+
+Share a table with **100 columns carrying comments** and projection `TBLPROPERTIES` —
+about 32 KiB serialised, which is exactly where the old cap sat.
+
+```bash
+aws glue get-table --database-name <recipient-db> --name <result-name> \
+  --query 'Table.{cols: length(StorageDescriptor.Columns), props: Parameters}'
+# Expect: cols == 100, and every projection.* property present.
+```
+
+Then confirm the comments came through, since they are the term that made the old cap
+bite:
+
+```bash
+aws glue get-table --database-name <recipient-db> --name <result-name> \
+  --query 'length(StorageDescriptor.Columns[?Comment!=`null`])'
+# Expect 100.
+```
+
+#### 4. The timeout notifies (do NOT wait 3 hours)
+
+The point of this check is the **rule and the second door**, not the clock. Waiting out a real
+3-hour timeout is not a test anyone will run, so drive it directly.
+
+```bash
+# The rule exists, matches TIMED_OUT only, and targets the notifier.
+aws events describe-rule --name <project>-prod-table-share-orchestrator-timed-out \
+  --query 'EventPattern' --output text
+# Expect detail.status == ["TIMED_OUT"] and NO "FAILED".
+
+aws events list-targets-by-rule --rule <project>-prod-table-share-orchestrator-timed-out \
+  --query 'Targets[].Arn'
+# Expect the table-share-notify-failure function ARN.
+```
+
+Then prove the handler end to end by putting a synthetic event on the default bus. It carries a
+real (expired is fine — that is the point) ID token in the SQS-shaped input:
+
+```bash
+aws events put-events --entries '[{
+  "Source": "aws.states",
+  "DetailType": "Step Functions Execution Status Change",
+  "Detail": "{\"executionArn\":\"arn:aws:states:us-east-1:ACCT:execution:M:probe\",\"stateMachineArn\":\"<state-machine-arn>\",\"status\":\"TIMED_OUT\",\"inputDetails\":{\"included\":true},\"input\":\"[{\\\"body\\\":\\\"{\\\\\\\"actor\\\\\\\":\\\\\\\"<AN ID TOKEN>\\\\\\\",\\\\\\\"source\\\\\\\":{\\\\\\\"database\\\\\\\":\\\\\\\"<you>\\\\\\\",\\\\\\\"table\\\\\\\":\\\\\\\"sales\\\\\\\"},\\\\\\\"tableName\\\\\\\":\\\\\\\"probe\\\\\\\"}\\\"}]\"}"
+}]'
+```
+
+- Expect a notification in **your own** inbox: *"the share ran for too long and was stopped. Some
+  recipients may have received part of the data…"*
+- The `stateMachineArn` in the detail must be the real one or the rule will not match — which is
+  itself worth confirming: send it once with a wrong ARN and expect **no** notification.
+- Confirm the username came from the **token**, not the body: repeat with a `username` field
+  added to the body naming someone else, and expect the notification still to arrive in yours.

@@ -1,7 +1,7 @@
 # Spec: Table Share at Scale — Raised Caps, Wide Definitions & the Long-Running Share
 
 **ID:** SPEC-161
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-10
 **Depends On:** SPEC-160 (the Distributed-Map transfer engine), SPEC-090 (caps + the copy-plan pointer), SPEC-152 (`NotifyFailure`), SPEC-157 (`TimeoutSeconds` is a top-level ASL field)
 

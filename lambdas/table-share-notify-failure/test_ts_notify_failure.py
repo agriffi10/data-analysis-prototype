@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(_HERE, "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(_HERE, "..", "table-share-common"))
 sys.path.insert(0, _HERE)
 
+import pytest
 import ts_notify_failure as nf
 from cpcommon import clients, config
 
@@ -67,7 +68,16 @@ def _event(error, actor="alice", source_table="sales"):
 # ── The failures no verb can catch (FR-004) ───────────────────────────────────
 
 
-def test_a_step_functions_timeout_still_notifies():
+def test_an_engine_error_notifies_without_leaking_its_name():
+    """An error no verb raised — no decoded reason, so the generic sentence, and never the
+    raw Step Functions name in a user's inbox.
+
+    ``States.Timeout`` is the payload here for historical reasons and is now a **stand-in for
+    any engine error**, not a scenario: SPEC-161 established that a top-level timeout bypasses
+    every catcher, so it cannot reach this door at all. The EventBridge tests below cover the
+    real timeout path. Renamed rather than deleted — the assertion is still the right one for
+    the class of error that does arrive here.
+    """
     fake = _arm()
     nf.handler(_event({"Error": "States.Timeout"}), None)
     message = fake.messages()[0]
@@ -252,6 +262,211 @@ def test_traced_is_the_outermost_and_only_decorator():
     source = inspect.getsource(nf)
     assert '@observability.traced("notify-failure")' in source
     assert "@notify.notifies_on_failure" not in source
+
+
+# ── the EventBridge door: a run the machine's own timeout stopped (SPEC-161) ──
+
+
+def _timeout_event(body=None, *, included=True, input_override=None):
+    """EventBridge's Step Functions Execution Status Change event for a TIMED_OUT run.
+
+    ``detail.input`` is the EXECUTION input, which on this plane is what the Pipe forwarded —
+    the raw SQS batch — so the body sits inside a record inside a JSON string inside the event.
+    Built here the same way rather than hand-flattened, because the nesting is the part of this
+    path most likely to be got wrong.
+    """
+    if input_override is not None:
+        raw = input_override
+    else:
+        record_body = body if body is not None else {
+            "actor": "token-for-alice",
+            "source": {"database": "alice", "table": "sales"},
+            "tableName": "sales_copy",
+        }
+        raw = json.dumps([{"body": json.dumps(record_body)}])
+    return {
+        "source": "aws.states",
+        "detail-type": "Step Functions Execution Status Change",
+        "detail": {
+            "executionArn": "arn:aws:states:us-east-1:1:execution:m:e",
+            "stateMachineArn": "arn:aws:states:us-east-1:1:stateMachine:m",
+            "status": "TIMED_OUT",
+            "input": raw,
+            "inputDetails": {"included": included},
+        },
+    }
+
+
+def _verified(monkeypatch, username="alice"):
+    """Stubs the token verification the timeout door depends on."""
+    monkeypatch.setattr(
+        nf.auth, "verified_username_ignoring_expiry", lambda token, **kw: username
+    )
+
+
+def test_a_timed_out_execution_notifies_the_verified_sender(monkeypatch):
+    """SPEC-161 FR-003 AC2 — the criterion, on the ONLY path that can deliver it.
+
+    A top-level TimeoutSeconds expiry terminates the execution outright; Step Functions
+    catchers do not cover top-level execution failures, so the machine's own NotifyFailure
+    state is unreachable here. This door is what keeps "it just never came back" unreachable.
+    """
+    fake = _arm()
+    _verified(monkeypatch)
+
+    nf.handler(_timeout_event(), None)
+
+    assert len(fake.calls) == 1
+    message = fake.messages()[0]
+    assert "sales" in message
+    assert "ran for too long" in message
+    assert json.loads(fake.calls[0]["MessageBody"])["username"] == "alice"
+
+
+def test_the_timeout_message_warns_that_data_may_be_partial(monkeypatch):
+    """Not the generic failure sentence, and the difference is advice.
+
+    A timeout is the one whole-request failure that can leave a recipient holding PART of a
+    dataset — the copy may have run and the create may not — so "just try again" would be
+    wrong. Asserted on the body the sender reads, not on the reason code.
+    """
+    fake = _arm()
+    _verified(monkeypatch)
+
+    nf.handler(_timeout_event(), None)
+
+    message = fake.messages()[0]
+    assert "part of the data" in message
+    assert "Administrator" in message
+
+
+def test_the_sender_comes_from_the_TOKEN_not_the_body(monkeypatch):
+    """The body is a queue message; its own actor field is attacker-controlled.
+
+    The `actor` field HOLDS the ID token on this plane, and the username is the verified claim
+    inside it. A body claiming to be someone else must not redirect the notification.
+    """
+    fake = _arm()
+    monkeypatch.setattr(
+        nf.auth, "verified_username_ignoring_expiry", lambda token, **kw: "alice"
+    )
+
+    nf.handler(_timeout_event({"actor": "token", "username": "mallory", "source": {}}), None)
+
+    assert json.loads(fake.calls[0]["MessageBody"])["username"] == "alice"
+
+
+def test_expiry_is_not_enforced_on_the_timeout_door(monkeypatch):
+    """By construction the token IS expired — the timeout fires hours after it was minted.
+
+    Pinned by which entry point is called, because calling the strict one would make this path
+    notify nobody, ever, and it would look like it worked.
+    """
+    _arm()
+    called = []
+    monkeypatch.setattr(
+        nf.auth,
+        "verified_username_ignoring_expiry",
+        lambda token, **kw: (called.append(token) or "alice"),
+    )
+    monkeypatch.setattr(
+        nf.auth,
+        "verified_username",
+        lambda token, **kw: pytest.fail("the strict verifier would reject every timed-out run"),
+    )
+
+    nf.handler(_timeout_event(), None)
+
+    assert called == ["token-for-alice"]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "why"),
+    [
+        ({"included": False}, "input omitted from the event"),
+        ({"input_override": ""}, "no input at all"),
+        ({"input_override": "{not json"}, "input is not JSON"),
+        ({"input_override": "[]"}, "empty SQS batch"),
+    ],
+)
+def test_an_unattributable_timeout_is_a_logged_no_op(monkeypatch, kwargs, why):
+    """Nobody can be notified, so nobody is — never a message to a guessed inbox.
+
+    EventBridge caps an event at 256 KB and Step Functions omits an input too large for it, so
+    `included: false` is a real shape, not a hypothetical.
+    """
+    fake = _arm()
+    _verified(monkeypatch)
+
+    nf.handler(_timeout_event(**kwargs), None)
+
+    assert fake.calls == [], f"notified someone despite {why}"
+
+
+def test_a_malformed_detail_notifies_nobody_and_does_not_raise(monkeypatch):
+    """Not raising is the assertion, and it is not politeness.
+
+    ``_on_execution_timed_out`` does ``event.get("detail") or {}``, which passes a truthy
+    non-dict straight through. An ``AttributeError`` on ``detail.get`` would surface as an
+    async Lambda failure, and **EventBridge retries those twice** — turning one unattributable
+    event into three invocations.
+    """
+    fake = _arm()
+    _verified(monkeypatch)
+
+    for detail in ("a string", ["a", "list"], 7):
+        event = {**_timeout_event(), "detail": detail}
+        assert nf.handler(event, None) == {}
+
+    assert fake.calls == []
+
+
+def test_an_unverifiable_token_notifies_nobody(monkeypatch):
+    """A verification failure must not fall back to the body's own claim."""
+    fake = _arm()
+
+    def _reject(token, **kw):
+        raise nf.TerminalError("unauthorized", "bad signature")
+
+    monkeypatch.setattr(nf.auth, "verified_username_ignoring_expiry", _reject)
+
+    nf.handler(_timeout_event(), None)
+
+    assert fake.calls == []
+
+
+def test_the_asl_door_still_works_and_the_two_cannot_double_notify(monkeypatch):
+    """The doors are disjoint, and it matters: matching FAILED as well as TIMED_OUT would send
+    a second notification for EVERY whole-request failure the Catch path already handles."""
+    fake = _arm()
+
+    nf.handler(_event({"Error": "States.Timeout"}), None)
+    assert len(fake.calls) == 1, "the ASL door regressed"
+
+    assert not nf._is_execution_timeout(_event({"Error": "States.Timeout"}))
+    assert nf._is_execution_timeout(_timeout_event())
+
+
+def test_the_rule_matches_timed_out_only_and_targets_this_notifier():
+    """The infra half of the criterion, read from the deployed template.
+
+    Two things would silently break it: matching FAILED too (a duplicate notification for every
+    caught failure), and pointing the target at a different function.
+    """
+    import re
+
+    tf = os.path.join(_HERE, "..", "..", "infra", "modules", "table-share", "stepfunction.tf")
+    with open(tf) as handle:
+        text = handle.read()
+
+    assert re.search(r'status\s*=\s*\["TIMED_OUT"\]', text), "the rule no longer matches TIMED_OUT"
+    assert '"FAILED"' not in text, "matching FAILED would double-notify every caught failure"
+    assert re.search(
+        r'aws_cloudwatch_event_target"\s+"execution_timed_out"\s*\{[^}]*functions\["notify-failure"\]',
+        text,
+        re.DOTALL,
+    ), "the timeout rule does not target notify-failure"
+    assert 'principal     = "events.amazonaws.com"' in text, "the rule cannot invoke the function"
 
 
 if __name__ == "__main__":

@@ -199,5 +199,92 @@ def test_the_plan_is_written_compactly(_fake_s3):
     assert json.loads(_fake_s3.puts[0]["Body"])["objects"] == OBJECTS
 
 
+# ── the cloned definition, on the same pointer discipline (SPEC-161 FR-002) ──
+
+DEFINITION = {
+    "columns": [{"name": "id", "type": "bigint"}],
+    "partitionKeys": [],
+    "tableType": "EXTERNAL_TABLE",
+    "tableProperties": {},
+}
+
+
+def test_the_definition_key_is_a_pure_function_of_the_request():
+    """It shares the PLAN's key discipline, not the manifest's, and that is the whole choice.
+
+    The definition is a clone of the source table, and the digest already covers the source
+    database and table — so two overlapping executions write byte-identical content. The
+    manifest cannot say that, which is why it alone is execution-unique.
+    """
+    assert copy_plan.definition_key(REQUEST) == copy_plan.definition_key(dict(REQUEST))
+    assert copy_plan.definition_key(REQUEST) != copy_plan.plan_key(REQUEST)
+
+
+def test_the_definition_key_sits_under_the_same_prefix_the_contracts_name():
+    """Asserted against the LITERAL — the IAM grant and the lifecycle rule both hard-code it,
+    and neither is visible from here. Sharing the prefix is why this spec adds no new rule."""
+    assert copy_plan.definition_key(REQUEST).startswith("table-share/")
+    assert copy_plan.definition_key(REQUEST).endswith("/definition.json")
+
+
+def test_definition_write_then_load_round_trips(_fake_s3):
+    key = copy_plan.write_definition(REQUEST, DEFINITION)
+
+    assert copy_plan.load_definition(key) == DEFINITION
+    assert _fake_s3.puts[0]["Bucket"] == "admin-bkt"  # the ADMIN bucket, not a user space
+
+
+def test_a_definition_replay_overwrites_the_same_object(_fake_s3):
+    first = copy_plan.write_definition(REQUEST, DEFINITION)
+    second = copy_plan.write_definition(REQUEST, DEFINITION)
+
+    assert first == second
+    assert len({(p["Bucket"], p["Key"]) for p in _fake_s3.puts}) == 1
+
+
+def test_a_throttled_definition_write_is_transient(_fake_s3):
+    _fake_s3.error = _FakeClientError("SlowDown")
+
+    with pytest.raises(TransientError):
+        copy_plan.write_definition(REQUEST, DEFINITION)
+
+
+def test_a_throttled_definition_read_is_transient(_fake_s3):
+    _fake_s3.error = _FakeClientError("SlowDown")
+
+    with pytest.raises(TransientError):
+        copy_plan.load_definition("table-share/h/definition.json")
+
+
+def test_a_missing_definition_is_terminal_for_that_recipient(_fake_s3):
+    with pytest.raises(TerminalError) as excinfo:
+        copy_plan.load_definition("table-share/nope/definition.json")
+
+    assert excinfo.value.reason == "definition_unreadable"
+
+
+@pytest.mark.parametrize(
+    "payload", [b"{not json", b"[]", b"{}", b'{"columns": []}', b'{"columns": null}']
+)
+def test_an_unusable_definition_is_terminal_not_an_empty_table(_fake_s3, payload):
+    """A definition with no columns renders a CREATE Athena ACCEPTS — over the recipient's
+    freshly-copied data. That table reads as a success and returns nothing, which is why every
+    unusable shape raises here rather than being handed on."""
+    _fake_s3.body = payload
+
+    with pytest.raises(TerminalError) as excinfo:
+        copy_plan.load_definition("table-share/h/definition.json")
+
+    assert excinfo.value.reason == "definition_unreadable"
+
+
+def test_the_definition_is_written_compactly(_fake_s3):
+    """Read once per recipient, up to SHARE_MAX_RECIPIENTS times, at up to the size cap."""
+    copy_plan.write_definition(REQUEST, DEFINITION)
+
+    assert b", " not in _fake_s3.puts[0]["Body"]
+    assert json.loads(_fake_s3.puts[0]["Body"]) == DEFINITION
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

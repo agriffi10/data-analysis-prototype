@@ -27,9 +27,15 @@ its reader belong to ``cpcommon.transfer`` — the engine is shared with the fil
 archive planes — but where table-share puts it, and what makes that key unique, is this
 plane's business and belongs beside the plan it sits next to.
 
+SPEC-161 added the third artifact, the cloned table DEFINITION, on the same pointer discipline
+and for the same reason the plan is here: it rode inline on the Map's state, it is
+user-controlled, and a wide table pushed it past the payload limit. One module owns every
+admin-bucket key this plane writes, so the request digest has one home rather than three.
+
 Attributes:
   PREFIX: Prefix inside the admin bucket, matching the lifecycle rule's filter.
   BASENAME: The plan object's basename.
+  DEFINITION_BASENAME: The cloned table definition's basename.
   MANIFEST_BASENAME: The transfer manifest's basename.
   RESULTS_FOLDER: Folder under the execution's prefix that the Distributed Map's ResultWriter
     exports into. Step Functions appends its own Map Run component below it.
@@ -46,6 +52,7 @@ from . import messages  # noqa: F401
 
 PREFIX = "table-share"
 BASENAME = "copy-plan.json"
+DEFINITION_BASENAME = "definition.json"
 MANIFEST_BASENAME = "transfer-manifest.jsonl"
 RESULTS_FOLDER = "results"
 
@@ -151,6 +158,100 @@ def plan_key(request: dict) -> str:
       None.
     """
     return f"{PREFIX}/{request_digest(request)}/{BASENAME}"
+
+
+def definition_key(request: dict) -> str:
+    """Derives the cloned definition's key, as a pure function of the request.
+
+    Shares ``plan_key``'s reasoning rather than ``transfer_manifest_key``'s, and the difference
+    is which inputs the object depends on. A definition is a clone of the source table, and the
+    digest already covers the source database and table, so two overlapping executions write
+    byte-identical content and either object is correct for either run. The manifest cannot say
+    that: its lines depend on which recipients the guard Map accepted, which is time-dependent.
+    The residual exposure is the plan's, unchanged — a source altered between the two clones,
+    where the earlier execution would create from the later snapshot.
+
+    Args:
+      request: The share request, carrying the actor, source and result name.
+
+    Returns:
+      The definition key under the admin bucket.
+
+    Raises:
+      None.
+    """
+    return f"{PREFIX}/{request_digest(request)}/{DEFINITION_BASENAME}"
+
+
+def write_definition(request: dict, definition: dict) -> str:
+    """Writes the cloned definition to the admin bucket and returns its key.
+
+    Args:
+      request: The share request, which determines the key.
+      definition: The cloned source definition.
+
+    Returns:
+      The key the definition was written to.
+
+    Raises:
+      TransientError: On a retryable S3 fault, so the caller's Retry re-runs inspect-source —
+        safe, because the key is a pure function of the request and the content is a clone of
+        a table the verb only reads.
+      ClientError: Any deterministic fault propagates.
+    """
+    key = definition_key(request)
+    body = json.dumps(definition, separators=(",", ":")).encode()
+    try:
+        clients.s3().put_object(
+            Bucket=cpconfig.ADMIN_BUCKET, Key=key, Body=body, ContentType="application/json"
+        )
+    except Exception as err:
+        errors.raise_if_transient(err, f"put {cpconfig.ADMIN_BUCKET}/{key}")
+        raise
+    return key
+
+
+def load_definition(key: str) -> dict:
+    """Reads a cloned definition back for one recipient's create.
+
+    Every unreadable shape is terminal for THAT RECIPIENT, never a partial definition handed on
+    to the renderer. A definition missing its columns would render a ``CREATE EXTERNAL TABLE``
+    with an empty column list, which Athena accepts as a syntactically valid table over the
+    recipient's freshly-copied data — a table that reads as successful and returns nothing. The
+    sibling recipients are unaffected: this raise ends the finish Map's ITEM.
+
+    Args:
+      key: The definition key.
+
+    Returns:
+      The cloned definition.
+
+    Raises:
+      TransientError: On a retryable S3 fault; the Map item's Retry re-runs it.
+      TerminalError: ``definition_unreadable`` when the object is absent, is not valid JSON, is
+        not an object, or carries no columns. inspect-source wrote it before any recipient ran,
+        so a failure here means the object is missing or corrupt, which no retry fixes.
+    """
+    try:
+        body = clients.s3().get_object(Bucket=cpconfig.ADMIN_BUCKET, Key=key)["Body"].read()
+    except Exception as err:
+        errors.raise_if_transient(err, f"get {cpconfig.ADMIN_BUCKET}/{key}")
+        raise TerminalError(
+            "definition_unreadable", f"could not read table definition {key}: {err}"
+        ) from err
+
+    try:
+        definition = json.loads(body)
+    except ValueError as err:
+        raise TerminalError(
+            "definition_unreadable", f"table definition {key} is not valid JSON: {err}"
+        ) from err
+
+    if not isinstance(definition, dict) or not definition.get("columns"):
+        raise TerminalError(
+            "definition_unreadable", f"table definition {key} carries no columns"
+        )
+    return definition
 
 
 def write(request: dict, objects: list) -> str:

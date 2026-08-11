@@ -35,20 +35,40 @@ locals {
   # table-builder's identically-named verbs on sys.modules under one
   # `pytest lambdas/` process (the tbcommon-package lesson, applied to verb modules).
   table_share_functions = {
-    "validate-authorize"  = { handler = "table_share_validate_authorize.handler", timeout = 15, memory = 256 }
-    "inspect-source"      = { handler = "table_share_inspect_source.handler", timeout = 60, memory = 512 }
+    "validate-authorize" = { handler = "table_share_validate_authorize.handler", timeout = 15, memory = 256 }
+    # SPEC-161 raised inspect-source from 60s/512MB. SHARE_MAX_OBJECTS went 1,000 -> 20,000, and
+    # this is the verb that lists them and holds the whole copy plan in memory before writing it.
+    # At S3's worst-case 1024-byte keys that plan is ~21 MB serialised (~3.4 MB at ordinary Hive
+    # keys), and the in-memory list of dicts is several times either. It fit at 512 MB, but every
+    # other cap on this plane reasons from the worst case rather than the typical one, and the two
+    # verbs either side of the Map were raised for exactly this volume.
+    "inspect-source"      = { handler = "table_share_inspect_source.handler", timeout = 120, memory = 1024 }
     "check-target-absent" = { handler = "table_share_check_target_absent.handler", timeout = 15, memory = 256 }
     "copy-objects"        = { handler = "table_share_copy_objects.handler", timeout = 900, memory = 1024 }
     "create-table"        = { handler = "table_share_create_table.handler", timeout = 300, memory = 512 }
     # SPEC-160. The two verbs either side of the Distributed Map. build-transfer-manifest reads
     # the copy plan and writes one JSONL line per (recipient x object) — S3-bound work whose
     # memory is about holding the expanded list, not about parallelism.
-    # collect-transfer-results reads the Map Run's export, which is several small objects.
-    "build-transfer-manifest"  = { handler = "table_share_build_transfer_manifest.handler", timeout = 60, memory = 512 }
-    "collect-transfer-results" = { handler = "table_share_collect_transfer_results.handler", timeout = 60, memory = 512 }
+    # collect-transfer-results reads the Map Run's export.
+    #
+    # SPEC-161 raised both from 60s/512MB, because these two ARE the binding constraint on
+    # SHARE_MAX_TRANSFER_ITEMS and the cap moved 1,000 -> 20,000. They handle the same volume in
+    # opposite directions: at S3's worst-case 1024-byte keys a transfer item is ~2.3 KB, so
+    # 20,000 items is a ~46 MB manifest to build and serialise, and the Map Run export carries
+    # every batch's input back again. Parsing that at 512 MB is where it would have died first.
+    # The memory is also the CPU dial — a 2048 MB function gets ~4x the CPU of a 512 MB one, and
+    # this is JSON work, so it buys the timeout as much as the headroom.
+    "build-transfer-manifest"  = { handler = "table_share_build_transfer_manifest.handler", timeout = 300, memory = 2048 }
+    "collect-transfer-results" = { handler = "table_share_collect_transfer_results.handler", timeout = 300, memory = 2048 }
     # SPEC-152. The notification of last resort: one decode + one SQS send, reached only
-    # on a whole-request failure path, so it takes the smallest shape any verb here has.
-    "notify-failure" = { handler = "ts_notify_failure.handler", timeout = 15, memory = 256 }
+    # on a whole-request failure path.
+    #
+    # SPEC-161 raised it 15s -> 60s. It gained a SECOND door (the EventBridge TIMED_OUT rule
+    # in stepfunction.tf), and that path does strictly more work than the ASL one: a cold-start
+    # JWKS fetch over the network plus a JWT verify before the send, because the sender has to
+    # come from the token in the timed-out execution's own input. 15s was sized for a decode
+    # and a send. The DLQ drain, which does the same verify, is at 60s for the same reason.
+    "notify-failure" = { handler = "ts_notify_failure.handler", timeout = 60, memory = 256 }
   }
 
   # Per-verb extra env, merged over the common env (lambda.tf). RESERVED FOR
@@ -100,9 +120,49 @@ locals {
   # SPEC-160 FR-002. The Distributed Map's two sizing numbers. Terraform cannot import Python,
   # so these are literals fed into the ASL — and cpcommon/transfer/config.py holds the same two
   # for the batch verb. A test asserts the pair still match, because two homes for one number is
-  # how a batch quietly grows past the 256 KB child-input limit it was sized against.
-  transfer_max_items_per_batch = 50
+  # how a batch quietly grows past the limit it was sized against.
+  #
+  # SPEC-161: the batch equals COPY_CONCURRENCY (8) on purpose. copy_batch gives one WHOLE object
+  # to each worker and copy_one part-copies serially, so a batch costs ceil(items/workers) rounds
+  # of its slowest object — a makespan, not bytes over a bandwidth. At 8 that ceiling is one
+  # round, so a batch costs one object's time. At 10 it was two rounds and 859s against a 900s
+  # Lambda timeout.
+  transfer_max_items_per_batch = 8
   transfer_map_max_concurrency = 20
+
+  # SPEC-161 FR-003. A TOP-LEVEL ASL field, not a resource argument and not a task field —
+  # the same distinction SPEC-157 settled for the table-builder. Without it a Standard
+  # workflow's ceiling is Step Functions' own default of ONE YEAR, so a wedged run simply
+  # never ends.
+  #
+  # It does NOT on its own reach NotifyFailure, and that trap is worth stating here because
+  # the state sits right there in the machine looking like it would. AWS is explicit that
+  # catchers cover Task, Parallel and Map states but NOT top-level execution failures: this
+  # timeout terminates the run outright, so no state runs and no Catch fires. The sender is
+  # told by the EventBridge TIMED_OUT rule in stepfunction.tf, which is the documented remedy
+  # and is what actually discharges SPEC-152's "it just never came back" guarantee here.
+  #
+  # 3 hours, and the arithmetic is SHARE_MAX_TRANSFER_BYTES (3 TiB) — NOT SHARE_MAX_TOTAL_BYTES.
+  # That distinction is the whole of it and two review rounds missed it: the manifest carries one
+  # item per (recipient, object) pair and every item is a full copy, so the Map moves the source
+  # once PER RECIPIENT. Sized against the 1 TiB source cap alone, this number was short by a
+  # factor of SHARE_MAX_RECIPIENTS — 50 TiB needs 3.8 hours even at the conservative rate.
+  #
+  # The denominator is a MAKESPAN, not an aggregate bandwidth, and that correction cost a fourth
+  # review round. 160 concurrent copies (transfer_map_max_concurrency x COPY_CONCURRENCY) is the
+  # rate only when every batch holds eight comparable objects; copy_batch gives one whole object
+  # to one worker and copy_one part-copies serially, so a batch dominated by one large object
+  # runs at ONE stream while seven idle. That is an ordinary mixed-size Parquet table, not a
+  # corner. The pessimistic rate is therefore transfer_map_max_concurrency x
+  # CONSERVATIVE_STREAM_BYTES_PER_SECOND = 500 MB/s, under which SHARE_MAX_TRANSFER_BYTES (3 TiB)
+  # is ~6,600s. Add the finish Map's ceil(SHARE_MAX_RECIPIENTS / MaxConcurrency 5) x create-table
+  # 300s = 3,000s and ~720s of serial verbs and the worst run is ~10,300s, inside this ceiling.
+  # A test computes all of it: the hard-coded floor that stood here first, and then the aggregate
+  # reading that replaced it, each hid a mismatch for a full round.
+  #
+  # It is deliberately not longer. The timeout is how fast a wedged share becomes a
+  # notification, so the margin is bought against the sender's silence, not for free.
+  state_machine_timeout_seconds = 10800
 
   # SPEC-160 FR-006. The Distributed Map's OWN permissions belong to the STATE MACHINE role: it
   # is the state machine that calls StartExecution for each child and that reads the ItemReader

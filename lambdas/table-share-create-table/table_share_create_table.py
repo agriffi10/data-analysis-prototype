@@ -1,12 +1,16 @@
 """create-table — the recipient Map's final verb.
 
-For one copied recipient: renders the cloned source definition as a
-``CREATE EXTERNAL TABLE IF NOT EXISTS`` with the location repointed to the recipient's own
+For one copied recipient: fetches the cloned source definition inspect-source wrote, renders it
+as a ``CREATE EXTERNAL TABLE IF NOT EXISTS`` with the location repointed to the recipient's own
 shared-tables prefix, runs it via Athena against the recipient database in the shared
 workgroup, and polls to a terminal state — the same Lake-Formation-enforced create path the
 table-builder uses. Projection properties were carried verbatim, so a partitioned clone is
 queryable immediately, and the idempotent form plus the conflict guard make a replay a no-op
 success.
+
+The definition arrives as a KEY, not as a value on the state (SPEC-161). One fetch per
+recipient is the cost, bounded by ``SHARE_MAX_RECIPIENTS``, and an unreadable one fails only
+the recipient it was fetched for.
 
 The service name is the control plane, not the function, so one share's invocations and its
 Map fan-out stay one queryable set. The per-verb identity rides as the ``verb`` field.
@@ -20,7 +24,7 @@ Attributes:
 import logging
 
 from cpcommon import athena, config, observability, results
-from tscommon import ddl, notify
+from tscommon import copy_plan, ddl, notify
 
 athena_mod = athena.bound_runner("create_failed", "create_timeout")
 
@@ -71,8 +75,9 @@ def handler(event, context) -> dict:
       The recipient and the request, threaded onward.
 
     Raises:
-      TerminalError: ``create_failed`` or ``create_timeout``, notified to the sender before the
-        per-recipient Catch records it. Sibling recipients continue.
+      TerminalError: ``definition_unreadable`` when the cloned definition cannot be fetched,
+        or ``create_failed``/``create_timeout`` from the DDL itself — each notified to the
+        sender before the per-recipient Catch records it. Sibling recipients continue.
       TransientError: On a throttling error, passed through un-notified for the SFN Retry.
     """
     recipient = event.get("recipient") or {}
@@ -81,7 +86,7 @@ def handler(event, context) -> dict:
     database = recipient.get("database")
 
     query = ddl.render_create_external(
-        request["tableDefinition"],
+        copy_plan.load_definition(request.get("definitionKey")),
         database,
         table_name,
         f"s3://{recipient['destBucket']}/{recipient['destPrefix']}",

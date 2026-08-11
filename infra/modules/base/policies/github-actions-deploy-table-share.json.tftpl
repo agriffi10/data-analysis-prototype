@@ -116,6 +116,22 @@
       "Resource": "arn:aws:iam::*:role/${project_name}-*-table-share-*"
     },
     {
+      "Sid": "TableShareTimeoutRuleManage",
+      "Effect": "Allow",
+      "Action": [
+        "events:PutRule",
+        "events:DeleteRule",
+        "events:DescribeRule",
+        "events:PutTargets",
+        "events:RemoveTargets",
+        "events:ListTargetsByRule",
+        "events:ListTagsForResource",
+        "events:TagResource",
+        "events:UntagResource"
+      ],
+      "Resource": "arn:aws:events:${aws_region}:*:rule/${project_name}-*-table-share-orchestrator-timed-out"
+    },
+    {
       "Sid": "TableShareLogs",
       "Effect": "Allow",
       "Action": [

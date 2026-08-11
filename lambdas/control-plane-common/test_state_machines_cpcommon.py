@@ -319,6 +319,10 @@ def _definition_at_cap(cap_bytes):
     Shaped like tscommon.glue.clone_definition's real output — lowercase name/type/comment
     per column plus partitionKeys, serde parameters and tableProperties — not the
     {Name, Type} pairs an earlier model used, which understated it by roughly 3x.
+
+    Kept after SPEC-161 moved the definition off the state, because it is now what shows the
+    pointer is LOAD-BEARING rather than tidy: the test below adds a worst-allowed definition
+    back to the modelled state and measures the breach.
     """
     definition = {"columns": [], "partitionKeys": [], "serde": {"parameters": {}}, "tableProperties": {}}
     while len(json.dumps(definition, separators=(",", ":")).encode()) < cap_bytes:
@@ -346,11 +350,19 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
     because measuring a part of it is how the last version came to certify a bound that did
     not exist.
 
-    FOUR things hold it: SHARE_MAX_RECIPIENTS (how many entries), errors.MAX_DETAIL_CHARS
-    (how big a Cause), SHARE_MAX_DEFINITION_BYTES (how big the cloned schema — the last
-    unbounded, user-controlled term), and the pointer (no object list at all). No single one
-    suffices: at the 32 KB Cause ceiling the records breach on their own at seven recipients,
-    and a 1,000-column commented definition breached at 150% even after the pointer landed.
+    THREE things hold it: SHARE_MAX_RECIPIENTS (how many entries), errors.MAX_DETAIL_CHARS
+    (how big a Cause), and the pointers (neither the object list nor the cloned schema is on
+    the state at all). No single one suffices: at the 32 KB Cause ceiling the records breach
+    on their own at seven recipients.
+
+    **SPEC-161 removed the fourth, and it was the one a cap could not really hold.** The
+    cloned definition used to ride inline under SHARE_MAX_DEFINITION_BYTES — a 1,000-column
+    commented definition breached at 150% even after the plan became a pointer, and the cap
+    that fixed that was tight enough to refuse a 100-column commented table, which is an
+    ordinary thing to want to share. It now travels as `definitionKey`, so the term is a
+    64-character digest path, and SHARE_MAX_DEFINITION_BYTES bounds Athena's query string
+    instead of this payload. `test_the_definition_never_returns_to_the_state` below is what
+    keeps it off.
 
     **SPEC-160 split the one Map into three states, so this now models TWO peaks.** The old
     single-peak model went stale the moment the machine grew a guard Map: a raw Cause per refused
@@ -382,16 +394,13 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
         "source": {"database": "d" * 64, "table": "t" * 64},
         "tableName": "n" * 64,
         "recipients": [{"kind": "space", "name": "s" * 64, "valid": True} for _ in range(recipients)],
-        # The cloned definition still rides INLINE, and it is USER-CONTROLLED (columns with
-        # comments, plus the source's Glue table properties, copied verbatim). An earlier
-        # version of this test modelled 300 bare {Name, Type} pairs and called it "bounded by
-        # column count" — it was not: 1,000 columns with 255-char comments reached 150% of the
-        # limit even WITH the plan by pointer. It is bounded now because inspect-source
-        # rejects an oversized definition (SHARE_MAX_DEFINITION_BYTES), so the worst case is
-        # modelled at exactly that cap rather than at a column count someone guessed.
-        "tableDefinition": _definition_at_cap(ts_config.SHARE_MAX_DEFINITION_BYTES),
+        # SPEC-161: a key, not the columns. An earlier version of this test modelled 300 bare
+        # {Name, Type} pairs and called it "bounded by column count" — it was not: 1,000
+        # columns with 255-char comments reached 150% of the limit even WITH the plan by
+        # pointer, and the cap that then bounded it was too tight for an ordinary wide table.
+        "definitionKey": "table-share/" + ("0" * 64) + "/definition.json",
         "location": {"bucket": "b" * 63, "prefix": "p" * 200},
-        # THE POINT OF PR #256: a key, not up to 1000 {relKey, size} entries.
+        # THE POINT OF PR #256: a key, not up to SHARE_MAX_OBJECTS {relKey, size} entries.
         "copyPlanKey": "table-share/" + ("0" * 64) + "/copy-plan.json",
         "objectCount": ts_config.SHARE_MAX_OBJECTS,
         "partitioned": True,
@@ -401,7 +410,9 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
             "manifestKey": "table-share/" + ("0" * 64) + "/" + ("e" * 80) + "/transfer-manifest.jsonl",
             "resultsBucket": "b" * 63,
             "resultsPrefix": "table-share/" + ("0" * 64) + "/" + ("e" * 80) + "/results",
-            "itemCount": ts_config.SHARE_MAX_OBJECTS * recipients,
+            # The product, not objects x recipients: SPEC-161's SHARE_MAX_TRANSFER_ITEMS is
+            # what bounds this, and it is smaller than the two caps multiplied together.
+            "itemCount": ts_config.SHARE_MAX_TRANSFER_ITEMS,
         },
     }
 
@@ -453,6 +464,25 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
             f"close to the {_STATE_PAYLOAD_LIMIT:,}-byte limit to be safe"
         )
 
+    # SPEC-161: the definition pointer is LOAD-BEARING, not tidiness. Put the biggest
+    # definition the caps still allow back on the same state and it fails the SAME safety bar
+    # the three peaks above just cleared — which is what makes those assertions a property of
+    # the pointer rather than of the numbers happening to be small today. Measured: the guard
+    # peak goes from ~29% of the limit to ~55% with an at-cap definition inline. Not a breach
+    # at 64 KiB, and that is the point in both directions — the old 32 KiB cap kept it under
+    # the bar only by refusing a 100-column commented table, which is an ordinary thing to
+    # share. Inline, the cap had to choose between the payload and the user.
+    with_definition = {
+        **after_guard,
+        "tableDefinition": _definition_at_cap(ts_config.SHARE_MAX_DEFINITION_BYTES),
+    }
+    inline = len(json.dumps(with_definition))
+    assert inline > _STATE_PAYLOAD_LIMIT // 2, (
+        f"an at-cap definition inline reaches only {inline:,} bytes, inside the "
+        f"{_STATE_PAYLOAD_LIMIT // 2:,}-byte bar the peaks above are held to — so this test is "
+        "no longer demonstrating why the definition travels by pointer"
+    )
+
 
 def test_the_copy_plan_never_returns_to_the_state():
     """The regression that would silently undo this change.
@@ -472,6 +502,28 @@ def test_the_copy_plan_never_returns_to_the_state():
     assert '"objects"' not in emitted, (
         "inspect-source is putting the object list back on the state — that is what pushed "
         "the Map's payload to 95% of the 256 KB limit"
+    )
+
+
+def test_the_definition_never_returns_to_the_state():
+    """SPEC-161 FR-002 AC1, as the same shape of regression guard as the plan above.
+
+    Emitting ``tableDefinition`` beside ``definitionKey`` is a one-line edit, it breaks
+    nothing visible — every recipient still gets its table, because create-table reads the
+    key — and it silently re-arms States.DataLimitExceeded on a wide table. Asserted against
+    the verb's actual output shape rather than a fixture.
+    """
+    sys.path.insert(0, os.path.join(_HERE, "..", "table-share-inspect-source"))
+    sys.path.insert(0, os.path.join(_HERE, "..", "table-share-common"))
+    import table_share_inspect_source as verb
+
+    source = inspect.getsource(verb)
+    emitted = source[source.index("return {"):]
+
+    assert '"definitionKey"' in emitted, "inspect-source must emit the definition KEY"
+    assert '"tableDefinition"' not in emitted, (
+        "inspect-source is putting the cloned definition back on the state — a 1,000-column "
+        "commented definition reached 150% of the 256 KB limit there"
     )
 
 
