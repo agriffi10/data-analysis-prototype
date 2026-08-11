@@ -6,6 +6,7 @@ vi.mock('../../lib/awsCredentials', () => ({getIdToken: vi.fn()}));
 import {getSqsClient} from '../../lib/sqsClient';
 import {getIdToken} from '../../lib/awsCredentials';
 import {enqueueFileSend} from './fileSend.service';
+import {toUserText} from '../../lib/errorMessages';
 import type {FileSendRequest} from './fileSend.types';
 
 const mockGetSqs = getSqsClient as unknown as MockedFunction<() => Promise<unknown>>;
@@ -159,6 +160,49 @@ describe('enqueueFileSend', () => {
 
     const ids = send.mock.calls.map((c) => (c[0] as Cmd).input.MessageDeduplicationId);
     expect(ids).toEqual(['req-abc', 'req-def']);
+  });
+
+  it('refuses a selection too large to start an execution, rather than letting it dead-letter', async () => {
+    // The verb enforces the same cap, but it runs in the machine's FIRST TASK — and a request
+    // too large for StartExecution never gets there, because the Pipe cannot start the
+    // execution at all. Without this the user waits for a DLQ-drain notification instead of
+    // being told now.
+    const {send} = fakeQueue();
+    const huge = Array.from({length: 200}, (_, i) => ({
+      kind: 'file' as const,
+      key: 'alice/' + '"'.repeat(600) + i
+    }));
+
+    const result = await enqueueFileSend({...req, items: huge});
+
+    expect(result.success).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    // And the wording reaches the user: without a rule in errorMessages the refusal presents
+    // as "Something went wrong", which is the one thing a fixable limit must not say.
+    if (!result.success) expect(toUserText(result.error)).toContain('too large');
+  });
+
+  it('refuses more items than the plane accepts', async () => {
+    const {send} = fakeQueue();
+    const many = Array.from({length: 201}, (_, i) => ({kind: 'file' as const, key: `alice/f${i}.csv`}));
+
+    const result = await enqueueFileSend({...req, items: many});
+
+    expect(result.success).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('sends an ordinary full selection without complaint', async () => {
+    const {send} = fakeQueue();
+    const full = Array.from({length: 200}, (_, i) => ({
+      kind: 'file' as const,
+      key: `alice/reports/2026/q1/file-${i}.csv`
+    }));
+
+    const result = await enqueueFileSend({...req, items: full});
+
+    expect(result.success).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   it('fails with a user-safe message when the queue is not configured', async () => {

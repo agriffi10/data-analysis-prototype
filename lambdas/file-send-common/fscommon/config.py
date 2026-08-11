@@ -54,6 +54,14 @@ Attributes:
     permitted a request whose execution could not start. ``test_config_fscommon`` now computes
     all three links, so a change to one without the others fails the build.
 
+    **THIS CAP CANNOT BE THE ONLY GUARD, and saying so is the honest version.** It is enforced
+    in the first Task, and a request too large for ``StartExecution`` fails before any state
+    exists to enforce it — the Pipe simply cannot start the execution. That failure is not
+    silent: the message exhausts its redrive policy, lands on this plane's DLQ, and SPEC-126's
+    drain turns it into a user notification. It is merely a worse experience than a refusal, so
+    the producer carries the same bound (``fileSend.service.ts``) and a test holds the two
+    numbers together.
+
     Checked AFTER normalisation rather than on the raw body: the item count is already bounded
     by then, so measuring the real serialised form costs nothing and measures the real thing.
   SHARED_FILES_FOLDER: The destination inbox folder, one level under the recipient's space

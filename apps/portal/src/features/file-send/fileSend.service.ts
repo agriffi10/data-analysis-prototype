@@ -3,6 +3,19 @@ import type {ServiceResult} from '../../types/service.types';
 import type {FileSendRequest, SendSourceSpace} from './fileSend.types';
 
 /**
+ * The control plane's own caps, mirrored (`fscommon/config.py`). Terraform and Python already
+ * share numbers this way on the table-share plane, and a test holds each pair together.
+ *
+ * The mirror is not belt-and-braces. `validate-authorize` enforces these in the machine's first
+ * task, and a request too large for `StartExecution` never reaches it — the Pipe cannot start
+ * the execution at all, so the message dead-letters and the sender learns about it from the DLQ
+ * drain minutes later rather than from a refusal now. Below the caps the verb is still the
+ * authority; these exist so the common case fails fast and legibly.
+ */
+const SEND_MAX_ITEMS = 200;
+const SEND_MAX_ITEM_BYTES = 96 * 1024;
+
+/**
  * The bucket a source space lives in, derived exactly as the control plane derives it
  * (`fscommon.authz.authorize_source`): personal spaces are in the user-space bucket, shared
  * spaces in the shared-space bucket. Used only to build the FIFO group id — the enqueued body
@@ -44,6 +57,14 @@ async function messageGroupId(space: SendSourceSpace): Promise<string> {
  * rather than per dialog.
  */
 export async function enqueueFileSend(req: FileSendRequest): Promise<ServiceResult<void>> {
+  const selectionBytes = new TextEncoder().encode(JSON.stringify(req.items)).length;
+  if (req.items.length > SEND_MAX_ITEMS || selectionBytes > SEND_MAX_ITEM_BYTES) {
+    return {
+      success: false,
+      error: {message: 'That selection is too large to send in one go', code: 'SelectionTooLarge'}
+    };
+  }
+
   return enqueueFifoRequest<void>({
     // Read at call time (not module load) so tests can stub the env — a module-level
     // import.meta.env const is read before vi.stubEnv runs.

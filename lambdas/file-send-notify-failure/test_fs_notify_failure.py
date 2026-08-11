@@ -38,7 +38,7 @@ def _request(error, actor="alice", raw=None):
 
 
 def _raw(token="tok"):
-    """The Pipe's forwarded batch, as CaptureRequest stores it."""
+    """The Pipe's forwarded batch, as the failure seed reads it from $$.Execution.Input."""
     return [{"body": json.dumps({"requestId": "req-1", "actor": token})}]
 
 

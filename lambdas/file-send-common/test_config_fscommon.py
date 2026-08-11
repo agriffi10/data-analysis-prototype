@@ -25,6 +25,8 @@ Attributes:
 
 import json
 import os
+import pathlib
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
@@ -303,3 +305,28 @@ def test_nothing_here_reads_the_environment():
         text = handle.read()
 
     assert "os.environ" not in text and "getenv" not in text and "_require" not in text
+
+
+def test_the_browser_mirrors_the_same_caps():
+    """Two homes for one number is how a bound quietly stops matching the thing it bounds.
+
+    The producer cannot import Python, so ``fileSend.service.ts`` restates both caps — and a
+    restatement nobody checks is worse than no guard at all, because the wrong number reads as
+    deliberate. Read as data from the TypeScript source, the way the ASL's batch size is held
+    against ``cpcommon.transfer.config``.
+    """
+    service = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "apps"
+        / "portal"
+        / "src"
+        / "features"
+        / "file-send"
+        / "fileSend.service.ts"
+    ).read_text()
+
+    declared = dict(re.findall(r"const (SEND_MAX_ITEMS|SEND_MAX_ITEM_BYTES) = ([^;]+);", service))
+
+    assert declared, "the producer no longer declares the caps under the expected names"
+    assert eval(declared["SEND_MAX_ITEMS"]) == config.SEND_MAX_ITEMS  # noqa: S307
+    assert eval(declared["SEND_MAX_ITEM_BYTES"]) == config.SEND_MAX_ITEM_BYTES  # noqa: S307

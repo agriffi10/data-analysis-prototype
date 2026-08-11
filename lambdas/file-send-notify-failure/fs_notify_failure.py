@@ -13,10 +13,10 @@ not JSON, killing the execution on precisely the failures a user most needs to h
 
 **THE SENDER USUALLY COMES FROM THE REQUEST BODY, NOT FROM THE RECORDED FAILURE.** Every
 failure this state exists for happens before a verb produced an actor, so the recorded object
-carries ``actor: null``; the machine's ``CaptureRequest`` state keeps the Pipe's original body
-reachable so the sender can be recovered from the verified token. Without that this function
-would take its no-recipient branch on every single failure — satisfied on paper, silent in
-practice.
+carries ``actor: null``; the machine's failure seed reads the Pipe's original body back from
+``$$.Execution.Input`` so the sender can be recovered from the verified token. Without that this
+function would take its no-recipient branch on every single failure — satisfied on paper, silent
+in practice.
 
 **ONE DOOR AT THIS STAGE.** Table-share's twin has a second — an EventBridge ``TIMED_OUT``
 rule — because SPEC-161 gave that machine a top-level ``TimeoutSeconds``, which terminates a
@@ -45,8 +45,8 @@ def _sender_from_raw_request(raw) -> str:
     happen before any verb produced an actor, so the recorded-failure object carries
     ``actor: null`` every time. Without this the notifier would take its no-recipient branch on
     every single failure, and SPEC-152's guarantee would read as satisfied while telling nobody
-    anything. ``CaptureRequest`` in the ASL is what keeps the body reachable to make this
-    possible.
+    anything. The ASL's failure seed reads ``$$.Execution.Input`` — the execution's own input,
+    which survives whatever the Catch did to the state — to make this possible.
 
     The token is the ONLY acceptable source of the username; the body asserts nothing about who
     sent it. Expiry is deliberately not enforced, through the separately-named entry point the
