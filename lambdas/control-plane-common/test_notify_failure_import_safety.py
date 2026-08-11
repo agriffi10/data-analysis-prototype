@@ -53,11 +53,14 @@ LAYER_ROOT = pathlib.Path(__file__).resolve().parent
 LAMBDAS = LAYER_ROOT.parent
 WORKFLOW = LAMBDAS.parent / ".github" / "workflows" / "deploy-lambdas.yml"
 
-#: The three functions SPEC-152 added, and the module Lambda loads for each.
+#: The functions SPEC-152 added, and the module Lambda loads for each. SPEC-164's file-send
+#: notifier joins them: a plane's LAST-RESORT notifier failing at import is the one failure
+#: nothing else can report, so it is exactly the function whose imports must be provable.
 NOTIFY_FAILURE_VERBS = {
     "table-builder-notify-failure": "tb_notify_failure",
     "table-share-notify-failure": "ts_notify_failure",
     "shared-space-notify-failure": "ss_notify_failure",
+    "file-send-notify-failure": "fs_notify_failure",
 }
 
 #: matrix flag -> the directory the layer publishes its contents FROM. ``layer`` is
@@ -68,6 +71,7 @@ LAYER_ROOTS = {
     "tbcommon": LAMBDAS / "table-builder-common",
     "tscommon": LAMBDAS / "table-share-common",
     "dqcommon": LAMBDAS / "data-quality-common",
+    "fscommon": LAMBDAS / "file-send-common",
     "layer": LAMBDAS / "shared-space-common",
 }
 

@@ -120,8 +120,17 @@ The sender must actually be able to read what they are sending.
       (SPEC-156); an expired, unsigned or wrong-audience token is a terminal failure.
 - [ ] `username` comes from the **verified claim** and from nowhere else.
 - [ ] A `personal` source is authorized only when its name equals the verified username.
-- [ ] A `shared` source is authorized only when the verified username is an **active** member of that
-      space in the registry — `pending`, `leaving`, absent, or a non-existent space all fail.
+- [ ] A `shared` source is authorized only when the verified username is a member of a space the
+      registry reports as **`status: "active"`** — i.e. `cpcommon.registry.is_active_member`.
+      `provisioning`, `deleting`, `failed`, a space the sender is not a member of, and a space that
+      does not exist all fail.
+      **Amended during PR3 (2026-08-11), user-confirmed.** This AC originally read "`pending`,
+      `leaving`, absent" — but `leaving` is not a status anywhere in this repo, and `pending` is the
+      per-member *join chip*, not a space status. Reading it as the chip would reverse **SPEC-073**,
+      under which the chip is display and bookkeeping only and access is granted at add time; a
+      member who has not yet acknowledged a space can already browse it, download from it and share
+      a table out of it, so refusing only the *send* would be an inconsistency with no security
+      benefit. The statuses named above are the ones that exist.
 - [ ] Every selected item's key is confirmed to sit **inside** the authorized source root. The check
       is **two rules, not one**, because either alone leaves a hole:
       (a) the root comparison is on a **trailing-slash-normalised** prefix — this is what refuses

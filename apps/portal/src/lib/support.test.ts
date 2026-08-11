@@ -7,6 +7,7 @@ import {enqueueNotificationAction} from '../features/notifications/notifications
 import {enqueueSharedSpaceRequest} from '../features/shared-spaces/sharedSpaces.service';
 import {enqueueTableBuild, enqueueTableRefresh} from '../features/table-builder/tableBuild.service';
 import {enqueueTableShare} from '../features/table-share/tableShare.service';
+import {enqueueFileSend} from '../features/file-send/fileSend.service';
 import {REQUIRED_ENV, envVar, isPortalConfigured, missingRequiredEnv, warnIfMisconfigured} from './env';
 import type {ServiceResult} from '../types/service.types';
 import protectedLayoutSource from '../components/ProtectedLayout.tsx?raw';
@@ -312,6 +313,18 @@ describe('enqueueFifo', () => {
           space: {kind: 'personal', bucket: 'bucket', prefix: 'alice/sales/', database: 'alice'},
           tableName: 'sales',
           partitionKeys: []
+        })
+    },
+    {
+      name: 'fileSend.service — enqueueFileSend',
+      envVar: 'VITE_FILE_SEND_QUEUE_URL',
+      message: 'Sending files is not configured',
+      call: () =>
+        enqueueFileSend({
+          requestId: 'req-1',
+          space: {kind: 'personal', name: 'alice'},
+          items: [{kind: 'file', key: 'alice/q1.csv'}],
+          recipients: [{kind: 'user', name: 'bob'}]
         })
     },
     {
