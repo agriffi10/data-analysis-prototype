@@ -159,6 +159,7 @@ resource "aws_s3_bucket_policy" "user_space" {
     table_builder_execution_role_arn   = var.table_builder_execution_role_arn
     table_share_execution_role_arn     = var.table_share_execution_role_arn
     data_quality_execution_role_arn    = var.data_quality_execution_role_arn
+    file_send_execution_role_arn       = var.file_send_execution_role_arn
     user_directory_build_role_arn      = var.user_directory_build_role_arn
     account_id                         = data.aws_caller_identity.current.account_id
   })

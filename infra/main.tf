@@ -98,6 +98,24 @@ locals {
   # data_lake_settings references it (LF rejects an unknown admin principal).
   data_quality_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-data-quality-execution-role"
 
+  # File-send SHARED execution role ARN (SPEC-164; one role for every verb, like every
+  # plane since SPEC-062), constructed cycle-free like the role ARNs above
+  # (module.file_send creates it as "${project}-${env}-file-send-execution-role").
+  #
+  # NOT ON THE LAKE FORMATION ADMINS LIST, and that is the difference between this plane
+  # and its three siblings: a send moves FILES. It creates no table, describes no database
+  # and runs no DDL, so it needs no catalog-wide creator designation.
+  #
+  # It IS passed to module.data, for the user-space bucket policy's principal allowlist
+  # (SPEC-164 FR-006). An explicit resource-policy Deny beats an identity-policy Allow, so
+  # a plane whose role is missing from that list is denied by the bucket however correct
+  # its own grants are — and the failure is asymmetric enough to read as a code bug: every
+  # `space` recipient works (the shared-space bucket has no bucket policy) and every `user`
+  # recipient fails AccessDenied. A constructed string rather than a module output for the
+  # usual reason, which the allowlist is precisely the shape of: an unknown-at-plan ARN
+  # inside a LIST silently drops the change.
+  file_send_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-file-send-execution-role"
+
   # Notifications-writer role ARN (SPEC-058), constructed cycle-free like the role ARNs
   # above (module.notifications creates it as "${project}-${env}-notifications-writer-role").
   # Passed to module.data so the user-space bucket policy can EXCLUDE it from the
@@ -191,6 +209,7 @@ locals {
     "${var.project_name}-${var.environment}-table-builder-requests-dlq.fifo",
     "${var.project_name}-${var.environment}-table-share-requests-dlq.fifo",
     "${var.project_name}-${var.environment}-shared-space-requests-dlq.fifo",
+    "${var.project_name}-${var.environment}-file-send-requests-dlq.fifo",
   ]
 }
 
@@ -305,6 +324,13 @@ module "data" {
   table_builder_execution_role_arn = local.table_builder_execution_role_arn
   table_share_execution_role_arn   = local.table_share_execution_role_arn
   data_quality_execution_role_arn  = local.data_quality_execution_role_arn
+
+  # SPEC-164 FR-006: the file-send execution role reads the sender's personal-space files
+  # and writes a `user` recipient's shared_files/ inbox, so it needs the same exclusion.
+  # The allowlist is hand-maintained — every future plane that touches this bucket must
+  # make this same three-part change (a variable here, the templatefile() argument, the
+  # root wiring) or be denied at runtime with nothing in the plan to warn it.
+  file_send_execution_role_arn = local.file_send_execution_role_arn
 
   # Identity Pool ID from auth — used as the portal role's trust audience and the
   # pool's authenticated-role binding. Dependency stays one-directional: data -> auth.
@@ -612,6 +638,62 @@ module "table_share" {
   # base grants the deploy role its table-share perms (SPEC-088 PR1, already
   # applied); data creates the portal role this module attaches the enqueue policy
   # to. Settle both first.
+  depends_on = [module.base, module.data]
+}
+
+# File-send control plane (SPEC-164): a DEDICATED FIFO SQS → EventBridge Pipe → Standard
+# Step Function pipeline that copies a user's files and folders into another person's or
+# space's shared_files/ inbox. The browser cannot write into another user's prefix — that
+# is the isolation model working — so sending needs a privileged path, exactly as table
+# share did.
+#
+# ITS OWN PLANE, NOT A MODE OF TABLE SHARE. The two share an ALGORITHM (cpcommon.transfer,
+# SPEC-160) and nothing else: different request contract, different authorization question,
+# different failure vocabulary. One queue and one DLQ under two unrelated user features
+# would let a malformed send dead-letter someone's table share.
+#
+# SPEC-164 is the plane + the front door (validate-authorize); nothing is listed or copied
+# yet. Decision record: docs/architecture.md (Control Planes -> Send Files).
+# Standalone-deployable: names derive from {project}-{environment} inside the module. The
+# deploy-role grants this module needs landed + applied in SPEC-164 PR1, so no in-module
+# time_sleep guard is required. NOT on the analytics LF admins list — this plane creates no
+# table and runs no DDL — so module.analytics does not depend on it.
+module "file_send" {
+  source = "./modules/file-send"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  account_id   = data.aws_caller_identity.current.account_id
+
+  # The portal role this module attaches the sqs:SendMessage enqueue policy to (by name),
+  # the Cognito pool/client validate-authorize verifies tokens with, and the admin bucket
+  # holding the shared-spaces registry (source authorization + recipient-space existence —
+  # read-only).
+  portal_role_name  = local.portal_role_name
+  user_pool_id      = module.auth.user_pool_id
+  app_client_id     = module.auth.user_pool_client_id
+  admin_bucket_name = local.athena_admin_bucket_name
+
+  # The two data buckets a send moves between. Set as env on every verb; the S3 grants on
+  # them arrive with the verbs that need them (SPEC-165 listing, SPEC-166 writing).
+  user_space_bucket_name   = local.user_space_bucket_name
+  shared_space_bucket_name = local.shared_space_bucket_name
+
+  # SPEC-152: the SPEC-058 notifications queue the pre-verb failure path emits to. The ARN
+  # scopes the execution role's sqs:SendMessage, the URL is the verbs'
+  # NOTIFICATIONS_QUEUE_URL. Constructed-string locals (known at plan, cycle-free).
+  notifications_queue_arn = local.notifications_queue_arn
+  notifications_queue_url = local.notifications_queue_url
+
+  # SPEC-136 parity: the verbs join the structured-logging pipe. From module.observability's
+  # OUTPUTS rather than reconstructed, so the FIFO `.fifo` suffix cannot drift between
+  # producer and consumer (SPEC-129).
+  logs_queue_arn = module.observability.logs_queue_arn
+  logs_queue_url = module.observability.logs_queue_url
+
+  # base grants the deploy role its file-send perms (SPEC-164 PR1, already applied); data
+  # creates the portal role this module attaches the enqueue policy to. Settle both first.
   depends_on = [module.base, module.data]
 }
 

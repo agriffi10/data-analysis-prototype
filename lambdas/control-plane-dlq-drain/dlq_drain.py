@@ -90,10 +90,19 @@ class Source:
       source: The domain segment of the queue name.
       noun: The domain word the notification uses.
       token_field: Where this domain's envelope puts the actor's ID token. Per-domain rather
-        than a constant, which looks like an inconsistency and is really a fact about the four
-        envelopes: three use one field name and table-share uses another. A single hard-coded
-        name would silently notify nobody for whichever domain it did not match, and silently is
-        precisely the failure mode this function exists to remove.
+        than a constant, which looks like an inconsistency and is really a fact about the five
+        envelopes: three use one field name and table-share and file-send use another. A single
+        hard-coded name would silently notify nobody for whichever domain it did not match, and
+        silently is precisely the failure mode this function exists to remove.
+
+        **A TOP-LEVEL KEY HOLDING THE RAW TOKEN, and that is a contract on the producers, not a
+        limitation to work around here.** Both readers are flat: ``_notify_one`` takes
+        ``body.get(token_field)`` and ``_redacted`` replaces top-level keys only. A nested token
+        would therefore fail to resolve a recipient — swallowed, so the message is deleted and
+        the user hears nothing — AND be written to CloudWatch verbatim, where the audience is far
+        wider than the queue's and an expired token is still a signed assertion about a real
+        user. SPEC-164 was amended to flatten its envelope for exactly this reason rather than
+        teach this path a second shape.
     """
 
     def __init__(self, source: str, noun: str, token_field: str):
@@ -120,6 +129,7 @@ SOURCES: dict[str, Source] = {
     "table-builder": Source("table-builder", "table", "idToken"),
     "table-share": Source("table-share", "share", "actor"),
     "shared-space": Source("shared-space", "shared space", "idToken"),
+    "file-send": Source("file-send", "file send", "actor"),
 }
 
 UNDRAINED_QUEUES = frozenset({"notifications"})
