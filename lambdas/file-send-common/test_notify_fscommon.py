@@ -48,8 +48,15 @@ def test_the_prefix_is_the_FULL_key_and_the_route_rule_says_why():
     silently sending every recipient to their space root.
     """
     route = (_PORTAL / "routes" / "FilesPage.tsx").read_text()
-    rule = re.search(r"prefixParam\.startsWith\((\w+)\.rootPrefix\)", route)
+    rule = re.search(r"prefixParam && prefixParam\.startsWith\((\w+)\.rootPrefix\)", route)
     assert rule, "the route no longer gates ?prefix= on the space's rootPrefix — re-derive the link"
+
+    # And what rootPrefix IS, from the hook that builds it — which is the half a regex over the
+    # route cannot see. Pinning only the gate leaves a rename of this value passing every
+    # assertion here while every link silently lands at the space root.
+    space = (_PORTAL / "features" / "file-browser" / "useFileSpace.ts").read_text()
+    assert "rootPrefix: `${username}/`" in space, "a personal space's root is no longer {username}/"
+    assert "rootPrefix: `${conn.database}/`" in space, "a shared space's root is no longer {name}/"
 
     for kind, name in (("user", "bob"), ("space", "finance")):
         link = notify.received_files_link(kind, name, "alice")

@@ -4,11 +4,16 @@ The last state before ``Succeeded``. It reads the terminal summary SPEC-166 shap
 into messages: one to the sender per recipient outcome, and one to each recipient who actually
 received something — a ``user`` directly, a ``space`` through its registered owner.
 
-**ONE producer, not a decorator on each verb, and that is the difference from table share.** Its
-guard, its collector and its create verb each notify from where they are, because they are the
-only place their outcome is known. Here every per-recipient outcome reaches one flat list before
-anything is said, so saying it once from one place is both possible and the only way to avoid
-telling a sender twice about one conflict. It is also why nothing upstream on this plane emits.
+**ONE producer for every PER-RECIPIENT outcome, not a decorator on each verb, and that is the
+difference from table share.** Its guard, its collector and its create verb each notify about a
+recipient from where they are, because that is the only place the outcome is known. Here every
+per-recipient outcome reaches one flat list before anything is said, so saying it once from one
+place is both possible and the only way to avoid telling a sender twice about one conflict — which
+is why the guard and the collector on this plane deliberately emit nothing.
+
+The whole-REQUEST verbs still carry ``@notifies_on_failure``, and must: a request that dies in
+validate-authorize or the manifest builder never reaches this state at all, and the machine's own
+``NotifyFailure`` suppresses a terminal error precisely because it assumes the decorator spoke.
 
 **A failed recipient is the sender's business alone.** Somebody who was never reached is not told
 that a send was attempted: they have no part in it, nothing to do about it, and being told would
@@ -61,6 +66,12 @@ def _notify(event) -> dict:
     through validate-authorize, which refuses an empty recipient list, and inventing a failure
     here would fail a send that had already worked.
 
+    **Each outcome is isolated from the next.** The emit itself already swallows — a broken queue
+    cannot raise — but composing a message and minting a link do not, and one unanticipated raise
+    partway through would drop every remaining recipient's message while the execution still
+    succeeded through the state's Catch: nothing notified and nothing recorded. That is the
+    per-item hazard ``pyproject.toml`` cites where it ignores ``PERF203`` fleet-wide.
+
     Args:
       event: The terminal summary.
 
@@ -88,7 +99,14 @@ def _notify(event) -> dict:
         return summary
 
     for outcome in recipients:
-        notify.emit_recipient_outcome(sender, outcome, item_names, object_count)
+        try:
+            notify.emit_recipient_outcome(sender, outcome, item_names, object_count)
+        except Exception:
+            logger.exception(
+                "could not notify the outcome for %s:%s; continuing with the rest",
+                outcome.get("kind"),
+                outcome.get("name"),
+            )
 
     delivered = sum(1 for outcome in recipients if outcome.get("status") == "ok")
     logger.info(

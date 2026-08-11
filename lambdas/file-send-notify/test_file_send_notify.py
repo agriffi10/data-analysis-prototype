@@ -138,6 +138,24 @@ def test_a_failed_recipient_is_told_NOTHING(sent):
     assert [user for user, _m, _l in sent] == ["alice"]
 
 
+def test_a_FAILED_space_leaves_its_owner_untold_too(sent):
+    """The owner path has its own branch, so the "a failed recipient is told nothing" rule is
+    asserted on both kinds rather than on the easy one: a space whose copy failed must not
+    announce an arrival to the person who owns it."""
+    m.handler(_summary([_failed("copy_failed", kind="space", name="finance", failed_items=3)]), None)
+
+    assert [user for user, _m, _l in sent] == ["alice"]
+
+
+def test_a_partial_delivery_is_a_failure_and_nobody_is_told_it_arrived(sent):
+    """A recipient short of even one object is ``failed`` upstream, and the rule that follows is
+    the one that matters: they are not told a send arrived, because part of one did not."""
+    m.handler(_summary([_failed("copy_failed", name="bob", failed_items=1)]), None)
+
+    assert [user for user, _m, _l in sent] == ["alice"]
+    assert "sent you" not in sent[0][1]
+
+
 def test_a_conflict_names_the_recipient_AND_the_colliding_item(sent):
     """FR-004. The item name is the one piece of context the sender can act on — and it survives
     as a FIELD from the guard, which is why that verb returns its refusals rather than raising."""
@@ -194,6 +212,24 @@ def test_the_summary_is_threaded_onward_unchanged(sent):
     assert m.handler(summary, None) == summary
 
 
+def test_one_bad_outcome_does_not_cost_the_others_their_message(sent, monkeypatch):
+    """The emit already swallows, but composing a message and minting a link do not — and one
+    raise partway through would drop every remaining recipient while the execution still
+    succeeded through the state's Catch: nothing notified and nothing recorded."""
+    real = notify.received_files_link
+
+    def _explode(kind, name, sender):
+        if name == "bob":
+            raise RuntimeError("unanticipated")
+        return real(kind, name, sender)
+
+    monkeypatch.setattr(notify, "received_files_link", _explode)
+
+    m.handler(_summary([_ok("user", "bob"), _ok("user", "carol")]), None)
+
+    assert "carol" in [user for user, _m, _l in sent]
+
+
 def test_a_non_dict_event_does_not_raise(sent):
     assert m.handler(None, None) == {}
 
@@ -209,13 +245,22 @@ def test_a_broken_QUEUE_never_fails_the_send(monkeypatch):
     """
 
     class _BrokenSqs:
+        def __init__(self):
+            self.attempts = 0
+
         def send_message(self, **kwargs):
+            self.attempts += 1
             raise RuntimeError("SQS is down")
 
-    monkeypatch.setattr(clients, "_sqs", _BrokenSqs())
+    broken = _BrokenSqs()
+    monkeypatch.setattr(clients, "_sqs", broken)
     monkeypatch.setattr(cpconfig, "NOTIFICATIONS_QUEUE_URL", "https://sqs.test/q.fifo")
 
     assert m.handler(_summary([_ok()]), None)["requestId"] == "req-1"
+    assert broken.attempts == 2, (
+        "the producer stopped trying rather than swallowing — this test would pass against one "
+        "that emitted nothing at all"
+    )
 
 
 if __name__ == "__main__":

@@ -9,6 +9,19 @@ A missed notification must never change or fail the outcome, so every emit goes 
 contract of this plane's producer: the copy has already happened by the time it runs, and a
 message is the only thing it can add.
 
+**No per-message dedup token is passed, and the queue's content-based dedup is load-bearing
+rather than incidental.** SPEC-114's rule is one token per OUTCOME, not per verb; here every
+outcome is emitted from exactly one place, so there is no duplicate-emit pair for a token to
+collapse — while the producer's own state carries a ``Retry``, and a re-invocation after a
+transient Lambda fault would otherwise send every message twice. Content dedup is what makes that
+retry safe.
+
+The cost is a real one and worth knowing: two sends that render a byte-identical sentence inside
+the queue's five-minute window collapse to one message. The reachable case is a sender who is
+refused a ``conflict``, asks the recipient to move what is there, and re-sends immediately — the
+second refusal reads identically and is dropped, so she sees no response to her second attempt.
+Inherited from table-share rather than introduced here.
+
 Attributes:
   _FILES_ROUTE: The file browser's route. The link is a PATH, never a URL — the browser's
     ``isSafeInAppPath`` rejects anything that could resolve off this origin, and this producer
