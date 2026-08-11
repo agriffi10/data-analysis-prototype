@@ -196,6 +196,29 @@ def test_a_destination_missing_any_part_of_its_identity_is_refused(root, sender,
     assert caught.value.reason == "forbidden"
 
 
+def test_the_inbox_prefix_is_the_destination_builders_own_base():
+    """SPEC-166 FR-001. The conflict guard needs the prefix WITHOUT a key — it asks what names
+    the inbox already holds — so the prefix is factored out rather than written a second time.
+    Asserted as a relationship, not as two literals: every destination this plane can build must
+    sit under the prefix its guard listed, or the guard is checking somewhere else."""
+    prefix = paths.inbox_prefix("bob/", "alice")
+
+    assert prefix.endswith("/")
+    assert paths.destination_key("bob/", "alice", "reports", "2026/q1.csv").startswith(prefix)
+    assert paths.destination_key("bob", "alice", "notes.txt", "").startswith(prefix)
+
+
+@pytest.mark.parametrize(("root", "sender"), [("", "alice"), ("/", "alice"), ("bob/", "")])
+def test_an_inbox_prefix_missing_part_of_its_identity_is_refused(root, sender):
+    """Both omissions WIDEN the prefix, which is the dangerous direction for a listing: an empty
+    sender lists every sender's inbox, and the guard would then refuse a name somebody else
+    used."""
+    with pytest.raises(TerminalError) as caught:
+        paths.inbox_prefix(root, sender)
+
+    assert caught.value.reason == "forbidden"
+
+
 def test_the_inbox_folder_is_the_named_constant():
     """FR-003 AC4. A literal repeated across verbs is a layout that can drift one verb at a
     time, so the builder must be composing the constant rather than agreeing with it."""

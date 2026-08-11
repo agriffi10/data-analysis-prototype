@@ -8,6 +8,35 @@
       "Resource": ${function_arns_json}
     },
     {
+      "Sid": "StartDistributedMapChildExecutions",
+      "Effect": "Allow",
+      "Action": "states:StartExecution",
+      "Resource": "${state_machine_arn}"
+    },
+    {
+      "Sid": "DescribeDistributedMapChildExecutions",
+      "Effect": "Allow",
+      "Action": "states:DescribeExecution",
+      "Resource": "${child_execution_arn_wildcard}"
+    },
+    {
+      "Sid": "ReadTransferManifest",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "${admin_bucket_arn}/file-send/*"
+    },
+    {
+      "Sid": "WriteTransferResults",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:ListMultipartUploadParts",
+        "s3:AbortMultipartUpload"
+      ],
+      "Resource": "${admin_bucket_arn}/file-send/*"
+    },
+    {
       "Sid": "WriteSfnLogs",
       "Effect": "Allow",
       "Action": [

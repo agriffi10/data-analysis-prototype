@@ -37,9 +37,10 @@ locals {
   # "file-send-<suffix>"); value = the handler + the task's real timeout/memory need
   # (a small validator is not a long parallel S3 copy — lambdas.md §4).
   #
-  # THREE VERBS AT THIS STAGE: SPEC-164's front door plus SPEC-165's source
-  # resolution. The per-recipient guard, the Distributed-Map copy and the real
-  # terminals are SPEC-166.
+  # SEVEN VERBS: SPEC-164's front door, SPEC-165's source resolution, and SPEC-166's
+  # guard, manifest, batch copy and attribution. Only the copy runs inside the
+  # Distributed Map; the guard runs per recipient in an inline Map, and the other four
+  # once per request.
   #
   # Every module name is plane-qualified so two planes' identically-named verbs cannot
   # collide on sys.modules under one `pytest lambdas/` process (the tbcommon-package
@@ -64,6 +65,34 @@ locals {
     # computes the plan against it, so raising SEND_MAX_OBJECTS without raising this
     # fails the build rather than the invocation.
     "inspect-source" = { handler = "file_send_inspect_source.handler", timeout = 120, memory = 1024 }
+    # SPEC-166. The per-recipient conflict guard. ONE delimited listing of the
+    # recipient's inbox, paginated — so its cost is bounded by what this SENDER has
+    # previously sent to this RECIPIENT, not by the size of the send. Even a sender
+    # with 20,000 prior items is 20 round trips; the selection only ever costs a set
+    # membership test per item. The obvious alternative, a probe per selected item,
+    # would have been 400 round trips per recipient AND could not answer the question
+    # correctly (see fscommon/inbox.py on S3's key ordering).
+    "check-target-absent" = { handler = "file_send_check_target_absent.handler", timeout = 60, memory = 256 }
+    # SPEC-166. The two verbs either side of the Distributed Map, handling the same
+    # volume in opposite directions: the manifest builder expands the copy plan into
+    # one JSONL line per (recipient x object) and serialises it, and the collector
+    # parses the Map Run's export, which carries every batch's input back again. Both
+    # are JSON work over the transfer-item cap, so memory is the CPU dial as much as
+    # the headroom — a 2048 MB function gets ~4x the CPU of a 512 MB one.
+    #
+    # THE MEMORY IS THE TRANSFER-ITEM CAP'S OTHER HALF, exactly as inspect-source's is
+    # the object cap's: fscommon/config.py sizes SEND_MAX_TRANSFER_ITEMS against this
+    # number and a test READS IT, so raising the cap without raising this fails the
+    # build rather than the invocation.
+    "build-transfer-manifest"  = { handler = "file_send_build_transfer_manifest.handler", timeout = 300, memory = 2048 }
+    "collect-transfer-results" = { handler = "file_send_collect_transfer_results.handler", timeout = 300, memory = 2048 }
+    # SPEC-166. One BATCH of transfer items per invocation, on cpcommon.transfer's
+    # bounded worker pool. 900s is not a preference: it is COPY_TIMEOUT_SECONDS, which
+    # cpcommon/transfer/config.py divides by to size MAX_ITEMS_PER_BATCH and this
+    # plane's per-object cap, and a test holds the two numbers together. No object
+    # bytes pass through the function, so the memory buys CPU for the pool's threads
+    # and nothing else.
+    "copy-objects" = { handler = "file_send_copy_objects.handler", timeout = 900, memory = 1024 }
     # SPEC-152's notification of last resort: one decode + one SQS send, reached only
     # on a whole-request failure path.
     #
@@ -117,6 +146,14 @@ locals {
   # matches the deploy-role *-file-send-* layer wildcard (modules/base) — see the
   # header note. Referenced here for documentation/parity only.
   fscommon_layer_name = "${var.project_name}-${var.environment}-file-send-common"
+
+  # SPEC-166 FR-004. The Distributed Map's OWN permissions belong to the STATE MACHINE
+  # role: it is the state machine that calls StartExecution for each child and that
+  # reads the ItemReader object and writes the ResultWriter export. Granting these to
+  # the Lambda execution role renders, applies and unit-tests green, then fails on the
+  # first real send with AccessDenied at the ItemReader — SPEC-160 FR-006's finding,
+  # inherited here rather than rediscovered.
+  child_execution_arn_wildcard = "arn:aws:states:${var.aws_region}:${var.account_id}:execution:${local.state_machine_name}:*"
 
   sfn_log_group_name = "/aws/vendedlogs/states/${local.state_machine_name}"
   sfn_log_group_arn  = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:${local.sfn_log_group_name}"
