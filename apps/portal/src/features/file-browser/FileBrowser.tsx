@@ -26,6 +26,8 @@ import {useSharedSpaceAccessRecovery} from './useSharedSpaceAccessRecovery';
 import {SelectionProvider} from './SelectionProvider';
 import {CreateTableButton} from '../table-builder';
 import {useFeature} from '../feature-flags';
+import {SendFilesDialog, useFileSend} from '../file-send';
+import {useToast} from '../../components/toastContext';
 import {useSelection, type SelectableItem} from './selectionContext';
 import type {FileSpaceTarget, FileSpaceKind} from './useFileSpace';
 import {toUserText} from '../../lib/errorMessages';
@@ -118,6 +120,19 @@ function FileBrowserContent({
   // browser, which is exactly why a per-component gating pass misses them.
   const queryEnabled = useFeature('query');
   const dataQualityEnabled = useFeature('dataQuality');
+  // SPEC-167. The send's own space is the BROWSER's space, not the current folder: the control
+  // plane resolves the source from the verified username and the space name, and a folder deep
+  // inside it is just where the selection came from.
+  const filesEnabled = useFeature('files');
+  const toast = useToast();
+  // The space NAME is the root prefix's own segment, in both kinds: `{username}/` for a
+  // personal space and `{spaceName}/` for a shared one. Taken from there rather than from
+  // `username` — which carries the same value but is named for the marker guard — because the
+  // control plane's question is "which space is this send FROM", and the prefix is that answer.
+  const send = useFileSend(
+    username ? {kind: spaceKind ?? 'personal', name: rootPrefix.replace(/\/$/, '')} : null,
+    (t) => toast.push(t)
+  );
   // `rootPrefix` is the space root, not the browsed folder: it is what tells the
   // delete/move services that a folder is the space's own `athenaresults/` rather
   // than a user folder that happens to share the name (SPEC-150 FR-007).
@@ -353,8 +368,27 @@ function FileBrowserContent({
         progressVerb="Copying"
       />
 
-      {/* Selection toolbar (SPEC-018 + SPEC-019 + SPEC-039 + SPEC-113) — select all +
-          bulk copy/move/delete + the single-item data-quality check */}
+      {/* SPEC-167. Mounted here rather than in FileBrowserDialogs because its state is this
+          component's (the selection it sends, and the space it sends from), and threading both
+          through the dialogs bundle would give that file a second reason to change. */}
+      {send.items && send.items.length > 0 && (
+        <SendFilesDialog
+          items={send.items}
+          busy={send.busy}
+          submitError={send.error}
+          onSubmit={async (recipients) => {
+            // The selection is cleared only on the way OUT of a SUCCESSFUL send — and the
+            // answer comes from the call, not from `send.error`, which in this closure is the
+            // value from before the submit. Reading it here cleared the selection under a
+            // dialog whose retry then had nothing to send (caught by the journey test).
+            if (await send.submit(recipients)) selection.clear();
+          }}
+          onCancel={send.close}
+        />
+      )}
+
+      {/* Selection toolbar (SPEC-018 + SPEC-019 + SPEC-039 + SPEC-113 + SPEC-167) — select all +
+          bulk send/copy/move/delete + the single-item data-quality check */}
       {canModify && hasContent && (
         <SelectionToolbar
           allItems={allItems}
@@ -362,6 +396,18 @@ function FileBrowserContent({
           onRequestMove={dialogs.openMove}
           onRequestCopy={dialogs.openCopy}
           onRequestQualityCheck={username && dataQualityEnabled ? dialogs.openQualityCheck : undefined}
+          onRequestSend={
+            username && filesEnabled
+              ? () =>
+                  send.open(
+                    [...selection.selected.values()].map((item) =>
+                      item.type === 'file'
+                        ? ({kind: 'file', key: item.key} as const)
+                        : ({kind: 'folder', key: item.prefix} as const)
+                    )
+                  )
+              : undefined
+          }
           isBusy={del.isBusy || move.isBusy || copy.isBusy || dl.downloadingKey !== null}
         />
       )}

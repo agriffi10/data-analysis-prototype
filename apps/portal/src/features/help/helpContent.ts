@@ -85,6 +85,23 @@ export const HELP_SECTIONS: HelpSection[] = [
         }
       },
       {
+        id: 'send-files',
+        title: 'Send files to someone',
+        subtitle: 'Hand files or folders to another person or a shared space.',
+        intro:
+          'Sometimes the quickest way to share something is to give someone a copy of it. Select what you want, pick who gets it, and the portal copies it into their space in the background — you keep your originals, and you hear back about each recipient.',
+        steps: [
+          'In the <b>Files</b> tab, tick one or more items — files, folders, or a mix — and click <b>Send to…</b>.',
+          'Choose <b>Users</b> or <b>Shared spaces</b>, then type one or more names. Names are suggested as you type, and a name that isn’t suggested is still allowed — it’s checked when the request is sent.',
+          'Click <b>Send</b>. The copy runs in the background, so you can carry on working.',
+          'Each recipient finds what you sent under <b>shared_files</b> → your username, and gets a notification with a link straight to it.'
+        ],
+        callout: {
+          kind: 'tip',
+          text: 'A send is a <b>copy</b>, and it never overwrites: you keep yours, the recipient isn’t asked to accept, and if they already have something you sent under the same name that recipient is refused — the notification tells you which item it was, so you can rename it and send again.'
+        }
+      },
+      {
         id: 'file-details',
         title: 'View file details',
         subtitle: 'Inspect a file’s name, path, size, type, and metadata.',

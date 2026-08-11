@@ -68,6 +68,7 @@ import {ManageMembersDrawer} from '../shared-spaces/ManageMembersDrawer';
 import {QueryWorkspace} from '../query/QueryWorkspace';
 import FilesPage from '../../routes/FilesPage';
 import {NotificationRow} from '../notifications/NotificationRow';
+import {SendFilesDialog} from '../file-send';
 import {HelpPage} from '../help/HelpPage';
 import {HELP_SECTIONS} from '../help/helpContent';
 import {FeatureRoute} from '../../routes/FeatureRoute';
@@ -233,6 +234,11 @@ const RECIPES: Record<string, Recipe> = {
     anchor: fileBrowserReady,
     find: byRole('button', 'Check data quality of the selected item')
   },
+  'Send selected items to someone': {
+    render: renderFileBrowser,
+    anchor: fileBrowserReady,
+    find: byRole('button', 'Send selected items to someone')
+  },
   'Refresh table': {
     render: async () => {
       renderWithProviders(
@@ -353,6 +359,19 @@ const RECIPES: Record<string, Recipe> = {
     },
     find: byRole('link', 'Data quality check finished')
   },
+  'Shared spaces recipient kind in the send dialog': {
+    render: () => {
+      renderWithProviders(
+        <SendFilesDialog
+          items={[{kind: 'file', key: 'alice/notes.txt'}]}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+        {auth: authenticated('alice'), seedFeatureFlags: false}
+      );
+    },
+    find: byRole('radio', 'Shared spaces')
+  },
   'Received files link on a notification': {
     render: () => {
       renderWithProviders(
@@ -403,7 +422,8 @@ const RECIPES: Record<string, Recipe> = {
   'Tables help section': helpRecipe('tables'),
   'Shared connections help section': helpRecipe('shared-connections'),
   'Check data quality guide': helpRecipe('check-data-quality'),
-  'Past data quality checks guide': helpRecipe('past-data-quality-checks')
+  'Past data quality checks guide': helpRecipe('past-data-quality-checks'),
+  'Send files guide': helpRecipe('send-files')
 };
 
 /**
@@ -537,7 +557,9 @@ describe('the registry itself', () => {
         'Go to Dashboard',
         'Files help section',
         // NOT in the spec's table — SPEC-167's link, recorded in its delivery doc.
-        'Received files link on a notification'
+        'Received files link on a notification',
+        'Send selected items to someone',
+        'Send files guide'
       ],
       query: [
         'Query',
@@ -559,7 +581,8 @@ describe('the registry itself', () => {
         'Shared databases in the schema rail',
         'Shared spaces as a move destination',
         'Shared connections help section',
-        'Received files link to a space on a notification'
+        'Received files link to a space on a notification',
+        'Shared spaces recipient kind in the send dialog'
       ],
       dataQuality: [
         'Data quality',
