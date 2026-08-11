@@ -41,6 +41,7 @@ describe('useFileSend', () => {
     await act(async () => hook.result.current.submit([{kind: 'user', name: 'bob'}]));
 
     const {message} = notify.mock.calls[0][0];
+    expect(message).toMatch(/requested/i);
     expect(message).toMatch(/notification/i);
     expect(message).not.toMatch(/\bsent\b/i);
   });

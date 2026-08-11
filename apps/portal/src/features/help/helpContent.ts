@@ -94,7 +94,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'In the <b>Files</b> tab, tick one or more items — files, folders, or a mix — and click <b>Send to…</b>.',
           'Choose <b>Users</b> or <b>Shared spaces</b>, then type one or more names. Names are suggested as you type, and a name that isn’t suggested is still allowed — it’s checked when the request is sent.',
           'Click <b>Send</b>. The copy runs in the background, so you can carry on working.',
-          'Each recipient finds what you sent under <b>shared_files</b> → your username, and gets a notification with a link straight to it.'
+          'What you sent lands under <b>shared_files</b> → your username in their space. A person you sent to gets a notification with a link straight to it; for a shared space, its <b>owner</b> is the one notified.'
         ],
         callout: {
           kind: 'tip',

@@ -13,7 +13,8 @@ The pipeline as it stands:
 ```
 Browser → SQS (FIFO requests.fifo) → EventBridge Pipe (batch 1) → Step Function (Standard)
    ValidateAuthorize → Validated → InspectSource → GuardRecipients → BuildTransferManifest
-        → HasTransferItems → [TransferObjects] → CollectTransferResults → ShapeSummary → Succeeded
+        → HasTransferItems → [TransferObjects] → CollectTransferResults → ShapeSummary
+        → NotifyOutcomes → Succeeded
         (validate failure     → ValidateFailureSeed ─┐)
         (any later failure    → RequestFailureSeed  ─┴→ RecordFailure → NotifyFailure → Failed)
         (execution timeout    → EventBridge TIMED_OUT rule → notify-failure, second door)
@@ -47,8 +48,9 @@ Resource names (defaults; `dat`/`prod`):
 | DLQ | `dat-prod-file-send-requests-dlq.fifo` (swept by the SPEC-126 drain) |
 | Pipe | `dat-prod-file-send-pipe` |
 | State machine | `dat-prod-file-send-orchestrator` |
-| Verb Lambdas | `dat-prod-file-send-{validate-authorize,inspect-source,check-target-absent,build-transfer-manifest,copy-objects,collect-transfer-results,notify-failure}` |
+| Verb Lambdas | `dat-prod-file-send-{validate-authorize,inspect-source,check-target-absent,build-transfer-manifest,copy-objects,collect-transfer-results,notify,notify-failure}` |
 | fscommon layer | `dat-prod-file-send-common` (attached to every verb but `copy-objects`, beside `cpcommon`) |
+| Outcome producer | `dat-prod-file-send-notify` — the ONLY thing that notifies about a recipient |
 | Timeout rule | `dat-prod-file-send-orchestrator-timed-out` (EventBridge → `notify-failure`) |
 | Execution role | `dat-prod-file-send-execution-role` (ONE shared role) |
 | Copy plans | `s3://dat-prod-athena-admin/file-send/{requestId}/copy-plan.json` |
@@ -514,41 +516,85 @@ lands the recipient on what arrived.
 
 **Safari**, because that is the browser this project is used in and the one its tooling is not.
 
-Runs against the deployed app, signed in. You need the same three users and one shared space as
-checks 7–10, and `bob`'s inbox clear (`aws s3 rm --recursive
-"s3://dat-prod-user-space/bob/shared_files/alice/"`, from an identity on the allowlist).
+Runs against the deployed app, signed in as `alice`.
+
+### Before you start
+
+- **Three real users** (`alice`, `bob`, `carol`) and **one shared space `finance` that alice does
+  NOT own** — an owner who is also the sender gets two messages for one outcome (their own
+  outcome and the arrival), which changes every count below. Find the owner:
+  `aws s3 cp s3://dat-prod-athena-admin/shared-spaces/finance.json - | python3 -m json.tool`.
+- **A fixture, freshly staged** — checks 7–10's cleanup deletes it, so stage it again:
+
+  ```bash
+  mkdir -p /tmp/fs-ui && printf 'row\n' > /tmp/fs-ui/q1.csv
+  aws s3 sync /tmp/fs-ui "s3://dat-prod-user-space/alice/reports/"
+  printf 'hello\n' | aws s3 cp - "s3://dat-prod-user-space/alice/notes.txt"
+  ```
+
+- **Empty inboxes**, so a pass cannot be a leftover:
+
+  ```bash
+  for who in bob carol; do aws s3 rm --recursive "s3://dat-prod-user-space/$who/shared_files/alice/"; done
+  aws s3 rm --recursive "s3://dat-prod-shared-space/finance/shared_files/alice/"
+  ```
+
+  (All of these need an identity on the user-space bucket's allowlist — see the note at the top.)
 
 ### Check 11 — the send, at both widths
 
-1. Sign in as `alice`, open **Files**, and tick a **folder** and a **file**.
+1. Open **Files** and tick the **folder `reports`** and then the **file `notes.txt`**. Tick the
+   folder FIRST: the conflict in check 12 names the first item **in selection order**.
 2. At **desktop**: the toolbar shows **Send to…** beside Copy / Move / Delete. Click it.
-3. The dialog names what is being sent by **item name** with a count — not the full key.
+3. The dialog names what is being sent by **item name** with a count (`Sending 2 items`,
+   `reports/`, `notes.txt`) — not the full key.
 4. Type `bo` under **Users**: suggestions appear. Commit `bob`. Switch to **Shared spaces**, type
    `fin`: suggestions appear **under this kind too** (that is SPEC-146's directory read and
    SPEC-158's connections source, both live). Commit `finance`.
 5. Several chips must still leave **Send** reachable — scroll the dialog body, not the page.
 6. Send. The dialog closes, the selection clears, and the toast says the send was **requested**.
-7. Repeat the whole thing at **400px** (Safari's responsive design mode): the control is
-   **icon-only** and the dialog is usable — the chip list wraps and the footer stays put.
+7. Now the same at **400px** (Safari's responsive design mode), and **stop before Send**: the
+   control is **icon-only**, and the dialog is usable — the chip list wraps and the footer stays
+   put. Cancel out. Sending again here would make every count in check 12 wrong, because a repeat
+   is a conflict.
 
-### Check 12 — what each party is told, and where the link goes
+### Check 12 — what each party is told, and where each link goes
 
-Within a minute or two of check 11:
+Within a minute or two:
 
 - **alice** has **two** notifications, one per recipient, each naming the recipient and the count.
 - **bob** (sign in as bob) has one naming alice, the items and the count. **Click it.** It must
   land in `shared_files/alice/` **with the files there** — not at his space root. That is the whole
   check: the prefix is minted in Python and honoured by a TypeScript route rule, and the failure
   mode is a link that looks like it worked.
-- **finance's owner** has one saying it went to their SPACE. No other member of `finance` has
-  anything.
+- **finance's owner** (sign in as them) has one saying it went to their SPACE. **Click that one
+  too** — it carries `?space=finance` as well as the prefix, and it is the riskier of the two: with
+  the space parameter unread the browser resolves the personal space and silently drops the prefix.
+  It must land in `finance/shared_files/alice/`.
+- No other member of `finance` has anything.
 
-Then **send the same selection again** to `bob` and one new user. alice gets a `conflict`
-notification **naming the item** (`reports`), the new user receives everything, and nothing under
-`bob/shared_files/alice/` changed.
+Then, as alice, **send the same two items again** to `bob` **and** `carol`:
+
+- alice gets a `conflict` for bob **naming the item** — `reports`, the first one selected — and a
+  success for carol.
+- carol has everything; **nothing under `bob/shared_files/alice/` changed**.
+
+### Clean up
+
+```bash
+for who in bob carol; do aws s3 rm --recursive "s3://dat-prod-user-space/$who/shared_files/alice/"; done
+aws s3 rm --recursive "s3://dat-prod-shared-space/finance/shared_files/alice/"
+aws s3 rm --recursive "s3://dat-prod-user-space/alice/reports/"
+aws s3 rm "s3://dat-prod-user-space/alice/notes.txt"
+```
 
 ### What this discharges, and what it does not
 
-Passing 11–12 discharges SPEC-167's Phase 4, and with checks 7–10 the whole arc. It does **not**
-touch the flag-off states (the registry test walks all four surfaces in both states offline) or the
-timeout door.
+Passing 11–12 discharges SPEC-167's Phase 4, and with checks 7–10 the whole send-files arc. It does
+**not** touch:
+
+- **The flag-off states.** All five gated surfaces are walked in both states by
+  `gatedSurfaces.test.tsx`, which renders the real pages rather than re-implementing the gate.
+- **The timeout door**, for the reason check 10 gives.
+- **A notification that could not be minted a link.** `received_files_link` returns `None` rather
+  than guessing, and no name the pipeline produces reaches that branch.

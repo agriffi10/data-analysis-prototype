@@ -14,7 +14,7 @@ every outcome and the recipient that something arrived, with a link that lands t
   **`fscommon.paths.inbox_label`** — `shared_files/{sender}/` as a person reads it.
 - **`features/file-send/`** — `SendFilesDialog`, `useFileSend` (the service shipped in SPEC-164).
 - **`SelectionToolbar`** — **Send to…** beside Copy / Move / Delete.
-- **Four `GATED_SURFACES` rows** and a **Help guide**.
+- **Five `GATED_SURFACES` rows** and a **Help guide**.
 - **Three PRs**: the producer (#428), the browser (#429), then completion (#430).
 
 ## One producer, and why nothing upstream emits
@@ -50,8 +50,10 @@ would have stayed green through exactly the rename it existed to catch.
 **The link is feature-gated too**, and that was a review finding rather than a design: with
 `files` off it was a live anchor into the unavailable page, and with `sharedWorkspaces` off the
 space-owner link silently resolved the personal space and dropped the prefix — the failure FR-005
-exists to prevent, reachable from flag state alone. `NotificationRow`'s single hard-coded prefix
-is now a map, with registry rows for both.
+exists to prevent, reachable from flag state alone. `NotificationRow`'s single hard-coded
+prefix test is now a map of flag→match, with registry rows for both. (One arm is a substring test
+on `?space=`, not a prefix: the space variant differs from the user one in its query, not its
+path.)
 
 ## What the reviews caught that the tests did not
 
@@ -84,6 +86,9 @@ Every one of these was live, and none was visible to the suite as written:
   the button again, and nothing at all happens. The trade is a first send that reached SQS but
   whose response was lost being retried as a new request — which the conflict guard then refuses
   per recipient, telling the sender. The spec's AC text is amended to match.
+- **The success toast says the send was REQUESTED** (FR-003 AC3), not that it was sent. The plane
+  copies in the background and every outcome arrives as a notification; "sent" would be a lie for
+  the minutes a large send takes and simply wrong for one that conflicts.
 - **The dialog shows item names and a count, not the object count.** The browser does not know how
   many objects a folder holds; the expansion is inspect-source's. The notification carries the
   real number.
@@ -96,8 +101,9 @@ Every one of these was live, and none was visible to the suite as written:
 
 - **`NotificationRow`** gates a MAP of link prefixes rather than one hard-coded `/data-quality`.
 - **`SelectionToolbar`** takes an optional `onRequestSend`.
-- **`cpcommon.clients`** gained `sfn()` (SPEC-166's timeout door, landed in this arc's PR1).
-- **Four registry rows**: the toolbar control, the guide, and the two notification links.
+- **Five registry rows**: the toolbar control, the guide, the two notification links, and the
+  dialog's own `Shared spaces` toggle — a SECOND instance of a surface whose only existing row
+  renders the share dialog, so nothing would have noticed if this one stopped being gated.
 
 ## Live check (owed)
 
