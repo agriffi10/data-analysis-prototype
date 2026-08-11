@@ -89,16 +89,20 @@ the Pipe's **v5 (deterministic) execution names** are derived *per message*; **a
 settle that and should not be attempted** (see `architecture.md` → *Control Planes → The shared
 pattern*, which records the working probe and why redrive is the wrong tool).
 
-**The feature-flags arc (162 → 163) is COMPLETE (2026-08-11), and it owes ONE live check — a
-single signed-in Safari pass at 400px and desktop.** Script: `docs/testing/feature-flags-e2e.md`.
-Publish `environments.prod = {"query": false, "dataQuality": false}`, confirm both tabs are gone
-from **the topbar AND the hamburger**, `/query` renders the unavailable page **not the 404**, the
-file browser offers neither "Create table" nor "Check quality", Help lists neither guide — then
-flip both back on and confirm everything returns **with no Deploy App run**. **That last step is
-the only thing that discharges SPEC-162 FR-007's runtime half** (that `VITE_ENVIRONMENT` reached
-the bundle): every other step passes identically with the variable unset, because an unset
-environment resolves the same `defaults` and still reports `ready`. **Also confirm the 200 on
-`_config/feature-flags.json`** — 162's own owed check, same pass.
+**The feature-flags arc (162 → 163) is COMPLETE and its live check is DISCHARGED (2026-08-11).**
+Setting `environments.prod` to `{"query": false, "dataQuality": false}` hid both features in the
+deployed app — tabs gone at desktop and in the 400px hamburger, `/query` on the unavailable page
+rather than the 404, no "Create table" and no "Check quality", and neither guide in Help — and
+**Publish Config restored it with no app build in either direction**. **That one observation
+discharges 162's FR-009 and FR-007 too**: the fallback is all-on, so an app that CHANGES can only
+have read the document successfully, and a `prod` block taking effect proves `VITE_ENVIRONMENT`
+reached the bundle. **Two caveats worth carrying.** The override was applied to the published
+object **by hand**, so the browser half is exercised and the *pipeline* half was confirmed
+separately by a `workflow_dispatch` (run 31495622199) — a hand-edit also opens a **git↔bucket
+drift** that the next `config/**` merge would silently overwrite, and the dispatch is the cheap way
+to reconcile it. And `_config/` being unlistable in the file browser was **not** checked; IAM's
+prefix-conditioned `ListBucket` is the mechanism and a test pins it, so the SPA lists are
+belt-and-braces.
 
 **Two arcs remain filed as Draft (2026-08-10) — authored, not started.** **164→167** send files/folders to another person's
 personal or shared space (its own control plane; destination `shared_files/{sender}/`; push, never

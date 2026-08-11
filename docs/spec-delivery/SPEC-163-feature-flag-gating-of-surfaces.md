@@ -118,11 +118,15 @@ Local, all green: `npm run lint` (the SPEC-155 `components/` → `features/` rul
 the nav components take a prop rather than a hook), `format:check`, `npm run build` (`tsc -b`),
 `npm run test:coverage` — **73 files / 1849 tests**.
 
-**Live check (owed), Safari — see `docs/testing/feature-flags-e2e.md` → *SPEC-163*.** Publish a
-document with `query` and `dataQuality` off; confirm at 400px and desktop that both tabs are
-gone from the topbar and the hamburger, `/query` renders the unavailable page rather than the
-404, the file browser offers neither "Create table" nor "Check quality", and Help lists neither
-guide. Then flip both back on and confirm everything returns **without an app redeploy** — which
-is also what finally discharges **SPEC-162 FR-007's runtime half** (that `VITE_ENVIRONMENT`
-reached the bundle), owed since 162 and not dischargeable until a flag could visibly hide
-something.
+**Live check DISCHARGED (2026-08-11), Safari.** With `environments.prod` set to
+`{"query": false, "dataQuality": false}`, all four observations held: both tabs absent from the
+topbar; `/query` rendered the unavailable page rather than the 404; the file browser offered
+neither "Create table" nor "Check quality"; and at 400px the hamburger dropped both destinations
+while `/help` listed neither the Query nor the Tables section. Restored by a `workflow_dispatch`
+on **Publish Config** (run 31495622199) — **no app build in either direction**, which is FR-003's
+"a flag change is a publish, not a redeploy" observed rather than argued.
+
+It also discharges **SPEC-162's** two owed checks in the same pass — see that delivery doc for what
+the evidence does and does not prove, and for the one caveat: the override was applied to the
+published object by hand, so the browser half is fully exercised and the pipeline's upload was
+confirmed separately by the dispatch.
