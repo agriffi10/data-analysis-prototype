@@ -1,5 +1,5 @@
 {
-  "Comment": "File-send control plane (SPEC-164 front door, SPEC-165 source resolution, SPEC-166 the transfer). validate-authorize verifies the ID token into the actor, authorizes the SOURCE the sender is sending FROM, confirms every selected item sits inside that source root, and annotates each recipient as reachable or not; inspect-source expands that selection into a copy plan in the admin bucket, enforces the transfer caps and threads back only the plan's key, the object count and the byte total. The recipient work then splits in three, exactly as table-share's does and for the same reasons: a GUARD Map (check-target-absent per recipient, per-item Catch so one conflict never aborts a sibling), a TOP-LEVEL DISTRIBUTED MAP copying every (recipient x object) pair from a JSONL manifest, and collect-transfer-results attributing item failures back to recipients. ShapeSummary carries the per-recipient terminal SPEC-167 notifies from. The two FailureSeeds/RecordFailure/NotifyFailure are the SPEC-152 whole-request failure path, present from day one because a plane that ships without it leaves 'it just never came back' reachable for the user. TWO seeds, because the two failure windows differ: before the actor exists the error REPLACES the state and the request survives only in $$.Execution.Input, while after it the catch merges under a ResultPath and the verified actor is already on the state. Both must supply $.raw, which RecordFailure reads unconditionally and which no post-validate state carries. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
+  "Comment": "File-send control plane (SPEC-164 front door, SPEC-165 source resolution, SPEC-166 the transfer). validate-authorize verifies the ID token into the actor, authorizes the SOURCE the sender is sending FROM, confirms every selected item sits inside that source root, and annotates each recipient as reachable or not; inspect-source expands that selection into a copy plan in the admin bucket, enforces the transfer caps and threads back only the plan's key, the object count and the byte total. The recipient work then splits in three, exactly as table-share's does and for the same reasons: a GUARD Map (check-target-absent per recipient, per-item Catch so one conflict never aborts a sibling), a TOP-LEVEL DISTRIBUTED MAP copying every (recipient x object) pair from a JSONL manifest, and collect-transfer-results attributing item failures back to recipients. ShapeSummary carries the per-recipient terminal, and NotifyOutcomes is the plane's only outcome producer (SPEC-167) — one message per outcome, from one place, which is why no verb upstream emits one. The two FailureSeeds/RecordFailure/NotifyFailure are the SPEC-152 whole-request failure path, present from day one because a plane that ships without it leaves 'it just never came back' reachable for the user. TWO seeds, because the two failure windows differ: before the actor exists the error REPLACES the state and the request survives only in $$.Execution.Input, while after it the catch merges under a ResultPath and the verified actor is already on the state. Both must supply $.raw, which RecordFailure reads unconditionally and which no post-validate state carries. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
   "TimeoutSeconds": ${state_machine_timeout_seconds},
   "StartAt": "ValidateAuthorize",
   "States": {
@@ -305,6 +305,37 @@
         "objectCount.$": "$.objectCount",
         "recipients.$": "$.outcomes"
       },
+      "Next": "NotifyOutcomes"
+    },
+    "NotifyOutcomes": {
+      "Type": "Task",
+      "Comment": "SPEC-167 FR-004/FR-005. The plane's ONLY outcome producer: one message to the sender per recipient outcome, and one to each recipient who actually received something (a user directly, a space through its registered owner). It runs on the summary rather than inside the Maps because that is what makes it possible to say each thing once — and it is why no verb upstream emits. ResultPath is null so the execution's output stays the terminal the machine shaped: the notifier threads the summary back, but the state is what ShapeSummary decided. Its Catch goes straight to Succeeded, and that direction is deliberate: the copy has already happened, so a missed notification must never turn a delivered send into a failed execution.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${notify_function_arn}",
+        "Payload.$": "$"
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.notifyError",
+          "Next": "Succeeded"
+        }
+      ],
       "Next": "Succeeded"
     },
     "RequestFailureSeed": {

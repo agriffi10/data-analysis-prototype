@@ -99,6 +99,11 @@ locals {
     # table-share's locals only; one file, one plane.) No object bytes pass through the
     # function, so the memory buys CPU for the pool's threads and nothing else.
     "copy-objects" = { handler = "file_send_copy_objects.handler", timeout = 900, memory = 1024 }
+    # SPEC-167. The plane's only outcome producer: at most one registry read plus a
+    # handful of SQS sends, bounded by SEND_MAX_RECIPIENTS. Sized like every other
+    # notifier on the fleet — the work is network-bound and small, and it must not be
+    # the reason a delivered send reports failure.
+    "notify" = { handler = "file_send_notify.handler", timeout = 60, memory = 256 }
     # SPEC-152's notification of last resort: one decode + one SQS send, reached only
     # on a whole-request failure path.
     #

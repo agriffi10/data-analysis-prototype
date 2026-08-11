@@ -38,7 +38,9 @@ resource "aws_sfn_state_machine" "file_send" {
     build_transfer_manifest_function_arn  = aws_lambda_function.functions["build-transfer-manifest"].arn
     copy_objects_function_arn             = aws_lambda_function.functions["copy-objects"].arn
     collect_transfer_results_function_arn = aws_lambda_function.functions["collect-transfer-results"].arn
-    guard_map_max_concurrency             = local.guard_map_max_concurrency
+    # SPEC-167.
+    notify_function_arn       = aws_lambda_function.functions["notify"].arn
+    guard_map_max_concurrency = local.guard_map_max_concurrency
     # Mirrored from cpcommon/transfer/config.py; a test holds the two together.
     transfer_max_items_per_batch = local.transfer_max_items_per_batch
     transfer_map_max_concurrency = local.transfer_map_max_concurrency

@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 from cpcommon import messages as cpmessages
 from cpcommon.errors import TerminalError
-from fscommon import config, messages
+from fscommon import config, messages, paths
 
 #: Every reason code the layer or a verb raises today. Listed rather than derived from the
 #: table, because the point is to catch a raise site whose code was never added TO the table.
@@ -126,6 +126,47 @@ def test_a_conflict_says_nothing_was_overwritten():
     text = messages.failure_message("conflict", kind="user", name="bob", tokens={"itemName": "notes.txt"})
 
     assert "nothing was overwritten" in text
+
+
+def test_a_success_names_the_recipient_the_items_and_the_count():
+    """SPEC-167 FR-004. Both numbers, because either alone misleads: "1 thing" for a 3,000-file
+    folder, or "3,000 files" for something the recipient will find under one name."""
+    text = messages.success_message("user", "bob", ["reports", "notes.txt"], 301)
+
+    assert 'user "bob"' in text
+    assert '"reports"' in text and '"notes.txt"' in text
+    assert "301 files" in text
+
+
+def test_a_long_selection_is_summarised_rather_than_listed():
+    """A notification is a sentence, not a manifest — and the item cap is 200."""
+    text = messages.success_message("user", "bob", [f"item{n}" for n in range(20)], 20)
+
+    assert "and 18 more" in text
+    assert "item19" not in text
+
+
+def test_one_file_reads_as_one_file():
+    assert "(1 file)" in messages.success_message("user", "bob", ["notes.txt"], 1)
+
+
+def test_the_recipient_is_told_where_to_look():
+    """The destination is the one thing they cannot guess, and it comes from the layout module
+    rather than from this table — a sentence that drifted from the keys would send people looking
+    in the wrong place."""
+    text = messages.recipient_message("alice", ["reports"], 300)
+
+    assert text.startswith("alice sent you")
+    assert paths.inbox_label("alice") in text
+
+
+def test_the_space_owner_is_told_it_was_their_SPACE():
+    """They did not receive it personally, and the wording must not suggest they did — they are
+    hearing about it because they own the space."""
+    text = messages.space_owner_message("alice", "finance", ["reports"], 300)
+
+    assert 'your space "finance"' in text
+    assert paths.inbox_label("alice") in text
 
 
 def test_no_body_carries_a_raw_key_or_aws_text():
