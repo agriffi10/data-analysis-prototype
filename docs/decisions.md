@@ -1438,3 +1438,148 @@ fails `AccessDenied`. The change is three parts — a variable in `modules/data`
 unknown-at-plan ARN inside a list silently drops the change.
 `lambdas/test_user_space_bucket_allowlist.py` pins it three ways and was verified against a
 deliberate omission.
+
+---
+
+### A received file lands in `shared_files/{sender}/`, and one function builds every key (SPEC-165)
+
+**Decision.** Everything a sender sends lands at
+`{targetRoot}shared_files/{sender}/{itemName}[/{relKey}]`, computed by a single
+`fscommon.paths.destination_key`, with `shared_files` a named constant and a test sweep forbidding
+any verb from composing its own.
+
+**Why namespaced by sender.** This is what a recipient sees forever, and it is the decision with
+the longest half-life in the arc — a layout is not something a later spec can quietly change, since
+files are already sitting in it. Mirroring `shared_tables/{table}/` buys three things at once: two
+senders sending `reports/` never collide, provenance is visible in the file browser with no
+metadata lookup and no second request, and the recipient's own top level stays theirs rather than
+accumulating a folder per sender's whim.
+
+**Why the destination is keyed by ITEM NAME, and what that forces.** The alternative — preserving
+the sender's path — leaks their folder structure into someone else's space and makes the
+destination depend on where a file happened to live, so `alice/deep/nested/q1.csv` and
+`alice/q1.csv` would arrive differently for no reason the recipient can see. Keying by name means
+`a/reports/` and `b/reports/` would interleave into one folder, so that selection is a
+**whole-request refusal naming the collision** — as is a selection where one item contains another
+(copying the object twice and silently dropping one are both worse than a clear refusal). A
+**repeated** item collapses instead: there is one right answer and no ambiguity about intent.
+
+**A repeat is `(kind, key)`, and the key alone is not enough.** validate-authorize normalises a
+`folder` key to a trailing slash and leaves a `file` key exactly as it arrived, so
+`{"file","alice/reports/"}` and `{"folder","alice/reports"}` reach the expansion as one key with
+two kinds. Collapsing on the key kept whichever came first: the file reading sent one zero-byte
+placeholder and **none of the folder's contents**, reporting success, with the outcome depending on
+the order of a JSON list. That is precisely the silent drop this rule exists to prevent, arriving
+through the one part of it that was supposed to be safe.
+
+**Why one builder.** The destination tests can only ever prove the ONE builder is right; a verb
+concatenating its own would pass every one of them while writing somewhere else, and the symptom
+would be files in the wrong inbox rather than an error. The sweep reads the AST for a
+`shared_files` literal or an f-string composing the constant, exempting docstrings and the
+declaration **by node identity** — an earlier version skipped the `Expr` and not its `Constant`
+child, and flagged two module docstrings. Verified against four deliberate violations, including
+one placed after a docstring.
+
+### The file-send exclusion rule is anchored at the space root, not the listing prefix (SPEC-165)
+
+**Decision.** `fscommon.expand` carries its own ignore predicate — folder placeholders, the prefix
+marker, and `{root}athenaresults/` — and `cpcommon.s3_listing.list_data_objects` grew an optional
+`ignore` parameter rather than being forked or reused as-is.
+
+**Why not reuse `is_ignored`.** Every rule in it is anchored at the **listing prefix**. That is
+right for the three analytics planes, which list a table's or a check's own folder, and wrong here:
+the listing prefix is whichever item the user picked. Sending `alice/reports/` would have dropped a
+user-made `alice/reports/athenaresults/` — which SPEC-164 explicitly records as an ordinary
+sendable folder — and any `_drafts/`, with **no refusal and no message**. A silent drop from a send
+that reports success is worse than either copying it or refusing it. The hidden-segment rule also
+exists because *Athena* ignores such paths, which says nothing about a byte-for-byte file copy.
+
+**Why a parameter rather than a second paginator.** The pagination genuinely is shared, and it is
+the part a fixture proves least — the 1,000-key boundary is where a truncated listing returns a
+plausible smaller number rather than an error. One paginator, and a plane whose exclusions are
+anchored elsewhere says so at the call site. The default is byte-identical for the three existing
+callers, held by a test in both directions.
+
+**Two consequences, both deliberate.** A genuinely **empty file is sent** — `is_ignored` drops
+every zero-byte object, and a folder placeholder is excluded by its trailing slash instead, the
+shape `createFolder` actually writes — so an **empty subfolder does not survive a send**. And the
+`athenaresults/` exclusion has **no live path** through the shipped front door, because
+validate-authorize refuses a root selection outright; it is written anyway, for the reason SPEC-164
+gave for writing that rule as containment rather than equality.
+
+**`user_settings/` is excluded too, and it is NOT in the spec's list.** Narrowing the analytics set
+to the three rules FR-001 AC4 names would have dropped it without anyone deciding to: it holds the
+sender's notification inbox and shared-space connections cache, `protectedFolders.ts` hides it
+everywhere in the browser, and — unlike the two rules this plane deliberately does not reuse —
+anchoring it at the space root preserves the exclusion with **zero** false positives. Narrowing an
+exclusion set is a decision; this one had not been made, only inherited by omission.
+
+**The exclusions apply to a selected FILE as well as to a listing**, and applying them only to the
+listing was a real defect. Nothing upstream filters a `file` item — validate-authorize normalises a
+*folder* key to a trailing slash and leaves a file key untouched — so naming `{root}DO_NOT_DELETE.txt`
+as a file copied the prefix marker into someone's inbox, and naming a folder *as a file* copied its
+zero-byte placeholder as a file. AC4 says excluded from the copy set; it does not say "when they
+turn up in a listing".
+
+### The expansion caps are sized by memory and makespan, and the obvious models miss both (SPEC-165)
+
+**Decision.** `SEND_MAX_OBJECTS` = 20,000 and `SEND_MAX_TOTAL_BYTES` = 1 TiB, each computed by a
+test. The per-object cap and the recipient product cap are **deferred to SPEC-166**, not omitted.
+
+**What sizes the object cap is the plan in memory, not the listing.** `inspect-source` holds the
+whole plan as a list of dicts, serialises it and encodes that — three live copies at the write. At
+S3's worst-case 1024-byte keys an entry is ~2.4 KB, so 20,000 objects is ~45 MB and peaks near
+135 MB, against the 1024 MB in `locals.tf` **which the test reads back**: raising the cap without
+raising the memory fails the build.
+
+**And the timeout half is where a page-counting model goes wrong.** Twenty `ListObjectsV2` pages is
+four seconds and reads like the whole answer. The term it drops is that a `file` item costs its own
+**serial** `HeadObject`, so 200 files is 200 round trips and forty. The bound is per-ITEM plus
+per-PAGE, the item half dominates, and an assertion pins that so a future reader re-derives rather
+than trusts it.
+
+**The byte cap is a makespan, not a bandwidth.** `cpcommon.transfer` hands one whole object to each
+worker and part-copies serially inside one, so the denominator is
+`MAP_MAX_CONCURRENCY × CONSERVATIVE_STREAM_BYTES_PER_SECOND` — 500 MB/s, not the ~4 GB/s the same
+constants suggest under an aggregate reading. That is the mistake SPEC-161 found twice, in review
+rounds, after it read as satisfied both times.
+
+**Why two caps are deferred rather than guessed, and why BOTH need a tripwire.** The per-object
+cap and the `recipients × bytes` product are measured against the copy verb's
+`COPY_TIMEOUT_SECONDS` and the machine's top-level `TimeoutSeconds`, and this machine has neither.
+The copy plan already carries every object's size, so SPEC-166 enforces both with no second listing
+and still before any byte moves.
+
+**The per-object gap is the one that undermines a passing test, and it first shipped in prose
+only.** 500 MB/s is reachable only when the bytes are spread across the worker pool; ONE object is
+ONE worker at 25 MB/s, so the makespan test certifies the **distributed** case and a single 1 TiB
+object is **43,980 s** — four times over the ceiling it compares against. That is table-share's
+recorded shape word for word ("while `SHARE_MAX_TOTAL_BYTES` was 20 GiB the bound was implicit …
+raising the total to 1 TiB removed it without anything replacing it"), and this plane *starts* at
+1 TiB. Both gaps now carry a `hasattr` tripwire that **fails the day SPEC-166 adds the cap**, and
+the arithmetic is kept as an assertion so 166 inherits the size of the problem rather than
+re-deriving it.
+
+### A post-identity failure needs its own seed, and the fleet guard cannot see it (SPEC-165)
+
+**Decision.** The file-send machine carries **two** failure seeds. `InspectSource`'s catch uses
+`ResultPath: "$.error"` and routes to `InspectFailureSeed`, which supplies `raw` from
+`$$.Execution.Input` and the actor from `$.actor`.
+
+**Why not route the catch straight to `RecordFailure`,** which is what every other plane does. This
+plane's `RecordFailure` reads `$.raw`, and `raw` exists on **no** post-validate state — SPEC-164
+deliberately did not thread the request through, because the Pipe record carries the selection
+again as an escaped string. A Pass state's JSONPath hard-fails on an absent key with an uncatchable
+`States.Runtime`, so the direct route kills the execution **before** `NotifyFailure`: the sender
+hears nothing, on exactly the failures SPEC-152 exists to report.
+
+**Why the fleet guard does not cover it.**
+`test_a_failure_seed_supplies_every_key_the_failure_terminal_reads` identifies a seed
+**structurally**, as a Pass whose `error.$` is `"$"` — the shape a catch has when the error
+*replaced* the state. A catch carrying a `ResultPath` produces `"$.error"` instead, and the fleet
+walk skips it entirely. Widening that detection is a fleet-wide change to a guard, on five machines,
+and was **rejected as out of scope for this spec**; the plane's own suite compensates with a walk
+that derives from the machine what Step Functions actually leaves on the state at each catch
+(`ResultPath: "$.x"` ⇒ the task's input plus `x`; no `ResultPath` ⇒ nothing addressable). Verified
+by mutation — and the first version of that walk **passed vacuously** on the exact mutation it
+existed for, because it treated the catch target as a seed instead of as a reader.
