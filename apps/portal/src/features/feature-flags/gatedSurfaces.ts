@@ -45,8 +45,7 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
   files: [
     {name: 'Files', kind: 'nav', path: '/files'},
     {name: '/files', kind: 'route', path: '/files'},
-    // Only the SIGNED-IN visitor's control. The unauthenticated landing page gates nothing
-    // and never waits on the document (FR-007) — it offers sign-in, which no flag touches.
+    // Signed-in visitors only — the signed-out page gates nothing (FR-007).
     {name: 'Go to Dashboard', kind: 'control', path: '/'},
     {name: 'Files help section', kind: 'guide', path: '/help', helpId: 'files'}
   ],
@@ -55,9 +54,7 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: '/query', kind: 'route', path: '/query'},
     // In the FILE BROWSER, not the Query workspace. The one everyone forgets.
     {name: 'Create table', kind: 'control', path: '/files'},
-    // These three sit inside a route the flag already removes, so gating them is belt to the
-    // route's braces. Kept because the registry's job is to name every way IN — a later spec
-    // that surfaces "Share table" from the file browser inherits the row rather than the bug.
+    // Belt to the route's braces: a later spec surfacing these elsewhere inherits the row.
     {name: 'Refresh table', kind: 'control', path: '/query'},
     {name: 'Share table', kind: 'control', path: '/query'},
     {name: 'Create view', kind: 'control', path: '/query'},
@@ -71,14 +68,13 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: '/connections', kind: 'route', path: '/connections'},
     {name: 'Your spaces navigation', kind: 'control', path: '/files'},
     {name: 'Add members', kind: 'control', path: '/connections'},
-    // The recipient-KIND choice, not the dialog. With the flag off the dialog still shares to
-    // users; it simply stops offering spaces, and drops the toggle rather than rendering a
+    // The recipient-KIND choice, not the dialog: it drops the toggle rather than rendering a
     // one-option control (FR-005).
     {name: 'Shared spaces', kind: 'control', path: '/query'},
-    // NOT in the spec's contract table — added deliberately (see the delivery doc). Shared
-    // databases in the Query schema rail are a shared-workspace surface too, and leaving them
-    // visible while the spaces list is hidden reads as a bug rather than as a policy.
+    // The last two are beyond the spec's contract table — see the delivery doc. Hiding the
+    // rail alone left both the schema rail and the move/copy WRITE path open.
     {name: 'Shared databases in the schema rail', kind: 'control', path: '/query'},
+    {name: 'Shared spaces as a move destination', kind: 'control', path: '/files'},
     {name: 'Shared connections help section', kind: 'guide', path: '/help', helpId: 'shared-connections'}
   ],
   dataQuality: [
@@ -88,8 +84,9 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // page becomes an existence oracle for someone else's report (SPEC-113's rule).
     {name: '/data-quality/:space/:requestId', kind: 'route', path: '/data-quality/:space/:requestId'},
     {name: 'Check data quality of the selected item', kind: 'control', path: '/files'},
-    // Two guides inside the FILES section, which is why the registry gates guides
-    // individually and not only whole sections.
+    // Named by the contract table and gated by nothing until review said so.
+    {name: 'Data quality link on a notification', kind: 'control', path: '/notifications'},
+    // Inside the FILES section — which is why guides are gated individually, not by section.
     {name: 'Check data quality guide', kind: 'guide', path: '/help', helpId: 'check-data-quality'},
     {name: 'Past data quality checks guide', kind: 'guide', path: '/help', helpId: 'past-data-quality-checks'}
   ]

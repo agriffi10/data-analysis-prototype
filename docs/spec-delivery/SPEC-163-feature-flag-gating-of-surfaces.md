@@ -9,18 +9,19 @@ feature.
 - **The primitives.** `useFeature(key)` (boolean), `<FeatureGate flag>` (renders nothing when
   off — no wrapper, no `hidden`), and `useFeatureSet()` for the three consumers that need the
   whole set plus `status`.
-- **The registry.** `gatedSurfaces.ts` — 26 rows across four flags, each naming the surface's
+- **The registry.** `gatedSurfaces.ts` — 27 rows across four flags, each naming the surface's
   **accessible name**, its kind and its owning route, plus `hiddenHelpIds()` and
   `NAV_PATH_FLAGS` derived from it.
 - **The walking test.** `gatedSurfaces.test.tsx` renders every row twice — flag off, flag on —
-  and asserts by accessible name. 54 assertions, both directions.
+  and asserts by accessible name. 58 assertions, both directions.
 - **Nav.** `PrimaryNav` and `AppNavDrawer` take an `isPathEnabled` predicate; `Header` supplies
   the same one to both.
 - **Routes.** `FeatureRoute` + `FeatureUnavailablePage`; every gated route keeps its path and
   swaps its element.
 - **Cross-feature entry points.** Create table and Check quality in the file browser; Refresh /
-  Share table and Create view in the Query surfaces; the spaces rail and `?space=` on Files; the
-  Share-table kind toggle; the Help list.
+  Share table and Create view in the Query surfaces; the spaces rail, the move/copy destination
+  list and `?space=` on Files; the Share-table kind toggle; the data-quality link on a
+  notification; the Help list.
 
 ### Deliberate deviations
 
@@ -31,8 +32,9 @@ feature.
   into `useFeatureFlags`, which is what FR-001 is trying to prevent. **A tripwire test now
   asserts no module outside `features/feature-flags/` names `useFeatureFlags` at all** — a
   stronger boundary than the spec asked for, and the raw hook is internal.
-- **The gating contract gained a row: shared databases in the Query schema rail** (your call,
-  asked before building). Leaving `teamspace` browsable while the spaces list and `/connections`
+- **The gating contract gained three rows.** *Shared databases in the Query schema rail* (your
+  call, asked before building); *shared spaces as a move/copy destination* and the data-quality
+  start dialog's space list (found in review — hiding the rail alone left the write path open). Leaving `teamspace` browsable while the spaces list and `/connections`
   are gone reads as a bug rather than a policy. **Filtered at the view, never at the service** —
   `useConnections` still resolves every space, and a saved query naming a hidden database still
   runs, because a flag may not touch a service (SPEC-162 FR-006).
@@ -62,7 +64,39 @@ feature.
 - **Help tests, landing a11y, `schemaUi` a11y and the Share-dialog a11y tests** now compose the
   provider stack, because the components they render read the flags.
 
-## Two things the tests caught that review would have had to
+## What the fresh-context review caught, and what it cost
+
+The review ran mutation experiments rather than reading, and found four real defects. All are
+fixed; each is worth recording because the same shape will recur.
+
+- **Two registry rows were gated by the TEST's own copy of the gate.** `Your spaces navigation`
+  and `Shared databases in the schema rail` rendered test-local host components that
+  re-implemented `useFeature(...) ? <Sidebar/> : null`. **Measured:** deleting both real gates
+  in `FilesPage` and `QueryWorkspace` left the whole suite green. Both recipes now render the
+  **real pages**, and the same mutation now fails exactly those two rows. A recipe that
+  re-implements the gate asserts that `useFeature` works — which nothing doubts.
+- **`sharedWorkspaces: false` still let a user WRITE into a shared space.** The rail was hidden
+  but `destinations` was not filtered, so Move/Copy still offered a space selector — and the
+  data-quality start dialog still listed shared spaces. Both are now filtered at the view and
+  registered.
+- **The dev-unauth path was a permanent spinner.** `useFeatureFlags` reported `'loading'`
+  whenever there was no user, so with the no-AWS local workflow `FeatureRoute` never stopped
+  rendering its neutral state. It now distinguishes **three** auth states: still resolving is
+  `'loading'`; settled-with-no-user is `'fallback'`, because a session with no credentials
+  genuinely has the compiled-in defaults in force.
+- **The walk's "off" half asserted before the flags resolved.** `useFeature` reports `false`
+  while loading, so `waitFor`'s first attempt landed at the one moment every surface is
+  legitimately absent. Recipes now carry an `anchor` (something present regardless of the flag)
+  and absence is asserted **once, after settling** — and `Go to Dashboard` is matched exactly,
+  not by the `/^Go to /` prefix that was also matching the correct "Go to Query".
+
+One reviewer finding was **not** this spec's to fix: a `?space=` deep link lists the personal
+space before the shared one on a cold load. That is the **connections cache** resolving after
+first paint (SPEC-052/057), not the flags. What SPEC-163 owed was not becoming a *second* cause
+of it, so `FilesPage` ignores `?space=` only once the flag answer is known — and the test says
+exactly that rather than over-claiming.
+
+## Two things the tests caught before review did
 
 - **The report-route "no S3 request" assertion was vacuous twice over** — the mock pointed at
   `dataQuality.service` when `getQualityReport` lives in `dataQualityReport.service`, and the
@@ -82,7 +116,7 @@ of scope repo-wide). What DID change is that guides now appear conditionally, wh
 
 Local, all green: `npm run lint` (the SPEC-155 `components/` → `features/` rule still passes —
 the nav components take a prop rather than a hook), `format:check`, `npm run build` (`tsc -b`),
-`npm run test:coverage` — **73 files / 1843 tests**.
+`npm run test:coverage` — **73 files / 1849 tests**.
 
 **Live check (owed), Safari — see `docs/testing/feature-flags-e2e.md` → *SPEC-163*.** Publish a
 document with `query` and `dataQuality` off; confirm at 400px and desktop that both tabs are

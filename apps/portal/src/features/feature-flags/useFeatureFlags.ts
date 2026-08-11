@@ -35,7 +35,7 @@ export type UseFeatureFlagsResult = {
  * if (!flags.query) return null;
  */
 export function useFeatureFlags(): UseFeatureFlagsResult {
-  const {user} = useAuth();
+  const {status: authStatus, user} = useAuth();
   const environment = envVar('VITE_ENVIRONMENT');
   // The document is bucket-wide, so nothing about the session changes what is fetched — but
   // reading it still needs credentials, and a fetch issued before there are any is a
@@ -53,13 +53,26 @@ export function useFeatureFlags(): UseFeatureFlagsResult {
     queryFn: async (): Promise<FeatureFlags> => unwrap(await getFeatureFlags(environment))
   });
 
-  const status: FeatureFlagsStatus = !enabled
-    ? 'loading'
-    : query.isPending
+  // THREE auth states, not two, and collapsing them is how the dev-unauth path became a
+  // permanent spinner. A session with no user has nothing to read the document WITH, so the
+  // compiled-in defaults are genuinely in force — that is `'fallback'`, which is what it is
+  // for. Reporting `'loading'` there means `FeatureRoute` renders its neutral state forever,
+  // which is exactly what the dev-unauth local workflow produced: a documented no-AWS path
+  // that never rendered the file browser at all.
+  //
+  // Only auth STILL RESOLVING is `'loading'`. Treating that as fallback instead would show
+  // every gated surface and then take them away a tick later once the real read began —
+  // the flicker FR-007 exists to prevent, arriving by the other door.
+  const status: FeatureFlagsStatus =
+    authStatus === 'loading'
       ? 'loading'
-      : query.isError
+      : !enabled
         ? 'fallback'
-        : 'ready';
+        : query.isPending
+          ? 'loading'
+          : query.isError
+            ? 'fallback'
+            : 'ready';
   const flags = query.data ?? FEATURE_FLAG_DEFAULTS;
 
   useDevDiagnostic(status, environment);

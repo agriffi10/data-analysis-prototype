@@ -28,6 +28,18 @@ vi.mock('../data-quality/dataQualityReport.service', async (importActual) => ({
   ...(await importActual<typeof import('../data-quality/dataQualityReport.service')>()),
   getQualityReport: vi.fn().mockResolvedValue({success: false, error: {message: 'no report'}})
 }));
+vi.mock('../file-browser/fileBrowser.service', async (importActual) => ({
+  ...(await importActual<typeof import('../file-browser/fileBrowser.service')>()),
+  ensurePrefixMarker: vi.fn().mockResolvedValue({success: true}),
+  listFiles: vi.fn(),
+  getObjectMetadata: vi.fn(),
+  getDownloadUrl: vi.fn()
+}));
+vi.mock('../file-browser/fileBrowser.download', () => ({triggerBrowserDownload: vi.fn()}));
+vi.mock('../shared-spaces/sharedSpaces.service', () => ({
+  readSharedConnectionsCache: vi.fn(),
+  enqueueSharedSpaceRequest: vi.fn().mockResolvedValue({success: true, data: {requestId: 'r1'}})
+}));
 vi.mock('../../lib/awsCredentials', () => ({
   getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}}),
   getIdToken: vi.fn().mockResolvedValue({success: true, data: 'id-token'})
@@ -39,6 +51,10 @@ import LandingPage from '../../routes/LandingPage';
 import DataQualityReportPage from '../../routes/DataQualityReportPage';
 import {HelpPage} from '../help/HelpPage';
 import {getQualityReport} from '../data-quality/dataQualityReport.service';
+import {listFiles} from '../file-browser/fileBrowser.service';
+import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
+import {UploadQueueProvider} from '../file-browser';
+import FilesPage from '../../routes/FilesPage';
 
 const ALL_ON: FeatureFlags = {files: true, query: true, sharedWorkspaces: true, dataQuality: true};
 const opts = {auth: authenticated('alice'), seedFeatureFlags: false} as const;
@@ -82,6 +98,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -321,5 +338,72 @@ describe('FR-001 — one sanctioned door', () => {
     const offenders = outside.filter(([, source]) => /\buseFeatureFlags\b/.test(source)).map(([path]) => path);
 
     expect(offenders).toEqual([]);
+  });
+});
+
+describe('FR-005 — the ?space= deep link with shared workspaces off', () => {
+  // The mechanism the AC calls out by name, and it shipped with no coverage of its own until
+  // review said so. The point is the DIFFERENCE from `fellBack`: a space that cannot be
+  // resolved raises "That shared space is no longer available", which would be a false
+  // statement about a space that is perfectly fine and returns the moment the flag flips.
+  it('resolves to the personal space, with no banner and no shared-bucket read', async () => {
+    vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-space');
+    vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-space');
+    vi.mocked(readSharedConnectionsCache).mockResolvedValue({
+      success: true,
+      data: {version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]}
+    } as never);
+    vi.mocked(listFiles).mockResolvedValue({
+      success: true,
+      data: {files: [], folders: [], nextToken: undefined}
+    } as never);
+    withFlags({sharedWorkspaces: false});
+
+    renderWithProviders(
+      <UploadQueueProvider>
+        <FilesPage />
+      </UploadQueueProvider>,
+      {...opts, route: '/files?space=teamspace'}
+    );
+
+    await screen.findByRole('button', {name: 'New folder'});
+    await waitFor(() => expect(listFiles).toHaveBeenCalled());
+
+    const buckets = vi.mocked(listFiles).mock.calls.map((call) => call[0]);
+    expect(buckets).not.toContain('shared-space');
+    expect(screen.queryByText(/no longer available/i)).not.toBeInTheDocument();
+  });
+
+  it('DOES resolve the space when the flag is on — the control for the assertion above', async () => {
+    vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-space');
+    vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-space');
+    vi.mocked(readSharedConnectionsCache).mockResolvedValue({
+      success: true,
+      data: {version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]}
+    } as never);
+    vi.mocked(listFiles).mockResolvedValue({
+      success: true,
+      data: {files: [], folders: [], nextToken: undefined}
+    } as never);
+    withFlags({});
+
+    renderWithProviders(
+      <UploadQueueProvider>
+        <FilesPage />
+      </UploadQueueProvider>,
+      {...opts, route: '/files?space=teamspace'}
+    );
+
+    await waitFor(() => {
+      const buckets = vi.mocked(listFiles).mock.calls.map((call) => call[0]);
+      expect(buckets).toContain('shared-space');
+    });
+    // NOT asserted here: that the personal space is never listed first. It is — but because
+    // the CONNECTIONS cache resolves after the first paint (`useFileSpace` falls back to
+    // personal while `isLoading`), which predates this spec and belongs to SPEC-052/057.
+    // What SPEC-163 owes is that the FLAGS never become a second cause of it, which is why
+    // `FilesPage` ignores `?space=` only once the flag answer is known rather than while it
+    // is in flight. Measuring the flags' contribution separately is what this control is for.
+    expect(vi.mocked(listFiles).mock.calls.length).toBeLessThanOrEqual(2);
   });
 });

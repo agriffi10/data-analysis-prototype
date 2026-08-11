@@ -45,7 +45,11 @@ describe('useFeatureFlags — status', () => {
       seedFeatureFlags: false
     });
 
-    expect(result.current.status).toBe('loading');
+    // 'fallback', not 'loading': a session with no user has nothing to read the document
+    // WITH, so the compiled-in defaults really are in force. Reporting 'loading' there left
+    // the dev-unauth path rendering a permanent spinner behind every gated route.
+    expect(result.current.status).toBe('fallback');
+    expect(result.current.flags).toEqual(FEATURE_FLAG_DEFAULTS);
     expect(getFeatureFlags).not.toHaveBeenCalled();
   });
 

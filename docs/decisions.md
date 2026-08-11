@@ -1328,6 +1328,33 @@ rather than a policy. **Filtered at the VIEW, never at the service:** `useConnec
 fetches every space, and a saved query naming a hidden database still RUNS. Hiding a surface is
 not revoking access, and the grants are untouched.
 
+**A REACH-RECIPE THAT RE-IMPLEMENTS THE GATE PROVES NOTHING, and two of them did.** The rows for
+the Files spaces rail and the Query rail's shared databases originally rendered test-local host
+components carrying their own `useFeature(...) ? … : null`. Measured in review: deleting BOTH
+real gates left all 1843 tests green. Recipes now render the real page, and the same mutation
+fails exactly those two rows. The rule generalises — a recipe may drive the app but may never
+restate the condition under test.
+
+**The off-half must be asserted AFTER settling, never inside `waitFor`.** `useFeature` reports
+`false` while the flags resolve, so a retry loop's first attempt lands at the one moment every
+surface is legitimately absent — and an ungated surface that merely renders asynchronously
+passes. Each recipe carries an `anchor` (something present regardless of the flag) and absence
+is asserted once. The same review found the paired sloppiness: `Go to Dashboard` was matched by
+`/^Go to /`, which also matches the "Go to Query" the page correctly renders with Files off.
+
+**`useFeatureFlags` distinguishes THREE auth states, not two.** Still-resolving is `'loading'`;
+**settled with no user is `'fallback'`**, because a session with no credentials genuinely has
+the compiled-in defaults in force. Collapsing the two made the documented no-AWS local workflow
+a permanent spinner behind every gated route — `FeatureRoute` never left its neutral state.
+Going the other way (treating still-resolving as fallback) would show every gated surface and
+take it away a tick later, which is the flicker FR-007 exists to prevent.
+
+**Hiding a surface is not hiding a WRITE PATH, and the first pass missed that.** With shared
+workspaces off, the spaces rail was gone but the move/copy destination picker still offered a
+space selector and the data-quality start dialog still listed shared spaces — so a user could
+still paste a file into `marketing_data`. Both are now filtered at the view and registered. A
+row is "a way in", not "a button".
+
 **Test-harness consequence, and it bit before it was understood.** Gating made every gated
 surface wait on a fetch, so `renderWithProviders` now seeds the flags all-on by default
 (`seedFeatureFlags`, opt-out) — the same answer production reaches when the document is

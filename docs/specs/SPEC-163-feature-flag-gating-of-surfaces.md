@@ -50,11 +50,16 @@ instance of a rule rather than a one-off.
 |---|---|
 | `files` | `/files` route; Files tab + drawer item; the **"Go to Dashboard"** control an already-signed-in visitor sees on the landing page (the *unauthenticated* landing page has no gated surface — see FR-007) |
 | `query` | `/query` route; Query tab + drawer item; **"Create table from this folder"** in the file browser; **"Refresh table"**, **"Share table"** and **create-view** in the Query schema rail; any "open in Query" link elsewhere |
-| `sharedWorkspaces` | `/connections` route; Connections tab + drawer item; the spaces list in the Files sidebar and mobile drawer; the `?space=` deep link (falls back to personal); **Add members**; the **Shared spaces** recipient kind in the Share-table dialog; **shared databases in the Query schema rail** (added during build — see below) |
+| `sharedWorkspaces` | `/connections` route; Connections tab + drawer item; the spaces list in the Files sidebar and mobile drawer; the `?space=` deep link (falls back to personal); **Add members**; the **Shared spaces** recipient kind in the Share-table dialog; **shared databases in the Query schema rail** and **shared spaces as a move/copy destination** (added during build — see below) |
 | `dataQuality` | `/data-quality` and `/data-quality/:space/:requestId` routes; Data quality tab + drawer item; **"Check data quality"** in the selection toolbar and the file-browser dialogs; the data-quality link on a notification |
 
-> **Contract extended during build (2026-08-11, user decision):** shared **databases in the Query
-> schema rail** join the `sharedWorkspaces` row. Leaving `teamspace` browsable there while the
+> **Contract extended during build (2026-08-11):** shared **databases in the Query schema rail**
+> join the `sharedWorkspaces` row (user decision, asked before building), and so do **shared
+> spaces as a move/copy destination** plus the data-quality start dialog's space list — found in
+> review, where hiding the rail alone had left the WRITE path open (the picker offers a space
+> selector whenever it has more than one option). The `dataQuality` row's **"data-quality link on
+> a notification"** was in the table from the start and had no gating until review; it now has a
+> registry row. Leaving `teamspace` browsable there while the
 > spaces list and `/connections` are gone reads as a bug rather than a policy. Filtered **at the
 > view, never at the service** — `useConnections` still resolves every space and a saved query
 > naming a hidden database still runs, because a flag may not touch a service (SPEC-162 FR-006).

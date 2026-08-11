@@ -1,11 +1,10 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {screen, waitFor, within} from '@testing-library/react';
+import {act, screen, waitFor, within} from '@testing-library/react';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {GATED_SURFACES} from './gatedSurfaces';
 import {FEATURE_FLAG_KEYS} from './featureFlagDefaults';
 import {getFeatureFlags} from './featureFlags.service';
-import {useFeature} from './useFeature';
 import type {FeatureFlagKey, FeatureFlags} from './featureFlags.types';
 
 /**
@@ -66,8 +65,9 @@ import {DatabaseNode} from '../query/DatabaseNode';
 import {QueryToolbar} from '../query/QueryToolbar';
 import {TableShareDialog} from '../table-share/TableShareDialog';
 import {ManageMembersDrawer} from '../shared-spaces/ManageMembersDrawer';
-import {Sidebar} from '../connections/Sidebar';
-import {SchemaBrowser} from '../query/SchemaBrowser';
+import {QueryWorkspace} from '../query/QueryWorkspace';
+import FilesPage from '../../routes/FilesPage';
+import {NotificationRow} from '../notifications/NotificationRow';
 import {HelpPage} from '../help/HelpPage';
 import {HELP_SECTIONS} from '../help/helpContent';
 import {FeatureRoute} from '../../routes/FeatureRoute';
@@ -90,16 +90,13 @@ const PERSONAL: Connection = {
   status: 'active'
 } as Connection;
 
-const SHARED: Connection = {
-  id: 'teamspace',
-  kind: 'shared',
-  label: 'teamspace',
-  database: 'teamspace',
-  status: 'active'
-} as Connection;
-
 beforeEach(() => {
   vi.clearAllMocks();
+  // Both buckets, because `usableSpaceTargets` returns no SHARED target without the shared
+  // bucket — the move-destination row would then be absent for a reason that has nothing to
+  // do with the flag, and its "on" half would fail while its "off" half passed vacuously.
+  vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-space');
+  vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-space');
   withFlags({});
   vi.mocked(listFiles).mockResolvedValue({
     success: true,
@@ -111,11 +108,12 @@ beforeEach(() => {
   } as never);
   vi.mocked(readSharedConnectionsCache).mockResolvedValue({
     success: true,
-    data: {spaces: [{name: 'teamspace', status: 'active', role: 'member'}]}
+    data: {version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]}
   } as never);
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -129,6 +127,15 @@ afterEach(() => {
 type Recipe = {
   render: () => Promise<void> | void;
   find: () => Promise<Element | null>;
+  /**
+   * Something present REGARDLESS of the flag, awaited before an absence is asserted.
+   *
+   * Without it the off-half is vacuous: `useFeature` reports `false` while the flags are
+   * still resolving, so `waitFor`'s first attempt runs at the one moment every surface is
+   * legitimately missing — and an ungated surface that merely renders asynchronously passes.
+   * Only needed where the surface itself arrives async; the rest settle inside `render`.
+   */
+  anchor?: () => Promise<unknown>;
 };
 
 const renderHeader = () => {
@@ -175,6 +182,7 @@ const helpRecipe = (helpId: string): Recipe => ({
   render: () => {
     renderWithProviders(<HelpPage />, {auth: authenticated('alice'), seedFeatureFlags: false});
   },
+  anchor: async () => screen.findByRole('complementary', {name: 'Guides navigation'}),
   find: async () => {
     const section = HELP_SECTIONS.find((s) => s.id === helpId);
     if (section) {
@@ -196,10 +204,10 @@ const helpRecipe = (helpId: string): Recipe => ({
 
 const RECIPES: Record<string, Recipe> = {
   // ── nav ──
-  Files: {render: renderHeader, find: byRole('link', 'Files')},
-  Query: {render: renderHeader, find: byRole('link', 'Query')},
-  Connections: {render: renderHeader, find: byRole('link', 'Connections')},
-  'Data quality': {render: renderHeader, find: byRole('link', 'Data quality')},
+  Files: {render: renderHeader, anchor: navReady, find: byRole('link', 'Files')},
+  Query: {render: renderHeader, anchor: navReady, find: byRole('link', 'Query')},
+  Connections: {render: renderHeader, anchor: navReady, find: byRole('link', 'Connections')},
+  'Data quality': {render: renderHeader, anchor: navReady, find: byRole('link', 'Data quality')},
 
   // ── routes ──
   '/files': routeRecipe('files'),
@@ -214,11 +222,15 @@ const RECIPES: Record<string, Recipe> = {
       const {default: LandingPage} = await import('../../routes/LandingPage');
       renderWithProviders(<LandingPage />, {auth: authenticated('alice'), seedFeatureFlags: false});
     },
-    find: byRole('button', /^Go to /)
+    // EXACT, not `/^Go to /`: with Files off the page correctly renders "Go to Query", and a
+    // prefix match would have found that and called the gate broken — or, worse, found
+    // nothing yet and called it working.
+    find: byRole('button', 'Go to Dashboard')
   },
-  'Create table': {render: renderFileBrowser, find: byRole('button', 'Create table')},
+  'Create table': {render: renderFileBrowser, anchor: fileBrowserReady, find: byRole('button', 'Create table')},
   'Check data quality of the selected item': {
     render: renderFileBrowser,
+    anchor: fileBrowserReady,
     find: byRole('button', 'Check data quality of the selected item')
   },
   'Refresh table': {
@@ -272,9 +284,8 @@ const RECIPES: Record<string, Recipe> = {
     find: byRole('button', 'Create view')
   },
   'Your spaces navigation': {
-    render: () => {
-      renderWithProviders(<SpacesRailHost />, {auth: authenticated('alice'), seedFeatureFlags: false});
-    },
+    render: renderFilesPage,
+    anchor: filesPageReady,
     find: async () => screen.queryByRole('complementary', {name: 'Your spaces navigation'})
   },
   'Add members': {
@@ -308,10 +319,45 @@ const RECIPES: Record<string, Recipe> = {
     },
     find: byRole('radio', 'Shared spaces')
   },
-  'Shared databases in the schema rail': {
-    render: () => {
-      renderWithProviders(<SchemaRailHost />, {auth: authenticated('alice'), seedFeatureFlags: false});
+  'Shared spaces as a move destination': {
+    render: async () => {
+      renderFilesPage();
+      await fileBrowserReady();
+      // Through the real flow: select an item, open Copy, and look at the picker's
+      // destination selector — which only renders at all when there is more than one option,
+      // so with shared workspaces off there is nothing to choose and no selector.
+      const {default: userEvent} = await import('@testing-library/user-event');
+      const user = userEvent.setup({delay: null});
+      await user.click(await screen.findByRole('checkbox', {name: 'Select all'}));
+      await user.click(await screen.findByRole('button', {name: 'Copy selected items'}));
     },
+    anchor: async () => screen.findByRole('dialog'),
+    find: async () => screen.queryByRole('combobox', {name: 'Destination connection'})
+  },
+
+  'Data quality link on a notification': {
+    render: () => {
+      renderWithProviders(
+        <NotificationRow
+          notification={{
+            id: 'n1',
+            message: 'Data quality check finished',
+            read: false,
+            timestamp: '2026-08-11T00:00:00Z',
+            link: '/data-quality/alice/req-1'
+          }}
+          onMarkRead={vi.fn()}
+        />,
+        {auth: authenticated('alice'), seedFeatureFlags: false}
+      );
+    },
+    find: byRole('link', 'Data quality check finished')
+  },
+  'Shared databases in the schema rail': {
+    render: renderQueryWorkspace,
+    // The PERSONAL database node — present either way, so it settles the rail without
+    // depending on the row under test.
+    anchor: async () => screen.findAllByRole('button', {name: /alice/}),
     find: async () => screen.queryByRole('button', {name: /teamspace/})
   },
 
@@ -325,32 +371,30 @@ const RECIPES: Record<string, Recipe> = {
 };
 
 /**
- * The spaces rail exactly as `FilesPage` mounts it — behind the `sharedWorkspaces` gate.
+ * The REAL page, not a test-local component that re-applies the gate.
  *
- * Rendering the whole page here would drag in the file browser's entire service surface for
- * one `<aside>`; what is under test is the gate, and the gate is this condition.
+ * A host defined here would assert that `useFeature` works — which nothing doubts — while the
+ * app's own gate could be deleted with the suite still green. That is not a hypothetical: it
+ * was measured on this very row before it was rewritten, and both gates came out with 1843
+ * tests still passing.
  */
-function SpacesRailHost() {
-  const enabled = useFeature('sharedWorkspaces');
-  return enabled ? (
-    <Sidebar
-      connections={[PERSONAL, SHARED]}
-      activeSpaceId="personal"
-      onSelectSpace={vi.fn()}
-    />
-  ) : null;
+function renderFilesPage() {
+  renderWithProviders(
+    <UploadQueueProvider>
+      <FilesPage />
+    </UploadQueueProvider>,
+    {auth: authenticated('alice'), seedFeatureFlags: false}
+  );
 }
 
-/** The schema rail's connection list, filtered exactly as `QueryWorkspace` filters it. */
-function SchemaRailHost() {
-  const enabled = useFeature('sharedWorkspaces');
-  const connections = enabled ? [PERSONAL, SHARED] : [PERSONAL, SHARED].filter((c) => c.kind === 'personal');
-  return (
-    <SchemaBrowser
-      connections={connections}
-      actions={tableActionsStub()}
-    />
-  );
+/** Likewise the real workspace. Mobile, so Monaco never mounts (SPEC-100). */
+function renderQueryWorkspace() {
+  renderWithProviders(<QueryWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
+}
+
+/** The file browser has finished its first listing — the tree is settled either way. */
+async function filesPageReady() {
+  return screen.findByRole('button', {name: 'New folder'});
 }
 
 function tableActionsStub() {
@@ -370,6 +414,30 @@ async function openTableMenu() {
   trigger.click();
 }
 
+/** The primary nav exists; only its CONTENTS depend on the flags. */
+async function navReady() {
+  return screen.findByRole('navigation', {name: 'Primary'});
+}
+
+/** The file browser's first listing has landed. */
+async function fileBrowserReady() {
+  return screen.findByRole('button', {name: 'New folder'});
+}
+
+/**
+ * Wait until the flag answer has actually been applied.
+ *
+ * Two steps, both necessary: the recipe's own anchor proves the tree finished rendering, and
+ * the flush lets the resolved query re-render before anything is asserted absent.
+ */
+async function settle(recipe: Recipe) {
+  await waitFor(() => expect(getFeatureFlags).toHaveBeenCalled());
+  await recipe.anchor?.();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 // ─── The walk ───────────────────────────────────────────────────────────────
 
 describe('every registered surface disappears with its flag off and returns with it on', () => {
@@ -383,7 +451,10 @@ describe('every registered surface disappears with its flag off and returns with
       const recipe = RECIPES[row.surface.name];
       withFlags({[flag]: false});
       await recipe.render();
-      await waitFor(async () => expect(await recipe.find()).toBeNull());
+      await settle(recipe);
+      // Asserted ONCE, after the tree has settled — never inside `waitFor`, whose first
+      // attempt lands while every surface is legitimately absent.
+      expect(await recipe.find()).toBeNull();
     }
   );
 
@@ -443,6 +514,7 @@ describe('the registry itself', () => {
         'Shared spaces',
         // NOT in the spec's table — a deliberate extension, recorded in the delivery doc.
         'Shared databases in the schema rail',
+        'Shared spaces as a move destination',
         'Shared connections help section'
       ],
       dataQuality: [
@@ -450,6 +522,7 @@ describe('the registry itself', () => {
         '/data-quality',
         '/data-quality/:space/:requestId',
         'Check data quality of the selected item',
+        'Data quality link on a notification',
         'Check data quality guide',
         'Past data quality checks guide'
       ]
