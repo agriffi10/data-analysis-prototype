@@ -345,6 +345,44 @@ resource "aws_iam_role_policy_attachment" "deploy_user_directory" {
   policy_arn = aws_iam_policy.deploy_user_directory.arn
 }
 
+# SPEC-164 file-send control-plane grants — a SEPARATE customer-managed policy, same
+# rationale + shape as deploy_table_share above (off the role's inline-policy aggregate,
+# separate 6,144-char budget). Covers the file-send module's resource types: the FIFO
+# request queue + DLQ, the EventBridge Pipe, the Standard Step Function (+ its role), the
+# verb Lambdas + their ONE shared execution role (incl. scoped iam:PassRole), the
+# file-send-common (fscommon) Lambda layer, and the Lambda + Step-Function log groups —
+# all scoped by {project_name}-*-file-send-* name patterns. The module creates no S3
+# buckets (a send copies between the existing user/shared-space buckets), so there is no
+# S3-bucket-manage statement, and the cpcommon layer every verb also attaches is covered
+# by deploy_control_plane_common (SPEC-107).
+# states:ValidateStateMachineDefinition is not resource-scopable, so it is isolated to its
+# own "*" statement per the architecture.md "new resource type" traps.
+#
+# NO events: STATEMENT, deliberately. Table-share's policy carries one for its SPEC-161
+# TIMED_OUT rule; this machine validates and stops, so it has no TimeoutSeconds and no rule
+# to manage. The long Distributed-Map copy — and therefore the timeout, the rule and the
+# events: grant it needs — lands with SPEC-166, which must extend this policy FIRST and
+# apply it before those resources land.
+#
+# Granted FIRST (this PR) and applied before the file-send module's resources land in the
+# next PR (the deploy-perms-before-resources rule), so there is no self-grant race.
+resource "aws_iam_policy" "deploy_file_send" {
+  name        = "${var.project_name}-deploy-file-send"
+  description = "Deploy-role grants for the SPEC-164 file-send control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, fscommon layer, log groups), kept off the role's inline-policy aggregate limit."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-file-send.json.tftpl", {
+    project_name = var.project_name
+    aws_region   = var.aws_region
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_file_send" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_file_send.arn
+}
+
 # Self-grant propagation guard. The main deploy-policy update above grants the deploy
 # role iam:CreatePolicy / iam:AttachRolePolicy on itself, then this SAME apply uses
 # those grants to create+attach the managed policy. IAM is eventually consistent, so
