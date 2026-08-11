@@ -89,7 +89,11 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // flag off the route does not READ ?space=, resolves the personal space, and then discards a
     // prefix that does not start with it — landing the space's owner in their OWN files with no
     // banner, while the message tells them where to look.
-    {name: 'Received files link to a space on a notification', kind: 'control', path: '/notifications'}
+    {name: 'Received files link to a space on a notification', kind: 'control', path: '/notifications'},
+    // SPEC-167. A SECOND instance of the recipient-kind choice, and it needs its own row: the
+    // `Shared spaces` row above renders the share dialog, so nothing would notice if this one
+    // stopped being gated. One surface per row is what makes the walking test mean anything.
+    {name: 'Shared spaces recipient kind in the send dialog', kind: 'control', path: '/files'}
   ],
   dataQuality: [
     {name: 'Data quality', kind: 'nav', path: '/data-quality'},

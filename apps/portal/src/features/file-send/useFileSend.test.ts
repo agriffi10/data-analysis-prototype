@@ -102,6 +102,26 @@ describe('useFileSend', () => {
     expect(enqueueFileSend).toHaveBeenCalledTimes(1);
   });
 
+  it('never wedges when the enqueue THROWS, and says something', async () => {
+    // The request is BUILT before the ServiceResult contract starts — `crypto.randomUUID()` here
+    // and the SHA-256 digest inside the service are both undefined outside a secure context,
+    // which is the documented dev-preview shape. Leaving `busy` true there is unrecoverable: the
+    // submit reads "Sending…", Cancel is disabled, the modal refuses to dismiss and swallows
+    // Escape, and `close()` refuses because it is busy.
+    vi.mocked(enqueueFileSend).mockRejectedValue(new Error('crypto.subtle is undefined'));
+    const {hook} = setup();
+    act(() => hook.result.current.open(ITEMS));
+    await act(async () => hook.result.current.submit([{kind: 'user', name: 'bob'}]));
+
+    await waitFor(() => expect(hook.result.current.busy).toBe(false));
+    expect(hook.result.current.error).toBeTruthy();
+    expect(hook.result.current.items).toEqual(ITEMS);
+
+    // And it can still be dismissed, which is the property that was actually broken.
+    act(() => hook.result.current.close());
+    expect(hook.result.current.items).toBeNull();
+  });
+
   it('sends nothing when the space cannot be resolved', async () => {
     // The dev-unauth path and a space still loading: there is no source to send FROM.
     const notify = vi.fn();

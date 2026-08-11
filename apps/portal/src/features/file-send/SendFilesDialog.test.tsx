@@ -57,7 +57,18 @@ describe('SendFilesDialog', () => {
       />,
       {auth: authenticated('alice'), ...options}
     );
-    return {onSubmit, onCancel, user: rendered.user, container: rendered.container};
+    /** Re-render the SAME dialog with `busy` flipped, keeping its committed state. */
+    const rerender = (busy: boolean) =>
+      rendered.rerender(
+        <SendFilesDialog
+          items={ITEMS}
+          busy={busy}
+          onSubmit={onSubmit}
+          onCancel={onCancel}
+          {...over}
+        />
+      );
+    return {onSubmit, onCancel, user: rendered.user, container: rendered.container, rerender};
   }
 
   const entryInput = () => screen.getByRole('combobox') as HTMLInputElement;
@@ -143,24 +154,65 @@ describe('SendFilesDialog', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it('refuses a send with no recipients inline, and sends nothing', async () => {
+  it('refuses a send with no recipients INLINE, and sends nothing', async () => {
+    // FR-002 AC7. The control stays enabled precisely so this can be reached: a disabled button
+    // explains nothing to the user who typed a name and forgot to commit it. An earlier version
+    // disabled it, which made this banner unreachable — dead code where an AC should be, and a
+    // test asserting only `toBeDisabled()` passed over it.
     const {user, onSubmit} = renderDialog();
-    expect(sendButton()).toBeDisabled();
+    await user.click(entryInput());
+    await user.keyboard('bob');
+    await user.click(sendButton());
 
-    await user.keyboard('{Enter}');
-
+    expect(await screen.findByText('Add at least one recipient before sending.')).toBeInTheDocument();
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it('locks the form while busy and surfaces a submit error with the recipients intact', async () => {
-    const {user} = renderDialog({busy: false, submitError: 'Sending files is not configured'});
+  it('closes the suggestion list on the first Escape and the dialog on the second', async () => {
+    // SPEC-155's depth registry, exercised rather than inherited: the innermost enabled handler
+    // wins, and a child that stops the event never reaches the registry at all.
+    const {user, onCancel} = renderDialog();
+    await user.click(entryInput());
+    await user.keyboard('bo');
+    await screen.findByRole('option', {name: 'bob'});
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('option', {name: 'bob'})).not.toBeInTheDocument();
+    expect(onCancel).not.toHaveBeenCalled();
+
+    await user.keyboard('{Escape}');
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it('a busy dialog swallows Escape rather than dismissing mid-request', async () => {
+    const {user, onCancel} = renderDialog({busy: true});
+    await user.keyboard('{Escape}');
+
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a submit error with the recipients intact, so a retry costs no retyping', async () => {
+    const {user} = renderDialog({submitError: 'Sending files is not configured'});
     await addRecipients(user, 'bob');
 
     expect(screen.getByRole('alert')).toHaveTextContent('Sending files is not configured');
     expect(within(chipList()).getByRole('button', {name: 'Remove user bob'})).toBeInTheDocument();
+  });
 
-    renderDialog({busy: true});
-    expect(screen.getAllByRole('button', {name: /Sending/})[0]).toBeDisabled();
+  it('locks EVERY control while busy, not just the submit button', async () => {
+    // Re-rendered with a committed chip rather than mounted busy-and-empty: a second empty
+    // dialog's submit button is disabled by having no recipients, so asserting only that would
+    // pass against an implementation where `busy` locked nothing at all.
+    const {user, rerender} = renderDialog();
+    await addRecipients(user, 'bob');
+
+    rerender(true);
+
+    expect(sendButton()).toBeDisabled();
+    expect(entryInput()).toBeDisabled();
+    expect(addButton()).toBeDisabled();
+    expect(screen.getByRole('radio', {name: 'Shared spaces'})).toBeDisabled();
+    expect(within(chipList()).getByRole('button', {name: 'Remove user bob'})).toBeDisabled();
   });
 
   it('renders no kind toggle at all when shared workspaces are off', async () => {
@@ -186,6 +238,17 @@ describe('SendFilesDialog', () => {
     // before anything was typed, which is not the state a user is in when they submit.
     const {user, container} = renderDialog();
     await addRecipients(user, 'bob, cara');
+
+    await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
+  });
+
+  it('is axe-clean with the suggestion list OPEN, which is its own composition', async () => {
+    // The combobox's own suite covers the listbox in isolation; what is only reachable here is
+    // that listbox inside this dialog's focus trap, with this dialog's describedby wiring.
+    const {user, container} = renderDialog();
+    await user.click(entryInput());
+    await user.keyboard('bo');
+    await screen.findByRole('option', {name: 'bob'});
 
     await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
   });

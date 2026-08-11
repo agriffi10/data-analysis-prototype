@@ -921,6 +921,26 @@ describe('FileBrowser — send to… (SPEC-167)', () => {
     expect(await screen.findByText(/you'll get a notification/i)).toBeInTheDocument();
   });
 
+  it('sends from a SHARED space as that space, not as the signed-in user', async () => {
+    // The one derivation a refactor could silently invert: the source is the space the browser
+    // is pointed at, and its name is the root prefix's own segment — `{username}/` for a
+    // personal space and `{spaceName}/` for a shared one. Sending a shared space's files as
+    // `personal` would make the control plane authorize the wrong space entirely.
+    const {user} = renderBrowser({rootPrefix: 'finance/', username: 'finance', spaceKind: 'shared'});
+    await screen.findByText('report.csv');
+    await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(sendButton());
+
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('combobox'));
+    await user.keyboard('bob');
+    await user.click(within(dialog).getByRole('button', {name: 'Add'}));
+    await user.click(within(dialog).getByRole('button', {name: 'Send'}));
+
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
+    expect(mockSend.mock.calls[0][0]).toMatchObject({space: {kind: 'shared', name: 'finance'}});
+  });
+
   it('keeps the dialog and the recipients on a failure, with no raw AWS text', async () => {
     mockSend.mockResolvedValue({
       success: false,

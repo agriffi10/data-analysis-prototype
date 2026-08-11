@@ -371,7 +371,7 @@ function FileBrowserContent({
       {/* SPEC-167. Mounted here rather than in FileBrowserDialogs because its state is this
           component's (the selection it sends, and the space it sends from), and threading both
           through the dialogs bundle would give that file a second reason to change. */}
-      {send.items && (
+      {send.items && send.items.length > 0 && (
         <SendFilesDialog
           items={send.items}
           busy={send.busy}

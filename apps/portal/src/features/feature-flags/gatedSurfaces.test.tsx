@@ -68,6 +68,7 @@ import {ManageMembersDrawer} from '../shared-spaces/ManageMembersDrawer';
 import {QueryWorkspace} from '../query/QueryWorkspace';
 import FilesPage from '../../routes/FilesPage';
 import {NotificationRow} from '../notifications/NotificationRow';
+import {SendFilesDialog} from '../file-send';
 import {HelpPage} from '../help/HelpPage';
 import {HELP_SECTIONS} from '../help/helpContent';
 import {FeatureRoute} from '../../routes/FeatureRoute';
@@ -358,6 +359,19 @@ const RECIPES: Record<string, Recipe> = {
     },
     find: byRole('link', 'Data quality check finished')
   },
+  'Shared spaces recipient kind in the send dialog': {
+    render: () => {
+      renderWithProviders(
+        <SendFilesDialog
+          items={[{kind: 'file', key: 'alice/notes.txt'}]}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+        {auth: authenticated('alice'), seedFeatureFlags: false}
+      );
+    },
+    find: byRole('radio', 'Shared spaces')
+  },
   'Received files link on a notification': {
     render: () => {
       renderWithProviders(
@@ -567,7 +581,8 @@ describe('the registry itself', () => {
         'Shared databases in the schema rail',
         'Shared spaces as a move destination',
         'Shared connections help section',
-        'Received files link to a space on a notification'
+        'Received files link to a space on a notification',
+        'Shared spaces recipient kind in the send dialog'
       ],
       dataQuality: [
         'Data quality',

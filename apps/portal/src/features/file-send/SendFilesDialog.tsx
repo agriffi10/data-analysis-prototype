@@ -96,6 +96,11 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
   const canSubmit = recipients.length > 0 && !busy;
 
   const attempt = () => {
+    // The Send control stays ENABLED with no recipients, deliberately: FR-002 AC7 asks for the
+    // send to be refused INLINE, and a disabled button explains nothing — the user who typed a
+    // name and forgot to commit it presses Send and is told what is missing. `submitDisabled`
+    // would make the banner below unreachable, which is what the first version of this dialog
+    // did: dead code where an acceptance criterion was supposed to be.
     setAttempted(true);
     if (canSubmit) onSubmit(recipients);
   };
@@ -110,7 +115,6 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
       submitLabel="Send"
       busy={busy}
       busyLabel="Sending…"
-      submitDisabled={recipients.length === 0}
       className="max-w-lg"
       scrollBody
       onSubmit={attempt}
@@ -121,7 +125,9 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
       </p>
 
       <div className="mb-4">
-        <span className="text-xs font-medium uppercase tracking-wide text-text-2">Sending</span>
+        <span className="text-xs font-medium uppercase tracking-wide text-text-2">
+          Sending {items.length === 1 ? '1 item' : `${items.length} items`}
+        </span>
         <ul
           aria-label="Items being sent"
           className="mt-0.5 max-h-24 overflow-y-auto rounded-md border border-border bg-surface-2 px-2.5 py-1.5">
@@ -247,9 +253,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
         </ul>
       )}
 
-      {/* FR-003: submitting with no recipients is refused INLINE and sends nothing. The submit
-          control is disabled, so this is reached by Enter or by a click the browser still
-          delivers — either way the dialog says why rather than doing nothing. */}
+      {/* FR-002 AC7: submitting with no recipients is refused INLINE and sends nothing. */}
       {attempted && recipients.length === 0 && (
         <Banner
           variant="warning"

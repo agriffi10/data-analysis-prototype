@@ -3,7 +3,10 @@ import {toUserText} from '../../lib/errorMessages';
 import {enqueueFileSend} from './fileSend.service';
 import type {SendItem, SendRecipient, SendSourceSpace} from './fileSend.types';
 
-type SendToast = {variant: 'success' | 'danger'; message: string};
+// Only a success is ever pushed: a FAILURE stays in the dialog, next to the recipients the user
+// would have to retype if it closed. The union is the toast host's, narrowed here to what this
+// hook actually sends.
+type SendToast = {variant: 'success'; message: string};
 
 /**
  * Dialog + enqueue state for "Send to…" (SPEC-167).
@@ -56,7 +59,6 @@ export function useFileSend(space: SendSourceSpace | null, notify: (toast: SendT
         items,
         recipients
       });
-      setBusy(false);
       if (!result.success) {
         setError(toUserText(result.error));
         return false;
@@ -70,9 +72,19 @@ export function useFileSend(space: SendSourceSpace | null, notify: (toast: SendT
         message: `Sending ${recipients.length === 1 ? 'to 1 recipient' : `to ${recipients.length} recipients`} — you'll get a notification for each one.`
       });
       return true;
+    } catch (err) {
+      // `enqueueFileSend` returns a ServiceResult and does not normally throw — but the request
+      // is BUILT before that contract starts: `crypto.randomUUID()` here and the SHA-256 digest
+      // inside the service are both undefined outside a secure context, which is the documented
+      // dev-preview shape. A throw here used to leave `busy` true forever: the submit control
+      // reads "Sending…", Cancel is disabled, the modal refuses to dismiss and swallows Escape,
+      // and `close()` refuses because it is busy — an unrecoverable dialog, with no error shown.
+      setError(toUserText(err));
+      return false;
     } finally {
-      // Cleared on every exit — success, failure and a throw — so one dropped click never
+      // BOTH cleared on every exit — success, failure and a throw — so one dropped click never
       // wedges the dialog.
+      setBusy(false);
       inFlight.current = false;
     }
   };
