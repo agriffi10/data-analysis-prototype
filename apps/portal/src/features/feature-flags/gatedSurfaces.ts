@@ -52,7 +52,11 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // that route swaps its element — so an ungated link is a live anchor into the unavailable
     // page. The notification itself is never gated: the record of what happened outlives the
     // surface that would show it.
-    {name: 'Received files link on a notification', kind: 'control', path: '/notifications'}
+    {name: 'Received files link on a notification', kind: 'control', path: '/notifications'},
+    // SPEC-167. The entry point itself. In the FILE BROWSER, like "Check data quality" and
+    // unlike "Create table", which is a Query capability wearing a file-browser button.
+    {name: 'Send selected items to someone', kind: 'control', path: '/files'},
+    {name: 'Send files guide', kind: 'guide', path: '/help', helpId: 'send-files'}
   ],
   query: [
     {name: 'Query', kind: 'nav', path: '/query'},

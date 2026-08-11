@@ -9,6 +9,7 @@ import * as service from './fileBrowser.service';
 import {triggerBrowserDownload} from './fileBrowser.download';
 import {getSessionCredentials} from '../../lib/awsCredentials';
 import * as dqService from '../data-quality/dataQuality.service';
+import * as sendService from '../file-send/fileSend.service';
 import type {FileListPage, S3FileItem, S3FolderItem} from '../../types/s3.types';
 
 // Integration style (react.md §21): render the REAL FileBrowser tree — real
@@ -43,9 +44,25 @@ vi.mock('../../lib/awsCredentials', () => ({
 // SPEC-113: the data-quality enqueue is another AWS boundary — mock it, and let the
 // real DataQualityDialog and useDataQualityCheck render.
 vi.mock('../data-quality/dataQuality.service', () => ({enqueueQualityCheck: vi.fn()}));
+// SPEC-167: the send's enqueue is the same kind of boundary — mock it, and let the real
+// SendFilesDialog, useFileSend and the suggestion sources render. The two suggestion services
+// are mocked because they are AWS reads too, not because the field is being avoided.
+vi.mock('../file-send/fileSend.service', () => ({enqueueFileSend: vi.fn()}));
+vi.mock('../user-directory/userDirectory.service', () => ({
+  getUserDirectory: vi.fn().mockResolvedValue({success: true, data: {usernames: ['bob'], generatedAt: null}}),
+  DIRECTORY_KEY: '_directory/usernames.json'
+}));
+vi.mock('../shared-spaces/sharedSpaces.service', () => ({
+  readSharedConnectionsCache: vi.fn().mockResolvedValue({
+    success: true,
+    data: {version: 1, connections: [{name: 'finance', role: 'member', status: 'active'}]}
+  }),
+  enqueueSharedSpaceRequest: vi.fn()
+}));
 
 const mock = vi.mocked(service);
 const mockQualityCheck = vi.mocked(dqService.enqueueQualityCheck);
+const mockSend = vi.mocked(sendService.enqueueFileSend);
 
 // ── Builders ────────────────────────────────────────────────────────────────
 const file = (name: string, over: Partial<S3FileItem> = {}): S3FileItem => ({
@@ -846,5 +863,83 @@ describe('FileBrowser — an upload watched to completion (SPEC-154 FR-004)', ()
     // Guards the guard: three really did start, so the fourth being Queued means the gate
     // held rather than the whole batch having stalled.
     expect(screen.getAllByRole('progressbar')).toHaveLength(UPLOAD_CONCURRENCY);
+  });
+});
+
+describe('FileBrowser — send to… (SPEC-167)', () => {
+  // THE JOURNEY, not the halves (SPEC-154's discipline): select real rows in the real browser,
+  // open the real dialog, name a recipient through the real combobox, and assert what reached
+  // the queue. Every piece between the checkbox and the enqueue is the shipped one.
+  const sendButton = () => screen.getByRole('button', {name: 'Send selected items to someone'});
+
+  beforeEach(() => {
+    mockSend.mockResolvedValue({success: true, data: undefined});
+  });
+
+  it('sends a MIXED selection, with each item as the kind the browser knows it to be', async () => {
+    const {user} = renderBrowser();
+    await screen.findByText('report.csv');
+
+    expect(sendButton()).toBeDisabled();
+    await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(screen.getByRole('checkbox', {name: 'Select folder docs'}));
+    await user.click(sendButton());
+
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('combobox'));
+    await user.keyboard('bob');
+    await user.click(within(dialog).getByRole('button', {name: 'Add'}));
+    await user.click(within(dialog).getByRole('button', {name: 'Send'}));
+
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
+    expect(mockSend.mock.calls[0][0]).toMatchObject({
+      // The SPACE, not the current folder: the control plane resolves the source from the
+      // verified username and the space name.
+      space: {kind: 'personal', name: 'alice'},
+      items: [
+        {kind: 'file', key: 'alice/report.csv'},
+        {kind: 'folder', key: 'alice/docs/'}
+      ],
+      recipients: [{kind: 'user', name: 'bob'}]
+    });
+  });
+
+  it('closes, clears the selection and says the send was REQUESTED', async () => {
+    const {user} = renderBrowser();
+    await screen.findByText('report.csv');
+    await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(sendButton());
+
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('combobox'));
+    await user.keyboard('bob');
+    await user.click(within(dialog).getByRole('button', {name: 'Add'}));
+    await user.click(within(dialog).getByRole('button', {name: 'Send'}));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByRole('checkbox', {name: 'Select report.csv'})).not.toBeChecked();
+    expect(await screen.findByText(/you'll get a notification/i)).toBeInTheDocument();
+  });
+
+  it('keeps the dialog and the recipients on a failure, with no raw AWS text', async () => {
+    mockSend.mockResolvedValue({
+      success: false,
+      error: {message: 'AccessDenied: User arn:aws:sts::1:assumed-role/x is not authorized'}
+    });
+    const {user} = renderBrowser();
+    await screen.findByText('report.csv');
+    await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(sendButton());
+
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('combobox'));
+    await user.keyboard('bob');
+    await user.click(within(dialog).getByRole('button', {name: 'Add'}));
+    await user.click(within(dialog).getByRole('button', {name: 'Send'}));
+
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert).not.toHaveTextContent(/arn:aws/);
+    expect(within(dialog).getByRole('button', {name: 'Remove user bob'})).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', {name: 'Select report.csv'})).toBeChecked();
   });
 });

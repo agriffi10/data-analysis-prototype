@@ -45,6 +45,25 @@ function QualityCheckIcon() {
   );
 }
 
+function SendIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-[15px] w-[15px]"
+      aria-hidden="true">
+      {/* An arrow leaving a tray — handing something over, not moving it away. */}
+      <path d="M12 3v11" />
+      <path d="M8 7l4-4 4 4" />
+      <path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+    </svg>
+  );
+}
+
 function BulkMoveIcon() {
   return (
     <svg
@@ -69,6 +88,7 @@ export function SelectionToolbar({
   onRequestMove,
   onRequestCopy,
   onRequestQualityCheck,
+  onRequestSend,
   isBusy
 }: {
   allItems: SelectableItem[];
@@ -77,6 +97,11 @@ export function SelectionToolbar({
   onRequestCopy: () => void;
   /** Absent when the space can't be resolved (no space name) — the action is then omitted. */
   onRequestQualityCheck?: () => void;
+  /**
+   * Absent in the dev-unauth path and while the `files` flag is off (SPEC-167 FR-001) — the
+   * action is then omitted rather than disabled, which is SPEC-163's rule: hidden means removed.
+   */
+  onRequestSend?: () => void;
   isBusy: boolean;
 }) {
   const {count, isSelected, selectAll, clear} = useSelection();
@@ -129,6 +154,22 @@ export function SelectionToolbar({
           aria-label="Check data quality of the selected item">
           <QualityCheckIcon />
           <span className="hidden tablet:inline">Check quality</span>
+        </Button>
+      )}
+
+      {/* SPEC-167: a send is a copy INTO SOMEONE ELSE'S space, so it sits beside Copy rather
+          than anywhere new — one or many items, files and folders alike. Labelled at ≥ tablet,
+          icon-only on mobile, exactly like its neighbours. */}
+      {onRequestSend && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
+          onClick={onRequestSend}
+          disabled={count === 0 || isBusy}
+          aria-label="Send selected items to someone">
+          <SendIcon />
+          <span className="hidden tablet:inline">Send to…</span>
         </Button>
       )}
 
