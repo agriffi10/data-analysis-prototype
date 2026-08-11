@@ -47,7 +47,12 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: '/files', kind: 'route', path: '/files'},
     // Signed-in visitors only — the signed-out page gates nothing (FR-007).
     {name: 'Go to Dashboard', kind: 'control', path: '/'},
-    {name: 'Files help section', kind: 'guide', path: '/help', helpId: 'files'}
+    {name: 'Files help section', kind: 'guide', path: '/help', helpId: 'files'},
+    // SPEC-167. A received-files notification deep-links into /files, and with this flag off
+    // that route swaps its element — so an ungated link is a live anchor into the unavailable
+    // page. The notification itself is never gated: the record of what happened outlives the
+    // surface that would show it.
+    {name: 'Received files link on a notification', kind: 'control', path: '/notifications'}
   ],
   query: [
     {name: 'Query', kind: 'nav', path: '/query'},
@@ -75,7 +80,12 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // rail alone left both the schema rail and the move/copy WRITE path open.
     {name: 'Shared databases in the schema rail', kind: 'control', path: '/query'},
     {name: 'Shared spaces as a move destination', kind: 'control', path: '/files'},
-    {name: 'Shared connections help section', kind: 'guide', path: '/help', helpId: 'shared-connections'}
+    {name: 'Shared connections help section', kind: 'guide', path: '/help', helpId: 'shared-connections'},
+    // SPEC-167. The SPACE variant of the same link, and the worse failure of the two: with this
+    // flag off the route does not READ ?space=, resolves the personal space, and then discards a
+    // prefix that does not start with it — landing the space's owner in their OWN files with no
+    // banner, while the message tells them where to look.
+    {name: 'Received files link to a space on a notification', kind: 'control', path: '/notifications'}
   ],
   dataQuality: [
     {name: 'Data quality', kind: 'nav', path: '/data-quality'},

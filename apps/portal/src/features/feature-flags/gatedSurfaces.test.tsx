@@ -353,6 +353,42 @@ const RECIPES: Record<string, Recipe> = {
     },
     find: byRole('link', 'Data quality check finished')
   },
+  'Received files link on a notification': {
+    render: () => {
+      renderWithProviders(
+        <NotificationRow
+          notification={{
+            id: 'n2',
+            message: 'alice sent you "reports" (300 files)',
+            read: false,
+            timestamp: '2026-08-11T00:00:00Z',
+            link: '/files?prefix=bob/shared_files/alice/'
+          }}
+          onMarkRead={vi.fn()}
+        />,
+        {auth: authenticated('bob'), seedFeatureFlags: false}
+      );
+    },
+    find: byRole('link', 'alice sent you "reports" (300 files)')
+  },
+  'Received files link to a space on a notification': {
+    render: () => {
+      renderWithProviders(
+        <NotificationRow
+          notification={{
+            id: 'n3',
+            message: 'alice sent "reports" (300 files) to your space "finance"',
+            read: false,
+            timestamp: '2026-08-11T00:00:00Z',
+            link: '/files?space=finance&prefix=finance/shared_files/alice/'
+          }}
+          onMarkRead={vi.fn()}
+        />,
+        {auth: authenticated('bob'), seedFeatureFlags: false}
+      );
+    },
+    find: byRole('link', 'alice sent "reports" (300 files) to your space "finance"')
+  },
   'Shared databases in the schema rail': {
     render: renderQueryWorkspace,
     // The PERSONAL database node — present either way, so it settles the rail without
@@ -495,7 +531,14 @@ describe('the registry itself', () => {
     // The contract table transcribed from SPEC-163. A surface named there with no registry
     // row fails HERE, before the walk gets a chance to not-look-for-it.
     const contract: Record<FeatureFlagKey, string[]> = {
-      files: ['Files', '/files', 'Go to Dashboard', 'Files help section'],
+      files: [
+        'Files',
+        '/files',
+        'Go to Dashboard',
+        'Files help section',
+        // NOT in the spec's table — SPEC-167's link, recorded in its delivery doc.
+        'Received files link on a notification'
+      ],
       query: [
         'Query',
         '/query',
@@ -515,7 +558,8 @@ describe('the registry itself', () => {
         // NOT in the spec's table — a deliberate extension, recorded in the delivery doc.
         'Shared databases in the schema rail',
         'Shared spaces as a move destination',
-        'Shared connections help section'
+        'Shared connections help section',
+        'Received files link to a space on a notification'
       ],
       dataQuality: [
         'Data quality',

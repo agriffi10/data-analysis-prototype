@@ -644,6 +644,7 @@ jobs:
           - { name: file-send-build-transfer-manifest, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           - { name: file-send-copy-objects, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: false }
           - { name: file-send-collect-transfer-results, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
+          - { name: file-send-notify, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           - { name: file-send-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           # Data-quality verbs (SPEC-108). All nine attach cpcommon + dqcommon; only
           # inspect-source also attaches the data-quality polars layer (it must read

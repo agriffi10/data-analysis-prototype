@@ -30,6 +30,7 @@ Attributes:
 from cpcommon import messages as _cpmessages
 
 from . import config
+from .paths import inbox_label
 
 _BODIES = {
     "no_items": "nothing was selected to send.",
@@ -115,6 +116,100 @@ def _recipient_phrase(kind: str, name: str) -> str:
       None.
     """
     return f'{"user" if kind == "user" else "space"} "{name}"'
+
+
+def _things_phrase(item_names, object_count: int) -> str:
+    """Renders what was sent as a phrase a person would say.
+
+    The item names are what the sender picked and what the recipient sees in their inbox; the
+    object count is what those expanded to, and the two differ by orders of magnitude for a
+    folder. Both are given because either alone misleads — "1 thing" for a 3,000-file folder, or
+    "3,000 files" for something the recipient will find under one name.
+
+    Args:
+      item_names: The selected item names, in selection order.
+      object_count: How many objects they expanded to.
+
+    Returns:
+      The phrase, e.g. ``"reports" and "notes.txt" (301 files)``.
+
+    Raises:
+      None.
+    """
+    names = [f'"{name}"' for name in (item_names or []) if name]
+    if not names:
+        listed = "some files"
+    elif len(names) == 1:
+        listed = names[0]
+    elif len(names) <= 3:
+        listed = f"{', '.join(names[:-1])} and {names[-1]}"
+    else:
+        listed = f"{', '.join(names[:2])} and {len(names) - 2} more"
+    files = "file" if object_count == 1 else "files"
+    return f"{listed} ({object_count:,} {files})"
+
+
+def success_message(kind: str, name: str, item_names, object_count: int) -> str:
+    """Composes the sender-facing per-recipient SUCCESS text.
+
+    Args:
+      kind: The recipient kind.
+      name: The recipient's name.
+      item_names: The selected item names.
+      object_count: How many objects were copied for that recipient.
+
+    Returns:
+      The sentence.
+
+    Raises:
+      None.
+    """
+    return f"Sent {_things_phrase(item_names, object_count)} to {_recipient_phrase(kind, name)}."
+
+
+def recipient_message(sender: str, item_names, object_count: int) -> str:
+    """Composes the text a ``user`` recipient sees in their own inbox.
+
+    It names the folder the files landed in as well as the sender, because the destination is the
+    one thing the recipient cannot guess: a send arrives under ``shared_files/{sender}/``, which
+    is not where they were last working.
+
+    Args:
+      sender: The verified sender's username.
+      item_names: The selected item names.
+      object_count: How many objects arrived.
+
+    Returns:
+      The sentence.
+
+    Raises:
+      None.
+    """
+    return (
+        f"{sender} sent you {_things_phrase(item_names, object_count)}. "
+        f"You'll find them in {inbox_label(sender)}."
+    )
+
+
+def space_owner_message(sender: str, space: str, item_names, object_count: int) -> str:
+    """Composes the text a recipient space's OWNER sees. The owner only, never the members.
+
+    Args:
+      sender: The verified sender's username.
+      space: The recipient space's name.
+      item_names: The selected item names.
+      object_count: How many objects arrived.
+
+    Returns:
+      The sentence.
+
+    Raises:
+      None.
+    """
+    return (
+        f'{sender} sent {_things_phrase(item_names, object_count)} to your space "{space}". '
+        f"You'll find them in {inbox_label(sender)}."
+    )
 
 
 def failure_message(

@@ -177,6 +177,30 @@ def inbox_prefix(target_root: str, sender: str) -> str:
     return f"{root}{SHARED_FILES_FOLDER}/{sender}/"
 
 
+def inbox_label(sender: str) -> str:
+    """Returns the inbox's location as a person would read it, relative to their space root.
+
+    ``shared_files/{sender}/`` — the phrase a notification uses to tell a recipient where their
+    files landed, which is the one thing they cannot guess. It lives HERE rather than in the
+    message table for the same reason the key builder does: the layout has one home, and the
+    sweep in ``test_paths_fscommon`` forbids any other module naming the folder at all — a
+    sentence that drifted from the keys would send people looking in the wrong place.
+
+    Args:
+      sender: The verified sender's username, which namespaces the inbox.
+
+    Returns:
+      The root-relative inbox path.
+
+    Raises:
+      TerminalError: ``forbidden`` when the sender is missing, which would render a sentence
+        pointing at the inbox root shared by every sender.
+    """
+    if not sender:
+        raise TerminalError("forbidden", "an inbox label needs the sender")
+    return f"{SHARED_FILES_FOLDER}/{sender}/"
+
+
 def destination_key(target_root: str, sender: str, item: str, rel_key: str) -> str:
     """Builds the ONE destination key for a sent object.
 

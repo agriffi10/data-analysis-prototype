@@ -590,6 +590,7 @@ def test_the_catch_walk_actually_walked_something():
         "ValidateFailureSeed",
         "RequestFailureSeed",
         "Failed",
+        "Succeeded",
         "GuardRecipients/RecipientFaulted",
     } == {t for _f, t, _a in catches}
     assert any(available for _f, _t, available in catches), (
@@ -617,6 +618,10 @@ def test_every_post_validate_catch_reaches_the_one_shared_seed():
         "TransferObjects": "RequestFailureSeed",
         "CollectTransferResults": "RequestFailureSeed",
         "NotifyFailure": "Failed",
+        # SPEC-167. The ONE catch that must NOT reach a failure terminal: the copy has already
+        # happened by the time the producer runs, so a missed notification turning a delivered
+        # send into a failed execution would be strictly worse than the silence it reports.
+        "NotifyOutcomes": "Succeeded",
     }
 
 
