@@ -1,18 +1,43 @@
 # Send Files — control-plane e2e / smoke test
 
 Manual verification for the file-send control plane (`infra/modules/file-send/`). Grows with the
-arc; **SPEC-164** covers the plane and its front door and **SPEC-165** the source resolution — a
-request is validated or refused, and what would be copied is worked out and written down. Nothing
-is copied. SPEC-166 adds the transfer and the terminals.
+arc: **SPEC-164** is the plane and its front door, **SPEC-165** the source resolution, **SPEC-166**
+the transfer and the terminals. A send now really copies.
+
+**Run the sections in order, in one session** — checks 1 and 4 leave files in `bob`'s inbox that
+check 7 expects to find empty, so if you are running 7–10 on their own, clear it first (the
+cleanup at the end of each section says how).
 
 The pipeline as it stands:
 
 ```
 Browser → SQS (FIFO requests.fifo) → EventBridge Pipe (batch 1) → Step Function (Standard)
-   ValidateAuthorize → Validated → InspectSource → Planned → Succeeded
-        (validate failure → ValidateFailureSeed ─┐)
-        (inspect  failure → InspectFailureSeed  ─┴→ RecordFailure → NotifyFailure → Failed)
+   ValidateAuthorize → Validated → InspectSource → GuardRecipients → BuildTransferManifest
+        → HasTransferItems → [TransferObjects] → CollectTransferResults → ShapeSummary → Succeeded
+        (validate failure     → ValidateFailureSeed ─┐)
+        (any later failure    → RequestFailureSeed  ─┴→ RecordFailure → NotifyFailure → Failed)
+        (execution timeout    → EventBridge TIMED_OUT rule → notify-failure, second door)
 ```
+
+## Before anything: the identity you run this as
+
+**A laptop IAM user cannot read or write `dat-prod-user-space`.** Its bucket policy denies every
+principal outside a hand-maintained allowlist — the portal role, the deploy role and the control
+planes' execution roles — so `aws s3 ls`, `cp`, `sync` and `head-object` on that bucket come back
+`AccessDenied` from an ordinary CLI identity. That is the isolation model working, not a fault
+(CLAUDE.md records it).
+
+Two ways through, and it matters which you pick:
+
+- **Stage and verify through the portal UI** for anything in a *user's* space — upload the fixture
+  files in the file browser, and look at `bob`'s inbox by signing in as `bob`. Slower, and it is
+  what actually proves a recipient can see what arrived.
+- **Assume a role on the allowlist** for the CLI steps. Every `dat-prod-user-space` command below
+  assumes you have done one of these. `dat-prod-shared-space` has no bucket policy, so the
+  `finance` half of check 7 works from an ordinary identity.
+
+The admin bucket (`dat-prod-athena-admin`) and the Step Functions / SQS / logs calls need no
+special identity.
 
 Resource names (defaults; `dat`/`prod`):
 
@@ -22,10 +47,13 @@ Resource names (defaults; `dat`/`prod`):
 | DLQ | `dat-prod-file-send-requests-dlq.fifo` (swept by the SPEC-126 drain) |
 | Pipe | `dat-prod-file-send-pipe` |
 | State machine | `dat-prod-file-send-orchestrator` |
-| Verb Lambdas | `dat-prod-file-send-{validate-authorize,inspect-source,notify-failure}` |
-| fscommon layer | `dat-prod-file-send-common` (attached to all three, beside `cpcommon`) |
+| Verb Lambdas | `dat-prod-file-send-{validate-authorize,inspect-source,check-target-absent,build-transfer-manifest,copy-objects,collect-transfer-results,notify-failure}` |
+| fscommon layer | `dat-prod-file-send-common` (attached to every verb but `copy-objects`, beside `cpcommon`) |
+| Timeout rule | `dat-prod-file-send-orchestrator-timed-out` (EventBridge → `notify-failure`) |
 | Execution role | `dat-prod-file-send-execution-role` (ONE shared role) |
 | Copy plans | `s3://dat-prod-athena-admin/file-send/{requestId}/copy-plan.json` |
+| Transfer manifest | `s3://dat-prod-athena-admin/file-send/{requestId}/transfer-manifest.jsonl` |
+| Map Run export | `s3://dat-prod-athena-admin/file-send/{requestId}/results/` |
 
 ---
 
@@ -71,14 +99,22 @@ JSON
 
 **Expect, in the execution history:**
 
-- Status **Succeeded**, ending at `Planned` → `Succeeded` (SPEC-164 ended at `Validated`; that
+- Status **Succeeded**, running to `ShapeSummary` → `Succeeded` (SPEC-164 ended at `Validated`; that
   state is still there and still the thing to read for everything below).
 - `Validated`'s output carries `actor: {"username": "alice"}` — **from the token, never the body**
   (the body has no username field at all).
 - `recipients` carries `bob` unannotated and `nosuchspace` with `"invalid": "unknown_space"` —
   **an unreachable recipient annotates rather than failing the request**.
 - `source` resolved to `{"bucket": "dat-prod-user-space", "root": "alice/"}`.
-- **No notification** is sent. Nothing failed.
+- **Since SPEC-166 this check also COPIES.** `q1.csv` really lands at
+  `bob/shared_files/alice/q1.csv`, and `nosuchspace` is refused as `unknown_space` — so the
+  summary carries one `ok` and one `failed`. Clear it before check 7, which expects `bob`'s inbox
+  to be empty:
+
+  ```bash
+  aws s3 rm --recursive "s3://dat-prod-user-space/bob/shared_files/alice/"
+  ```
+- **No notification** is sent — the plane is silent until SPEC-167 adds the producer.
 
 ### Check 2 — an unauthorized source is refused, and the sender hears about it
 
@@ -131,7 +167,8 @@ Passing checks 1–3 discharges SPEC-164's Phase 4. They do **not** touch:
   and `fs_notify_failure` suppresses its duplicate. To exercise the real path you would have to
   break a layer attachment deliberately; not worth doing on a live plane, and the import-safety
   probe covers the packaging.
-- Anything about **copying**. Nothing is copied until SPEC-166.
+- The **transfer** itself, beyond the single object check 1 now copies as a side effect. The guard,
+  the manifest and the Map Run are checks 7–10.
 
 ---
 
@@ -181,12 +218,12 @@ JSON
 
 **Expect, in the execution history:**
 
-- Status **Succeeded**, ending at `Planned` → `Succeeded`.
-- `Planned`'s output carries `objectCount` **exactly equal to the `list-objects-v2` count above**
+- Status **Succeeded**, running to `ShapeSummary` → `Succeeded`.
+- **`InspectSource`'s output** carries `objectCount` **exactly equal to the `list-objects-v2` count above**
   — not 1,000, and not one more than the count (the `DO_NOT_DELETE.txt` marker is excluded, but
   it lives at the space root, not in this folder).
 - `copyPlanKey` is `file-send/fs-live-4/copy-plan.json`, and `totalBytes` is non-zero.
-- **No object key anywhere on the state.** Search the execution's `Planned` output for
+- **No object key anywhere on the state.** Search the execution's `InspectSource` output for
   `00001.csv`: it must not be there. That is the pointer working — at the caps the object list is
   two orders of magnitude over the 256 KB payload limit.
 
@@ -218,14 +255,14 @@ JSON
 
 **Expect:**
 
-- Status **Failed**, through `InspectFailureSeed → RecordFailure → NotifyFailure → Failed` — the
+- Status **Failed**, through `RequestFailureSeed → RecordFailure → NotifyFailure → Failed` — the
   **new** seed, not `ValidateFailureSeed`. If the execution dies with `States.Runtime` before
   `RecordFailure`, the seed is not supplying `$.raw` and nobody was notified.
 - **A notification in alice's inbox**: *"Couldn't send: one of the folders you selected already
   contains another thing you selected. Please send one or the other."*
 - **No copy plan written** for `fs-live-5`. `aws s3 ls s3://dat-prod-athena-admin/file-send/fs-live-5/`
   returns nothing — every layout rule fires before the write.
-- `InspectFailureSeed`'s output carries `actor: {"username": "alice"}`, taken from the state
+- `RequestFailureSeed`'s output carries `actor: {"username": "alice"}`, taken from the state
   rather than re-derived from the token. That is the difference from the SPEC-164 seed.
 
 ### Check 6 — the spans are in the log lake
@@ -256,9 +293,15 @@ Passing 4–6 discharges SPEC-165's Phase 4. It does **not** touch:
   in `test_config_fscommon.py` against the verb's configured memory and the transfer engine's
   makespan rate. What check 4 does prove is the term those models rest on — that the listing is
   complete.
-- **The destination layout.** `fscommon.paths.destination_key` ships here and nothing calls it
-  until SPEC-166; no key is written to any recipient's space by this spec.
-- Anything about **copying**. Still nothing is copied until SPEC-166.
+- **The transfer's own machinery.** Check 4's 1,200 objects *are* now copied to `bob` as a side
+  effect of the send completing — clear them before check 7, which expects an empty inbox:
+
+  ```bash
+  aws s3 rm --recursive "s3://dat-prod-user-space/bob/shared_files/alice/"
+  ```
+
+  What checks 4–6 do not touch is the guard, the manifest, the per-recipient attribution or the
+  terminals. Those are checks 7–10.
 
 ---
 
@@ -273,9 +316,31 @@ cross-bucket write into the shared-space bucket, and the user-space bucket polic
 three separate gates that all render, apply and unit-test green while denying the first real copy.
 Only a real send exercises them.
 
-Runs on top of check 1's setup: same `$TOKEN`, same `$QUEUE`, same username substitution. You need
-**one other user** (`bob` below) and **one shared space** (`finance`) — the space need not have you
-as a member, which is itself part of what check 7 shows.
+Runs on top of check 1's setup: same `$TOKEN`, same `$QUEUE`, same username substitution.
+
+**You need THREE real Cognito users and one shared space** before you start: yourself (`alice`),
+`bob` and `carol`, plus a space `finance`. Carol is check 8's control — a recipient who has never
+received anything from you — and if she does not exist the guard refuses her `unknown_user`
+instead, which is a different outcome from the one check 8 is looking for. The **space need not
+have you as a member**, which is itself part of what check 7 shows.
+
+Every check below reads the execution, so set this once — the machine has one execution per
+request and the name is the Pipe's, not yours, so look it up by start time:
+
+```bash
+MACHINE=arn:aws:states:us-east-1:696000197480:stateMachine:dat-prod-file-send-orchestrator
+exec_arn() {  # exec_arn → the most recent execution's ARN
+  aws stepfunctions list-executions --state-machine-arn "$MACHINE" --max-items 1 \
+    --query 'executions[0].executionArn' --output text
+}
+wait_done() {  # wait_done → blocks until it leaves RUNNING, then prints the status
+  local arn; arn=$(exec_arn)
+  while [ "$(aws stepfunctions describe-execution --execution-arn "$arn" --query status --output text)" = RUNNING ]; do
+    sleep 20
+  done
+  aws stepfunctions describe-execution --execution-arn "$arn" --query status --output text
+}
+```
 
 ### Before you start
 
@@ -311,7 +376,13 @@ JSON
 )"
 ```
 
-Wait for the execution to leave `RUNNING`, then confirm **all four** of:
+Then, once it finishes (`wait_done` prints `SUCCEEDED` — a 300-object send takes a minute or two):
+
+```bash
+EXEC=$(exec_arn); wait_done
+```
+
+Confirm **all four** of:
 
 ```bash
 # 1. Every object arrived, in BOTH spaces. Both numbers must equal the folder's count.
@@ -363,10 +434,12 @@ never overwrites.
 ### Check 9 — the run is in the log lake
 
 ```bash
-aws s3 ls "s3://dat-prod-athena-admin/logs/service=file-send/year=$(date -u +%Y)/month=$(date -u +%m)/day=$(date -u +%d)/"
+aws s3 cp "s3://dat-prod-athena-admin/logs/service=file-send/year=$(date -u +%Y)/month=$(date -u +%m)/day=$(date -u +%d)/data.jsonl" - \
+  | grep fs-live-7 | python3 -c 'import sys,json; [print(json.loads(l)["message"]) for l in sys]' | sort | uniq -c
 ```
 
-The day object must carry, for check 7's `request_id`: `send validated`, `copy plan built`,
+The sweep runs every 10 minutes, so give it that long before concluding anything is missing.
+The output must carry, for check 7's `request_id`: `send validated`, `copy plan built`,
 `target absent` (one per recipient), `transfer manifest built`, **one `batch copied` per child
 execution**, and `transfer results attributed`. The `batch copied` count is the one worth reading —
 it is the only place the fan-out is visible, and a run that copied everything in one batch means
@@ -388,6 +461,15 @@ aws iam simulate-principal-policy --policy-source-arn "$ROLE" \
 ```
 
 Expect `allowed` for the first and `implicitDeny` for the second.
+
+Two ways this goes wrong that are worth recognising rather than debugging:
+
+- **Both come back `explicitDeny`.** The bucket policy denies on `StringNotLike aws:PrincipalArn`,
+  and a *missing* context key makes that condition true — so if the simulator did not populate the
+  principal ARN, everything reads as denied. Add
+  `--context-entries ContextKeyName=aws:PrincipalArn,ContextKeyValues=$ROLE,ContextKeyType=string`.
+- **The call errors on the resource policy.** Same-account should not need it; add
+  `--resource-owner 696000197480` if it does.
 
 > **`--resource-policy` is not optional here, and omitting it is worse than skipping the check.**
 > `simulate-principal-policy` does not consult a bucket policy on its own, so without it the

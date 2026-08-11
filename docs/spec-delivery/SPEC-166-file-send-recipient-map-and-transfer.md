@@ -186,7 +186,9 @@ treated as available.
 
 ## Live checks (owed)
 
-`docs/testing/file-send-e2e.md`, *SPEC-166* — checks 7–9. They are the only evidence that the
-cross-bucket write actually lands: **nothing that runs offline proves the `*/shared_files/*`
-scoping works**, and a policy simulation without `--resource-policy` returns `allowed` for a
-`PutObject` the real call denies, which is worse than no simulation.
+`docs/testing/file-send-e2e.md`, *SPEC-166* — checks 7–10. **Checks 7 and 8 are the only evidence
+that the cross-bucket write actually lands**; nothing that runs offline proves the
+`*/shared_files/*` scoping works. Check 10 is a policy simulation, which is a different kind of
+evidence — it says what IAM would decide, not that a copy happened — and it must pass
+`--resource-policy`, because without it the simulation returns `allowed` for a `PutObject` the real
+call denies. A false green there is worse than no simulation at all.
