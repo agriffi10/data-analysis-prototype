@@ -73,6 +73,12 @@
       ]
     },
     {
+      "Sid": "ReadTimedOutExecutionInput",
+      "Effect": "Allow",
+      "Action": "states:DescribeExecution",
+      "Resource": "${execution_arn_wildcard}"
+    },
+    {
       "Sid": "EmitStructuredLogEvents",
       "Effect": "Allow",
       "Action": "sqs:SendMessage",

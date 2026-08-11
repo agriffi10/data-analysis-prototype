@@ -55,7 +55,14 @@ resource "aws_iam_role_policy" "execution" {
   # NOTE FOR ANYONE ADDING A STATEMENT: IAM rejects a "//" comment key inside a
   # statement ("Policy input list item 1 has invalid content" — verified with
   # simulate_custom_policy), so rationale goes HERE, not in the .tftpl.
+  # states:DescribeExecution (SPEC-166 FR-005) is the ONE grant the timeout door needs, and it
+  # is on THIS role rather than the state machine's because it is the notify-failure LAMBDA that
+  # makes the call — invoked by EventBridge, outside any execution. It reads back the input of a
+  # run whose event omitted it, which on this plane is the ordinary case for a large send:
+  # EventBridge caps an event at 256 KB and the Pipe record is allowed to approach 200 KB, so
+  # without this the sends most likely to time out are the ones nobody can be told about.
   policy = templatefile("${path.module}/policies/execution.json.tftpl", {
+    execution_arn_wildcard  = local.child_execution_arn_wildcard
     log_group_arn           = local.file_send_log_group_wildcard_arn
     admin_bucket_arn        = local.admin_bucket_arn
     user_space_bucket_arn   = local.user_space_bucket_arn

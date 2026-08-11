@@ -523,3 +523,36 @@ def test_a_root_without_its_trailing_slash_still_anchors_the_exclusions():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_an_object_over_the_per_object_cap_is_refused(monkeypatch):
+    """SPEC-166. The cap SPEC-165 recorded as owed, and the one the distributed makespan model
+    cannot stand in for: 500 MB/s is only reachable when the bytes are SPREAD over the worker
+    pool, and one object is one worker at 25 MB/s however small the rest of the send is."""
+    monkeypatch.setattr(expand, "SEND_MAX_OBJECT_BYTES", 100)
+    _install({"alice/big/a.csv": 10, "alice/big/b.csv": 101})
+
+    assert _refused(_source([_folder("alice/big/")])) == "object_too_large"
+
+
+def test_an_object_exactly_at_the_per_object_cap_is_allowed(monkeypatch):
+    """The off-by-one that would make the documented cap a lie, and the sentence names a size."""
+    monkeypatch.setattr(expand, "SEND_MAX_OBJECT_BYTES", 100)
+    _install({"alice/big/a.csv": 100})
+
+    objects, total = expand.expand(_source([_folder("alice/big/")]))
+
+    assert total == 100 and len(objects) == 1
+
+
+def test_the_per_object_cap_is_checked_before_the_object_joins_the_plan(monkeypatch):
+    """Same reasoning as the walk-time caps beside it: the refusal must not wait for a list it
+    is refusing to finish accumulating. Asserted through the walk rather than the outcome, which
+    both orders share."""
+    monkeypatch.setattr(expand, "SEND_MAX_OBJECT_BYTES", 100)
+    monkeypatch.setattr(expand, "SEND_MAX_OBJECTS", 3)
+    # The oversized object sorts FIRST, so the walk meets it while the count cap is still
+    # satisfied — which is the only arrangement where the two refusals can be told apart.
+    _install({"alice/big/a-big.csv": 500, **{f"alice/big/z{i}.csv": 1 for i in range(2_000)}})
+
+    assert _refused(_source([_folder("alice/big/")])) == "object_too_large"

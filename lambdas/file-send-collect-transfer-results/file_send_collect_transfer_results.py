@@ -34,7 +34,7 @@ from collections import Counter
 from cpcommon import errors, observability
 from cpcommon.errors import TerminalError
 from cpcommon.transfer import results as results_mod
-from fscommon import notify
+from fscommon import notify, paths
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -199,6 +199,35 @@ def _entry(record: dict, failed_items: int) -> dict:
     return {"kind": kind, "name": name, "status": "ok", "reason": "", "detail": "", "failedItems": 0}
 
 
+def _item_names(event) -> list:
+    """Derives the names the send delivered under, for the terminal summary.
+
+    Here rather than in a Pass state because ASL cannot map keys to their last segment, and here
+    rather than upstream because this is the LAST state holding the selection they come from —
+    ShapeSummary drops it, and SPEC-167's notification names them to both parties.
+
+    Args:
+      event: The request, carrying the authorized source and its normalised items.
+
+    Returns:
+      The item names, in selection order. Empty when the selection is absent, which is not worth
+      failing a completed transfer over: by this point the copy has happened, and a summary with
+      no names is a worse notification, not a wrong outcome.
+
+    Raises:
+      None. ``item_name`` refuses a key with no final segment, but nothing that reached this
+      state can carry one — validate-authorize refused it and the guard would have failed on it
+      — so a raise here would turn a successful send into a whole-request failure over wording.
+    """
+    names = []
+    for item in ((event.get("source") or {}).get("items") or []):
+        try:
+            names.append(paths.item_name(item.get("key") or ""))
+        except Exception:  # noqa: BLE001
+            logger.info("an item key had no name; leaving it out of the summary")
+    return names
+
+
 @observability.traced("collect-transfer-results")
 @notify.notifies_on_failure("collect")
 def handler(event, context) -> dict:
@@ -216,7 +245,8 @@ def handler(event, context) -> dict:
       context: The Lambda context, unused.
 
     Returns:
-      The request with an ``outcomes`` list, one uniform entry per recipient.
+      The request with an ``outcomes`` list — one uniform entry per recipient — and the item
+      names the summary reports.
 
     Raises:
       TerminalError: ``transfer_results_unreadable`` when the export cannot be read or a batch
@@ -229,16 +259,20 @@ def handler(event, context) -> dict:
 def _collect_transfer_results(event) -> dict:
     """Counts failed items per recipient and shapes the per-recipient outcomes.
 
-    ``guardResults`` is CONSUMED rather than carried: it is this verb's input, its raw
-    ``{Error, Cause}`` per faulted recipient is the state's heaviest per-recipient term, and
-    every fact the summary needs has been copied into the outcomes by the time it is dropped.
+    ``guardResults`` and ``source`` are both CONSUMED rather than carried, and for one reason:
+    this verb's output is the state, and the state has a 256 KB limit whose breach is
+    uncatchable. ``guardResults`` holds a raw ``{Error, Cause}`` per faulted recipient, and
+    ``source`` holds the whole selection — which the item names replace here, since they are
+    derived from it and are what the summary reports. Carrying both alongside ``itemNames``
+    would put two copies of the selection on one state at the moment the run is otherwise
+    finished.
 
     Args:
       event: The request with its guard results and Map Run output.
 
     Returns:
-      The request with its per-recipient outcome list, and without the guard results it
-      replaces.
+      The request with its per-recipient outcome list and the item names, and without the guard
+      results or the selection they replace.
 
     Raises:
       TerminalError: ``transfer_results_unreadable`` when the export cannot be attributed.
@@ -264,7 +298,9 @@ def _collect_transfer_results(event) -> dict:
         delivered=delivered,
         failed_items=sum(counts.values()),
     )
+    names = _item_names(event)
     return {
-        **{key: value for key, value in event.items() if key != "guardResults"},
+        **{key: value for key, value in event.items() if key not in ("guardResults", "source")},
+        "itemNames": names,
         "outcomes": entries,
     }

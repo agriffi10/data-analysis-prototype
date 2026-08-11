@@ -102,12 +102,14 @@ locals {
     # SPEC-152's notification of last resort: one decode + one SQS send, reached only
     # on a whole-request failure path.
     #
-    # 15s is sized for exactly that. Table-share's twin runs at 60s because SPEC-161
-    # gave it a SECOND door (an EventBridge TIMED_OUT rule) whose path does a
-    # cold-start JWKS fetch and a JWT verify before the send. This machine has no
-    # TimeoutSeconds and no rule, so this door does strictly less work. SPEC-166 adds
-    # the long copy, the timeout and the rule — and must raise this with them.
-    "notify-failure" = { handler = "fs_notify_failure.handler", timeout = 15, memory = 256 }
+    # SPEC-166 raised it 15s -> 60s, WITH the second door that made 15s wrong. The
+    # EventBridge TIMED_OUT rule (stepfunction.tf) invokes this same function with an
+    # event of a different shape, and that path does strictly more work than the ASL
+    # one: a cold-start JWKS fetch over the network plus a JWT verify before the send,
+    # because the sender has to come from the token in the timed-out execution's own
+    # input. 15s was sized for a decode and a send. Table-share's twin and the DLQ
+    # drain, which do the same verify, are both at 60s.
+    "notify-failure" = { handler = "fs_notify_failure.handler", timeout = 60, memory = 256 }
   }
 
   # Per-verb extra env, merged over the common env (lambda.tf). RESERVED FOR OPTIONAL
@@ -152,6 +154,53 @@ locals {
   # matches the deploy-role *-file-send-* layer wildcard (modules/base) — see the
   # header note. Referenced here for documentation/parity only.
   fscommon_layer_name = "${var.project_name}-${var.environment}-file-send-common"
+
+  # SPEC-166 FR-002. Mirrored from cpcommon/transfer/config.py, which is where the two
+  # numbers are REASONED about: MAX_ITEMS_PER_BATCH equals COPY_CONCURRENCY so a batch
+  # is exactly one round of the worker pool, and MAP_MAX_CONCURRENCY bounds how much of
+  # the account's Lambda concurrency one send may take. Terraform cannot import Python,
+  # so the ASL carries literals fed from here and a test asserts the rendered numbers
+  # still equal the constants — two homes for one number is how a batch silently grows
+  # past the limit it was sized against.
+  transfer_max_items_per_batch = 8
+  transfer_map_max_concurrency = 20
+
+  # The guard Map's fan-out. Modest on purpose: each item is one delimited listing, and
+  # this is the same 5 every other per-recipient Map in the fleet uses. Named as a local
+  # rather than written into the ASL because the transfer-cap test reads it — the guard
+  # Map's makespan is one of the terms in the machine's own timeout budget.
+  guard_map_max_concurrency = 5
+
+  # SPEC-166 FR-005. A TOP-LEVEL ASL field, not a resource argument and not a task field
+  # (SPEC-157 settled that distinction for the table-builder). Without it a Standard
+  # workflow's ceiling is Step Functions' own default of ONE YEAR, so a wedged run
+  # simply never ends — and this is the first version of this machine that can wedge,
+  # because it is the first with a Map, a manifest and a copy in it.
+  #
+  # It does NOT on its own reach NotifyFailure, and that trap is worth stating here
+  # because the state sits right there in the machine looking like it would. AWS is
+  # explicit that catchers cover Task, Parallel and Map states but NOT top-level
+  # execution failures: this timeout terminates the run outright, so no state runs and
+  # no Catch fires. The sender is told by the EventBridge TIMED_OUT rule in
+  # stepfunction.tf, which is the documented remedy and is what actually discharges
+  # SPEC-152's "it just never came back" guarantee here.
+  #
+  # 3 hours, and the arithmetic is SEND_MAX_TRANSFER_BYTES (3 TiB) — the RECIPIENT
+  # PRODUCT, not SEND_MAX_TOTAL_BYTES. Every manifest item is a full copy, so the Map
+  # moves the source once per recipient; sized against the 1 TiB source cap alone this
+  # number would be short by a factor of SEND_MAX_RECIPIENTS. The denominator is a
+  # MAKESPAN, not an aggregate bandwidth: copy_batch gives one whole object to one
+  # worker and copy_one part-copies serially, so the pessimistic rate is
+  # transfer_map_max_concurrency x CONSERVATIVE_STREAM_BYTES_PER_SECOND = 500 MB/s, not
+  # the ~4 GB/s the same constants suggest if you multiply them all together. Under that
+  # rate 3 TiB is ~6,600s; the guard Map, the serial verbs and the per-child overhead of
+  # 50,000 items in batches of 8 take the worst run to ~8,900s.
+  # test_the_whole_run_fits_the_machines_ceiling COMPUTES every term of that from these
+  # locals, so a cap or a verb timeout raised without re-deriving it fails the build.
+  #
+  # It is deliberately not longer. The timeout is how fast a wedged send becomes a
+  # notification, so the margin is bought against the sender's silence, not for free.
+  state_machine_timeout_seconds = 10800
 
   # SPEC-166 FR-004. The Distributed Map's OWN permissions belong to the STATE MACHINE
   # role: it is the state machine that calls StartExecution for each child and that

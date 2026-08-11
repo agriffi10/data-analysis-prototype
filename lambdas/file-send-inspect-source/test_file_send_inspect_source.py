@@ -203,3 +203,76 @@ def test_a_shared_space_source_is_expanded_in_its_own_bucket():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── SPEC-166 FR-005: the transfer caps ──────────────────────────────────────
+
+
+def _recipients(count):
+    """A recipient list of the given length, all resolvable."""
+    return [{"kind": "user", "name": f"user{n}"} for n in range(count)]
+
+
+def test_the_transfer_item_cap_counts_objects_TIMES_recipients(monkeypatch):
+    """The bound neither per-source cap can express: 2 objects is legal and so are 3 recipients,
+    and every manifest item is a full copy."""
+    monkeypatch.setattr(m, "SEND_MAX_TRANSFER_ITEMS", 5)
+    _install({"alice/reports/q1.csv": 10, "alice/reports/q2.csv": 10})
+    event = {**_event(), "recipients": _recipients(3)}
+
+    with pytest.raises(TerminalError) as caught:
+        m.handler(event, None)
+
+    assert caught.value.reason == "too_many_transfer_items"
+
+
+def test_the_transfer_byte_cap_counts_bytes_TIMES_recipients(monkeypatch):
+    """Table-share's own ceiling was short by a factor of its recipient cap for exactly this
+    reason: the Map moves the source once PER RECIPIENT."""
+    monkeypatch.setattr(m, "SEND_MAX_TRANSFER_BYTES", 50)
+    _install({"alice/reports/q1.csv": 20})
+    event = {**_event(), "recipients": _recipients(3)}
+
+    with pytest.raises(TerminalError) as caught:
+        m.handler(event, None)
+
+    assert caught.value.reason == "transfer_too_large"
+
+
+def test_a_transfer_exactly_at_the_caps_is_allowed(monkeypatch):
+    monkeypatch.setattr(m, "SEND_MAX_TRANSFER_ITEMS", 2)
+    monkeypatch.setattr(m, "SEND_MAX_TRANSFER_BYTES", 20)
+    _install({"alice/reports/q1.csv": 10})
+    event = {**_event(), "recipients": _recipients(2)}
+
+    assert m.handler(event, None)["objectCount"] == 1
+
+
+def test_the_transfer_caps_are_measured_on_the_REQUESTED_recipients(monkeypatch):
+    """Before the guard, deliberately. Counting only the recipients who clear their conflict
+    check would let the expensive half of the work happen first — the guard is one listing per
+    recipient — and would make a refusal depend on what someone else's inbox happens to hold."""
+    monkeypatch.setattr(m, "SEND_MAX_TRANSFER_ITEMS", 2)
+    _install({"alice/reports/q1.csv": 10})
+    event = {
+        **_event(),
+        "recipients": [{"kind": "user", "name": "ghost", "invalid": "unknown_user"}, *_recipients(2)],
+    }
+
+    with pytest.raises(TerminalError) as caught:
+        m.handler(event, None)
+
+    assert caught.value.reason == "too_many_transfer_items"
+
+
+def test_no_plan_is_written_when_the_transfer_caps_refuse(monkeypatch, notified):
+    """A refused send leaves nothing behind — and the caps sit AFTER the expansion, so this is
+    the one ordering worth pinning: the plan write must come after them, not before."""
+    monkeypatch.setattr(m, "SEND_MAX_TRANSFER_ITEMS", 2)
+    fake = _install({"alice/reports/q1.csv": 10})
+
+    with pytest.raises(TerminalError):
+        m.handler({**_event(), "recipients": _recipients(50)}, None)
+
+    assert fake.puts == []
+    assert notified and notified[0][0] == "alice"

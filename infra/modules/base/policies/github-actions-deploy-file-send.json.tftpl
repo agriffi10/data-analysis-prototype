@@ -133,6 +133,22 @@
         "arn:aws:logs:${aws_region}:*:log-group:/aws/vendedlogs/states/${project_name}-*-file-send-*",
         "arn:aws:logs:${aws_region}:*:log-group:/aws/vendedlogs/states/${project_name}-*-file-send-*:*"
       ]
+    },
+    {
+      "Sid": "FileSendTimeoutRuleManage",
+      "Effect": "Allow",
+      "Action": [
+        "events:PutRule",
+        "events:DeleteRule",
+        "events:DescribeRule",
+        "events:PutTargets",
+        "events:RemoveTargets",
+        "events:ListTargetsByRule",
+        "events:ListTagsForResource",
+        "events:TagResource",
+        "events:UntagResource"
+      ],
+      "Resource": "arn:aws:events:${aws_region}:*:rule/${project_name}-*-file-send-orchestrator-timed-out"
     }
   ]
 }
