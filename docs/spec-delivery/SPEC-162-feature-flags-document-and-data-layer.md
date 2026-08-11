@@ -102,7 +102,26 @@ added. Each is now a test rather than a belief.
 read by nothing until SPEC-163, and documenting a feature that is not wired end to end is exactly
 what SPEC-074 FR-005 forbids.
 
-**Live check (OWED) — see `docs/testing/feature-flags-e2e.md`.** Publish the document, sign in, and
-confirm in the network panel that the `GetObject` on `_config/feature-flags.json` returns **200** and
-that the hook reports `'ready'`. A passing-looking app with `'fallback'` is a **failure** of this
-spec. Confirm in the same pass that `_config/` is not listable from the file browser.
+**Live check DISCHARGED (2026-08-11), and by the strongest available evidence.** With
+`environments.prod` set to `{"query": false, "dataQuality": false}`, the deployed app hid both
+features. That settles FR-009 without the network panel: the compiled-in fallback is **all-on**, so
+a blocked or unusable read produces exactly the app that changes nothing. Features disappearing is
+reachable only through a successful read of a document this build understood — `status: 'ready'`,
+deduced rather than read off a console.
+
+**It also discharges FR-007's runtime half**, which this doc recorded as not dischargeable here: the
+`prod` block took effect, so `VITE_ENVIRONMENT` demonstrably reached the bundle and resolved the
+right environment. Owed since this spec shipped, and it needed SPEC-163 before a flag could visibly
+hide anything.
+
+**Method, recorded because it changes what is proven:** the override was applied to the PUBLISHED
+OBJECT directly, not by merging a change to `config/feature-flags.json`. The browser half is
+therefore fully exercised and the pipeline half is not — the workflow's upload was confirmed
+separately by a `workflow_dispatch` on **Publish Config** (run 31495622199), which restored the
+all-true document and reconciled the drift the hand-edit had opened between git and the bucket. The
+push trigger itself ran at this spec's merge (run 31451346505).
+
+**Not confirmed, and small:** that `_config/` is invisible in the file browser. IAM is what enforces
+it — the portal role's `ListBucket` is prefix-conditioned and `_config` is a bucket-root folder
+outside every user prefix — and a test asserts that condition, so the SPA lists are belt-and-braces
+either way.
