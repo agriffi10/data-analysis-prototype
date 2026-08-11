@@ -25,6 +25,9 @@ Attributes:
   TARGET_RE: Matches one ``environment_name:`` entry in that matrix. Deliberately not
     ``environment:`` — that is a GitHub Actions job keyword, and matching it would let an
     unrelated deployment-environment block masquerade as an upload target.
+  BUCKET_VAR_RE: Matches the ``bucket_var:`` key that must accompany each target. Anchored to
+    the start of a line so the ``vars[matrix.bucket_var]`` reference in the steps below the
+    matrix cannot stand in for a missing declaration.
 """
 
 import json
@@ -39,6 +42,7 @@ FLAG_KEYS = frozenset({"files", "query", "sharedWorkspaces", "dataQuality"})
 DOCUMENT = ROOT / "config" / "feature-flags.json"
 PUBLISH_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-config.yml"
 TARGET_RE = re.compile(r"^\s*-?\s*environment_name:\s*(\S+)\s*$", re.MULTILINE)
+BUCKET_VAR_RE = re.compile(r"^\s*bucket_var:\s*(\S+)\s*$", re.MULTILINE)
 
 
 class ValidationError(Exception):
@@ -53,6 +57,11 @@ def read_upload_targets(workflow_text: str) -> set[str]:
     would look published. A reformat that breaks this regex must fail loudly rather than
     quietly stop checking.
 
+    Each entry must also name the repository variable holding its destination bucket. An
+    entry without one is caught at publish time by the workflow's own empty-bucket guard,
+    which is a correct but late failure — an incomplete matrix is a document-time defect and
+    belongs here, where it costs a PR check rather than a red deploy.
+
     Args:
       workflow_text: The publish workflow's source.
 
@@ -60,13 +69,23 @@ def read_upload_targets(workflow_text: str) -> set[str]:
       The declared environment names.
 
     Raises:
-      ValidationError: If the matrix declares no targets at all.
+      ValidationError: If the matrix declares no targets at all, or an entry names no bucket.
     """
-    targets = set(TARGET_RE.findall(workflow_text))
+    entries = TARGET_RE.split(workflow_text)[1:]
+    targets = {name for name, _rest in zip(entries[::2], entries[1::2], strict=True)}
     if not targets:
         raise ValidationError(
             f"{PUBLISH_WORKFLOW.name} declares no `environment_name:` upload targets — "
             "the matrix was renamed or reformatted, and the cross-check below would pass vacuously"
+        )
+
+    incomplete = sorted(
+        name for name, rest in zip(entries[::2], entries[1::2], strict=True) if not BUCKET_VAR_RE.search(rest)
+    )
+    if incomplete:
+        raise ValidationError(
+            f"{PUBLISH_WORKFLOW.name} matrix entries {incomplete} name no `bucket_var:` — "
+            "they declare a destination that does not exist"
         )
     return targets
 
@@ -103,7 +122,11 @@ def _version_problems(version: object) -> list[str]:
     Returns:
       The problems found; empty when the version is supported.
     """
-    if version not in SUPPORTED_VERSIONS:
+    # `isinstance(True, int)` is True and `hash(True) == hash(1)`, so a bare membership test
+    # ACCEPTS `"version": true` — which the browser then refuses, because `true !== 1` in JS.
+    # A document that passes here and is refused there is the exact silent failure this
+    # validator exists to prevent, so the bool is excluded before the membership test.
+    if isinstance(version, bool) or not isinstance(version, int) or version not in SUPPORTED_VERSIONS:
         known = ", ".join(str(v) for v in sorted(SUPPORTED_VERSIONS))
         return [f"unknown version {version!r} — this validator understands {known}"]
     return []

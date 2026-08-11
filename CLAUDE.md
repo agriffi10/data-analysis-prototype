@@ -94,10 +94,16 @@ pipeline and the browser data layer shipped; **nothing reads the flags yet** (th
 is a single signed-in browser pass and its pass condition is a **200 in the network panel on
 `_config/feature-flags.json` plus `status: 'ready'`** — a working-looking app proves nothing, because
 the all-on fallback is what a permanently blocked read also produces. Script:
-`docs/testing/feature-flags-e2e.md`. **Step 3 (an override taking effect without an app redeploy) is
-the only step that tests `VITE_ENVIRONMENT` reached the bundle** — steps 1–2 pass identically with it
-unset. **163 is still Draft**, and its hard part is unchanged: gating driven by a **registry with a
-walking test**, because the cross-feature entry points are what a per-component pass misses.
+`docs/testing/feature-flags-e2e.md`. **`ProtectedLayout` mounts `useFeatureFlags()` and discards the
+result on purpose** — without a mount the whole feature is tree-shaken out of the bundle and the
+grant, CORS, CSP and key spelling are all unexercised in production with every gate green (SPEC-137's
+shape); it is pinned by a test, so don't delete it as dead code. **FR-007's runtime half is NOT
+dischargeable here** — every step passes identically with `VITE_ENVIRONMENT` unset, because an unset
+environment resolves the same `defaults` and still reports `ready`; settle it in **163's** check,
+where an override that hides a surface is finally visible. **163 is still Draft**, and its hard part
+is unchanged: gating driven by a **registry with a walking test**, because the cross-feature entry
+points are what a per-component pass misses — and it must treat `'loading'` (the permanent signed-out
+status) as **render all-on**, never as "wait".
 
 **Two arcs remain filed as Draft (2026-08-10) — authored, not started.** **164→167** send files/folders to another person's
 personal or shared space (its own control plane; destination `shared_files/{sender}/`; push, never

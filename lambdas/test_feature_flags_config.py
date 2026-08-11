@@ -101,6 +101,34 @@ def test_an_unparseable_matrix_is_an_error_not_an_empty_set():
         validator.read_upload_targets("jobs:\n  publish:\n    steps: []\n")
 
 
+def test_a_matrix_entry_with_no_bucket_var_is_an_error():
+    """An entry declaring a destination that does not exist fails here, not at publish time.
+
+    The workflow's own empty-bucket guard would catch it — correctly, and too late: a red
+    deploy where a red PR check would do.
+    """
+    workflow = "        include:\n          - environment_name: staging\n          - environment_name: prod\n            bucket_var: B\n"
+    with pytest.raises(validator.ValidationError, match="staging"):
+        validator.read_upload_targets(workflow)
+
+
+def test_the_bucket_var_check_does_not_accept_the_steps_reference():
+    """`vars[matrix.bucket_var]` in a later step must not stand in for the declaration.
+
+    The last matrix entry's text runs to the end of the file, so an unanchored search would
+    find the steps block's reference and pass every entry forever.
+    """
+    workflow = (
+        "        include:\n"
+        "          - environment_name: prod\n"
+        "    steps:\n"
+        "      - env:\n"
+        "          BUCKET: ${{ vars[matrix.bucket_var] }}\n"
+    )
+    with pytest.raises(validator.ValidationError, match="prod"):
+        validator.read_upload_targets(workflow)
+
+
 def test_a_github_environment_keyword_is_not_an_upload_target():
     """`environment:` is a GitHub Actions job keyword; only `environment_name:` declares a target.
 
@@ -150,6 +178,21 @@ def test_an_unknown_version_fails():
     document = _valid_document()
     document["version"] = 2
     assert any("unknown version 2" in p for p in validator.validate_document(document, {"prod"}))
+
+
+@pytest.mark.parametrize("version", [True, False, "1", 1.5, None, [1]])
+def test_a_version_that_is_not_a_plain_integer_fails(version):
+    """`True` is the one that matters, and a bare membership test would have accepted it.
+
+    `isinstance(True, int)` is True and `hash(True) == hash(1)` in Python, so `True in {1}`
+    is True — while the browser compares `version !== 1` in JS, where `true !== 1`. A
+    document that passes validation and is then refused by every reader is the silent
+    failure this validator exists to prevent, and it is invisible: the app falls back to
+    all-on, which is what a healthy environment looks like.
+    """
+    document = _valid_document()
+    document["version"] = version
+    assert any("unknown version" in p for p in validator.validate_document(document, {"prod"}))
 
 
 @pytest.mark.parametrize("missing", FLAG_KEYS)
@@ -217,13 +260,24 @@ def test_the_publish_workflow_addresses_one_exact_key():
 
 
 def test_the_publish_workflow_validates_before_it_uploads():
-    """A failed validation must stop the workflow before any AWS call."""
+    """A failed validation must stop the workflow before any AWS call.
+
+    Anchored on the STEP, not on the script path. The path also appears in the `on: paths:`
+    trigger near the top of the file, so an index of the bare path is always the trigger's —
+    which would leave every assertion here passing after someone moved the validate step
+    below the upload. A guard that cannot fail is the thing it is guarding against.
+    """
     text = PUBLISH_WORKFLOW.read_text()
-    validate_at = text.index("scripts/validate_feature_flags.py")
-    upload_at = text.index("aws s3 cp")
-    assert validate_at < upload_at
-    assert "configure-aws-credentials" in text
-    assert text.index("configure-aws-credentials") > validate_at
+    steps = text[text.index("\n    steps:") :]
+    validate_at = steps.index("- name: Validate the flag document")
+    assert validate_at < steps.index("aws s3 cp")
+    assert validate_at < steps.index("configure-aws-credentials")
+
+
+def test_that_ordering_check_is_not_reading_the_trigger():
+    """Guards the guard above: the bare script path appears BEFORE the steps block."""
+    text = PUBLISH_WORKFLOW.read_text()
+    assert text.index("scripts/validate_feature_flags.py") < text.index("\n    steps:")
 
 
 def test_ci_validates_the_document_on_every_pull_request():
@@ -236,10 +290,33 @@ def test_the_deploy_role_already_covers_the_user_space_bucket():
 
     Asserted rather than assumed. If this ever fails it is the finding — the response is to
     understand why the grant moved, not to add a statement here.
+
+    ONE statement must carry both halves. Two independent substring checks would still pass
+    if a future edit left `s3:*` on some other bucket and narrowed the user-space grant to a
+    read — which is precisely the change that would break the publish while looking fine.
     """
-    text = DEPLOY_POLICY.read_text()
-    assert '"s3:*"' in text
-    assert "${user_space_bucket_arn}/*" in text
+    policy = json.loads(DEPLOY_POLICY.read_text().replace("${", "@{"))
+    writes = {"s3:*", "s3:PutObject"}
+    covering = [
+        statement
+        for statement in policy["Statement"]
+        if statement["Effect"] == "Allow"
+        and writes & set(_as_list(statement["Action"]))
+        and "@{user_space_bucket_arn}/*" in _as_list(statement["Resource"])
+    ]
+    assert covering, "no single deploy-role statement both writes objects and covers the user-space bucket"
+
+
+def _as_list(value: object) -> list:
+    """A policy field that may be a scalar or a list, always as a list.
+
+    Args:
+      value: An `Action` or `Resource` field.
+
+    Returns:
+      The field's entries.
+    """
+    return value if isinstance(value, list) else [value]
 
 
 # ── Portal-role IAM ──────────────────────────────────────────────────────────

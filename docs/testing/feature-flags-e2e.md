@@ -76,10 +76,11 @@ Either is sufficient:
   the only paths from a 200-with-valid-body to `fallback` are a version bump or a corrupt object,
   both visible in the body you are already looking at.
 
-### Step 3 — an override actually takes effect
+### Step 3 — a flag change is a publish, not a redeploy
 
-This proves `VITE_ENVIRONMENT` reached the bundle, which is the FR-007 trap and is otherwise
-invisible (an unset variable resolves the same `defaults` and still reports `ready`).
+**What this step proves, exactly:** the document can be republished and the browser picks the new
+body up without an app build. It does **not** prove `VITE_ENVIRONMENT` reached the bundle — see the
+note under "What this check discharges".
 
 1. Edit `config/feature-flags.json` → `environments.prod` → `{"dataQuality": false}`. Merge.
 2. Wait for `Publish Config` to go green. **Do not redeploy the app** — that is the point.
@@ -103,7 +104,16 @@ confirming the IAM condition, not the SPA lists.
 ## What this check discharges
 
 - SPEC-162 FR-009 (the read is real, not a silent fallback) — record the observed status in the
-  delivery doc.
+  delivery doc. `ProtectedLayout` mounts `useFeatureFlags()` and discards the result precisely so
+  this request exists to be observed; without it the feature is tree-shaken out of the bundle.
 - SPEC-162 FR-003 AC2 (the document lands with `no-cache`).
-- SPEC-162 FR-007 (the build variable reached the bundle) — **step 3 only**; steps 1–2 pass
-  identically with `VITE_ENVIRONMENT` unset.
+- SPEC-162 FR-003 AC1/AC6 (the publish runs on a `config/**` push and is watched to completion).
+
+**NOT discharged: FR-007's runtime half.** No step here proves `VITE_ENVIRONMENT` reached the
+production bundle, and none can. Every step passes identically with the variable unset, because an
+unset environment resolves the document's own `defaults` and still reports `ready` — and nothing
+reads the resolved set until SPEC-163, so no observable behaviour depends on it either way. The
+static half is met (`.env.example`, `deploy-app.yml`, the repo variable set to `prod`). **Settle the
+runtime half in SPEC-163's live check**, where a per-environment override that hides a surface is
+finally visible: publish `environments.prod = {"query": false}`, confirm the Query tab disappears
+without an app redeploy, and revert.

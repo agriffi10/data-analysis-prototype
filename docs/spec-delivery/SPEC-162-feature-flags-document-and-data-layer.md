@@ -21,6 +21,25 @@ intended shape of the split.
 - **IAM.** One `ReadTheFeatureFlags` Sid: `s3:GetObject` on `{user-space}/_config/*`. No write, no
   `ListBucket` widening, no deploy-role statement, no CORS/CSP/bucket-policy change.
 
+### `ProtectedLayout` mounts the hook and discards the result — that is not a placeholder
+
+"Nothing reads the flags" is true of the *resolved set*; it must not be true of the *read*. Without a
+mount, Rollup drops the entire feature from the production bundle (verified: `_config/`, the error
+code and the flag names were all absent from `dist/` before this was added, present after) — and then
+the `_config/*` grant, the bucket-policy allowlist, the CORS preflight, the CSP `connect-src` entry,
+the key spelling and the credential timing are **all unexercised in production while every gate is
+green**. That is SPEC-137's shape. It is also what makes FR-009 performable at all: the live check
+observes this request, and it cannot observe one that nothing issues.
+
+Pinned by `ProtectedLayout.test.tsx` in both directions — the read happens when signed in, and does
+not when signed out — so the call cannot be removed as dead code.
+
+### A note for SPEC-163
+
+Signed out, `status` is `'loading'` forever (the query is gated on a user). A gating consumer must
+treat `'loading'` as **render all-on**, never as "wait" — a skeleton keyed on it would spin
+indefinitely on any surface reachable while signed out.
+
 ### Deliberate deviations
 
 - **`getFeatureFlags` takes `string | undefined`**, not the spec's `string`. FR-007 requires an

@@ -22,10 +22,18 @@ vi.mock('../features/notifications/notifications.service', () => ({
   enqueueNotificationAction: vi.fn().mockResolvedValue({success: true, data: undefined})
 }));
 
+// Same boundary, one feature over (SPEC-162).
+vi.mock('../features/feature-flags/featureFlags.service', () => ({
+  FEATURE_FLAGS_KEY: '_config/feature-flags.json',
+  getFeatureFlags: vi.fn()
+}));
+
 import {setReturnPath} from '../lib/returnPath';
 import {getNotifications} from '../features/notifications/notifications.service';
+import {getFeatureFlags} from '../features/feature-flags/featureFlags.service';
 
 const mockGetNotifications = vi.mocked(getNotifications);
+const mockGetFeatureFlags = vi.mocked(getFeatureFlags);
 const mockSetReturnPath = setReturnPath as unknown as MockedFunction<(path: string) => void>;
 
 const forStatus = (status: AuthStatus): AuthContextValue =>
@@ -65,6 +73,10 @@ const renderAtFiles = (auth: AuthContextValue, {withHeader = false} = {}) =>
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetNotifications.mockResolvedValue({success: true, data: []});
+  mockGetFeatureFlags.mockResolvedValue({
+    success: true,
+    data: {files: true, query: true, sharedWorkspaces: true, dataQuality: true}
+  });
 });
 
 afterEach(() => {
@@ -128,13 +140,29 @@ describe('ProtectedLayout', () => {
     expect(await screen.findByRole('link', {name: 'Notifications, 1 unread'})).toBeInTheDocument();
   });
 
-  it('when unauthenticated: nothing is read for a signed-out user', () => {
+  it('reads the feature-flag document once the shell mounts (SPEC-162 FR-009)', async () => {
+    // THE HOOK'S RESULT IS DISCARDED UNTIL SPEC-163, WHICH MAKES THE CALL LOOK LIKE DEAD
+    // CODE. It is not. Without a mount, Rollup drops the whole feature from the production
+    // bundle — and then the `_config/*` grant, the bucket-policy allowlist, the CORS
+    // preflight, the CSP `connect-src` entry, the key spelling and the credential timing are
+    // all UNEXERCISED in production while every gate stays green. That is SPEC-137's shape,
+    // and it is also why FR-009's live check exists: it observes this request, and it cannot
+    // observe one that nothing issues.
+    renderAtFiles(forStatus('authenticated'));
+
+    await waitFor(() => expect(mockGetFeatureFlags).toHaveBeenCalled());
+  });
+
+  it('when unauthenticated: nothing is read for a signed-out user', async () => {
     renderAtFiles(forStatus('unauthenticated'));
 
     // The redirect happened, so there is no bell to look at — the observable outcome is that
     // no notifications request was made at all. `prefetchNotifications` returns early on a
     // null username, and a regression there would show up here as an unexpected read.
-    expect(screen.getByText('LANDING PAGE')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('LANDING PAGE')).toBeInTheDocument());
     expect(mockGetNotifications).not.toHaveBeenCalled();
+    // The flags read is gated the same way — a fetch issued before there are credentials is
+    // a guaranteed failure that would pin the whole session to 'fallback'.
+    expect(mockGetFeatureFlags).not.toHaveBeenCalled();
   });
 });
