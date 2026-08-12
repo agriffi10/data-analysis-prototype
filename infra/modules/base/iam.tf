@@ -424,6 +424,34 @@ resource "aws_iam_role_policy_attachment" "deploy_archive" {
   policy_arn = aws_iam_policy.deploy_archive.arn
 }
 
+# ── Propagation guard for the archive grants (SPEC-168 follow-up) ─────────────
+# THE APPLY THAT MERGED SPEC-168 WENT RED HERE, and the mechanism is worth recording
+# because it is invisible in a plan. The archive module's resources are created in the
+# SAME apply that attaches the policy authorizing them. `module.archive` carries
+# `depends_on = [module.base]`, so the attachment genuinely happens first — and it is
+# still not enough, because IAM is eventually consistent: CreateBucket, CreateRole,
+# CreateQueue and CreateLogGroup all came back AccessDenied seconds after the attach,
+# and the identical apply succeeded on a re-run minutes later with no change at all.
+#
+# Every other plane dodged this by SPLITTING the work across two PRs — grants in one,
+# resources in the next — which is the deploy-perms-before-resources rule and is what
+# their module comments mean by "no time_sleep guard is required here". That rule holds
+# only for as long as somebody remembers to split, and SPEC-168 shipped as one PR.
+#
+# So the guard is structural instead. `module.archive` already depends on `module.base`
+# as a whole, so it waits for this too, with no wiring in the child module. It matters
+# again the moment SPEC-169 extends the archive policy (events:, and S3 on the space and
+# archive buckets) in the same PR as the EventBridge rule and verbs that use them —
+# which is the shape that just failed.
+#
+# 30s, matching wait_for_self_grant above. It is a floor on eventual consistency, not a
+# guarantee; a re-run remains the remedy if AWS is slower than usual, and a red FIRST
+# apply of a new plane is expected rather than a defect.
+resource "time_sleep" "wait_for_archive_grant" {
+  depends_on      = [aws_iam_role_policy_attachment.deploy_archive]
+  create_duration = "30s"
+}
+
 # Self-grant propagation guard. The main deploy-policy update above grants the deploy
 # role iam:CreatePolicy / iam:AttachRolePolicy on itself, then this SAME apply uses
 # those grants to create+attach the managed policy. IAM is eventually consistent, so
