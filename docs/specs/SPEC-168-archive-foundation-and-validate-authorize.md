@@ -1,7 +1,7 @@
 # Spec: Archive — Foundation Infrastructure, the Archive Bucket & validate-authorize
 
 **ID:** SPEC-168
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-10
 **Depends On:** SPEC-088/089 (the table-share plane as the pattern), SPEC-107/125/156 (`cpcommon`), SPEC-126 (DLQ drain), SPEC-152 (`NotifyFailure` on every plane), SPEC-160 (`cpcommon.transfer`)
 

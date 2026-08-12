@@ -1957,3 +1957,147 @@ from a closed select, and `DestinationPicker` had the same exposure. (3) FR-003 
 the folder" counter cannot catch the SPEC-043 regression it names, because an **in-memory scan
 issues no listing**; the force comes from a test where the loaded list and S3 **disagree in both
 directions**.
+
+---
+
+## The archive vault, and the four choices that shape the whole arc (SPEC-168)
+
+### `GLACIER`, and why the other two were rejected
+
+`arcommon.config.ARCHIVE_STORAGE_CLASS` is the single definition, and it determines the shape of
+every spec after it. **`GLACIER` (Flexible Retrieval) is not readable**: a `CopyObject` whose source
+is in it fails `InvalidObjectState`, so a restore is not a copy — it is `RestoreObject`, a 3-5 hour
+wait, and *then* a copy. That is why SPEC-171 grows a `Wait`/poll loop no other plane in this repo
+has, and why 170 must land before it.
+
+**`GLACIER_IR` was rejected precisely because it would have removed all of that.** It is readable in
+real time, which deletes the restore machinery entirely — and it is the most expensive Glacier
+class. An archive the user can still read on demand is not an archive; it is data moved to a cheaper
+bucket, and the feature's whole premise is that putting something away is deliberate and reversing
+it is slow. **`DEEP_ARCHIVE` was rejected the other way**: ~4x cheaper again, but 12-48 hours to
+restore and a **180-day** minimum, which turns an ordinary "I need that back" into a two-day wait.
+
+The **90-day minimum storage duration is a property of the class, not a defect**, and the user has
+to be told: an object archived on Monday and restored the following week is still billed for 90
+days. SPEC-172's confirm dialog says so in user-facing wording.
+
+The restore machinery is **unconditional** whatever the constant is set to — a class that needs no
+restore still tolerates one being requested. A test forbids any branch on the constant anywhere on
+the plane, because making the machinery conditional is how a config change silently deletes a code
+path with nothing in the diff to show for it.
+
+### Retention is a CEILING, not a WORM floor — and the lifecycle rule is unfiltered on purpose
+
+Every object expires 2557 days (7 years) after creation. Nothing prevents an earlier delete, and
+nothing may: SPEC-171's restore deletes the archived copy once it has been put back.
+
+The expiry rule is **bucket-wide with no prefix filter**, and it is the exact **inverse** of the
+admin bucket's `admin_lifecycle_rules_are_prefix_scoped` check. That check exists because *that*
+bucket mixes `logs/` (retained forever) with expiring content, so an unfiltered expiring rule there
+would silently delete the logs. This bucket holds exactly one class of object, so the risk runs the
+other way: a prefix filter would be a silent way to leave some archived data unexpired past the
+retention the feature promises. **S3 lifecycle can include a prefix but never exclude one**, so if a
+second content class is ever put in this bucket the repair is *not* to add a filter — that would
+leave the new class unexpired and this rule looking correct. It is to revisit the rule, and probably
+to give the new class its own bucket.
+
+**S3 Object Lock is out of scope for two independent reasons.** It requires bucket versioning, which
+this project deferred by decision (2026-08-03); and in compliance mode nothing can delete an object,
+not even root, which would make SPEC-171's cleanup of a restored archive impossible.
+
+### The bucket the browser has no relationship with
+
+No CORS configuration, no entry in the SPEC-140 `connect-src`, and the portal role holds **zero**
+statements naming the ARN. The only route to archived bytes is a restore request through this plane.
+The bucket's own policy is a `StringNotLike aws:PrincipalArn` Deny admitting the archive execution
+role, the deploy role and the account root — so an identity policy that later grew a statement here
+would still be refused. It denies `s3:RestoreObject` as well as the four ordinary actions:
+`RestoreObject` is what makes a `GLACIER` object readable and is not covered by `GetObject`, so a
+policy without it would leave any principal able to start a **billed** retrieval on someone's
+archive.
+
+What the browser *does* get is a **Deny** on `PutObject` / `DeleteObject` / `AbortMultipartUpload`
+under `archive/` in both space buckets (FR-006). A user who can rewrite a receipt can misreport what
+was archived. `AbortMultipartUpload` is included even though a `PutObject` Deny already blocks
+multipart writes: without abort, a half-started upload cannot be tidied and its parts sit billed and
+invisible. `GetObject`/`ListBucket` are untouched — the receipt is deliberately a plain text file
+the user downloads and reads themselves, which leaves the no-preview rule intact. **The UI mirror is
+owed and lands in SPEC-172**; an IAM Deny with no UI counterpart produces a bare `AccessDenied` for
+a rule this application itself authored.
+
+All of this is a **negative** claim, which is the kind that rots without anything looking wrong, so
+`lambdas/test_archive_bucket_isolation.py` asserts it against the IaC rather than describing it.
+
+### The key layout: the archived key carries its own origin, partitioned by space kind
+
+`personal/{username}/archive/{uuid}/…` and `shared/{space}/archive/{uuid}/…` in the archive bucket;
+`{root}archive/{uuid}/receipt.txt` in the space's own bucket.
+
+**The archived key encodes its origin**, so `origin_key` reconstructs the source with no lookup at
+all. That is what lets SPEC-170 rebuild every restore destination from one `ListObjectsV2` over the
+archive prefix: **the receipt is a report, not a record**, exactly as SPEC-143 judges a table by
+its shape rather than by the marker it also writes. The manifest exists only as a cross-check that
+can fire when something is already wrong.
+
+**The leading kind segment is the entire fix for a real collision.** Receipts live in each space's
+own bucket, where the two namespaces cannot meet; the archive bucket is the first place they do.
+Shared-space names are made unique against the shared-space registry only — **nothing anywhere
+checks a proposed space name against the User Pool** — so a user `alice` and a space `alice` can
+both exist today. Flat, they would share one archive prefix, and since SPEC-170 authorizes a restore
+by *space* and then reads whatever sits at that prefix, a member of space `alice` could restore user
+`alice`'s archived files into the shared space. The alternative fix — refusing to create a shared
+space whose name matches an existing username — is **rejected**: it changes a shipped, unrelated
+control plane, it cannot repair names that already exist, and it would make space creation depend on
+the User Pool for a reason unrelated to space creation.
+
+The `{uuid}` is browser-supplied and becomes a path segment in two buckets, so it is validated as a
+UUID v4 **before it is ever concatenated**, at every builder rather than once at the front door, and
+**lowercased** — S3 keys are case-sensitive, and a re-submitted id in different case would open a
+second archive under a name that reads identically in every message and every listing.
+
+### One plane, one `mode` branch, and no grant this spec did not need
+
+**ONE machine serves both archive and restore**, branching on `mode` — SPEC-143's create/refresh
+branch on the table-builder is the precedent, not a sixth module: the two verbs share the bucket,
+the execution role, the key layout and the receipt, and a restore is meaningless without the archive
+that produced it. The `Choice` guards **every** comparison with `IsPresent`, per choice rather than
+once: a `Choice` on an absent path raises uncatchable `States.Runtime` and `Default` does not cover
+it. Its `Default` seeds a **reason code**, never `TerminalError` — notify-failure treats that one
+name as evidence a verb's decorator already notified, so a seed wearing it would be silently
+suppressed (the recorded `DiffMissingSeed` rule).
+
+**The execution role holds no S3 grant on any data bucket at this stage, and the restraint matters
+more here than on any other plane.** Archiving is the only operation in this repo that deletes a
+user's data as a side effect of a copy. Every other plane's execution role carries a blanket
+`Deny s3:DeleteObject` from its first apply and has that be an enforced property forever; **this one
+cannot**, because SPEC-169 has to grant `DeleteObject` on the source buckets. So the property that
+replaces it belongs to the spec that grants it — scoped to the space prefixes, never reaching
+`athenaresults/`, `user_settings/` or any `DO_NOT_DELETE.txt`, with the commit gate in front of it —
+and granting nothing today keeps that an explicit decision rather than an inheritance.
+
+**No `TimeoutSeconds` yet, deliberately.** Nothing in this machine waits: no Map, no manifest, no
+copy, no poll loop. A ceiling does **not** on its own reach `NotifyFailure` — AWS catchers cover
+Task, Parallel and Map states but not top-level execution failures — so it must ship WITH an
+EventBridge `TIMED_OUT` rule or it is SPEC-152 satisfied on paper and silent in practice. Two tests
+are tripwires on exactly that: one fails the moment a `Map`, `Wait` or `Parallel` appears, the other
+the moment notify-failure grows a second door without one.
+
+### Two things the fleet's own guards caught while this was being written
+
+**Containment moved to `cpcommon.paths` rather than being copied into `arcommon`** (SPEC-156).
+`assert_inside_root` / `has_dot_segment` / `normalize_root` arrived on `fscommon.paths` with
+SPEC-164; archive is the third plane to ask the identical question, and it is the one place where a
+second copy that drifts is a **cross-tenant read**. `fscommon.paths` re-exports the three names, so
+every file-send call site and test is unchanged. A test asserts `arcommon.paths` defines none of
+them.
+
+**`ARCHIVE_BUCKET` is not a `cpcommon.config` required variable.** The first attempt added it to
+`_REQUIRED_VARS`, reasoning that the lazy `__getattr__` made it free for planes that never read it.
+That is true of resolution and false of the contract: `_REQUIRED_VARS` is a **fleet-wide** set that
+`test_the_common_environment_satisfies_every_import_time_require` asserts each plane's Lambda
+environment supplies, so the change failed table-builder's guard immediately. The value is
+`arcommon.config.archive_bucket()` instead — a **function**, not a module attribute, because a
+constant resolved at import time in a layer runs for every attaching function and an unset variable
+then crashes at **cold start**, where no test and no deploy can see it (PR #196). `cpcommon.config`
+gained a public `require()` so a domain layer reaches for the fleet's one fail-fast reader rather
+than writing a second.
