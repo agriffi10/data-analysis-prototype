@@ -425,6 +425,15 @@ def test_the_reserved_list_has_no_duplicates():
 #: digit milliseconds; 100 ms is two orders out, which is the safe direction for a bound.
 _HEAD_LATENCY_SECONDS = 0.1
 
+#: botocore's default ``max_pool_connections``, which is what actually bounds how many heads can
+#: be in flight at once — see ``RESTORE_HEAD_CONCURRENCY``. A LITERAL, like `_MAX_S3_KEY` and
+#: `_STATE_PAYLOAD_LIMIT` above and for the same reason: it is an external constant, and this
+#: suite deliberately has no boto3 in it (every test stubs `clients._s3`, so the fleet's test
+#: environment installs neither boto3 nor botocore). The test below reads it off botocore anyway
+#: WHEN THE PACKAGE HAPPENS TO BE PRESENT, so a drift is caught wherever it can be — rather than
+#: the literal being trusted forever or a dependency being added for one assertion.
+_BOTOCORE_DEFAULT_MAX_POOL_CONNECTIONS = 10
+
 
 def test_the_guard_can_head_every_destination_inside_its_timeout():
     """WHAT SIZES RESTORE_HEAD_CONCURRENCY, computed rather than asserted.
@@ -458,12 +467,21 @@ def test_the_guards_pool_fits_inside_the_clients_connection_pool():
     reusing them. A pool of 32 buys throughput the client cannot deliver while every bound
     computed from it reads as satisfied.
 
-    Read off botocore rather than restated, so a future default change is a build failure rather
-    than a silent regression in a number nothing else measures.
+    The bound is asserted against a literal because this suite has no botocore in it — every test
+    stubs ``clients._s3``, and the fleet's test environment installs neither it nor boto3. Where
+    the package IS importable the literal is checked against the real default in the same breath,
+    so this cannot quietly become a restatement of a number that has since moved.
     """
-    from botocore.config import Config
+    assert _BOTOCORE_DEFAULT_MAX_POOL_CONNECTIONS >= config.RESTORE_HEAD_CONCURRENCY
 
-    assert Config().max_pool_connections >= config.RESTORE_HEAD_CONCURRENCY
+    try:
+        from botocore.config import Config
+    except ImportError:
+        return
+    assert Config().max_pool_connections == _BOTOCORE_DEFAULT_MAX_POOL_CONNECTIONS, (
+        "botocore's default connection pool has moved; RESTORE_HEAD_CONCURRENCY was computed "
+        "against the old value"
+    )
 
 
 def test_the_restore_plan_fits_in_the_lookup_verbs_memory():
