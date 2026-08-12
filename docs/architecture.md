@@ -471,7 +471,7 @@ share did.
 - **The execution role is on the user-space bucket policy's allowlist (FR-006)** — see that
   spec-delivery doc before building any future plane that touches Bucket 1.
 
-### Archive — SPEC-168 → 172 (168, 169 complete; 170-172 pending)
+### Archive — SPEC-168 → 172 (168, 169, 170 complete; 171-172 pending)
 
 "Put this away": move a file or folder out of a user's space into a separate bucket at the
 `GLACIER` storage class, delete the original, and leave behind a plain-text receipt. Reversible
@@ -542,10 +542,37 @@ only through a restore request that takes **hours**, not a click.
   top-level execution failure. Sized by a **makespan** (`MAP_MAX_CONCURRENCY` ×
   `CONSERVATIVE_STREAM_BYTES_PER_SECOND` = 500 MB/s), never an aggregate; a test adds the copy, the
   per-child overhead and the seven serial verbs and reads the ceiling out of `locals.tf`.
-- **The restore guard is still SPEC-170's, and it is absolute**: any occupied destination key
-  refuses the whole restore, before `RestoreObject`, because retrieval is billed and cannot be
-  cancelled. That asymmetry with archiving's rollback is deliberate — deleting restored data to
-  make the operation atomic would destroy the thing the restore was for.
+- **The restore guard is absolute** (SPEC-170): any occupied destination key refuses the whole
+  restore — no skip, no overwrite, no merge, no "restore what fits" — and a `403` counts as
+  occupied, because a key this role cannot head is a key it must not overwrite. It runs **before
+  any `RestoreObject`**, which is why the arc splits here: everything on this side is verifiable
+  in seconds and everything on the other takes hours and is billed the moment it starts. That
+  asymmetry with archiving's rollback is deliberate — deleting restored data to make the
+  operation atomic would destroy the thing the restore was for.
+- **A restore takes its SPACE from the request and its ARCHIVE from a pasted id** (SPEC-170), so
+  authorization is a question about *that* space and an archive belonging to another one simply is
+  not found — `archive_not_found` never distinguishes "never existed" from "not yours". The id is
+  matched against `arcommon.paths`' one UUID rule **before** it is concatenated into a key, and the
+  root is then built by the same `archive_root` that wrote it. `requestId` ≠ `archiveId` is
+  enforced: the run and the archive are different things, or a refused restore could not be
+  re-submitted.
+- **The front door serves both modes and returns the SAME five keys** (SPEC-170). `ChooseMode` sits
+  downstream of validate-authorize and reads `$.mode` off the parsed request — in the raw Pipe
+  record that field is inside an escaped JSON string ASL cannot look into — so a separate restore
+  validator is not possible, and one shared `Validated` Pass means a key present in one mode and
+  absent in the other would raise an uncatchable `States.Runtime`. `source` is therefore the
+  authorized SPACE in both: the archive's source in one, the restore's destination in the other.
+- **One body table, two prefixes, and the failure path carries `mode`** (SPEC-170). The codes only
+  one mode can reach are unambiguous; the ones BOTH reach — `forbidden`, `malformed_event`,
+  `invalid_request` — are exactly the ones a single "Couldn't archive that" prefix gets wrong. Every
+  failure seed supplies `mode` (a literal `null` on the pre-identity one, whose input is the raw
+  error).
+- **`RESTORE_HEAD_CONCURRENCY` is bounded by botocore's CONNECTION POOL, not by the thread count**
+  (SPEC-170). "Workers × timeout / latency" says to widen the pool until the arithmetic fits, but
+  `boto3.client("s3")` takes the default `max_pool_connections` of 10 — threads past that contend
+  and urllib3 discards sockets rather than reusing them, so a wider pool buys throughput the client
+  cannot deliver while every bound computed from it reads as satisfied. 8 workers; the guard's
+  600 s **timeout** is what pays for 20,000 heads. A test reads the ceiling off botocore.
 
 ### Data Quality — SPEC-108→114, 123, 124
 
