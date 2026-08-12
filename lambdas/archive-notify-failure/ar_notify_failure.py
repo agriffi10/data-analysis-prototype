@@ -100,6 +100,26 @@ def _actor_from_raw_request(raw) -> str:
         return ""
 
 
+def _mode(request: dict) -> str:
+    """Reads the failed request's mode, which decides how the failure is worded.
+
+    ``RecordFailure`` carries ``mode`` on every path, including a literal null on the pre-identity
+    one — the two modes share one body table under two prefixes, and the codes both of them can
+    reach (``forbidden``, ``malformed_event``) are exactly the ones a single prefix gets wrong.
+
+    Args:
+      request: The failed request as the ASL door delivers it.
+
+    Returns:
+      The mode, or an empty string, which renders the archive wording.
+
+    Raises:
+      None.
+    """
+    mode = request.get("mode")
+    return mode if isinstance(mode, str) else ""
+
+
 def _is_execution_timeout(event) -> bool:
     """Reports whether this invocation came through the EventBridge door.
 
@@ -299,7 +319,9 @@ def handler(event, context) -> dict:
         )
         return request
 
-    notify.emit_notification(username, messages.failure_message(reason))
+    notify.emit_notification(
+        username, messages.failure_message(reason, mode=_mode(request))
+    )
     observability.info(
         "notified the actor of a failure",
         outcome="notified",

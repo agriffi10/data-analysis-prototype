@@ -1,10 +1,22 @@
-"""validate-authorize — the archive Step Function's first task.
+"""validate-authorize — the archive Step Function's first task, for BOTH of its modes.
 
 Parses the SQS record, verifies the caller's Cognito ID token into the trusted actor, authorizes
-the actor's access to the SOURCE space, confirms every selected item sits inside that source and
-is not one of the portal's own folders, enforces the request-shape caps, and resolves the
-archive prefix the objects will be written under. Read-only: nothing is listed, copied or
-deleted here.
+the actor's access to the space, and resolves the archive prefix — for an ARCHIVE, checking that
+every selected item sits inside the source and is not one of the portal's own folders and
+enforcing the request-shape caps; for a RESTORE (SPEC-170), validating the pasted archive id
+before it is concatenated into a key. Read-only in both: nothing is listed, copied or deleted
+here.
+
+**The restore branch lives in this verb rather than in a second front-door Lambda, and that is
+forced by the machine's shape.** ``ChooseMode`` sits DOWNSTREAM of this task and branches on
+``$.mode`` of the parsed request; in the raw Pipe record the same field is buried inside an
+escaped JSON string that ASL cannot look into. A separate restore validator would need the
+branch to happen before anything had parsed the body.
+
+**Both modes return the same five top-level keys**, because both flow through one ``Validated``
+Pass and a Pass naming a path the state does not carry raises an uncatchable ``States.Runtime``.
+``source`` is the authorized SPACE in both — the archive's source in one mode, the restore's
+destination in the other — and only its ``items`` are archive-only.
 
 A whole-request failure raises a terminal error with a stable reason, so the Catch records it
 and nothing downstream runs. **There are no per-item and no per-recipient failures on this
@@ -16,10 +28,14 @@ The service name is the control plane, not the function, so one archive's invoca
 queryable set. The per-verb identity rides as the ``verb`` field.
 
 Attributes:
-  _ALLOWED_FIELDS: The complete set of top-level request fields. Unknown fields are REJECTED
-    rather than ignored (FR-004): a field the producer thinks it is sending and this verb
-    silently drops is a contract break that shows up as behaviour nobody asked for, and the
+  _ALLOWED_FIELDS: The complete set of top-level request fields, PER MODE. Unknown fields are
+    REJECTED rather than ignored (FR-004): a field the producer thinks it is sending and this
+    verb silently drops is a contract break that shows up as behaviour nobody asked for, and the
     cheapest moment to catch a renamed field is the first one.
+
+    **Per mode rather than a union**, because the two contracts genuinely differ — ``source``
+    against ``space`` + ``archiveId`` — and a union would accept a restore carrying a selection
+    and an archive naming an archive id, then silently ignore whichever the mode did not read.
   _ITEM_KINDS: The two selection kinds a request may carry. A ``folder`` key is normalised to a
     trailing slash before any rule runs: SPEC-169 expands a folder with a prefix listing, so
     ``alice/archiv`` without one would match ``alice/archive/`` and carry the receipts of every
@@ -29,7 +45,7 @@ Attributes:
 import json
 import logging
 
-from arcommon import authz, notify, paths
+from arcommon import authz, notify, paths, restore
 from arcommon.config import (
     ARCHIVE_MAX_ITEM_BYTES,
     ARCHIVE_MAX_ITEMS,
@@ -45,13 +61,16 @@ logger.setLevel(logging.INFO)
 
 observability.init(service="archive")
 
-_ALLOWED_FIELDS = frozenset({"requestId", "mode", "actor", "source"})
+_ALLOWED_FIELDS = {
+    "archive": frozenset({"requestId", "mode", "actor", "source"}),
+    "restore": restore.ALLOWED_FIELDS,
+}
 
 _ITEM_KINDS = frozenset({"file", "folder"})
 
 
-def _check_contract(req) -> None:
-    """Fails the request if its top-level shape is not the one this contract defines.
+def _check_contract(req) -> str:
+    """Fails the request if its top-level shape is not the one its mode's contract defines.
 
     Both directions, because only one of them is obvious. Unknown fields are REJECTED rather
     than ignored (FR-004) — a field the producer thinks it is sending and this verb silently
@@ -60,6 +79,10 @@ def _check_contract(req) -> None:
     flow through as ``None``, and this value becomes the ``{uuid}`` segment of a key in two
     buckets.
 
+    **The mode is settled BEFORE the unknown-field check**, because the mode is what says which
+    fields are known. The order costs nothing: an unrecognised mode is refused either way, and
+    the alternative — a union of both contracts — is the check not being made.
+
     The id's FORM is not checked here — ``arcommon.paths.validated_request_id`` owns that, and
     owns it at every point of concatenation rather than once at the front door.
 
@@ -67,23 +90,25 @@ def _check_contract(req) -> None:
       req: The parsed request body.
 
     Returns:
-      None.
+      The request's mode, so the caller branches on a value this function has already validated
+      rather than re-reading the untrusted body.
 
     Raises:
-      TerminalError: ``malformed_event`` when the body is not an object, names a field outside
-        the contract, or carries no usable request id or mode.
+      TerminalError: ``malformed_event`` when the body is not an object, carries no usable
+        request id or mode, or names a field outside its mode's contract.
     """
     if not isinstance(req, dict):
         raise TerminalError(events.MALFORMED, "request body is not an object")
-    unknown = sorted(set(req) - _ALLOWED_FIELDS)
-    if unknown:
-        raise TerminalError(events.MALFORMED, f"unknown request fields: {', '.join(unknown)}")
     if not isinstance(req.get("requestId"), str) or not req["requestId"].strip():
         raise TerminalError(events.MALFORMED, "requestId missing or not a string")
-    if req.get("mode") not in ARCHIVE_MODES:
-        raise TerminalError(events.MALFORMED, f"unexpected mode {req.get('mode')!r}")
-    if req.get("mode") != "archive":
-        raise TerminalError(events.MALFORMED, "restore is not implemented by this verb")
+    mode = req.get("mode")
+    if mode not in ARCHIVE_MODES:
+        raise TerminalError(events.MALFORMED, f"unexpected mode {mode!r}")
+    unknown = sorted(set(req) - _ALLOWED_FIELDS[mode])
+    if unknown:
+        raise TerminalError(
+            events.MALFORMED, f"unknown {mode} request fields: {', '.join(unknown)}"
+        )
     # THE ENVELOPE IS FLAT: `actor` is the RAW ID token at the top level, never a nested
     # {"idToken": …}. Type-checked here rather than left to the verifier, because the two
     # failures read identically to a user and only one of them is a contract break — and
@@ -91,6 +116,7 @@ def _check_contract(req) -> None:
     # CloudWatch verbatim on a dead-lettered request.
     if not isinstance(req.get("actor"), str) or not req["actor"].strip():
         raise TerminalError(events.MALFORMED, "actor must be the raw ID token, as a string")
+    return mode
 
 
 def _normalize_items(items, source: dict) -> list:
@@ -158,6 +184,45 @@ def _normalize_items(items, source: dict) -> list:
     return normalized
 
 
+def _restore(req: dict, request_id: str, actor: str) -> dict:
+    """Validates a restore request and logs what it resolved.
+
+    A thin seam over ``arcommon.restore.validate`` so this verb's two modes read the same way at
+    the call site and the domain rules stay in the layer both future restore verbs import.
+
+    Args:
+      req: The parsed request body.
+      request_id: The validated request id for this run.
+      actor: The verified username.
+
+    Returns:
+      The validated restore request.
+
+    Raises:
+      TerminalError: ``malformed_event``, ``invalid_request`` or ``forbidden`` from the
+        validation.
+      TransientError: On a retryable S3 fault reading the shared-space registry.
+    """
+    validated = restore.validate(req, request_id, actor)
+    space, archive = validated["source"], validated["archive"]
+    logger.info(
+        "validated restore of archive %s into %s as %s",
+        archive["archiveId"],
+        space["root"],
+        actor,
+    )
+    observability.info(
+        "restore validated",
+        actor=actor,
+        space_bucket=space["bucket"],
+        space_root=space["root"],
+        space_kind=space["kind"],
+        archive_id=archive["archiveId"],
+        archive_root=archive["root"],
+    )
+    return validated
+
+
 @observability.traced("validate-authorize")
 @notify.notifies_on_failure("validate", notify_terminal=False)
 def handler(event, context) -> dict:
@@ -185,7 +250,12 @@ def handler(event, context) -> dict:
 
 
 def _validate_and_authorize(event) -> dict:
-    """Verifies the token, authorizes the source, validates the selection and resolves the keys.
+    """Verifies the token, authorizes the space, validates the request and resolves the keys.
+
+    **The mode branch happens here and cannot happen earlier.** ``ChooseMode`` in the ASL reads
+    ``$.mode`` off the object this function returns; in the raw Pipe record the same field sits
+    inside an escaped JSON string. Everything up to and including the token verification is
+    common to both modes, and the two contracts diverge only once the mode is known.
 
     The actor comes from the verified token in the envelope, never from a body username — the
     token IS the top-level ``actor`` field, as a raw string. That flatness is the same shape
@@ -204,12 +274,13 @@ def _validate_and_authorize(event) -> dict:
       event: The EventBridge Pipe envelope.
 
     Returns:
-      The validated request: request id, mode, actor, resolved source and archive destination.
+      The validated request: request id, mode, actor, the authorized space and the archive
+      location — the same five keys in either mode.
 
     Raises:
-      TerminalError: ``unauthorized`` for a bad token, ``forbidden`` for an unreadable source or
-        an out-of-root key, ``invalid_request`` for a malformed request id, or any selection
-        reason.
+      TerminalError: ``unauthorized`` for a bad token, ``forbidden`` for an unreachable space or
+        an out-of-root key, ``invalid_request`` for a malformed request or archive id, or any
+        selection reason.
       TransientError: On a retryable S3 fault.
     """
     req = events.parse_sqs_request(event, reason="unauthorized")
@@ -219,16 +290,19 @@ def _validate_and_authorize(event) -> dict:
         missing_token_detail="missing actor token",
     )
 
+    mode = ""
     try:
-        _check_contract(req)
+        mode = _check_contract(req)
         request_id = paths.validated_request_id(req.get("requestId"))
+        if mode == "restore":
+            return _restore(req, request_id, actor)
         declared = req.get("source") if isinstance(req.get("source"), dict) else {}
         source = authz.authorize_source(actor, declared.get("space"))
         source["items"] = _normalize_items(declared.get("items"), source)
         archive_root = paths.archive_root(source["kind"], source["name"], request_id)
         receipt_key = paths.receipt_key(source["name"], request_id)
     except TerminalError as err:
-        notify.emit_failure({"actor": {"username": actor}}, err, "validate")
+        notify.emit_failure({"actor": {"username": actor}, "mode": mode}, err, "validate")
         raise
 
     validated = {

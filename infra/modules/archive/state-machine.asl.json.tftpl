@@ -1,5 +1,5 @@
 {
-  "Comment": "Archive control plane (SPEC-168 foundation + front door, SPEC-169 the transfer, the commit gate and the deletion). ONE machine serves both archive and restore, branching on `mode` — the two verbs share the bucket, the execution role, the key layout and the receipt, and a restore is meaningless without the archive that produced it (SPEC-143's create/refresh branch on the table-builder is the precedent, rather than standing up a sixth module). validate-authorize verifies the ID token into the actor, authorizes the SOURCE space, confirms every selected item sits inside it and is not one of the portal's own folders, and resolves the archive prefix; inspect-source expands that selection into a copy plan in the admin bucket; build-transfer-manifest turns the plan into the Distributed Map's JSONL dataset at the GLACIER storage class; the Map copies it; collect-transfer-results reads the export back and returns the ONE BOOLEAN this whole plane turns on. THE COMMIT GATE IS CommitOrRollback, AND IT IS THE POINT OF THE MACHINE: the source is deleted only when every single object has been confirmed copied, so DeleteSource is reachable from exactly one arm and Rollback from the other — the failure mode this feature must never have is 'copied 900 of 1000, deleted 1000'. The artifacts are ordered most durable to least: _manifest.json into the vault, then the deletion, then the receipt into the user's own space, so a receipt only ever exists for an archive that completed. RestorePlaceholder is SPEC-170/171's. The FailureSeeds/RecordFailure/NotifyFailure are the SPEC-152 whole-request failure path. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried. THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY — this is the first version of this machine that can wedge, because it is the first with a Map and a copy in it — and it ships WITH the EventBridge TIMED_OUT rule (stepfunction.tf) and notify-failure's second door, because AWS catchers cover Task, Parallel and Map states but NOT a top-level execution failure: a ceiling that cannot notify is SPEC-152 satisfied on paper and silent in practice.",
+  "Comment": "Archive control plane (SPEC-168 foundation + front door, SPEC-169 the transfer, the commit gate and the deletion). ONE machine serves both archive and restore, branching on `mode` — the two verbs share the bucket, the execution role, the key layout and the receipt, and a restore is meaningless without the archive that produced it (SPEC-143's create/refresh branch on the table-builder is the precedent, rather than standing up a sixth module). validate-authorize verifies the ID token into the actor, authorizes the SOURCE space, confirms every selected item sits inside it and is not one of the portal's own folders, and resolves the archive prefix; inspect-source expands that selection into a copy plan in the admin bucket; build-transfer-manifest turns the plan into the Distributed Map's JSONL dataset at the GLACIER storage class; the Map copies it; collect-transfer-results reads the export back and returns the ONE BOOLEAN this whole plane turns on. THE COMMIT GATE IS CommitOrRollback, AND IT IS THE POINT OF THE MACHINE: the source is deleted only when every single object has been confirmed copied, so DeleteSource is reachable from exactly one arm and Rollback from the other — the failure mode this feature must never have is 'copied 900 of 1000, deleted 1000'. The artifacts are ordered most durable to least: _manifest.json into the vault, then the deletion, then the receipt into the user's own space, so a receipt only ever exists for an archive that completed. THE RESTORE ARM (SPEC-170) IS THE ARCHIVE READ BACKWARDS AND STOPS DELIBERATELY SHORT: inspect-archive rebuilds every destination from the archived keys themselves, check-destination-clear refuses the whole restore if ANY of them is occupied, and RestoreReady is where SPEC-171 adds RestoreObject and the wait — everything before that state is verifiable in seconds and everything after it takes hours, which is why the guard is on this side of the line. The FailureSeeds/RecordFailure/NotifyFailure are the SPEC-152 whole-request failure path, and every one of them now carries `mode`: the two modes' failures are worded differently (arcommon.messages holds one body table under two prefixes), and a user who clicked Restore must not be told an archive failed. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried. THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY — this is the first version of this machine that can wedge, because it is the first with a Map and a copy in it — and it ships WITH the EventBridge TIMED_OUT rule (stepfunction.tf) and notify-failure's second door, because AWS catchers cover Task, Parallel and Map states but NOT a top-level execution failure: a ceiling that cannot notify is SPEC-152 satisfied on paper and silent in practice.",
   "TimeoutSeconds": ${state_machine_timeout_seconds},
   "StartAt": "ValidateAuthorize",
   "States": {
@@ -48,7 +48,7 @@
     },
     "ChooseMode": {
       "Type": "Choice",
-      "Comment": "The archive/restore branch, on the VALIDATED request rather than on the raw Pipe record — `mode` is a plain field of a parsed object here, where in the record it is buried inside an escaped JSON string that ASL cannot look into. THE `IsPresent` GUARD IS NOT DEFENSIVE TIDYING: a Choice comparing a string on an ABSENT path raises States.Runtime, which is neither retriable nor catchable, and `Default` does NOT cover it — SPEC-143's recorded trap, learned by killing an execution outright before any state could record or notify. Guarded, the same request reaches UnknownModeSeed and the user is told. Today validate-authorize is an earlier gate that refuses anything but `archive`, so the restore and default arms are unreachable at RUNTIME while being reachable in the GRAPH; that is deliberate, because SPEC-170 replaces the restore arm's target rather than the branch, and a `mode` branch with one arm is not the branch this plane's design rests on.",
+      "Comment": "The archive/restore branch, on the VALIDATED request rather than on the raw Pipe record — `mode` is a plain field of a parsed object here, where in the record it is buried inside an escaped JSON string that ASL cannot look into. THE `IsPresent` GUARD IS NOT DEFENSIVE TIDYING: a Choice comparing a string on an ABSENT path raises States.Runtime, which is neither retriable nor catchable, and `Default` does NOT cover it — SPEC-143's recorded trap, learned by killing an execution outright before any state could record or notify. Guarded, the same request reaches UnknownModeSeed and the user is told. SPEC-170 filled the restore arm in exactly as this comment predicted — by replacing its TARGET, not the branch — so both arms are now reachable at runtime and the Default remains reachable in the GRAPH only: validate-authorize refuses any mode outside ARCHIVE_MODES before this state runs.",
       "Choices": [
         {
           "And": [
@@ -62,7 +62,7 @@
             { "Variable": "$.mode", "IsPresent": true },
             { "Variable": "$.mode", "StringEquals": "restore" }
           ],
-          "Next": "RestorePlaceholder"
+          "Next": "InspectArchive"
         }
       ],
       "Default": "UnknownModeSeed"
@@ -307,6 +307,7 @@
       "Comment": "The rollback verb ALWAYS raises, so this is unreachable today — and it is here because the alternative is a trap rather than a tidy edge. Pointing Rollback's Next straight at RequestFailureSeed would read as correct while that seed reads $.error, which a RETURNING verb does not leave on the state (OutputPath is $.Payload): the Pass would raise an uncatchable States.Runtime on the failure path itself, on a run that had already decided not to delete anything. Seeding the reason here makes a returning rollback fail the way it meant to. The error name is a registered reason code, never `TerminalError`, which notify-failure treats as evidence a verb's decorator already spoke.",
       "Parameters": {
         "requestId.$": "$.requestId",
+        "mode.$": "$.mode",
         "actor.$": "$.actor",
         "raw.$": "$$.Execution.Input",
         "error": {
@@ -430,6 +431,7 @@
       "Comment": "The Choice's default arm. A receipt claiming zero files archived is worse than a refusal, and an empty archive prefix is indistinguishable at restore time from one whose objects have vanished — so an archive of nothing FAILS. The seeded error name is a registered reason code and never `TerminalError`, which notify-failure treats as positive evidence that a verb's decorator already spoke (the recorded DiffMissingSeed rule).",
       "Parameters": {
         "requestId.$": "$.requestId",
+        "mode.$": "$.mode",
         "actor.$": "$.actor",
         "raw.$": "$$.Execution.Input",
         "error": {
@@ -444,15 +446,89 @@
       "Comment": "The failure seed for every state after the request identity exists — seven of them since SPEC-169. It differs from ValidateFailureSeed in the one way that matters: the request IS on the state here, so the actor comes from $.actor, the verified username the validator already produced, rather than being recovered from a token. $.raw still comes from the CONTEXT OBJECT: notify-failure falls back to it when the actor is empty, and RecordFailure reads it unconditionally, so a Pass that did not supply it would raise an uncatchable States.Runtime on the failure path. IT DELIBERATELY DOES NOT CARRY $.source, AND THAT IS A SIZE DECISION: $.raw is the Pipe's record, which at ARCHIVE_MAX_ITEM_BYTES is ~200 KB of escaped selection, and $.source is that same selection AGAIN — the two together breach the 256 KB state limit on a Pass with NO Catch, killing the run before NotifyFailure on exactly the failures SPEC-152 exists to report.",
       "Parameters": {
         "requestId.$": "$.requestId",
+        "mode.$": "$.mode",
         "actor.$": "$.actor",
         "raw.$": "$$.Execution.Input",
         "error.$": "$.error"
       },
       "Next": "RecordFailure"
     },
-    "RestorePlaceholder": {
+    "InspectArchive": {
+      "Type": "Task",
+      "Comment": "SPEC-170 FR-003. Lists the archive prefix and rebuilds every destination from the archived keys themselves — the archived key encodes its own origin, so this needs no record and works when _manifest.json is gone. The manifest is read only as a CROSS-CHECK: absent, the restore proceeds and says so in the log; disagreeing, it refuses. An empty listing is `archive_not_found`, which deliberately does not distinguish 'never existed' from 'belongs to another space' — the space comes from the REQUEST, so an id belonging elsewhere resolves to an empty prefix here. The restore plan goes to the admin bucket and only its KEY rides on the state, for the reason inspect-source's comment gives: at ARCHIVE_MAX_OBJECTS the list is tens of megabytes against a 256 KB payload limit, and States.DataLimitExceeded escapes every Catch.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${inspect_archive_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RequestFailureSeed"
+        }
+      ],
+      "Next": "CheckDestinationClear"
+    },
+    "CheckDestinationClear": {
+      "Type": "Task",
+      "Comment": "SPEC-170 FR-004, AND IT IS THE STATE THIS SPEC EXISTS FOR. S3 has no move and no rename: a restore is a copy, and a copy overwrites. If the user has re-created reports/q1.csv since archiving it, restoring on top would destroy the newer file silently — so ANY occupied destination refuses the WHOLE restore. No skip, no overwrite, no merge, no 'restore what fits'. IT RUNS BEFORE ANY RestoreObject, WHICH IS THE ORDERING SPEC-171 DEPENDS ON: Glacier retrieval is billed and irreversible once initiated, so discovering the conflict afterwards would charge the user for a restore that cannot land. Its failure branch reaches the failure terminal and nothing else, asserted by walking the graph rather than by reading this comment.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${check_destination_clear_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RequestFailureSeed"
+        }
+      ],
+      "Next": "RestoreReady"
+    },
+    "RestoreReady": {
       "Type": "Pass",
-      "Comment": "SPEC-170/171's half of the machine. SPEC-170 replaces it with the request lookup and the destination guard; SPEC-171 with RestoreObject, the Wait/poll loop and the copy-back — the only loop of its kind in this repo, because a GLACIER source cannot be copied at all until a billed, uncancellable retrieval has finished. That ordering is load-bearing: 170's guard is what makes 171's retrieval safe to start.",
+      "Comment": "SPEC-170's terminal, and SPEC-171's replacement point — everything up to here is verifiable in seconds, while everything after it takes hours, which is why the arc is split at exactly this state. SPEC-171 replaces it with RestoreObject, the Wait/poll loop and the copy-back: the only loop of its kind in this repo, because a GLACIER source cannot be copied at all until a billed, uncancellable retrieval has finished. It is also the ASL/verb cross-check for the guard, the same job Validated does for the validator: a Task hands its output on whole, so nothing in a Task-to-Task chain would notice a renamed field, while a Pass naming each key fails the build.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "mode.$": "$.mode",
+        "actor.$": "$.actor.username",
+        "archive.$": "$.archive",
+        "planKey.$": "$.planKey",
+        "objectCount.$": "$.objectCount",
+        "totalBytes.$": "$.totalBytes"
+      },
       "Next": "Succeeded"
     },
     "UnknownModeSeed": {
@@ -460,6 +536,7 @@
       "Comment": "The one whole-request failure this stage of the machine can produce outside a Task, and the reason ChooseMode's Default is not simply pointed at Succeeded. It seeds the SAME shape RecordFailure reads from every other path — requestId, actor, raw, error — so there is one failure terminal rather than two. $.raw comes from the CONTEXT OBJECT because RecordFailure reads it unconditionally; the actor comes from the state, which by here is the verified username. THE SEEDED ERROR NAME IS A REASON CODE, NEVER `TerminalError`: notify-failure treats that one name as positive evidence that a verb's decorator already sent a message, so a seed wearing it would be silently suppressed (the recorded DiffMissingSeed rule). `invalid_request` is a registered arcommon code, so the user reads a real sentence rather than the generic fallback.",
       "Parameters": {
         "requestId.$": "$.requestId",
+        "mode.$": "$.mode",
         "actor.$": "$.actor",
         "raw.$": "$$.Execution.Input",
         "error": {
@@ -474,6 +551,7 @@
       "Comment": "A validate-authorize failure happens before the request identity exists, and its input was the raw SQS ARRAY — so the Catch has no object to merge a ResultPath into and the error REPLACES the state. That is why $.raw is read from the CONTEXT OBJECT rather than from the state: $$.Execution.Input is the Pipe's forwarded batch, still there whatever the Catch did to the state, and it is the only surviving copy of the caller's token. Without it NotifyFailure would take its no-recipient branch on every single failure — SPEC-152 satisfied on paper and silent in practice, on exactly the cold-start failures it exists for. Reading $$ in a PASS state rather than in the failing task's own Parameters is SPEC-157's recorded shape. The seed must supply every key the failure terminal reads: a Pass state's JSONPath hard-fails on an absent key with an uncatchable States.Runtime, which a fleet-wide test enforces.",
       "Parameters": {
         "requestId": null,
+        "mode": null,
         "actor": null,
         "raw.$": "$$.Execution.Input",
         "error.$": "$"
@@ -485,6 +563,7 @@
       "Comment": "The single recorded-failure state every whole-request path reaches (identity is null for a pre-identity validate failure). Shapes the structured outcome the notifier reads, then fails the execution. It carries the RAW $.error {Error, Cause}, not a decoded reason: States.StringToJson raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON (#252), which would kill the execution before it could record anything. Decode with cpcommon.errors.failure_reason, never in ASL.",
       "Parameters": {
         "requestId.$": "$.requestId",
+        "mode.$": "$.mode",
         "actor.$": "$.actor",
         "raw.$": "$.raw",
         "status": "failed",

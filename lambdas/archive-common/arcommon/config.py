@@ -99,6 +99,32 @@ Attributes:
 
     10 GiB matches the two shipped planes, and at the conservative rate it is 429s inside
     ``COPY_TIMEOUT_SECONDS``' 900.
+  RESTORE_HEAD_CONCURRENCY: Bounded worker pool for the destination guard's existence checks.
+
+    **The binding constraint is botocore's CONNECTION POOL, not the thread count**, and the
+    first version of this constant had it wrong. A ``HeadObject`` is a small serial round trip,
+    so the obvious model is "workers x timeout / latency" and the obvious value is as many
+    workers as the memory affords — but ``boto3.client("s3")`` takes botocore's default
+    ``max_pool_connections`` of **10**, and threads past that do not get a connection each. They
+    contend, and urllib3 opens and discards sockets rather than reusing them, so a pool of 32
+    buys throughput the client cannot deliver while the arithmetic says otherwise. 8 sits inside
+    that ceiling with headroom, which is also — not by coincidence — why ``COPY_CONCURRENCY`` is
+    8.
+
+    The verb's TIMEOUT is then the free variable, and it is where the real work is paid for: at
+    ``ARCHIVE_MAX_OBJECTS`` (20,000) heads, 8 at a time, at a pessimistic 100 ms each, the worst
+    case is ~250s, so ``locals.tf`` gives the guard 600s.
+    ``test_the_guard_can_head_every_destination_inside_its_timeout`` computes exactly that and
+    READS THE TIMEOUT BACK from the Terraform, so raising the object cap or lowering the timeout
+    fails the build rather than the invocation — and
+    ``test_the_guards_pool_fits_inside_the_clients_connection_pool`` pins the ceiling that sizes
+    this number, because that is the term a later "just raise the concurrency" would skip.
+  RESTORE_CONFLICT_SAMPLE: How many colliding destinations the refusal NAMES. It is a
+    presentation bound, not a work bound — the guard short-circuits, so it has usually seen only
+    a handful — and it exists because the message must fit in a notification a person reads:
+    at five, the sentence stays one or two lines whatever the paths are. **The refusal says
+    plainly that there may be more**, because a sample implying it is exhaustive would send the
+    user round the clear-and-retry loop once per hidden collision.
   RESERVED_SOURCE_ROOTS: Root-level folders that may not be archived, **anchored at the space
     root**, each with its own reason. This is archive's **OWN list** — it is not
     ``protectedFolders.ts`` reused and not a union of the browser's three lists, whose own header
@@ -147,6 +173,10 @@ ARCHIVE_MAX_OBJECTS = 20_000
 ARCHIVE_MAX_BYTES = 3 * 1024**4
 
 ARCHIVE_MAX_OBJECT_BYTES = 10 * 1024**3
+
+RESTORE_HEAD_CONCURRENCY = 8
+
+RESTORE_CONFLICT_SAMPLE = 5
 
 RESERVED_SOURCE_ROOTS = (
     "archive",

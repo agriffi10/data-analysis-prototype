@@ -465,6 +465,46 @@ def test_the_three_things_named_archive_are_in_three_different_buckets():
         )
 
 
+# ── SPEC-170: the guard's permission, where the failure mode is a FALSE PASS ─
+
+
+def test_the_destination_guard_reads_with_GetObject_and_never_with_ListBucket():
+    """SPEC-170 FR-006, and the reason it is asserted rather than assumed.
+
+    `HeadObject` is authorized as **s3:GetObject**, not as `s3:ListBucket` — the trap being that
+    a role granted only the listing permission does not ERROR on a head, it gets a 403, and this
+    guard reads a 403 as OCCUPIED. So the visible symptom of the wrong grant would be every
+    restore refusing; the invisible one, if the guard had been written to read an unreadable key
+    as clear, is every restore silently overwriting. Both directions come back to this statement
+    being the one that exists.
+
+    The grant itself is SPEC-169's `SourceDataRead`, unchanged and unwidened: this spec adds no
+    IAM at all, which is what this test records.
+    """
+    read = _execution_statement("SourceDataRead")
+
+    assert read["Effect"] == "Allow"
+    assert read["Action"] == "s3:GetObject"
+    assert set(read["Resource"]) == {"user_space_bucket_arn/*", "shared_space_bucket_arn/*"}
+
+    listing = _execution_statement("SourceDataList")
+    assert "s3:GetObject" not in listing["Action"], (
+        "the object-level read has drifted into the bucket-level statement, whose resources are "
+        "the buckets themselves — a head against those ARNs is denied"
+    )
+
+
+def test_the_restore_reads_the_vault_with_grants_that_already_exist():
+    """The other half of FR-006, and equally a record that nothing was added: the lookup lists
+    the archive prefix and reads `_manifest.json` out of it, and SPEC-169 already granted both
+    for the rollback and the copy."""
+    vault_list = _execution_statement("ArchiveVaultList")
+    vault_read = _execution_statement("ArchiveVaultWrite")
+
+    assert "s3:ListBucket" in vault_list["Action"]
+    assert "s3:GetObject" in vault_read["Action"]
+
+
 # ── SPEC-139 parity: no new Resource "*" anywhere in this plane ──────────────
 
 

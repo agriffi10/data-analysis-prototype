@@ -34,7 +34,11 @@ Attributes:
     control-plane scratch expiring in days; ``{space}/archive/`` holds the user's receipts and is
     never expired; the archive BUCKET holds the data for seven years. Three unrelated things, in
     three buckets.
-  BASENAME: The plan object's basename.
+  BASENAME: The copy plan's basename — an ARCHIVE's object list.
+  RESTORE_BASENAME: The restore plan's basename — a RESTORE's object list, keyed under the
+    RESTORE run's own request id and not the archive's. The two ids are deliberately different
+    values (SPEC-170 FR-001), so two restores of one archive write two plans and neither
+    collides with the copy plan the archive itself wrote.
   MANIFEST_BASENAME: The transfer manifest's basename.
   RESULTS_FOLDER: The folder under the request's prefix that the Distributed Map's
     ``ResultWriter`` exports into. Step Functions appends its own Map Run component below it.
@@ -63,6 +67,7 @@ from .config import (
 
 PREFIX = "archive"
 BASENAME = "copy-plan.json"
+RESTORE_BASENAME = "restore-plan.json"
 MANIFEST_BASENAME = "transfer-manifest.jsonl"
 RESULTS_FOLDER = "results"
 
@@ -105,6 +110,143 @@ def plan_key(request: dict) -> str:
       TerminalError: ``malformed_event`` when the request carries no usable id.
     """
     return f"{_request_folder(request, 'copy plan')}{BASENAME}"
+
+
+def restore_plan_key(request: dict) -> str:
+    """Derives the restore plan's S3 key from the RESTORE run's request id.
+
+    Args:
+      request: The validated restore request.
+
+    Returns:
+      The restore plan's key under the admin bucket.
+
+    Raises:
+      TerminalError: ``malformed_event`` when the request carries no usable id.
+    """
+    return f"{_request_folder(request, 'restore plan')}{RESTORE_BASENAME}"
+
+
+def write_restore_plan(request: dict, actor: str, objects: list, total_bytes: int) -> str:
+    """Writes the restore plan to the admin bucket and returns its key.
+
+    **Nothing it produces rides on the state**, for the same reason the copy plan does not: at
+    ``ARCHIVE_MAX_OBJECTS`` the list is tens of megabytes against a 256 KB payload limit, and
+    ``States.DataLimitExceeded`` escapes every ``Catch``. Each entry carries its size so
+    SPEC-172 can tell the user how much is coming back and SPEC-171 can bound its wait.
+
+    Args:
+      request: The validated restore request, which determines the key and names the archive and
+        the space.
+      actor: The verified actor, recorded for diagnosis.
+      objects: The derived objects, each with its archive key, destination key and size.
+      total_bytes: How many bytes those objects hold.
+
+    Returns:
+      The key the plan was written to.
+
+    Raises:
+      TransientError: On a retryable S3 fault, so the caller's Retry re-runs the verb — safe,
+        because the key is a pure function of the request id and the verb is read-only besides
+        this write.
+      TerminalError: ``malformed_event`` from the key derivation.
+      ClientError: Any deterministic fault propagates.
+    """
+    key = restore_plan_key(request)
+    archive = request.get("archive") or {}
+    space = request.get("source") or {}
+    body = json.dumps(
+        {
+            "requestId": request.get("requestId"),
+            "actor": actor,
+            "archive": {
+                "bucket": archive.get("bucket"),
+                "root": archive.get("root"),
+                "archiveId": archive.get("archiveId"),
+            },
+            "space": {"bucket": space.get("bucket"), "root": space.get("root")},
+            "objectCount": len(objects),
+            "totalBytes": total_bytes,
+            "objects": objects,
+        },
+        separators=(",", ":"),
+    ).encode()
+    try:
+        clients.s3().put_object(
+            Bucket=cpconfig.ADMIN_BUCKET, Key=key, Body=body, ContentType="application/json"
+        )
+    except Exception as err:
+        errors.raise_if_transient(err, f"put {cpconfig.ADMIN_BUCKET}/{key}")
+        raise
+    return key
+
+
+def load_restore_plan(key: str, request: dict) -> dict:
+    """Reads a restore plan back, refusing every shape that is not complete or not ours.
+
+    The mirror of ``load`` and refused for the same reasons — a short plan here would mean a
+    guard that cleared destinations the restore then did not check, and SPEC-171 copying back
+    over whatever it did not know about. The request-identity check is the other half of
+    ``assert_describes``' finding: the key is a pure function of the request id, so a second run
+    under a reused id overwrites it.
+
+    Args:
+      key: The restore plan's key.
+      request: The running restore request, which the plan must describe.
+
+    Returns:
+      The parsed plan.
+
+    Raises:
+      TransientError: On a retryable S3 fault; the caller's Retry re-runs the verb.
+      TerminalError: ``plan_unreadable`` when the plan is absent, is not valid JSON, is not an
+        object, carries no objects, is short of the count it records, or holds an entry with no
+        destination key; ``plan_superseded`` when it describes a different request or archive.
+    """
+    try:
+        body = clients.s3().get_object(Bucket=cpconfig.ADMIN_BUCKET, Key=key)["Body"].read()
+    except Exception as err:
+        errors.raise_if_transient(err, f"get {cpconfig.ADMIN_BUCKET}/{key}")
+        raise TerminalError(
+            "plan_unreadable", f"could not read restore plan {key}: {err}"
+        ) from err
+
+    try:
+        loaded = json.loads(body)
+    except ValueError as err:
+        raise TerminalError(
+            "plan_unreadable", f"restore plan {key} is not valid JSON: {err}"
+        ) from err
+
+    if not isinstance(loaded, dict):
+        raise TerminalError("plan_unreadable", f"restore plan {key} is not an object")
+    objects = loaded.get("objects")
+    if not isinstance(objects, list) or not objects:
+        raise TerminalError("plan_unreadable", f"restore plan {key} carries no objects")
+    recorded = loaded.get("objectCount")
+    if not isinstance(recorded, int) or isinstance(recorded, bool) or len(objects) != recorded:
+        raise TerminalError(
+            "plan_unreadable",
+            f"restore plan {key} holds {len(objects)} objects but records {recorded!r}",
+        )
+    for entry in objects:
+        if not isinstance(entry, dict) or not entry.get("destKey"):
+            raise TerminalError(
+                "plan_unreadable", f"restore plan {key} holds an object with no destination key"
+            )
+
+    archive = request.get("archive") or {}
+    loaded_archive = loaded.get("archive") or {}
+    for what, found, expected in (
+        ("request id", loaded.get("requestId"), request.get("requestId")),
+        ("archive root", loaded_archive.get("root"), archive.get("root")),
+    ):
+        if expected is not None and found != expected:
+            raise TerminalError(
+                "plan_superseded",
+                f"restore plan {key} names a {what} of {found!r}, not {expected!r}",
+            )
+    return loaded
 
 
 def transfer_manifest_key(request: dict, execution_name) -> str:

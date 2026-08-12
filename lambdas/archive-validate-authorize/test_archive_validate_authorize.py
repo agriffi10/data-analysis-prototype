@@ -28,6 +28,10 @@ from cpcommon.errors import AuthError, TerminalError
 
 UUID = "9f2c1b8e-4c1a-4b2f-8d3e-1a2b3c4d5e6f"
 
+#: A DIFFERENT UUID, deliberately: SPEC-170 FR-001 requires the run's id and the archive's id to
+#: be different values, so a fixture reusing one would make the rule untestable.
+ARCHIVE_UUID = "b71d0f42-9c3e-4a17-b8f5-0d1e2f3a4b5c"
+
 
 @pytest.fixture(autouse=True)
 def _bind(monkeypatch):
@@ -66,6 +70,25 @@ def _event(**overrides):
 def _refused(**overrides):
     with pytest.raises(TerminalError) as caught:
         verb.handler(_event(**overrides), None)
+    return caught.value.reason
+
+
+def _restore_event(**overrides):
+    """A restore request, whose contract is a different set of fields from an archive's."""
+    body = {
+        "requestId": UUID,
+        "mode": "restore",
+        "actor": "eyJ-token",
+        "space": {"kind": "personal", "name": "alice"},
+        "archiveId": ARCHIVE_UUID,
+    }
+    body.update(overrides)
+    return [{"messageId": "m-1", "body": json.dumps(body)}]
+
+
+def _restore_refused(**overrides):
+    with pytest.raises(TerminalError) as caught:
+        verb.handler(_restore_event(**overrides), None)
     return caught.value.reason
 
 
@@ -203,8 +226,20 @@ def test_a_request_id_that_is_not_a_uuid_v4_is_refused_before_it_becomes_a_key()
     assert _refused(requestId="../../etc") == "invalid_request"
 
 
-def test_a_mode_this_verb_does_not_implement_is_refused():
-    assert _refused(mode="restore") == "malformed_event"
+def test_an_unrecognised_mode_is_refused_before_the_field_check_can_ask_which_contract():
+    """The mode decides which fields are known, so it is settled first. `_refused` here also
+    pins the ORDER: a body naming both contracts' fields still fails on the mode."""
+    assert _refused(mode="delete") == "malformed_event"
+
+
+def test_a_restore_body_carrying_an_archives_fields_is_refused():
+    """The unknown-field check is PER MODE, and this is the case a union of the two contracts
+    would have accepted — a restore carrying a selection, quietly ignored."""
+    assert _refused(mode="restore", archiveId=ARCHIVE_UUID) == "malformed_event"
+
+
+def test_an_archive_body_carrying_a_restores_fields_is_refused_the_same_way():
+    assert _refused(archiveId=ARCHIVE_UUID) == "malformed_event"
 
 
 def test_a_body_that_is_not_an_object_is_refused():
@@ -328,6 +363,109 @@ def test_a_selection_over_the_byte_budget_is_refused():
 )
 def test_a_malformed_selection_is_refused_with_its_own_reason(items, reason):
     assert _refused(source=_source(items=items)) == reason
+
+
+# ── The restore branch (SPEC-170 FR-001, FR-002) ─────────────────────────────
+
+
+def test_a_valid_restore_resolves_the_archive_it_names():
+    out = verb.handler(_restore_event(), None)
+
+    assert out["mode"] == "restore"
+    assert out["actor"] == {"username": "alice"}
+    assert out["archive"]["archiveId"] == ARCHIVE_UUID
+    assert out["archive"]["root"] == f"personal/alice/archive/{ARCHIVE_UUID}/"
+    assert out["archive"]["bucket"] == "archive-bkt"
+
+
+def test_both_modes_return_the_same_five_top_level_keys():
+    """A Pass state naming a path the state does not carry raises an UNCATCHABLE
+    States.Runtime, and both modes flow through the one `Validated` Pass. So the shapes are
+    compared against each other rather than each asserted against a literal — the failure this
+    guards is one mode growing a key the other does not have."""
+    archived = verb.handler(_event(), None)
+    restored = verb.handler(_restore_event(), None)
+
+    assert set(archived) == set(restored)
+    assert set(archived) == {"requestId", "mode", "actor", "source", "archive"}
+
+
+def test_the_space_is_the_authorized_space_in_both_modes():
+    """`source` carries the SPACE either way — the archive's source in one mode, the restore's
+    destination in the other — and only `items` is archive-only. Downstream reads it as a
+    location, so the two must agree on everything a location needs."""
+    space = verb.handler(_restore_event(), None)["source"]
+
+    assert space["bucket"] == "user-bkt"
+    assert (space["root"], space["kind"], space["name"]) == ("alice/", "personal", "alice")
+    assert "items" not in space
+
+
+def test_a_shared_space_restore_resolves_under_the_shared_namespace(monkeypatch):
+    """The leading kind segment is what stops a member of space `alice` reaching user `alice`'s
+    archives — nothing anywhere checks a space name against the User Pool."""
+    monkeypatch.setattr(
+        authz.reg, "load", lambda name: {"status": "active", "members": ["alice"]}
+    )
+
+    out = verb.handler(_restore_event(space={"kind": "shared", "name": "team"}), None)
+
+    assert out["archive"]["root"] == f"shared/team/archive/{ARCHIVE_UUID}/"
+    assert out["source"]["bucket"] == "shared-bkt"
+
+
+def test_a_space_the_actor_is_not_a_member_of_is_refused():
+    assert _restore_refused(space={"kind": "shared", "name": "team"}) == "forbidden"
+
+
+def test_a_personal_space_that_is_not_the_actors_own_is_refused():
+    assert _restore_refused(space={"kind": "personal", "name": "bob"}) == "forbidden"
+
+
+def test_the_run_id_and_the_archive_id_must_be_different_values():
+    """FR-001 AC2, and the shortcut it refuses. Conflated, a refused restore could not be
+    re-submitted and a second attempt at one archive would read as a duplicate of the first."""
+    assert _restore_refused(archiveId=UUID) == "malformed_event"
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "../",
+        ".",
+        "9f2c1b8e-4c1a-4b2f-8d3e/1a2b3c4d5e6f",
+        "",
+        f"  {ARCHIVE_UUID}  ",
+        "not-a-uuid-but-exactly-36-characters!",
+        None,
+        42,
+        f"{ARCHIVE_UUID}%2F..",
+    ],
+)
+def test_a_pasted_archive_id_that_is_not_a_uuid_is_refused_before_it_becomes_a_key(bad):
+    """FR-002 AC4, enumerated. The archive id is the only part of a restore that is both TYPED
+    BY A HUMAN and concatenated into an S3 key, so each of these is refused as malformed rather
+    than normalised into something that resolves — SPEC-151's discipline, where the defect was a
+    raw interpolation of a user-supplied string."""
+    assert _restore_refused(archiveId=bad) == "invalid_request"
+
+
+def test_a_pasted_archive_id_in_upper_case_still_resolves_its_prefix():
+    """S3 keys are case-sensitive and a receipt is read by a person. The id is lowercased, so a
+    retyped id resolves the prefix the archive was actually written under."""
+    out = verb.handler(_restore_event(archiveId=ARCHIVE_UUID.upper()), None)
+
+    assert out["archive"]["archiveId"] == ARCHIVE_UUID
+    assert out["archive"]["root"] == f"personal/alice/archive/{ARCHIVE_UUID}/"
+
+
+def test_a_restore_refusal_is_worded_as_a_restore(_bind):
+    """The two modes share one body table under two prefixes. A user who clicked Restore being
+    told "Couldn't archive that" is being told about an operation they did not ask for."""
+    _restore_refused(space={"kind": "personal", "name": "bob"})
+
+    assert _bind and "restore" in _bind[0][1].lower()
+    assert "archive those files" not in _bind[0][1]
 
 
 if __name__ == "__main__":

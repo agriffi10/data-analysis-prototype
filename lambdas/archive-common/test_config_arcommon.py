@@ -7,6 +7,7 @@ breaches 256 KB and raises States.DataLimitExceeded outside every Catch.
 """
 
 import json
+import math
 import os
 import pathlib
 import re
@@ -415,6 +416,86 @@ def test_every_reserved_root_is_a_bare_folder_name():
 
 def test_the_reserved_list_has_no_duplicates():
     assert len(set(config.RESERVED_SOURCE_ROOTS)) == len(config.RESERVED_SOURCE_ROOTS)
+
+
+# ── The restore guard's bounds (SPEC-170) ────────────────────────────────────
+
+
+#: A pessimistic HeadObject round trip, in seconds. Real ones inside the same region are single-
+#: digit milliseconds; 100 ms is two orders out, which is the safe direction for a bound.
+_HEAD_LATENCY_SECONDS = 0.1
+
+
+def test_the_guard_can_head_every_destination_inside_its_timeout():
+    """WHAT SIZES RESTORE_HEAD_CONCURRENCY, computed rather than asserted.
+
+    THE SCHEDULABLE UNIT IS ONE HEAD ON ONE WORKER. A HeadObject is a small serial round trip
+    holding nothing, so unlike the copy pool — where one worker holds a whole multi-gigabyte
+    object — the binding constraint here is round trips rather than bytes, and the verb's
+    capacity is ``concurrency x timeout / latency``. The worst case is an archive at the object
+    cap whose destinations are ALL clear: the short-circuit saves nothing then, and every key is
+    headed.
+
+    Half the timeout is left as headroom for the cold start, the plan read and the pool's own
+    scheduling. The timeout is READ BACK from the Terraform, so raising ARCHIVE_MAX_OBJECTS or
+    lowering the verb's timeout fails the build rather than the invocation.
+    """
+    timeout = _verb_row("check-destination-clear")[0]
+    rounds = math.ceil(config.ARCHIVE_MAX_OBJECTS / config.RESTORE_HEAD_CONCURRENCY)
+    seconds = rounds * _HEAD_LATENCY_SECONDS
+
+    assert seconds < timeout / 2, (
+        f"a worst-case guard is ~{seconds:,.0f}s against check-destination-clear's {timeout}s — "
+        "raise RESTORE_HEAD_CONCURRENCY or the timeout in infra/modules/archive/locals.tf"
+    )
+
+
+def test_the_guards_pool_fits_inside_the_clients_connection_pool():
+    """THE TERM THE OBVIOUS MODEL SKIPS, and the one that made the first version of this constant
+    wrong. "Workers x timeout / latency" says to widen the pool until the arithmetic fits — but
+    ``boto3.client("s3")`` takes botocore's default ``max_pool_connections``, so threads past that
+    do not each get a connection: they contend, and urllib3 opens and discards sockets rather than
+    reusing them. A pool of 32 buys throughput the client cannot deliver while every bound
+    computed from it reads as satisfied.
+
+    Read off botocore rather than restated, so a future default change is a build failure rather
+    than a silent regression in a number nothing else measures.
+    """
+    from botocore.config import Config
+
+    assert Config().max_pool_connections >= config.RESTORE_HEAD_CONCURRENCY
+
+
+def test_the_restore_plan_fits_in_the_lookup_verbs_memory():
+    """inspect-archive is inspect-source's mirror and is sized by the same quantity: it holds the
+    whole restore plan as a list of dicts, serialises it and encodes that at once. Each entry is
+    LARGER than a copy-plan entry — it carries the archive key AND the destination key — so the
+    bound is recomputed rather than inherited.
+
+    check-destination-clear is checked with it because it loads the same plan back, so the two
+    rows have to move together.
+    """
+    entry = {
+        "archiveKey": "a" * _MAX_S3_KEY,
+        "destKey": "d" * _MAX_S3_KEY,
+        "bytes": 10 * 1024**3,
+    }
+    plan_bytes = len(json.dumps(entry, separators=(",", ":")).encode()) * config.ARCHIVE_MAX_OBJECTS
+    live_copies = plan_bytes * (_PARSED_OBJECT_OVERHEAD + 2)
+
+    for verb in ("inspect-archive", "check-destination-clear"):
+        memory_bytes = _verb_row(verb)[1] * 1024**2
+        assert live_copies < memory_bytes / 2, (
+            f"a worst-case restore plan is ~{live_copies / 1024**2:,.0f} MB live against "
+            f"{verb}'s {_verb_row(verb)[1]} MB — raise the memory in "
+            "infra/modules/archive/locals.tf or lower ARCHIVE_MAX_OBJECTS"
+        )
+
+
+def test_the_conflict_sample_is_small_enough_to_read_and_large_enough_to_act_on():
+    """A presentation bound, not a work bound. One collision is not a pattern a user can act on
+    and twenty is not a sentence anybody reads in a notification."""
+    assert 1 < config.RESTORE_CONFLICT_SAMPLE <= 10
 
 
 # ── The archive bucket is read from the env, and only on demand ──────────────
