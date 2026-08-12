@@ -37,9 +37,16 @@ class _S3Error(Exception):
 
 
 class _FakeS3:
-    def __init__(self, objects):
+    def __init__(self, objects, archived=()):
         self._objects = objects
+        self._archived = list(archived)
         self.puts = []
+        self.listed = []
+
+    def list_objects_v2(self, Bucket, Prefix, MaxKeys=None):
+        self.listed.append({"Bucket": Bucket, "Prefix": Prefix})
+        found = [{"Key": key} for key in self._archived if key.startswith(Prefix)]
+        return {"KeyCount": len(found), "Contents": found}
 
     def get_paginator(self, name):
         objects = self._objects
@@ -66,8 +73,8 @@ class _FakeS3:
         return {}
 
 
-def _install(objects):
-    fake = _FakeS3(objects)
+def _install(objects, archived=()):
+    fake = _FakeS3(objects, archived)
     clients._s3 = fake
     return fake
 
@@ -152,6 +159,45 @@ def test_a_refusal_notifies_the_actor_before_the_catch_records_it(_no_real_notif
 
     assert err.value.reason == "nothing_to_archive"
     assert [user for user, _ in _no_real_notifications] == ["alice"]
+
+
+def test_a_request_id_that_has_been_used_before_is_refused_before_anything_is_read(
+    _no_real_notifications,
+):
+    """**Found in review.** The request id is browser-supplied and is the WHOLE identity of an
+    archive: the plan, the archive prefix, the record and the receipt are keyed on it alone. The
+    queue's FIFO dedup window is five minutes against a three-hour ceiling, and this arc's live
+    checks submit hand-crafted messages, so a reused id is reachable.
+
+    What it costs is not a duplicate. Two archives mix under one prefix that SPEC-170 will list
+    and restore wholesale, the first run's record and receipt are overwritten, and — if the second
+    run fails its commit gate — its ROLLBACK deletes the FIRST archive's objects out of a bucket
+    with versioning off. That last one is unrecoverable, which is why this refuses rather than
+    being left to the producer's conventions.
+    """
+    fake = _install(
+        {"alice/reports/a.csv": 5},
+        archived=[f"personal/alice/archive/{_REQUEST_ID}/reports/old.csv"],
+    )
+
+    with pytest.raises(TerminalError) as err:
+        m.handler(_event(), None)
+
+    assert err.value.reason == "request_id_reused"
+    assert fake.puts == []
+    assert [user for user, _ in _no_real_notifications] == ["alice"]
+
+
+def test_the_occupancy_check_reads_this_requests_prefix_and_costs_one_call():
+    """One ListObjectsV2 against the vault, before a single HeadObject is spent on the
+    expansion — the cheapest order for a refusal."""
+    fake = _install({"alice/reports/a.csv": 5})
+
+    m.handler(_event(), None)
+
+    assert fake.listed == [
+        {"Bucket": "archive-bkt", "Prefix": f"personal/alice/archive/{_REQUEST_ID}/"}
+    ]
 
 
 def test_a_refusal_writes_no_plan():

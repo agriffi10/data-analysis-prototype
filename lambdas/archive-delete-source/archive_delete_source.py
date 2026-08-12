@@ -49,10 +49,12 @@ def handler(event, context) -> dict:
       The request with how many objects were deleted.
 
     Raises:
-      TerminalError: ``plan_unreadable`` when the plan cannot be read back,
+      TerminalError: ``plan_unreadable`` or ``plan_superseded`` when the plan cannot be read
+        back or is not this run's — the second is what stops a run deleting a DIFFERENT
+        selection after another execution overwrote the plan under a reused request id —
         ``source_delete_incomplete`` when any object survived, or ``forbidden`` /
-        ``protected_marker`` from the pre-delete assertion — which fails the run BEFORE issuing a
-        delete the bucket policy would refuse mid-batch.
+        ``protected_marker`` from the pre-delete assertion, which fails the run BEFORE issuing
+        a delete the bucket policy would refuse mid-batch.
       TransientError: On a retryable S3 fault, so the state's Retry re-runs the verb — safe,
         because an already-absent key is not an error and a re-driven execution completes.
     """
@@ -74,11 +76,11 @@ def _delete_source(event) -> dict:
       The request with ``deletedCount``.
 
     Raises:
-      TerminalError: ``plan_unreadable``, ``source_delete_incomplete``, ``forbidden`` or
-        ``protected_marker``.
+      TerminalError: ``plan_unreadable``, ``plan_superseded``, ``source_delete_incomplete``,
+        ``forbidden`` or ``protected_marker``.
       TransientError: On a retryable S3 fault.
     """
-    loaded = plan.load(event.get("copyPlanKey"))
+    loaded = plan.load(event.get("copyPlanKey"), event)
     source = loaded["source"]
     root = normalize_root(source["root"])
     keys = [f"{root}{entry['relKey']}" for entry in loaded["objects"]]

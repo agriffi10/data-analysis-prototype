@@ -45,8 +45,8 @@ def handler(event, context) -> dict:
       The request merged with the copy plan's key, object count and byte total.
 
     Raises:
-      TerminalError: Any expansion or cap rejection, notified to the actor before the Catch
-        records it.
+      TerminalError: The reused-id refusal, or any expansion or cap rejection — notified to the
+        actor before the Catch records it.
       TransientError: On a retryable S3 fault.
     """
     return _inspect_source(event)
@@ -55,6 +55,11 @@ def handler(event, context) -> dict:
 def _inspect_source(event) -> dict:
     """Expands the selection, enforces the caps and writes the plan.
 
+    **The archive prefix is checked for occupancy BEFORE the expansion**, which is the cheapest
+    order: the request id is browser-supplied and is the whole identity of an archive, so a reused
+    one would mix two archives under one prefix and put the first one inside the second's rollback
+    blast radius. One ``ListObjectsV2`` refuses that before a single ``HeadObject`` is spent.
+
     Args:
       event: The validated request.
 
@@ -62,15 +67,17 @@ def _inspect_source(event) -> dict:
       The request with the plan key, object count and byte total.
 
     Raises:
-      TerminalError: ``source_missing`` for a file that is no longer there,
-        ``nothing_to_archive`` when the selection resolves to no objects, ``too_many_objects``,
-        ``source_too_large`` or ``object_too_large`` at the caps, or ``forbidden`` from the
-        containment re-check.
+      TerminalError: ``request_id_reused`` when the archive prefix already holds objects,
+        ``source_missing`` for a file that is no longer there, ``nothing_to_archive`` when the
+        selection resolves to no objects, ``undeletable_folder`` for an object this plane could
+        copy but could not delete, ``too_many_objects``, ``source_too_large`` or
+        ``object_too_large`` at the caps, or ``forbidden`` from the containment re-check.
       TransientError: On a retryable S3 fault.
     """
     source = event.get("source") or {}
     actor = (event.get("actor") or {}).get("username")
 
+    plan.assert_archive_unused(event)
     objects, total_bytes = plan.expand(source)
 
     logger.info(

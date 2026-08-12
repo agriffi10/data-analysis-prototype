@@ -80,6 +80,7 @@ def test_every_marker_in_every_body_can_be_filled_by_somebody():
         "failed",
         "residue",
         "requestId",
+        "folderName",
     }
     for reason, body in messages._BODIES.items():
         for marker in re.findall(r"\{(\w+)\}", body):

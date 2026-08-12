@@ -78,14 +78,14 @@ def _install(plan_body=None, errors_on=()):
     return fake
 
 
-def _event():
+def _event(object_count=2):
     return {
         "requestId": _REQUEST_ID,
         "actor": {"username": "alice"},
         "source": {"bucket": "user-bkt", "root": "alice/", "kind": "personal", "name": "alice"},
         "archive": {"bucket": "archive-bkt", "root": f"personal/alice/archive/{_REQUEST_ID}/"},
         "copyPlanKey": f"archive/{_REQUEST_ID}/copy-plan.json",
-        "objectCount": 2,
+        "objectCount": object_count,
         "totalBytes": 5,
         "manifestKey": f"personal/alice/archive/{_REQUEST_ID}/_manifest.json",
     }
@@ -157,7 +157,7 @@ def test_a_key_outside_the_plans_root_fails_before_any_delete_is_issued():
     fake = _install(json.dumps(plan).encode())
 
     with pytest.raises(TerminalError):
-        m.handler(_event(), None)
+        m.handler(_event(object_count=3), None)
 
     assert fake.deletes == []
 
@@ -172,15 +172,19 @@ def test_a_marker_in_the_plan_fails_the_run_rather_than_being_issued(_no_real_no
     fake = _install(json.dumps(plan).encode())
 
     with pytest.raises(TerminalError) as err:
-        m.handler(_event(), None)
+        m.handler(_event(object_count=1), None)
 
     assert err.value.reason == "protected_marker"
     assert fake.deletes == []
 
 
-def test_deletion_is_replay_safe_so_a_redriven_execution_completes():
-    """S3 reports an already-absent key as deleted, which is what makes the state's Retry safe on
-    a verb whose effect is a deletion."""
+def test_a_second_run_over_the_same_plan_issues_the_same_deletes_and_reports_the_same_counts():
+    """The verb's half of replay safety: it is a pure function of the plan, so a re-driven
+    execution repeats the same request rather than computing a different one.
+
+    The OTHER half is S3's — an already-absent key is reported as deleted — and no fake can hold
+    that, so this does not claim to. It is the premise the state's Retry rests on, recorded here
+    rather than asserted."""
     fake = _install()
 
     first = m.handler(_event(), None)
@@ -188,6 +192,51 @@ def test_deletion_is_replay_safe_so_a_redriven_execution_completes():
 
     assert first["deletedCount"] == second["deletedCount"] == 2
     assert len(fake.deletes) == 2
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("requestId", "11111111-2222-4333-8444-555555555555"),
+        ("source", {"bucket": "shared-bkt", "root": "team-space/"}),
+        ("objectCount", 99),
+    ],
+    ids=["another-request", "another-space", "another-selection-size"],
+)
+def test_a_plan_that_does_not_describe_this_run_deletes_nothing(field, value):
+    """**Found in review, and it is the half that could have deleted the wrong data.** The plan's
+    key is a pure function of the request id — which is what makes a Retry rewrite the same object
+    — so a second execution carrying a reused id OVERWRITES it. This verb takes the bucket, the
+    root and the key list from whatever it reads back, and the commit gate upstream compares two
+    values that both come from the STATE, so it cannot see a plan that changed underneath it.
+
+    Without this check, run 1 could pass its own gate on its own counts and then delete run 2's
+    selection — in either space bucket, since the grant covers both.
+    """
+    plan = json.loads(_plan())
+    plan[field] = value
+    if field == "objectCount":
+        plan["objects"] = plan["objects"] + [{"relKey": f"filler{i}.csv", "bytes": 0} for i in range(97)]
+    fake = _install(json.dumps(plan).encode())
+
+    with pytest.raises(TerminalError) as err:
+        m.handler(_event(), None)
+
+    assert err.value.reason == "plan_superseded"
+    assert fake.deletes == []
+
+
+def test_the_superseded_message_says_the_files_are_where_they_were(_no_real_notifications):
+    """Nothing has been deleted on this path, and the sentence has to say so — it is the same
+    promise every message downstream of the copy makes."""
+    plan = json.loads(_plan())
+    plan["requestId"] = "11111111-2222-4333-8444-555555555555"
+    _install(json.dumps(plan).encode())
+
+    with pytest.raises(TerminalError):
+        m.handler(_event(), None)
+
+    assert "nothing was deleted" in _no_real_notifications[0][1].lower()
 
 
 def test_an_unreadable_plan_refuses_rather_than_deleting_what_it_can_read():

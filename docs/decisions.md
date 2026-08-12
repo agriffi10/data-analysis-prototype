@@ -2171,6 +2171,50 @@ a prefix-only test. S3 resolves nothing, so no cross-tenant delete followed; it 
 containment rule that holds only while every consumer stays careful is not a rule, and this
 consumer is the one that deletes. **Containment is both of `cpcommon.paths`' rules, everywhere.**
 
+### The request id is browser-supplied, so a reused one is refused twice over
+
+**Both halves of this came out of review, and one of them could have deleted the wrong data.**
+
+The request id is the whole identity of an archive: the copy plan, the archive prefix,
+``_manifest.json`` and the receipt are all keyed on it alone (only the transfer manifest also
+carries the execution). The queue's FIFO ``MessageDeduplicationId`` is that id, but its window is
+five minutes against a three-hour ceiling, this arc's live checks submit hand-crafted messages, and
+the browser producer that would mint a fresh id per submit is SPEC-172's. So a second request under
+a used id is reachable, and nothing downstream noticed.
+
+**delete-source takes the bucket, the root and the KEY LIST from a plan it re-reads.** The commit
+gate upstream compares two values that both come from the state, so it cannot see a plan another
+execution overwrote. Run 1 could therefore pass its own gate on its own counts and then delete run
+2's selection — in either space bucket, since the grant covers both. ``plan.load`` now takes the
+request and ``assert_describes`` compares the plan's request id, source bucket, source root and
+object count against it; a mismatch is ``plan_superseded``, with the source untouched.
+
+**The rollback made the second half worse than a duplicate.** A run under a used id that fails its
+gate lists ``{kind}/{name}/archive/{uuid}/`` and deletes everything under it — including a
+PREVIOUS, completed archive's objects, out of a bucket with versioning off. Unrecoverable. So
+inspect-source now refuses up front when the archive prefix already holds anything
+(``request_id_reused``), one ``ListObjectsV2`` before a single ``HeadObject`` is spent. It
+**narrows rather than closes**, exactly as table-share's conflict guard does: two concurrent
+executions can both find the prefix empty. What it removes is the ordinary case.
+
+### An object this plane could copy but could not delete is refused, not archived
+
+Two rules were each correct alone and disagreed with each other. The code's reserved-folder rule is
+anchored at the SPACE ROOT on purpose — ``assert_not_reserved``'s own docstring says
+``alice/reports/archive/`` is an ordinary folder the user made. The IAM Deny protecting the same
+names cannot be anchored anywhere: ``*`` matches ``/`` in a resource ARN and IAM has no
+single-segment wildcard, so ``*/archive/*`` covers every depth.
+
+The gap between them was a real user-facing failure. Archiving ``alice/projects/`` containing
+``alice/projects/archive/notes.txt`` would copy every object into Glacier at the 90-day minimum,
+write its record, and then fail part way through the deletion with "contact an administrator" — a
+full orphaned copy and an escalation, for an ordinarily-named folder.
+
+It is refused at expansion time now, and refused **WHOLE** rather than excluded, which is SPEC-165's
+rule: a silent exclusion drops the user's own data out of an archive that reports success. The
+message names the folder so the user can rename it. A file merely CALLED ``archive`` is untouched —
+the Deny needs a segment after the name, so the rule reads folder segments and not basenames.
+
 ### The artifacts are ordered most durable to least, and the receipt's failure is terminal
 
 `_manifest.json` into the vault → the source deletion → the receipt into the user's own space,

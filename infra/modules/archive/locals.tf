@@ -75,7 +75,11 @@ locals {
     # one JSONL line per object and serialises it, and the collector parses the Map Run's
     # export, which carries every batch's input back again. Both are JSON work over the
     # object cap, so memory is the CPU dial as much as the headroom — a 2048 MB function
-    # gets ~4x the CPU of a 512 MB one. Both numbers are read back by the memory test.
+    # gets ~4x the CPU of a 512 MB one.
+    #
+    # BOTH ROWS ARE READ BACK by test_the_worst_case_manifest_fits_in_the_verbs_
+    # either_side_of_the_map, which computes the manifest against them. That test
+    # arrived in review: until it did, this comment claimed a bound nothing held.
     "build-transfer-manifest"  = { handler = "archive_build_transfer_manifest.handler", timeout = 300, memory = 2048 }
     "collect-transfer-results" = { handler = "archive_collect_transfer_results.handler", timeout = 300, memory = 2048 }
     # SPEC-169 FR-003. One BATCH of transfer items per invocation, on cpcommon.transfer's

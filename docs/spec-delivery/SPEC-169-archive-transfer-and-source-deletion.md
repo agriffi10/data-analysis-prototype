@@ -101,10 +101,33 @@ Each is computed by a test that reads `locals.tf` back, never asserted as a numb
   positive twins (the ceiling + its rule; the Task set is the nine verbs).
 - `ar_notify_failure` grew a second door; its `test_there_is_no_eventbridge_timeout_door_yet` is
   replaced by the door's own suite.
-- **A real gap was found in review and closed**: `assert_deletable` accepted
-  `alice/../bob/secrets.csv`, because keys are rebuilt from a root and a stored relative key and
-  that string *does* start with `alice/`. Containment is both of `cpcommon.paths`' rules now. Not
-  exploitable — S3 resolves nothing — but this is the consumer that deletes.
+
+## What review changed
+
+Three defects, found by a fresh-context review of the finished branch and fixed before the PR.
+
+- **A reused request id could get the wrong data deleted.** The id is browser-supplied and keys
+  the plan, the archive prefix, the record and the receipt; the queue's dedup window is five
+  minutes against a three-hour ceiling. `plan.load` now takes the request and refuses a plan that
+  does not describe it (`plan_superseded`), so a run cannot pass its own commit gate and then
+  delete another execution's selection. And inspect-source refuses a request whose archive prefix
+  already holds anything (`request_id_reused`) — without it, a later run's ROLLBACK would delete an
+  EARLIER completed archive out of a bucket with versioning off. Both are in `decisions.md`.
+- **An object under an `archive/`, `athenaresults/` or `user_settings/` folder at ANY depth would
+  have been copied to Glacier and then failed mid-delete.** The IAM Deny cannot be anchored at the
+  space root (`*` matches `/`), where the code's reserved-folder rule deliberately is. Refused at
+  expansion now, whole rather than silently excluded, naming the folder.
+- **`assert_deletable` accepted `alice/../bob/secrets.csv`**, because keys are rebuilt from a root
+  and a stored relative key and that string *does* start with `alice/`. Containment is both of
+  `cpcommon.paths`' rules now. Not exploitable — S3 resolves nothing — but this is the consumer
+  that deletes.
+
+Three smaller ones, same pass: the two 2048 MB verb rows claimed a memory bound no test held (one
+exists now); `receipt.write` recomputed a key validate-authorize had already resolved, leaving
+`archive.receiptKey` riding the whole run unread; and `Rollback`'s `Next` pointed at a seed reading
+`$.error`, which a *returning* verb would not leave on the state — an uncatchable `States.Runtime`
+on the failure path. Two test docstrings that overstated what they held were corrected rather than
+left to read as guarantees.
 
 ## Verification
 

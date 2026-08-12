@@ -300,7 +300,21 @@
           "Next": "RequestFailureSeed"
         }
       ],
-      "Next": "RequestFailureSeed"
+      "Next": "RollbackReturnedSeed"
+    },
+    "RollbackReturnedSeed": {
+      "Type": "Pass",
+      "Comment": "The rollback verb ALWAYS raises, so this is unreachable today — and it is here because the alternative is a trap rather than a tidy edge. Pointing Rollback's Next straight at RequestFailureSeed would read as correct while that seed reads $.error, which a RETURNING verb does not leave on the state (OutputPath is $.Payload): the Pass would raise an uncatchable States.Runtime on the failure path itself, on a run that had already decided not to delete anything. Seeding the reason here makes a returning rollback fail the way it meant to. The error name is a registered reason code, never `TerminalError`, which notify-failure treats as evidence a verb's decorator already spoke.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor",
+        "raw.$": "$$.Execution.Input",
+        "error": {
+          "Error": "archive_incomplete",
+          "Cause": null
+        }
+      },
+      "Next": "RecordFailure"
     },
     "WriteManifest": {
       "Type": "Task",

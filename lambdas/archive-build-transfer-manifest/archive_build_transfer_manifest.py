@@ -82,8 +82,9 @@ def handler(event, context) -> dict:
       count the Choice gates the Map on.
 
     Raises:
-      TerminalError: ``plan_unreadable`` when the copy plan cannot be read, ``malformed_event``
-        when the execution name was not stamped, or ``forbidden`` from the destination builder.
+      TerminalError: ``plan_unreadable`` or ``plan_superseded`` when the copy plan cannot be
+        read or is not this run's, ``malformed_event`` when the execution name was not
+        stamped, or ``forbidden`` from the destination builder.
         Whole-request either way — a manifest that cannot be built completely must not be built
         partially, because the commit gate compares the export against the plan and a short
         manifest would agree with itself.
@@ -102,10 +103,11 @@ def _build_transfer_manifest(event) -> dict:
       The request with its ``transfer`` block.
 
     Raises:
-      TerminalError: ``plan_unreadable``, ``malformed_event`` or ``forbidden``.
+      TerminalError: ``plan_unreadable``, ``plan_superseded``, ``malformed_event`` or
+        ``forbidden``.
       TransientError: On a retryable S3 fault.
     """
-    loaded = plan.load(event.get("copyPlanKey"))
+    loaded = plan.load(event.get("copyPlanKey"), event)
     items = _items(loaded)
     key = plan.transfer_manifest_key(event, (event.get("execution") or {}).get("name"))
     count = manifest_writer.write_manifest(config.ADMIN_BUCKET, key, items)

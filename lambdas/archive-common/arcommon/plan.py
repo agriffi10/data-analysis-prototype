@@ -38,9 +38,11 @@ Attributes:
   MANIFEST_BASENAME: The transfer manifest's basename.
   RESULTS_FOLDER: The folder under the request's prefix that the Distributed Map's
     ``ResultWriter`` exports into. Step Functions appends its own Map Run component below it.
-  _FOLDER_MARKER_SUFFIX: A folder placeholder is a zero-byte object whose key ends in a slash.
-    Unlike every other plane's listing, this one KEEPS them: an archived empty folder has to be
-    restorable, and nothing else in the plan records that the folder existed.
+  _UNDELETABLE_FOLDERS: Folder names this plane may not delete AT ANY DEPTH, because the two
+    bucket policies and the execution role's own Deny refuse ``s3:DeleteObject`` beneath them
+    with a wildcard that matches ``/``. They are NOT the same rule as
+    ``config.RESERVED_SOURCE_ROOTS``, which is anchored at the space root and answers a
+    different question — see ``_assert_deletable_folder``.
 """
 
 import json
@@ -64,7 +66,7 @@ BASENAME = "copy-plan.json"
 MANIFEST_BASENAME = "transfer-manifest.jsonl"
 RESULTS_FOLDER = "results"
 
-_FOLDER_MARKER_SUFFIX = "/"
+_UNDELETABLE_FOLDERS = ("archive", "athenaresults", "user_settings")
 
 
 def _request_folder(request: dict, what: str) -> str:
@@ -192,6 +194,45 @@ def _excluder(root: str):
     return ignore
 
 
+def _assert_deletable_folder(root: str, key: str) -> None:
+    """Refuses an object this plane could copy but could not then delete.
+
+    **Found in review, and the two rules it reconciles are both correct on their own.** The code's
+    reserved-folder rule is anchored at the SPACE ROOT, deliberately: ``alice/reports/archive/`` is
+    an ordinary folder the user made, and ``assert_not_reserved`` says so. The IAM Deny that
+    protects the same names cannot be anchored anywhere — ``*`` matches ``/`` in a resource ARN, so
+    ``*/archive/*`` covers every depth, and IAM has no single-segment wildcard to express the
+    narrower rule with.
+
+    So a legal-looking archive of ``alice/projects/`` containing ``alice/projects/archive/notes.txt``
+    would copy every object into Glacier at the 90-day minimum, write its record, and then fail
+    part way through the deletion with "contact an administrator" — the exact shape
+    ``assert_not_protected_marker`` refuses a marker up front to avoid.
+
+    It is a WHOLE-REQUEST refusal rather than an exclusion, and that direction is SPEC-165's rule:
+    the alternative silently drops the user's own data out of an archive that reports success. The
+    user can rename the folder or select around it.
+
+    Args:
+      root: The authorized, normalised space root.
+      key: An absolute object key inside that root.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``undeletable_folder``, naming the folder so the message can tell the user
+        which one to deal with.
+    """
+    for segment in key[len(root) :].split("/")[:-1]:
+        if segment in _UNDELETABLE_FOLDERS:
+            raise TerminalError(
+                "undeletable_folder",
+                f"{key!r} sits inside a folder named {segment!r}, which cannot be deleted",
+                tokens={"folderName": segment},
+            )
+
+
 def _object_size(bucket: str, key: str) -> int:
     """Reads one selected file's size, or fails the request naming it.
 
@@ -234,6 +275,12 @@ def _expand_item(bucket: str, root: str, entry: dict):
     file item, so naming ``{root}DO_NOT_DELETE.txt`` as a file would otherwise put an undeletable
     object into a plan whose last step is a delete.
 
+    A listed key that IS the root leaves an empty relative key and is dropped. It is not reachable
+    from a legal selection — the reserved-root rule refuses selecting a space root — and it is
+    dropped rather than carried because an empty relative key names the archive prefix itself,
+    which ``origin_key`` refuses to reconstruct, so it would fail two states later as an
+    unreadable plan.
+
     Args:
       bucket: The source bucket.
       root: The authorized, normalised space root.
@@ -251,13 +298,17 @@ def _expand_item(bucket: str, root: str, entry: dict):
     exclude = _excluder(root)
     if entry["kind"] == "file":
         assert_inside_root(root, key)
+        _assert_deletable_folder(root, key)
         size = _object_size(bucket, key)
         if not exclude(key, size, key):
             yield key[len(root):], size
         return
     for object_key, size in s3_listing.list_data_objects(bucket, key, ignore=exclude):
         assert_inside_root(root, object_key)
-        yield object_key[len(root):], size
+        _assert_deletable_folder(root, object_key)
+        relative = object_key[len(root):]
+        if relative:
+            yield relative, size
 
 
 def expand(source: dict) -> tuple[list, int]:
@@ -330,6 +381,103 @@ def expand(source: dict) -> tuple[list, int]:
     return objects, total_bytes
 
 
+def assert_archive_unused(request: dict) -> None:
+    """Refuses a request whose archive prefix already holds something.
+
+    **Found in review, and it closes the worse half of a request-id collision.** The request id is
+    browser-supplied and is the whole identity of an archive: the copy plan, the archive prefix,
+    ``_manifest.json`` and the receipt are all keyed on it alone (only the transfer manifest also
+    carries the execution). The queue's FIFO ``MessageDeduplicationId`` is that id, but its window
+    is five minutes against a three-hour ceiling — and the live checks for this arc submit
+    hand-crafted messages — so a second request carrying an id that has already been used is
+    reachable, and nothing downstream would notice.
+
+    What it costs is not a duplicate: a second run under a used id mixes two archives under one
+    prefix that SPEC-170 will list and restore wholesale, overwrites the first run's record and
+    receipt, and — if the second run fails its commit gate — has its ROLLBACK delete the first
+    archive's objects out of a bucket with versioning off. That last one is unrecoverable, and it
+    is the reason this check exists rather than being left to the producer's conventions.
+
+    **It narrows rather than closes**, exactly as table-share's conflict guard does: two concurrent
+    executions can both find the prefix empty. What it removes is the ordinary case — an id reused
+    minutes or days later — and it is one ``ListObjectsV2`` against a bucket this plane is the only
+    reader of.
+
+    Args:
+      request: The validated request, carrying the resolved archive destination.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``request_id_reused`` when the prefix is occupied, or ``forbidden`` when the
+        request carries no archive destination to check.
+      TransientError: On a retryable S3 fault.
+    """
+    archive = request.get("archive") or {}
+    bucket, root = archive.get("bucket"), archive.get("root")
+    if not bucket or not root:
+        raise TerminalError("forbidden", "the request carries no archive destination")
+    try:
+        response = clients.s3().list_objects_v2(Bucket=bucket, Prefix=root, MaxKeys=1)
+    except Exception as err:
+        errors.raise_if_transient(err, f"list {bucket}/{root}")
+        raise
+    if response.get("KeyCount") or response.get("Contents"):
+        raise TerminalError(
+            "request_id_reused",
+            f"{bucket}/{root} already holds objects, so this request id has been used before",
+        )
+
+
+def assert_describes(loaded: dict, request: dict, key: str) -> dict:
+    """Confirms a plan read back from S3 is the plan THIS execution wrote.
+
+    **Found in review, and it is the other half of the request-id collision.** The plan's key is a
+    pure function of the request id, which is what makes a ``Retry`` of inspect-source rewrite the
+    same object rather than leave a second one behind — and which also means a second execution
+    carrying the same id overwrites it. delete-source takes the bucket, the root and the KEY LIST
+    from whatever it reads back, so without this check a run could pass its own commit gate on its
+    own counts and then delete a different selection entirely, in either space bucket.
+
+    Cheap and total: four fields the state already holds, compared against what the object claims.
+    The count is included because it is the term the gate reasoned about, and the root because it
+    is the prefix every deletion is scoped to.
+
+    Args:
+      loaded: The parsed plan.
+      request: The running request.
+      key: The plan's key, for the refusal's detail.
+
+    Returns:
+      The plan, unchanged, so this reads as a checkpoint at the call site.
+
+    Raises:
+      TerminalError: ``plan_superseded`` when the plan describes a different request, source or
+        object count.
+    """
+    source = request.get("source") or {}
+    loaded_source = loaded.get("source") or {}
+    expected_root = source.get("root")
+    expectations = (
+        ("request id", loaded.get("requestId"), request.get("requestId")),
+        ("source bucket", loaded_source.get("bucket"), source.get("bucket")),
+        (
+            "source root",
+            normalize_root(loaded_source.get("root") or "?"),
+            normalize_root(expected_root) if expected_root else None,
+        ),
+        ("object count", loaded.get("objectCount"), request.get("objectCount")),
+    )
+    for what, found, expected in expectations:
+        if expected is not None and found != expected:
+            raise TerminalError(
+                "plan_superseded",
+                f"copy plan {key} names a {what} of {found!r}, not {expected!r}",
+            )
+    return loaded
+
+
 def write(request: dict, source: dict, actor: str, objects: list, total_bytes: int) -> str:
     """Writes the copy plan to the admin bucket and returns its key.
 
@@ -379,8 +527,8 @@ def write(request: dict, source: dict, actor: str, objects: list, total_bytes: i
     return key
 
 
-def load(key: str) -> dict:
-    """Reads a plan back, refusing every shape that is not demonstrably complete.
+def load(key: str, request: dict) -> dict:
+    """Reads a plan back, refusing every shape that is not demonstrably complete or not ours.
 
     Every unreadable shape is a WHOLE-REQUEST terminal, never a partial plan handed on. **A
     short plan is the shape this plane must never proceed over**: it would produce a manifest
@@ -392,6 +540,7 @@ def load(key: str) -> dict:
 
     Args:
       key: The plan key, as inspect-source threaded it onward.
+      request: The running request, which the plan must describe — see ``assert_describes``.
 
     Returns:
       The parsed plan.
@@ -400,9 +549,10 @@ def load(key: str) -> dict:
       TransientError: On a retryable S3 fault; the caller's Retry re-runs the verb.
       TerminalError: ``plan_unreadable`` when the plan is absent, is not valid JSON, is not an
         object, carries no objects, is short of the count it records, names no source or archive
-        location, or holds an entry with no relative key. inspect-source wrote it earlier in this
-        same execution, so a failure here means the object is missing or corrupt, which no retry
-        fixes.
+        location, or holds an entry with no relative key; ``plan_superseded`` when it describes a
+        different request. inspect-source wrote it earlier in this same execution, so a failure
+        here means the object is missing, corrupt, or has been overwritten by another run — and
+        no retry fixes any of the three.
     """
     try:
         body = clients.s3().get_object(Bucket=cpconfig.ADMIN_BUCKET, Key=key)["Body"].read()
@@ -435,4 +585,4 @@ def load(key: str) -> dict:
             raise TerminalError(
                 "plan_unreadable", f"copy plan {key} holds an object with no relative key"
             )
-    return plan
+    return assert_describes(plan, request, key)

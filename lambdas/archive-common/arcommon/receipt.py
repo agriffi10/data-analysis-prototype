@@ -42,7 +42,6 @@ from cpcommon import clients, errors
 
 from . import messages  # noqa: F401
 from .config import RECEIPT_NAME  # noqa: F401
-from .paths import receipt_key
 
 logger = logging.getLogger(__name__)
 
@@ -154,13 +153,19 @@ def render(record: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write(bucket: str, name: str, request_id, record: dict) -> str:
+def write(bucket: str, key: str, record: dict) -> str:
     """Writes the receipt into the space's own bucket and returns its key.
+
+    **The key is passed in rather than derived here**, and that is SPEC-168's design being
+    honoured rather than a convenience: validate-authorize resolves the archive prefix and the
+    receipt key once, because they are pure functions of the request, so that the copier, the
+    receipt writer and SPEC-170's restore read ONE string instead of three agreeing constructions
+    of it. Deriving it again here made ``archive.receiptKey`` a field nothing read — the
+    "placeholder that outlives its placeholder" the machine's own ``Validated`` state warns about.
 
     Args:
       bucket: The space's bucket.
-      name: The space's name, which is also its root prefix.
-      request_id: The request id, which is the archive's permanent identity.
+      key: The receipt's key, as validate-authorize resolved it.
       record: The outcome ``render`` describes.
 
     Returns:
@@ -169,12 +174,10 @@ def write(bucket: str, name: str, request_id, record: dict) -> str:
     Raises:
       TransientError: On a retryable S3 fault, so the caller's Retry re-runs the verb — safe,
         because the key is a pure function of the request and the write is a whole-object PUT.
-      TerminalError: ``invalid_request`` or ``forbidden`` from the key derivation.
       ClientError: Any deterministic fault propagates, and the verb turns it into the terminal
         failure FR-006 requires: a user with no receipt has no UUID and therefore no route to a
         restore, even though their data is safely archived.
     """
-    key = receipt_key(name, request_id)
     try:
         clients.s3().put_object(
             Bucket=bucket,

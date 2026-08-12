@@ -140,6 +140,7 @@ def test_the_seed_scan_found_every_seed():
         "ValidateFailureSeed",
         "UnknownModeSeed",
         "NothingToArchiveSeed",
+        "RollbackReturnedSeed",
         "RequestFailureSeed",
     }
 
@@ -166,6 +167,7 @@ def test_a_seed_reads_only_paths_its_own_input_actually_has():
         "ValidateFailureSeed": set(),
         "UnknownModeSeed": validated,
         "NothingToArchiveSeed": validated,
+        "RollbackReturnedSeed": validated,
         "RequestFailureSeed": post_validate,
     }
 
@@ -416,9 +418,15 @@ def test_the_deletion_sits_between_the_record_and_the_receipt():
 
 
 def test_the_success_terminal_names_what_it_keeps_and_drops_the_rest():
-    """The ASL/verb cross-check for the last verb, and a payload decision: the plan key, the
-    transfer block, the Map Run pointer and the selection are all dropped rather than carried
-    into the execution output, where SPEC-172 will read this shape."""
+    """A payload decision, asserted where it can fail: the plan key, the transfer block, the Map
+    Run pointer and the selection are all dropped rather than carried into the execution output,
+    where SPEC-172 will read this shape.
+
+    It is deliberately NOT the cross-check `Validated` is — that one parses the validator's real
+    return value, and this one cannot, because write-receipt returns `{**event, …}` and its keys
+    are not statically enumerable. What holds the paths here is that every one of them is produced
+    by a verb whose own suite asserts it.
+    """
     kept = {name.removesuffix(".$") for name in STATES["ArchiveComplete"]["Parameters"]}
 
     assert kept == {"requestId", "actor", "archive", "objectCount", "totalBytes", "receiptKey"}

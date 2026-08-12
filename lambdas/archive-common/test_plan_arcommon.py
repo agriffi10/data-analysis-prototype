@@ -258,18 +258,48 @@ def test_a_marker_named_as_a_FILE_is_excluded_too():
     assert err.value.reason == "nothing_to_archive"
 
 
-def test_a_portal_managed_folder_is_excluded_even_though_the_validator_refuses_it_first():
-    """Defence in depth, anchored at the SPACE ROOT: `alice/athenaresults/` is portal-managed
-    and `alice/reports/athenaresults/` is the user's own folder."""
-    _install({
-        "alice/athenaresults/q.csv": 9,
-        "alice/reports/athenaresults/mine.csv": 4,
-    })
+def test_a_portal_managed_folder_at_the_space_root_is_excluded():
+    """Defence in depth over the validator, anchored at the SPACE ROOT, which is where
+    `assert_not_reserved` refuses it first."""
+    _install({"alice/athenaresults/q.csv": 9, "alice/reports/mine.csv": 4})
 
     objects, total = plan.expand(_source([{"kind": "folder", "key": "alice/"}]))
 
-    assert [entry["relKey"] for entry in objects] == ["reports/athenaresults/mine.csv"]
+    assert [entry["relKey"] for entry in objects] == ["reports/mine.csv"]
     assert total == 4
+
+
+@pytest.mark.parametrize("folder", ["archive", "athenaresults", "user_settings"])
+def test_an_undeletable_folder_at_any_depth_refuses_the_whole_request(folder):
+    """**Found in review, and it is the one place two correct rules disagreed.** The code's
+    reserved-folder rule is anchored at the space root on purpose — `alice/projects/archive/` is
+    an ordinary folder the user made. The IAM Deny protecting the same names cannot be anchored
+    anywhere, because `*` matches `/` in a resource ARN and IAM has no single-segment wildcard.
+
+    So this object would have been copied into Glacier at the 90-day minimum, had its record
+    written, and then failed PART WAY THROUGH the deletion with "contact an administrator". It is
+    refused up front instead, and refused WHOLE rather than excluded, because a silent exclusion
+    drops the user's own data out of an archive that reports success.
+    """
+    _install({f"alice/projects/{folder}/notes.txt": 4, "alice/projects/keep.csv": 1})
+
+    with pytest.raises(TerminalError) as err:
+        plan.expand(_source([{"kind": "folder", "key": "alice/projects/"}]))
+
+    assert err.value.reason == "undeletable_folder"
+    assert err.value.tokens == {"folderName": folder}
+
+
+def test_a_FILE_named_after_an_undeletable_folder_is_still_archivable():
+    """The IAM Deny needs a segment AFTER the folder name (`*/archive/*`), so a file simply
+    CALLED `archive` is deletable and must not be refused — the rule reads folder segments, not
+    basenames."""
+    _install({"alice/projects/archive": 7})
+
+    objects, total = plan.expand(_source([{"kind": "file", "key": "alice/projects/archive"}]))
+
+    assert [entry["relKey"] for entry in objects] == ["projects/archive"]
+    assert total == 7
 
 
 def test_overlapping_selections_collapse_to_one_entry_each():
@@ -351,6 +381,62 @@ def test_the_total_byte_cap_is_measured_across_the_whole_selection():
     assert err.value.reason == "source_too_large"
 
 
+# ── The archive prefix must be unused (found in review) ──────────────────────
+
+
+def test_an_unused_archive_prefix_passes_and_costs_one_listing():
+    fake = _install()
+    fake.list_objects_v2 = lambda Bucket, Prefix, MaxKeys=None: {"KeyCount": 0, "Contents": []}
+
+    assert plan.assert_archive_unused(_request()) is None
+
+
+@pytest.mark.parametrize(
+    "response",
+    [{"KeyCount": 1, "Contents": [{"Key": "x"}]}, {"Contents": [{"Key": "x"}]}],
+    ids=["key-count", "contents-without-a-count"],
+)
+def test_an_occupied_archive_prefix_refuses_the_request(response):
+    """Both shapes, because S3 reports an empty listing with ``KeyCount: 0`` and a non-empty one
+    with both fields — reading only the count would miss a response that carries the objects and
+    omits it."""
+    fake = _install()
+    fake.list_objects_v2 = lambda Bucket, Prefix, MaxKeys=None: response
+
+    with pytest.raises(TerminalError) as err:
+        plan.assert_archive_unused(_request())
+
+    assert err.value.reason == "request_id_reused"
+
+
+def test_a_request_with_no_archive_destination_is_refused_rather_than_listed():
+    """The destination is resolved by validate-authorize; its absence means the state is not the
+    shape this verb runs against, and listing a bucket named ``None`` is not the way to find out."""
+    with pytest.raises(TerminalError) as err:
+        plan.assert_archive_unused({"requestId": "x"})
+
+    assert err.value.reason == "forbidden"
+
+
+@pytest.mark.parametrize(
+    "code,expected",
+    [("SlowDown", TransientError), ("AccessDenied", _S3Error)],
+    ids=["retryable", "deterministic"],
+)
+def test_a_listing_fault_keeps_its_own_kind(code, expected):
+    """A throttle must retry; a permanent denial must not be dressed up as one, or the run spends
+    three more attempts on a failure that already happened."""
+
+    def boom(Bucket, Prefix, MaxKeys=None):
+        raise _S3Error(code)
+
+    fake = _install()
+    fake.list_objects_v2 = boom
+
+    with pytest.raises(expected):
+        plan.assert_archive_unused(_request())
+
+
 # ── The write / read round trip ──────────────────────────────────────────────
 
 
@@ -370,7 +456,7 @@ def test_the_plan_round_trips_and_records_what_it_describes():
     assert body["archive"]["root"].endswith("/")
 
     fake = _install(get_body=json.dumps(body).encode())
-    assert plan.load(key)["objects"] == objects
+    assert plan.load(key, _request())["objects"] == objects
 
 
 def test_a_plan_short_of_the_count_it_records_is_refused():
@@ -387,7 +473,7 @@ def test_a_plan_short_of_the_count_it_records_is_refused():
     _install(get_body=json.dumps(truncated).encode())
 
     with pytest.raises(TerminalError) as err:
-        plan.load("archive/req/copy-plan.json")
+        plan.load("archive/req/copy-plan.json", {})
 
     assert err.value.reason == "plan_unreadable"
 
@@ -419,7 +505,7 @@ def test_every_unreadable_plan_shape_is_a_whole_request_terminal(body):
     _install(get_body=body)
 
     with pytest.raises(TerminalError) as err:
-        plan.load("archive/req/copy-plan.json")
+        plan.load("archive/req/copy-plan.json", {})
 
     assert err.value.reason == "plan_unreadable"
 
@@ -435,7 +521,7 @@ def test_a_deterministic_fault_is_not_dressed_up_as_a_retry():
 
     _install(get_error=_S3Error("AccessDenied"))
     with pytest.raises(TerminalError) as err:
-        plan.load("archive/req/copy-plan.json")
+        plan.load("archive/req/copy-plan.json", {})
 
     assert err.value.reason == "plan_unreadable"
 
@@ -449,7 +535,7 @@ def test_a_retryable_fault_stays_transient_on_both_sides_of_the_round_trip():
 
     _install(get_error=_S3Error("SlowDown"))
     with pytest.raises(TransientError):
-        plan.load("archive/req/copy-plan.json")
+        plan.load("archive/req/copy-plan.json", {})
 
 
 if __name__ == "__main__":

@@ -168,12 +168,16 @@ def test_the_ceiling_keeps_growing_in_tb_rather_than_inventing_a_unit():
 # ── The write ────────────────────────────────────────────────────────────────
 
 
-def test_the_receipt_is_written_as_plain_utf8_text_at_the_specified_key():
+def test_the_receipt_is_written_as_plain_utf8_text_at_the_key_it_was_given():
     """Deliberately not rendered in the browser — the project has no in-browser preview and this
-    does not introduce one. The user downloads it and reads it."""
+    does not introduce one. The user downloads it and reads it.
+
+    The key is PASSED IN rather than derived here: validate-authorize resolves it once, and
+    deriving it a second time is what left `archive.receiptKey` riding the whole run unread.
+    `arcommon.paths` owns the layout and has its own suite."""
     fake = _install()
 
-    key = receipt.write("user-bkt", "alice", _REQUEST_ID, _record())
+    key = receipt.write("user-bkt", f"alice/archive/{_REQUEST_ID}/receipt.txt", _record())
 
     assert key == f"alice/archive/{_REQUEST_ID}/receipt.txt"
     assert fake.puts[0]["ContentType"] == "text/plain; charset=utf-8"
@@ -186,7 +190,7 @@ def test_a_retryable_write_fault_stays_transient():
     _install(error=_S3Error("SlowDown"))
 
     with pytest.raises(TransientError):
-        receipt.write("user-bkt", "alice", _REQUEST_ID, _record())
+        receipt.write("user-bkt", f"alice/archive/{_REQUEST_ID}/receipt.txt", _record())
 
 
 if __name__ == "__main__":

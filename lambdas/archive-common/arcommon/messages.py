@@ -78,8 +78,21 @@ _BODIES = {
     "object_too_large": (
         "one of those files is too large to archive. Please contact an administrator."
     ),
+    "request_id_reused": (
+        "that archive has already been started once, so nothing was archived. "
+        "Please try again from the file browser."
+    ),
+    "undeletable_folder": (
+        'what you selected contains a folder named "{folderName}", which the portal manages and '
+        "can't remove from your space, so nothing was archived. Please rename it or select "
+        "something else."
+    ),
     "plan_unreadable": (
         "the list of files to archive could not be read back, so nothing was archived."
+    ),
+    "plan_superseded": (
+        "another archive replaced this one's list of files, so nothing was deleted and your files "
+        "are exactly where they were. Please try again."
     ),
     "manifest_write_failed": (
         "the archive record could not be written, so nothing was deleted and your files are "

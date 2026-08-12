@@ -56,6 +56,10 @@ def handler(event, context) -> dict:
 def _write_receipt(event) -> dict:
     """Renders the receipt from the state and writes it to the space's own bucket.
 
+    **The key comes off the state, resolved once by validate-authorize.** Recomputing it here
+    would be a second construction of a string SPEC-168 deliberately resolves in one place — and
+    it would leave ``archive.receiptKey`` a field that rides the whole run and is never read.
+
     Args:
       event: The request.
 
@@ -78,9 +82,7 @@ def _write_receipt(event) -> dict:
     }
 
     try:
-        key = receipt.write(
-            archive.get("receiptBucket"), source.get("name"), event.get("requestId"), record
-        )
+        key = receipt.write(archive.get("receiptBucket"), archive.get("receiptKey"), record)
     except (TerminalError, TransientError):
         raise
     except Exception as err:

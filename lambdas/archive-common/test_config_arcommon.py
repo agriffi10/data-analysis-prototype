@@ -288,6 +288,43 @@ def test_the_worst_case_copy_plan_fits_in_the_verbs_memory():
         )
 
 
+def _transfer_item_bytes() -> int:
+    """One manifest line at S3's worst-case key length, serialised.
+
+    Pessimistic in a way real items cannot be: the destination key is DERIVED from the source key
+    (the archive prefix plus the same relative path), so both cannot independently be 1024 bytes.
+    Over-counting is the safe direction for a bound.
+    """
+    item = {
+        "srcBucket": "b" * 63,
+        "srcKey": "s" * _MAX_S3_KEY,
+        "destBucket": "d" * 63,
+        "destKey": "d" * _MAX_S3_KEY,
+        "size": 10 * 1024**3,
+        "storageClass": config.ARCHIVE_STORAGE_CLASS,
+    }
+    return len(json.dumps(item, separators=(",", ":")).encode())
+
+
+def test_the_worst_case_manifest_fits_in_the_verbs_either_side_of_the_map():
+    """The OTHER memory bound, and the two rows it covers were prose until now.
+
+    The manifest builder holds the plan, the item list and the serialised JSONL at once; the
+    collector parses an export that carries every batch's input back again. Both are JSON work
+    over the object cap, so memory buys CPU as much as headroom — and neither row was read by any
+    test, which is exactly how a cap comes to certify something it never checked.
+    """
+    manifest_bytes = _transfer_item_bytes() * config.ARCHIVE_MAX_OBJECTS
+    live_copies = manifest_bytes * (_PARSED_OBJECT_OVERHEAD + 2)
+
+    for verb in ("build-transfer-manifest", "collect-transfer-results"):
+        memory_bytes = _verb_row(verb)[1] * 1024**2
+        assert live_copies < memory_bytes / 2, (
+            f"a worst-case manifest is ~{live_copies / 1024**2:,.0f} MB live against {verb}'s "
+            f"{_verb_row(verb)[1]} MB"
+        )
+
+
 def test_the_per_object_cap_keeps_one_object_inside_one_batch_timeout():
     """WHAT SIZES ARCHIVE_MAX_OBJECT_BYTES, and the cap FR-001 does not name because this
     arithmetic does.
