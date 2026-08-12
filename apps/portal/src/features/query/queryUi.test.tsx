@@ -13,8 +13,8 @@ import {SavedQueriesPanel} from './SavedQueriesPanel';
 import {TableActionsMenu} from './TableActionsMenu';
 import type {TableMenuItem} from './TableActionsMenu';
 import {QueryTabStrip} from './QueryTabStrip';
-import {COMPONENT_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
-import type {QueryHistoryEntry, QueryTab, ResultTab, SavedQuery, SavedQueryLink} from './query.types';
+import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations, expectNoA11yViolations} from '../../test/axe';
+import type {QueryHistoryEntry, QuerySpace, QueryTab, ResultTab, SavedQuery, SavedQueryLink} from './query.types';
 
 // A tab's link to the file it was opened from (SPEC-173) — the key IS the identity.
 const LINK: SavedQueryLink = {
@@ -567,27 +567,41 @@ describe('SavedQueriesPanel', () => {
 
   const queries = [sq('Older', '2026-06-01T00:00:00.000Z'), sq('Newer', '2026-06-10T00:00:00.000Z')];
 
+  const personal: QuerySpace = {
+    id: 'personal',
+    label: 'My files',
+    bucket: 'user-space',
+    rootPrefix: 'alice/',
+    rootLabel: 'My Files'
+  };
+
   function setup(over: Partial<Parameters<typeof SavedQueriesPanel>[0]> = {}) {
     const onClose = vi.fn();
     const onOpen = vi.fn();
     const onDelete = vi.fn();
     const loadMore = vi.fn();
-    render(
+    const onSelectSpace = vi.fn();
+    const onRetry = vi.fn();
+    const view = render(
       <SavedQueriesPanel
         open
         onClose={onClose}
+        spaces={[personal]}
+        space={personal}
+        onSelectSpace={onSelectSpace}
         queries={queries}
         isLoading={false}
         error={null}
         hasMore={false}
-        loadMore={loadMore}
+        onLoadMore={loadMore}
         isLoadingMore={false}
+        onRetry={onRetry}
         onOpen={onOpen}
         onDelete={onDelete}
         {...over}
       />
     );
-    return {onClose, onOpen, onDelete, loadMore};
+    return {...view, onClose, onOpen, onDelete, loadMore, onSelectSpace, onRetry};
   }
 
   it('renders nothing when closed', () => {
@@ -624,23 +638,104 @@ describe('SavedQueriesPanel', () => {
     expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({name: 'Older'}));
   });
 
-  it('shows a friendly empty state', () => {
+  it('shows a friendly empty state naming the space', () => {
     setup({queries: []});
-    expect(screen.getByText('No saved queries yet')).toBeInTheDocument();
+    expect(screen.getByText('No saved queries in My files')).toBeInTheDocument();
   });
 
-  it('offers Load more rather than reading as empty when pages remain', () => {
-    // An S3 page and a display page are different things: a listing page of 25 keys can
-    // hold no `.sql` file at all, so a folder of CSVs must not be a dead end.
+  it('keeps fetching rather than reading as empty while listing pages remain', () => {
+    // SPEC-174 FR-002. An S3 page and a display page are different things: a listing
+    // page of 25 keys can hold no `.sql` file at all, so a folder of CSVs must not be a
+    // dead end — and must not be a "Load more" the user has to guess at either.
     const {loadMore} = setup({queries: [], hasMore: true});
-    expect(screen.queryByText('No saved queries yet')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', {name: 'Load more'}));
+    expect(screen.queryByText(/No saved queries in/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Loading saved queries/)).toBeInTheDocument();
     expect(loadMore).toHaveBeenCalled();
+    // No pager over nothing while it fills.
+    expect(screen.queryByRole('button', {name: 'Next'})).not.toBeInTheDocument();
   });
 
   it('shows a danger banner on error', () => {
     setup({error: 'access denied'});
     expect(screen.getByText(/Couldn’t load saved queries/)).toBeInTheDocument();
+  });
+
+  // ── SPEC-174 ──
+
+  const team: QuerySpace = {
+    id: 'teamspace',
+    label: 'teamspace',
+    bucket: 'shared-space',
+    rootPrefix: 'teamspace/',
+    rootLabel: 'teamspace'
+  };
+
+  it('renders a labelled space control listing exactly the spaces it was given, personal first', () => {
+    const {onSelectSpace} = setup({spaces: [personal, team]});
+    const select = screen.getByLabelText('Space');
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((o) => o.textContent)
+    ).toEqual(['My files', 'teamspace']);
+
+    fireEvent.change(select, {target: {value: 'teamspace'}});
+    expect(onSelectSpace).toHaveBeenCalledWith('teamspace');
+  });
+
+  it('renders the control with My files alone rather than hiding it', () => {
+    setup({spaces: [personal]});
+    expect(within(screen.getByLabelText('Space')).getAllByRole('option')).toHaveLength(1);
+  });
+
+  it('keeps the space selector interactive when THAT space is unreachable', () => {
+    // A membership revoked mid-session returns AccessDenied on the listing. That is an
+    // error about the space, not a broken drawer.
+    setup({spaces: [personal, team], space: team, error: 'access denied'});
+    expect(screen.getByText(/Couldn’t load saved queries/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Space')).toBeEnabled();
+    // Never an empty state and an error at once.
+    expect(screen.queryByText(/No saved queries in/)).not.toBeInTheDocument();
+  });
+
+  it('offers Retry on a failed listing', () => {
+    const {onRetry} = setup({error: 'boom'});
+    fireEvent.click(screen.getByRole('button', {name: 'Retry'}));
+    expect(onRetry).toHaveBeenCalled();
+  });
+
+  it('shows a loading state and no empty state while the first page loads', () => {
+    setup({queries: [], isLoading: true});
+    expect(screen.getByText(/Loading saved queries/)).toBeInTheDocument();
+    expect(screen.queryByText(/No saved queries in/)).not.toBeInTheDocument();
+  });
+
+  it('pages the filtered rows, not the listing’s keys', () => {
+    // A folder of 30 files of which 12 are `.sql` reads `1–10 of 12`, never `of 30`.
+    const twelve = Array.from({length: 12}, (_, i) => sq(`q${i}`, '2026-06-01T00:00:00.000Z'));
+    setup({queries: twelve});
+    expect(screen.getByText('1–10 of 12')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
+    expect(screen.getByText('11–12 of 12')).toBeInTheDocument();
+  });
+
+  it('disables Next and shows the busy state while a further listing page is in flight', () => {
+    const eleven = Array.from({length: 11}, (_, i) => sq(`q${i}`, '2026-06-01T00:00:00.000Z'));
+    setup({queries: eleven, hasMore: true, isLoadingMore: true});
+    expect(screen.getByRole('button', {name: 'Loading…'})).toBeDisabled();
+    // The loaded rows are still there.
+    expect(screen.getAllByRole('button', {name: /open saved query/i})).toHaveLength(10);
+  });
+
+  it('has no axe violations in its rows, empty and error states — each as DRIVEN', async () => {
+    const {container: withRows} = setup();
+    await expectContainerHasNoA11yViolations(withRows, COMPONENT_AXE_OPTIONS);
+
+    const {container: empty} = setup({queries: []});
+    await expectContainerHasNoA11yViolations(empty, COMPONENT_AXE_OPTIONS);
+
+    const {container: failed} = setup({error: 'access denied'});
+    await expectContainerHasNoA11yViolations(failed, COMPONENT_AXE_OPTIONS);
   });
 });
 

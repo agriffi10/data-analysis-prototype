@@ -428,6 +428,19 @@ const RECIPES: Record<string, Recipe> = {
     },
     find: byRole('link', 'alice sent "reports" (300 files) to your space "finance"')
   },
+  'Shared spaces in the saved-queries selector': {
+    render: async () => {
+      renderQueryWorkspace();
+      // Through the real flow: the selector lives in the drawer, so the drawer is opened.
+      const {default: userEvent} = await import('@testing-library/user-event');
+      const user = userEvent.setup({delay: null});
+      await user.click(await screen.findByRole('button', {name: 'Saved queries'}));
+    },
+    // The PERSONAL option — always offered, so it settles the selector without depending on
+    // the row under test.
+    anchor: async () => screen.findByRole('option', {name: 'My files'}),
+    find: async () => screen.queryByRole('option', {name: 'teamspace'})
+  },
   'Shared databases in the schema rail': {
     render: renderQueryWorkspace,
     // The PERSONAL database node — present either way, so it settles the rail without
@@ -603,6 +616,10 @@ describe('the registry itself', () => {
         'Shared spaces',
         // NOT in the spec's table — a deliberate extension, recorded in the delivery doc.
         'Shared databases in the schema rail',
+        // SPEC-174: likewise an extension. Its spec offers "exactly the spaces
+        // `useQuerySpaces()` returns"; leaving that ungated would name shared spaces in a
+        // dropdown with every other shared-workspace surface hidden.
+        'Shared spaces in the saved-queries selector',
         'Shared spaces as a move destination',
         'Shared connections help section',
         'Received files link to a space on a notification',

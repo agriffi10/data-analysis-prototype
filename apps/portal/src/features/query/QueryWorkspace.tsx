@@ -15,6 +15,7 @@ import {useSaveResults} from './useSaveResults';
 import {useTableActions} from './useTableActions';
 import {useEditorLayout} from './useEditorLayout';
 import {useSavedQueries} from './useSavedQueries';
+import {useSavedQuerySpace} from './useSavedQuerySpace';
 import {useQuerySpaces} from './useQuerySpaces';
 import {ensureSavedQueriesFolder, readSavedQuery, writeSavedQuery} from './savedQueries.service';
 import {useConnections} from '../connections/useConnections';
@@ -27,6 +28,7 @@ import {
   splitSqlStatements,
   stripTrailingSemicolons
 } from './query.sql';
+import {QUERY_TABS_MAX} from './query.constants';
 import {SchemaBrowser} from './SchemaBrowser';
 import {QueryMobileView} from './QueryMobileView';
 import {QueryResultsMobile} from './QueryResultsMobile';
@@ -206,11 +208,22 @@ export function QueryWorkspace() {
     updateEntry
   } = useQueryHistory(username || null);
   // SPEC-173 FR-005/006: saved queries are `.sql` files in a SPACE's `saved_queries/`
-  // folder. This spec always uses the user's own space (the first entry); SPEC-174
-  // passes the chosen one, so nothing below changes again.
-  const spaces = useQuerySpaces();
-  const personalSpace: QuerySpace | null = spaces[0] ?? null;
-  const saved = useSavedQueries(personalSpace);
+  // folder. SPEC-174 FR-001: WHICH space is the drawer's own state — the personal one
+  // plus every active shared space. Saving still writes to the personal space until
+  // SPEC-175 lands.
+  const allSpaces = useQuerySpaces();
+  const personalSpace: QuerySpace | null = allSpaces[0] ?? null;
+  // Gated at the VIEW, exactly as the connections list above is (SPEC-163): with shared
+  // workspaces hidden, offering a colleague's space in the selector would name spaces the
+  // rest of the app has just stopped showing. `useQuerySpaces` still resolves them —
+  // a flag may not touch a service (SPEC-162 FR-006) — and a remembered shared space
+  // falls through `useSavedQuerySpace`'s existing "not in the list" path to personal.
+  const savedSpaces = useMemo(
+    () => (sharedSpacesEnabled ? allSpaces : allSpaces.slice(0, 1)),
+    [sharedSpacesEnabled, allSpaces]
+  );
+  const savedSpace = useSavedQuerySpace(username || null, savedSpaces);
+  const saved = useSavedQueries(savedSpace.space);
 
   // FR-001: hold the folder open, once per space per session. Best effort — a failure is
   // logged and the workspace renders regardless, because saving a query creates the
@@ -474,6 +487,13 @@ export function QueryWorkspace() {
   // FR-006: open a saved query into a new linked tab (cap dialog honored). Exactly one
   // GetObject, and only here — a list row never fetches a body.
   const handleOpenSaved = (query: SavedQuery) => {
+    // SPEC-174 FR-004: the cap is checked BEFORE the fetch. Reading a body only to
+    // discard it and raise the limit dialog spends a GetObject on a tab that was never
+    // going to open.
+    if (tabs.tabs.length >= QUERY_TABS_MAX) {
+      setLimitOpen(true);
+      return;
+    }
     void (async () => {
       const body = await readSavedQuery({bucket: query.bucket, key: query.key});
       if (!body.success) {
@@ -627,9 +647,16 @@ export function QueryWorkspace() {
             <QueryMobileView
               tab={mobile.homeTab}
               onTabChange={mobile.setHomeTab}
+              spaces={savedSpace.spaces}
+              space={savedSpace.space}
+              onSelectSpace={savedSpace.selectSpace}
               savedQueries={saved.queries}
               savedLoading={saved.isLoading}
               savedError={saved.error}
+              savedHasMore={saved.hasMore}
+              onLoadMoreSaved={saved.loadMore}
+              savedLoadingMore={saved.isLoadingMore}
+              onDeleteSaved={handleDeleteSaved}
               history={history}
               historyLoading={historyLoading}
               historyError={historyError}
@@ -780,12 +807,16 @@ export function QueryWorkspace() {
           <SavedQueriesPanel
             open={savedOpen}
             onClose={() => setSavedOpen(false)}
+            spaces={savedSpace.spaces}
+            space={savedSpace.space}
+            onSelectSpace={savedSpace.selectSpace}
             queries={saved.queries}
             isLoading={saved.isLoading}
             error={saved.error}
             hasMore={saved.hasMore}
-            loadMore={saved.loadMore}
+            onLoadMore={saved.loadMore}
             isLoadingMore={saved.isLoadingMore}
+            onRetry={saved.refresh}
             onOpen={handleOpenSaved}
             onDelete={handleDeleteSaved}
           />

@@ -6,7 +6,7 @@ import {COLUMN_RESIZE_STEP_PX, DEFAULT_COLUMN_WIDTH, QUERY_HISTORY_PAGE_SIZE} fr
 import {QueryResultsMobile} from './QueryResultsMobile';
 import {QueryResultsTable} from './QueryResultsTable';
 import {QueryStatusBar} from './QueryStatusBar';
-import type {QueryHistoryEntry, QueryStatus, SavedQuery} from './query.types';
+import type {QueryHistoryEntry, QuerySpace, QueryStatus, SavedQuery} from './query.types';
 import type {UseQueryResultsResult} from './useQueryResults';
 import userEvent from '@testing-library/user-event';
 
@@ -31,6 +31,14 @@ describe('QueryMobileView', () => {
     }
   ];
 
+  const PERSONAL_SPACE: QuerySpace = {
+    id: 'personal',
+    label: 'My files',
+    bucket: 'user-space',
+    rootPrefix: 'alice/',
+    rootLabel: 'My Files'
+  };
+
   const historyEntry = (i: number): QueryHistoryEntry => ({
     queryExecutionId: `q-${i}`,
     sql: `SELECT ${i}`,
@@ -50,9 +58,16 @@ describe('QueryMobileView', () => {
       <QueryMobileView
         tab="saved"
         onTabChange={onTabChange}
+        spaces={[PERSONAL_SPACE]}
+        space={PERSONAL_SPACE}
+        onSelectSpace={vi.fn()}
         savedQueries={savedQueries}
         savedLoading={false}
         savedError={null}
+        savedHasMore={false}
+        onLoadMoreSaved={vi.fn()}
+        savedLoadingMore={false}
+        onDeleteSaved={vi.fn()}
         history={[historyEntry(1), historyEntry(2)]}
         historyLoading={false}
         historyError={null}
@@ -125,7 +140,7 @@ describe('QueryMobileView', () => {
 
     it('shows an empty state per surface, and a failed read as a banner', () => {
       const {unmount} = renderView({savedQueries: []});
-      expect(screen.getByText('No saved queries yet')).toBeInTheDocument();
+      expect(screen.getByText('No saved queries in My files')).toBeInTheDocument();
       unmount();
 
       renderView({tab: 'history', history: [], historyError: new Error('boom')});
@@ -138,9 +153,16 @@ describe('QueryMobileView', () => {
         <QueryMobileView
           tab="saved"
           onTabChange={vi.fn()}
+          spaces={[PERSONAL_SPACE]}
+          space={PERSONAL_SPACE}
+          onSelectSpace={vi.fn()}
           savedQueries={savedQueries}
           savedLoading={false}
           savedError={null}
+          savedHasMore={false}
+          onLoadMoreSaved={vi.fn()}
+          savedLoadingMore={false}
+          onDeleteSaved={vi.fn()}
           history={[historyEntry(1)]}
           historyLoading={false}
           historyError={null}

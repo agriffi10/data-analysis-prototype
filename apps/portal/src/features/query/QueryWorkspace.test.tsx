@@ -728,6 +728,93 @@ describe('QueryWorkspace', () => {
       expect(mockWriteSaved.mock.calls.length).toBe(writesBefore);
     });
 
+    // ── SPEC-174: loading from a chosen space ──
+
+    it('lists the CHOSEN space, remembers it, and opens a shared query into a tab linked to that space', async () => {
+      mockReadCache.mockResolvedValue(
+        ok({version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]})
+      );
+      mockListSaved.mockImplementation(async ({space}) =>
+        space.id === 'teamspace'
+          ? ok({
+              queries: [
+                {
+                  spaceId: 'teamspace',
+                  bucket: 'shared-bucket',
+                  key: 'teamspace/saved_queries/Theirs.sql',
+                  name: 'Theirs',
+                  updatedAt: '2026-07-01T10:00:00.000Z',
+                  size: 12
+                }
+              ],
+              isTruncated: false
+            })
+          : savedListing('Mine')
+      );
+      mockReadSaved.mockResolvedValue(ok('SELECT shared;'));
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+      expect(await screen.findByRole('button', {name: 'Open saved query Mine'})).toBeInTheDocument();
+
+      await user.selectOptions(await screen.findByLabelText('Space'), 'teamspace');
+      expect(await screen.findByRole('button', {name: 'Open saved query Theirs'})).toBeInTheDocument();
+      // The previous space's rows do not persist into the new space's list.
+      expect(screen.queryByRole('button', {name: 'Open saved query Mine'})).not.toBeInTheDocument();
+      expect(sessionStorage.getItem('s3portal.query.savedQuerySpace.alice')).toBe('teamspace');
+
+      await user.click(screen.getByRole('button', {name: 'Open saved query Theirs'}));
+      expect(mockReadSaved).toHaveBeenCalledWith({bucket: 'shared-bucket', key: 'teamspace/saved_queries/Theirs.sql'});
+      expect(await screen.findByRole('tab', {name: /Theirs/})).toBeInTheDocument();
+      expect(editor()).toHaveValue('SELECT shared;');
+
+      // FR-010, asserted for a SHARED space separately: editing changes a buffer, never
+      // the object.
+      const writesBefore = mockWriteSaved.mock.calls.length;
+      await user.clear(editor());
+      await user.type(editor(), 'SELECT edited;');
+      expect(mockWriteSaved.mock.calls.length).toBe(writesBefore);
+
+      // Re-opening it carries the FILE's stored body, not the edited buffer.
+      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+      await user.click(await screen.findByRole('button', {name: 'Open saved query Theirs'}));
+      expect(screen.getAllByRole('tab', {name: /Theirs/})).toHaveLength(2);
+      expect(editor()).toHaveValue('SELECT shared;');
+    });
+
+    it('checks the tab cap BEFORE the fetch — the limit dialog, and no GetObject', async () => {
+      seedTabs({
+        version: 1,
+        tabs: Array.from({length: 10}, (_, i) => ({id: `t${i}`, label: `Query ${i + 1}`, sql: 'SELECT 1'})),
+        activeTabId: 't0',
+        nextQueryNumber: 11
+      });
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+      await user.click(await screen.findByRole('button', {name: /open saved query/i}));
+
+      expect(await screen.findByRole('alertdialog', {name: 'Query tab limit reached'})).toBeInTheDocument();
+      expect(mockReadSaved).not.toHaveBeenCalled();
+    });
+
+    it('falls back to My files for a remembered space the user no longer belongs to', async () => {
+      sessionStorage.setItem('s3portal.query.savedQuerySpace.alice', 'teamspace');
+      mockListSaved.mockResolvedValue(savedListing('Mine'));
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+      expect(await screen.findByRole('button', {name: 'Open saved query Mine'})).toBeInTheDocument();
+      expect(await screen.findByLabelText('Space')).toHaveValue('personal');
+      expect(mockListSaved).toHaveBeenCalledWith(
+        expect.objectContaining({space: expect.objectContaining({id: 'personal'})})
+      );
+    });
+
     it('re-runs a history entry into the active tab (no database context)', async () => {
       mockGetHistory.mockResolvedValue(
         ok({
@@ -1305,6 +1392,48 @@ describe('QueryWorkspace', () => {
       // Back returns to the browse-first home.
       await user.click(screen.getByRole('button', {name: 'Back to queries'}));
       expect(await screen.findByRole('button', {name: 'Run saved query Revenue'})).toBeInTheDocument();
+    });
+
+    // ── SPEC-174 FR-007: the mobile Saved surface ──
+
+    it('shows the space selector and delete on the mobile Saved tab, and lists ONCE', async () => {
+      mockReadCache.mockResolvedValue(
+        ok({version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]})
+      );
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
+      const {user} = renderMobileWorkspace();
+
+      expect(await screen.findByRole('button', {name: 'Run saved query Revenue'})).toBeInTheDocument();
+      // The list is not mounted twice: one surface, one listing request per space.
+      await waitFor(() => expect(mockListSaved).toHaveBeenCalledTimes(1));
+
+      const select = await screen.findByLabelText('Space');
+      expect(
+        within(select)
+          .getAllByRole('option')
+          .map((o) => o.textContent)
+      ).toEqual(['My files', 'teamspace']);
+
+      await user.click(screen.getByRole('button', {name: 'Delete saved query Revenue'}));
+      await user.click(
+        within(screen.getByRole('alertdialog', {name: /confirm delete saved query/i})).getByRole('button', {
+          name: 'Delete'
+        })
+      );
+      await waitFor(() =>
+        expect(mockDeleteSaved).toHaveBeenCalledWith(expect.objectContaining({key: 'alice/saved_queries/Revenue.sql'}))
+      );
+    });
+
+    it('pages the mobile Saved list with the shared Pager', async () => {
+      mockListSaved.mockResolvedValue(
+        ok({queries: Array.from({length: 12}, (_, i) => savedFile(`q${i}`)), isTruncated: false})
+      );
+      const {user} = renderMobileWorkspace();
+
+      expect(await screen.findByText('1–10 of 12')).toBeInTheDocument();
+      await user.click(screen.getAllByRole('button', {name: 'Next'})[0]);
+      expect(await screen.findByText('11–12 of 12')).toBeInTheDocument();
     });
 
     it('drops the toolbar labels in the tablet band while keeping the accessible names', () => {
