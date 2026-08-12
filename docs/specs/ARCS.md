@@ -1146,3 +1146,96 @@ They are not independent, and two of the edges are easy to miss:
 arc has no dependency on 162→163 or 164→167 beyond the shared `cpcommon.transfer` edge; if 163 has
 landed by the time 172 is built, the archive entry points register in its surface registry (they
 inherit the Files flag rather than gaining one of their own).
+
+## Saved-queries-in-spaces arc (SPEC-173 → 174 → 175 — filed 2026-08-11)
+
+**A saved query is a file, and SPEC-043 made it a row in a private document.** Today every saved
+query lives in `{username}/user_settings/saved-queries.json` — a JSON store only the query editor
+can read, only its author can reach, and which no amount of sharing can ever open to a colleague.
+That shape was right when the workspace had one user and one database. It is wrong now: a saved
+query is SQL with a name, the person who wrote it usually wants it beside the data it queries, and
+a shared space exists precisely so that the people in it can hand each other work. This arc turns
+saved queries into `.sql` objects in a `saved_queries/` folder at a space root — the user's own
+space, or any shared space they are an active member of.
+
+**It is an ordinary folder with exactly one protection, and the narrowness is the design.** Its
+contents are ordinary: visible in the file browser, downloadable, uploadable into, a valid move/copy
+destination, subfolders allowed, individual files deletable by anyone with access to the space —
+because a saved query nobody can throw away is a saved query that accumulates forever, and a folder
+the user cannot treat as a folder is a folder they will fight. The only thing protected is the
+*folder itself*: it cannot be deleted, and it cannot be renamed — one entry, in
+`UNDELETABLE_ROOT_FOLDERS` alone, since S3 has no rename and `moveFolder`'s existing
+`isUndeletableRootFolder` refusal therefore covers both. It is kept alive by the same hidden
+`DO_NOT_DELETE.txt` every space root already uses. `protectedFolders.ts`'s three lists stay three
+lists (visible / pasteable / destroyable) and this folder answers **yes / yes / no** — the note at
+the top of that file already argues against unioning them, and this is the second case that proves
+it.
+
+**What keeps the load list coherent is a filter, not a write lock.** Because anyone may drop a CSV
+or a subfolder into `saved_queries/`, the store offers *top-level `.sql` files and nothing else* —
+that filter is a requirement with tests, not a precaution, and the `Delimiter: '/'` is load-bearing
+beside it (`saved_queries/archive/old.sql` is a file in a folder, not a saved query). It has one
+non-obvious consequence the specs pin: **an S3 page and a display page are different things**, so a
+listing page of 25 keys can yield zero rows while more pages remain, and a folder holding two
+hundred CSVs and one saved query must not render as empty. The hook keeps fetching until it has a
+display page or the listing is exhausted.
+
+**The marker protection is free, and that is a claim about ARN wildcards worth checking.** Both
+bucket policies already deny `s3:DeleteObject` on `*/DO_NOT_DELETE.txt`, and `*` in an S3 resource
+ARN matches `/` — so a marker at `{root}saved_queries/DO_NOT_DELETE.txt` is covered at that depth
+and any other, in both buckets, with **no IaC change in the whole arc**. The same reading says
+something broader: *any* object named `DO_NOT_DELETE.txt`, anywhere, is already undeletable, so
+showing one in the listing offers an action this application's own IAM refuses — the SPEC-150 FR-007
+mistake. 173 therefore hides the marker by **basename** rather than by the one exact key
+`useFileBrowser` hides today. The wildcard reading is the load-bearing premise of all of it, so it
+is pinned by a test over the two `.tftpl` files and owes one live confirmation: a real delete of a
+real marker, refused.
+
+**Two deliberate losses, both recorded rather than discovered later.** The queries in the existing
+JSON store are **abandoned, not migrated** — the portal is pre-production with no real users, and a
+migration is code with one execution and no way to test its second run; the document is left in
+place (`user_settings/` denies delete) and the store's code is deleted so there is one saved-queries
+system in the tree. And the drawer **loses its SQL preview line**: a `.sql` file carries no metadata,
+so a preview means a `GetObject` per row — twenty-five round trips to show twenty-five one-line
+snippets. The body is fetched only when a query is opened.
+
+**The order is S3's own, and that is not laziness.** The list pages lexicographically because that
+is how S3 pages. Sorting by last-modified across a paginated listing is the lie SPEC-123 records
+about the data-quality runs index: the newest query may sit on page nine, and a client-side re-sort
+of the loaded pages makes rows the user has already seen jump between pages as later pages arrive.
+For the same honesty the range label reads `X–Y of Z+` while pages remain — S3 reports no total, and
+`24` and `at least 24` are different facts.
+
+**The file changes when the user saves it, and Save always asks.** Editing a tab edits a buffer:
+nothing writes on keystroke, blur, tab switch, run, close or unload, and the rule is a **tripwire
+test with a zero-`PutObject` count** rather than a description of today's behaviour, because the
+failure it guards is silent and lands in someone else's shared space. The other half is that
+**every** Save prompts for a file name — a linked tab's included, pre-filled and selected rather
+than skipped, which is a change from SPEC-043's silent write-back. A user about to overwrite a file
+should be told which file, in which space, before it happens. The tab's label is the file's name
+with the extension removed, from `savedQueryName(key)` — the store's own function, so a tab and a
+list row can never disagree about what a file is called.
+
+**Collisions move from a list scan to a key.** SPEC-043's dialog detected a name clash by scanning
+the in-memory array, case-insensitively. That stops being sound the moment the list is paginated and
+the target space may not be the one on screen, so the check becomes a HEAD on the exact key inside
+`writeSavedQuery`. One visible consequence is accepted deliberately: S3 keys are case-sensitive, so
+`Report` and `report` are now two saved queries where they used to be one.
+
+The arc is three specs: **173** the folder, its protections and the space-scoped store, cutting the
+existing surfaces over for the user's own space; **174** the space selector and the paginated load
+list; **175** the destination picker on save.
+
+**174 before 175, and the ordering is load-bearing.** Either order leaves a gap for one merge — the
+question is which gap. Loading first means a shared space is offered and is empty until 175 lands,
+which is harmless and self-explanatory. Saving first means a user can put a query into a shared
+space and then have no way to open it, which is a hole with their work in it. Nothing else in the
+arc reorders: 173 must precede both, since it is the store.
+
+One structural note for 173: `saved_queries/` is a **Query** feature wearing a **file-browser** row,
+so it is gated on the `query` flag from `GATED_SURFACES`, not on `files` — the same shape as
+"Create table", the row SPEC-163 calls the one everyone forgets. With the flag off it leaves the
+listing and the destination picker together (a destination you cannot see is not a destination),
+and that is the only place the gate touches an ordinary folder operation. The delete/rename refusal
+is **not** part of the gate and is asserted with the flag off: "you cannot see it" and "you cannot
+destroy it" are different guarantees, and only one of them survives a stale cached flag document.

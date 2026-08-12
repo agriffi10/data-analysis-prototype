@@ -117,6 +117,16 @@ assumed role or the portal UI. Three things nothing offline can prove: the cross
 receives, and the notification LINK — minted in Python, honoured by a TypeScript route rule.
 **168→172** archive/restore is next.
 
+**The saved-queries-in-spaces arc (173 → 175) is FILED (2026-08-11), all Draft.** SPEC-043's private
+JSON store becomes `.sql` files in a `saved_queries/` folder at a space root, loadable and savable
+across every space the user belongs to. Three things to know before building it: the existing store's
+queries are **abandoned, not migrated** (a decision, recorded in the arc); the whole arc ships **no
+IaC change**, because `*` in an S3 resource ARN matches `/` and both bucket policies already deny
+`DeleteObject` on `*/DO_NOT_DELETE.txt` — a premise pinned by a `.tftpl` test and owing one live
+confirmation; and **174 must land before 175**, because loading-before-saving leaves an empty space
+while saving-before-loading leaves the user's work unreachable. Narrative: `ARCS.md` →
+*Saved-queries-in-spaces arc*.
+
 The observability arc (127→137) is COMPLETE, and so are SPEC-140, 141, 142
 and the **whole refresh arc (143, 144, 149, 145)** — the pipeline classifies the change, refuses an
 un-opted-into removal, replaces the definition **in place** via `glue:UpdateTable`, and **145 gave it a
