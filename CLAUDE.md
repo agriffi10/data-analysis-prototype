@@ -117,20 +117,40 @@ assumed role or the portal UI. Three things nothing offline can prove: the cross
 receives, and the notification LINK — minted in Python, honoured by a TypeScript route rule.
 **168→172** archive/restore is next.
 
-**The archive arc (168 → 172) is UNDERWAY: 168 has landed (2026-08-12), 169 → 172 are next.**
-The vault and the front door exist — the bucket, the plane, `arcommon` and validate-authorize —
-and nothing is listed, copied or deleted yet. **169 is the load-bearing one and it owes three
-things together:** the commit gate (the source is deleted only when EVERY object is confirmed
-copied; a partial transfer rolls the archive copy back), the `DeleteObject` grant this plane
-deliberately does not hold yet, and — because it adds the first thing in this machine that can
-wedge — the top-level `TimeoutSeconds` **with** its EventBridge `TIMED_OUT` rule and
-notify-failure's second door. Two tests fail the moment a `Map`/`Wait` appears without them.
+**The archive arc (168 → 172) is UNDERWAY (2026-08-12). 168 is COMPLETE and DEPLOYED; 169 is
+two PRs in.** The vault and the front door exist — the bucket, the plane, `arcommon` and
+validate-authorize — and nothing is listed, copied or deleted yet.
+
+**169 has landed PR1 (the engine) and PR2 (the grants); PR3 is the whole rest of the spec.**
+PR1 gave `cpcommon.transfer` an optional **per-item** storage class — absent means the argument
+is *not passed*, so the two existing callers are byte-identical, and it is set on
+`CreateMultipartUpload` as well as `CopyObject` (single-path-only would archive everything under
+5 GiB to GLACIER and everything over it to STANDARD, silently). PR2 applied the `events:` grant
+and the admin-bucket `archive/` lifecycle rule **ahead of the resources that need them**.
+**What remains in 169 is FR-001 through FR-006:** inspect-source and the S3-pointer plan, the
+manifest builder + execution-name `Pass` stamp, the top-level Distributed Map, the **commit
+gate** (the source is deleted only when EVERY object is confirmed copied; a partial transfer
+rolls the archive copy back), `delete-source` with SPEC-151's per-item `Errors` discipline, and
+the two artifacts. **Three things must arrive together in PR3** — the gate, the `DeleteObject`
+grant this plane deliberately does not hold yet, and the top-level `TimeoutSeconds` **with** its
+EventBridge rule and notify-failure's second door (its 15s → 60s raise too). Two tests fail the
+moment a `Map`/`Wait` appears without them, which is deliberate.
+
 **170 must land before 171**: the destination guard is what makes a billed, uncancellable
 retrieval safe to start. **One live check is owed for 168 and it is one session** —
 `docs/spec-delivery/SPEC-168-*.md` has the script: one valid and one unauthorized hand-crafted
 request through the queue (the only thing that proves the layer attaches at cold start), then a
 `PutObject` into your own `archive/` prefix refused, personal and shared. **The archive feature
-flag is 172's**, with the UI and the app's first prefix-based write gate.
+flag is 172's**, with the UI and the app's first prefix-based write gate — it is deliberately
+NOT added early, because `GATED_SURFACES` requires a flag to name real surfaces and one test
+walks each in both states, so a flag with none would fail that guard or pass vacuously.
+
+**One thing the arc has already cost, worth reading before the next infra PR:** SPEC-168's merge
+apply went RED because its deploy-role grants and the resources they authorize shipped in one
+PR — `module.archive`'s `depends_on` orders the attachment first but does not wait for IAM to
+propagate, and the identical apply succeeded on a re-run minutes later. `modules/base` now
+carries a `time_sleep` on that attachment, and 169 is being split grants-first for the same
+reason.
 
 **The saved-queries-in-spaces arc (173 → 175) is COMPLETE (2026-08-12).** The store is `.sql` files
 in `{root}saved_queries/`; 174 gave loading a space selector and **175 gave saving one**, so a
