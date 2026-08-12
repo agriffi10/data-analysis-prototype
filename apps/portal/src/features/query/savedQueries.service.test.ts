@@ -351,3 +351,22 @@ describe('deleteSavedQuery (FR-004)', () => {
     expect(mockSend).not.toHaveBeenCalled();
   });
 });
+
+describe('savedQueryName is the ONLY place a `.sql` extension is stripped (SPEC-174 FR-004 AC4)', () => {
+  it('no other module in the query feature strips the extension itself', async () => {
+    // A tab label and a list row must never disagree about what a file is called, and the
+    // way that happens is a second extension-strip at a call site. A sweep, not a
+    // description: the duplicate this forbids would pass every other test in the suite.
+    // Verified against a deliberate violation (a `.replace(/\.sql$/, '')` on the tab label
+    // in `QueryWorkspace.handleOpenSaved`), which it caught.
+    const files = import.meta.glob('./*.{ts,tsx}', {query: '?raw', import: 'default', eager: true}) as Record<
+      string,
+      string
+    >;
+    const offenders = Object.entries(files)
+      .filter(([path]) => !path.includes('savedQueries.service'))
+      .filter(([, body]) => /\.sql/i.test(body) && /(replace|slice|split|endsWith)\([^\n]*\.sql/i.test(body))
+      .map(([path]) => path);
+    expect(offenders).toEqual([]);
+  });
+});

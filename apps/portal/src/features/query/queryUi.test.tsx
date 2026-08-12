@@ -727,6 +727,87 @@ describe('SavedQueriesPanel', () => {
     expect(screen.getAllByRole('button', {name: /open saved query/i})).toHaveLength(10);
   });
 
+  it('keeps the loaded rows and the pager when a FURTHER page fails', () => {
+    // FR-002 AC5. A failed load-more used to replace the whole list with the banner: 20
+    // rows and the pager vanished, and Retry was the only way back.
+    const twelve = Array.from({length: 12}, (_, i) => sq(`q${i}`, '2026-06-01T00:00:00.000Z'));
+    setup({queries: twelve, hasMore: true, error: 'throttled'});
+
+    expect(screen.getByText(/Couldn’t load saved queries/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', {name: /open saved query/i})).toHaveLength(10);
+    // Prev/Next over what IS loaded; Next is not offered past it, because the error stops
+    // the fill and the control could never advance.
+    expect(screen.getByText('1–10 of 12+')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
+    expect(screen.getByText('11–12 of 12+')).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Next'})).toBeDisabled();
+  });
+
+  it('lets the user pick another space while THIS one is unreachable', () => {
+    const {onSelectSpace} = setup({spaces: [personal, team], space: team, error: 'access denied'});
+    fireEvent.change(screen.getByLabelText('Space'), {target: {value: 'personal'}});
+    expect(onSelectSpace).toHaveBeenCalledWith('personal');
+  });
+
+  it('resets to page 1 when the drawer is reopened, and when the space changes', () => {
+    // Asserted at the CALLER, because the hook's own reset test changes the key itself and
+    // cannot fail when the panel stops changing it.
+    const twelve = Array.from({length: 12}, (_, i) => sq(`q${i}`, '2026-06-01T00:00:00.000Z'));
+    const props = {
+      open: true,
+      onClose: vi.fn(),
+      spaces: [personal, team],
+      space: personal,
+      onSelectSpace: vi.fn(),
+      queries: twelve,
+      isLoading: false,
+      error: null,
+      hasMore: false,
+      onLoadMore: vi.fn(),
+      isLoadingMore: false,
+      onRetry: vi.fn(),
+      onOpen: vi.fn(),
+      onDelete: vi.fn()
+    };
+    const {rerender} = render(<SavedQueriesPanel {...props} />);
+    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
+    expect(screen.getByText('11–12 of 12')).toBeInTheDocument();
+
+    rerender(
+      <SavedQueriesPanel
+        {...props}
+        open={false}
+      />
+    );
+    rerender(<SavedQueriesPanel {...props} />);
+    expect(screen.getByText('1–10 of 12')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', {name: 'Next'}));
+    expect(screen.getByText('11–12 of 12')).toBeInTheDocument();
+    rerender(
+      <SavedQueriesPanel
+        {...props}
+        space={team}
+      />
+    );
+    expect(screen.getByText('1–10 of 12')).toBeInTheDocument();
+  });
+
+  it('gives Escape to the delete confirm while it is open, and to the drawer otherwise', async () => {
+    // SPEC-155's depth registry: innermost enabled handler only.
+    const {default: userEvent} = await import('@testing-library/user-event');
+    const user = userEvent.setup({delay: null});
+    const {onClose} = setup();
+
+    await user.click(screen.getAllByRole('button', {name: /delete saved query/i})[0]);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it('has no axe violations in its rows, empty and error states — each as DRIVEN', async () => {
     const {container: withRows} = setup();
     await expectContainerHasNoA11yViolations(withRows, COMPONENT_AXE_OPTIONS);

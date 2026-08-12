@@ -70,11 +70,14 @@ export function SavedQueriesPanel({
     isLoadingMore,
     error,
     // Reopening the drawer, and choosing another space, both start at page 1.
-    resetKey: `${open ? 'open' : 'closed'}:${space?.id ?? ''}`
+    resetKey: `${open ? 'open' : 'closed'}:${space?.id ?? ''}`,
+    enabled: open
   });
 
+  // The pager follows the ROWS, not the error: a load-more that fails must not take the
+  // rows the user already has (FR-002 AC5), and Prev has to remain reachable.
   const footer =
-    !isLoading && !error && !pager.isEmpty && !pager.isFilling ? (
+    !isLoading && pager.page.length > 0 ? (
       <Pager
         className="shrink-0 border-t border-border px-5 py-4"
         hasPrev={pager.hasPrev}
@@ -100,7 +103,9 @@ export function SavedQueriesPanel({
           className="shrink-0 pb-1"
         />
 
-        {error ? (
+        {/* Above the list and never instead of it: a failed page keeps every row already
+            loaded, so pressing Next at the end of a listing is non-destructive. */}
+        {!!error && (
           <Banner
             variant="danger"
             title="Couldn’t load saved queries.">
@@ -114,16 +119,22 @@ export function SavedQueriesPanel({
               </button>
             </div>
           </Banner>
-        ) : isLoading || pager.isFilling ? (
+        )}
+
+        {isLoading || pager.isFilling ? (
           <p className="text-sm text-text-3">Loading saved queries&hellip;</p>
         ) : pager.isEmpty ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-            <DocumentIcon className="h-8 w-8 text-text-3" />
-            <p className="text-sm font-medium text-text">No saved queries in {space?.label ?? 'this space'}</p>
-            <p className="max-w-[260px] text-sm text-text-3">
-              Save a query from the editor and it’ll appear here so you can open and run it again.
-            </p>
-          </div>
+          // Never an empty state and an error at once (FR-006 AC6) — the banner above has
+          // already said why there is nothing.
+          error ? null : (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+              <DocumentIcon className="h-8 w-8 text-text-3" />
+              <p className="text-sm font-medium text-text">No saved queries in {space?.label ?? 'this space'}</p>
+              <p className="max-w-[260px] text-sm text-text-3">
+                Save a query from the editor and it’ll appear here so you can open and run it again.
+              </p>
+            </div>
+          )
         ) : (
           pager.page.map((q) => (
             <div

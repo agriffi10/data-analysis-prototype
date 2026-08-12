@@ -783,6 +783,50 @@ describe('QueryWorkspace', () => {
       expect(editor()).toHaveValue('SELECT shared;');
     });
 
+    it('deletes a shared space’s saved query against THAT space’s bucket', async () => {
+      mockReadCache.mockResolvedValue(
+        ok({version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]})
+      );
+      mockListSaved.mockImplementation(async ({space}) =>
+        space.id === 'teamspace'
+          ? ok({
+              queries: [
+                {
+                  spaceId: 'teamspace',
+                  bucket: 'shared-bucket',
+                  key: 'teamspace/saved_queries/Theirs.sql',
+                  name: 'Theirs',
+                  updatedAt: '2026-07-01T10:00:00.000Z',
+                  size: 12
+                }
+              ],
+              isTruncated: false
+            })
+          : savedListing('Mine')
+      );
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+      await user.selectOptions(await screen.findByLabelText('Space'), 'teamspace');
+      await user.click(await screen.findByRole('button', {name: 'Delete saved query Theirs'}));
+      await user.click(
+        within(screen.getByRole('alertdialog', {name: /confirm delete saved query/i})).getByRole('button', {
+          name: 'Delete'
+        })
+      );
+
+      // The space's own bucket, and the marker guard's owner taken from the KEY's root
+      // segment — not from the signed-in user.
+      await waitFor(() =>
+        expect(mockDeleteSaved).toHaveBeenCalledWith({
+          bucket: 'shared-bucket',
+          key: 'teamspace/saved_queries/Theirs.sql',
+          username: 'teamspace'
+        })
+      );
+    });
+
     it('checks the tab cap BEFORE the fetch — the limit dialog, and no GetObject', async () => {
       seedTabs({
         version: 1,

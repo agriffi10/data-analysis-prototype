@@ -12,6 +12,12 @@ type Args = {
   error: unknown;
   /** Changing this resets to page 1 (the chosen space, and the drawer opening). */
   resetKey: string;
+  /**
+   * Whether the surface is actually on screen. A drawer that renders `null` while closed
+   * still runs its hooks, and a folder of two hundred CSVs would otherwise walk its whole
+   * listing on every visit to `/query` for a list nobody opened.
+   */
+  enabled?: boolean;
 };
 
 export type SavedQueriesPagerState = {
@@ -53,7 +59,8 @@ export function useSavedQueriesPager({
   loadMore,
   isLoadingMore,
   error,
-  resetKey
+  resetKey,
+  enabled = true
 }: Args): SavedQueriesPagerState {
   const [pageIndex, setPageIndex] = useState(0);
 
@@ -77,19 +84,21 @@ export function useSavedQueriesPager({
   // because pressing Next past the loaded rows is exactly the request to fetch more.
   const wanted = (pageIndex + 1) * SAVED_QUERIES_PAGE_SIZE;
   useEffect(() => {
-    if (!error && hasMore && !isLoadingMore && total < wanted) loadMore();
-  }, [error, hasMore, isLoadingMore, total, wanted, loadMore]);
+    if (enabled && !error && hasMore && !isLoadingMore && total < wanted) loadMore();
+  }, [enabled, error, hasMore, isLoadingMore, total, wanted, loadMore]);
 
   return {
     page,
     hasPrev: safeIndex > 0,
-    hasNext: safeIndex < pageCount - 1 || hasMore,
+    // A failed listing stops the fill, so Next past the loaded rows would be a control
+    // that does nothing. Prev still works, and the rows stay (FR-002 AC5).
+    hasNext: safeIndex < pageCount - 1 || (hasMore && !error),
     isFetching: isLoadingMore,
     label: `${total === 0 ? 0 : start + 1}–${start + page.length} of ${total}${hasMore ? '+' : ''}`,
     isEmpty: total === 0 && !hasMore,
     // A folder of two hundred CSVs reads as loading, not as empty and not as a pager
     // over nothing, while the fill effect walks the rest of the listing.
-    isFilling: total === 0 && hasMore && !error,
+    isFilling: total === 0 && hasMore && !error && enabled,
     onPrev: () => setPageIndex(Math.max(0, safeIndex - 1)),
     // Past the last loaded page the index still advances: the clamp holds the view here
     // while the fill effect fetches, and the new page lands when its rows arrive.

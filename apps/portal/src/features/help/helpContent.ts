@@ -229,10 +229,10 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Open a saved query',
         subtitle: 'Find a saved query — yours or a colleague’s — and load it.',
         intro:
-          'Saved queries live in a <b>saved_queries</b> folder in a space, so opening one starts by choosing which space to look in: your own files, or any shared space you belong to.',
+          'Saved queries live in a <b>saved_queries</b> folder in a space, so opening one starts by choosing which space to look in.',
         steps: [
           'Click <b>Saved queries</b> to open the list.',
-          'Choose a <b>Space</b> at the top. Your own files come first, then each shared space you belong to. Your choice is remembered for the rest of the session.',
+          'Choose a <b>Space</b> at the top. Your own files come first, and any shared space available to you is listed after it. Your choice is remembered for the rest of the session.',
           'The list shows the <code>.sql</code> files in that space’s <b>saved_queries</b> folder, in the order the storage returns them, with when each changed and how big it is. Use <b>Prev</b> and <b>Next</b> to page through them.',
           'A count ending in <b>+</b> — like <b>1–10 of 25+</b> — means there are at least that many; pressing Next fetches more.',
           'Click <b>Open</b> to load one into a new tab. Editing it changes only your tab: the file changes when you save, and not before.',

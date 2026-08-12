@@ -73,9 +73,35 @@ are 24" and "there are at least 24".
   it now issues **no** `GetObject` where SPEC-173 issued one and discarded it.
 - `useSavedQueries` is unchanged, as SPEC-173 predicted: it was already space-keyed and paginated.
 
+## What the review changed
+
+A fresh-context review against the acceptance criteria found one real defect and three tests that
+could not fail. All four are fixed in the branch:
+
+- **A failed load-more took the loaded rows with it.** The drawer's error branch replaced the list
+  *and* the pager, so a `ListObjectsV2` failure on page 3 of 25 rows left a banner and nothing else
+  — FR-002 AC5 says the opposite. The banner now sits **above** the list, the pager follows the
+  **rows** rather than the error, and `hasNext` accounts for the stopped fill so Next is not offered
+  as a control that could never advance. The mobile surface had the mirror half (rows kept, pager
+  gated on the error) and is fixed the same way.
+- **The fill ran with the drawer closed.** A closed `Drawer` renders `null` but still runs its
+  hooks, so a folder of two hundred CSVs walked its whole listing on every visit to `/query`. The
+  pager takes an `enabled` flag — `open` in the drawer, `tab === 'saved'` on mobile.
+- **Both reset-to-page-1 rules were untested where they can break.** The hook's own test changes the
+  key it asserts on, so replacing both call sites with a constant left the suite green (measured).
+  The rules are now asserted at the **caller**, and that assertion was re-checked against the same
+  mutation.
+- **The "bounded continuation" test was stopped by the `hasMore` guard alone** and passed with the
+  row-count condition deleted. A test now walks several yield-nothing listing pages and stops.
+
+Also added: FR-004 AC4's sweep (nothing outside the store strips a `.sql` extension — verified
+against a deliberate violation), FR-005 AC3 (a shared space's delete targets that space's bucket
+and takes the marker guard's owner from the key), FR-006 AC4's second half, and FR-009 AC3's Escape
+ordering.
+
 ## Verification
 
-`npm run format`, `lint`, the full portal suite (1983 tests, 80 files) and `npm run build` green
+`npm run format`, `lint`, the full portal suite (1992 tests, 80 files) and `npm run build` green
 locally. Nothing here makes an AWS call that offline tests cannot stand in for, so **no live check
 is owed by this spec** — the arc's owed check is still SPEC-173's marker-delete refusal, personal
 and shared.

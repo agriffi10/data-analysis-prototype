@@ -119,7 +119,10 @@ export function QueryMobileView({
     loadMore: onLoadMoreSaved,
     isLoadingMore: savedLoadingMore,
     error: savedError,
-    resetKey: space?.id ?? ''
+    resetKey: space?.id ?? '',
+    // Only while the Saved tab is the one showing: on History this surface would otherwise
+    // walk a listing for a list that is not on screen.
+    enabled: tab === 'saved'
   });
   const [pendingDelete, setPendingDelete] = useState<SavedQuery | null>(null);
 
@@ -268,7 +271,9 @@ export function QueryMobileView({
         />
       )}
 
-      {tab === 'saved' && !savedLoading && !savedError && !savedPager.isEmpty && !savedPager.isFilling && (
+      {/* Follows the ROWS, not the error: a failed page keeps what is loaded and Prev
+          stays reachable (SPEC-174 FR-002 AC5). */}
+      {tab === 'saved' && !savedLoading && savedPager.page.length > 0 && (
         <Pager
           className="flex-none border-t border-border bg-surface px-4 py-3"
           hasPrev={savedPager.hasPrev}

@@ -81,6 +81,50 @@ describe('useSavedQueriesPager (SPEC-174 FR-002)', () => {
     expect(result.current.isEmpty).toBe(false);
   });
 
+  it('walks SEVERAL yield-nothing listing pages and then stops — the bound, not the guard', () => {
+    // The `hasMore: false` case above is stopped by the guard alone and would pass with the
+    // row-count condition deleted. This is the case the rule exists for: page after page of
+    // keys the `.sql` filter empties, then a page with rows, then silence.
+    const loadMore = vi.fn();
+    const {result, rerender, args} = setup({queries: [], hasMore: true, loadMore});
+    expect(loadMore).toHaveBeenCalledTimes(1);
+
+    // Each round trip is a fetch flipping in and out of flight, yielding no `.sql` row.
+    const round = () => {
+      rerender({...args, queries: [], hasMore: true, isLoadingMore: true, loadMore});
+      rerender({...args, queries: [], hasMore: true, isLoadingMore: false, loadMore});
+    };
+    round();
+    expect(loadMore).toHaveBeenCalledTimes(2);
+    round();
+    expect(loadMore).toHaveBeenCalledTimes(3);
+
+    // Rows arrive and the listing ends: it asks for nothing further.
+    rerender({...args, queries: many(2), hasMore: false, loadMore});
+    expect(loadMore).toHaveBeenCalledTimes(3);
+    expect(result.current.label).toBe('1–2 of 2');
+    expect(result.current.isFilling).toBe(false);
+  });
+
+  it('asks for nothing at all while the surface is not on screen', () => {
+    // A closed drawer still runs its hooks. A folder of two hundred CSVs must not walk its
+    // whole listing on every visit to /query for a list nobody opened.
+    const loadMore = vi.fn();
+    const {result} = setup({queries: [], hasMore: true, loadMore, enabled: false});
+    expect(loadMore).not.toHaveBeenCalled();
+    expect(result.current.isFilling).toBe(false);
+  });
+
+  it('keeps the loaded rows and Prev after a failed page, and stops offering Next', () => {
+    // FR-002 AC5. The fill is stopped by the error, so a Next that could never advance is
+    // not offered — but nothing the user already had is taken away.
+    const {result} = setup({queries: many(12), hasMore: true, error: new Error('nope')});
+    act(() => result.current.onNext());
+    expect(result.current.page).toHaveLength(2);
+    expect(result.current.hasPrev).toBe(true);
+    expect(result.current.hasNext).toBe(false);
+  });
+
   it('asks for no more while a fetch is in flight, or after one has failed', () => {
     const inFlight = vi.fn();
     setup({queries: [], hasMore: true, isLoadingMore: true, loadMore: inFlight});
