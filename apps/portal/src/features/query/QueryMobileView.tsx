@@ -8,16 +8,29 @@ import {QueryHistoryRow} from './QueryHistoryRow';
 import {QUERY_HISTORY_PAGE_SIZE} from './query.constants';
 import {formatRelativeTime} from '../../lib/format';
 import {formatBytes} from './query.format';
-import type {MobileHomeTab, QueryHistoryEntry, SavedQuery} from './query.types';
+import {SavedQuerySpaceSelect} from './SavedQuerySpaceSelect';
+import {SavedQueryDeleteConfirm} from './SavedQueriesPanel';
+import {useSavedQueriesPager} from './useSavedQueriesPager';
+import type {MobileHomeTab, QueryHistoryEntry, QuerySpace, SavedQuery} from './query.types';
 
 type QueryMobileViewProps = {
   /** Which list is showing; owned by the workspace so Back returns to it. */
   tab: MobileHomeTab;
   onTabChange: (tab: MobileHomeTab) => void;
+  /** Every space the user may load saved queries from, personal first (SPEC-174). */
+  spaces: QuerySpace[];
+  space: QuerySpace | null;
+  onSelectSpace: (spaceId: string) => void;
   savedQueries: SavedQuery[];
   savedLoading: boolean;
   /** Raw fetch error (or null); rendered via `toUserMessage`. */
   savedError: unknown;
+  /** Further listing pages exist for the chosen space. */
+  savedHasMore: boolean;
+  onLoadMoreSaved: () => void;
+  savedLoadingMore: boolean;
+  /** Host deletes the file and unlinks any open tab. */
+  onDeleteSaved: (query: SavedQuery) => void;
   history: QueryHistoryEntry[];
   historyLoading: boolean;
   historyError: unknown;
@@ -64,9 +77,16 @@ function EmptyState({title, hint}: {title: string; hint: string}) {
 export function QueryMobileView({
   tab,
   onTabChange,
+  spaces,
+  space,
+  onSelectSpace,
   savedQueries,
   savedLoading,
   savedError,
+  savedHasMore,
+  onLoadMoreSaved,
+  savedLoadingMore,
+  onDeleteSaved,
   history,
   historyLoading,
   historyError,
@@ -90,6 +110,21 @@ export function QueryMobileView({
     setPrevLen(history.length);
     if (history.length > prevLen) setPageIndex(0);
   }
+
+  // SPEC-174 FR-007: the same rows, the same hook and the same pager as the drawer —
+  // one tree that reflows, never a `*Mobile` twin of the list (SPEC-095).
+  const savedPager = useSavedQueriesPager({
+    queries: savedQueries,
+    hasMore: savedHasMore,
+    loadMore: onLoadMoreSaved,
+    isLoadingMore: savedLoadingMore,
+    error: savedError,
+    resetKey: space?.id ?? '',
+    // Only while the Saved tab is the one showing: on History this surface would otherwise
+    // walk a listing for a list that is not on screen.
+    enabled: tab === 'saved'
+  });
+  const [pendingDelete, setPendingDelete] = useState<SavedQuery | null>(null);
 
   const error = tab === 'saved' ? savedError : historyError;
   const isLoading = tab === 'saved' ? savedLoading : historyLoading;
@@ -123,6 +158,14 @@ export function QueryMobileView({
         {/* Run is disabled because the tab is busy — say so rather than leaving
             every card greyed out with no reason. */}
         {runDisabled && <p className="pt-2 text-xs text-text-3">A query is running — Run is back when it finishes.</p>}
+        {tab === 'saved' && (
+          <SavedQuerySpaceSelect
+            spaces={spaces}
+            space={space}
+            onSelectSpace={onSelectSpace}
+            className="pt-3"
+          />
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
@@ -134,18 +177,18 @@ export function QueryMobileView({
           </Banner>
         )}
 
-        {isLoading ? (
+        {isLoading || (tab === 'saved' && savedPager.isFilling) ? (
           <p className="text-sm text-text-3">Loading&hellip;</p>
         ) : tab === 'saved' ? (
-          savedQueries.length === 0 ? (
+          savedPager.isEmpty ? (
             error ? null : (
               <EmptyState
-                title="No saved queries yet"
+                title={`No saved queries in ${space?.label ?? 'this space'}`}
                 hint="Save a query on a larger screen and it’ll appear here to run."
               />
             )
           ) : (
-            savedQueries.map((q) => (
+            savedPager.page.map((q) => (
               <div
                 key={q.key}
                 className="rounded-md border border-border bg-surface p-3">
@@ -176,6 +219,13 @@ export function QueryMobileView({
                     aria-label={`Run saved query ${q.name}`}
                     className={cardAction}>
                     Run
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingDelete(q)}
+                    aria-label={`Delete saved query ${q.name}`}
+                    className={cx(cardAction, 'text-danger hover:bg-danger-soft focus-visible:ring-danger')}>
+                    Delete
                   </button>
                 </div>
               </div>
@@ -218,6 +268,31 @@ export function QueryMobileView({
               <span className="sr-only"> (page {safeIndex + 1})</span>
             </>
           }
+        />
+      )}
+
+      {/* Follows the ROWS, not the error: a failed page keeps what is loaded and Prev
+          stays reachable (SPEC-174 FR-002 AC5). */}
+      {tab === 'saved' && !savedLoading && savedPager.page.length > 0 && (
+        <Pager
+          className="flex-none border-t border-border bg-surface px-4 py-3"
+          hasPrev={savedPager.hasPrev}
+          hasNext={savedPager.hasNext}
+          onPrev={savedPager.onPrev}
+          onNext={savedPager.onNext}
+          nextBusy={savedPager.isFetching}
+          label={savedPager.label}
+        />
+      )}
+
+      {pendingDelete && (
+        <SavedQueryDeleteConfirm
+          query={pendingDelete}
+          onConfirm={() => {
+            onDeleteSaved(pendingDelete);
+            setPendingDelete(null);
+          }}
+          onCancel={() => setPendingDelete(null)}
         />
       )}
     </div>

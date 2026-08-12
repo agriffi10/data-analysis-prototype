@@ -38,6 +38,11 @@ export {useQueryTabs} from './useQueryTabs';
 export type {UseQueryTabsResult, OpenTabOpts} from './useQueryTabs';
 export {useSavedQueries} from './useSavedQueries';
 export type {UseSavedQueriesResult} from './useSavedQueries';
+export {useSavedQuerySpace} from './useSavedQuerySpace';
+export type {UseSavedQuerySpaceResult} from './useSavedQuerySpace';
+export {useSavedQueriesPager} from './useSavedQueriesPager';
+export type {SavedQueriesPagerState} from './useSavedQueriesPager';
+export {readSavedQuerySpaceId, writeSavedQuerySpaceId} from './savedQuerySpace';
 export {queryKeys} from './queryKeys';
 export {
   POLL_INTERVAL_MS,
@@ -49,6 +54,8 @@ export {
   QUERY_HISTORY_MAX,
   QUERY_TABS_MAX,
   QUERY_HISTORY_PAGE_SIZE,
+  SAVED_QUERIES_PAGE_SIZE,
+  QUERY_SAVED_QUERY_SPACE_STORAGE_PREFIX,
   DEFAULT_COLUMN_WIDTH,
   MIN_COLUMN_WIDTH,
   COLUMN_RESIZE_STEP_PX,

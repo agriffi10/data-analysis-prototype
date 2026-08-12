@@ -218,10 +218,30 @@ export const HELP_SECTIONS: HelpSection[] = [
         steps: [
           'With a valid query in the editor, click <b>Save</b>.',
           'Give it a <b>Name</b> and click <b>Save</b>. Saving always asks for the name, so you can see which file you are about to write before you replace it.',
-          'Open <b>Saved queries</b> to see them, newest listing order, with when each changed and how big it is. Click <b>Open</b> to load one into a new tab.',
+          'The query is written to a <b>saved_queries</b> folder in your own files, as a <code>.sql</code> file named after the name you gave it.',
+          'Because it’s an ordinary file, anyone who can see that folder can open it — a saved query in a shared space belongs to the space, not to you alone.',
           'A small marker on the tab lets you know when your edits have drifted from the file you opened.',
           'The <b>saved_queries</b> folder itself can’t be deleted or renamed, but everything inside it is yours to manage.'
         ]
+      },
+      {
+        id: 'load-saved-query',
+        title: 'Open a saved query',
+        subtitle: 'Find a saved query — yours or a colleague’s — and load it.',
+        intro:
+          'Saved queries live in a <b>saved_queries</b> folder in a space, so opening one starts by choosing which space to look in.',
+        steps: [
+          'Click <b>Saved queries</b> to open the list.',
+          'Choose a <b>Space</b> at the top. Your own files come first, and any shared space available to you is listed after it. Your choice is remembered for the rest of the session.',
+          'The list shows the <code>.sql</code> files in that space’s <b>saved_queries</b> folder, in the order the storage returns them, with when each changed and how big it is. Use <b>Prev</b> and <b>Next</b> to page through them.',
+          'A count ending in <b>+</b> — like <b>1–10 of 25+</b> — means there are at least that many; pressing Next fetches more.',
+          'Click <b>Open</b> to load one into a new tab. Editing it changes only your tab: the file changes when you save, and not before.',
+          'Click <b>Delete</b> to remove one. Deleting a query in a shared space removes it for everyone in that space.'
+        ],
+        callout: {
+          kind: 'tip',
+          text: 'Only <code>.sql</code> files at the top level of the folder appear here. Anything else in <b>saved_queries</b> — a CSV, a subfolder — is a normal file, and you’ll find it in <b>Files</b>.'
+        }
       },
       {
         id: 'query-history',

@@ -57,6 +57,17 @@ export const QUERY_HISTORY_MAX = 100;
 export const QUERY_HISTORY_PAGE_SIZE = 7;
 
 /**
+ * Saved-queries rows per DISPLAY page. Unrelated to LISTING_PAGE_SIZE (25): an S3
+ * listing page of 25 keys can yield 25 rows, three, or none at all, because the store
+ * offers only the top-level `.sql` files of an otherwise ordinary folder (SPEC-173
+ * FR-002). The pager counts filtered rows, never keys.
+ */
+export const SAVED_QUERIES_PAGE_SIZE = 10;
+
+/** sessionStorage key prefix for the per-user saved-queries space (full key: prefix + username). */
+export const QUERY_SAVED_QUERY_SPACE_STORAGE_PREFIX = 's3portal.query.savedQuerySpace.';
+
+/**
  * sessionStorage key prefix for the legacy per-user editor draft (full key:
  * prefix + username). Retained only for the one-time migration into the tabs
  * store (read once, then removed).

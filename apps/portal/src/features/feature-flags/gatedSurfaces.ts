@@ -89,6 +89,11 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // The last two are beyond the spec's contract table — see the delivery doc. Hiding the
     // rail alone left both the schema rail and the move/copy WRITE path open.
     {name: 'Shared databases in the schema rail', kind: 'control', path: '/query'},
+    // SPEC-174. Its own row, and not a duplicate of the one above: that gate filters the
+    // CONNECTIONS the rail browses, while this one is the saved-queries space selector,
+    // which reads `useQuerySpaces` and would otherwise go on naming a colleague's space in a
+    // dropdown after the rest of the app stopped showing it.
+    {name: 'Shared spaces in the saved-queries selector', kind: 'control', path: '/query'},
     {name: 'Shared spaces as a move destination', kind: 'control', path: '/files'},
     {name: 'Shared connections help section', kind: 'guide', path: '/help', helpId: 'shared-connections'},
     // SPEC-167. The SPACE variant of the same link, and the worse failure of the two: with this
