@@ -6,7 +6,7 @@ import {TabExecutionPoller} from './TabExecutionPoller';
 import {isResultProducingSql, schemaChangingDatabase, statementHint} from './query.sql';
 import {logBackgroundFailure, toUserText} from '../../lib/errorMessages';
 import type {UseQueryHistoryResult} from './useQueryHistory';
-import type {ParsedStatement, QueryStatus, QueryTab, ResultTab, RunScope, SavedQuery} from './query.types';
+import type {ParsedStatement, QueryStatus, QueryTab, ResultTab, RunScope} from './query.types';
 
 // SPEC-041: per-tab in-memory run state (not persisted — results re-fetch on a
 // fresh Run). SPEC-078 extends it to a sequential batch: the statements in
@@ -34,7 +34,7 @@ export type TabRun = {
   /** Set when a statement failed (or failed to start); drives the banner. */
   failure?: {statementIndex: number; reason: string};
   /** Saved-query link captured at submit, recorded on every statement's history entry. */
-  savedQuery?: {id: string; name: string};
+  savedQuery?: {key: string; name: string};
   /** Submitter-supplied identity, so a caller can tell ITS run from a later one (SPEC-100). */
   token?: number;
 };
@@ -71,7 +71,6 @@ type Params = {
   activeTabId: string;
   /** The open tabs — read at submit time for the active tab's saved-query link. */
   tabs: QueryTab[];
-  savedById: Map<string, SavedQuery>;
   appendEntry: UseQueryHistoryResult['appendEntry'];
   updateEntry: UseQueryHistoryResult['updateEntry'];
 };
@@ -87,14 +86,7 @@ type Params = {
  * never render — so a Stop is visible to an in-flight advancement immediately;
  * state mirrors it for render.
  */
-export function useTabRuns({
-  username,
-  activeTabId,
-  tabs,
-  savedById,
-  appendEntry,
-  updateEntry
-}: Params): UseTabRunsResult {
+export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntry}: Params): UseTabRunsResult {
   const queryClient = useQueryClient();
 
   const [runs, setRuns] = useState<Record<string, TabRun>>({});
@@ -222,7 +214,7 @@ export function useTabRuns({
           database: username,
           submittedAt: new Date().toISOString(),
           ...(run.savedQuery && {
-            savedQueryId: run.savedQuery.id,
+            savedQueryKey: run.savedQuery.key,
             savedQueryName: run.savedQuery.name
           })
         }).catch((e) => logBackgroundFailure('query-history', e));
@@ -262,10 +254,10 @@ export function useTabRuns({
     if (existing && !existing.done) return false;
     submittingTabsRef.current.add(tabId);
 
-    // SPEC-043 FR-009: a run from a tab linked to a saved query records that
-    // query's id/name in history. Captured from the active tab at submit time.
-    const linkedId = tabs.find((t) => t.id === tabId)?.savedQueryId;
-    const linkedSaved = linkedId ? savedById.get(linkedId) : undefined;
+    // SPEC-043 FR-009: a run from a tab linked to a saved query records that query in
+    // history. Read off the TAB at submit time — SPEC-173 put the whole link there, so
+    // there is no list to look the query up in.
+    const linkedSaved = tabs.find((t) => t.id === tabId)?.savedQuery;
 
     setRunErrors((e) => ({...e, [tabId]: null}));
     // An owned submit never writes the tab's error, so it must not un-dismiss one
@@ -306,7 +298,7 @@ export function useTabRuns({
           database: username,
           submittedAt: new Date().toISOString(),
           ...(linkedSaved && {
-            savedQueryId: linkedSaved.id,
+            savedQueryKey: linkedSaved.key,
             savedQueryName: linkedSaved.name
           })
         }).catch((e) => logBackgroundFailure('query-history', e));
@@ -322,7 +314,7 @@ export function useTabRuns({
             resultTabs: [],
             activeResultTabIndex: 0,
             done: false,
-            ...(linkedSaved && {savedQuery: {id: linkedSaved.id, name: linkedSaved.name}}),
+            ...(linkedSaved && {savedQuery: {key: linkedSaved.key, name: linkedSaved.name}}),
             ...(owner && {token: owner.token})
           }
         }));

@@ -1,7 +1,7 @@
 # Spec: Saved Queries as Files — the `saved_queries/` Folder, Its Protections and the Space-Scoped Store
 
 **ID:** SPEC-173
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-11
 **Depends On:** SPEC-043 (the store this replaces), SPEC-057 (shared spaces in the file browser), SPEC-150 (the protected-folder refusals), SPEC-163 (the gated-surface registry)
 

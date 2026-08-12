@@ -3,6 +3,7 @@ import {useInfiniteQuery, useQueryClient} from '@tanstack/react-query';
 import {listFiles} from './fileBrowser.service';
 import {unwrap} from '../../lib/serviceResult';
 import {fileBrowserKeys} from './fileBrowserKeys';
+import {isMarkerName} from './fileBrowser.constants';
 import {invalidateListing} from './invalidateListing';
 import type {S3FileItem, S3FolderItem, FileListPage} from '../../types/s3.types';
 
@@ -24,10 +25,11 @@ export type UseFileBrowserResult = {
 /**
  * Paginated folder listing backed by TanStack Query.
  *
- * @param markerKey - exact key to hide from the listing (the user's root prefix
- *   marker). Matched by exact key, so a like-named file in a subfolder shows.
+ * Every `DO_NOT_DELETE.txt` is hidden, at any depth, in either bucket (SPEC-173
+ * FR-003) — see `isMarkerName`. There is no caller-supplied key: the basename IS
+ * the rule, because that is what the two bucket policies deny deletion on.
  */
-export function useFileBrowser(bucket: string, prefix?: string, markerKey?: string): UseFileBrowserResult {
+export function useFileBrowser(bucket: string, prefix?: string): UseFileBrowserResult {
   const queryClient = useQueryClient();
   const normalizedPrefix = prefix ?? '';
 
@@ -50,16 +52,16 @@ export function useFileBrowser(bucket: string, prefix?: string, markerKey?: stri
 
   // Merge folders/files across all loaded pages and re-sort globally so the
   // ordering matches the single-page SPEC-002 behavior (folders before files,
-  // each alphabetical). The SPEC-014 root marker is filtered by exact key.
+  // each alphabetical). Prefix markers are filtered out by basename.
   const {folders, files} = useMemo(() => {
     const pages = query.data?.pages ?? [];
     const mergedFolders = pages.flatMap((p) => p.folders).sort((a, b) => a.name.localeCompare(b.name));
     const mergedFiles = pages
       .flatMap((p) => p.files)
-      .filter((f) => !markerKey || f.key !== markerKey)
+      .filter((f) => !isMarkerName(f.key))
       .sort((a, b) => a.name.localeCompare(b.name));
     return {folders: mergedFolders, files: mergedFiles};
-  }, [query.data, markerKey]);
+  }, [query.data]);
 
   const refresh = useCallback(() => {
     void invalidateListing(queryClient, bucket, normalizedPrefix);

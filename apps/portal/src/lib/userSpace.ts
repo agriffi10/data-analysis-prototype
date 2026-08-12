@@ -50,7 +50,7 @@ export function spaceBuckets(): {user?: string; shared?: string} {
  * @param file - The document basename, e.g. `'notifications.json'`.
  *
  * @example
- * userSettingsKey('alice', 'saved-queries.json') // 'alice/user_settings/saved-queries.json'
+ * userSettingsKey('alice', 'query-history.json') // 'alice/user_settings/query-history.json'
  */
 export function userSettingsKey(username: string, file: string): string {
   return `${username}/user_settings/${file}`;

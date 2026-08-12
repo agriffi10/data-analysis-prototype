@@ -1729,3 +1729,115 @@ refuses per recipient and tells the sender about.
 recipients: `submitDisabled` made the inline refusal dead code where an acceptance criterion was
 supposed to be, and a test asserting only "the button is disabled" passed over it. A disabled
 button also explains nothing to the user who typed a name and forgot to commit it.
+
+---
+
+### A saved query is a FILE, and the folder holding it is ordinary except in one respect (SPEC-173)
+
+**Decision (2026-08-11).** Saved queries move out of `{username}/user_settings/saved-queries.json`
+and become `.sql` objects in `{root}saved_queries/`, a folder at a space root. The folder is
+**visible, browsable, uploadable into, a valid move/copy destination and free to hold subfolders**;
+individual files inside it may be deleted by anyone with access to the space. Exactly one thing is
+protected: the folder **itself** cannot be deleted or renamed. It appears in
+`UNDELETABLE_ROOT_FOLDERS` and in **neither** of the other two lists, and a test asserts that
+absence, because `protectedFolders.ts`'s three lists answer three questions (see / paste / destroy)
+and this folder is the second case that proves they are not a union. Rename is a move — S3 has
+neither — so `moveFolder`'s existing refusal covers both with no new guard.
+
+**What keeps the load list coherent is a FILTER, not a write lock.** Because anyone may drop a CSV
+or a folder tree in, the store offers **top-level `.sql` files and nothing else**; that filter is a
+requirement with tests rather than a precaution, and `Delimiter: '/'` is load-bearing beside it
+(`saved_queries/archive/old.sql` is a file in a folder, not a saved query). The depth check is
+asserted in the service too, so one-level-ness is a property of the STORE and not of one request's
+parameters. A folder the user cannot treat as a folder is a folder they will fight, and a saved
+query nobody can throw away is one that accumulates forever — the narrowness is the design.
+
+**The key is the identity and the filename is the name.** There is no id and no record, because a
+`.sql` file cannot carry one without a sidecar this feature deliberately does not have. The listing
+returns S3's own (lexicographic) order, unmodified: sorting by last-modified across a paginated
+listing is the lie SPEC-123 records about the data-quality runs index — the newest query may sit on
+page nine, and a client-side re-sort of the loaded pages makes rows the user has already seen jump
+between pages as later pages arrive.
+
+**The queries in the old store are abandoned, not migrated** (user decision). The portal is
+pre-production with no real users, and a migration is code with one execution and no way to test
+its second run. The document is left in place (`user_settings/` denies delete) and the store's code
+is **deleted**, so there is one saved-queries system in the tree and no second definition of what a
+saved query is.
+
+**Three user-visible losses, each accepted on its own reasoning.** The drawer loses its **SQL
+preview**: a `.sql` object carries no body until it is read, so a preview means a `GetObject` per
+row on every open — twenty-five round trips to show twenty-five one-line snippets. **Every Save now
+asks for a name**, a linked tab's included, pre-filled and selected, where SPEC-043 wrote back
+silently: a user about to overwrite a file should be told which file, in which space. And the
+collision check moves from a case-insensitive scan of the loaded array to a **HEAD on the exact
+key** inside `writeSavedQuery` — the scan stopped being sound once the list is paginated and the
+target space may not be the one on screen — so `Report` and `report` are now two saved queries,
+because S3 keys are case-sensitive.
+
+**The dirty marker is a SESSION SNAPSHOT, and its gap is stated rather than discovered.** SPEC-043
+compared a tab's buffer with the `sql` field on a store row; there is no such field. The workspace
+keeps a `key → sql` map of what this session last saw — the body fetched when a query was opened,
+or the buffer just written by a save — and marks a tab dirty against that. A tab restored from
+`sessionStorage` after a reload therefore shows no marker until it is opened or saved again. The
+alternative was a `GetObject` per linked tab on every mount, which is the same trade the preview
+line lost.
+
+**Do NOT build:** a sidecar metadata file beside each `.sql`; a recursive listing (a `.sql` file
+the user tucks into a subfolder is a normal file, reachable from the file browser and not from the
+editor); a write lock or an allowed-extensions guard on the folder's contents; a migration from the
+JSON store; or an autosave of any kind — FR-010 is a tripwire test with a zero-`PutObject` count,
+because the failure it guards is silent and lands in someone else's shared space.
+
+---
+
+### Every `DO_NOT_DELETE.txt` is hidden by BASENAME, and the whole arc needs no IaC change (SPEC-173)
+
+**Decision (2026-08-11).** `useFileBrowser` hid one exact key, supplied by its caller. It now hides
+any object whose last path segment is `DO_NOT_DELETE.txt`, at any depth, in either bucket — and the
+`markerKey` parameter is **deleted**, along with the prop threaded through `DestinationPicker`,
+`MoveDialog`, `CopyDialog`, `FileBrowserDialogs`, `FilesPage` and `StartQualityCheckDialog`. A
+source sweep asserts no caller passes one; `DestinationPicker`'s props stopped being a union as a
+result.
+
+**The reasoning generalises further than this folder.** Both bucket policies deny
+`s3:DeleteObject` on a wildcard resource ending in the marker's own basename, and `*` in an S3
+resource ARN matches `/` — so *any* object with that name, anywhere in either bucket, is already
+undeletable. Showing one offers an action this application's own IAM refuses, which is the
+SPEC-150 FR-007 mistake waiting to happen. That same reading is what lets the whole
+saved-queries-in-spaces arc ship **no `.tf` or `.tftpl` change**: the marker at
+`{root}saved_queries/DO_NOT_DELETE.txt` is covered at that depth and any other, and every read,
+write, list and delete the store needs is already granted by `UserPrefixObjects` /
+`SharedSpaceObjects` and their listing statements.
+
+**It is the arc's load-bearing premise, so it is pinned and it owes a live check.** A test reads
+the two `.tftpl` files and asserts each `Deny` still ends in `/*/DO_NOT_DELETE.txt`, so a later IAM
+edit that narrows the wildcard fails in CI rather than in production. But a passing test over a
+template is not a refusal: **a real delete of a real marker, refused, is owed** (SPEC-173 FR-009),
+in both a personal and a shared space. Until it is run the reading is corroborated, not discharged
+— the same class of evidence that had SPEC-144 FR-001 reversed mid-build.
+
+The saved-queries marker gets its **own body text**: `PREFIX_MARKER_BODY` says the file keeps "your
+personal storage space" active, which is wrong in a shared space and wrong about what this folder
+is. It reuses `PREFIX_MARKER_FILENAME` exactly, and a test says so, because the IAM protection keys
+on that basename.
+
+---
+
+### `saved_queries/` is gated on `query`, and the gate is not the refusal (SPEC-173)
+
+**Decision (2026-08-11).** The folder is a Query feature wearing a file-browser row, so it is a
+`GATED_SURFACES.query` **registry** row — the same shape as "Create table", the row SPEC-163 calls
+the one everyone forgets — and not a per-component opt-in. With the flag off it leaves the file
+browser's listing **and** the destination picker together, because a destination the user cannot
+see is not a destination; that is the one place the gate touches an otherwise ordinary folder
+operation, and it is presentation: it removes a way of *asking* and revokes no grant.
+
+`DestinationPicker` reads the flag **itself** rather than taking it from its four callers, so every
+picker in the app inherits the rule from one place. The cost is real and accepted: the picker now
+requires an auth context, which one bespoke a11y tree had to be given.
+
+**The delete/rename refusal is unconditional, and structurally so** — `deleteFolder`/`moveFolder`
+take no flag. A test asserts the refusal with the flag off, because "you cannot see it" and "you
+cannot destroy it" are different guarantees and only one of them survives a stale cached flag
+document.

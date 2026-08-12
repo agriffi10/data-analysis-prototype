@@ -7,6 +7,7 @@ import {toUserText} from '../../lib/errorMessages';
 import {QueryHistoryRow} from './QueryHistoryRow';
 import {QUERY_HISTORY_PAGE_SIZE} from './query.constants';
 import {formatRelativeTime} from '../../lib/format';
+import {formatBytes} from './query.format';
 import type {MobileHomeTab, QueryHistoryEntry, SavedQuery} from './query.types';
 
 type QueryMobileViewProps = {
@@ -24,6 +25,9 @@ type QueryMobileViewProps = {
   onRun: (sql: string, title: string) => void;
   /** Open the results view read-only, without running. */
   onView: (sql: string, title: string) => void;
+  /** A saved query carries no SQL until its file is read, so the host does both. */
+  onRunSaved: (query: SavedQuery) => void;
+  onViewSaved: (query: SavedQuery) => void;
   /** True while a run is in flight — Run is unavailable until it settles. */
   runDisabled: boolean;
 };
@@ -68,6 +72,8 @@ export function QueryMobileView({
   historyError,
   onRun,
   onView,
+  onRunSaved,
+  onViewSaved,
   runDisabled
 }: QueryMobileViewProps) {
   // Client-side Prev/Next over the in-memory newest-first history, mirroring the
@@ -85,7 +91,6 @@ export function QueryMobileView({
     if (history.length > prevLen) setPageIndex(0);
   }
 
-  const sortedSaved = [...savedQueries].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const error = tab === 'saved' ? savedError : historyError;
   const isLoading = tab === 'saved' ? savedLoading : historyLoading;
 
@@ -132,7 +137,7 @@ export function QueryMobileView({
         {isLoading ? (
           <p className="text-sm text-text-3">Loading&hellip;</p>
         ) : tab === 'saved' ? (
-          sortedSaved.length === 0 ? (
+          savedQueries.length === 0 ? (
             error ? null : (
               <EmptyState
                 title="No saved queries yet"
@@ -140,46 +145,41 @@ export function QueryMobileView({
               />
             )
           ) : (
-            sortedSaved.map((q) => {
-              const preview = q.sql.replace(/\s+/g, ' ').trim();
-              return (
-                <div
-                  key={q.id}
-                  className="rounded-md border border-border bg-surface p-3">
-                  <div className="mb-1.5 flex items-center gap-2">
-                    <span className="truncate font-semibold text-text">{q.name}</span>
-                    <span
-                      className="ml-auto flex-none text-xs text-text-3"
-                      title={new Date(q.updatedAt).toLocaleString()}>
-                      {formatRelativeTime(q.updatedAt)}
-                    </span>
-                  </div>
-                  <p
-                    className="truncate font-mono text-sm text-text-2"
-                    title={preview}>
-                    {preview}
-                  </p>
-                  <div className="mt-2 flex items-center gap-3">
-                    <div className="flex-1" />
-                    <button
-                      type="button"
-                      onClick={() => onView(q.sql, q.name)}
-                      aria-label={`View saved query ${q.name}`}
-                      className={cardAction}>
-                      View
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onRun(q.sql, q.name)}
-                      disabled={runDisabled}
-                      aria-label={`Run saved query ${q.name}`}
-                      className={cardAction}>
-                      Run
-                    </button>
-                  </div>
+            savedQueries.map((q) => (
+              <div
+                key={q.key}
+                className="rounded-md border border-border bg-surface p-3">
+                <div className="mb-1.5 flex items-center gap-2">
+                  <span className="truncate font-semibold text-text">{q.name}</span>
+                  <span
+                    className="ml-auto flex-none text-xs text-text-3"
+                    title={new Date(q.updatedAt).toLocaleString()}>
+                    {formatRelativeTime(q.updatedAt)}
+                  </span>
                 </div>
-              );
-            })
+                {/* No SQL preview: a `.sql` file carries no body until it is read, and a
+                    preview per row would be a GetObject per row (SPEC-173 FR-006). */}
+                <p className="text-sm text-text-3">{formatBytes(q.size)}</p>
+                <div className="mt-2 flex items-center gap-3">
+                  <div className="flex-1" />
+                  <button
+                    type="button"
+                    onClick={() => onViewSaved(q)}
+                    aria-label={`View saved query ${q.name}`}
+                    className={cardAction}>
+                    View
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onRunSaved(q)}
+                    disabled={runDisabled}
+                    aria-label={`Run saved query ${q.name}`}
+                    className={cardAction}>
+                    Run
+                  </button>
+                </div>
+              </div>
+            ))
           )
         ) : history.length === 0 ? (
           error ? null : (

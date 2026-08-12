@@ -117,15 +117,13 @@ assumed role or the portal UI. Three things nothing offline can prove: the cross
 receives, and the notification LINK — minted in Python, honoured by a TypeScript route rule.
 **168→172** archive/restore is next.
 
-**The saved-queries-in-spaces arc (173 → 175) is FILED (2026-08-11), all Draft.** SPEC-043's private
-JSON store becomes `.sql` files in a `saved_queries/` folder at a space root, loadable and savable
-across every space the user belongs to. Three things to know before building it: the existing store's
-queries are **abandoned, not migrated** (a decision, recorded in the arc); the whole arc ships **no
-IaC change**, because `*` in an S3 resource ARN matches `/` and both bucket policies already deny
-`DeleteObject` on `*/DO_NOT_DELETE.txt` — a premise pinned by a `.tftpl` test and owing one live
-confirmation; and **174 must land before 175**, because loading-before-saving leaves an empty space
-while saving-before-loading leaves the user's work unreachable. Narrative: `ARCS.md` →
-*Saved-queries-in-spaces arc*.
+**The saved-queries-in-spaces arc: SPEC-173 is COMPLETE (2026-08-11); 174 and 175 are Draft.** The
+store is now `.sql` files in `{root}saved_queries/`, cut over for the user's **own** space; the
+SPEC-043 JSON store is deleted. **174 must land before 175** — loading-before-saving leaves an empty
+space, while saving-before-loading leaves the user's work unreachable. **One live check is owed and
+it is the arc's load-bearing premise:** delete `{username}/saved_queries/DO_NOT_DELETE.txt` through
+the portal and confirm `AccessDenied`, then repeat in a shared space. Fold in a save→see-the-file
+pass while you are there. Narrative: `ARCS.md` → *Saved-queries-in-spaces arc*.
 
 The observability arc (127→137) is COMPLETE, and so are SPEC-140, 141, 142
 and the **whole refresh arc (143, 144, 149, 145)** — the pipeline classifies the change, refuses an
@@ -364,6 +362,8 @@ before working in that area; the line here is a reminder, not the spec.
 - **The byte formatters share a TB ceiling (155 FR-007):** `formatSize` and `formatBytes` stay separate for `undefined` handling, but 3 TB no longer reads `3072.0 GB` on one screen and `3.0 TB` on another. **User-visible on purpose**; silently keeping both was not an allowed outcome.
 - **Compiler and coverage defaults are declared, never inherited (150):** both tsconfigs state `"strict": true` (already TS 6's default — declaring it changed **zero** errors) and both suites carry **literal** coverage floors — portal 91/86/89/93, lambdas 95 — as **ratchets at the measured level, not targets**. Never lower one for a regression. `pyproject.toml`'s ruff block is the precedent; the `npm run build` PR gate is separate and already shipped (#363).
 - **The deliberate twins are discharged (156):** `cpcommon` owns the algorithm, a domain layer owns its wording — one CAS loop (cap 6), one `Resolver` that renders the **whole sentence** (`prefix`/`access_denied`/`fallback` templates), one results-location builder, one JWKS path, one SQS parser, one Athena runner, one `dedup_id`. **An eager module-level `_require` forces a fork, not just an inconvenience** — that is why the JWKS duplication existed. **Byte-identity was measured by rendering both implementations and diffing (2214 messages/side), not argued**; the one row that differed is unreachable and pinned by a test. Do NOT merge the domain layers wholesale.
+- **A saved query is a FILE, in an ordinary folder with exactly ONE protection (173, supersedes 043's JSON store):** `.sql` objects in `{root}saved_queries/` — visible, browsable, uploadable into, a pasteable destination, subfolders allowed, files deletable — and only the **folder itself** undeletable/unrenameable (`UNDELETABLE_ROOT_FOLDERS` alone; a test asserts its ABSENCE from the other two lists). What keeps the load list coherent is the store's **top-level `.sql` filter**, not a write lock, with `Delimiter: '/'` load-bearing beside it. The key IS the identity, the order is **S3's own** (a last-modified sort across a paginated listing is SPEC-123's lie), and the old store's queries are **abandoned, not migrated**. Three accepted losses: **no SQL preview** (a body costs a GetObject per row), **every Save asks** (a linked tab's included), and `Report` ≠ `report` (the collision is a **HEAD on the exact key**, not a scan of the loaded array). The dirty marker is a **session snapshot** — a tab restored after a reload shows none until reopened.
+- **Every `DO_NOT_DELETE.txt` is hidden by BASENAME, and the arc ships NO IaC change (173):** both bucket policies deny `DeleteObject` on `*/DO_NOT_DELETE.txt` and `*` matches `/`, so any marker anywhere is already undeletable — `useFileBrowser`'s `markerKey` is **deleted** (a sweep enforces it) and every grant the store needs already exists. Pinned by a `.tftpl` test; **one live check owed** — a real delete of a real marker, refused, personal and shared. The folder is a `GATED_SURFACES.query` row (with the flag off it leaves the listing AND the picker, and `DestinationPicker` reads the flag itself), but the delete/rename **refusal is unconditional** — the service takes no flag, and a test asserts it with the flag off.
 - **Deploy-role refresh deadlock (lever):** the deploy role can lock itself out — tighten or widen one of its own grants and plan, apply **and revert** all fail alike. `Deploy Infrastructure` takes an off-by-default `skip_refresh` dispatch input to break it; **always follow with a normal run**. A green `plan` is not proof — IAM is eventually consistent.
 
 ## Out of Scope (don't build)

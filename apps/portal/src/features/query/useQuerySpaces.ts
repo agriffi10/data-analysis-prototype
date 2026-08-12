@@ -1,0 +1,46 @@
+import {useMemo} from 'react';
+import {useAuth} from '../auth';
+import {spaceBuckets} from '../../lib/userSpace';
+import {useConnections} from '../connections/useConnections';
+import {isConnectionUsable} from '../connections/connection.types';
+import type {QuerySpace} from './query.types';
+
+/**
+ * Every space the query feature can read from or write into: the user's own space
+ * first, then each shared space they are an active member of.
+ *
+ * One definition for the whole feature — `useSaveResults` computed this list inline
+ * before SPEC-173, and SPEC-174/175 need it again for loading and saving queries.
+ * A space is usable when it is the personal one or a shared connection whose status
+ * is `active`; a connection that is provisioning, failed or leaving is omitted.
+ *
+ * @returns The spaces, personal first. Empty when the user-space bucket is unset.
+ */
+export function useQuerySpaces(): QuerySpace[] {
+  const {user} = useAuth();
+  const username = user?.username ?? '';
+  const {user: userSpaceBucket, shared: sharedSpaceBucket} = spaceBuckets();
+  const {connections} = useConnections(username || null);
+
+  return useMemo(() => {
+    if (!userSpaceBucket) return [];
+    const personal: QuerySpace = {
+      id: 'personal',
+      label: 'My files',
+      bucket: userSpaceBucket,
+      rootPrefix: `${username}/`,
+      rootLabel: 'My Files'
+    };
+    if (!sharedSpaceBucket) return [personal];
+    const shared = connections
+      .filter((c) => c.kind === 'shared' && isConnectionUsable(c))
+      .map((c) => ({
+        id: c.database,
+        label: c.database,
+        bucket: sharedSpaceBucket,
+        rootPrefix: `${c.database}/`,
+        rootLabel: c.database
+      }));
+    return [personal, ...shared];
+  }, [userSpaceBucket, sharedSpaceBucket, username, connections]);
+}

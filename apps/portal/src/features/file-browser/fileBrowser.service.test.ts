@@ -699,6 +699,48 @@ describe('deleteFolder', () => {
       expect(mockSend).not.toHaveBeenCalled();
     });
 
+    // SPEC-173 FR-002/FR-008. The folder is ORDINARY in every other respect — visible,
+    // pasteable, its contents uploadable and deletable — and this one refusal is
+    // UNCONDITIONAL: the `query` feature flag hides the folder, and "you cannot see it"
+    // and "you cannot destroy it" are different guarantees. The service takes no flag,
+    // which is what makes that structural rather than a promise.
+    it('refuses the saved-queries folder, naming saved queries, before any S3 request', async () => {
+      const result = await deleteFolder({
+        bucket: 'us',
+        prefix: 'alice/saved_queries/',
+        username: 'alice',
+        rootPrefix: 'alice/'
+      });
+
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(result.error.code).toBe('ProtectedObject');
+      expect(result.error.message).toMatch(/saved queries/i);
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+
+    it('refuses it at a SHARED space root too, and not in a nested folder', async () => {
+      const shared = await deleteFolder({
+        bucket: 'shared',
+        prefix: 'project_alpha/saved_queries/',
+        username: 'alice',
+        rootPrefix: 'project_alpha/'
+      });
+      expect(shared.success).toBe(false);
+
+      // `alice/reports/saved_queries/` is an ordinary user folder with no special
+      // status at all, so this one reaches S3.
+      mockSend.mockResolvedValue({Contents: [], IsTruncated: false});
+      const nested = await deleteFolder({
+        bucket: 'us',
+        prefix: 'alice/reports/saved_queries/',
+        username: 'alice',
+        rootPrefix: 'alice/'
+      });
+      expect(nested.success).toBe(true);
+      expect(mockSend).toHaveBeenCalled();
+    });
+
     it('holds identically in a shared space, which is how SPEC-057 states it', async () => {
       const result = await deleteFolder({
         bucket: 'shared',
@@ -1167,6 +1209,48 @@ describe('moveFolder', () => {
     if (result.success) return;
     expect(result.error.code).toBe('ProtectedObject');
     expect(result.error.message).toBe('Query results are managed for you and can’t be moved.');
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  // SPEC-173 FR-002. Rename IS a move (S3 has neither), so the one refusal covers both
+  // and no new guard was needed.
+  // SPEC-173 FR-002. Only the FOLDER is protected. Everything inside it is ordinary, and
+  // that is the design: what keeps the query editor's load list coherent is the store's
+  // `.sql` filter, not a write lock.
+  it('leaves the saved-queries folder’s CONTENTS ordinary — files delete, subfolders move', async () => {
+    mockSend.mockResolvedValue({Deleted: [{Key: 'alice/saved_queries/report.sql'}], Errors: []});
+    const deleted = await deleteObjects({
+      bucket: 'us',
+      keys: ['alice/saved_queries/report.sql'],
+      username: 'alice'
+    });
+    expect(deleted.success && deleted.data.errors).toEqual([]);
+
+    mockSend.mockReset();
+    mockSend.mockResolvedValueOnce({Contents: [], IsTruncated: false});
+    const moved = await moveFolder({
+      bucket: 'us',
+      sourcePrefix: 'alice/saved_queries/archive/',
+      destPrefix: 'alice/archive/',
+      username: 'alice',
+      rootPrefix: 'alice/'
+    });
+    expect(moved.success).toBe(true);
+  });
+
+  it('refuses the saved-queries folder as a move SOURCE, which is also the rename path', async () => {
+    const result = await moveFolder({
+      bucket: 'us',
+      sourcePrefix: 'alice/saved_queries/',
+      destPrefix: 'alice/archive/saved_queries/',
+      username: 'alice',
+      rootPrefix: 'alice/'
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('ProtectedObject');
+    expect(result.error.message).toMatch(/moved or renamed/i);
     expect(mockSend).not.toHaveBeenCalled();
   });
 

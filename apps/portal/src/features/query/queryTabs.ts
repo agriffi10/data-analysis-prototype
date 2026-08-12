@@ -38,6 +38,23 @@ export function initialTabsState(): QueryTabsState {
   };
 }
 
+// A tab's saved-query link, or nothing. SPEC-173 kept `version: 1` deliberately: a
+// state persisted by an older build carries `savedQueryId`, which this reader simply
+// does not look at — the tabs and their SQL survive a reload, and only the link is
+// lost. Bumping the version would have thrown the user's open buffers away to
+// discard a field.
+function isValidSavedQueryLink(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value !== 'object' || value === null) return false;
+  const link = value as Record<string, unknown>;
+  return (
+    typeof link.spaceId === 'string' &&
+    typeof link.bucket === 'string' &&
+    typeof link.key === 'string' &&
+    typeof link.name === 'string'
+  );
+}
+
 // Structural validation — a corrupt/old/foreign blob must never crash the
 // editor. Passes only when the state is internally consistent.
 function isValidTabsState(value: unknown): value is QueryTabsState {
@@ -54,7 +71,7 @@ function isValidTabsState(value: unknown): value is QueryTabsState {
       typeof tab.id === 'string' &&
       typeof tab.label === 'string' &&
       typeof tab.sql === 'string' &&
-      (tab.savedQueryId === undefined || typeof tab.savedQueryId === 'string')
+      isValidSavedQueryLink(tab.savedQuery)
     );
   });
   if (!tabsOk) return false;

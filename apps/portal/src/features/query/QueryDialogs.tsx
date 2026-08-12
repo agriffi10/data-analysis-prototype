@@ -8,7 +8,7 @@ import {SaveQueryDialog} from './SaveQueryDialog';
 import {CreateViewDialog} from './CreateViewDialog';
 import {DropTableDialog} from './DropTableDialog';
 import {SaveResultsDialog} from './SaveResultsDialog';
-import type {GlueTableSummary, QueryTab, SavedQuery} from './query.types';
+import type {GlueTableSummary, QueryTab} from './query.types';
 import type {UseSaveResultsResult} from './useSaveResults';
 
 type Props = {
@@ -16,9 +16,13 @@ type Props = {
   save: {
     open: boolean;
     initialName: string;
-    savedQueries: SavedQuery[];
-    linkedId: string | undefined;
-    onSave: (args: {name: string; targetId: string | null}) => void;
+    /** Where the file lands, named in the dialog before anything is replaced. */
+    spaceLabel: string;
+    /** The name whose file already exists — the replace confirm, or null. */
+    collidingName: string | null;
+    onSave: (name: string) => void;
+    onReplace: (name: string) => void;
+    onCancelReplace: () => void;
     onCancel: () => void;
   };
   /** The tab awaiting a close confirm (non-empty buffer), or null. */
@@ -59,11 +63,26 @@ export function QueryDialogs({clear, save, closing, tabLimit, createView, drop, 
       {save.open && (
         <SaveQueryDialog
           initialName={save.initialName}
-          savedQueries={save.savedQueries}
-          linkedId={save.linkedId}
+          spaceLabel={save.spaceLabel}
           onSave={save.onSave}
           onCancel={save.onCancel}
         />
+      )}
+      {/* SPEC-173 FR-004: the collision is a HEAD on the exact key, so the confirm is
+          raised by the WRITE's failure rather than by a scan of the loaded list. */}
+      {save.collidingName !== null && (
+        <ConfirmDialog
+          title={`Replace “${save.collidingName}”?`}
+          ariaLabel="Confirm replace saved query"
+          confirmLabel="Replace"
+          confirmVariant="danger"
+          onConfirm={() => save.onReplace(save.collidingName as string)}
+          onCancel={save.onCancelReplace}>
+          <p className="mt-3 text-sm text-text-2">
+            A saved query named “{save.collidingName}” already exists in that space. Saving will replace it with the
+            current SQL.
+          </p>
+        </ConfirmDialog>
       )}
       {closing.tab && (
         <CloseTabDialog

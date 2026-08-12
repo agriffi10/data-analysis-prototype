@@ -7,6 +7,9 @@ import {MoveDialog} from './MoveDialog';
 import type {SelectableItem} from './selectionContext';
 import type {FileListPage, S3FileItem, S3FolderItem} from '../../types/s3.types';
 import * as service from './fileBrowser.service';
+import {featureFlagKeys} from '../feature-flags/featureFlagKeys';
+import {FEATURE_FLAG_DEFAULTS} from '../feature-flags/featureFlagDefaults';
+import {envVar} from '../../lib/env';
 
 // ─── from CopyDialog.test.tsx ───
 vi.mock('./fileBrowser.service', async (importActual) => {
@@ -152,7 +155,8 @@ describe('DestinationPicker', () => {
     mock.listFiles.mockImplementation((_bucket, prefix) => Promise.resolve(ok(map[prefix ?? ''] ?? pageOf())));
   }
 
-  // `Props` is a union (selectableFiles ⇒ markerKey required), which `Partial<>` can't
+  // `Props` used to be a union (selectable files required an exact marker key), which
+  // `Partial<>` can't
   // express usefully for a test helper — the override bag is loosened to a record and
   // re-widened at the spread. The union is still enforced at every real call site.
   type PickerProps = React.ComponentProps<typeof DestinationPicker>;
@@ -288,11 +292,48 @@ describe('DestinationPicker', () => {
     });
   });
 
+  // SPEC-173 FR-002/FR-008. The saved-queries folder is an ORDINARY paste target — the
+  // one thing that removes it is the `query` flag, and that is presentation: it removes a
+  // way of ASKING, and revokes no grant.
+  describe('DestinationPicker — the saved_queries/ folder (SPEC-173)', () => {
+    const withFolder = () =>
+      listing({
+        'alice/': pageOf([folder('alice/saved_queries/', 'saved_queries'), folder('alice/docs/', 'docs')]),
+        'alice/saved_queries/': pageOf()
+      });
+
+    it('IS offered as a destination, and can be pasted into', async () => {
+      withFolder();
+      const {user, onConfirm} = renderPicker({currentPrefix: 'alice/docs/'});
+
+      await user.click(await screen.findByRole('button', {name: 'Open folder saved_queries'}));
+      await user.click(screen.getByRole('button', {name: /copy here/i}));
+
+      expect(onConfirm).toHaveBeenCalledWith('alice/saved_queries/', 'us', undefined);
+    });
+
+    it('is NOT offered with the query flag off — a destination you cannot see is not one', async () => {
+      withFolder();
+      const {queryClient} = renderPicker({currentPrefix: 'alice/docs/'});
+      queryClient.setQueryData(featureFlagKeys.resolved(envVar('VITE_ENVIRONMENT')), {
+        ...FEATURE_FLAG_DEFAULTS,
+        query: false
+      });
+
+      // `docs` proves the listing landed, so the absence below is the gate rather than a
+      // tree that has not rendered yet.
+      expect(await screen.findByRole('button', {name: 'Open folder docs'})).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.queryByRole('button', {name: 'Open folder saved_queries'})).not.toBeInTheDocument()
+      );
+    });
+  });
+
   // SPEC-124 FR-003. The mode is opt-in precisely BECAUSE three shipped dialogs depend
   // on files being inert, so the first test here is a regression guard on them, not a
   // feature test.
   describe('DestinationPicker — selectable-files mode (SPEC-124)', () => {
-    const selectable = {selectableFiles: true, markerKey: 'alice/DO_NOT_DELETE.txt', allowCurrentParent: true};
+    const selectable = {selectableFiles: true, allowCurrentParent: true};
 
     it('leaves the three default-mode callers (Move / Copy / Save results) unaffected', async () => {
       listing({'alice/': pageOf([folder('alice/archive/', 'archive')], [file('alice/report.csv', 'report.csv')])});

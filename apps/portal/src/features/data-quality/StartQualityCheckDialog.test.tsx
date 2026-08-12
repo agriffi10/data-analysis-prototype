@@ -1,6 +1,8 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, render, screen, waitFor} from '@testing-library/react';
 import {renderWithProviders} from '../../test/renderWithProviders';
+import {authValue} from '../../test/authFixtures';
+import {AuthContext} from '../auth/authContext';
 import {StartQualityCheckDialog} from './StartQualityCheckDialog';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {COMPONENT_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
@@ -176,15 +178,20 @@ describe('StartQualityCheckDialog.a11y', () => {
   // precedent).
   const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
 
+  // The auth provider is not decoration: `DestinationPicker` reads the `query` flag
+  // (SPEC-173 FR-008 — a destination the user cannot see is not a destination), and the
+  // flag chain resolves the signed-in user.
   function dialog(): ReactElement {
     return (
-      <QueryClientProvider client={client}>
-        <StartQualityCheckDialog
-          spaces={spaces}
-          onStart={() => {}}
-          onCancel={() => {}}
-        />
-      </QueryClientProvider>
+      <AuthContext.Provider value={authValue()}>
+        <QueryClientProvider client={client}>
+          <StartQualityCheckDialog
+            spaces={spaces}
+            onStart={() => {}}
+            onCancel={() => {}}
+          />
+        </QueryClientProvider>
+      </AuthContext.Provider>
     );
   }
 

@@ -83,6 +83,12 @@ const CODE_RULES: readonly ErrorRule[] = [
   // failure notification for something they could have fixed by selecting less.
   {code: 'SelectionTooLarge', userFixable: true, passthrough: true},
 
+  // Trigger: a saved query's `.sql` file is gone — deleted from the file browser, or by a
+  // colleague in a shared space, between the listing and the open. Passthrough because the
+  // sentence NAMES the file, which the generic `NotFound` cannot: a user looking at a list of
+  // twenty-five queries needs to know which one vanished, not that "that item" did.
+  {code: 'SavedQueryNotFound', userFixable: true, passthrough: true},
+
   // ── Data-quality report reads (SPEC-113 FR-005). Deliberately NOT folded into
   // the generic `NotFound` above: that one says "refresh and try again", which is
   // wrong advice here — a report the user followed a link to is either still being
@@ -111,15 +117,8 @@ const CODE_RULES: readonly ErrorRule[] = [
   // whole point. Not user-fixable in the sense of an action to take, but not an
   // administrator's problem either: nothing is broken any more.
   //
-  // Worded for the WRITE, not for the save: both saving and deleting a query reach
-  // this, and "this query was saved" is a lie on the delete path. What the user needs
-  // either way is that the list they are looking at is not the list they had. ──
-  {
-    code: 'SavedQueriesRecovered',
-    message:
-      'Your saved queries couldn’t be read, so a copy was kept and a new list started. Your earlier saved queries aren’t in the list.',
-    userFixable: true
-  },
+  // SPEC-173 retired the saved-queries JSON store, so query history is the one
+  // `user_settings/` document this trio still speaks for. ──
   {
     code: 'QueryHistoryRecovered',
     message: 'Your query history couldn’t be read, so a copy was kept and a new history started.',
@@ -131,11 +130,6 @@ const CODE_RULES: readonly ErrorRule[] = [
   // overwriting it would downgrade real data. Reloading gets the current build, so
   // this is the one of the three the user can actually fix. ──
   {
-    code: 'SavedQueriesNewerVersion',
-    message: 'Your saved queries were updated by a newer version of this app. Reload the page and try again.',
-    userFixable: true
-  },
-  {
     code: 'QueryHistoryNewerVersion',
     message: 'Your query history was updated by a newer version of this app. Reload the page and try again.',
     userFixable: true
@@ -144,11 +138,6 @@ const CODE_RULES: readonly ErrorRule[] = [
   // Quarantine failed: the document couldn't be read AND couldn't be copied aside,
   // so the write was refused rather than overwriting it. Nothing changed — which is
   // the reassurance the user needs, ahead of the cause. ──
-  {
-    code: 'SavedQueriesQuarantineFailed',
-    message: `Your saved queries couldn’t be read, so nothing was changed. ${CONTACT_ADMIN}`,
-    userFixable: false
-  },
   {
     code: 'QueryHistoryQuarantineFailed',
     message: `Your query history couldn’t be read, so nothing was changed. ${CONTACT_ADMIN}`,

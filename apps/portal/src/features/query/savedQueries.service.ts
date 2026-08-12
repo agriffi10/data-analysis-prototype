@@ -1,164 +1,311 @@
-import {userSpaceBucket, userSettingsKey} from '../../lib/userSpace';
-import {classifyDocument, quarantineDocument, readJsonDocument, writeJsonDocument} from '../../lib/s3Json';
-import type {DocumentParse, WriteOutcome} from '../../lib/s3Json';
-import {ok} from '../../lib/serviceResult';
+import {ListObjectsV2Command, PutObjectCommand} from '@aws-sdk/client-s3';
+import {getS3Client} from '../../lib/s3Client';
+import {withCredentialRetry} from '../../lib/credentialRetry';
+import {ok, toServiceError} from '../../lib/serviceResult';
+import {readJsonDocument} from '../../lib/s3Json';
+import {
+  LISTING_PAGE_SIZE,
+  PREFIX_MARKER_FILENAME,
+  SAVED_QUERIES_FOLDER,
+  SAVED_QUERIES_MARKER_BODY,
+  deleteObject,
+  isMarkerName,
+  objectExists,
+  validateLeafName
+} from '../file-browser';
 import type {ServiceResult} from '../../types/service.types';
-import type {SavedQueriesStore, SavedQuery} from './query.types';
+import type {QuerySpace, SavedQuery, SavedQueryPage} from './query.types';
 
-// Per-user saved queries stored as JSON in the protected `user_settings/`
-// folder, whose policy ALLOWS PutObject (overwrite) but DENIES delete — so
-// create/update/remove only ever overwrite the whole file, never an S3 object
-// delete. The folder is hidden from the file browser.
+// SPEC-173: a saved query is a `.sql` OBJECT in a space's `saved_queries/` folder,
+// not a row in a private JSON document. Its KEY is its identity, its FILENAME is its
+// name and its LastModified is when it changed — there is nothing else to store,
+// because a `.sql` file cannot carry a record without a sidecar this feature
+// deliberately does not have.
+//
+// The folder itself is ORDINARY (SPEC-173 FR-002): anyone with access to the space may
+// upload a CSV into it, copy a folder tree in, or make a subfolder. What keeps the load
+// list coherent is the filter below — top-level `.sql` files and nothing else — not a
+// write lock, which is why the filter is a requirement with tests rather than a
+// precaution.
 
-const STORE_VERSION = 1;
+const SQL_EXTENSION = '.sql';
 
-const emptyStore = (): SavedQueriesStore => ({version: STORE_VERSION, queries: []});
+/** Longest basename a saved query may have, extension included. */
+const MAX_NAME_LENGTH = 128;
 
-function storeKey(username: string): string {
-  return userSettingsKey(username, 'saved-queries.json');
+/** The saved-queries folder at a space root: `{rootPrefix}saved_queries/`. */
+export function savedQueriesPrefix(rootPrefix: string): string {
+  return `${rootPrefix}${SAVED_QUERIES_FOLDER}/`;
 }
 
-// Classification for the WRITE path, where "I can't read this" must NOT become "this
-// is empty": the write is an unconditional PutObject, so a body misread as empty is
-// COMMITTED as empty, and one Save would replace the whole library with the query
-// being saved. A body from a NEWER build is told apart from a corrupt one here —
-// only the corrupt one may be set aside and rewritten.
-function classifyStore(body: string | undefined): DocumentParse<SavedQueriesStore> {
-  return classifyDocument({
-    body,
-    version: STORE_VERSION,
-    empty: emptyStore,
-    isReadable: (document) => Array.isArray(document.queries)
-  });
+// The basename a name maps to. A user who types `report.sql` gets `report.sql`, never
+// `report.sql.sql` — matched case-insensitively, because `REPORT.SQL` is one too.
+function basenameFor(name: string): string {
+  return name.toLowerCase().endsWith(SQL_EXTENSION) ? name : `${name}${SQL_EXTENSION}`;
 }
 
-// The DISPLAY read, derived from the write classifier rather than written out again
-// so the two can never disagree about what a valid store is — a tightened write
-// parser and a stale display one would fail every save for a store the panel shows
-// as fine. Same validation, different answer to an unusable body: empty here (a
-// corrupt file must not lock the user out of the page), a refusal or a recovery there.
-function parseStore(body: string | undefined): SavedQueriesStore {
-  const parsed = classifyStore(body);
-  return parsed.readable ? parsed.value : emptyStore();
+/** The S3 key a saved query of this name lives at, in this space. */
+export function savedQueryKey(rootPrefix: string, name: string): string {
+  return `${savedQueriesPrefix(rootPrefix)}${basenameFor(name)}`;
 }
 
-// The read that precedes every write. Differs from `getSavedQueries` only in how it
-// treats a body it cannot parse.
-async function readStoreForWrite(username: string): Promise<ServiceResult<DocumentParse<SavedQueriesStore>>> {
-  return readJsonDocument<DocumentParse<SavedQueriesStore>>({
-    bucket: userSpaceBucket(),
-    key: storeKey(username),
-    parse: (body) => ok(classifyStore(body)),
-    onMissing: () => ok({readable: true, value: emptyStore()}),
-    fallbackMessage: 'Failed to load saved queries'
+/**
+ * The name a key carries: its basename, with a trailing `.sql` removed.
+ *
+ * The single source of a saved query's name, so a tab label and a list row can never
+ * disagree about what a file is called (SPEC-173 FR-006).
+ */
+export function savedQueryName(key: string): string {
+  const basename = key.slice(key.lastIndexOf('/') + 1);
+  return basename.toLowerCase().endsWith(SQL_EXTENSION) ? basename.slice(0, -SQL_EXTENSION.length) : basename;
+}
+
+/**
+ * Validates a saved query's name before any request.
+ *
+ * The leaf-name rule every other single-segment name in the app uses, plus a length
+ * ceiling on the RESULTING basename — the `.sql` the user may not have typed still
+ * counts toward the key.
+ *
+ * @param name - The raw value the user typed.
+ * @returns An error message, or null when the name is valid.
+ */
+export function validateSavedQueryName(name: string): string | null {
+  const leaf = validateLeafName(name, 'Query name');
+  if (leaf) return leaf;
+  if (basenameFor(name).length > MAX_NAME_LENGTH) {
+    return `Query name cannot be longer than ${MAX_NAME_LENGTH} characters.`;
+  }
+  return null;
+}
+
+// Once-per-session guard, keyed by bucket + key: at most one existence check per space
+// per session no matter how many times the workspace mounts. Mirrors
+// `ensurePrefixMarker`'s, and for the same reason — a fresh page load retries.
+const ensuredFolders = new Set<string>();
+
+/**
+ * Idempotently guarantees a space's `saved_queries/` folder exists.
+ *
+ * S3 has no folders — a prefix exists only while an object lives under it — so the
+ * folder is held open by a marker at `{root}saved_queries/DO_NOT_DELETE.txt`, the same
+ * mechanism every space root already uses. Best effort: a failure is not fatal to
+ * anything the user is doing, because writing a saved query creates the prefix anyway.
+ *
+ * @param space - The space whose folder to guarantee.
+ * @returns Success (whether or not it had to write); a failed head or put as a failure.
+ */
+export async function ensureSavedQueriesFolder(space: QuerySpace): Promise<ServiceResult<void>> {
+  const key = `${savedQueriesPrefix(space.rootPrefix)}${PREFIX_MARKER_FILENAME}`;
+  const cacheKey = `${space.bucket}/${key}`;
+
+  // Synchronous check-and-set before any await, so a StrictMode double-invocation or a
+  // remount cannot both get past it.
+  if (ensuredFolders.has(cacheKey)) return ok(undefined);
+  ensuredFolders.add(cacheKey);
+
+  const exists = await objectExists({bucket: space.bucket, key});
+  if (!exists.success) return exists;
+  if (exists.data) return ok(undefined);
+
+  return withCredentialRetry(getS3Client, async (client) => {
+    try {
+      await client.send(
+        new PutObjectCommand({
+          Bucket: space.bucket,
+          Key: key,
+          Body: SAVED_QUERIES_MARKER_BODY,
+          ContentType: 'text/plain'
+        })
+      );
+      return ok(undefined);
+    } catch (err) {
+      return toServiceError(err, 'Failed to create the saved queries folder');
+    }
   });
 }
 
 /**
- * The store a write should be applied to, quarantining an unreadable document first.
+ * One page of a space's saved queries, in S3's own (lexicographic) order.
  *
- * The three outcomes the whole spec turns on. A readable store is returned as-is. A
- * NEWER one is refused untouched — overwriting it would downgrade a document a newer
- * tab wrote. An unparseable one is copied aside and the write proceeds from the empty
- * store, and the copy is a PRECONDITION: if it fails the caller refuses exactly as it
- * did before, because a failed quarantine must never become a silent overwrite.
+ * `Delimiter: '/'` is load-bearing, not incidental: the listing is ONE level, so
+ * `saved_queries/archive/old.sql` is a file in a folder and not a saved query. The
+ * `.sql` filter is the other half — every other object in the folder is a normal file
+ * that belongs to the file browser and is invisible here.
  *
- * `recovered` travels with the store so the caller can both write it and say what
- * became of the user's earlier queries.
+ * The order is S3's, unmodified. Sorting by last-modified across a paginated listing is
+ * a lie: the newest query may sit on page nine, and re-sorting the loaded pages makes
+ * rows the user has already seen jump as later pages arrive.
+ *
+ * @param params.space - The space to list.
+ * @param params.continuationToken - S3's token for the next page.
+ * @param params.signal - Cancels the request when the query is dropped.
+ * @returns The page, or a failure. A missing folder is an EMPTY page, not an error.
  */
-async function storeForWrite(username: string): Promise<ServiceResult<{store: SavedQueriesStore; recovered: boolean}>> {
-  const current = await readStoreForWrite(username);
-  if (!current.success) return current;
-  if (current.data.readable) return ok({store: current.data.value, recovered: false});
+export async function listSavedQueries(params: {
+  space: QuerySpace;
+  continuationToken?: string;
+  signal?: AbortSignal;
+}): Promise<ServiceResult<SavedQueryPage>> {
+  const {space, continuationToken, signal} = params;
+  const prefix = savedQueriesPrefix(space.rootPrefix);
 
-  if (current.data.reason === 'newer') {
-    return {
+  return withCredentialRetry(getS3Client, async (client) => {
+    try {
+      const response = await client.send(
+        new ListObjectsV2Command({
+          Bucket: space.bucket,
+          Prefix: prefix,
+          Delimiter: '/',
+          MaxKeys: LISTING_PAGE_SIZE,
+          ContinuationToken: continuationToken
+        }),
+        {abortSignal: signal}
+      );
+
+      const queries = (response.Contents ?? [])
+        .filter((obj): obj is typeof obj & {Key: string} => typeof obj.Key === 'string')
+        .filter((obj) => isSavedQueryKey(obj.Key, prefix))
+        .map((obj) => ({
+          spaceId: space.id,
+          bucket: space.bucket,
+          key: obj.Key,
+          name: savedQueryName(obj.Key),
+          updatedAt: (obj.LastModified ?? new Date(0)).toISOString(),
+          size: obj.Size ?? 0
+        }));
+
+      return ok({
+        queries,
+        isTruncated: response.IsTruncated ?? false,
+        nextContinuationToken: response.NextContinuationToken
+      });
+    } catch (err) {
+      return toServiceError(err, 'Failed to load saved queries');
+    }
+  });
+}
+
+// A key is offered as a saved query when it sits DIRECTLY in the folder, its basename
+// ends `.sql` (case-insensitively), and it is not the folder marker. A `CommonPrefixes`
+// entry never reaches here — a subfolder is never a saved query.
+//
+// The depth check is belt to the delimiter's braces: S3 will not return a nested key for
+// a delimited listing, and this is what makes that a property of the STORE rather than a
+// property of one request's parameters.
+function isSavedQueryKey(key: string, prefix: string): boolean {
+  const relative = key.slice(prefix.length);
+  if (!key.startsWith(prefix) || relative.includes('/')) return false;
+  return relative.toLowerCase().endsWith(SQL_EXTENSION) && !isMarkerName(key);
+}
+
+/**
+ * Reads a saved query's SQL.
+ *
+ * Fetched only when a query is OPENED — never to render a list row, which would cost a
+ * GetObject per row every time the drawer opens.
+ *
+ * @param params.bucket - The space's bucket.
+ * @param params.key - The saved query's key.
+ * @returns The object body as a string, or a failure naming the query.
+ */
+export async function readSavedQuery(params: {bucket: string; key: string}): Promise<ServiceResult<string>> {
+  const {bucket, key} = params;
+  return readJsonDocument<string>({
+    bucket,
+    key,
+    parse: (body) => ok(body ?? ''),
+    onMissing: () => ({
       success: false,
-      error: {
-        message: 'Saved queries were written by a newer version of this app.',
-        code: 'SavedQueriesNewerVersion'
-      }
-    };
-  }
-
-  const quarantined = await quarantineDocument({bucket: userSpaceBucket(), key: storeKey(username)});
-  if (!quarantined.success) {
-    return {
-      success: false,
-      error: {
-        message: 'Saved queries could not be read, so nothing was changed.',
-        code: 'SavedQueriesQuarantineFailed'
-      }
-    };
-  }
-
-  return ok({store: emptyStore(), recovered: true});
-}
-
-/** Reads + parses the store. A missing file is the empty state, not an error. */
-export async function getSavedQueries(username: string): Promise<ServiceResult<SavedQueriesStore>> {
-  return readJsonDocument({
-    bucket: userSpaceBucket(),
-    key: storeKey(username),
-    parse: (body) => ok(parseStore(body)),
-    onMissing: () => ({success: true, data: emptyStore()}),
-    fallbackMessage: 'Failed to load saved queries'
-  });
-}
-
-// Overwrite the store file (PutObject — never a delete). Last-writer-wins on a
-// single user's own file is acceptable.
-async function writeStore(username: string, store: SavedQueriesStore): Promise<ServiceResult<void>> {
-  return writeJsonDocument({
-    bucket: userSpaceBucket(),
-    key: storeKey(username),
-    value: store,
-    fallbackMessage: 'Failed to save query'
+      error: {message: `“${savedQueryName(key)}” no longer exists.`, code: 'SavedQueryNotFound'}
+    }),
+    fallbackMessage: `Failed to open “${savedQueryName(key)}”`
   });
 }
 
 /**
- * Creates or replaces a saved query by id, then writes back. A matching id is
- * updated in place (keeping list position); a new id is prepended.
+ * Writes a saved query, refusing to clobber an existing one unless asked.
  *
- * Reports `recovered` when the previous document was unreadable and had to be
- * quarantined — the save succeeded, but the queries that were there before are not
- * in the returned store.
+ * The collision check is a HEAD on the exact KEY, not a scan of a loaded list: the list
+ * is paginated and the target space may not be the one on screen, so an in-memory scan
+ * stopped being sound. One visible consequence is accepted — S3 keys are
+ * case-sensitive, so `Report` and `report` are two saved queries.
+ *
+ * @param params.space - The space to write into.
+ * @param params.name - The user-supplied name; validated before any request.
+ * @param params.sql - The editor buffer to store.
+ * @param params.overwrite - Skip the collision check and replace.
+ * @returns The `SavedQuery` just written, or a failure (`InvalidName` / `Collision`).
  */
-export async function upsertSavedQuery(username: string, query: SavedQuery): Promise<WriteOutcome<SavedQueriesStore>> {
-  const current = await storeForWrite(username);
-  if (!current.success) return current;
-  const {store, recovered} = current.data;
+export async function writeSavedQuery(params: {
+  space: QuerySpace;
+  name: string;
+  sql: string;
+  overwrite?: boolean;
+}): Promise<ServiceResult<SavedQuery>> {
+  const {space, name, sql, overwrite = false} = params;
 
-  const existingIdx = store.queries.findIndex((q) => q.id === query.id);
-  const queries =
-    existingIdx === -1 ? [query, ...store.queries] : store.queries.map((q) => (q.id === query.id ? query : q));
+  const nameError = validateSavedQueryName(name);
+  if (nameError) return {success: false, error: {message: nameError, code: 'InvalidName'}};
 
-  const next: SavedQueriesStore = {version: STORE_VERSION, queries};
-  const written = await writeStore(username, next);
-  if (!written.success) return written;
-  return {success: true, data: next, recovered};
+  const key = savedQueryKey(space.rootPrefix, name);
+
+  if (!overwrite) {
+    const exists = await objectExists({bucket: space.bucket, key});
+    if (!exists.success) return exists;
+    if (exists.data) {
+      return {
+        success: false,
+        error: {message: `“${savedQueryName(key)}” already exists.`, code: 'Collision'}
+      };
+    }
+  }
+
+  return withCredentialRetry(getS3Client, async (client) => {
+    try {
+      await client.send(
+        new PutObjectCommand({
+          Bucket: space.bucket,
+          Key: key,
+          Body: sql,
+          ContentType: 'text/plain; charset=utf-8'
+        })
+      );
+      return ok({
+        spaceId: space.id,
+        bucket: space.bucket,
+        key,
+        name: savedQueryName(key),
+        updatedAt: new Date().toISOString(),
+        size: new TextEncoder().encode(sql).length
+      });
+    } catch (err) {
+      return toServiceError(err, 'Failed to save query');
+    }
+  });
 }
 
 /**
- * Removes a saved query by id by rewriting the JSON without it (never an S3
- * delete). An unknown id is a no-op success.
+ * Deletes a saved query.
+ *
+ * A real `DeleteObject` now, where the JSON store rewrote a document — delegated so the
+ * existing prefix-marker refusal applies unchanged.
+ *
+ * @param params.bucket - The space's bucket.
+ * @param params.key - The saved query's key.
+ * @param params.username - The signed-in user, for the marker guard.
+ * @returns Success, or the delete's own failure.
  */
-export async function removeSavedQuery(username: string, id: string): Promise<WriteOutcome<SavedQueriesStore>> {
-  const current = await storeForWrite(username);
-  if (!current.success) return current;
-  const {store, recovered} = current.data;
+export async function deleteSavedQuery(params: {
+  bucket: string;
+  key: string;
+  username: string;
+}): Promise<ServiceResult<void>> {
+  const deleted = await deleteObject(params);
+  return deleted.success ? ok(undefined) : deleted;
+}
 
-  const queries = store.queries.filter((q) => q.id !== id);
-  // The no-op shortcut is forfeited after a recovery: the store in hand is the empty
-  // one, and returning early would leave the unreadable document in place with its
-  // quarantine copy already taken — broken, and now silently so.
-  if (queries.length === store.queries.length && !recovered) {
-    return {success: true, data: store, recovered}; // unknown id → no-op
-  }
-
-  const next: SavedQueriesStore = {version: STORE_VERSION, queries};
-  const written = await writeStore(username, next);
-  if (!written.success) return written;
-  return {success: true, data: next, recovered};
+/** Test-only: resets the once-per-session folder guard between cases. */
+export function __resetSavedQueriesFolderCache(): void {
+  ensuredFolders.clear();
 }

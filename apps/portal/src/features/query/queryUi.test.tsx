@@ -14,7 +14,15 @@ import {TableActionsMenu} from './TableActionsMenu';
 import type {TableMenuItem} from './TableActionsMenu';
 import {QueryTabStrip} from './QueryTabStrip';
 import {COMPONENT_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
-import type {QueryHistoryEntry, QueryTab, ResultTab, SavedQuery} from './query.types';
+import type {QueryHistoryEntry, QueryTab, ResultTab, SavedQuery, SavedQueryLink} from './query.types';
+
+// A tab's link to the file it was opened from (SPEC-173) — the key IS the identity.
+const LINK: SavedQueryLink = {
+  spaceId: 'personal',
+  bucket: 'user-space',
+  key: 'alice/saved_queries/Monthly revenue.sql',
+  name: 'Monthly revenue'
+};
 
 // ─── from ColumnResizeHandle.test.tsx ───
 describe('ColumnResizeHandle', () => {
@@ -484,24 +492,13 @@ describe('ResultsPageSizeControl', () => {
 
 // ─── from SaveQueryDialog.test.tsx ───
 describe('SaveQueryDialog', () => {
-  const existing: SavedQuery[] = [
-    {
-      id: 'sq-a',
-      name: 'Monthly revenue',
-      sql: 'SELECT 1',
-      database: 'alice',
-      createdAt: '2026-06-01T00:00:00.000Z',
-      updatedAt: '2026-06-01T00:00:00.000Z'
-    }
-  ];
-
   function setup(over: Partial<Parameters<typeof SaveQueryDialog>[0]> = {}) {
     const onSave = vi.fn();
     const onCancel = vi.fn();
     render(
       <SaveQueryDialog
         initialName=""
-        savedQueries={existing}
+        spaceLabel="My files"
         onSave={onSave}
         onCancel={onCancel}
         {...over}
@@ -510,90 +507,71 @@ describe('SaveQueryDialog', () => {
     return {onSave, onCancel};
   }
 
-  describe('SaveQueryDialog', () => {
-    it('disables Save until the name is non-empty, then saves a new query', () => {
-      const {onSave} = setup();
-      const save = screen.getByRole('button', {name: 'Save'});
-      expect(save).toBeDisabled();
+  it('disables Save until the name is non-empty, then saves the trimmed name', () => {
+    const {onSave} = setup();
+    const save = screen.getByRole('button', {name: 'Save'});
+    expect(save).toBeDisabled();
 
-      fireEvent.change(screen.getByLabelText('Name'), {
-        target: {value: '  Quarterly  '}
-      });
-      expect(save).toBeEnabled();
-      fireEvent.click(save);
+    fireEvent.change(screen.getByLabelText('Name'), {target: {value: '  Quarterly  '}});
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
 
-      // New (unlinked) save → targetId null, name trimmed.
-      expect(onSave).toHaveBeenCalledWith({name: 'Quarterly', targetId: null});
-    });
+    expect(onSave).toHaveBeenCalledWith('Quarterly');
+  });
 
-    it('pre-fills the name on re-save and updates in place (own name, no collision)', () => {
-      const {onSave} = setup({initialName: 'Monthly revenue', linkedId: 'sq-a'});
-      expect(screen.getByLabelText('Name')).toHaveValue('Monthly revenue');
+  it('ASKS on a re-save too, pre-filled with the linked file’s name (SPEC-173)', () => {
+    // A change from SPEC-043's silent write-back: a user about to overwrite a file
+    // should be told which file, in which space, before it happens.
+    const {onSave} = setup({initialName: 'Monthly revenue'});
+    expect(screen.getByLabelText('Name')).toHaveValue('Monthly revenue');
+    expect(screen.getByText(/saved_queries/)).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('button', {name: 'Save'}));
-      expect(onSave).toHaveBeenCalledWith({
-        name: 'Monthly revenue',
-        targetId: 'sq-a'
-      });
-    });
+    fireEvent.click(screen.getByRole('button', {name: 'Save'}));
+    expect(onSave).toHaveBeenCalledWith('Monthly revenue');
+  });
 
-    it('warns and confirms when the name collides with a different query', () => {
-      const {onSave} = setup();
-      fireEvent.change(screen.getByLabelText('Name'), {
-        target: {value: 'monthly revenue'} // case-insensitive match of sq-a
-      });
-      fireEvent.click(screen.getByRole('button', {name: 'Save'}));
+  it('names the space the file will land in', () => {
+    setup({spaceLabel: 'project_alpha'});
+    expect(screen.getByText(/project_alpha/)).toBeInTheDocument();
+  });
 
-      // Overwrite-confirm step, not yet saved.
-      expect(screen.getByRole('alertdialog', {name: /confirm replace saved query/i})).toBeInTheDocument();
-      expect(onSave).not.toHaveBeenCalled();
+  it('refuses an invalid name inline, without calling onSave', () => {
+    const {onSave} = setup();
+    fireEvent.change(screen.getByLabelText('Name'), {target: {value: 'a/b'}});
 
-      fireEvent.click(screen.getByRole('button', {name: 'Replace'}));
-      expect(onSave).toHaveBeenCalledWith({
-        name: 'monthly revenue',
-        targetId: 'sq-a' // overwrites the existing one
-      });
-    });
+    expect(screen.getByText(/cannot contain/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Save'})).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', {name: 'Save'}));
+    expect(onSave).not.toHaveBeenCalled();
+  });
 
-    it('Cancel in the overwrite step returns to the prompt without saving', () => {
-      const {onSave} = setup();
-      fireEvent.change(screen.getByLabelText('Name'), {
-        target: {value: 'Monthly revenue'}
-      });
-      fireEvent.click(screen.getByRole('button', {name: 'Save'}));
-      fireEvent.click(screen.getByRole('button', {name: 'Cancel'}));
-
-      expect(onSave).not.toHaveBeenCalled();
-      expect(screen.getByLabelText('Name')).toBeInTheDocument(); // back to prompt
-    });
-
-    it('Cancel closes the dialog', () => {
-      const {onCancel} = setup();
-      fireEvent.click(screen.getByRole('button', {name: 'Cancel'}));
-      expect(onCancel).toHaveBeenCalled();
-    });
+  it('Cancel closes the dialog', () => {
+    const {onCancel} = setup();
+    fireEvent.click(screen.getByRole('button', {name: 'Cancel'}));
+    expect(onCancel).toHaveBeenCalled();
   });
 });
 
 // ─── from SavedQueriesPanel.test.tsx ───
 describe('SavedQueriesPanel', () => {
-  function sq(id: string, name: string, updatedAt: string): SavedQuery {
+  function sq(name: string, updatedAt: string, size = 128): SavedQuery {
     return {
-      id,
+      spaceId: 'personal',
+      bucket: 'user-space',
+      key: `alice/saved_queries/${name}.sql`,
       name,
-      sql: 'SELECT 1',
-      database: 'alice',
-      createdAt: '2026-06-01T00:00:00.000Z',
-      updatedAt
+      updatedAt,
+      size
     };
   }
 
-  const queries = [sq('a', 'Older', '2026-06-01T00:00:00.000Z'), sq('b', 'Newer', '2026-06-10T00:00:00.000Z')];
+  const queries = [sq('Older', '2026-06-01T00:00:00.000Z'), sq('Newer', '2026-06-10T00:00:00.000Z')];
 
   function setup(over: Partial<Parameters<typeof SavedQueriesPanel>[0]> = {}) {
     const onClose = vi.fn();
     const onOpen = vi.fn();
     const onDelete = vi.fn();
+    const loadMore = vi.fn();
     render(
       <SavedQueriesPanel
         open
@@ -601,52 +579,68 @@ describe('SavedQueriesPanel', () => {
         queries={queries}
         isLoading={false}
         error={null}
+        hasMore={false}
+        loadMore={loadMore}
+        isLoadingMore={false}
         onOpen={onOpen}
         onDelete={onDelete}
         {...over}
       />
     );
-    return {onClose, onOpen, onDelete};
+    return {onClose, onOpen, onDelete, loadMore};
   }
 
-  describe('SavedQueriesPanel', () => {
-    it('renders nothing when closed', () => {
-      setup({open: false});
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    });
+  it('renders nothing when closed', () => {
+    setup({open: false});
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
 
-    it('lists saved queries most-recently-updated first', () => {
-      setup();
-      const names = screen.getAllByText(/Older|Newer/).map((n) => n.textContent);
-      expect(names).toEqual(['Newer', 'Older']);
-    });
+  it('keeps S3’s own listing order, and re-sorts nothing', () => {
+    setup();
+    const names = screen.getAllByText(/Older|Newer/).map((n) => n.textContent);
+    expect(names).toEqual(['Older', 'Newer']);
+  });
 
-    it('Open fires onOpen with the query', () => {
-      const {onOpen} = setup();
-      // The first card is "Newer" (b).
-      fireEvent.click(screen.getAllByRole('button', {name: /open saved query/i})[0]);
-      expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({id: 'b'}));
-    });
+  it('renders name + relative time + size, and NO SQL preview', () => {
+    // FR-006: a `.sql` file carries no body until it is read, so a preview line would
+    // mean a GetObject per row every time the drawer opens.
+    setup();
+    expect(screen.getByText('Older')).toBeInTheDocument();
+    expect(screen.getAllByText('128 B').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/SELECT/i)).not.toBeInTheDocument();
+  });
 
-    it('Delete confirms, then fires onDelete with the id', () => {
-      const {onDelete} = setup();
-      fireEvent.click(screen.getAllByRole('button', {name: /delete saved query/i})[0]);
-      const dialog = screen.getByRole('alertdialog', {
-        name: /confirm delete saved query/i
-      });
-      fireEvent.click(within(dialog).getByRole('button', {name: 'Delete'}));
-      expect(onDelete).toHaveBeenCalledWith('b');
-    });
+  it('Open fires onOpen with the whole record, key included', () => {
+    const {onOpen} = setup();
+    fireEvent.click(screen.getAllByRole('button', {name: /open saved query/i})[0]);
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({key: 'alice/saved_queries/Older.sql'}));
+  });
 
-    it('shows a friendly empty state', () => {
-      setup({queries: []});
-      expect(screen.getByText('No saved queries yet')).toBeInTheDocument();
-    });
+  it('Delete confirms, then fires onDelete with the record', () => {
+    const {onDelete} = setup();
+    fireEvent.click(screen.getAllByRole('button', {name: /delete saved query/i})[0]);
+    const dialog = screen.getByRole('alertdialog', {name: /confirm delete saved query/i});
+    fireEvent.click(within(dialog).getByRole('button', {name: 'Delete'}));
+    expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({name: 'Older'}));
+  });
 
-    it('shows a danger banner on error', () => {
-      setup({error: 'access denied'});
-      expect(screen.getByText(/Couldn’t load saved queries/)).toBeInTheDocument();
-    });
+  it('shows a friendly empty state', () => {
+    setup({queries: []});
+    expect(screen.getByText('No saved queries yet')).toBeInTheDocument();
+  });
+
+  it('offers Load more rather than reading as empty when pages remain', () => {
+    // An S3 page and a display page are different things: a listing page of 25 keys can
+    // hold no `.sql` file at all, so a folder of CSVs must not be a dead end.
+    const {loadMore} = setup({queries: [], hasMore: true});
+    expect(screen.queryByText('No saved queries yet')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: 'Load more'}));
+    expect(loadMore).toHaveBeenCalled();
+  });
+
+  it('shows a danger banner on error', () => {
+    setup({error: 'access denied'});
+    expect(screen.getByText(/Couldn’t load saved queries/)).toBeInTheDocument();
   });
 });
 
@@ -742,7 +736,7 @@ describe('TableActionsMenu', () => {
 describe('QueryTabStrip', () => {
   const tabs: QueryTab[] = [
     {id: 'a', label: 'Query 1', sql: 'SELECT 1;'},
-    {id: 'b', label: 'Monthly revenue', sql: 'SELECT 2;', savedQueryId: 'sq-1'}
+    {id: 'b', label: 'Monthly revenue', sql: 'SELECT 2;', savedQuery: LINK}
   ];
 
   function setup(over: Partial<Parameters<typeof QueryTabStrip>[0]> = {}) {
@@ -826,7 +820,7 @@ describe('QueryTabStrip', () => {
 describe('QueryTabStrip.a11y', () => {
   const tabs: QueryTab[] = [
     {id: 't1', label: 'Query 1', sql: 'SELECT 1;'},
-    {id: 't2', label: 'Revenue', sql: 'SELECT 2;', savedQueryId: 'sq1'},
+    {id: 't2', label: 'Revenue', sql: 'SELECT 2;', savedQuery: LINK},
     {id: 't3', label: 'Query 3', sql: ''}
   ];
 

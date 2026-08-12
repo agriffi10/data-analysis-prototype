@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useState} from 'react';
 import {QUERY_TABS_MAX} from './query.constants';
-import type {QueryTab, QueryTabsState} from './query.types';
+import type {QueryTab, QueryTabsState, SavedQueryLink} from './query.types';
 import {readTabsState, writeTabsState, migrateDraftToTabs, initialTabsState} from './queryTabs';
 
 export type OpenTabOpts = {
@@ -8,8 +8,8 @@ export type OpenTabOpts = {
   label?: string;
   /** Pre-filled editor text; omit for an empty tab. */
   sql?: string;
-  /** Links the tab to a saved query; inert here. */
-  savedQueryId?: string;
+  /** Links the tab to the saved query it was opened from; inert here. */
+  savedQuery?: SavedQueryLink;
 };
 
 export type UseQueryTabsResult = {
@@ -18,11 +18,11 @@ export type UseQueryTabsResult = {
   activeTab: QueryTab;
   setActiveSql: (sql: string) => void;
   setActiveTab: (id: string) => void;
-  setActiveSavedQueryId: (id: string | undefined) => void;
-  /** Patches the active tab's label/savedQueryId together (a save links + relabels in one step). */
-  setActiveTabMeta: (meta: {label?: string; savedQueryId?: string}) => void;
+  setActiveSavedQuery: (link: SavedQueryLink | undefined) => void;
+  /** Patches the active tab's label/link together (a save links + relabels in one step). */
+  setActiveTabMeta: (meta: {label?: string; savedQuery?: SavedQueryLink}) => void;
   /** Clears the link on every tab pointing at a deleted saved query (tabs keep their label/SQL). */
-  unlinkSavedQuery: (savedQueryId: string) => void;
+  unlinkSavedQuery: (key: string) => void;
   /** Opens a tab and returns its id, or null when already at QUERY_TABS_MAX (caller shows the tab-limit dialog). */
   openTab: (opts?: OpenTabOpts) => string | null;
   closeTab: (id: string) => void;
@@ -57,22 +57,23 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
 
   const setActiveTab = (id: string) => setState((s) => (s.tabs.some((t) => t.id === id) ? {...s, activeTabId: id} : s));
 
-  const setActiveSavedQueryId = (id: string | undefined) =>
+  const setActiveSavedQuery = (link: SavedQueryLink | undefined) =>
     setState((s) => ({
       ...s,
-      tabs: s.tabs.map((t) => (t.id === s.activeTabId ? {...t, savedQueryId: id} : t))
+      tabs: s.tabs.map((t) => (t.id === s.activeTabId ? {...t, savedQuery: link} : t))
     }));
 
-  const setActiveTabMeta = (meta: {label?: string; savedQueryId?: string}) =>
+  const setActiveTabMeta = (meta: {label?: string; savedQuery?: SavedQueryLink}) =>
     setState((s) => ({
       ...s,
       tabs: s.tabs.map((t) => (t.id === s.activeTabId ? {...t, ...meta} : t))
     }));
 
-  const unlinkSavedQuery = (savedQueryId: string) =>
+  // Keyed by the OBJECT KEY, which is a saved query's identity now that there is no id.
+  const unlinkSavedQuery = (key: string) =>
     setState((s) => ({
       ...s,
-      tabs: s.tabs.map((t) => (t.savedQueryId === savedQueryId ? {...t, savedQueryId: undefined} : t))
+      tabs: s.tabs.map((t) => (t.savedQuery?.key === key ? {...t, savedQuery: undefined} : t))
     }));
 
   const openTab = (opts: OpenTabOpts = {}): string | null => {
@@ -90,7 +91,7 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
         id,
         label: named ? opts.label! : `Query ${s.nextQueryNumber}`,
         sql: opts.sql ?? '',
-        savedQueryId: opts.savedQueryId
+        savedQuery: opts.savedQuery
       };
       return {
         ...s,
@@ -130,7 +131,7 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
               ...t,
               sql: '',
               label: `Query ${s.nextQueryNumber}`,
-              savedQueryId: undefined
+              savedQuery: undefined
             }
           : t
       ),
@@ -143,7 +144,7 @@ export function useQueryTabs(username: string): UseQueryTabsResult {
     activeTab,
     setActiveSql,
     setActiveTab,
-    setActiveSavedQueryId,
+    setActiveSavedQuery,
     setActiveTabMeta,
     unlinkSavedQuery,
     openTab,

@@ -166,7 +166,7 @@ export async function updateQueryHistoryEntry(
     }
     return e;
   });
-  // As in `removeSavedQuery`: after a recovery the write is no longer optional, or the
+  // After a recovery the write is no longer optional, or the
   // unreadable document survives its own quarantine and stays broken.
   if (!found && !recovered) return {success: true, data: history, recovered};
 

@@ -229,6 +229,23 @@ const RECIPES: Record<string, Recipe> = {
     find: byRole('button', 'Go to Dashboard')
   },
   'Create table': {render: renderFileBrowser, anchor: fileBrowserReady, find: byRole('button', 'Create table')},
+  // The REAL /files page against a listing that contains the folder — a recipe that
+  // re-applied the gate itself would pass with the app's own gate deleted (measured).
+  'saved_queries folder': {
+    render: () => {
+      vi.mocked(listFiles).mockResolvedValue({
+        success: true,
+        data: {
+          files: [],
+          folders: [{type: 'folder', prefix: 'alice/saved_queries/', name: 'saved_queries'}],
+          isTruncated: false
+        }
+      } as never);
+      renderFilesPage();
+    },
+    anchor: filesPageReady,
+    find: byRole('button', 'Open folder saved_queries')
+  },
   'Check data quality of the selected item': {
     render: renderFileBrowser,
     anchor: fileBrowserReady,
@@ -567,6 +584,10 @@ describe('the registry itself', () => {
         'Create table',
         'Refresh table',
         'Share table',
+        // SPEC-173: added to the contract, like the two shared-workspace rows below —
+        // a saved query is a FILE now, so the folder holding them is a Query surface
+        // living on the file browser's screen.
+        'saved_queries folder',
         'Create view',
         'Query help section',
         'Tables help section'

@@ -98,7 +98,6 @@ function renderBrowser(props: Partial<Parameters<typeof FileBrowser>[0]> = {}): 
         prefix="alice/"
         rootPrefix="alice/"
         rootLabel="My Files"
-        markerKey="alice/DO_NOT_DELETE.txt"
         writable
         username="alice"
         {...props}

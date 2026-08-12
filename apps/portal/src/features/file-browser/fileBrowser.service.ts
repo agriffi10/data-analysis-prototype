@@ -14,7 +14,7 @@ import {getS3Client, s3Client} from '../../lib/s3Client';
 import {isExpiryError, withCredentialRetry} from '../../lib/credentialRetry';
 import {toServiceError} from '../../lib/serviceResult';
 import {isNotFound} from '../../lib/s3Errors';
-import {isUndeletableRootFolder} from './protectedFolders';
+import {undeletableRootFolderRefusal} from './protectedFolders';
 import type {FileListPage} from '../../types/s3.types';
 import type {ServiceResult} from '../../types/service.types';
 import type {
@@ -273,13 +273,13 @@ export async function deleteObjects(params: {
   username: string;
 }): Promise<ServiceResult<DeleteResult>> {
   const {bucket, keys, username} = params;
-  const markerKey = prefixMarkerKey(username);
+  const rootMarkerKey = prefixMarkerKey(username);
 
   // Partition out the protected marker before touching S3.
   const markerErrors: DeleteResult['errors'] = [];
   const toDelete: string[] = [];
   for (const key of keys) {
-    if (key === markerKey) {
+    if (key === rootMarkerKey) {
       markerErrors.push({
         key,
         message: 'This file keeps your storage space active and cannot be deleted.'
@@ -374,14 +374,9 @@ export async function deleteFolder(params: {
   // Refused before any S3 request, like the prefix-marker guard above. The
   // authoritative protection is the role policy's `ResultsNoDelete` deny; this is
   // what stops the app offering an action its own IAM forbids (SPEC-057, FR-007).
-  if (isUndeletableRootFolder(prefix, rootPrefix)) {
-    return {
-      success: false,
-      error: {
-        message: 'Query results are managed for you and can’t be deleted.',
-        code: 'ProtectedObject'
-      }
-    };
+  const refusal = undeletableRootFolderRefusal(prefix, rootPrefix, 'delete');
+  if (refusal) {
+    return {success: false, error: {message: refusal, code: 'ProtectedObject'}};
   }
 
   const listResult = await withAuthenticatedClient((client) => listAllKeysUnderPrefix(client, bucket, prefix));
@@ -565,14 +560,9 @@ export async function moveFolder(params: {
   const destBucket = params.destBucket ?? bucket;
   const sameBucket = destBucket === bucket;
 
-  if (isUndeletableRootFolder(sourcePrefix, rootPrefix)) {
-    return {
-      success: false,
-      error: {
-        message: 'Query results are managed for you and can’t be moved.',
-        code: 'ProtectedObject'
-      }
-    };
+  const refusal = undeletableRootFolderRefusal(sourcePrefix, rootPrefix, 'move');
+  if (refusal) {
+    return {success: false, error: {message: refusal, code: 'ProtectedObject'}};
   }
 
   // The no-op and into-itself guards only apply within a single bucket — across
@@ -836,14 +826,29 @@ export function uploadPercent(loaded: number, total: number): number {
   return Math.max(0, Math.min(100, pct));
 }
 
+/**
+ * Validates one path LEAF — a folder name, a file name, a saved query's name.
+ *
+ * The rules are the same wherever a user names a single S3 path segment; only the
+ * noun changes, which is why the caller supplies it rather than each surface
+ * re-deriving the four checks.
+ *
+ * @param name - The raw value the user typed.
+ * @param label - Sentence-initial noun for the message, e.g. `Folder name`.
+ * @returns An error message, or null when the name is valid.
+ */
+export function validateLeafName(name: string, label: string): string | null {
+  if (name.trim().length === 0) return `${label} cannot be empty.`;
+  if (name !== name.trim()) return `${label} cannot start or end with spaces.`;
+  if (name.includes('/')) return `${label} cannot contain '/'.`;
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f]/.test(name)) return `${label} cannot contain control characters.`;
+  return null;
+}
+
 /** Validates a new folder name before any request. Returns an error message, or null if valid. */
 export function validateFolderName(name: string): string | null {
-  if (name.trim().length === 0) return 'Folder name cannot be empty.';
-  if (name !== name.trim()) return 'Folder name cannot start or end with spaces.';
-  if (name.includes('/')) return "Folder name cannot contain '/'.";
-  // eslint-disable-next-line no-control-regex
-  if (/[\x00-\x1f]/.test(name)) return 'Folder name cannot contain control characters.';
-  return null;
+  return validateLeafName(name, 'Folder name');
 }
 
 /**

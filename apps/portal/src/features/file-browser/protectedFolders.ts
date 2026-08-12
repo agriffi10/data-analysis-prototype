@@ -20,6 +20,10 @@
 //    so the same note applies: IAM is what really keeps it out of the browser,
 //    and these entries are parity with the directory rather than the mechanism.
 //
+//  - `saved_queries/` — the space's saved `.sql` files (SPEC-173). VISIBLE and
+//    PASTEABLE — an ordinary folder in every respect a user can see — and only
+//    undestroyable: it appears in UNDELETABLE_ROOT_FOLDERS alone.
+//
 //  - `shared_tables/` — where the table-share pipeline copies tables it has
 //    shared with you (SPEC-088). VISIBLE, because seeing what has been shared
 //    with you is the point of it, but locked out of move/copy destinations:
@@ -72,8 +76,47 @@ export const PICKER_LOCKED_FOLDERS = [
  * offering Delete only ever produced "You don't have permission to do that" for
  * a rule this app itself authored. SPEC-057:97-98 already stated the UI refuses
  * this; SPEC-150 FR-007 is that criterion finally being met.
+ *
+ * `saved_queries/` (SPEC-173) is the second case, and it is the one that proves
+ * the lists are not a union: it is VISIBLE, it IS a valid paste target, and only
+ * the folder itself is undestroyable. Everything inside it is ordinary — files
+ * may be uploaded, moved, copied and deleted, and subfolders created — because
+ * what keeps the query editor's load list coherent is the store's `.sql` filter,
+ * not a write lock.
  */
-export const UNDELETABLE_ROOT_FOLDERS = ['athenaresults'] as const;
+export const UNDELETABLE_ROOT_FOLDERS = ['athenaresults', 'saved_queries'] as const;
+
+type UndeletableFolder = (typeof UNDELETABLE_ROOT_FOLDERS)[number];
+
+// One refusal per folder per verb. A move IS a rename here (S3 has neither), so
+// the move wording covers both.
+const UNDELETABLE_REFUSALS: Record<UndeletableFolder, {delete: string; move: string}> = {
+  athenaresults: {
+    delete: 'Query results are managed for you and can’t be deleted.',
+    move: 'Query results are managed for you and can’t be moved.'
+  },
+  saved_queries: {
+    delete: 'Saved queries live in this folder, so it can’t be deleted.',
+    move: 'Saved queries live in this folder, so it can’t be moved or renamed.'
+  }
+};
+
+/**
+ * The refusal for destroying this folder, or null when it is an ordinary one.
+ *
+ * @param folderPrefix - The folder being destroyed, trailing slash.
+ * @param rootPrefix - The SPACE root, so the refusal holds in a shared space too.
+ * @param action - `delete` or `move` (rename is a move).
+ * @returns The user-facing message, or null when the operation is allowed.
+ */
+export function undeletableRootFolderRefusal(
+  folderPrefix: string,
+  rootPrefix: string,
+  action: 'delete' | 'move'
+): string | null {
+  const name = UNDELETABLE_ROOT_FOLDERS.find((folder) => folderPrefix === `${rootPrefix}${folder}/`);
+  return name ? UNDELETABLE_REFUSALS[name][action] : null;
+}
 
 /**
  * Does `folderPrefix` name one of `names` at the user's own root

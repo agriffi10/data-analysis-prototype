@@ -21,7 +21,6 @@ type Props = {
   rootPrefix: string; // navigation floor (user's space root)
   rootLabel?: string; // label for the root crumb (hides the username segment)
   currentPrefix: string; // the items' current parent — valid (→ auto-number)
-  markerKey?: string;
   isBusy?: boolean;
   destinations?: FileSpaceTarget[]; // connections the copy can target (feedback 2026-06-30)
   // When set, the copy is into the items' current parent (FR-003): the picker is
@@ -81,7 +80,6 @@ export function CopyDialog({
   rootPrefix,
   rootLabel,
   currentPrefix,
-  markerKey,
   isBusy = false,
   destinations,
   sameFolderPrompt,
@@ -119,7 +117,6 @@ export function CopyDialog({
         rootPrefix={rootPrefix}
         rootLabel={rootLabel}
         currentPrefix={currentPrefix}
-        markerKey={markerKey}
         isBusy={isBusy}
         destinations={destinations}
         allowCurrentParent

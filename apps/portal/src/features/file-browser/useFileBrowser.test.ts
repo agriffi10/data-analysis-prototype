@@ -84,33 +84,62 @@ describe('useFileBrowser', () => {
     expect(mockListFiles).toHaveBeenCalledWith('my-bucket', 'docs/', undefined, expect.any(AbortSignal));
   });
 
-  it('hides the prefix marker from the listing by exact key (SPEC-014 FR-002)', async () => {
+  it('hides EVERY prefix marker, at any depth, with nothing passed in (SPEC-173 FR-003)', async () => {
+    // The rule is the BASENAME, because that is what both bucket policies deny
+    // deletion on. Showing one at `saved_queries/` would offer an action this
+    // application's own IAM refuses — the SPEC-150 FR-007 mistake.
+    const file = (key: string) => ({
+      type: 'file' as const,
+      key,
+      name: key.slice(key.lastIndexOf('/') + 1),
+      size: 100,
+      lastModified: new Date('2024-01-01')
+    });
+    mockListFiles.mockResolvedValue({
+      success: true,
+      data: page({
+        files: [
+          file('alice/DO_NOT_DELETE.txt'),
+          file('alice/saved_queries/DO_NOT_DELETE.txt'),
+          // Exact and case-sensitive, as S3 keys are — these two are ordinary files.
+          file('alice/DO_NOT_DELETE.txt.bak'),
+          file('alice/notes/do_not_delete.txt'),
+          file('alice/report.pdf')
+        ]
+      })
+    });
+
+    const {result} = renderHookWithProviders(() => useFileBrowser('my-bucket', 'alice/'));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    // Merged pages are re-sorted by NAME, which is why `do_not_delete.txt` leads.
+    expect(result.current.files.map((f) => f.key)).toEqual([
+      'alice/notes/do_not_delete.txt',
+      'alice/DO_NOT_DELETE.txt.bak',
+      'alice/report.pdf'
+    ]);
+  });
+
+  it('hides a shared space\u2019s marker too, since the deny covers both buckets', async () => {
     mockListFiles.mockResolvedValue({
       success: true,
       data: page({
         files: [
           {
             type: 'file',
-            key: 'alice/DO_NOT_DELETE.txt',
+            key: 'project_alpha/saved_queries/DO_NOT_DELETE.txt',
             name: 'DO_NOT_DELETE.txt',
-            size: 100,
+            size: 1,
             lastModified: new Date('2024-01-01')
-          },
-          {
-            type: 'file',
-            key: 'alice/report.pdf',
-            name: 'report.pdf',
-            size: 1024,
-            lastModified: new Date('2024-01-15')
           }
         ]
       })
     });
 
-    const {result} = renderHookWithProviders(() => useFileBrowser('my-bucket', 'alice/', 'alice/DO_NOT_DELETE.txt'));
+    const {result} = renderHookWithProviders(() => useFileBrowser('shared-bucket', 'project_alpha/saved_queries/'));
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(result.current.files.map((f) => f.key)).toEqual(['alice/report.pdf']);
+    expect(result.current.files).toEqual([]);
   });
 
   it('exposes hasMore and merges a second page on loadMore (SPEC-015 FR-002)', async () => {
