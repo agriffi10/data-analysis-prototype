@@ -214,12 +214,15 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Save a query',
         subtitle: 'Keep the queries you reach for often.',
         intro:
-          'Got a query you’ll want again? Save it and give it a name so it’s a click away next time, instead of retyping it or hunting through your history. A saved query is an ordinary <code>.sql</code> file in a <b>saved_queries</b> folder in your files, so you can find it, download it or delete it like anything else.',
+          'Got a query you’ll want again? Save it and give it a name so it’s a click away next time, instead of retyping it or hunting through your history. A saved query is an ordinary <code>.sql</code> file in a <b>saved_queries</b> folder in a space, so you can find it, download it or delete it like anything else — and saving into a shared space is how you hand a query to the people you work with.',
         steps: [
           'With a valid query in the editor, click <b>Save</b>.',
-          'Give it a <b>Name</b> and click <b>Save</b>. Saving always asks for the name, so you can see which file you are about to write before you replace it.',
-          'The query is written to a <b>saved_queries</b> folder in your own files, as a <code>.sql</code> file named after the name you gave it.',
-          'Because it’s an ordinary file, anyone who can see that folder can open it — a saved query in a shared space belongs to the space, not to you alone.',
+          'Choose a <b>Space</b> to save it into: your own files, or any shared space available to you. It opens on the space the query came from, or the last one you worked in.',
+          'Give it a <b>Name</b> and click <b>Save</b>. Saving always asks — even when you opened the query from a file — so you can see which file, in which space, you are about to write.',
+          'The query is written to that space’s <b>saved_queries</b> folder as a <code>.sql</code> file named after the name you gave it. Type <code>report</code> or <code>report.sql</code> and you get the same file.',
+          'If a query of that name is already there, you’re asked to confirm before it’s replaced. Names are case-sensitive, so <b>Report</b> and <b>report</b> are two different files.',
+          'Saving into a different space than the one your tab came from writes a <i>new</i> file there and leaves the original alone. Your tab then follows the new file.',
+          'Everyone with access to that space can open what you saved — a saved query in a shared space belongs to the space, not to you alone.',
           'A small marker on the tab lets you know when your edits have drifted from the file you opened.',
           'The <b>saved_queries</b> folder itself can’t be deleted or renamed, but everything inside it is yours to manage.'
         ]

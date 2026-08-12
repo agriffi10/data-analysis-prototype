@@ -10,21 +10,11 @@ import {DropTableDialog} from './DropTableDialog';
 import {SaveResultsDialog} from './SaveResultsDialog';
 import type {GlueTableSummary, QueryTab} from './query.types';
 import type {UseSaveResultsResult} from './useSaveResults';
+import type {UseSaveQueryResult} from './useSaveQuery';
 
 type Props = {
   clear: {open: boolean; onConfirm: () => void; onCancel: () => void};
-  save: {
-    open: boolean;
-    initialName: string;
-    /** Where the file lands, named in the dialog before anything is replaced. */
-    spaceLabel: string;
-    /** The name whose file already exists — the replace confirm, or null. */
-    collidingName: string | null;
-    onSave: (name: string) => void;
-    onReplace: (name: string) => void;
-    onCancelReplace: () => void;
-    onCancel: () => void;
-  };
+  save: UseSaveQueryResult;
   /** The tab awaiting a close confirm (non-empty buffer), or null. */
   closing: {tab: QueryTab | null; onConfirm: () => void; onCancel: () => void};
   tabLimit: {open: boolean; onDismiss: () => void};
@@ -62,25 +52,34 @@ export function QueryDialogs({clear, save, closing, tabLimit, createView, drop, 
       )}
       {save.open && (
         <SaveQueryDialog
+          // Remounted per open, so the space control re-defaults each time (SPEC-175 FR-001).
           initialName={save.initialName}
-          spaceLabel={save.spaceLabel}
-          onSave={save.onSave}
-          onCancel={save.onCancel}
+          spaces={save.spaces}
+          initialSpace={save.initialSpace}
+          linked={save.linked}
+          error={save.error}
+          busy={save.busy}
+          onSave={save.save}
+          onCancel={save.closeDialog}
         />
       )}
       {/* SPEC-173 FR-004: the collision is a HEAD on the exact key, so the confirm is
-          raised by the WRITE's failure rather than by a scan of the loaded list. */}
-      {save.collidingName !== null && (
+          raised by the WRITE's failure rather than by a scan of the loaded list. It names
+          the SPACE as well as the query — SPEC-175 made the destination a choice, so
+          "already exists" without a where is half an answer. */}
+      {save.collision && (
         <ConfirmDialog
-          title={`Replace “${save.collidingName}”?`}
+          title={`Replace “${save.collision.name}”?`}
           ariaLabel="Confirm replace saved query"
           confirmLabel="Replace"
           confirmVariant="danger"
-          onConfirm={() => save.onReplace(save.collidingName as string)}
-          onCancel={save.onCancelReplace}>
+          busy={save.busy}
+          busyLabel="Saving…"
+          onConfirm={save.confirmReplace}
+          onCancel={save.cancelReplace}>
           <p className="mt-3 text-sm text-text-2">
-            A saved query named “{save.collidingName}” already exists in that space. Saving will replace it with the
-            current SQL.
+            A saved query named “{save.collision.name}” already exists in {save.collision.space.label}. Saving will
+            replace it with the current SQL.
           </p>
         </ConfirmDialog>
       )}

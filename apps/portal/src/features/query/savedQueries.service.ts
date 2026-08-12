@@ -14,7 +14,7 @@ import {
   validateLeafName
 } from '../file-browser';
 import type {ServiceResult} from '../../types/service.types';
-import type {QuerySpace, SavedQuery, SavedQueryPage} from './query.types';
+import type {QuerySpace, SavedQuery, SavedQueryLink, SavedQueryPage} from './query.types';
 
 // SPEC-173: a saved query is a `.sql` OBJECT in a space's `saved_queries/` folder,
 // not a row in a private JSON document. Its KEY is its identity, its FILENAME is its
@@ -58,6 +58,24 @@ export function savedQueryKey(rootPrefix: string, name: string): string {
 export function savedQueryName(key: string): string {
   const basename = key.slice(key.lastIndexOf('/') + 1);
   return basename.toLowerCase().endsWith(SQL_EXTENSION) ? basename.slice(0, -SQL_EXTENSION.length) : basename;
+}
+
+/**
+ * Whether saving under this name, into this space, targets the file a tab is linked to.
+ *
+ * The ONE rule behind two behaviours that must agree (SPEC-175 FR-004): the dialog says
+ * "replacing the file this tab was opened from", and the host writes with `overwrite`
+ * and raises no second confirm. Judged on the KEY the save resolves to — a different
+ * name in the tab's own space, or the same name in another, is a different file.
+ *
+ * @param link - The active tab's link, or undefined when it has none.
+ * @param space - The space chosen in the dialog.
+ * @param name - The raw name typed in the dialog.
+ * @returns True when the resulting object is exactly the linked one.
+ */
+export function isLinkedSavedQuery(link: SavedQueryLink | undefined, space: QuerySpace, name: string): boolean {
+  if (!link || name.trim().length === 0) return false;
+  return link.bucket === space.bucket && link.key === savedQueryKey(space.rootPrefix, name.trim());
 }
 
 /**

@@ -96,6 +96,9 @@ const PERSONAL: Connection = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // A recipe may seed a tab (the save-query one does). Left behind, it becomes a fixture
+  // every later recipe silently inherits.
+  sessionStorage.clear();
   // Both buckets, because `usableSpaceTargets` returns no SHARED target without the shared
   // bucket — the move-destination row would then be absent for a reason that has nothing to
   // do with the flag, and its "on" half would fail while its "off" half passed vacuously.
@@ -441,6 +444,28 @@ const RECIPES: Record<string, Recipe> = {
     anchor: async () => screen.findByRole('option', {name: 'My files'}),
     find: async () => screen.queryByRole('option', {name: 'teamspace'})
   },
+  'Shared spaces in the save-query dialog': {
+    render: async () => {
+      // Save is disabled on an empty buffer, so the tab is seeded rather than typed into:
+      // Monaco is real in this file, and the recipe must render the REAL page (SPEC-163 —
+      // a recipe that re-implements the gate proves nothing).
+      sessionStorage.setItem(
+        's3portal.query.tabs.alice',
+        JSON.stringify({
+          version: 1,
+          tabs: [{id: 'a', label: 'Query 1', sql: 'SELECT 1;'}],
+          activeTabId: 'a',
+          nextQueryNumber: 2
+        })
+      );
+      renderQueryWorkspace();
+      const {default: userEvent} = await import('@testing-library/user-event');
+      const user = userEvent.setup({delay: null});
+      await user.click(await screen.findByRole('button', {name: 'Save query'}));
+    },
+    anchor: async () => within(await screen.findByRole('dialog', {name: 'Save query'})).findByLabelText('Space'),
+    find: async () => screen.queryByRole('option', {name: 'teamspace'})
+  },
   'Shared databases in the schema rail': {
     render: renderQueryWorkspace,
     // The PERSONAL database node — present either way, so it settles the rail without
@@ -620,6 +645,7 @@ describe('the registry itself', () => {
         // `useQuerySpaces()` returns"; leaving that ungated would name shared spaces in a
         // dropdown with every other shared-workspace surface hidden.
         'Shared spaces in the saved-queries selector',
+        'Shared spaces in the save-query dialog',
         'Shared spaces as a move destination',
         'Shared connections help section',
         'Received files link to a space on a notification',

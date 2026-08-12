@@ -21,6 +21,8 @@ import {
   ensureSavedQueriesFolder,
   listSavedQueries,
   readSavedQuery,
+  savedQueryKey,
+  savedQueryName,
   writeSavedQuery
 } from './savedQueries.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
@@ -590,8 +592,11 @@ describe('QueryWorkspace', () => {
       expect(await screen.findByRole('tab', {name: /My report/})).toBeInTheDocument();
     });
 
-    it('says so, in mapped wording, when the write fails for any other reason', async () => {
-      // The save relabels the tab optimistically, so silence would read as success.
+    it('keeps the dialog OPEN on a write failure, with the name, the space and a mapped message', async () => {
+      // SPEC-175 FR-006: the realistic failure is a shared space whose membership was
+      // revoked mid-session, so the dialog has to survive it — the buffer is still
+      // unsaved, and the user's next move is to pick another destination. The message is
+      // `toUserMessage`'s, inline on the field, never raw AWS text (SPEC-106).
       seedSingle('SELECT r;');
       mockWriteSaved.mockResolvedValue(fail('nope', 'AccessDenied'));
       const {user} = renderWorkspace();
@@ -601,8 +606,13 @@ describe('QueryWorkspace', () => {
       await user.type(within(screen.getByRole('dialog', {name: 'Save query'})).getByLabelText('Name'), 'My report');
       await user.click(within(screen.getByRole('dialog', {name: 'Save query'})).getByRole('button', {name: 'Save'}));
 
-      expect(await screen.findByText(/Couldn’t save the query/)).toBeInTheDocument();
+      const dialog = await screen.findByRole('dialog', {name: 'Save query'});
+      expect(await within(dialog).findByText(/don't have permission/i)).toBeInTheDocument();
+      expect(within(dialog).getByLabelText('Name')).toHaveValue('My report');
+      expect(within(dialog).getByLabelText('Space')).toBeEnabled();
       expect(screen.queryByText('nope')).not.toBeInTheDocument();
+      // No toast claims success, and the tab is neither relabelled nor linked.
+      expect(screen.queryByText(/^Saved “/)).not.toBeInTheDocument();
       expect(screen.queryByRole('tab', {name: /My report/})).not.toBeInTheDocument();
     });
 
@@ -857,6 +867,341 @@ describe('QueryWorkspace', () => {
       expect(mockListSaved).toHaveBeenCalledWith(
         expect.objectContaining({space: expect.objectContaining({id: 'personal'})})
       );
+    });
+
+    // ── SPEC-175: saving into a chosen space ──
+
+    /** A shared space the user is an active member of, for the save-destination tests. */
+    function withSharedSpace() {
+      mockReadCache.mockResolvedValue(
+        ok({version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]})
+      );
+      // The real key builder, so a destination test cannot pass against a key the store
+      // would never produce.
+      mockWriteSaved.mockImplementation(async ({space, name, sql}) =>
+        ok({
+          spaceId: space.id,
+          bucket: space.bucket,
+          key: savedQueryKey(space.rootPrefix, name),
+          name: savedQueryName(savedQueryKey(space.rootPrefix, name)),
+          updatedAt: '2026-07-01T10:00:00.000Z',
+          size: sql.length
+        })
+      );
+    }
+
+    /** Opens Save, picks a destination if asked, types a name and submits. */
+    async function saveAs(user: ReturnType<typeof renderWorkspace>['user'], name: string, spaceId?: string) {
+      await user.click(screen.getByRole('button', {name: 'Save query'}));
+      const dialog = screen.getByRole('dialog', {name: 'Save query'});
+      if (spaceId) await user.selectOptions(within(dialog).getByLabelText('Space'), spaceId);
+      await user.clear(within(dialog).getByLabelText('Name'));
+      await user.type(within(dialog).getByLabelText('Name'), name);
+      await user.click(within(dialog).getByRole('button', {name: 'Save'}));
+    }
+
+    it('writes into the CHOSEN shared space, links the tab there, and remembers it', async () => {
+      // FR-001/FR-002: the folder marker is ensured for the space being written to — not
+      // for the personal one — and the ONE space memory the load surface reads is updated,
+      // so the next save and the next load both open where the user last was.
+      seedSingle('SELECT r;');
+      withSharedSpace();
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await screen.findByRole('button', {name: 'Save query'});
+
+      await saveAs(user, 'Quarterly', 'teamspace');
+
+      await waitFor(() =>
+        expect(ensureSavedQueriesFolder).toHaveBeenCalledWith(
+          expect.objectContaining({id: 'teamspace', bucket: 'shared-bucket', rootPrefix: 'teamspace/'})
+        )
+      );
+      expect(mockWriteSaved).toHaveBeenCalledWith(
+        expect.objectContaining({
+          space: expect.objectContaining({id: 'teamspace', bucket: 'shared-bucket'}),
+          name: 'Quarterly',
+          sql: 'SELECT r;',
+          overwrite: false
+        })
+      );
+      expect(await screen.findByRole('tab', {name: /Quarterly/})).toBeInTheDocument();
+      expect(await screen.findByText(/Saved “Quarterly” to teamspace/)).toBeInTheDocument();
+      await waitFor(() => expect(sessionStorage.getItem('s3portal.query.savedQuerySpace.alice')).toBe('teamspace'));
+    });
+
+    it('appends .sql exactly once, whatever case the user typed it in', async () => {
+      // FR-002 AC4, at the workspace: `report`, `report.sql` and `report.SQL` are one key
+      // each and none of them doubles the suffix. The tab label drops the extension, so a
+      // user who types `report.sql` gets a tab reading `report` — what the load list shows
+      // for the same file.
+      seedSingle('SELECT r;');
+      withSharedSpace();
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      for (const typed of ['report', 'report.sql', 'report.SQL']) {
+        await saveAs(user, typed);
+      }
+      expect(mockWriteSaved.mock.results).toHaveLength(3);
+      const keys = await Promise.all(
+        mockWriteSaved.mock.results.map(async (r) => {
+          const settled = await r.value;
+          return settled.success ? settled.data.key : null;
+        })
+      );
+      expect(keys).toEqual([
+        'alice/saved_queries/report.sql',
+        'alice/saved_queries/report.sql',
+        'alice/saved_queries/report.SQL'
+      ]);
+      expect(screen.getByRole('tab', {name: /report/})).toBeInTheDocument();
+      expect(screen.queryByRole('tab', {name: /report\.sql/i})).not.toBeInTheDocument();
+    });
+
+    it('writes NOTHING until the dialog is submitted — linked tab or not (FR-004)', async () => {
+      seedTabs({
+        version: 1,
+        tabs: [
+          {id: 'a', label: 'Query 1', sql: 'SELECT unlinked;'},
+          {
+            id: 'b',
+            label: 'Monthly',
+            sql: 'SELECT linked;',
+            savedQuery: {
+              spaceId: 'personal',
+              bucket: 'user-bucket',
+              key: 'alice/saved_queries/Monthly.sql',
+              name: 'Monthly'
+            }
+          }
+        ],
+        activeTabId: 'a',
+        nextQueryNumber: 3
+      });
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Save query'}));
+      expect(screen.getByRole('dialog', {name: 'Save query'})).toBeInTheDocument();
+      expect(mockWriteSaved).not.toHaveBeenCalled();
+      await user.click(within(screen.getByRole('dialog', {name: 'Save query'})).getByRole('button', {name: 'Cancel'}));
+
+      await user.click(screen.getByRole('tab', {name: /Monthly/}));
+      await user.click(screen.getByRole('button', {name: 'Save query'}));
+      // Pre-filled, not skipped: SPEC-043 wrote straight through here.
+      expect(within(screen.getByRole('dialog', {name: 'Save query'})).getByLabelText('Name')).toHaveValue('Monthly');
+      expect(mockWriteSaved).not.toHaveBeenCalled();
+    });
+
+    it('re-saves a linked tab in place: one write, overwrite, and NO second confirm', async () => {
+      // FR-004. The prompt already named the file being replaced, so confirming again asks
+      // about the thing just answered.
+      seedTabs({
+        version: 1,
+        tabs: [
+          {
+            id: 'a',
+            label: 'Monthly',
+            sql: 'SELECT edited;',
+            savedQuery: {
+              spaceId: 'personal',
+              bucket: 'user-bucket',
+              key: 'alice/saved_queries/Monthly.sql',
+              name: 'Monthly'
+            }
+          }
+        ],
+        activeTabId: 'a',
+        nextQueryNumber: 2
+      });
+      withSharedSpace();
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Save query'}));
+      await user.click(within(screen.getByRole('dialog', {name: 'Save query'})).getByRole('button', {name: 'Save'}));
+
+      await waitFor(() => expect(mockWriteSaved).toHaveBeenCalledTimes(1));
+      expect(mockWriteSaved).toHaveBeenCalledWith(
+        expect.objectContaining({name: 'Monthly', sql: 'SELECT edited;', overwrite: true})
+      );
+      expect(screen.queryByRole('alertdialog', {name: /confirm replace saved query/i})).not.toBeInTheDocument();
+      expect(screen.getByRole('tab', {name: /Monthly/})).toBeInTheDocument();
+    });
+
+    it('re-creates a linked file that was deleted underneath it, and re-links the tab', async () => {
+      // FR-004 AC6: the tab keeps its SQL when the file goes (SPEC-174 FR-005), so the next
+      // Save is an ordinary write at the same key — which is why it may carry `overwrite`
+      // against nothing and must still succeed.
+      seedTabs({
+        version: 1,
+        tabs: [
+          {
+            id: 'a',
+            label: 'Monthly',
+            sql: 'SELECT still-here;',
+            savedQuery: {
+              spaceId: 'personal',
+              bucket: 'user-bucket',
+              key: 'alice/saved_queries/Monthly.sql',
+              name: 'Monthly'
+            }
+          }
+        ],
+        activeTabId: 'a',
+        nextQueryNumber: 2
+      });
+      withSharedSpace();
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Save query'}));
+      await user.click(within(screen.getByRole('dialog', {name: 'Save query'})).getByRole('button', {name: 'Save'}));
+
+      await waitFor(() => expect(mockWriteSaved).toHaveBeenCalledTimes(1));
+      expect(await screen.findByText(/Saved “Monthly” to My files/)).toBeInTheDocument();
+      expect(screen.getByRole('tab', {name: /Monthly/})).toBeInTheDocument();
+    });
+
+    it('saving a linked tab into ANOTHER space is a new file: no delete, re-linked there', async () => {
+      // FR-005. Nothing is moved — a saved query a colleague may be running does not
+      // disappear because someone copied it elsewhere.
+      seedTabs({
+        version: 1,
+        tabs: [
+          {
+            id: 'a',
+            label: 'Monthly',
+            sql: 'SELECT r;',
+            savedQuery: {
+              spaceId: 'personal',
+              bucket: 'user-bucket',
+              key: 'alice/saved_queries/Monthly.sql',
+              name: 'Monthly'
+            }
+          }
+        ],
+        activeTabId: 'a',
+        nextQueryNumber: 2
+      });
+      withSharedSpace();
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await screen.findByRole('button', {name: 'Save query'});
+
+      await user.click(screen.getByRole('button', {name: 'Save query'}));
+      const dialog = screen.getByRole('dialog', {name: 'Save query'});
+      // It opened on the TAB's own space, then the user moves it.
+      expect(within(dialog).getByLabelText('Space')).toHaveValue('personal');
+      await user.selectOptions(within(dialog).getByLabelText('Space'), 'teamspace');
+      await user.click(within(dialog).getByRole('button', {name: 'Save'}));
+
+      await waitFor(() => expect(mockWriteSaved).toHaveBeenCalledTimes(1));
+      expect(mockWriteSaved).toHaveBeenCalledWith(
+        expect.objectContaining({space: expect.objectContaining({id: 'teamspace'}), name: 'Monthly'})
+      );
+      // A DIFFERENT key, so it is not the in-place re-save and the original stands.
+      expect(mockWriteSaved).toHaveBeenCalledWith(expect.objectContaining({overwrite: false}));
+      expect(mockDeleteSaved).not.toHaveBeenCalled();
+      expect(await screen.findByText(/Saved “Monthly” to teamspace/)).toBeInTheDocument();
+
+      // The tab now points at the NEW space: re-opening Save defaults there.
+      await user.click(screen.getByRole('button', {name: 'Save query'}));
+      expect(within(screen.getByRole('dialog', {name: 'Save query'})).getByLabelText('Space')).toHaveValue('teamspace');
+    });
+
+    it('resolves the collision against the KEY: `Report` beside `report.sql` is a second file', async () => {
+      // FR-003. S3 keys are case-sensitive, and this is the deliberate visible change from
+      // SPEC-043's case-insensitive scan of the loaded array. A case-insensitive pre-check
+      // would have to list the whole folder on every save to be correct, and would still be
+      // wrong the moment two members save at once.
+      seedSingle('SELECT r;');
+      withSharedSpace();
+      const existing = new Set(['alice/saved_queries/report.sql']);
+      const write = mockWriteSaved.getMockImplementation();
+      mockWriteSaved.mockImplementation(async (params) => {
+        const key = savedQueryKey(params.space.rootPrefix, params.name);
+        if (!params.overwrite && existing.has(key)) return fail(`“${params.name}” already exists.`, 'Collision');
+        return write!(params);
+      });
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await saveAs(user, 'Report');
+
+      expect(await screen.findByRole('tab', {name: /Report/})).toBeInTheDocument();
+      expect(screen.queryByRole('alertdialog', {name: /confirm replace saved query/i})).not.toBeInTheDocument();
+
+      // …and the lower-case name, in the same space, DOES collide.
+      // AC4: the decision is a HEAD on the exact key inside the write — the dialog never
+      // lists the folder to reach it. Measured across the COLLIDING save, which performs no
+      // successful write and so cannot be confused with the list refresh that follows one.
+      const listingsBefore = mockListSaved.mock.calls.length;
+      await saveAs(user, 'report');
+      expect(await screen.findByRole('alertdialog', {name: /confirm replace saved query/i})).toBeInTheDocument();
+      expect(mockListSaved.mock.calls.length).toBe(listingsBefore);
+    });
+
+    it('does not prompt for a name that exists in a DIFFERENT space, and names the space when it does', async () => {
+      // FR-003 AC6 + AC2's wording: the collision is per space, and the confirm says which.
+      seedSingle('SELECT r;');
+      withSharedSpace();
+      const write = mockWriteSaved.getMockImplementation();
+      mockWriteSaved.mockImplementation(async (params) =>
+        !params.overwrite && params.space.id === 'teamspace'
+          ? fail(`“${params.name}” already exists.`, 'Collision')
+          : write!(params)
+      );
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+      await screen.findByRole('button', {name: 'Save query'});
+
+      // Personal holds no such key: straight through.
+      await saveAs(user, 'Quarterly');
+      expect(await screen.findByRole('tab', {name: /Quarterly/})).toBeInTheDocument();
+      expect(screen.queryByRole('alertdialog', {name: /confirm replace saved query/i})).not.toBeInTheDocument();
+
+      // The shared space holds it: the confirm, naming that space.
+      await saveAs(user, 'Quarterly', 'teamspace');
+      const confirm = await screen.findByRole('alertdialog', {name: /confirm replace saved query/i});
+      expect(within(confirm).getByText(/already exists in teamspace/)).toBeInTheDocument();
+
+      // Cancelling issues no further write and returns to the dialog, destination intact.
+      const writes = mockWriteSaved.mock.calls.length;
+      await user.click(within(confirm).getByRole('button', {name: 'Cancel'}));
+      expect(mockWriteSaved.mock.calls.length).toBe(writes);
+      const dialog = await screen.findByRole('dialog', {name: 'Save query'});
+      expect(within(dialog).getByLabelText('Name')).toHaveValue('Quarterly');
+      expect(within(dialog).getByLabelText('Space')).toHaveValue('teamspace');
+
+      // Confirming replaces THAT space's file.
+      await user.click(within(dialog).getByRole('button', {name: 'Save'}));
+      await user.click(
+        within(await screen.findByRole('alertdialog', {name: /confirm replace saved query/i})).getByRole('button', {
+          name: 'Replace'
+        })
+      );
+      expect(mockWriteSaved).toHaveBeenLastCalledWith(
+        expect.objectContaining({space: expect.objectContaining({id: 'teamspace'}), overwrite: true})
+      );
+    });
+
+    it('OPENS and explains itself when there is nowhere to save, and issues no request', async () => {
+      // FR-007. SPEC-167 records this exact failure in the send dialog: a `submitDisabled`
+      // made the inline refusal dead code, and the test asserting "the button is disabled"
+      // passed straight over the acceptance criterion. The banner is what is asserted here.
+      vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', '');
+      seedSingle('SELECT r;');
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Save query'}));
+      const dialog = await screen.findByRole('dialog', {name: 'Save query'});
+      expect(within(dialog).getByText(/There’s nowhere to save this query/)).toBeInTheDocument();
+      expect(mockWriteSaved).not.toHaveBeenCalled();
+      expect(ensureSavedQueriesFolder).not.toHaveBeenCalled();
+      vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
     });
 
     it('re-runs a history entry into the active tab (no database context)', async () => {

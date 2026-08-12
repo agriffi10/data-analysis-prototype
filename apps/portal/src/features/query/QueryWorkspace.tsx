@@ -17,7 +17,8 @@ import {useEditorLayout} from './useEditorLayout';
 import {useSavedQueries} from './useSavedQueries';
 import {useSavedQuerySpace} from './useSavedQuerySpace';
 import {useQuerySpaces} from './useQuerySpaces';
-import {ensureSavedQueriesFolder, readSavedQuery, writeSavedQuery} from './savedQueries.service';
+import {ensureSavedQueriesFolder, readSavedQuery} from './savedQueries.service';
+import {useSaveQuery} from './useSaveQuery';
 import {useConnections} from '../connections/useConnections';
 import {useFeature} from '../feature-flags';
 import {useAllSchemas, useSchema} from './useSchema';
@@ -136,7 +137,6 @@ export function QueryWorkspace() {
   const [savedOpen, setSavedOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [limitOpen, setLimitOpen] = useState(false);
-  const [saveOpen, setSaveOpen] = useState(false);
   const [closing, setClosing] = useState<QueryTab | null>(null);
   // SPEC-044 table actions.
   const [dropping, setDropping] = useState<{database: string; table: GlueTableSummary} | null>(null);
@@ -439,36 +439,17 @@ export function QueryWorkspace() {
     editorRef.current?.focus();
   };
 
-  // SPEC-173 FR-006. Every save asks for a name — a linked tab's included, pre-filled
-  // and selected — because a user about to overwrite a file should be told which file,
-  // in which space, before it happens. The collision is a HEAD on the exact key inside
-  // `writeSavedQuery`, so this resolves its `Collision` failure into a replace confirm
-  // rather than scanning a list that may be paginated and may not be this space's.
-  const [saveCollision, setSaveCollision] = useState<string | null>(null);
-  // What the user last typed, so a trip through the replace confirm and back does not
-  // discard it. Cleared once the save lands or the dialog is dismissed.
-  const [typedName, setTypedName] = useState<string | null>(null);
-
-  const commitSave = (name: string, overwrite: boolean) => {
-    if (!personalSpace) return;
-    setTypedName(name);
-    const sql = activeTab.sql;
-    void (async () => {
-      const result = await writeSavedQuery({space: personalSpace, name, sql, overwrite});
-      if (!result.success) {
-        if (result.error.code === 'Collision') {
-          setSaveOpen(false);
-          setSaveCollision(name);
-          return;
-        }
-        // Clear the confirm too: it was raised by the FIRST attempt's collision, and
-        // leaving it up after the replace itself failed offers a retry of a step that has
-        // already happened.
-        setSaveCollision(null);
-        toast.push({variant: 'danger', message: `Couldn’t save the query. ${toUserText(result.error)}`});
-        return;
-      }
-      const query = result.data;
+  // SPEC-173 FR-006 / SPEC-175. Every save asks — for a name AND a destination, a linked
+  // tab's included, pre-filled and selected — because a user about to overwrite a file
+  // should be told which file, in which space, before it happens. The whole path (the
+  // validation, the folder marker, the write, the `Collision` round-trip and the toast)
+  // lives in the hook; the workspace supplies the destinations and takes the result.
+  const saveQuery = useSaveQuery({
+    spaces: savedSpaces,
+    defaultSpace: savedSpace.space,
+    activeTab,
+    toast,
+    onSaved: (query, sql) => {
       // The buffer just written IS the file's content, so the dirty marker clears
       // without a read-back.
       rememberSavedSql(query.key, sql);
@@ -476,13 +457,13 @@ export function QueryWorkspace() {
         label: query.name,
         savedQuery: {spaceId: query.spaceId, bucket: query.bucket, key: query.key, name: query.name}
       });
-      setSaveOpen(false);
-      setSaveCollision(null);
-      setTypedName(null);
+      // FR-001: ONE memory of "the space I am working in" — the next save and the next
+      // load both open where the user last was, rather than two memories that disagree.
+      savedSpace.selectSpace(query.spaceId);
       saved.refresh();
       editorRef.current?.focus();
-    })();
-  };
+    }
+  });
 
   // FR-006: open a saved query into a new linked tab (cap dialog honored). Exactly one
   // GetObject, and only here — a list row never fetches a body.
@@ -721,7 +702,7 @@ export function QueryWorkspace() {
                 canClear={canClear}
                 canSave={canSave}
                 onClear={() => setClearOpen(true)}
-                onSave={() => setSaveOpen(true)}
+                onSave={saveQuery.openDialog}
                 onCreateView={handleOpenCreateView}
                 onStop={handleStop}
                 onRunStatement={handleRunStatement}
@@ -825,24 +806,7 @@ export function QueryWorkspace() {
 
       <QueryDialogs
         clear={{open: clearOpen, onConfirm: handleClearConfirm, onCancel: () => setClearOpen(false)}}
-        save={{
-          open: saveOpen,
-          // The name the user TYPED wins over the linked file's, so backing out of the
-          // replace confirm returns them to what they wrote rather than an empty field.
-          initialName: saveCollision ?? typedName ?? activeLinkedSaved?.name ?? '',
-          spaceLabel: personalSpace?.label ?? 'My files',
-          collidingName: saveCollision,
-          onSave: (name) => commitSave(name, false),
-          onReplace: (name) => commitSave(name, true),
-          onCancelReplace: () => {
-            setSaveCollision(null);
-            setSaveOpen(true); // back to the dialog with the name still in the field
-          },
-          onCancel: () => {
-            setTypedName(null);
-            setSaveOpen(false);
-          }
-        }}
+        save={saveQuery}
         closing={{tab: closing, onConfirm: confirmClose, onCancel: () => setClosing(null)}}
         tabLimit={{open: limitOpen, onDismiss: () => setLimitOpen(false)}}
         createView={{

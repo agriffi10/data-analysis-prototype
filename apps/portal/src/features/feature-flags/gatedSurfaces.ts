@@ -94,6 +94,11 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // which reads `useQuerySpaces` and would otherwise go on naming a colleague's space in a
     // dropdown after the rest of the app stopped showing it.
     {name: 'Shared spaces in the saved-queries selector', kind: 'control', path: '/query'},
+    // SPEC-175. A SECOND instance of the same choice, on the same reasoning SPEC-167 used for
+    // the send dialog's recipient kind: the row above renders the DRAWER, so nothing would
+    // notice if the save dialog's destination control stopped being gated — and that failure
+    // is the worse of the two, because it offers a colleague's space as a WRITE target.
+    {name: 'Shared spaces in the save-query dialog', kind: 'control', path: '/query'},
     {name: 'Shared spaces as a move destination', kind: 'control', path: '/files'},
     {name: 'Shared connections help section', kind: 'guide', path: '/help', helpId: 'shared-connections'},
     // SPEC-167. The SPACE variant of the same link, and the worse failure of the two: with this
