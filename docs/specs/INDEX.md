@@ -180,7 +180,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 172 — Archive & Restore: File-Browser UI, the Receipt Surface & Notifications | Draft |
 | 173 — Saved Queries as Files: the `saved_queries/` Folder, Its Protections & the Store | Completed |
 | 174 — Saved Queries: Loading from a Chosen Space | Completed |
-| 175 — Saved Queries: Saving into a Chosen Space | Draft |
+| 175 — Saved Queries: Saving into a Chosen Space | Completed |
 
 ## Arcs
 

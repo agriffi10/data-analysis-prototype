@@ -1250,3 +1250,14 @@ destroy it" are different guarantees, and only one of them survives a stale cach
 > doc. The keep-fetching rule this arc predicted for 174 shipped with a bound the arc did not name:
 > **an error stops the fill**, because a failed page leaves `hasNextPage` true — the fill's own
 > trigger — and would otherwise spin.
+
+> **175 landed 2026-08-12 and the arc is COMPLETE.** Saving asks *which space* too, so a shared
+> space's `saved_queries/` folder can hold something at last — which is the thing the arc existed
+> for, and until now no code path could produce. Two notes the paragraphs above did not anticipate.
+> The selector's gating went the same way a second time and needed a **second registry row**: the
+> 174 row renders the drawer, so the save dialog's destination control would have gone ungated
+> unnoticed, and *that* one offers a colleague's space as a **write** target. And the choice made
+> "which file does this replace?" a real question, answered in exactly one place —
+> `isLinkedSavedQuery` judges the **key**, so the dialog's promise and the host's `overwrite` cannot
+> drift apart. Choosing a different space **copies**; nothing in this arc ever moves or deletes a
+> colleague's file.
