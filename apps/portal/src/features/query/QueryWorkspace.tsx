@@ -208,9 +208,9 @@ export function QueryWorkspace() {
     updateEntry
   } = useQueryHistory(username || null);
   // SPEC-173 FR-005/006: saved queries are `.sql` files in a SPACE's `saved_queries/`
-  // folder. SPEC-174 FR-001: WHICH space is the drawer's own state — the personal one
-  // plus every active shared space. Saving still writes to the personal space until
-  // SPEC-175 lands.
+  // folder. SPEC-174/175 FR-001: WHICH space is one piece of state, shared by loading and
+  // saving — the personal space plus every active shared space, and the memory a
+  // successful save updates.
   const allSpaces = useQuerySpaces();
   const personalSpace: QuerySpace | null = allSpaces[0] ?? null;
   // Gated at the VIEW, exactly as the connections list above is (SPEC-163): with shared

@@ -1,7 +1,7 @@
 # Spec: Saved Queries — Saving into a Chosen Space
 
 **ID:** SPEC-175
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-11
 **Depends On:** SPEC-173 (the store and the folder), SPEC-174 (the space selector and the load surface), SPEC-163 (the gated-surface registry)
 
