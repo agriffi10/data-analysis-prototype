@@ -6,6 +6,8 @@ import type {FileSpaceTarget} from './useFileSpace';
 import {Button} from '../../components/Button';
 import {cx} from '../../lib/cx';
 import {PICKER_LOCKED_FOLDERS, isRootFolderNamed} from './protectedFolders';
+import {SAVED_QUERIES_FOLDER} from './fileBrowser.constants';
+import {useFeature} from '../feature-flags';
 import {buildBreadcrumbs, parentPrefix} from './fileBrowser.paths';
 
 type BaseProps = {
@@ -50,30 +52,28 @@ type BaseProps = {
   onCancel: () => void;
 };
 
-// `markerKey` is optional everywhere EXCEPT selectable-files mode, where it is
-// required: without it `useFileBrowser` doesn't filter the space's
-// `DO_NOT_DELETE.txt` prefix marker (SPEC-014), which would then sit at every space
-// root as a selectable target — enqueuing a job that fails minutes later as
-// `unsupported_format`. Inert for Move/Copy/Save (files aren't selectable there),
-// fatal here, so the type carries the rule rather than a comment.
-type Props = BaseProps &
-  (
-    | {
-        // Opt-in: render file rows as selectable buttons. Deliberately NOT defaulted
-        // on — a file is never a valid move/copy/save destination, and flipping the
-        // default would silently make one a valid paste target in three shipped
-        // dialogs.
-        selectableFiles: true;
-        markerKey: string;
-      }
-    | {selectableFiles?: false; markerKey?: string}
-  );
+// The prefix marker used to need a caller-supplied key here, because in
+// selectable-files mode an unfiltered `DO_NOT_DELETE.txt` sat at every space root
+// as a selectable target. SPEC-173 FR-003 made `useFileBrowser` hide every marker
+// by basename, so the rule holds for every caller with nothing to pass.
+type Props = BaseProps & {
+  // Opt-in: render file rows as selectable buttons. Deliberately NOT defaulted
+  // on — a file is never a valid move/copy/save destination, and flipping the
+  // default would silently make one a valid paste target in three shipped
+  // dialogs.
+  selectableFiles?: boolean;
+};
 
 // Is this folder prefix an app-managed root folder (athenaresults/ results or
 // user_settings/), which is never a valid move/copy destination? Only the
 // user-root instance is locked (SPEC-032/043).
-function isProtectedFolder(folderPrefix: string, rootPrefix: string): boolean {
-  return isRootFolderNamed(folderPrefix, rootPrefix, PICKER_LOCKED_FOLDERS);
+//
+// `locked` is composed by the caller rather than read from the constant, because
+// SPEC-173 FR-008 adds one entry the FLAG decides: `saved_queries/` is an
+// ordinary paste target, and a destination the user cannot see is not a
+// destination.
+function isProtectedFolder(folderPrefix: string, rootPrefix: string, locked: readonly string[]): boolean {
+  return isRootFolderNamed(folderPrefix, rootPrefix, locked);
 }
 
 // Parent of a browse prefix, clamped to the navigation floor so the picker can
@@ -91,14 +91,13 @@ function isProtectedFolder(folderPrefix: string, rootPrefix: string): boolean {
 // SPEC-124 FR-003 adds an opt-in `selectableFiles` mode for the caller that targets
 // data rather than a destination (the data-quality dialog). There a file row can be
 // selected as the target, the resolved target is reported back via `onTargetChange`
-// (the picker keeps owning the browse state), and `markerKey` becomes required.
+// (the picker keeps owning the browse state).
 export function DestinationPicker({
   bucket,
   items,
   rootPrefix,
   rootLabel,
   currentPrefix,
-  markerKey,
   isBusy = false,
   destinations,
   allowCurrentParent = false,
@@ -129,13 +128,18 @@ export function DestinationPicker({
   // don't apply across buckets.
   const crossBucket = active.bucket !== bucket;
 
+  // SPEC-173 FR-008: with `query` off the saved-queries folder is not offered as a
+  // destination, alongside leaving the listing. Read here rather than drilled from
+  // four dialogs — every picker in the app inherits the rule from one place.
+  const queryEnabled = useFeature('query');
+  const lockedFolders = queryEnabled ? PICKER_LOCKED_FOLDERS : [...PICKER_LOCKED_FOLDERS, SAVED_QUERIES_FOLDER];
+
   const [browsePrefix, setBrowsePrefix] = useState(initial.rootPrefix);
   // Selectable-files mode only. Null = the browsed folder is the target.
   const [selectedFileKey, setSelectedFileKey] = useState<string | null>(null);
   const {folders, files, isLoading, error, hasMore, loadMore, isLoadingMore} = useFileBrowser(
     active.bucket,
-    browsePrefix,
-    markerKey
+    browsePrefix
   );
 
   // Navigating ALWAYS clears the file selection. The target must be the thing the
@@ -187,7 +191,7 @@ export function DestinationPicker({
   // folder is also hidden — it is never a valid write destination (SPEC-032).
   const operatedFolderPrefixes = new Set(items.filter((i) => i.type === 'folder').map((i) => i.prefix));
   const navigableFolders = folders.filter(
-    (f) => !operatedFolderPrefixes.has(f.prefix) && !isProtectedFolder(f.prefix, active.rootPrefix)
+    (f) => !operatedFolderPrefixes.has(f.prefix) && !isProtectedFolder(f.prefix, active.rootPrefix, lockedFolders)
   );
 
   // The confirm action is invalid anywhere inside an operated folder's own

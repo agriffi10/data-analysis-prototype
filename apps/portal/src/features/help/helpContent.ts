@@ -214,11 +214,13 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Save a query',
         subtitle: 'Keep the queries you reach for often.',
         intro:
-          'Got a query you’ll want again? Save it and give it a name so it’s a click away next time, instead of retyping it or hunting through your history.',
+          'Got a query you’ll want again? Save it and give it a name so it’s a click away next time, instead of retyping it or hunting through your history. A saved query is an ordinary <code>.sql</code> file in a <b>saved_queries</b> folder in your files, so you can find it, download it or delete it like anything else.',
         steps: [
           'With a valid query in the editor, click <b>Save</b>.',
-          'Give it a <b>Name</b> and click <b>Save</b> — saving again later updates it in place.',
-          'A small marker on the tab lets you know when your edits have drifted from the saved copy.'
+          'Give it a <b>Name</b> and click <b>Save</b>. Saving always asks for the name, so you can see which file you are about to write before you replace it.',
+          'Open <b>Saved queries</b> to see them, newest listing order, with when each changed and how big it is. Click <b>Open</b> to load one into a new tab.',
+          'A small marker on the tab lets you know when your edits have drifted from the file you opened.',
+          'The <b>saved_queries</b> folder itself can’t be deleted or renamed, but everything inside it is yours to manage.'
         ]
       },
       {

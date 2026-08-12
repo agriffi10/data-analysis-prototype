@@ -124,7 +124,7 @@ describe('userSpace', () => {
 
   describe('userSettingsKey', () => {
     it('builds the protected per-user document path', () => {
-      expect(userSettingsKey('alice', 'saved-queries.json')).toBe('alice/user_settings/saved-queries.json');
+      expect(userSettingsKey('alice', 'query-history.json')).toBe('alice/user_settings/query-history.json');
     });
   });
 });

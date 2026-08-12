@@ -3,7 +3,6 @@ import {useSearchParams} from 'react-router';
 import {
   FileBrowser,
   ensurePrefixMarker,
-  prefixMarkerKey,
   useFileSpace,
   usableSpaceTargets,
   type FileSpaceTarget
@@ -148,7 +147,6 @@ export default function FilesPage() {
   // one the React Compiler declines to preserve, and `npm run lint` fails on it.
   useProvideNavRail(sharedSpacesEnabled ? spacesRail : null);
 
-  const markerKey = target.markerOwner ? prefixMarkerKey(target.markerOwner) : undefined;
   const initialPrefix = prefixParam && prefixParam.startsWith(target.rootPrefix) ? prefixParam : target.rootPrefix;
   const ready = !!target.bucket && (devUnauthenticated || !!user);
 
@@ -186,7 +184,6 @@ export default function FilesPage() {
             prefix={initialPrefix}
             rootPrefix={target.rootPrefix}
             rootLabel={target.rootLabel}
-            markerKey={markerKey}
             writable={target.writable}
             username={devUnauthenticated ? undefined : target.markerOwner}
             destinations={destinations}

@@ -2,7 +2,6 @@ import {Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef
 import {useLocation, useSearchParams} from 'react-router';
 import {useAuth} from '../auth';
 import {cx} from '../../lib/cx';
-import {spaceBuckets} from '../../lib/userSpace';
 import {useQueryResults} from './useQueryResults';
 import {useResultsPageSize} from './useResultsPageSize';
 import {useResultRowCount} from './useResultRowCount';
@@ -16,7 +15,8 @@ import {useSaveResults} from './useSaveResults';
 import {useTableActions} from './useTableActions';
 import {useEditorLayout} from './useEditorLayout';
 import {useSavedQueries} from './useSavedQueries';
-import type {SavedQueriesWrite} from './useSavedQueries';
+import {useQuerySpaces} from './useQuerySpaces';
+import {ensureSavedQueriesFolder, readSavedQuery, writeSavedQuery} from './savedQueries.service';
 import {useConnections} from '../connections/useConnections';
 import {useFeature} from '../feature-flags';
 import {useAllSchemas, useSchema} from './useSchema';
@@ -43,18 +43,11 @@ import {QueryToolbar} from './QueryToolbar';
 import {QueryDialogs} from './QueryDialogs';
 import type {SqlEditorHandle} from './SqlEditor';
 import {isConnectionUsable} from '../connections/connection.types';
-import type {QueryHistoryEntry, QueryTab, SavedQuery, GlueTableSummary} from './query.types';
+import type {QueryHistoryEntry, QuerySpace, QueryTab, SavedQuery, GlueTableSummary} from './query.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
 // route / landing page never pay for it (SPEC-035 FR-003).
 const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({default: m.SqlEditor})));
-
-// SPEC-159: the saved-queries write failures this screen SPEAKS, as against the ones
-// it logs and swallows. Both mean the store on S3 could not be used and nothing was
-// written — one because a newer build wrote it (reload), one because the unreadable
-// document could not even be copied aside (nothing changed). Listed here rather than
-// inline so the exception to `logBackgroundFailure` stays a short, visible list.
-const SAVED_QUERIES_SPOKEN_CODES = new Set(['SavedQueriesNewerVersion', 'SavedQueriesQuarantineFailed']);
 
 // SPEC-035 query workspace (FR-002): schema browser (left) + editor/status/results
 // (main), wired to the SPEC-034 data layer. SPEC-041 makes the editor multi-tab:
@@ -63,11 +56,6 @@ const SAVED_QUERIES_SPOKEN_CODES = new Set(['SavedQueriesNewerVersion', 'SavedQu
 export function QueryWorkspace() {
   const {user} = useAuth();
   const username = user?.username ?? '';
-  // SPEC-049: the user-space bucket (also where Athena writes results) — the
-  // Save-results copy stays within it. SPEC-055: the shared-space bucket (where
-  // shared-DB results land + a Save target).
-  const {user: userSpaceBucket, shared: sharedSpaceBucket} = spaceBuckets();
-
   // SPEC-077: there is no active database. The rail browses every accessible
   // database; queries carry no execution context and must fully-qualify every
   // base table. `useConnections` still enumerates the browsable/queryable spaces.
@@ -217,28 +205,55 @@ export function QueryWorkspace() {
     appendEntry,
     updateEntry
   } = useQueryHistory(username || null);
-  const saved = useSavedQueries(username || null);
+  // SPEC-173 FR-005/006: saved queries are `.sql` files in a SPACE's `saved_queries/`
+  // folder. This spec always uses the user's own space (the first entry); SPEC-174
+  // passes the chosen one, so nothing below changes again.
+  const spaces = useQuerySpaces();
+  const personalSpace: QuerySpace | null = spaces[0] ?? null;
+  const saved = useSavedQueries(personalSpace);
 
-  // SPEC-043 FR-008: a linked tab is "dirty" when its editor SQL differs from the
-  // stored saved query. Drives the tab-strip marker. Derived in render (not state),
-  // memoized on their real inputs so the Map/Set aren't rebuilt every render (SPEC-083 FR-007).
-  const savedById = useMemo(() => new Map(saved.queries.map((q) => [q.id, q])), [saved.queries]);
+  // FR-001: hold the folder open, once per space per session. Best effort — a failure is
+  // logged and the workspace renders regardless, because saving a query creates the
+  // prefix on its own.
+  //
+  // The `.catch` is what makes "best effort" true of a REJECTION and not just of a failed
+  // `ServiceResult`. The service does not throw by contract, but a `.then`-only chain
+  // turns any breach of that contract into an unhandled rejection, which fails the whole
+  // test run rather than this one non-blocking call.
+  useEffect(() => {
+    if (!personalSpace) return;
+    void ensureSavedQueriesFolder(personalSpace)
+      .then((result) => {
+        if (!result.success) logBackgroundFailure('saved-queries-folder', result.error);
+      })
+      .catch((error: unknown) => logBackgroundFailure('saved-queries-folder', error));
+  }, [personalSpace]);
+
+  // SPEC-043 FR-008: a linked tab is "dirty" when its editor SQL differs from the file
+  // it was opened from. A `.sql` object carries no body until it is READ, so the
+  // comparison is against what this session last saw — the body fetched on open, or the
+  // buffer written on save — rather than a `sql` field on a list row that no longer
+  // exists. A tab restored from `sessionStorage` after a reload has no snapshot and
+  // shows no marker until it is opened or saved again; the alternative was a GetObject
+  // per linked tab on every mount.
+  const [savedSnapshots, setSavedSnapshots] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const rememberSavedSql = useCallback(
+    (key: string, sql: string) => setSavedSnapshots((prev) => new Map(prev).set(key, sql)),
+    []
+  );
   const dirtyTabIds = useMemo(
     () =>
       new Set(
         tabs.tabs
-          .filter((t) => {
-            const sq = t.savedQueryId ? savedById.get(t.savedQueryId) : undefined;
-            return sq !== undefined && !sameSql(sq.sql, t.sql);
+          .filter((tab) => {
+            const snapshot = tab.savedQuery ? savedSnapshots.get(tab.savedQuery.key) : undefined;
+            return snapshot !== undefined && !sameSql(snapshot, tab.sql);
           })
-          .map((t) => t.id)
+          .map((tab) => tab.id)
       ),
-    [tabs.tabs, savedById]
+    [tabs.tabs, savedSnapshots]
   );
-  const activeLinkedSaved = useMemo(
-    () => (activeTab.savedQueryId ? savedById.get(activeTab.savedQueryId) : undefined),
-    [activeTab.savedQueryId, savedById]
-  );
+  const activeLinkedSaved = activeTab.savedQuery;
 
   // SPEC-155 FR-009: the whole SPEC-041/078 batch state machine — per-tab runs,
   // the headless pollers, submission, sequential advancement, Stop and the
@@ -254,7 +269,7 @@ export function QueryWorkspace() {
     dropRunState,
     dismissError,
     selectResultTab
-  } = useTabRuns({username, activeTabId, tabs: tabs.tabs, savedById, appendEntry, updateEntry});
+  } = useTabRuns({username, activeTabId, tabs: tabs.tabs, appendEntry, updateEntry});
 
   // SPEC-155 FR-009: Create view and Drop table were the same forty lines twice.
   // One background-DDL path now runs, records and reports both.
@@ -309,9 +324,6 @@ export function QueryWorkspace() {
   // warn-and-confirm and the default file name.
   const saveResults = useSaveResults({
     username,
-    userSpaceBucket,
-    sharedSpaceBucket,
-    connections,
     outputLocation: displayOutputLocation,
     linkedSavedName: activeLinkedSaved?.name,
     toast
@@ -414,75 +426,100 @@ export function QueryWorkspace() {
     editorRef.current?.focus();
   };
 
-  // A saved-queries write that failed because the STORE ITSELF could not be used is
-  // the one background failure on this screen the user has to be told about, and
-  // `logBackgroundFailure` is dev-only. Its silence was calibrated for transient
-  // faults — retry and it works — but the Save flow optimistically renames the tab,
-  // so silence reads as success on the failures where nothing was written. Everything
-  // else keeps the silent log: narrowed by code so this stays an exception to that
-  // rule, not a repeal of it. Query-history writes are deliberately NOT included —
-  // they are a side effect the user never asked for, and toasting one per run would
-  // be the interruption `logBackgroundFailure` exists to avoid.
-  const reportSavedQueriesFailure = (error: unknown) => {
-    if (SAVED_QUERIES_SPOKEN_CODES.has((error as {code?: string} | null)?.code ?? '')) {
-      toast.push({variant: 'danger', message: toUserText(error)});
-      return;
-    }
-    logBackgroundFailure('saved-queries', error);
+  // SPEC-173 FR-006. Every save asks for a name — a linked tab's included, pre-filled
+  // and selected — because a user about to overwrite a file should be told which file,
+  // in which space, before it happens. The collision is a HEAD on the exact key inside
+  // `writeSavedQuery`, so this resolves its `Collision` failure into a replace confirm
+  // rather than scanning a list that may be paginated and may not be this space's.
+  const [saveCollision, setSaveCollision] = useState<string | null>(null);
+  // What the user last typed, so a trip through the replace confirm and back does not
+  // discard it. Cleared once the save lands or the dialog is dismissed.
+  const [typedName, setTypedName] = useState<string | null>(null);
+
+  const commitSave = (name: string, overwrite: boolean) => {
+    if (!personalSpace) return;
+    setTypedName(name);
+    const sql = activeTab.sql;
+    void (async () => {
+      const result = await writeSavedQuery({space: personalSpace, name, sql, overwrite});
+      if (!result.success) {
+        if (result.error.code === 'Collision') {
+          setSaveOpen(false);
+          setSaveCollision(name);
+          return;
+        }
+        // Clear the confirm too: it was raised by the FIRST attempt's collision, and
+        // leaving it up after the replace itself failed offers a retry of a step that has
+        // already happened.
+        setSaveCollision(null);
+        toast.push({variant: 'danger', message: `Couldn’t save the query. ${toUserText(result.error)}`});
+        return;
+      }
+      const query = result.data;
+      // The buffer just written IS the file's content, so the dirty marker clears
+      // without a read-back.
+      rememberSavedSql(query.key, sql);
+      tabs.setActiveTabMeta({
+        label: query.name,
+        savedQuery: {spaceId: query.spaceId, bucket: query.bucket, key: query.key, name: query.name}
+      });
+      setSaveOpen(false);
+      setSaveCollision(null);
+      setTypedName(null);
+      saved.refresh();
+      editorRef.current?.focus();
+    })();
   };
 
-  // SPEC-159 FR-004: the recovery is a SUCCESS, so nothing throws and nothing else on
-  // this screen would ever mention it — but the panel the user is looking at has just
-  // lost every query it used to hold, and the copy that was kept is in a folder they
-  // cannot browse. `info` rather than `danger`: the write worked, and unlike the two
-  // refusals this toast waits to be dismissed rather than flashing for four seconds.
-  // (A later push still replaces it — the host is single-toast — so this buys
-  // attention, not a guarantee.) Reached from the delete path too, which is why the
-  // wording never claims a save happened.
-  const reportSavedQueriesRecovery = ({recovered}: SavedQueriesWrite) => {
-    if (!recovered) return;
-    toast.push({variant: 'info', message: toUserText({code: 'SavedQueriesRecovered'})});
+  // FR-006: open a saved query into a new linked tab (cap dialog honored). Exactly one
+  // GetObject, and only here — a list row never fetches a body.
+  const handleOpenSaved = (query: SavedQuery) => {
+    void (async () => {
+      const body = await readSavedQuery({bucket: query.bucket, key: query.key});
+      if (!body.success) {
+        // The drawer stays open and no tab is opened: the user asked for this file, and
+        // an empty tab labelled with its name would be a worse answer than the message.
+        toast.push({variant: 'danger', message: toUserText(body.error)});
+        return;
+      }
+      const id = tabs.openTab({
+        // The label is the FILE's name from the store's own function, so a tab and a
+        // list row can never disagree about what a file is called.
+        label: query.name,
+        sql: body.data,
+        savedQuery: {spaceId: query.spaceId, bucket: query.bucket, key: query.key, name: query.name}
+      });
+      if (id === null) {
+        setLimitOpen(true);
+        return;
+      }
+      rememberSavedSql(query.key, body.data);
+      setSavedOpen(false);
+      editorRef.current?.focus();
+    })();
   };
 
-  // SPEC-043 FR-001/002/003: resolve the name prompt into an upsert. targetId is
-  // the saved query to write into (an existing id) or null to create a new one;
-  // either way the active tab is (re)linked + relabelled and its dirty marker
-  // clears (the saved sql now matches the tab sql).
-  const handleSaveConfirm = ({name, targetId}: {name: string; targetId: string | null}) => {
-    const now = new Date().toISOString();
-    const existing = targetId ? savedById.get(targetId) : undefined;
-    const query: SavedQuery = {
-      id: targetId ?? crypto.randomUUID(),
-      name,
-      sql: activeTab.sql,
-      // SPEC-077 FR-006: informational only (there's no active database). The
-      // personal database is recorded as the fixed default context.
-      database: username,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now
-    };
-    saved.upsert(query).then(reportSavedQueriesRecovery).catch(reportSavedQueriesFailure);
-    tabs.setActiveTabMeta({label: name, savedQueryId: query.id});
-    setSaveOpen(false);
-    editorRef.current?.focus();
+  // SPEC-100 + SPEC-173 FR-006: the mobile Saved list has no SQL to hand its Run/View
+  // until the file is read, so the fetch happens here — one GetObject, on the card the
+  // user actually chose, and never merely because the list is on screen.
+  const withSavedSql = (query: SavedQuery, use: (sql: string, title: string) => void) => {
+    void (async () => {
+      const body = await readSavedQuery({bucket: query.bucket, key: query.key});
+      if (!body.success) {
+        toast.push({variant: 'danger', message: toUserText(body.error)});
+        return;
+      }
+      use(body.data, query.name);
+    })();
   };
 
-  // FR-006: open a saved query into a new linked tab (cap dialog honored).
-  const handleOpenSaved = (q: SavedQuery) => {
-    const id = tabs.openTab({label: q.name, sql: q.sql, savedQueryId: q.id});
-    if (id === null) {
-      setLimitOpen(true);
-      return;
-    }
-    setSavedOpen(false);
-    editorRef.current?.focus();
-  };
-
-  // FR-007: delete a saved query (JSON rewrite, never an S3 delete) and unlink any
-  // open tab pointing at it (the tab keeps its SQL; a later Save creates new).
-  const handleDeleteSaved = (id: string) => {
-    saved.remove(id).then(reportSavedQueriesRecovery).catch(reportSavedQueriesFailure);
-    tabs.unlinkSavedQuery(id);
+  // FR-007: delete the file and unlink any open tab pointing at it (the tab keeps its
+  // SQL; a later Save creates a new file).
+  const handleDeleteSaved = (query: SavedQuery) => {
+    saved.remove(query).catch((e) => {
+      toast.push({variant: 'danger', message: `Couldn’t delete the query. ${toUserText(e)}`});
+    });
+    tabs.unlinkSavedQuery(query.key);
   };
 
   // SPEC-044/077/100: the per-table rail actions, and the mobile nav-rail copy
@@ -598,6 +635,8 @@ export function QueryWorkspace() {
               historyError={historyError}
               onRun={mobile.runSql}
               onView={mobile.viewSql}
+              onRunSaved={(q) => withSavedSql(q, mobile.runSql)}
+              onViewSaved={(q) => withSavedSql(q, mobile.viewSql)}
               runDisabled={activeIsInFlight || mobile.pending}
             />
           ) : (
@@ -744,6 +783,9 @@ export function QueryWorkspace() {
             queries={saved.queries}
             isLoading={saved.isLoading}
             error={saved.error}
+            hasMore={saved.hasMore}
+            loadMore={saved.loadMore}
+            isLoadingMore={saved.isLoadingMore}
             onOpen={handleOpenSaved}
             onDelete={handleDeleteSaved}
           />
@@ -754,11 +796,21 @@ export function QueryWorkspace() {
         clear={{open: clearOpen, onConfirm: handleClearConfirm, onCancel: () => setClearOpen(false)}}
         save={{
           open: saveOpen,
-          initialName: activeLinkedSaved?.name ?? '',
-          savedQueries: saved.queries,
-          linkedId: activeTab.savedQueryId,
-          onSave: handleSaveConfirm,
-          onCancel: () => setSaveOpen(false)
+          // The name the user TYPED wins over the linked file's, so backing out of the
+          // replace confirm returns them to what they wrote rather than an empty field.
+          initialName: saveCollision ?? typedName ?? activeLinkedSaved?.name ?? '',
+          spaceLabel: personalSpace?.label ?? 'My files',
+          collidingName: saveCollision,
+          onSave: (name) => commitSave(name, false),
+          onReplace: (name) => commitSave(name, true),
+          onCancelReplace: () => {
+            setSaveCollision(null);
+            setSaveOpen(true); // back to the dialog with the name still in the field
+          },
+          onCancel: () => {
+            setTypedName(null);
+            setSaveOpen(false);
+          }
         }}
         closing={{tab: closing, onConfirm: confirmClose, onCancel: () => setClosing(null)}}
         tabLimit={{open: limitOpen, onDismiss: () => setLimitOpen(false)}}

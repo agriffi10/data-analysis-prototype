@@ -15,9 +15,22 @@ import {
   HIDDEN_BROWSER_FOLDERS,
   PICKER_LOCKED_FOLDERS,
   UNDELETABLE_ROOT_FOLDERS,
+  undeletableRootFolderRefusal,
   isRootFolderNamed,
   isUndeletableRootFolder
 } from './protectedFolders';
+import {
+  PREFIX_MARKER_BODY,
+  PREFIX_MARKER_FILENAME,
+  SAVED_QUERIES_FOLDER,
+  SAVED_QUERIES_MARKER_BODY,
+  isMarkerName
+} from './fileBrowser.constants';
+// Read through Vite's own `?raw` / `import.meta.glob` rather than `node:fs`: the app
+// tsconfig carries no node types, so `tsc -b` — the only typecheck CI runs — rejects an
+// fs import here.
+import portalRolePolicy from '../../../../../infra/modules/data/policies/portal-role-permissions.json.tftpl?raw';
+import sharedSpacePolicy from '../../../../../infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl?raw';
 import {createElement} from 'react';
 import type {ReactNode} from 'react';
 import {act, renderHook} from '@testing-library/react';
@@ -231,7 +244,7 @@ describe('protectedFolders', () => {
     // not a union of the other lists: athenaresults/ stays visible and browsable.
     describe('isUndeletableRootFolder', () => {
       it('covers athenaresults/ without changing what the browser shows', () => {
-        expect(UNDELETABLE_ROOT_FOLDERS).toEqual(['athenaresults']);
+        expect(UNDELETABLE_ROOT_FOLDERS).toContain('athenaresults');
         expect(HIDDEN_BROWSER_FOLDERS).not.toContain('athenaresults');
       });
 
@@ -383,5 +396,107 @@ describe('invalidateListing', () => {
 
   it('produces a key that matches the factory (single source of truth)', () => {
     expect(fileBrowserKeys.list('b', 'p/')).toEqual(['file-browser', 'list', 'b', 'p/']);
+  });
+});
+
+// ─── SPEC-173: the saved-queries folder, its marker and its protections ───
+describe('the saved_queries/ folder (SPEC-173)', () => {
+  describe('the three lists stay three lists (FR-002)', () => {
+    it('is undeletable ONLY — visible, pasteable, undestroyable', () => {
+      // A later edit that "tidies" the lists into a union fails here. This folder's
+      // answers are yes / yes / no, and the narrowness is the design: a folder the
+      // user cannot treat as a folder is a folder they will fight.
+      expect(UNDELETABLE_ROOT_FOLDERS).toContain(SAVED_QUERIES_FOLDER);
+      expect(HIDDEN_BROWSER_FOLDERS).not.toContain(SAVED_QUERIES_FOLDER);
+      expect(PICKER_LOCKED_FOLDERS).not.toContain(SAVED_QUERIES_FOLDER);
+    });
+
+    it('is protected at a space root, personal or shared, and nowhere else', () => {
+      expect(isUndeletableRootFolder('alice/saved_queries/', 'alice/')).toBe(true);
+      expect(isUndeletableRootFolder('project_alpha/saved_queries/', 'project_alpha/')).toBe(true);
+      // A nested folder that merely shares the name is an ordinary user folder.
+      expect(isUndeletableRootFolder('alice/reports/saved_queries/', 'alice/')).toBe(false);
+    });
+
+    it('names saved queries in its refusal, and query results in theirs', () => {
+      expect(undeletableRootFolderRefusal('alice/saved_queries/', 'alice/', 'delete')).toMatch(/saved queries/i);
+      expect(undeletableRootFolderRefusal('alice/saved_queries/', 'alice/', 'move')).toMatch(/moved or renamed/i);
+      expect(undeletableRootFolderRefusal('alice/athenaresults/', 'alice/', 'delete')).toMatch(/query results/i);
+      expect(undeletableRootFolderRefusal('alice/photos/', 'alice/', 'delete')).toBeNull();
+    });
+  });
+
+  describe('the marker (FR-001/FR-003)', () => {
+    it('reuses the marker FILENAME, because the IAM Deny keys on that exact basename', () => {
+      expect(SAVED_QUERIES_FOLDER).toBe('saved_queries');
+      expect(PREFIX_MARKER_FILENAME).toBe('DO_NOT_DELETE.txt');
+    });
+
+    it('has its own body text, which never claims to keep a PERSONAL space alive', () => {
+      // PREFIX_MARKER_BODY says "your personal storage space", which is wrong in a
+      // shared space and wrong about what this folder is.
+      expect(SAVED_QUERIES_MARKER_BODY).not.toBe(PREFIX_MARKER_BODY);
+      expect(SAVED_QUERIES_MARKER_BODY).not.toMatch(/personal/i);
+      expect(SAVED_QUERIES_MARKER_BODY).toMatch(/saved queries/i);
+    });
+
+    it('has no caller left passing a marker key — the rule is the basename, not a prop', () => {
+      // FR-003 AC5. `useFileBrowser` used to take an exact key, threaded from four
+      // dialogs and two pages; a caller that forgot it left the space's own marker sitting
+      // in the listing as a selectable row. A source sweep, because the property is the
+      // ABSENCE of a prop and no type can assert that once it is gone.
+      const sources = import.meta.glob('/src/**/*.{ts,tsx}', {query: '?raw', import: 'default', eager: true}) as Record<
+        string,
+        string
+      >;
+      const offenders = Object.entries(sources)
+        .filter(([path]) => !path.endsWith('fileBrowserPure.test.ts'))
+        .filter(([, body]) => body.includes('markerKey'))
+        .map(([path]) => path);
+
+      // Guard the guard: a sweep that reads nothing would pass forever.
+      expect(Object.keys(sources).length).toBeGreaterThan(100);
+      expect(offenders).toEqual([]);
+    });
+
+    it('matches a marker by BASENAME, at any depth, in either bucket', () => {
+      expect(isMarkerName('alice/DO_NOT_DELETE.txt')).toBe(true);
+      expect(isMarkerName('alice/saved_queries/DO_NOT_DELETE.txt')).toBe(true);
+      expect(isMarkerName('project_alpha/saved_queries/DO_NOT_DELETE.txt')).toBe(true);
+      expect(isMarkerName('DO_NOT_DELETE.txt')).toBe(true);
+    });
+
+    it('is exact and case-sensitive, as S3 keys are', () => {
+      expect(isMarkerName('alice/DO_NOT_DELETE.txt.bak')).toBe(false);
+      expect(isMarkerName('alice/notes/do_not_delete.txt')).toBe(false);
+      expect(isMarkerName('alice/XDO_NOT_DELETE.txt')).toBe(false);
+    });
+  });
+
+  // FR-009. The whole arc ships NO IaC change, and it rests entirely on one reading:
+  // `*` in an S3 resource ARN matches `/`, so `*/DO_NOT_DELETE.txt` already covers a
+  // marker at `{root}saved_queries/` and at any other depth. Pinned here so a later
+  // IAM edit that NARROWS the wildcard fails in CI rather than in production. The
+  // reading itself still owes a live confirmation — a real delete, refused.
+  describe('the two Deny statements this arc leans on (FR-009)', () => {
+    // `process.cwd()` is `apps/portal` under vitest, so two levels up is the repo root.
+    it.each([
+      ['portal-role-permissions.json.tftpl', 'ProtectPrefixMarker', portalRolePolicy],
+      ['portal-role-shared-space.json.tftpl', 'SharedMarkerNoDelete', sharedSpacePolicy]
+    ])('%s denies DeleteObject on the marker basename at any depth', (file, sid, body) => {
+      // Matched as TEXT, not parsed as JSON: the shared-space template carries HCL
+      // `%{ for }` directives, so it RENDERS to JSON rather than being JSON.
+      const start = body.indexOf(`"Sid": "${sid}"`);
+      expect(start, `${file} has no ${sid} statement`).toBeGreaterThan(-1);
+      const nextSid = body.indexOf('"Sid"', start + 1);
+      const statement = body.slice(start, nextSid === -1 ? undefined : nextSid);
+
+      // Guard the guard: a slice that swallowed the whole document would pass on
+      // any Deny anywhere in the policy.
+      expect(statement.length).toBeLessThan(body.length);
+      expect(statement).toMatch(/"Effect":\s*"Deny"/);
+      expect(statement).toContain('s3:DeleteObject');
+      expect(statement).toContain(`/*/${PREFIX_MARKER_FILENAME}"`);
+    });
   });
 });

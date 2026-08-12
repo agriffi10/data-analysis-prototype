@@ -9,7 +9,6 @@ type Props = {
   rootPrefix: string; // navigation floor (user's space root)
   rootLabel?: string; // label for the root crumb (hides the username segment)
   currentPrefix: string; // the items' current parent — not a valid destination
-  markerKey?: string;
   isBusy?: boolean;
   destinations?: FileSpaceTarget[]; // connections the move can target (feedback 2026-06-30)
   onMove: (destPrefix: string, destBucket: string) => void;
@@ -26,7 +25,6 @@ export function MoveDialog({
   rootPrefix,
   rootLabel,
   currentPrefix,
-  markerKey,
   isBusy = false,
   destinations,
   onMove,
@@ -48,7 +46,6 @@ export function MoveDialog({
         rootPrefix={rootPrefix}
         rootLabel={rootLabel}
         currentPrefix={currentPrefix}
-        markerKey={markerKey}
         isBusy={isBusy}
         destinations={destinations}
         autoFocus

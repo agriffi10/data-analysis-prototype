@@ -41,8 +41,10 @@ export type QueryHistoryEntry = {
   status?: QueryState;
   dataScannedBytes?: number;
   durationMs?: number;
-  /** Set when the run originated from a tab linked to a saved query. */
-  savedQueryId?: string;
+  /** Set when the run originated from a tab linked to a saved query (SPEC-173: the
+   * file's KEY, which is its identity, replacing the retired store's id). Recorded but
+   * never rendered — `savedQueryName` is what the history row shows. */
+  savedQueryKey?: string;
   savedQueryName?: string;
 };
 
@@ -94,8 +96,8 @@ export type QueryTab = {
   label: string;
   /** This tab's editor text (the persisted, durable field). */
   sql: string;
-  /** Set when opened from a saved query. */
-  savedQueryId?: string;
+  /** Set when opened from a saved query (SPEC-173, replaces `savedQueryId`). */
+  savedQuery?: SavedQueryLink;
 };
 
 export type QueryTabsState = {
@@ -108,21 +110,54 @@ export type QueryTabsState = {
   nextQueryNumber: number;
 };
 
-/** User-named SQL kept for re-running, persisted per-user in the same S3 JSON-store pattern as history. */
-export type SavedQuery = {
+/**
+ * A space a saved query (or a saved result) can live in: the user's own space, or a
+ * shared space they are an active member of. Replaces SPEC-049's `DestinationSpace`,
+ * so the query feature has ONE definition of what a space is.
+ */
+export type QuerySpace = {
+  /** 'personal' for the user's own space; the shared-space name otherwise. */
   id: string;
-  /** User-supplied; collisions are warn-and-confirm. */
-  name: string;
-  sql: string;
-  /** = username for now (single DB); kept for forward-compat. */
-  database: string;
-  /** ISO timestamp. */
-  createdAt: string;
-  /** ISO timestamp. */
-  updatedAt: string;
+  /** Display label: 'My files', or the space name. */
+  label: string;
+  bucket: string;
+  /** The space root, trailing slash: `alice/` or `project_alpha/`. */
+  rootPrefix: string;
+  /** Label for the root row in a folder picker. */
+  rootLabel: string;
 };
 
-export type SavedQueriesStore = {
-  version: 1;
+/**
+ * One `.sql` object in a space's `saved_queries/` folder (SPEC-173).
+ *
+ * The key IS the identity and the filename IS the name — there is no id and no record,
+ * because a `.sql` file cannot carry one without a sidecar this feature deliberately
+ * does not have.
+ */
+export type SavedQuery = {
+  spaceId: string;
+  bucket: string;
+  /** `{rootPrefix}saved_queries/{name}.sql` */
+  key: string;
+  /** The filename without its `.sql` suffix. */
+  name: string;
+  /** S3 LastModified, ISO 8601. */
+  updatedAt: string;
+  /** Object size in bytes. */
+  size: number;
+};
+
+/** One `ListObjectsV2` page of a space's saved queries, in S3's own (lexicographic) order. */
+export type SavedQueryPage = {
   queries: SavedQuery[];
+  isTruncated: boolean;
+  nextContinuationToken?: string;
+};
+
+/** What a tab remembers about the saved query it was opened from. */
+export type SavedQueryLink = {
+  spaceId: string;
+  bucket: string;
+  key: string;
+  name: string;
 };

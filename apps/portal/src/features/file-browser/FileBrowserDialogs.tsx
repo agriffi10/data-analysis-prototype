@@ -18,7 +18,6 @@ type Props = {
   rootPrefix: string;
   rootLabel: string | undefined;
   currentPrefix: string;
-  markerKey: string | undefined;
   /** The space's root-prefix owner; absent in the dev-unauth path. */
   username: string | undefined;
   spaceKind: FileSpaceKind | undefined;
@@ -42,7 +41,6 @@ export function FileBrowserDialogs({
   rootPrefix,
   rootLabel,
   currentPrefix,
-  markerKey,
   username,
   spaceKind,
   destinations,
@@ -107,7 +105,6 @@ export function FileBrowserDialogs({
           rootPrefix={rootPrefix}
           rootLabel={rootLabel}
           currentPrefix={currentPrefix}
-          markerKey={markerKey}
           isBusy={move.isBusy}
           destinations={destinations}
           onMove={dialogs.confirmMove}
@@ -125,7 +122,6 @@ export function FileBrowserDialogs({
           rootPrefix={rootPrefix}
           rootLabel={rootLabel}
           currentPrefix={currentPrefix}
-          markerKey={markerKey}
           isBusy={copy.isBusy}
           destinations={destinations}
           sameFolderPrompt={

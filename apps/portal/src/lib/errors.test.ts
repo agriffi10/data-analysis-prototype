@@ -69,45 +69,49 @@ describe('errorMessages', () => {
 
     it('tells the user a settings write was refused AND that nothing was lost', () => {
       // Reached when the document could not be read AND could not be copied aside,
-      // so the write was refused rather than overwriting it. Both must say "nothing
+      // so the write was refused rather than overwriting it. It must say "nothing
       // was changed" — a bare "Something went wrong" would leave the user assuming
-      // the opposite of what happened.
-      for (const code of ['SavedQueriesQuarantineFailed', 'QueryHistoryQuarantineFailed']) {
-        const {message} = toUserMessage({code, message: 'Unexpected token } in JSON at position 4'});
-        expect(message).toContain('nothing was changed');
-        expect(message).not.toBe('Something went wrong. Contact the Administrator.');
-        // Never the raw parser text.
-        expect(message).not.toContain('JSON');
-      }
+      // the opposite of what happened. SPEC-173 retired the saved-queries store, so
+      // query history is the one `user_settings/` document left on this path.
+      const {message} = toUserMessage({
+        code: 'QueryHistoryQuarantineFailed',
+        message: 'Unexpected token } in JSON at position 4'
+      });
+      expect(message).toContain('nothing was changed');
+      expect(message).not.toBe('Something went wrong. Contact the Administrator.');
+      // Never the raw parser text.
+      expect(message).not.toContain('JSON');
     });
 
     it('sends a NEWER settings document to the one fix that works — reload, not the administrator', () => {
       // The refusal here is deliberate and the document is fine: a newer tab wrote
       // it. "Contact the Administrator" would be false advice, and quarantining it
       // would be the downgrade the refusal exists to prevent (SPEC-159 FR-001).
-      for (const code of ['SavedQueriesNewerVersion', 'QueryHistoryNewerVersion']) {
-        const {message} = toUserMessage({code, message: 'version 2 is not readable'});
-        expect(message).toMatch(/reload/i);
-        expect(message).not.toContain('Contact the Administrator');
-        expect(message).not.toBe('Something went wrong. Contact the Administrator.');
-      }
+      const {message} = toUserMessage({code: 'QueryHistoryNewerVersion', message: 'version 2 is not readable'});
+      expect(message).toMatch(/reload/i);
+      expect(message).not.toContain('Contact the Administrator');
+      expect(message).not.toBe('Something went wrong. Contact the Administrator.');
     });
 
     it('says what became of the data when a write RECOVERED from an unreadable document', () => {
       // The one outcome of the three that is a success, and the only channel the
       // user has for learning that the list in front of them is not the one they
       // had. Silence here reads as an ordinary save (SPEC-159 FR-004).
-      const saved = toUserMessage({code: 'SavedQueriesRecovered'}).message;
-      expect(saved).toMatch(/copy was kept/i);
-      expect(saved).toMatch(/earlier saved queries aren’t in the list/i);
-      expect(saved).not.toBe('Something went wrong. Contact the Administrator.');
-      // Both saving and DELETING a query reach this message, so it may not claim a
-      // save happened — on the delete path that would be a plain lie.
-      expect(saved).not.toMatch(/this query was saved/i);
-
       const history = toUserMessage({code: 'QueryHistoryRecovered'}).message;
       expect(history).toMatch(/copy was kept/i);
       expect(history).not.toBe('Something went wrong. Contact the Administrator.');
+    });
+
+    it('names the saved query that vanished, rather than saying “that item” (SPEC-173)', () => {
+      // A user looking at a list of twenty-five queries needs to know WHICH one is
+      // gone, which is why this is its own passthrough code and not generic NotFound.
+      expect(toUserMessage({code: 'SavedQueryNotFound', message: '“Q1 revenue” no longer exists.'}).message).toBe(
+        '“Q1 revenue” no longer exists.'
+      );
+      // The retired store's three codes are gone with it — nothing maps them any more.
+      for (const code of ['SavedQueriesRecovered', 'SavedQueriesNewerVersion', 'SavedQueriesQuarantineFailed']) {
+        expect(toUserMessage({code}).message).toBe('Something went wrong. Contact the Administrator.');
+      }
     });
 
     it('preserves service-authored "missed information" text via passthrough codes (FR-005)', () => {

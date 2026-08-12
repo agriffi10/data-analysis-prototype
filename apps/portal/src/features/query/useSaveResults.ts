@@ -1,14 +1,13 @@
-import {useMemo, useState} from 'react';
+import {useState} from 'react';
 import {useNavigate} from 'react-router';
 import {useQueryClient} from '@tanstack/react-query';
 import {copyObject} from '../file-browser/fileBrowser.service';
 import {invalidateListing} from '../file-browser';
 import {parseS3Url} from '../../lib/s3Url';
 import {toUserText} from '../../lib/errorMessages';
-import {isConnectionUsable} from '../connections/connection.types';
-import type {Connection} from '../connections/connection.types';
+import {useQuerySpaces} from './useQuerySpaces';
 import type {ToastApi} from '../../components/toastContext';
-import type {DestinationSpace} from './SaveResultsDialog';
+import type {QuerySpace} from './query.types';
 
 /**
  * A pending overwrite confirm when the chosen destination key already exists.
@@ -25,7 +24,7 @@ export type OverwritePrompt = {
 
 export type UseSaveResultsResult = {
   /** The destinations offered by the picker; the dialog is suppressed when empty. */
-  spaces: DestinationSpace[];
+  spaces: QuerySpace[];
   open: boolean;
   openDialog: () => void;
   closeDialog: () => void;
@@ -42,9 +41,6 @@ export type UseSaveResultsResult = {
 
 type Params = {
   username: string;
-  userSpaceBucket: string | undefined;
-  sharedSpaceBucket: string | undefined;
-  connections: Connection[];
   /** The S3 URL of the result being displayed, or undefined when there is none. */
   outputLocation: string | undefined;
   /** The active tab's linked saved-query name, used for the default file name. */
@@ -61,15 +57,7 @@ type Params = {
  * (SPEC-039) rather than overwriting, and the destination listing is invalidated
  * so the new file appears if the user browses there.
  */
-export function useSaveResults({
-  username,
-  userSpaceBucket,
-  sharedSpaceBucket,
-  connections,
-  outputLocation,
-  linkedSavedName,
-  toast
-}: Params): UseSaveResultsResult {
+export function useSaveResults({username, outputLocation, linkedSavedName, toast}: Params): UseSaveResultsResult {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -78,29 +66,10 @@ export function useSaveResults({
 
   // SPEC-055 FR-003: the spaces a result can be saved into — the user's own space
   // first, then every shared space they currently belong to (usable). The picker
-  // excludes each space's protected `athenaresults/` folder.
-  const spaces = useMemo<DestinationSpace[]>(() => {
-    if (!userSpaceBucket) return [];
-    const personal: DestinationSpace = {
-      id: 'personal',
-      label: 'My files',
-      bucket: userSpaceBucket,
-      rootPrefix: `${username}/`,
-      rootLabel: 'My Files'
-    };
-    const shared: DestinationSpace[] = sharedSpaceBucket
-      ? connections
-          .filter((c) => c.kind === 'shared' && isConnectionUsable(c))
-          .map((c) => ({
-            id: c.database,
-            label: c.database,
-            bucket: sharedSpaceBucket,
-            rootPrefix: `${c.database}/`,
-            rootLabel: c.database
-          }))
-      : [];
-    return [personal, ...shared];
-  }, [userSpaceBucket, sharedSpaceBucket, username, connections]);
+  // excludes each space's protected `athenaresults/` folder. SPEC-173 FR-005: the list
+  // is `useQuerySpaces`, shared with the saved-queries surfaces rather than rebuilt.
+  const spaces = useQuerySpaces();
+  const personalBucket = spaces[0]?.bucket;
 
   // SPEC-049: default file name — the saved query's name when the tab is linked,
   // else a generic stamp; sanitized to the leaf-name rule (no slash/control chars).
@@ -148,7 +117,7 @@ export function useSaveResults({
       void invalidateListing(queryClient, args.destBucket, args.destPrefix);
       // SPEC-055: the Files browser only renders the personal space until SPEC-057,
       // so the "View in Files" deep-link is offered only for a personal-space save.
-      const isPersonalDest = args.destBucket === userSpaceBucket;
+      const isPersonalDest = args.destBucket === personalBucket;
       toast.push({
         variant: 'success',
         message: `Saved to ${args.destPrefix}${args.filename}`,

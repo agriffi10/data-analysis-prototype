@@ -29,7 +29,10 @@ vi.mock('../file-browser/fileBrowser.service', async (importActual) => ({
   listFiles: vi.fn(),
   getObjectMetadata: vi.fn(),
   getDownloadUrl: vi.fn(),
-  objectExists: vi.fn(),
+  // Resolved, not bare: `QueryWorkspace` holds its `saved_queries/` folder open on mount
+  // (SPEC-173 FR-001), and a `vi.fn()` returning undefined made that a rejection that
+  // reddened the whole run from a recipe that has nothing to do with it.
+  objectExists: vi.fn().mockResolvedValue({success: true, data: true}),
   uploadFile: vi.fn(),
   createFolder: vi.fn()
 }));
@@ -229,6 +232,23 @@ const RECIPES: Record<string, Recipe> = {
     find: byRole('button', 'Go to Dashboard')
   },
   'Create table': {render: renderFileBrowser, anchor: fileBrowserReady, find: byRole('button', 'Create table')},
+  // The REAL /files page against a listing that contains the folder — a recipe that
+  // re-applied the gate itself would pass with the app's own gate deleted (measured).
+  'saved_queries folder': {
+    render: () => {
+      vi.mocked(listFiles).mockResolvedValue({
+        success: true,
+        data: {
+          files: [],
+          folders: [{type: 'folder', prefix: 'alice/saved_queries/', name: 'saved_queries'}],
+          isTruncated: false
+        }
+      } as never);
+      renderFilesPage();
+    },
+    anchor: filesPageReady,
+    find: byRole('button', 'Open folder saved_queries')
+  },
   'Check data quality of the selected item': {
     render: renderFileBrowser,
     anchor: fileBrowserReady,
@@ -567,6 +587,10 @@ describe('the registry itself', () => {
         'Create table',
         'Refresh table',
         'Share table',
+        // SPEC-173: added to the contract, like the two shared-workspace rows below —
+        // a saved query is a FILE now, so the folder holding them is a Query surface
+        // living on the file browser's screen.
+        'saved_queries folder',
         'Create view',
         'Query help section',
         'Tables help section'

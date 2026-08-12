@@ -38,9 +38,10 @@ export type WriteOutcome<T> = ServiceResult<T> & {recovered?: boolean};
  * a corrupt one — telling the two apart is the whole point, because the corrupt case is
  * recovered by quarantining the bytes and the newer case must be left strictly alone.
  *
- * Written once here rather than per document: `saved-queries.json` and `query-history.json`
- * had byte-identical parsers differing only in the array field's name, and a tightened
- * classifier that reached one of them and not the other is the drift this closes.
+ * Written once here rather than per document: `saved-queries.json` (retired by SPEC-173)
+ * and `query-history.json` had byte-identical parsers differing only in the array field's
+ * name, and a tightened classifier that reached one and not the other is the drift this
+ * closes.
  *
  * An absent or zero-byte body is the EMPTY document, not a failure — absence has nothing
  * to lose. Everything else that is not the current version and shaped right is
@@ -190,7 +191,7 @@ function basicUtcTimestamp(now: Date): string {
  *   key: storeKey(username),
  *   parse: (body) => ({success: true, data: parseStore(body)}),
  *   onMissing: () => ({success: true, data: emptyStore()}),
- *   fallbackMessage: 'Failed to load saved queries'
+ *   fallbackMessage: 'Failed to load query history'
  * });
  */
 export async function readJsonDocument<T>(opts: {
@@ -225,7 +226,7 @@ export async function readJsonDocument<T>(opts: {
  * could not parse therefore commits emptiness over the real document — losing the whole
  * file rather than one update. The forgiving parse is right for DISPLAY and wrong before a
  * write, so a read-modify-write must classify the body first (`classifyDocument`, and see
- * `savedQueries.service.ts`'s `storeForWrite`) and reach this function only for a body it
+ * `queryHistory.service.ts`'s write path) and reach this function only for a body it
  * could read or one it has first copied aside with `quarantineDocument`; an absent object
  * is still the empty document, because absence has nothing to lose.
  *

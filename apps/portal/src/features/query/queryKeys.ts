@@ -14,7 +14,9 @@ export const queryKeys = {
   // so the large-page count never perturbs the visible 20/page pager cache.
   rowCount: (id: string) => [...queryKeys.all, 'rowCount', id] as const,
   history: (username: string) => [...queryKeys.all, 'history', username] as const,
-  savedQueries: (username: string) => [...queryKeys.all, 'savedQueries', username] as const,
+  // Keyed by SPACE, not by user (SPEC-173): saved queries are files in a space's
+  // `saved_queries/` folder, and the same user reads a different list per space.
+  savedQueries: (spaceId: string) => [...queryKeys.all, 'savedQueries', spaceId] as const,
   // Merged personal + shared connection list; refresh-connections invalidates this key.
   connections: (username: string) => [...queryKeys.all, 'connections', username] as const
 };

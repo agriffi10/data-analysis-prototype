@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {Modal} from '../../components/Modal';
-import {DestinationPicker, prefixMarkerKey, type FileSpaceTarget} from '../file-browser';
+import {DestinationPicker, type FileSpaceTarget} from '../file-browser';
 import {splitLocation} from './dataQuality.format';
 import type {DataQualitySpace} from './dataQuality.types';
 import type {DataQualityTarget} from './useDataQualityCheck';
@@ -60,9 +60,6 @@ export function StartQualityCheckDialog({spaces, isPending = false, onStart, onC
   const location = target?.fileKey ?? target?.prefix ?? space.rootPrefix;
   const targetParts = splitLocation(location);
   const isFile = target?.fileKey !== undefined;
-  // The marker owner is the space's root segment: `{space}/DO_NOT_DELETE.txt`.
-  const markerKey = prefixMarkerKey(space.label);
-
   const handleConfirm = (destPrefix: string, _destBucket: string, selectedFileKey?: string) => {
     const dqSpace: DataQualitySpace = {
       kind: space.kind,
@@ -140,7 +137,6 @@ export function StartQualityCheckDialog({spaces, isPending = false, onStart, onC
         // root target is dead on arrival.
         allowCurrentParent
         selectableFiles
-        markerKey={markerKey}
         listLabel="Folders and files to check"
         onTargetChange={handleTargetChange}
         isBusy={isPending}

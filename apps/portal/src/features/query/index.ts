@@ -9,7 +9,18 @@ export {
 } from './query.service';
 export {getDatabase, listTables} from './glue.service';
 export {getQueryHistory, appendQueryHistory, updateQueryHistoryEntry} from './queryHistory.service';
-export {getSavedQueries, upsertSavedQuery, removeSavedQuery} from './savedQueries.service';
+export {
+  ensureSavedQueriesFolder,
+  listSavedQueries,
+  readSavedQuery,
+  writeSavedQuery,
+  deleteSavedQuery,
+  savedQueriesPrefix,
+  savedQueryKey,
+  savedQueryName,
+  validateSavedQueryName
+} from './savedQueries.service';
+export {useQuerySpaces} from './useQuerySpaces';
 export {useQueryExecution} from './useQueryExecution';
 export {useQueryResults} from './useQueryResults';
 export type {UseQueryResultsResult} from './useQueryResults';
@@ -59,6 +70,8 @@ export type {
   QueryHistory,
   QueryTab,
   QueryTabsState,
+  QuerySpace,
   SavedQuery,
-  SavedQueriesStore
+  SavedQueryPage,
+  SavedQueryLink
 } from './query.types';

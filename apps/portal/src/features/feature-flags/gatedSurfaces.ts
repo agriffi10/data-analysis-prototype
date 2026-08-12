@@ -63,6 +63,12 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: '/query', kind: 'route', path: '/query'},
     // In the FILE BROWSER, not the Query workspace. The one everyone forgets.
     {name: 'Create table', kind: 'control', path: '/files'},
+    // SPEC-173. The SECOND of that kind: a folder row in the file browser that is a Query
+    // feature. With `query` off it leaves the listing and the destination picker together —
+    // a destination the user cannot see is not a destination. Its delete/rename refusal is
+    // NOT part of the gate and is asserted with the flag off, because "you cannot see it"
+    // and "you cannot destroy it" are different guarantees.
+    {name: 'saved_queries folder', kind: 'control', path: '/files'},
     // Belt to the route's braces: a later spec surfacing these elsewhere inherits the row.
     {name: 'Refresh table', kind: 'control', path: '/query'},
     {name: 'Share table', kind: 'control', path: '/query'},

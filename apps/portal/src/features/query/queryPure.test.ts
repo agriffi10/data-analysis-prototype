@@ -287,6 +287,14 @@ describe('query.sql', () => {
   });
 });
 
+// A tab's link to the file it was opened from (SPEC-173): the key IS the identity.
+const SAVED_LINK = {
+  spaceId: 'personal',
+  bucket: 'user-space',
+  key: 'alice/saved_queries/Monthly revenue.sql',
+  name: 'Monthly revenue'
+};
+
 // ─── from queryTabs.test.ts ───
 describe('queryTabs', () => {
   const KEY = `${QUERY_TABS_STORAGE_PREFIX}alice`;
@@ -296,7 +304,7 @@ describe('queryTabs', () => {
       version: 1,
       tabs: [
         {id: 'a', label: 'Query 1', sql: 'SELECT 1;'},
-        {id: 'b', label: 'Monthly revenue', sql: 'SELECT 2;', savedQueryId: 'sq-1'}
+        {id: 'b', label: 'Monthly revenue', sql: 'SELECT 2;', savedQuery: SAVED_LINK}
       ],
       activeTabId: 'b',
       nextQueryNumber: 2
@@ -325,6 +333,39 @@ describe('queryTabs', () => {
     });
 
     it('returns null when no state exists', () => {
+      expect(readTabsState('alice')).toBeNull();
+    });
+
+    it('keeps version 1 and IGNORES a pre-SPEC-173 savedQueryId — the tabs survive, the link does not', () => {
+      // Bumping the version would have thrown the user's open buffers away in order to
+      // discard one field, so the reader simply does not look at it.
+      sessionStorage.setItem(
+        KEY,
+        JSON.stringify({
+          version: 1,
+          tabs: [{id: 'a', label: 'Revenue', sql: 'SELECT 1;', savedQueryId: 'sq-1'}],
+          activeTabId: 'a',
+          nextQueryNumber: 2
+        })
+      );
+
+      const state = readTabsState('alice');
+
+      expect(state?.tabs[0].sql).toBe('SELECT 1;');
+      expect(state?.tabs[0].savedQuery).toBeUndefined();
+    });
+
+    it('rejects a malformed savedQuery link rather than half-linking a tab', () => {
+      sessionStorage.setItem(
+        KEY,
+        JSON.stringify({
+          version: 1,
+          tabs: [{id: 'a', label: 'Revenue', sql: 'SELECT 1;', savedQuery: {key: 'alice/saved_queries/a.sql'}}],
+          activeTabId: 'a',
+          nextQueryNumber: 2
+        })
+      );
+
       expect(readTabsState('alice')).toBeNull();
     });
 
@@ -813,13 +854,13 @@ describe('useQueryTabs', () => {
           void result.current.openTab({
             label: 'Monthly revenue',
             sql: 'SELECT * FROM rev;',
-            savedQueryId: 'sq-1'
+            savedQuery: SAVED_LINK
           })
       );
       const active = result.current.activeTab;
       expect(active.label).toBe('Monthly revenue');
       expect(active.sql).toBe('SELECT * FROM rev;');
-      expect(active.savedQueryId).toBe('sq-1');
+      expect(active.savedQuery).toEqual(SAVED_LINK);
 
       // The counter was not incremented: the next blank tab is still Query 2.
       act(() => void result.current.openTab());
@@ -893,17 +934,17 @@ describe('useQueryTabs', () => {
           void result.current.openTab({
             label: 'Revenue',
             sql: 'SELECT 1',
-            savedQueryId: 'sq-1'
+            savedQuery: SAVED_LINK
           })
       );
       expect(result.current.activeTab.label).toBe('Revenue');
-      expect(result.current.activeTab.savedQueryId).toBe('sq-1');
+      expect(result.current.activeTab.savedQuery).toEqual(SAVED_LINK);
 
       act(() => result.current.clearActive());
       // Back to a fresh blank tab: empty SQL, a default "Query N" label, no link.
       expect(result.current.activeTab.sql).toBe('');
       expect(result.current.activeTab.label).toMatch(/^Query \d+$/);
-      expect(result.current.activeTab.savedQueryId).toBeUndefined();
+      expect(result.current.activeTab.savedQuery).toBeUndefined();
     });
 
     it('persists across remount (restore from sessionStorage)', () => {

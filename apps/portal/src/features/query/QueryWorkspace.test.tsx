@@ -16,7 +16,13 @@ import {
 } from './query.service';
 import {getDatabase, listTables} from './glue.service';
 import {appendQueryHistory, getQueryHistory, updateQueryHistoryEntry} from './queryHistory.service';
-import {getSavedQueries, removeSavedQuery, upsertSavedQuery} from './savedQueries.service';
+import {
+  deleteSavedQuery,
+  ensureSavedQueriesFolder,
+  listSavedQueries,
+  readSavedQuery,
+  writeSavedQuery
+} from './savedQueries.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import {copyObject, listFiles} from '../file-browser/fileBrowser.service';
 import {enqueueTableRefresh} from '../table-builder/tableBuild.service';
@@ -100,9 +106,13 @@ vi.mock('./queryHistory.service', async (importOriginal) => ({
 
 vi.mock('./savedQueries.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./savedQueries.service')>()),
-  getSavedQueries: vi.fn(),
-  upsertSavedQuery: vi.fn(),
-  removeSavedQuery: vi.fn()
+  // The name/key helpers stay REAL — a tab label and a list row must not be able to
+  // disagree about what a file is called, and a mocked `savedQueryName` would hide it.
+  ensureSavedQueriesFolder: vi.fn(),
+  listSavedQueries: vi.fn(),
+  readSavedQuery: vi.fn(),
+  writeSavedQuery: vi.fn(),
+  deleteSavedQuery: vi.fn()
 }));
 
 vi.mock('../shared-spaces/sharedSpaces.service', async (importOriginal) => ({
@@ -166,9 +176,10 @@ describe('QueryWorkspace', () => {
   const mockGetHistory = vi.mocked(getQueryHistory);
   const mockAppend = vi.mocked(appendQueryHistory);
   const mockUpdate = vi.mocked(updateQueryHistoryEntry);
-  const mockGetSaved = vi.mocked(getSavedQueries);
-  const mockUpsert = vi.mocked(upsertSavedQuery);
-  const mockRemove = vi.mocked(removeSavedQuery);
+  const mockListSaved = vi.mocked(listSavedQueries);
+  const mockReadSaved = vi.mocked(readSavedQuery);
+  const mockWriteSaved = vi.mocked(writeSavedQuery);
+  const mockDeleteSaved = vi.mocked(deleteSavedQuery);
   const mockReadCache = vi.mocked(readSharedConnectionsCache);
   const mockCopyObject = vi.mocked(copyObject);
   const mockListFiles = vi.mocked(listFiles);
@@ -187,6 +198,19 @@ describe('QueryWorkspace', () => {
   });
 
   // ── Builders ────────────────────────────────────────────────────────────────
+  /** One `.sql` object in a space's `saved_queries/` folder (SPEC-173). */
+  const savedFile = (
+    name: string,
+    over: {spaceId?: string; bucket?: string; size?: number; updatedAt?: string} = {}
+  ) => ({
+    spaceId: over.spaceId ?? 'personal',
+    bucket: over.bucket ?? 'user-bucket',
+    key: `alice/saved_queries/${name}.sql`,
+    name,
+    updatedAt: over.updatedAt ?? '2026-07-01T10:00:00.000Z',
+    size: over.size ?? 24
+  });
+  const savedListing = (...names: string[]) => ok({queries: names.map((n) => savedFile(n)), isTruncated: false});
   const salesTable = {name: 'sales_2026', location: 's3://b/alice/sales/', columns: [{name: 'region', type: 'string'}]};
   const foreignTable = {name: 'foreign', location: 's3://b/bob/x/', columns: []};
   const viewObj = {name: 'revenue_view', tableType: 'VIRTUAL_VIEW', columns: []};
@@ -255,11 +279,15 @@ describe('QueryWorkspace', () => {
     mockGetDatabase();
     mockListTables.mockResolvedValue(ok([salesTable, foreignTable, viewObj]));
     mockGetHistory.mockResolvedValue(ok({version: 1, entries: []}));
-    mockGetSaved.mockResolvedValue(ok({version: 1, queries: []}));
+    mockListSaved.mockResolvedValue(ok({queries: [], isTruncated: false}));
     mockAppend.mockResolvedValue(ok({version: 1, entries: []}));
     mockUpdate.mockResolvedValue(ok({version: 1, entries: []}));
-    mockUpsert.mockResolvedValue(ok({version: 1, queries: []}));
-    mockRemove.mockResolvedValue(ok({version: 1, queries: []}));
+    mockWriteSaved.mockImplementation(async ({space, name, sql}) =>
+      ok(savedFile(name, {spaceId: space.id, bucket: space.bucket, size: sql.length}))
+    );
+    mockReadSaved.mockResolvedValue(ok('SELECT 1;'));
+    mockDeleteSaved.mockResolvedValue(ok(undefined));
+    vi.mocked(ensureSavedQueriesFolder).mockResolvedValue(ok(undefined));
     mockRunQuery.mockResolvedValue(ok({queryExecutionId: 'q-1'}));
     mockStopQuery.mockResolvedValue(ok(undefined));
     mockGetStatus.mockImplementation(async (id: string) => ok(succeeded(id, statusMap[id] ?? {})));
@@ -504,9 +532,9 @@ describe('QueryWorkspace', () => {
       expect(screen.getByText('us-east')).toBeInTheDocument();
     });
 
-    // --- saved queries ---
+    // --- saved queries (SPEC-173: files, not a JSON store) ---
 
-    it('saves a new query: prompts, upserts, links + relabels the active tab', async () => {
+    it('saves a new query: prompts, writes a .sql file, links + relabels the active tab', async () => {
       seedSingle('SELECT r;');
       const {user} = renderWorkspace();
       await screen.findByLabelText('SQL editor');
@@ -516,112 +544,121 @@ describe('QueryWorkspace', () => {
       await user.type(within(dialog).getByLabelText('Name'), 'My report');
       await user.click(within(dialog).getByRole('button', {name: 'Save'}));
 
-      expect(mockUpsert).toHaveBeenCalledWith('alice', expect.objectContaining({name: 'My report', sql: 'SELECT r;'}));
-      expect(await screen.findByRole('tab', {name: /My report/})).toBeInTheDocument();
-    });
-
-    // SPEC-159 FR-004: all three write outcomes are asserted by RENDERING the save
-    // flow, not by calling `toUserMessage` — a mapping that exists but is never
-    // reached is exactly the failure mode here, since the save path relabels the tab
-    // optimistically and its failure log is DEV-only. Silence looks like success.
-    async function saveAQuery() {
-      seedSingle('SELECT r;');
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      await user.click(screen.getByRole('button', {name: 'Save query'}));
-      const dialog = screen.getByRole('dialog', {name: 'Save query'});
-      await user.type(within(dialog).getByLabelText('Name'), 'My report');
-      await user.click(within(dialog).getByRole('button', {name: 'Save'}));
-    }
-
-    it('tells the user when the store could not be read or set aside, instead of appearing to save', async () => {
-      mockUpsert.mockResolvedValue(fail('Saved queries could not be read.', 'SavedQueriesQuarantineFailed'));
-
-      await saveAQuery();
-
-      // The mapped wording (SPEC-106), never the raw service text.
-      expect(await screen.findByText(/couldn’t be read, so nothing was changed/i)).toBeInTheDocument();
-    });
-
-    it('tells the user to reload when a NEWER version of the app wrote the store', async () => {
-      // Distinct advice, because the cause is a stale tab rather than corruption —
-      // and nothing was quarantined, so nothing is lost.
-      mockUpsert.mockResolvedValue(fail('Saved queries were written by a newer version.', 'SavedQueriesNewerVersion'));
-
-      await saveAQuery();
-
-      expect(await screen.findByText(/newer version of this app/i)).toBeInTheDocument();
-      expect(screen.getByText(/reload the page/i)).toBeInTheDocument();
-    });
-
-    it('tells the user their earlier queries are gone when the save RECOVERED an unreadable store', async () => {
-      // The save succeeded, so nothing throws and the tab renames as usual — this
-      // toast is the only sign that the list is no longer the one they had.
-      mockUpsert.mockResolvedValue({...ok({version: 1, queries: []}), recovered: true});
-
-      await saveAQuery();
-
-      expect(await screen.findByText(/a copy was kept and a new list started/i)).toBeInTheDocument();
-      expect(await screen.findByRole('tab', {name: /My report/})).toBeInTheDocument();
-    });
-
-    it('says nothing on an ordinary save', async () => {
-      mockUpsert.mockResolvedValue(ok({version: 1, queries: []}));
-
-      await saveAQuery();
-
-      await screen.findByRole('tab', {name: /My report/});
-      expect(screen.queryByText(/a copy was kept/i)).not.toBeInTheDocument();
-    });
-
-    it('shows a dirty marker on a linked tab whose SQL diverged from the saved query', async () => {
-      seedTabs({
-        version: 1,
-        tabs: [{id: 't1', label: 'Revenue', sql: 'SELECT edited;', savedQueryId: 'sq1'}],
-        activeTabId: 't1',
-        nextQueryNumber: 2
-      });
-      mockGetSaved.mockResolvedValue(
-        ok({
-          version: 1,
-          queries: [
-            {
-              id: 'sq1',
-              name: 'Revenue',
-              sql: 'SELECT original;',
-              database: 'alice',
-              createdAt: '2026-06-01T00:00:00.000Z',
-              updatedAt: '2026-06-01T00:00:00.000Z'
-            }
-          ]
+      expect(mockWriteSaved).toHaveBeenCalledWith(
+        expect.objectContaining({
+          space: expect.objectContaining({id: 'personal', rootPrefix: 'alice/'}),
+          name: 'My report',
+          sql: 'SELECT r;',
+          overwrite: false
         })
       );
+      expect(await screen.findByRole('tab', {name: /My report/})).toBeInTheDocument();
+    });
+
+    it('turns a write COLLISION into a replace confirm, and only then overwrites', async () => {
+      // FR-004: the collision is a HEAD on the exact key inside the write, because a scan
+      // of the loaded list stopped being sound once it is paginated and the target space
+      // may not be the one on screen.
+      seedSingle('SELECT r;');
+      // Models the real service: the key exists, so every non-overwrite write collides and
+      // only an explicit Replace gets through. A single `…Once` would let the second
+      // attempt succeed and quietly skip the half this test exists for.
+      mockWriteSaved.mockImplementation(async ({space, name, sql, overwrite}) =>
+        overwrite
+          ? ok(savedFile(name, {spaceId: space.id, bucket: space.bucket, size: sql.length}))
+          : fail(`“${name}” already exists.`, 'Collision')
+      );
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Save query'}));
+      await user.type(within(screen.getByRole('dialog', {name: 'Save query'})).getByLabelText('Name'), 'My report');
+      await user.click(within(screen.getByRole('dialog', {name: 'Save query'})).getByRole('button', {name: 'Save'}));
+
+      const confirm = await screen.findByRole('alertdialog', {name: /confirm replace saved query/i});
+      expect(mockWriteSaved).toHaveBeenCalledTimes(1);
+      expect(mockWriteSaved).toHaveBeenLastCalledWith(expect.objectContaining({overwrite: false}));
+
+      // Backing out returns the user to what they TYPED, not to an empty field.
+      await user.click(within(confirm).getByRole('button', {name: 'Cancel'}));
+      expect(within(screen.getByRole('dialog', {name: 'Save query'})).getByLabelText('Name')).toHaveValue('My report');
+
+      await user.click(within(screen.getByRole('dialog', {name: 'Save query'})).getByRole('button', {name: 'Save'}));
+      const confirmAgain = await screen.findByRole('alertdialog', {name: /confirm replace saved query/i});
+      await user.click(within(confirmAgain).getByRole('button', {name: 'Replace'}));
+      expect(mockWriteSaved).toHaveBeenLastCalledWith(expect.objectContaining({name: 'My report', overwrite: true}));
+      expect(await screen.findByRole('tab', {name: /My report/})).toBeInTheDocument();
+    });
+
+    it('says so, in mapped wording, when the write fails for any other reason', async () => {
+      // The save relabels the tab optimistically, so silence would read as success.
+      seedSingle('SELECT r;');
+      mockWriteSaved.mockResolvedValue(fail('nope', 'AccessDenied'));
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Save query'}));
+      await user.type(within(screen.getByRole('dialog', {name: 'Save query'})).getByLabelText('Name'), 'My report');
+      await user.click(within(screen.getByRole('dialog', {name: 'Save query'})).getByRole('button', {name: 'Save'}));
+
+      expect(await screen.findByText(/Couldn’t save the query/)).toBeInTheDocument();
+      expect(screen.queryByText('nope')).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', {name: /My report/})).not.toBeInTheDocument();
+    });
+
+    it('holds the saved_queries/ folder open when the workspace mounts, without blocking it', async () => {
+      vi.mocked(ensureSavedQueriesFolder).mockResolvedValue(fail('no', 'AccessDenied'));
       renderWorkspace();
-      expect(await screen.findByLabelText('Unsaved changes')).toBeInTheDocument();
+
+      // The editor still renders: FR-001's marker is best effort, because writing a
+      // saved query creates the prefix on its own.
+      await screen.findByLabelText('SQL editor');
+      await waitFor(() =>
+        expect(ensureSavedQueriesFolder).toHaveBeenCalledWith(expect.objectContaining({rootPrefix: 'alice/'}))
+      );
     });
 
-    it('opens a saved query into a new linked tab and records its name in history on run', async () => {
-      mockGetSaved.mockResolvedValue(
-        ok({
-          version: 1,
-          queries: [
-            {
-              id: 'sq1',
-              name: 'Revenue',
-              sql: 'SELECT 1;',
-              database: 'alice',
-              createdAt: '2026-06-01T00:00:00.000Z',
-              updatedAt: '2026-06-01T00:00:00.000Z'
-            }
-          ]
-        })
-      );
+    it('survives the folder call REJECTING, not just returning a failed result', async () => {
+      // The service does not throw by contract. A `.then`-only chain made any breach of
+      // that contract an unhandled rejection, which fails the whole vitest run — so
+      // "best effort" was true of a failed `ServiceResult` and false of a rejection.
+      vi.mocked(ensureSavedQueriesFolder).mockRejectedValue(new Error('boom'));
+      renderWorkspace();
+
+      expect(await screen.findByLabelText('SQL editor')).toBeInTheDocument();
+    });
+
+    it('shows a dirty marker once a tab’s buffer diverges from the file it was opened from', async () => {
+      // A `.sql` object carries no body until it is READ, so the comparison is against
+      // what this session last saw — the body fetched on open — rather than a `sql`
+      // field on a list row that no longer exists.
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
+      mockReadSaved.mockResolvedValue(ok('SELECT original;'));
       const {user} = renderWorkspace();
       await screen.findByLabelText('SQL editor');
 
       await user.click(screen.getByRole('button', {name: 'Saved queries'}));
       await user.click(await screen.findByRole('button', {name: /open saved query/i}));
+      expect(screen.queryByLabelText('Unsaved changes')).not.toBeInTheDocument();
+
+      await user.clear(editor());
+      await user.type(editor(), 'SELECT edited;');
+
+      expect(await screen.findByLabelText('Unsaved changes')).toBeInTheDocument();
+    });
+
+    it('opens a saved query with ONE GetObject, labels the tab by filename, and records it in history', async () => {
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
+      mockReadSaved.mockResolvedValue(ok('SELECT 1;'));
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+      // Merely opening the drawer fetches no bodies — the list is name/time/size only.
+      expect(mockReadSaved).not.toHaveBeenCalled();
+
+      await user.click(await screen.findByRole('button', {name: /open saved query/i}));
+      expect(mockReadSaved).toHaveBeenCalledTimes(1);
       expect(screen.getByRole('tab', {name: /Revenue/})).toBeInTheDocument();
       expect(editor()).toHaveValue('SELECT 1;');
 
@@ -629,59 +666,27 @@ describe('QueryWorkspace', () => {
       await screen.findByText('Succeeded');
       expect(mockAppend).toHaveBeenCalledWith(
         'alice',
-        expect.objectContaining({savedQueryId: 'sq1', savedQueryName: 'Revenue'})
+        expect.objectContaining({savedQueryKey: 'alice/saved_queries/Revenue.sql', savedQueryName: 'Revenue'})
       );
     });
 
-    it('deletes a saved query (confirm) and calls remove', async () => {
-      mockGetSaved.mockResolvedValue(
-        ok({
-          version: 1,
-          queries: [
-            {
-              id: 'sq1',
-              name: 'Revenue',
-              sql: 'SELECT r;',
-              database: 'alice',
-              createdAt: '2026-06-01T00:00:00.000Z',
-              updatedAt: '2026-06-01T00:00:00.000Z'
-            }
-          ]
-        })
-      );
+    it('opens NO tab and says which file is gone when its body cannot be read', async () => {
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
+      mockReadSaved.mockResolvedValue(fail('“Revenue” no longer exists.', 'SavedQueryNotFound'));
       const {user} = renderWorkspace();
       await screen.findByLabelText('SQL editor');
 
       await user.click(screen.getByRole('button', {name: 'Saved queries'}));
-      await user.click(await screen.findByRole('button', {name: /delete saved query/i}));
-      await user.click(
-        within(screen.getByRole('alertdialog', {name: /confirm delete saved query/i})).getByRole('button', {
-          name: 'Delete'
-        })
-      );
-      expect(mockRemove).toHaveBeenCalledWith('alice', 'sq1');
+      await user.click(await screen.findByRole('button', {name: /open saved query/i}));
+
+      expect(await screen.findByText(/“Revenue” no longer exists/)).toBeInTheDocument();
+      expect(screen.queryByRole('tab', {name: /Revenue/})).not.toBeInTheDocument();
+      // The drawer is still open, because the user asked for this file.
+      expect(screen.getByRole('button', {name: /open saved query/i})).toBeInTheDocument();
     });
 
-    it('does not claim a query was SAVED when a delete recovered an unreadable store', async () => {
-      // Delete reaches the same recovery toast as Save. The store can turn corrupt
-      // after the panel loaded, which is the only way the button is on screen at all
-      // — and wording that says "this query was saved" would be a plain lie here.
-      mockGetSaved.mockResolvedValue(
-        ok({
-          version: 1,
-          queries: [
-            {
-              id: 'sq1',
-              name: 'Revenue',
-              sql: 'SELECT r;',
-              database: 'alice',
-              createdAt: '2026-06-01T00:00:00.000Z',
-              updatedAt: '2026-06-01T00:00:00.000Z'
-            }
-          ]
-        })
-      );
-      mockRemove.mockResolvedValue({...ok({version: 1, queries: []}), recovered: true});
+    it('deletes a saved query (confirm) and deletes the OBJECT', async () => {
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
       const {user} = renderWorkspace();
       await screen.findByLabelText('SQL editor');
 
@@ -693,8 +698,34 @@ describe('QueryWorkspace', () => {
         })
       );
 
-      expect(await screen.findByText(/a copy was kept and a new list started/i)).toBeInTheDocument();
-      expect(screen.queryByText(/this query was saved/i)).not.toBeInTheDocument();
+      expect(mockDeleteSaved).toHaveBeenCalledWith(
+        expect.objectContaining({bucket: 'user-bucket', key: 'alice/saved_queries/Revenue.sql'})
+      );
+    });
+
+    // FR-010. A tripwire, not new behaviour: the failure it guards is silent, and in a
+    // shared space it lands in someone else's file. A COUNT, so a write added later
+    // fails here rather than in production.
+    it('writes NOTHING across an edit → run → tab switch → close of a linked tab', async () => {
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
+      mockReadSaved.mockResolvedValue(ok('SELECT 1;'));
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+      await user.click(await screen.findByRole('button', {name: /open saved query/i}));
+      const writesBefore = mockWriteSaved.mock.calls.length;
+
+      await user.clear(editor());
+      await user.type(editor(), 'SELECT edited;');
+      await user.click(screen.getByRole('button', {name: 'Run statement'}));
+      await screen.findByText('Succeeded');
+      await user.click(screen.getByRole('tab', {name: /Query 1/}));
+      await user.click(screen.getByRole('tab', {name: /Revenue/}));
+      await user.click(within(screen.getByRole('tab', {name: /Revenue/})).getByTitle('Close Revenue'));
+      await user.click(await screen.findByRole('button', {name: 'Close tab'}));
+
+      expect(mockWriteSaved.mock.calls.length).toBe(writesBefore);
     });
 
     it('re-runs a history entry into the active tab (no database context)', async () => {
@@ -1210,15 +1241,6 @@ describe('QueryWorkspace', () => {
 
   // ── SPEC-100: responsive workspace ──────────────────────────────────────────
   describe('QueryWorkspace responsive (SPEC-100)', () => {
-    const savedFixture = (id: string, name: string) => ({
-      id,
-      name,
-      sql: `SELECT region FROM alice.${name.toLowerCase()}`,
-      database: 'alice',
-      createdAt: '2026-07-01T10:00:00.000Z',
-      updatedAt: '2026-07-01T10:00:00.000Z'
-    });
-
     /** Renders inside a NavRailProvider so the mobile drawer's contextual slot is observable. */
     function renderMobileWorkspace() {
       window.innerWidth = 390;
@@ -1232,21 +1254,7 @@ describe('QueryWorkspace', () => {
     }
 
     it('pares the workspace to a browse-first surface below tablet — no editor, toolbar or tab strip', async () => {
-      mockGetSaved.mockResolvedValue(
-        ok({
-          version: 1,
-          queries: [
-            {
-              id: 's1',
-              name: 'Revenue',
-              sql: 'SELECT 1',
-              database: 'alice',
-              createdAt: '2026-07-01T10:00:00.000Z',
-              updatedAt: '2026-07-01T10:00:00.000Z'
-            }
-          ]
-        })
-      );
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
       renderMobileWorkspace();
 
       // Saved is the default surface (FR-004).
@@ -1276,21 +1284,9 @@ describe('QueryWorkspace', () => {
     });
 
     it('runs a saved query from a card and shows row cards with a pager', async () => {
-      mockGetSaved.mockResolvedValue(
-        ok({
-          version: 1,
-          queries: [
-            {
-              id: 's1',
-              name: 'Revenue',
-              sql: 'SELECT region FROM alice.sales',
-              database: 'alice',
-              createdAt: '2026-07-01T10:00:00.000Z',
-              updatedAt: '2026-07-01T10:00:00.000Z'
-            }
-          ]
-        })
-      );
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
+      // The card carries no SQL — the file is read when the card is CHOSEN (FR-006).
+      mockReadSaved.mockResolvedValue(ok('SELECT region FROM alice.sales'));
       const {user} = renderMobileWorkspace();
 
       await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
@@ -1323,9 +1319,7 @@ describe('QueryWorkspace', () => {
     });
 
     it('never shows one query’s results under another query’s name', async () => {
-      mockGetSaved.mockResolvedValue(
-        ok({version: 1, queries: [savedFixture('s1', 'Revenue'), savedFixture('s2', 'Costs')]})
-      );
+      mockListSaved.mockResolvedValue(savedListing('Revenue', 'Costs'));
       const {user} = renderMobileWorkspace();
 
       await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
@@ -1346,7 +1340,7 @@ describe('QueryWorkspace', () => {
 
     it('leaves the editor’s draft untouched when a card is run', async () => {
       seedSingle('SELECT my_unsaved_draft');
-      mockGetSaved.mockResolvedValue(ok({version: 1, queries: [savedFixture('s1', 'Revenue')]}));
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
       const {user} = renderMobileWorkspace();
 
       await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
@@ -1359,7 +1353,7 @@ describe('QueryWorkspace', () => {
     });
 
     it('stops claiming a query is running once its failure is dismissed', async () => {
-      mockGetSaved.mockResolvedValue(ok({version: 1, queries: [savedFixture('s1', 'Revenue')]}));
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
       mockRunQuery.mockResolvedValueOnce(fail('Rate exceeded', 'ThrottlingException'));
       const {user} = renderMobileWorkspace();
 
@@ -1375,7 +1369,7 @@ describe('QueryWorkspace', () => {
     });
 
     it('holds an honest in-flight state between the tap and the run starting', async () => {
-      mockGetSaved.mockResolvedValue(ok({version: 1, queries: [savedFixture('s1', 'Revenue')]}));
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
       let startRun: (v: {success: true; data: {queryExecutionId: string}}) => void = () => {};
       mockRunQuery.mockReturnValueOnce(new Promise((resolve) => (startRun = resolve)));
       const {user} = renderMobileWorkspace();
@@ -1392,7 +1386,7 @@ describe('QueryWorkspace', () => {
     });
 
     it('reports a submit that throws instead of waiting on it forever', async () => {
-      mockGetSaved.mockResolvedValue(ok({version: 1, queries: [savedFixture('s1', 'Revenue')]}));
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
       // Services don't throw by contract; if one does, the outcome still has to settle.
       mockRunQuery.mockRejectedValueOnce(new Error('socket hang up'));
       const {user} = renderMobileWorkspace();
@@ -1420,7 +1414,7 @@ describe('QueryWorkspace', () => {
 
     it('hands a tab back to the editor cleanly when the viewport grows past tablet', async () => {
       seedSingle('SELECT my_unsaved_draft');
-      mockGetSaved.mockResolvedValue(ok({version: 1, queries: [savedFixture('s1', 'Revenue')]}));
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
       const {user, rerender} = renderMobileWorkspace();
 
       await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
@@ -1446,7 +1440,7 @@ describe('QueryWorkspace', () => {
 
     it('does not carry a failed mobile submit onto the editor shell — even when it fails after the crossing', async () => {
       seedSingle('SELECT my_unsaved_draft');
-      mockGetSaved.mockResolvedValue(ok({version: 1, queries: [savedFixture('s1', 'Revenue')]}));
+      mockListSaved.mockResolvedValue(savedListing('Revenue'));
       let failRun: (v: {success: false; error: {message: string; code?: string}}) => void = () => {};
       mockRunQuery.mockReturnValueOnce(new Promise((resolve) => (failRun = resolve)));
       const {user, rerender} = renderMobileWorkspace();
@@ -1855,7 +1849,10 @@ describe('QueryWorkspace.a11y', () => {
       tables: [{name: 'sales_2026', location: 's3://b/alice/sales/', columns: [{name: 'region', type: 'string'}]}]
     });
     client.setQueryData(queryKeys.history('alice'), {version: 1, entries: []});
-    client.setQueryData(queryKeys.savedQueries('alice'), {version: 1, queries: []});
+    client.setQueryData(queryKeys.savedQueries('personal'), {
+      pages: [{queries: [], isTruncated: false}],
+      pageParams: [undefined]
+    });
     return (
       <AuthContext.Provider value={authValue()}>
         <QueryClientProvider client={client}>
@@ -1877,7 +1874,11 @@ describe('QueryWorkspace.a11y', () => {
     vi.mocked(getDatabase).mockResolvedValue({success: true, data: {name: 'alice'}});
     vi.mocked(listTables).mockResolvedValue({success: true, data: []});
     vi.mocked(getQueryHistory).mockResolvedValue({success: true, data: {version: 1, entries: []}});
-    vi.mocked(getSavedQueries).mockResolvedValue({success: true, data: {version: 1, queries: []}});
+    vi.mocked(listSavedQueries).mockResolvedValue({
+      success: true,
+      data: {queries: [], isTruncated: false}
+    });
+    vi.mocked(ensureSavedQueriesFolder).mockResolvedValue({success: true, data: undefined});
     vi.mocked(readSharedConnectionsCache).mockResolvedValue({
       success: true,
       data: {version: 1, connections: []}

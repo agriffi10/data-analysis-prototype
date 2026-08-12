@@ -341,14 +341,14 @@ describe('s3Json', () => {
 
       const result = await quarantineDocument({
         bucket: 'user-bucket',
-        key: 'alice/user_settings/saved-queries.json',
+        key: 'alice/user_settings/query-history.json',
         now: at
       });
 
       expect(result.success).toBe(true);
       if (!result.success) return;
       expect(result.data.quarantineKey).toMatch(
-        /^alice\/user_settings\/saved-queries\.json\.unreadable-20260810T131500Z-[0-9a-f]{8}\.json$/
+        /^alice\/user_settings\/query-history\.json\.unreadable-20260810T131500Z-[0-9a-f]{8}\.json$/
       );
       // A CopyObject, never a read-then-write: the unreadable bytes never enter the
       // browser, so an arbitrarily large document costs no memory.
@@ -360,7 +360,7 @@ describe('s3Json', () => {
         // Every segment is app-generated, so the rendered value carries no
         // percent-encoding — pinned, because a hand-rolled escape here would be a
         // silently wrong CopySource rather than a failure.
-        CopySource: 'user-bucket/alice/user_settings/saved-queries.json'
+        CopySource: 'user-bucket/alice/user_settings/query-history.json'
       });
     });
 
@@ -387,7 +387,7 @@ describe('s3Json', () => {
       // loser would copy the already-REPAIRED document over the winner's quarantine
       // object — destroying the only surviving copy of what the user had.
       send.mockResolvedValue({});
-      const key = 'alice/user_settings/saved-queries.json';
+      const key = 'alice/user_settings/query-history.json';
 
       const first = await quarantineDocument({bucket: 'b', key, now: at});
       const second = await quarantineDocument({bucket: 'b', key, now: at});

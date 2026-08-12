@@ -3,24 +3,11 @@ import {Input} from '../../components/Input';
 import {Modal} from '../../components/Modal';
 import {DestinationPicker, validateFolderName} from '../file-browser';
 import {normalizeCsvName} from './query.format';
-
-/**
- * One place a result can be saved — the user's own space or a shared space
- * they belong to. Each carries its own bucket + navigation root.
- */
-export type DestinationSpace = {
-  id: string;
-  label: string;
-  bucket: string;
-  /** Navigation floor (ends with "/"), e.g. "alice/" or "salesdata/". */
-  rootPrefix: string;
-  /** Crumb label for the root (hides the username/space segment). */
-  rootLabel: string;
-};
+import type {QuerySpace} from './query.types';
 
 type Props = {
   /** The destination spaces the user can save into (personal first, then shared). */
-  spaces: DestinationSpace[];
+  spaces: QuerySpace[];
   /** Suggested base name (without extension). */
   defaultName: string;
   isBusy?: boolean;

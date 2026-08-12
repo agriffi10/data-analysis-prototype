@@ -1178,7 +1178,9 @@ beside it (`saved_queries/archive/old.sql` is a file in a folder, not a saved qu
 non-obvious consequence the specs pin: **an S3 page and a display page are different things**, so a
 listing page of 25 keys can yield zero rows while more pages remain, and a folder holding two
 hundred CSVs and one saved query must not render as empty. The hook keeps fetching until it has a
-display page or the listing is exhausted.
+display page or the listing is exhausted — **that is 174's work, not 173's**: 173 ships one listing
+page plus a Load more control, so a page of 25 CSVs renders a drawer with nothing in it but that
+button.
 
 **The marker protection is free, and that is a claim about ARN wildcards worth checking.** Both
 bucket policies already deny `s3:DeleteObject` on `*/DO_NOT_DELETE.txt`, and `*` in an S3 resource

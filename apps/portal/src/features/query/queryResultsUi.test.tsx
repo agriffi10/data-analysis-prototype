@@ -14,20 +14,20 @@ import userEvent from '@testing-library/user-event';
 describe('QueryMobileView', () => {
   const savedQueries: SavedQuery[] = [
     {
-      id: 's1',
+      spaceId: 'personal',
+      bucket: 'user-space',
+      key: 'alice/saved_queries/Revenue by region.sql',
       name: 'Revenue by region',
-      sql: 'SELECT region,\n  sum(total)\nFROM alice.sales',
-      database: 'alice',
-      createdAt: '2026-07-01T10:00:00.000Z',
-      updatedAt: '2026-07-02T10:00:00.000Z'
+      updatedAt: '2026-07-02T10:00:00.000Z',
+      size: 48
     },
     {
-      id: 's2',
+      spaceId: 'personal',
+      bucket: 'user-space',
+      key: 'alice/saved_queries/Row counts.sql',
       name: 'Row counts',
-      sql: 'SELECT count(*) FROM alice.sales',
-      database: 'alice',
-      createdAt: '2026-07-01T10:00:00.000Z',
-      updatedAt: '2026-07-03T10:00:00.000Z'
+      updatedAt: '2026-07-03T10:00:00.000Z',
+      size: 32
     }
   ];
 
@@ -42,6 +42,8 @@ describe('QueryMobileView', () => {
   function renderView(props: Partial<React.ComponentProps<typeof QueryMobileView>> = {}) {
     const onRun = props.onRun ?? vi.fn();
     const onView = props.onView ?? vi.fn();
+    const onRunSaved = props.onRunSaved ?? vi.fn();
+    const onViewSaved = props.onViewSaved ?? vi.fn();
     const onTabChange = props.onTabChange ?? vi.fn();
     const user = userEvent.setup();
     const result = render(
@@ -56,30 +58,34 @@ describe('QueryMobileView', () => {
         historyError={null}
         onRun={onRun}
         onView={onView}
+        onRunSaved={onRunSaved}
+        onViewSaved={onViewSaved}
         runDisabled={false}
         {...props}
       />
     );
-    return {...result, user, onRun, onView, onTabChange};
+    return {...result, user, onRun, onView, onRunSaved, onViewSaved, onTabChange};
   }
 
   describe('QueryMobileView (SPEC-100 FR-004)', () => {
-    it('lands on Saved and lists each saved query with a one-line SQL preview', () => {
+    it('lands on Saved and lists each saved query in S3’s own order, with no SQL preview', () => {
       renderView();
       expect(screen.getByRole('button', {name: 'Saved'})).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('button', {name: 'History'})).toHaveAttribute('aria-pressed', 'false');
-      // Most-recently-updated first, and the multi-line SQL collapses to one line.
       const names = screen.getAllByText(/Revenue by region|Row counts/).map((n) => n.textContent);
-      expect(names).toEqual(['Row counts', 'Revenue by region']);
-      expect(screen.getByText('SELECT region, sum(total) FROM alice.sales')).toBeInTheDocument();
+      expect(names).toEqual(['Revenue by region', 'Row counts']);
+      // SPEC-173 FR-006: a `.sql` file has no body until it is read, so a row shows its
+      // size and its time and nothing that would cost a GetObject.
+      expect(screen.queryByText(/SELECT/)).not.toBeInTheDocument();
+      expect(screen.getByText('48 B')).toBeInTheDocument();
     });
 
-    it('runs a saved query and opens it read-only from the same card', async () => {
-      const {user, onRun, onView} = renderView();
+    it('hands the RECORD to its host, which fetches the file — no GetObject until a card is chosen', async () => {
+      const {user, onRunSaved, onViewSaved} = renderView();
       await user.click(screen.getByRole('button', {name: 'Run saved query Revenue by region'}));
-      expect(onRun).toHaveBeenCalledWith(savedQueries[0].sql, 'Revenue by region');
+      expect(onRunSaved).toHaveBeenCalledWith(savedQueries[0]);
       await user.click(screen.getByRole('button', {name: 'View saved query Revenue by region'}));
-      expect(onView).toHaveBeenCalledWith(savedQueries[0].sql, 'Revenue by region');
+      expect(onViewSaved).toHaveBeenCalledWith(savedQueries[0]);
     });
 
     it('disables Run on every card while a run is in flight', () => {
@@ -138,6 +144,8 @@ describe('QueryMobileView', () => {
           history={[historyEntry(1)]}
           historyLoading={false}
           historyError={null}
+          onRunSaved={vi.fn()}
+          onViewSaved={vi.fn()}
           onRun={vi.fn()}
           onView={vi.fn()}
           runDisabled={false}

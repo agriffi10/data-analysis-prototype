@@ -3,112 +3,131 @@ import {renderHookWithProviders, createTestQueryClient} from '../../test/renderW
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {useSavedQueries} from './useSavedQueries';
 import {queryKeys} from './queryKeys';
-import {getSavedQueries, upsertSavedQuery, removeSavedQuery} from './savedQueries.service';
-import type {SavedQueriesStore, SavedQuery} from './query.types';
+import {deleteSavedQuery, listSavedQueries} from './savedQueries.service';
+import type {QuerySpace, SavedQuery} from './query.types';
 
 vi.mock('./savedQueries.service');
 
-const mockGet = vi.mocked(getSavedQueries);
-const mockUpsert = vi.mocked(upsertSavedQuery);
-const mockRemove = vi.mocked(removeSavedQuery);
+const mockList = vi.mocked(listSavedQueries);
+const mockDelete = vi.mocked(deleteSavedQuery);
 
-function sq(id: string, name = id): SavedQuery {
+const PERSONAL: QuerySpace = {
+  id: 'personal',
+  label: 'My files',
+  bucket: 'user-space',
+  rootPrefix: 'alice/',
+  rootLabel: 'My Files'
+};
+
+function sq(name: string, space: QuerySpace = PERSONAL): SavedQuery {
   return {
-    id,
+    spaceId: space.id,
+    bucket: space.bucket,
+    key: `${space.rootPrefix}saved_queries/${name}.sql`,
     name,
-    sql: 'SELECT 1',
-    database: 'alice',
-    createdAt: '2026-06-18T10:00:00.000Z',
-    updatedAt: '2026-06-18T10:00:00.000Z'
+    updatedAt: '2026-08-11T10:00:00.000Z',
+    size: 12
   };
 }
 
-function store(queries: SavedQuery[]): SavedQueriesStore {
-  return {version: 1, queries};
-}
+const page = (queries: SavedQuery[], next?: string) => ({
+  success: true as const,
+  data: {queries, isTruncated: next !== undefined, nextContinuationToken: next}
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockGet.mockResolvedValue({success: true, data: store([sq('a')])});
+  mockList.mockResolvedValue(page([sq('a')]));
+  mockDelete.mockResolvedValue({success: true, data: undefined});
 });
 
 describe('useSavedQueries', () => {
-  it('is disabled (loading, empty) while username is null', () => {
+  it('is disabled (loading, empty) while the space is null', () => {
     const {result} = renderHookWithProviders(() => useSavedQueries(null));
     expect(result.current.queries).toEqual([]);
-    expect(mockGet).not.toHaveBeenCalled();
+    expect(mockList).not.toHaveBeenCalled();
   });
 
-  it('loads the user’s saved queries', async () => {
-    const {result} = renderHookWithProviders(() => useSavedQueries('alice'));
-    await waitFor(() => expect(result.current.queries.map((q) => q.id)).toEqual(['a']));
+  it('lists the space’s saved queries', async () => {
+    const {result} = renderHookWithProviders(() => useSavedQueries(PERSONAL));
+    await waitFor(() => expect(result.current.queries.map((q) => q.name)).toEqual(['a']));
+    expect(mockList).toHaveBeenCalledWith(expect.objectContaining({space: PERSONAL}));
   });
 
-  it('upsert seeds the cache with the returned store AND invalidates it', async () => {
-    // SPEC-155 FR-001 made a write do both, and both halves matter: the seed is what
-    // makes the list update without waiting on S3, the invalidate is what stops the
-    // cache diverging from it. Asserted on the client — the same seam
-    // `useQueryHistory.test.tsx` uses for its refresh — because the two land in one
-    // tick and an assertion on the rendered value alone cannot tell them apart.
-    const written = store([sq('b'), sq('a')]);
-    mockUpsert.mockResolvedValue({success: true, data: written});
+  it('keys on the SPACE, so two spaces are two lists', async () => {
+    const shared: QuerySpace = {
+      id: 'project_alpha',
+      label: 'project_alpha',
+      bucket: 'shared-space',
+      rootPrefix: 'project_alpha/',
+      rootLabel: 'project_alpha'
+    };
     const client = createTestQueryClient();
-    const seed = vi.spyOn(client, 'setQueryData');
+    mockList.mockResolvedValueOnce(page([sq('mine')])).mockResolvedValueOnce(page([sq('theirs', shared)]));
+
+    const personal = renderHookWithProviders(() => useSavedQueries(PERSONAL), {queryClient: client});
+    await waitFor(() => expect(personal.result.current.queries).toHaveLength(1));
+    const other = renderHookWithProviders(() => useSavedQueries(shared), {queryClient: client});
+    await waitFor(() => expect(other.result.current.queries.map((q) => q.name)).toEqual(['theirs']));
+
+    expect(client.getQueryData(queryKeys.savedQueries('personal'))).toBeDefined();
+    expect(client.getQueryData(queryKeys.savedQueries('project_alpha'))).toBeDefined();
+  });
+
+  it('accumulates pages on loadMore and reports hasMore from the listing', async () => {
+    mockList.mockResolvedValueOnce(page([sq('a')], 'page-2')).mockResolvedValueOnce(page([sq('b')]));
+
+    const {result} = renderHookWithProviders(() => useSavedQueries(PERSONAL));
+    await waitFor(() => expect(result.current.hasMore).toBe(true));
+
+    act(() => result.current.loadMore());
+
+    await waitFor(() => expect(result.current.queries.map((q) => q.name)).toEqual(['a', 'b']));
+    expect(result.current.hasMore).toBe(false);
+    expect(mockList).toHaveBeenLastCalledWith(expect.objectContaining({continuationToken: 'page-2'}));
+  });
+
+  it('remove deletes the object and refreshes the list', async () => {
+    const client = createTestQueryClient();
     const invalidate = vi.spyOn(client, 'invalidateQueries');
-    const {result} = renderHookWithProviders(() => useSavedQueries('alice'), {queryClient: client});
+    const {result} = renderHookWithProviders(() => useSavedQueries(PERSONAL), {queryClient: client});
     await waitFor(() => expect(result.current.queries).toHaveLength(1));
 
-    mockGet.mockResolvedValue({success: true, data: written});
+    mockList.mockResolvedValue(page([]));
     await act(async () => {
-      await result.current.upsert(sq('b'));
+      await result.current.remove(sq('a'));
     });
 
-    expect(seed).toHaveBeenCalledWith(queryKeys.savedQueries('alice'), written);
-    expect(invalidate).toHaveBeenCalledWith({queryKey: queryKeys.savedQueries('alice')});
-    await waitFor(() => expect(result.current.queries.map((q) => q.id)).toEqual(['b', 'a']));
-  });
-
-  it('remove seeds the cache so the entry disappears', async () => {
-    const written = store([]);
-    mockRemove.mockResolvedValue({success: true, data: written});
-    const client = createTestQueryClient();
-    const seed = vi.spyOn(client, 'setQueryData');
-    const {result} = renderHookWithProviders(() => useSavedQueries('alice'), {queryClient: client});
-    await waitFor(() => expect(result.current.queries).toHaveLength(1));
-
-    mockGet.mockResolvedValue({success: true, data: written});
-    await act(async () => {
-      await result.current.remove('a');
+    expect(mockDelete).toHaveBeenCalledWith({
+      bucket: 'user-space',
+      key: 'alice/saved_queries/a.sql',
+      username: 'alice'
     });
-
-    expect(seed).toHaveBeenCalledWith(queryKeys.savedQueries('alice'), written);
+    expect(invalidate).toHaveBeenCalledWith({queryKey: queryKeys.savedQueries('personal')});
     await waitFor(() => expect(result.current.queries).toEqual([]));
-    expect(mockRemove).toHaveBeenCalledWith('alice', 'a');
   });
 
-  it('reconciles against S3 after a write, so another tab’s query is not dropped', async () => {
-    // SPEC-155 FR-001 resolved the asymmetry with `useQueryHistory` in favour of
-    // invalidating: the seeded store is the WRITER'S view of a read-modify-write, so
-    // without the refetch a concurrent write would sit unnoticed until something else
-    // refetched. `c` was saved in another tab between this tab's read and its write.
-    mockUpsert.mockResolvedValue({success: true, data: store([sq('b'), sq('a')])});
-    const {result} = renderHookWithProviders(() => useSavedQueries('alice'));
-    await waitFor(() => expect(result.current.queries).toHaveLength(1));
+  it('takes the marker-guard owner from the KEY, so a shared space is guarded by its own root', async () => {
+    const shared: QuerySpace = {
+      id: 'project_alpha',
+      label: 'project_alpha',
+      bucket: 'shared-space',
+      rootPrefix: 'project_alpha/',
+      rootLabel: 'project_alpha'
+    };
+    const {result} = renderHookWithProviders(() => useSavedQueries(shared));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    mockGet.mockResolvedValue({success: true, data: store([sq('b'), sq('a'), sq('c')])});
     await act(async () => {
-      await result.current.upsert(sq('b'));
+      await result.current.remove(sq('a', shared));
     });
 
-    await waitFor(() => expect(result.current.queries.map((q) => q.id)).toEqual(['b', 'a', 'c']));
+    expect(mockDelete).toHaveBeenCalledWith(expect.objectContaining({username: 'project_alpha'}));
   });
 
   it('surfaces a load error', async () => {
-    mockGet.mockResolvedValue({
-      success: false,
-      error: {message: 'access denied'}
-    });
-    const {result} = renderHookWithProviders(() => useSavedQueries('alice'));
+    mockList.mockResolvedValue({success: false, error: {message: 'access denied'}});
+    const {result} = renderHookWithProviders(() => useSavedQueries(PERSONAL));
     await waitFor(() => expect(result.current.error).toEqual(expect.objectContaining({message: 'access denied'})));
   });
 });

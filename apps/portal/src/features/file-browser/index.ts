@@ -42,6 +42,7 @@ export {
   uploadFile,
   createFolder,
   validateFolderName,
+  validateLeafName,
   uploadPercent,
   getObjectMetadata
 } from './fileBrowser.service';
@@ -55,4 +56,12 @@ export type {
   CopyResult
 } from './fileBrowser.types';
 export {MAX_UPLOAD_BYTES, MULTIPART_PART_SIZE} from './fileBrowser.types';
-export {PREFIX_MARKER_FILENAME, PREFIX_MARKER_BODY, prefixMarkerKey} from './fileBrowser.constants';
+export {
+  LISTING_PAGE_SIZE,
+  PREFIX_MARKER_FILENAME,
+  PREFIX_MARKER_BODY,
+  SAVED_QUERIES_FOLDER,
+  SAVED_QUERIES_MARKER_BODY,
+  prefixMarkerKey,
+  isMarkerName
+} from './fileBrowser.constants';

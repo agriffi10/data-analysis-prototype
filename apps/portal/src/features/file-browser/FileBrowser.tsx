@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useMemo, useState} from 'react';
 import {Button} from '../../components/Button';
 import {Banner} from '../../components/Banner';
 import {useFileBrowser} from './useFileBrowser';
@@ -16,6 +16,7 @@ import {CreateFolderDialog} from './CreateFolderDialog';
 import {CollisionPrompt} from './CollisionPrompt';
 import {MobileActionBar} from '../../components/MobileActionBar';
 import {HIDDEN_BROWSER_FOLDERS, isRootFolderNamed} from './protectedFolders';
+import {SAVED_QUERIES_FOLDER} from './fileBrowser.constants';
 import {OperationFeedback} from './OperationFeedback';
 import {SelectionToolbar} from './SelectionToolbar';
 import {FileListTable, type FileListProps} from './FileListTable';
@@ -41,8 +42,6 @@ type Props = {
   rootPrefix?: string; // navigation floor; defaults to prefix prop value
   rootLabel?: string; // label for the root crumb; hides the raw prefix segment
   // (e.g. "My Files" instead of the username) — SPEC-013
-  markerKey?: string; // exact key hidden from the listing — the prefix marker
-  // (SPEC-014 FR-002)
   writable?: boolean; // show upload + create-folder controls (SPEC-016). Off in
   // the dev-unauth path (no scoped write credentials).
   username?: string; // the space's root-prefix owner — the marker guard protects
@@ -68,7 +67,6 @@ function FileBrowserContent({
   bucket,
   rootPrefix,
   rootLabel,
-  markerKey,
   writable = false,
   username,
   destinations,
@@ -85,13 +83,32 @@ function FileBrowserContent({
     hasMore,
     loadMore,
     isLoadingMore
-  } = useFileBrowser(bucket, prefix, markerKey);
+  } = useFileBrowser(bucket, prefix);
 
   const access = useSharedSpaceAccessRecovery({error, spaceKind, refreshListing});
 
+  // SPEC-163 FR-005: two CROSS-FEATURE entry points live on this page — "Create table" is a
+  // Query capability and "Check quality" is a Data Quality one. Neither belongs to the file
+  // browser, which is exactly why a per-component gating pass misses them.
+  const queryEnabled = useFeature('query');
+  const dataQualityEnabled = useFeature('dataQuality');
+  // SPEC-167. The send's own space is the BROWSER's space, not the current folder: the control
+  // plane resolves the source from the verified username and the space name, and a folder deep
+  // inside it is just where the selection came from.
+  const filesEnabled = useFeature('files');
+
   // Hide app-managed root folders (e.g. user_settings/) from the listing so they
   // never surface to users; everything downstream uses the filtered list.
-  const folders = allFolders.filter((f) => !isRootFolderNamed(f.prefix, rootPrefix, HIDDEN_BROWSER_FOLDERS));
+  //
+  // SPEC-173 FR-008: `saved_queries/` is a Query feature wearing a file-browser row, so with
+  // the `query` flag off it leaves the listing like the Query tab does. Composed here rather
+  // than added to the constant, because the folder is VISIBLE by default — the flag is the
+  // only thing that hides it, and its delete/rename refusal is unconditional either way.
+  const hiddenFolders = useMemo(
+    () => (queryEnabled ? HIDDEN_BROWSER_FOLDERS : [...HIDDEN_BROWSER_FOLDERS, SAVED_QUERIES_FOLDER]),
+    [queryEnabled]
+  );
+  const folders = allFolders.filter((f) => !isRootFolderNamed(f.prefix, rootPrefix, hiddenFolders));
 
   // Create-folder (SPEC-016) scoped to the folder currently being viewed. File
   // uploads are now owned by the SPEC-020 queue, so useFileUpload is used here
@@ -115,15 +132,6 @@ function FileBrowserContent({
   // Mount-gate the table-vs-card list swap (SPEC-099); matchMedia reads correctly
   // on first paint in the browser, so no flash and only one markup ever mounts.
   const isMobile = useIsMobile();
-  // SPEC-163 FR-005: two CROSS-FEATURE entry points live on this page — "Create table" is a
-  // Query capability and "Check quality" is a Data Quality one. Neither belongs to the file
-  // browser, which is exactly why a per-component gating pass misses them.
-  const queryEnabled = useFeature('query');
-  const dataQualityEnabled = useFeature('dataQuality');
-  // SPEC-167. The send's own space is the BROWSER's space, not the current folder: the control
-  // plane resolves the source from the verified username and the space name, and a folder deep
-  // inside it is just where the selection came from.
-  const filesEnabled = useFeature('files');
   const toast = useToast();
   // The space NAME is the root prefix's own segment, in both kinds: `{username}/` for a
   // personal space and `{spaceName}/` for a shared one. Taken from there rather than from
@@ -500,7 +508,6 @@ function FileBrowserContent({
         rootPrefix={rootPrefix}
         rootLabel={rootLabel}
         currentPrefix={currentPrefix}
-        markerKey={markerKey}
         username={username}
         spaceKind={spaceKind}
         destinations={destinations}
@@ -537,7 +544,6 @@ export function FileBrowser({
   prefix: prefixProp = '',
   rootPrefix: rootPrefixProp,
   rootLabel,
-  markerKey,
   writable = false,
   username,
   destinations,
@@ -555,7 +561,6 @@ export function FileBrowser({
         bucket={bucket}
         rootPrefix={rootPrefix}
         rootLabel={rootLabel}
-        markerKey={markerKey}
         writable={writable}
         username={username}
         destinations={destinations}
