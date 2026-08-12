@@ -30,7 +30,12 @@ import json
 import logging
 
 from arcommon import authz, notify, paths
-from arcommon.config import ARCHIVE_MAX_ITEM_BYTES, ARCHIVE_MAX_ITEMS, archive_bucket
+from arcommon.config import (
+    ARCHIVE_MAX_ITEM_BYTES,
+    ARCHIVE_MAX_ITEMS,
+    ARCHIVE_MODES,
+    archive_bucket,
+)
 from cpcommon import auth, events, observability
 from cpcommon.errors import TerminalError
 from cpcommon.paths import assert_inside_root
@@ -75,8 +80,17 @@ def _check_contract(req) -> None:
         raise TerminalError(events.MALFORMED, f"unknown request fields: {', '.join(unknown)}")
     if not isinstance(req.get("requestId"), str) or not req["requestId"].strip():
         raise TerminalError(events.MALFORMED, "requestId missing or not a string")
-    if req.get("mode") != "archive":
+    if req.get("mode") not in ARCHIVE_MODES:
         raise TerminalError(events.MALFORMED, f"unexpected mode {req.get('mode')!r}")
+    if req.get("mode") != "archive":
+        raise TerminalError(events.MALFORMED, "restore is not implemented by this verb")
+    # THE ENVELOPE IS FLAT: `actor` is the RAW ID token at the top level, never a nested
+    # {"idToken": …}. Type-checked here rather than left to the verifier, because the two
+    # failures read identically to a user and only one of them is a contract break — and
+    # because SPEC-126's drain redacts this field FLATLY, so a nested token would reach
+    # CloudWatch verbatim on a dead-lettered request.
+    if not isinstance(req.get("actor"), str) or not req["actor"].strip():
+        raise TerminalError(events.MALFORMED, "actor must be the raw ID token, as a string")
 
 
 def _normalize_items(items, source: dict) -> list:
@@ -174,8 +188,10 @@ def _validate_and_authorize(event) -> dict:
     """Verifies the token, authorizes the source, validates the selection and resolves the keys.
 
     The actor comes from the verified token in the envelope, never from a body username — the
-    token is the top-level ``actor`` field, the same flat shape every plane's envelope uses and
-    the one SPEC-126's drain and its redaction both depend on. From the point the actor is
+    token IS the top-level ``actor`` field, as a raw string. That flatness is the same shape
+    every plane's envelope uses and is load-bearing rather than stylistic: SPEC-126's drain reads
+    and redacts that field flatly, so a nested ``{"idToken": …}`` would mean a dead-lettered
+    archive notifies nobody *and* writes the JWT to CloudWatch. From the point the actor is
     known, a whole-request rejection notifies them before the Catch records it;
     pre-verification failures have no trusted recipient and stay notification-free.
 

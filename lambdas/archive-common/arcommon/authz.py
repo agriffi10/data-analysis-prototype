@@ -140,8 +140,12 @@ def assert_not_protected_marker(key: str) -> str:
       The key, unchanged.
 
     Raises:
-      TerminalError: ``protected_marker`` when the key's basename is the marker.
+      TerminalError: ``protected_marker`` when the key's basename is the marker. It carries the
+        BASENAME as a token, not the key: the message names what the user must deselect, and a
+        full key in a user-facing sentence is operator text SPEC-106 forbids rendering. The key
+        still rides in ``detail``, which reaches the logs and the Step Functions record only.
     """
-    if key.rstrip("/").rsplit("/", 1)[-1] == PROTECTED_MARKER_BASENAME:
-        raise TerminalError("protected_marker", f"{key!r}")
+    basename = key.rstrip("/").rsplit("/", 1)[-1]
+    if basename == PROTECTED_MARKER_BASENAME:
+        raise TerminalError("protected_marker", f"{key!r}", tokens={"itemName": basename})
     return key

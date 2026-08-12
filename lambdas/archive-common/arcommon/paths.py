@@ -37,7 +37,7 @@ import re
 from cpcommon.errors import TerminalError
 from cpcommon.paths import normalize_root
 
-from .config import ARCHIVE_FOLDER, RECEIPT_NAME
+from .config import ARCHIVE_FOLDER, RECEIPT_NAME, SPACE_KINDS
 
 _UUID_V4 = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.IGNORECASE
@@ -87,7 +87,7 @@ def archive_root(kind: str, name: str, request_id) -> str:
         kind or an empty name. It fails rather than defaulting to a kind, because guessing wrong
         puts one namespace's data where the other's restore will read it.
     """
-    if kind not in ("personal", "shared"):
+    if kind not in SPACE_KINDS:
         raise TerminalError("forbidden", f"unknown source space kind {kind!r}")
     root = normalize_root(name)
     return f"{kind}/{root}{ARCHIVE_FOLDER}/{validated_request_id(request_id)}/"

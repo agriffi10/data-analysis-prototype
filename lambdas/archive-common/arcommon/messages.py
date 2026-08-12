@@ -16,8 +16,15 @@ Attributes:
   _BODIES: Reason code to the clause following the "Couldn't archive ..." prefix. The cap body
     that CAN name a number carries a marker rather than the number, so the sentence is filled
     from ``config`` by ``failure_message`` and cannot drift from the constant that enforces it.
-    ``{itemName}`` is filled from the RAISE SITE instead — it is the user's own folder name, not
-    a number this module can know.
+    ``{itemName}`` is filled from the RAISE SITE instead — it is the user's own file name, not a
+    number this module can know — and ``test_every_marker_in_every_body_can_be_filled_by_
+    somebody`` holds every marker to having a supplier, because ``blank_unfilled=True`` renders
+    an unsupplied one as a GAP, which reads as a typo rather than as a bug.
+
+    There is no ``unknown_space`` body: a shared space that does not exist fails
+    ``authorize_source`` as ``forbidden``, deliberately, because "no such space" and "you are
+    not a member" must not be distinguishable to a caller — the difference is an existence
+    oracle over other people's spaces.
 
     **One prefix serves both modes**, and the wording is chosen so it can: "Couldn't archive
     that" reads correctly for a failed archive, and a restore failure is worded inside its own
@@ -45,10 +52,9 @@ _BODIES = {
         "Please select your own files or folders instead."
     ),
     "protected_marker": (
-        "one of the things you selected can't be removed from your space, so nothing was "
-        "archived. Please select something else."
+        'the file "{itemName}" can\'t be removed from your space, so nothing was archived. '
+        "Please select something else."
     ),
-    "unknown_space": "there is no shared space with that name.",
 }
 
 

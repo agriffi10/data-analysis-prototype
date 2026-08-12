@@ -50,7 +50,7 @@ deleted; the machine validates and stops at a placeholder terminal.
   `test_notify_failure_import_safety.py`'s verb map and layer roots,
   `test_user_space_bucket_allowlist.py`'s `EXPECTED_PRINCIPALS`, and `conftest.py`.
 
-## Two corrections made during the build
+## Corrections made during the build
 
 **`ARCHIVE_BUCKET` was first added to `cpcommon.config._REQUIRED_VARS`.** The reasoning — that
 lazy `__getattr__` resolution makes it free for planes that never read it — is true of
@@ -62,6 +62,63 @@ the layer stays import-safe.
 **The `mode` branch was first written on the Pipe's SQS message attributes**, which would have
 invented an unverified contract about the record shape. It reads `$.mode` on the *validated*
 request instead, where the field is a plain key of a parsed object.
+
+**The envelope was drafted NESTED (`actor: {"idToken": …}`) and is FLAT** — `actor` is the raw
+ID token at the top level. `cpcommon.auth.verified_username` takes a JWT *string*, so every
+request in the drafted shape would have failed `unauthorized` **before the actor was bound** —
+notifying nobody, and then being suppressed by `NotifyFailure` as a verb's own `TerminalError`.
+And SPEC-126's drain reads and redacts `body["actor"]` **flatly**, so a dead-lettered archive
+would have written the raw JWT to CloudWatch. **This is SPEC-164 FR-002's own amendment, for the
+same reason**; the spec's FR-004 AC1 and Data Model now carry it. Found in review: both suites
+stubbed `verified_username` itself, so the fixture's shape was never exercised — they now stub
+`verify_id_token` *below* it, and one test captures what actually reaches the verifier.
+
+## Review findings addressed
+
+The fresh-context review found one blocker (the envelope above) and a set of tests that could
+not fail. Each was **proven** by mutating the source and re-running, then reverted:
+
+- The CSP `connect-src` check scanned line by line for the word `connect_src`; the enumerated
+  list puts each host on its own line, so inserting an archive host left every check green. It
+  now slices and parses the list, and a guard-the-guard proves the scan can see one.
+- The "failure seed does not carry the selection twice" test was arithmetic over two literal
+  strings and never read the ASL; and **nothing** caught a seed reading a path its own input
+  lacks (the fleet guard walks *forward* from a seed, not at it) — adding `"source.$"` to
+  `ValidateFailureSeed`, which would raise an uncatchable `States.Runtime`, left the fleet suite
+  green. Both are now asserted against the machine, in its own suite.
+- A receipt-path test compared a call with itself; the archive-bucket policy was checked by
+  *count* of allowed principals rather than by name; the "no S3 grant yet" test forbade two
+  actions rather than scoping by resource (the role legitimately holds `GetObject` on the
+  registry); the `Resource: "*"` sweep missed the two portal templates this spec actually
+  edited. All four are fixed.
+- `{itemName}` was documented as filled from the raise site and appeared in no message body —
+  `protected_marker` now names the file, and a new test holds **every** marker to having a
+  supplier, because `blank_unfilled=True` renders an unsupplied one as a silent gap.
+- The item cap was "proven" by `200 % 25 == 0`. It now computes the per-item round-trip cost
+  against validate-authorize's own timeout, **read back from `locals.tf`**.
+
+## Deviations from the spec text, recorded rather than silent
+
+- **FR-002 AC4 is a forward tripwire, not a met criterion.** Nothing on the plane references
+  `ARCHIVE_STORAGE_CLASS` outside `config.py` yet, so there is no restore machinery for a
+  `GLACIER_IR` switch to bypass. The test is honest about being a guard on SPEC-171.
+- **FR-003 AC6 ("every catch carries `ResultPath`") is not literally met**, deliberately.
+  `ValidateAuthorize`'s input is the raw SQS **array**, and `ResultPath: "$.error"` on an array
+  raises `States.ResultPathMatchFailure`. The error replaces the state and the actor is
+  recovered from `$$.Execution.Input` — file-send's identical shape.
+- **FR-005 AC4's "`pending` fails" is not implemented and should not be.**
+  `cpcommon.registry.is_active_member` checks the *space's* provisioning status; a member whose
+  join chip reads pending is authorized, per SPEC-073 and SPEC-164. Denying here would make this
+  the only plane refusing a member for files they can already browse, download and share.
+- **FR-001 AC1's "its ARN is constructed in root locals" is not met**; root constructs the
+  **name**. The deploy policy builds both ARNs from it, and `modules/base/variables.tf` records
+  why a name is the right thing to pass.
+- **The shared-space `archive/` Deny is broader than its personal twin** —
+  `${bucket}/*/archive/*`, and IAM `*` matches `/`, so it also denies writes under a nested
+  `{space}/reports/archive/`. It follows the two existing denies in that file
+  (`SharedResultsNoDelete`, `SharedMarkerNoDelete`) rather than introducing a second pattern; the
+  consequence is that a user-made `reports/archive/` is writable in a personal space and not in
+  a shared one. Accepted, noted here so it is a decision rather than a surprise.
 
 ## Owed
 

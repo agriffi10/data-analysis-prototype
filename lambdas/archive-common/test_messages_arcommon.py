@@ -5,6 +5,7 @@ Step Functions record; the sentence a user reads is composed here.
 """
 
 import os
+import re
 import sys
 
 import pytest
@@ -55,9 +56,25 @@ def test_no_body_leaves_an_unfilled_marker():
 
 
 def test_a_raise_site_token_fills_its_marker():
+    """`{itemName}` is the ONE marker this module cannot fill itself — it is the user's own
+    file name, not a number from `config`. An earlier version of this test asserted only the
+    shared prefix, which is true of every message here, and no body carried the marker at all.
+    """
+    assert "{itemName}" in messages._BODIES["protected_marker"]
+
     text = messages.failure_message("protected_marker", tokens={"itemName": "DO_NOT_DELETE.txt"})
 
-    assert "Couldn't archive that: " in text
+    assert "DO_NOT_DELETE.txt" in text
+    assert "{itemName}" not in text
+
+
+def test_every_marker_in_every_body_can_be_filled_by_somebody():
+    """A marker no caller supplies renders BLANK (`blank_unfilled=True`), which reads as a
+    typo in the sentence rather than as a bug — so it must be caught here."""
+    fillable = {"maxItems", "itemName"}
+    for reason, body in messages._BODIES.items():
+        for marker in re.findall(r"\{(\w+)\}", body):
+            assert marker in fillable, f"{reason} names {{{marker}}}, which nothing supplies"
 
 
 def test_the_trusted_context_wins_over_a_raise_sites_token():

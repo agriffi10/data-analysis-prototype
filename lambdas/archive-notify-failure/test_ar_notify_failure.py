@@ -33,7 +33,7 @@ def sent(monkeypatch):
 
 def _raw(actor_token="eyJ-token"):
     return [{"messageId": "m-1", "body": json.dumps({
-        "requestId": UUID, "mode": "archive", "actor": {"idToken": actor_token},
+        "requestId": UUID, "mode": "archive", "actor": actor_token,
         "source": {"space": {"kind": "personal", "name": "alice"}, "items": []},
     })}]
 

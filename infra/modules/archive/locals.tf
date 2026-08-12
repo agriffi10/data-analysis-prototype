@@ -78,10 +78,12 @@ locals {
   # table-builder production break, PR #196).
   archive_verb_env = {}
 
-  # ARNs for the execution role's grants (constructed, known at plan).
-  admin_bucket_arn        = "arn:aws:s3:::${var.admin_bucket_name}"
-  user_space_bucket_arn   = "arn:aws:s3:::${var.user_space_bucket_name}"
-  shared_space_bucket_arn = "arn:aws:s3:::${var.shared_space_bucket_name}"
+  # ARNs for the execution role's grants (constructed, known at plan). ONE, because the
+  # execution policy grants ONE thing on S3 today: the shared-spaces registry read. The
+  # space-bucket and archive-bucket ARNs arrive with SPEC-169's listing, Glacier write and
+  # source deletion — declared then, beside the statements that use them, rather than sitting
+  # here unreferenced looking like grants this plane already holds.
+  admin_bucket_arn = "arn:aws:s3:::${var.admin_bucket_name}"
 
   archive_function_names = {
     for suffix, _ in local.archive_functions :
@@ -116,6 +118,4 @@ locals {
   sfn_log_group_name = "/aws/vendedlogs/states/${local.state_machine_name}"
   sfn_log_group_arn  = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:${local.sfn_log_group_name}"
   state_machine_arn  = "arn:aws:states:${var.aws_region}:${var.account_id}:stateMachine:${local.state_machine_name}"
-
-  archive_bucket_arn = "arn:aws:s3:::${var.archive_bucket_name}"
 }

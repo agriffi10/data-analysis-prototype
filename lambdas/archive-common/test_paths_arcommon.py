@@ -120,11 +120,23 @@ def test_the_receipt_sits_at_the_spaces_own_root():
     assert paths.receipt_key("alice", UUID) == f"alice/archive/{UUID}/receipt.txt"
 
 
-def test_the_receipt_path_is_identical_for_a_user_and_a_space_of_the_same_name():
-    """And that is CORRECT, not a bug: receipts live in each space's OWN bucket, and personal
-    and shared spaces are different buckets. The asymmetry with archive_root is the whole
-    point of both — one place the namespaces meet, one place they cannot."""
-    assert paths.receipt_key("alice", UUID) == paths.receipt_key("alice", UUID)
+def test_the_receipt_path_carries_no_kind_segment_and_needs_none():
+    """The asymmetry with `archive_root` is the whole point of both. Receipts live in each
+    space's OWN bucket, so a user `alice` and a space `alice` cannot collide there and the
+    partitioning would be noise; the archive bucket is the one place the two namespaces meet,
+    so there it is load-bearing.
+
+    An earlier version of this test asserted `receipt_key(…) == receipt_key(…)` with identical
+    arguments — a fork whose two operands always agree, which stayed green with `receipt_key`
+    returning the empty string. Measured.
+    """
+    receipt = paths.receipt_key("alice", UUID)
+    archived = paths.archive_root("personal", "alice", UUID)
+
+    assert not receipt.startswith(("personal/", "shared/"))
+    assert "personal" not in receipt and "shared" not in receipt
+    assert archived.startswith("personal/")
+    assert receipt.startswith("alice/")
 
 
 # ── The origin round-trip: the receipt is a report, not a record ─────────────

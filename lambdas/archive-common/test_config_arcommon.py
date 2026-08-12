@@ -90,13 +90,35 @@ def test_the_restore_path_is_not_conditional_on_the_class():
 # ── FR-005: the item cap, and what actually sizes it ─────────────────────────
 
 
-def test_the_item_cap_is_a_whole_number_of_file_browser_pages():
-    """What sizes it is the per-item work that follows — the containment and reserved-root
-    checks here, and in SPEC-169 one ListObjectsV2 walk per folder plus a HeadObject per file.
-    The product reading is what makes the value legible: the file browser pages at 25, so this
-    is eight full pages of selection."""
-    assert config.ARCHIVE_MAX_ITEMS % 25 == 0
-    assert config.ARCHIVE_MAX_ITEMS // 25 == 8
+def test_the_item_cap_fits_the_per_item_work_inside_the_validators_timeout():
+    """COMPUTED against the thing that sizes it, not restated. An earlier version asserted
+    `200 % 25 == 0` — which is arithmetic about the file browser's page size and says nothing
+    about whether the cap is safe.
+
+    What sizes it is the per-item work: the two containment rules and the reserved-root scan
+    here (pure string work, microseconds), and in SPEC-169 **one round trip per ITEM** — a
+    `ListObjectsV2` walk for a folder, a serial `HeadObject` for a file. The per-item cost is
+    therefore a NETWORK round trip, and the file case is the binding one because 200 files is
+    200 serial round trips where 20,000 objects in one folder is 20 paged ones.
+
+    The budget is validate-authorize's own 15-second timeout (`locals.tf`, READ BACK here so
+    lowering it fails the build) minus a cold start. SPEC-169's expansion runs in its own verb
+    with its own longer timeout, so this bounds THIS verb.
+    """
+    locals_tf = (
+        pathlib.Path(__file__).resolve().parent.parent.parent
+        / "infra" / "modules" / "archive" / "locals.tf"
+    ).read_text()
+    block = locals_tf[locals_tf.index('"validate-authorize"'):]
+    timeout = int(re.search(r"timeout = (\d+)", block).group(1))
+
+    # Conservative: 25 ms per S3 round trip, and 3 s of the budget spent on a cold start plus
+    # the JWKS fetch and the registry read that precede the loop.
+    worst_case_seconds = config.ARCHIVE_MAX_ITEMS * 0.025
+    assert worst_case_seconds < timeout - 3, (
+        f"{config.ARCHIVE_MAX_ITEMS} items is ~{worst_case_seconds:.1f}s of serial round trips "
+        f"against a {timeout}s verb timeout"
+    )
 
 
 def test_a_count_cap_cannot_bound_the_bytes_and_that_is_why_there_are_two():
@@ -164,17 +186,6 @@ def test_the_byte_cap_survives_every_link_of_the_chain_it_bounds():
         separators=(",", ":"),
     )
     assert len(validated.encode()) < _STATE_PAYLOAD_LIMIT
-
-
-def test_the_failure_seed_does_not_carry_the_selection_twice():
-    """RequestFailureSeed's absent $.source is a SIZE decision, not tidying — asserted here
-    rather than left as a comment in the ASL, because the two together breach the limit on a
-    Pass with no Catch, killing the run before NotifyFailure on exactly the failures SPEC-152
-    exists to report."""
-    raw = "r" * (config.ARCHIVE_MAX_ITEM_BYTES * 2)
-    both = json.dumps({"raw": raw, "source": {"items": "s" * config.ARCHIVE_MAX_ITEM_BYTES}})
-
-    assert len(both.encode()) > _STATE_PAYLOAD_LIMIT
 
 
 # ── FR-005: the reserved list ────────────────────────────────────────────────

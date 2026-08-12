@@ -24,7 +24,7 @@ from arcommon.config import (
     RESERVED_SOURCE_ROOTS,
 )
 from cpcommon import auth
-from cpcommon.errors import TerminalError
+from cpcommon.errors import AuthError, TerminalError
 
 UUID = "9f2c1b8e-4c1a-4b2f-8d3e-1a2b3c4d5e6f"
 
@@ -33,11 +33,15 @@ UUID = "9f2c1b8e-4c1a-4b2f-8d3e-1a2b3c4d5e6f"
 def _bind(monkeypatch):
     """The verified actor, an empty registry and a notification sink.
 
-    The token is stubbed at ``cpcommon.auth.verified_username`` rather than by minting a real
-    JWT: what this suite is about is what happens AFTER the actor is known, and the
-    verification itself has its own suite in cpcommon.
+    **The seam is stubbed BELOW ``verified_username``, not at it**, and that is the whole
+    difference between this fixture and one that cannot fail. ``verified_username`` is what
+    asserts the envelope's SHAPE — it takes a raw JWT string — so stubbing it accepts any
+    fixture at all, including the nested ``{"idToken": …}`` shape this spec was drafted with
+    and which fails ``unauthorized`` on every real request. Stubbing ``verify_id_token``
+    instead leaves the real string-vs-dict seam in the path, and
+    ``test_the_envelope_is_flat_and_a_nested_token_is_refused`` below drives it.
     """
-    monkeypatch.setattr(auth, "verified_username", lambda actor, **kw: "alice")
+    monkeypatch.setattr(auth, "verify_id_token", lambda token, **kw: {"cognito:username": "alice"})
     monkeypatch.setattr(authz.reg, "load", lambda name: None)
     sent = []
     monkeypatch.setattr(notify, "emit_notification", lambda user, text, **kw: sent.append((user, text)))
@@ -49,7 +53,7 @@ def _event(**overrides):
     body = {
         "requestId": UUID,
         "mode": "archive",
-        "actor": {"idToken": "eyJ-token"},
+        "actor": "eyJ-token",
         "source": {
             "space": {"kind": "personal", "name": "alice"},
             "items": [{"kind": "file", "key": "alice/reports/q1.csv"}],
@@ -127,18 +131,31 @@ def test_a_folder_key_is_normalised_to_a_trailing_slash_before_any_rule_runs():
 
 
 def test_nothing_from_the_untrusted_body_identifies_the_actor(monkeypatch):
-    monkeypatch.setattr(auth, "verified_username", lambda actor, **kw: "alice")
-    out = verb.handler(
-        _event(actor={"idToken": "eyJ-token", "username": "root"}),
-        None,
-    )
+    """The claim comes from the token; a body that also asserts a username changes nothing —
+    and here it cannot even be spelled, because the envelope has no room for one."""
+    monkeypatch.setattr(auth, "verify_id_token", lambda token, **kw: {"cognito:username": "alice"})
 
-    assert out["actor"] == {"username": "alice"}
+    assert verb.handler(_event(), None)["actor"] == {"username": "alice"}
+
+
+def test_the_envelope_is_flat_and_a_nested_token_is_refused():
+    """THE SHAPE THIS SUITE PREVIOUSLY COULD NOT SEE. The spec was drafted with a nested
+    ``actor: {"idToken": …}``; `cpcommon.auth.verified_username` takes a RAW JWT STRING, so
+    every such request would have failed `unauthorized` before the actor was bound — which
+    notifies nobody, and which `NotifyFailure` then suppresses as a verb's own TerminalError.
+
+    The flatness is not stylistic. SPEC-126's drain reads `body["actor"]` and redacts it
+    FLATLY, so a nested token on a dead-lettered request reaches CloudWatch verbatim. SPEC-164
+    was amended for exactly this; the guard is here so the amendment cannot be undone quietly.
+    """
+    assert _refused(actor={"idToken": "eyJ-token"}) == "malformed_event"
+    assert _refused(actor=None) == "malformed_event"
+    assert _refused(actor="") == "malformed_event"
 
 
 def test_a_bad_token_fails_before_anything_is_authorized(monkeypatch):
     monkeypatch.setattr(
-        auth, "verified_username", lambda actor, **kw: (_ for _ in ()).throw(TerminalError("unauthorized", "expired"))
+        auth, "verify_id_token", lambda token, **kw: (_ for _ in ()).throw(AuthError("expired"))
     )
     verb.authz.reg.load = lambda name: pytest.fail("registry consulted before the token verified")
 
@@ -151,7 +168,7 @@ def test_a_pre_identity_failure_notifies_nobody(_bind, monkeypatch):
     """There is no trusted recipient in that window, and notifying the body's own claim would
     let anyone deliver text to any inbox."""
     monkeypatch.setattr(
-        auth, "verified_username", lambda actor, **kw: (_ for _ in ()).throw(TerminalError("unauthorized", "x"))
+        auth, "verify_id_token", lambda token, **kw: (_ for _ in ()).throw(AuthError("bad signature"))
     )
 
     with pytest.raises(TerminalError):

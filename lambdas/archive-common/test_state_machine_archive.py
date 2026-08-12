@@ -122,6 +122,75 @@ def test_the_validated_pass_carries_no_placeholder_status_literal():
     assert "status" not in STATES["Validated"]["Parameters"]
 
 
+# ── The failure seeds: what they carry, and what they must not read ──────────
+
+
+def _seeds():
+    """Every Pass state that feeds RecordFailure — this machine's failure seeds."""
+    return {
+        name: state
+        for name, state in STATES.items()
+        if state.get("Type") == "Pass" and state.get("Next") == "RecordFailure"
+    }
+
+
+def test_the_seed_scan_found_both_seeds():
+    """Guards every check below against passing vacuously if the machine is restructured."""
+    assert set(_seeds()) == {"ValidateFailureSeed", "UnknownModeSeed"}
+
+
+def test_a_seed_reads_only_paths_its_own_input_actually_has():
+    """A Pass state's JSONPath hard-fails on an ABSENT key with `States.Runtime`, which is
+    neither retriable nor catchable — so the failure terminal dies BEFORE its notify state and
+    the user hears nothing at all, on a request that already failed.
+
+    THE FLEET GUARD DOES NOT COVER THIS. `test_a_failure_seed_supplies_every_key_the_failure_
+    terminal_reads` walks FORWARD from a seed, checking what downstream states read against
+    what the seed supplies; it says nothing about what the seed ITSELF reads. Measured: adding
+    `"source.$": "$.source"` to ValidateFailureSeed — whose input after the Catch is the raw
+    `{Error, Cause}`, so the path does not exist — left the whole fleet suite green.
+
+    `ValidateFailureSeed`'s input is the raw error (the Catch had no object to merge into), so
+    it may read `$` and the CONTEXT OBJECT and nothing else. `UnknownModeSeed`'s input is the
+    validated request, so it may read that request's own top-level keys.
+    """
+    validated = set(STATES["Validated"]["Parameters"])
+    validated = {name.removesuffix(".$") for name in validated}
+    allowed = {
+        "ValidateFailureSeed": set(),
+        "UnknownModeSeed": validated,
+    }
+
+    for name, seed in _seeds().items():
+        for key, value in seed["Parameters"].items():
+            if not key.endswith(".$") or not isinstance(value, str):
+                continue
+            if value == "$" or value.startswith("$$."):
+                continue
+            path = value.removeprefix("$.").split(".")[0]
+            assert path in allowed[name], (
+                f"{name} reads $.{path}, which its input does not carry — an absent key raises "
+                "an uncatchable States.Runtime and the user is never notified"
+            )
+
+
+def test_no_seed_carries_the_selection_a_second_time():
+    """A SIZE decision, not tidying, and it is asserted against the ASL rather than argued in a
+    comment. `$.raw` is the Pipe's record, which at ARCHIVE_MAX_ITEM_BYTES is ~200 KB of
+    escaped selection; `$.source` is that same selection AGAIN. The two together breach the
+    256 KB state limit for a quote-heavy selection — on a Pass with NO Catch, killing the run
+    before NotifyFailure, on exactly the failures SPEC-152 exists to report.
+
+    Measured: an earlier version of this test did the arithmetic over two literal strings and
+    never read the machine at all, so adding `"source.$": "$.source"` to a seed left it green.
+    """
+    for name, seed in _seeds().items():
+        assert "source.$" not in seed["Parameters"], (
+            f"{name} carries $.source beside $.raw — the same selection twice"
+        )
+        assert "raw.$" in seed["Parameters"], f"{name} must supply $.raw; RecordFailure reads it"
+
+
 # ── What this machine deliberately does NOT have yet ─────────────────────────
 
 
