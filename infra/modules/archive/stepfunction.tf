@@ -53,9 +53,23 @@ resource "aws_sfn_state_machine" "archive" {
     # spending money it cannot get back, which is why both live on this side of the split.
     inspect_archive_function_arn         = aws_lambda_function.functions["inspect-archive"].arn
     check_destination_clear_function_arn = aws_lambda_function.functions["check-destination-clear"].arn
+    # SPEC-171 — the billed half. update-receipt is fed to THREE states, which is deliberate
+    # rather than a saving: the receipt records a restore at three stages (requested, restored,
+    # incomplete) and the ASL SEEDS which one, so the verb never infers its own stage from what
+    # else happens to be lying on the state. copy-objects and collect-transfer-results are the
+    # ARCHIVE arm's verbs, reused: the copy-back asks the identical question in the opposite
+    # direction, and what differs is only what the answer authorizes.
+    build_restore_manifest_function_arn = aws_lambda_function.functions["build-restore-manifest"].arn
+    initiate_restore_function_arn       = aws_lambda_function.functions["initiate-restore"].arn
+    poll_restore_function_arn           = aws_lambda_function.functions["poll-restore"].arn
+    delete_archived_function_arn        = aws_lambda_function.functions["delete-archived"].arn
+    update_receipt_function_arn         = aws_lambda_function.functions["update-receipt"].arn
     # Mirrored from cpcommon/transfer/config.py; a test holds the two together.
     transfer_max_items_per_batch = local.transfer_max_items_per_batch
     transfer_map_max_concurrency = local.transfer_map_max_concurrency
+    # Mirrored from arcommon/config.py's RESTORE_POLL_SECONDS. The iteration CAP is
+    # deliberately not here — poll-restore computes it, so RESTORE_MAX_POLLS has one home.
+    restore_poll_seconds = local.restore_poll_seconds
     # A TOP-LEVEL ASL field. See the local for the arithmetic.
     state_machine_timeout_seconds = local.state_machine_timeout_seconds
   })

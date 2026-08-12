@@ -23,7 +23,16 @@ one decimal, a TB ceiling (SPEC-155 FR-007) — so the receipt and the browser n
 one number. The exact byte count rides beside it because the rounded one is not a number anybody
 can reconcile against a bill.
 
+**SPEC-171 rewrites the two restore lines IN PLACE and touches nothing else**, which is the
+only way the document can carry both halves. The archive lines record the archive run — its
+start time above all, which no restore run knows and cannot recompute — so a rewrite that
+re-rendered the whole file from the restore's own state would silently blank the ``Requested``
+line. The rewrite is therefore keyed on the two LABELS and keeps every other line verbatim,
+and ``render`` remains the only thing that decides what a fresh document looks like.
+
 Attributes:
+  RESTORE_REQUESTED_LABEL: The label the rewrite replaces with the restore's timestamp.
+  RESTORED_TO_LABEL: The label the rewrite replaces with where the data landed.
   _UNITS: The unit ladder, ending at TB. The ceiling is the shared behaviour, not an oversight:
     beyond it the number keeps growing in TB rather than inventing a unit the rest of the app
     does not render.
@@ -44,6 +53,10 @@ from . import messages  # noqa: F401
 from .config import RECEIPT_NAME  # noqa: F401
 
 logger = logging.getLogger(__name__)
+
+RESTORE_REQUESTED_LABEL = "Restore requested"
+
+RESTORED_TO_LABEL = "Restored to"
 
 _UNITS = ("B", "KB", "MB", "GB", "TB")
 
@@ -147,9 +160,86 @@ def render(record: dict) -> str:
         _line("Archived path", f"s3://{archive.get('bucket')}/{archive.get('root')}"),
         _line("Total size", f"{human_bytes(total_bytes)} ({total_bytes} bytes)"),
         _line("Files archived", str(record.get("objectCount") or 0)),
-        _line("Restore requested", "No"),
-        _line("Restored to", _ABSENT),
+        _line(RESTORE_REQUESTED_LABEL, "No"),
+        _line(RESTORED_TO_LABEL, _ABSENT),
     ]
+    return "\n".join(lines) + "\n"
+
+
+def restore_lines(restore: dict) -> dict:
+    """Renders the two restore fields' VALUES from a restore's outcome.
+
+    Three outcomes and three sentences, and the second is the one that has to be careful. On
+    ``incomplete`` the ``Restored to`` field must not name a destination as though the restore
+    landed there — it records the attempt and what it left behind, so the receipt never claims a
+    restore that did not finish (FR-006 AC2).
+
+    Args:
+      restore: The restore's state — its ``requestedAt`` timestamp, its ``status``
+        (``requested``, ``restored`` or ``incomplete``), the destination path and, on the
+        incomplete path, how many objects did land.
+
+    Returns:
+      ``{label: value}`` for the two restore lines.
+
+    Raises:
+      None. A missing field renders as a placeholder, for ``render``'s own reason: by the time
+      this is written the data has usually already moved, and a raise would fail a run whose
+      only remaining work is telling the user what happened.
+    """
+    status = restore.get("status")
+    destination = restore.get("destination") or _ABSENT
+    if status == "restored":
+        landed = destination
+    elif status == "incomplete":
+        landed = (
+            f"Restore did not finish - {restore.get('restored') or 0} of "
+            f"{restore.get('expected') or 0} file(s) were written to {destination}. "
+            "The archive is intact."
+        )
+    else:
+        landed = _ABSENT
+    return {
+        RESTORE_REQUESTED_LABEL: _timestamp(restore.get("requestedAt")),
+        RESTORED_TO_LABEL: landed,
+    }
+
+
+def rewrite(text: str, restore: dict) -> str:
+    """Replaces the two restore lines in an existing receipt, keeping every other line verbatim.
+
+    **Keyed on the LABEL rather than on the line's position**, because position is a property of
+    the version of ``render`` that wrote the document and the label is a property of the field.
+    A receipt written by a future ``render`` with a line inserted above them still rewrites
+    correctly, and one written by an older one still finds them.
+
+    A label the document does not carry is APPENDED rather than dropped. That case is not
+    reachable from anything this plane wrote — every receipt has carried both fields since
+    SPEC-169's first version, deliberately, so the format would never be conditional on the
+    file's own history — and it is handled because the alternative is a rewrite that silently
+    records nothing.
+
+    Args:
+      text: The existing receipt.
+      restore: The restore's state, as ``restore_lines`` describes it.
+
+    Returns:
+      The rewritten receipt, ending in a newline.
+
+    Raises:
+      None.
+    """
+    values = restore_lines(restore)
+    seen = set()
+    lines = []
+    for line in text.splitlines():
+        label = line.split(":", 1)[0].strip()
+        if label in values:
+            seen.add(label)
+            lines.append(_line(label, values[label]))
+        else:
+            lines.append(line)
+    lines.extend(_line(label, value) for label, value in values.items() if label not in seen)
     return "\n".join(lines) + "\n"
 
 
@@ -178,14 +268,65 @@ def write(bucket: str, key: str, record: dict) -> str:
         failure FR-006 requires: a user with no receipt has no UUID and therefore no route to a
         restore, even though their data is safely archived.
     """
+    return write_text(bucket, key, render(record))
+
+
+def write_text(bucket: str, key: str, text: str) -> str:
+    """Puts a rendered receipt, whether it was composed fresh or rewritten.
+
+    Args:
+      bucket: The space's bucket.
+      key: The receipt's key.
+      text: The document.
+
+    Returns:
+      The key the receipt was written to.
+
+    Raises:
+      TransientError: On a retryable S3 fault.
+      ClientError: Any deterministic fault propagates.
+    """
     try:
         clients.s3().put_object(
             Bucket=bucket,
             Key=key,
-            Body=render(record).encode(),
+            Body=text.encode(),
             ContentType="text/plain; charset=utf-8",
         )
     except Exception as err:
         errors.raise_if_transient(err, f"put {bucket}/{key}")
         raise
     return key
+
+
+def read(bucket: str, key: str) -> str | None:
+    """Reads an existing receipt back, returning None only for a PROVEN absence.
+
+    **The 404-only rule is the guard's discipline applied to a write rather than to a read**, and
+    for the same reason turned around. The caller's fallback for "there is no receipt" is to
+    compose a fresh one, which loses the archive's own ``Requested`` timestamp — the one field a
+    restore cannot recompute. So an ambiguous answer (a 403, a fault with no status) must not
+    take that branch: it raises, the state's ``Retry`` runs, and the run fails rather than
+    overwriting a document it merely failed to read.
+
+    Args:
+      bucket: The space's bucket.
+      key: The receipt's key.
+
+    Returns:
+      The receipt's text, or None when S3 proved it is not there.
+
+    Raises:
+      TransientError: On a throttle or 5xx.
+      ClientError: On any other fault, including a 403.
+    """
+    try:
+        body: bytes = clients.s3().get_object(Bucket=bucket, Key=key)["Body"].read()
+        return body.decode()
+    except Exception as err:
+        errors.raise_if_transient(err, f"get {bucket}/{key}")
+        meta = getattr(err, "response", None) or {}
+        if int((meta.get("ResponseMetadata") or {}).get("HTTPStatusCode") or 0) == 404:
+            logger.info("no existing receipt at %s/%s", bucket, key)
+            return None
+        raise

@@ -70,6 +70,12 @@ def validate(req: dict, request_id: str, actor: str) -> dict:
       Pass and a Pass naming a path the state does not have raises an uncatchable
       ``States.Runtime``. In this mode it is the restore's DESTINATION.
 
+      The ``archive`` block carries the RECEIPT's location alongside the vault's, resolved here
+      exactly as validate-authorize resolves it for an archive: it is a pure function of the
+      space and the archive id, so it is built once rather than three agreeing times (SPEC-168).
+      **It is keyed on the ARCHIVE id, not this run's**, because the document it names was
+      written by the archive and is being rewritten rather than created.
+
     Raises:
       TerminalError: ``malformed_event`` when the shape is wrong or the two ids are the same,
         ``invalid_request`` when the archive id is not a UUID v4, and ``forbidden`` when the
@@ -94,6 +100,8 @@ def validate(req: dict, request_id: str, actor: str) -> dict:
             "bucket": archive_bucket(),
             "root": archive_root,
             "archiveId": archive_id,
+            "receiptBucket": space["bucket"],
+            "receiptKey": paths.receipt_key(space["name"], archive_id),
         },
     }
 

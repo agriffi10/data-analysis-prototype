@@ -51,15 +51,24 @@ class _S3Error(Exception):
 
 
 class _FakeS3:
-    def __init__(self, objects=None, copy_error=None, get_error=None):
+    def __init__(self, objects=None, copy_error=None, get_error=None, source_headers=None):
         self.objects = objects or {}
         self.puts = []
         self.copies = []
         self.multipart = []
         self.aborted = []
+        self.heads = []
         self.copy_error = copy_error
         self.get_error = get_error
+        # What HeadObject reports for a source object. Empty by default: the multipart path
+        # re-states only what the source actually carries, so the default case must produce a
+        # CreateMultipartUpload identical to the one that shipped before SPEC-171.
+        self.source_headers = source_headers or {}
         self._uploads = 0
+
+    def head_object(self, **kwargs):
+        self.heads.append(kwargs)
+        return {"ContentLength": 0, **self.source_headers}
 
     def put_object(self, **kwargs):
         self.puts.append(kwargs)
@@ -274,7 +283,7 @@ def test_a_large_object_still_multipart_copies():
     size = 5 * GIB + 512
     copy_mod.copy_batch([_item(rel="big.parquet", size=size)], _FAILED)
 
-    parts = [c for c in fake.multipart if "PartNumber" in c]
+    parts = [c for c in fake.multipart if "PartNumber" in c and "complete" not in c]
     complete = [c for c in fake.multipart if "complete" in c]
     assert fake.copies == []
     assert len(parts) == 6
@@ -286,17 +295,23 @@ def test_a_large_object_still_multipart_copies():
 # ── the per-item storage class (SPEC-169) ───────────────────────────────────
 
 
-def test_an_item_with_no_storage_class_issues_the_request_it_always_did():
+def test_an_item_with_no_storage_class_names_no_storage_class_at_all():
     """THE PROPERTY THE TWO EXISTING CALLERS DEPEND ON, and it is about the ABSENCE of a key
     rather than about a default value. Passing `StorageClass="STANDARD"` would also be
     "correct" and would change every table-share and file-send request; asserting the exact
-    argument set is what keeps them byte-identical.
+    argument set is what keeps that honest.
+
+    SPEC-171 ADDED `MetadataDirective` TO THAT SET, deliberately, and this test is the place
+    that records it. It is S3's own default on this path, so no request's BEHAVIOUR changed —
+    but it is stated rather than assumed because the multipart path beside it proves the
+    default is not universal, and an argument set nobody pins is an argument set that drifts.
     """
     fake = _setup()
 
     copy_mod.copy_batch([_item()], _FAILED)
 
-    assert set(fake.copies[0]) == {"Bucket", "Key", "CopySource"}
+    assert set(fake.copies[0]) == {"Bucket", "Key", "CopySource", "MetadataDirective"}
+    assert fake.copies[0]["MetadataDirective"] == "COPY"
 
 
 def test_an_item_carrying_a_storage_class_passes_it_to_the_copy():
@@ -334,6 +349,137 @@ def test_the_storage_class_is_set_on_the_MULTIPART_CREATE_not_the_part_copies():
 
 def test_a_large_object_with_no_storage_class_creates_the_upload_it_always_did():
     """The absence half of the multipart path, for the same reason as the single-copy one."""
+    fake = _setup()
+    creates = []
+    real_create = fake.create_multipart_upload
+    fake.create_multipart_upload = lambda **kw: creates.append(kw) or real_create(**kw)
+
+    copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED)
+
+    assert set(creates[0]) == {"Bucket", "Key"}
+
+
+# ── the metadata round trip (SPEC-171 FR-003 AC5) ───────────────────────────
+
+
+def test_a_single_copy_carries_the_sources_metadata_by_directive():
+    """`MetadataDirective: COPY` is S3's default here, and it is stated because the multipart
+    path proves the default is not universal. Passing REPLACE with no metadata beside it would
+    strip every object's content type on a copy that otherwise looked identical."""
+    fake = _setup()
+
+    copy_mod.copy_batch([_item()], _FAILED)
+
+    assert fake.copies[0]["MetadataDirective"] == "COPY"
+    assert fake.heads == [], "a single copy needs no HeadObject — the directive does the work"
+
+
+def test_a_multipart_copy_restates_the_sources_content_type_and_metadata():
+    """**THE LATENT BUG SPEC-171 SURFACED, and it was silent on all three planes.**
+    `UploadPartCopy` moves bytes and nothing else, and `CreateMultipartUpload` has no
+    `MetadataDirective` — so the destination's content type and user metadata are whatever the
+    create call was told, and it was told nothing. Every object over MULTIPART_COPY_THRESHOLD
+    came out as `binary/octet-stream` with its user metadata gone.
+
+    It surfaced here because an archive round trip is the first operation in this repo that
+    copies an object twice and hands it back to the user expecting it unchanged — a table share
+    reads its objects through Athena, which does not care.
+    """
+    fake = _setup(
+        source_headers={
+            "ContentType": "text/csv; charset=utf-8",
+            "Metadata": {"origin": "quarterly-export"},
+            "ContentEncoding": "gzip",
+        }
+    )
+    creates = []
+    real_create = fake.create_multipart_upload
+    fake.create_multipart_upload = lambda **kw: creates.append(kw) or real_create(**kw)
+
+    copy_mod.copy_batch([_item(rel="big.csv", size=6 * GIB)], _FAILED)
+
+    assert fake.heads, "the multipart path did not read the source — this test measures nothing"
+    assert creates[0]["ContentType"] == "text/csv; charset=utf-8"
+    assert creates[0]["Metadata"] == {"origin": "quarterly-export"}
+    assert creates[0]["ContentEncoding"] == "gzip"
+
+
+def test_a_content_type_survives_an_archive_then_a_restore_at_both_sizes():
+    """FR-003 AC5's own scenario, run in both directions and at BOTH copy strategies — a test
+    that fixtured only a small object would pass while the multipart path silently dropped
+    everything, which is exactly the shape of the bug it is here to catch.
+
+    The archive copy and the copy-back are the same function, so what this asserts is that two
+    hops of it leave the content type where it started.
+    """
+    for size in (10, 6 * GIB):
+        fake, creates = _round_trip(size)
+
+        if size <= copy_mod.MULTIPART_COPY_THRESHOLD:
+            assert [c["MetadataDirective"] for c in fake.copies] == ["COPY", "COPY"]
+        else:
+            assert [c["ContentType"] for c in creates] == [
+                "application/x-parquet",
+                "application/x-parquet",
+            ]
+
+
+def _round_trip(size):
+    """Archives one object at GLACIER and restores it at STANDARD, recording both copies."""
+    fake = _setup(source_headers={"ContentType": "application/x-parquet"})
+    creates = []
+    real_create = fake.create_multipart_upload
+
+    def _observed(**kwargs):
+        creates.append(kwargs)
+        return real_create(**kwargs)
+
+    fake.create_multipart_upload = _observed
+
+    archived = {**_item(rel="q1.parquet", size=size), "storageClass": "GLACIER"}
+    copy_mod.copy_batch([archived], _FAILED)
+    copy_mod.copy_batch(
+        [
+            {
+                **archived,
+                "srcBucket": archived["destBucket"],
+                "srcKey": archived["destKey"],
+                "destBucket": "user-bkt",
+                "destKey": "alice/sales/q1.parquet",
+                "storageClass": "STANDARD",
+            }
+        ],
+        _FAILED,
+    )
+    return fake, creates
+
+
+def test_the_multipart_paths_new_HEAD_is_a_real_failure_point_and_is_handled():
+    """**SPEC-171 added a pre-copy S3 call to a path two SHIPPED planes already use**, so its
+    failure modes are theirs now too. A throttle must stay transient — the Map retries the whole
+    idempotent batch — and a deterministic fault must fail THAT ITEM rather than producing an
+    object stripped of the metadata this call exists to carry."""
+    fake = _setup()
+    fake.head_object = lambda **kw: (_ for _ in ()).throw(_S3Error("SlowDown"))
+
+    with pytest.raises(TransientError):
+        copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED)
+
+    fake = _setup()
+    fake.head_object = lambda **kw: (_ for _ in ()).throw(_S3Error("NoSuchKey"))
+
+    out = copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED)
+
+    assert out["copied"] == 0
+    assert out["failures"] == [{"recipient": "bob", "kind": "user", "reason": _FAILED}]
+    assert fake.multipart == [], "an unreadable source started a multipart upload anyway"
+
+
+def test_a_source_header_the_object_does_not_carry_is_not_stamped_over_the_default():
+    """An empty `ContentType` passed to `CreateMultipartUpload` would stamp the default over
+    nothing, which is harmless — but an empty `Metadata` dict or `ContentDisposition` reads as
+    an explicit instruction, and the argument set that shipped before SPEC-171 is the one the
+    two existing callers' requests are pinned to."""
     fake = _setup()
     creates = []
     real_create = fake.create_multipart_upload

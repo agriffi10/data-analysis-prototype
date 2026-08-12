@@ -17,6 +17,15 @@ the failure is attributed downstream from the exported result. A transient fault
 opposite: it raises, because the whole batch retrying is both correct and cheap (copy is
 idempotent, and the conflict guard already ran).
 
+**A copy carries the source object's metadata, and the two paths do that DIFFERENTLY**
+(SPEC-171). ``CopyObject`` takes ``MetadataDirective: COPY``, which is also its default and is
+now passed explicitly. A multipart copy has no such directive: ``UploadPartCopy`` moves bytes
+and nothing else, so the destination's content type and user metadata are whatever
+``CreateMultipartUpload`` was told — and it was told nothing, so **every object over
+``MULTIPART_COPY_THRESHOLD`` silently lost its content type**. That was latent on all three
+callers and surfaced here, because an archive round trip is the first operation in this repo
+that copies an object twice and hands it back to the user expecting it unchanged.
+
 Attributes:
   MULTIPART_COPY_THRESHOLD: S3's single-request copy ceiling; larger objects must
     multipart-copy.
@@ -24,6 +33,17 @@ Attributes:
   COPY_CONCURRENCY: Bounded worker pool within one batch. The batch size bounds the work; this
     bounds the parallelism, and with the Map's own concurrency above it the product is what
     reaches S3.
+  _CARRIED_HEADERS: The ``HeadObject`` response fields a multipart copy has to re-state on
+    ``CreateMultipartUpload``, mapped to that call's argument names. Only the ones S3 accepts
+    there, and each is set only when the source actually carries it — passing an empty
+    ``ContentType`` would stamp the default over a real value rather than leaving it alone.
+
+    **ONE THING ``MetadataDirective`` CARRIES THAT THIS DOES NOT: the object's TAG SET.**
+    ``CopyObject`` copies tags by default (``TaggingDirective`` defaults to ``COPY``);
+    ``HeadObject`` does not report them, so matching that would cost a ``GetObjectTagging`` call
+    per object over the threshold. **Nothing in this portal tags an object**, so the parity is
+    not bought — recorded here rather than left for someone to discover, because the moment a
+    plane starts tagging, every object over 5 GiB will start losing them silently.
 """
 
 import logging
@@ -38,6 +58,50 @@ MULTIPART_COPY_THRESHOLD = 5 * 1024**3
 MULTIPART_PART_SIZE = 1024**3
 
 COPY_CONCURRENCY = 8
+
+_CARRIED_HEADERS = {
+    "ContentType": "ContentType",
+    "ContentEncoding": "ContentEncoding",
+    "ContentDisposition": "ContentDisposition",
+    "ContentLanguage": "ContentLanguage",
+    "CacheControl": "CacheControl",
+    "Expires": "Expires",
+    "WebsiteRedirectLocation": "WebsiteRedirectLocation",
+    "Metadata": "Metadata",
+}
+
+
+def _source_headers(s3, src_bucket: str, src_key: str) -> dict:
+    """Reads the headers a multipart copy has to re-state, for the destination's create call.
+
+    Only the multipart path needs this: ``CopyObject`` has ``MetadataDirective``, and a single
+    HEAD per object over 5 GiB is negligible beside the part copies that follow it.
+
+    Args:
+      s3: The S3 client.
+      src_bucket: Source bucket.
+      src_key: Source key.
+
+    Returns:
+      The ``CreateMultipartUpload`` arguments the source's own headers imply, with anything the
+      source does not carry left out entirely.
+
+    Raises:
+      TransientError: On a retryable fault.
+      Exception: The raw fault on a deterministic one — a source that cannot be headed cannot
+        be copied either, so it fails the item here rather than producing an object stripped of
+        its metadata.
+    """
+    try:
+        head = s3.head_object(Bucket=src_bucket, Key=src_key)
+    except Exception as exc:
+        errors.raise_if_transient(exc, f"head {src_bucket}/{src_key}")
+        raise
+    return {
+        argument: head[field]
+        for field, argument in _CARRIED_HEADERS.items()
+        if head.get(field)
+    }
 
 
 def copy_one(
@@ -61,6 +125,14 @@ def copy_one(
     it on the single path only would archive every object under 5 GiB to ``GLACIER`` and every
     object over it to ``STANDARD``, silently, at roughly 20x the storage cost and with the
     restore path suddenly unnecessary for exactly the biggest objects.
+
+    **THE METADATA HAS THE SAME SHAPE OF SPLIT, and it was wrong the same way** (SPEC-171).
+    ``MetadataDirective: COPY`` is passed explicitly on the single path — it is S3's default,
+    and it is stated rather than assumed because the multipart path proves the default is not
+    universal. On the multipart path there is no directive at all: the destination gets the
+    content type and user metadata the create call names, so they are read off the source first.
+    Without that, every object over 5 GiB came back from an archive as
+    ``binary/octet-stream`` with its user metadata gone.
 
     Args:
       s3: The S3 client.
@@ -86,12 +158,19 @@ def copy_one(
     extra = {"StorageClass": storage_class} if storage_class else {}
     if size <= MULTIPART_COPY_THRESHOLD:
         try:
-            s3.copy_object(Bucket=dest_bucket, Key=dest_key, CopySource=source, **extra)
+            s3.copy_object(
+                Bucket=dest_bucket,
+                Key=dest_key,
+                CopySource=source,
+                MetadataDirective="COPY",
+                **extra,
+            )
         except Exception as exc:
             errors.raise_if_transient(exc, f"copy {src_bucket}/{src_key} -> {dest_bucket}/{dest_key}")
             raise
         return
 
+    extra.update(_source_headers(s3, src_bucket, src_key))
     upload = s3.create_multipart_upload(Bucket=dest_bucket, Key=dest_key, **extra)
     upload_id = upload["UploadId"]
     try:

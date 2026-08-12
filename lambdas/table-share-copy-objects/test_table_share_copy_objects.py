@@ -48,6 +48,17 @@ class _FakeS3:
             raise error
         self.copies.append(kwargs)
 
+    def head_object(self, **kwargs):
+        """The source read the MULTIPART path takes since SPEC-171.
+
+        `CreateMultipartUpload` has no `MetadataDirective`, so the copier re-states the source's
+        own content type and metadata onto it — without which every object over 5 GiB lost both.
+        A share carries no custom headers today, so this reports none and the create call is the
+        one that shipped before.
+        """
+        del kwargs
+        return {"ContentLength": 0}
+
     def create_multipart_upload(self, **kwargs):
         self._uploads += 1
         return {"UploadId": f"u{self._uploads}"}

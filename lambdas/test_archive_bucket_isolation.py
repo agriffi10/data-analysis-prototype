@@ -202,18 +202,102 @@ def _execution_statement(sid):
     return found[0]
 
 
-def test_the_only_write_into_a_users_space_is_the_receipt():
-    """SPEC-169 FR-007. This role can put an object into `archive/` and NOWHERE ELSE in
-    anybody's prefix — the archived data goes to the vault, and the only thing that comes back
-    into a user's own space is the receipt. It mirrors file-send's shipped `*/shared_files/*`
-    grant one for one, which is the point: three planes writing into user space under one
-    reviewable pattern beats three patterns.
+def test_the_write_into_a_users_space_is_unrestricted_by_prefix_and_deliberately_so():
+    """**SPEC-171 FR-007 AC2 WIDENED THIS, and the widening is recorded here rather than left to
+    a diff.** SPEC-169's `ReceiptWrite` was `*/archive/*` because the only thing this plane put
+    into a user's space was a receipt — the data went the other way, into the vault. A RESTORE
+    writes wherever the data came from, which is anywhere in the space, so the narrow grant
+    cannot stand.
+
+    The multipart pair rides with it because an archived object may be up to
+    ARCHIVE_MAX_OBJECT_BYTES (10 GiB) and the copy-back part-copies above 5 GiB — a grant that
+    covered `PutObject` alone would restore every small object and fail on exactly the big ones,
+    hours into a run.
     """
-    write = _execution_statement("ReceiptWrite")
+    write = _execution_statement("SpaceDataWrite")
 
     assert write["Effect"] == "Allow"
-    assert write["Action"] == "s3:PutObject"
-    assert all(arn.endswith("/*/archive/*") for arn in write["Resource"])
+    assert set(write["Action"]) == {
+        "s3:PutObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts",
+    }
+    assert set(write["Resource"]) == {"user_space_bucket_arn/*", "shared_space_bucket_arn/*"}
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "/*/athenaresults/*",
+        "/*/user_settings/*",
+        # AT THE BUCKET ROOT, so a `*/x/*` pattern cannot match them: the feature-flag document
+        # that decides what every user can see (SPEC-162) and the username directory (SPEC-146).
+        # They are the two most dangerous objects in that bucket and were outside a statement
+        # whose NAME claims to cover portal-managed state.
+        "/_config/*",
+        "/_directory/*",
+    ],
+)
+def test_the_widened_write_can_never_reach_portal_managed_state(pattern):
+    """The narrowing that goes with FR-007's widening, and it is defence in depth rather than
+    the rule itself: `athenaresults/` and `user_settings/` can never appear in an archive
+    (RESERVED_SOURCE_ROOTS refuses them at archive time) and the destination guard's fail-closed
+    403-is-occupied rule refuses them again at restore time. What the Deny buys is that a plan
+    which somehow named one could not overwrite the notification inbox or a user's query results.
+
+    It deliberately does NOT cover `archive/`, which is exactly where the receipt lives — the one
+    place this plane may write and may never delete.
+    """
+    deny = _execution_statement("NeverOverwritePortalManagedObjects")
+
+    assert deny["Effect"] == "Deny"
+    assert deny["Action"] == "s3:PutObject"
+    assert [arn for arn in deny["Resource"] if arn.endswith(pattern)]
+    assert not [arn for arn in deny["Resource"] if arn.endswith("/*/archive/*")], (
+        "the receipt's own prefix is denied — every archive would fail at its last state"
+    )
+
+
+def test_the_state_machine_role_already_covers_the_two_new_maps():
+    """**SPEC-171 FR-007 AC3, ASSERTED RATHER THAN ASSUMED**, which is SPEC-170's own precedent:
+    the spec lists grants for the copy-back Map, and every one of them already exists because
+    SPEC-169's copy needed the identical set — the new Maps read a manifest under
+    `{admin}/archive/*` and export under it, exactly as the old one does.
+
+    "It already works" is the claim most worth checking, because the failure mode is silent until
+    the first real restore: the Map's own permissions belong to the STATE MACHINE role, and on
+    the Lambda role they render, apply and unit-test green and then AccessDeny at the ItemReader
+    (SPEC-160 FR-006). So this reads the rendered policy rather than trusting the inheritance.
+    """
+    sfn = _statements(INFRA / "modules" / "archive" / "policies" / "sfn-permissions.json.tftpl")
+    granted = {}
+    for statement in sfn:
+        if statement.get("Effect") != "Allow":
+            continue
+        actions = statement["Action"]
+        resource = statement["Resource"]
+        for action in [actions] if isinstance(actions, str) else actions:
+            granted.setdefault(action, set()).update(
+                [resource] if isinstance(resource, str) else resource
+            )
+
+    assert granted["states:StartExecution"] == {"state_machine_arn"}
+    assert granted["states:DescribeExecution"] == {"child_execution_arn_wildcard"}
+    # One prefix covers both restore Maps' ItemReader and both ResultWriters, because
+    # arcommon.plan keys every artifact of a run under `archive/{requestId}/`.
+    assert "admin_bucket_arn/archive/*" in granted["s3:GetObject"]
+    assert "admin_bucket_arn/archive/*" in granted["s3:PutObject"]
+
+
+def test_the_retrieval_is_granted_as_its_own_action_on_the_vault():
+    """SPEC-171 FR-007 AC1. `s3:RestoreObject` is a DISTINCT ACTION from GetObject and
+    PutObject — a role holding both still cannot initiate a retrieval — and the failure of
+    missing it would be an AccessDenied at the point of no return rather than at plan time."""
+    retrieve = _execution_statement("ArchiveVaultRetrieve")
+
+    assert retrieve["Effect"] == "Allow"
+    assert retrieve["Action"] == "s3:RestoreObject"
+    assert retrieve["Resource"] == "archive_bucket_arn/*"
 
 
 def test_the_source_delete_is_granted_on_the_space_buckets_and_nowhere_else():

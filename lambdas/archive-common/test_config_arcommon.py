@@ -538,6 +538,167 @@ def test_the_archive_bucket_raises_where_it_is_read_when_the_variable_is_unset()
             os.environ["ARCHIVE_BUCKET"] = previous
 
 
+# ── SPEC-171: the retrieval's bounds, each against the thing that sizes it ───
+
+#: The Standard retrieval tier's own worst case, in seconds. AWS documents 3-5 hours; the budget
+#: is measured against the 5. A LITERAL for `_MAX_S3_KEY`'s reason — it is an external fact about
+#: a service, not a constant this repo owns — and it is the number the whole loop is sized by, so
+#: the tier changing is the thing that should fail this build.
+_STANDARD_TIER_WORST_CASE_SECONDS = 5 * 3600
+
+
+def test_the_tier_is_standard_and_the_alternatives_stay_rejected():
+    """FR-001 AC2. Expedited is capacity-limited without a standing monthly charge this portal
+    does not make, and Bulk's 5-12 hours doubles the worst case for somebody sitting in a
+    browser — so the tier is not a dial to be turned without re-deriving the budget below."""
+    assert config.RESTORE_TIER == "Standard"
+
+
+def test_the_retrieval_budget_clears_the_tiers_own_worst_case():
+    """WHAT SIZES RESTORE_MAX_POLLS, computed rather than asserted. A retrieval that is merely
+    slow must not be reported as a failure the user has to PAY to repeat — re-submitting means a
+    second billed retrieval — so the budget is sized above the tier's worst case with headroom
+    rather than at it."""
+    budget = config.RESTORE_POLL_SECONDS * config.RESTORE_MAX_POLLS
+
+    assert budget > _STANDARD_TIER_WORST_CASE_SECONDS * 1.2, (
+        f"the loop gives up after {budget:,}s against a tier whose worst case is "
+        f"{_STANDARD_TIER_WORST_CASE_SECONDS:,}s — a slow-but-healthy retrieval would be "
+        "reported as a failure and repeating it costs a second bill"
+    )
+
+
+def test_the_poll_can_sweep_the_whole_plan_inside_its_timeout():
+    """WHAT SIZES the poll verb's timeout, and it is the GUARD'S ARITHMETIC re-used rather than
+    re-derived, because it does the same work: HeadObject over the plan at
+    RESTORE_HEAD_CONCURRENCY, which botocore's connection pool holds at 8.
+
+    The worst case is the invocation that finds every page complete and therefore sweeps the
+    whole archive — which is the point of sweeping past the page rather than stopping at it,
+    since one page per five-minute Wait would add over an hour after a retrieval had already
+    finished. The timeout is READ BACK from the Terraform.
+    """
+    timeout = _verb_row("poll-restore")[0]
+    rounds = math.ceil(config.ARCHIVE_MAX_OBJECTS / config.RESTORE_HEAD_CONCURRENCY)
+    seconds = rounds * _HEAD_LATENCY_SECONDS
+
+    assert seconds < timeout / 2, (
+        f"a full sweep is ~{seconds:,.0f}s against poll-restore's {timeout}s"
+    )
+
+
+def test_the_page_is_smaller_than_the_plan_it_is_paging():
+    """A page at or above ARCHIVE_MAX_OBJECTS makes the progress record decorative — every
+    iteration would re-head everything, which is precisely what FR-002 AC4 exists to prevent —
+    while a page of one would record progress on every object and spend the sweep's time in
+    PutObject calls."""
+    assert 1 < config.RESTORE_POLL_PAGE < config.ARCHIVE_MAX_OBJECTS
+
+
+def test_the_availability_window_outlives_the_copy_that_reads_it():
+    """WHAT SIZES RESTORE_AVAILABILITY_DAYS. The temporary object a retrieval materialises is
+    what the copy-back reads, so it has to outlive it — and the failure if it does not is the
+    one worth computing for, because it does not look like a configuration error: the copy
+    begins succeeding and then starts failing InvalidObjectState partway through, on the objects
+    it retrieved FIRST.
+
+    The margin is generous against the copy alone because the window starts when each object
+    becomes available, not when the copy starts — so the real quantity it has to cover is the
+    rest of the run after the earliest object lands.
+    """
+    from cpcommon.transfer import config as transfer_config
+
+    rate = transfer_config.MAP_MAX_CONCURRENCY * transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
+    copying = config.ARCHIVE_MAX_BYTES / rate
+    window = config.RESTORE_AVAILABILITY_DAYS * 86_400
+
+    assert window > (copying + _machine_timeout_seconds()) * 2, (
+        f"a {config.RESTORE_AVAILABILITY_DAYS}-day window against a ~{copying:,.0f}s copy-back "
+        f"inside a {_machine_timeout_seconds():,}s ceiling leaves too little margin"
+    )
+
+
+def test_the_whole_restore_fits_the_machines_ceiling():
+    """WHAT SIZES the machine's TimeoutSeconds on the RESTORE arm, and the one place every term
+    is added up. The restore's long pole is not a copy — it is a WAIT — which is why this arm
+    needed the ceiling raised where the archive arm did not.
+
+    Five terms, each read from the constants rather than restated:
+
+    * the retrieval budget, RESTORE_POLL_SECONDS x RESTORE_MAX_POLLS;
+    * the poll's own work, which is TWO quantities and not one — the forward sweep is paid ONCE
+      in total across the whole loop (each page is swept past exactly once), while re-heading
+      the current page is paid EVERY iteration. Multiplying a full sweep by the iteration count
+      would model a loop that re-reads the archive every five minutes, which is the very thing
+      the progress record exists to prevent;
+    * the copy-back, at the MAKESPAN rate — one whole object to one worker — not the aggregate;
+    * both Maps' per-child overhead, since the retrieval fans out over the same items;
+    * the serial verbs on this arm, which include a whole deletion pass.
+    """
+    from cpcommon.transfer import config as transfer_config
+
+    waiting = config.RESTORE_POLL_SECONDS * config.RESTORE_MAX_POLLS
+
+    sweep_rounds = math.ceil(config.ARCHIVE_MAX_OBJECTS / config.RESTORE_HEAD_CONCURRENCY)
+    page_rounds = math.ceil(config.RESTORE_POLL_PAGE / config.RESTORE_HEAD_CONCURRENCY)
+    polling = (sweep_rounds + page_rounds * config.RESTORE_MAX_POLLS) * _HEAD_LATENCY_SECONDS
+
+    rate = transfer_config.MAP_MAX_CONCURRENCY * transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
+    copying = config.ARCHIVE_MAX_BYTES / rate
+
+    batches = -(-config.ARCHIVE_MAX_OBJECTS // transfer_config.MAX_ITEMS_PER_BATCH)
+    rounds = -(-batches // transfer_config.MAP_MAX_CONCURRENCY)
+    child_overhead = 2 * rounds * _CHILD_EXECUTION_OVERHEAD_SECONDS
+
+    serial = sum(
+        _verb_row(verb)[0]
+        for verb in (
+            "validate-authorize",
+            "inspect-archive",
+            "check-destination-clear",
+            "build-restore-manifest",
+            "update-receipt",
+            "collect-transfer-results",
+            "delete-archived",
+        )
+    )
+
+    worst = waiting + polling + copying + child_overhead + serial
+
+    assert worst < _machine_timeout_seconds(), (
+        f"the worst legal restore is {worst:,.0f}s — retrieval budget {waiting:,.0f}s + polling "
+        f"{polling:,.0f}s + copy-back {copying:,.0f}s + child overhead {child_overhead:,.0f}s + "
+        f"serial verbs {serial:,.0f}s — against a {_machine_timeout_seconds():,}s ceiling. Lower "
+        "RESTORE_MAX_POLLS or a cap, or raise the timeout in infra/modules/archive/locals.tf"
+    )
+
+
+def test_the_raised_ceiling_still_leaves_the_archive_arm_far_inside_it():
+    """THE COST OF ONE MACHINE WITH TWO ARMS, stated where it can be measured. TimeoutSeconds is
+    a top-level ASL field and cannot differ per branch, so raising it for the restore raised the
+    ARCHIVE's backstop too — a wedged archive is now reported after ten hours rather than three.
+    That is accepted; what must not happen quietly is the ceiling drifting so far that it stops
+    being a backstop for the arm that does not wait at all."""
+    from cpcommon.transfer import config as transfer_config
+
+    rate = transfer_config.MAP_MAX_CONCURRENCY * transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
+
+    assert config.ARCHIVE_MAX_BYTES / rate < _machine_timeout_seconds() / 4, (
+        "the archive arm's own long pole is now a small fraction of a ceiling sized for a "
+        "Glacier retrieval — re-read the restore arm's arithmetic before widening it further"
+    )
+
+
+def test_the_restore_storage_class_is_stated_and_is_not_an_archival_one():
+    """FR-003 AC2. The copy IS what changes the class: the object a retrieval materialises is
+    temporary, so an item copied without an explicit STANDARD lands back in GLACIER and expires
+    to unreadable a few days later — having looked like a success throughout. The engine treats
+    an empty class as "do not pass the argument", so relying on S3's default here would be
+    indistinguishable in the code and catastrophic in effect."""
+    assert config.RESTORE_STORAGE_CLASS == "STANDARD"
+    assert config.RESTORE_STORAGE_CLASS not in config.GLACIER_CLASSES
+
+
 def test_the_archive_bucket_is_not_in_cpcommons_fleet_wide_required_set():
     """That set is a contract EVERY plane's Lambda environment must satisfy, asserted per
     plane by test_the_common_environment_satisfies_every_import_time_require. A variable only

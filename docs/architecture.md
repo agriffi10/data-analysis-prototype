@@ -471,7 +471,7 @@ share did.
 - **The execution role is on the user-space bucket policy's allowlist (FR-006)** — see that
   spec-delivery doc before building any future plane that touches Bucket 1.
 
-### Archive — SPEC-168 → 172 (168, 169, 170 complete; 171-172 pending)
+### Archive — SPEC-168 → 172 (168–171 complete; 172 pending)
 
 "Put this away": move a file or folder out of a user's space into a separate bucket at the
 `GLACIER` storage class, delete the original, and leave behind a plain-text receipt. Reversible
@@ -537,11 +537,60 @@ only through a restore request that takes **hours**, not a click.
   into the user's own space. A receipt therefore only ever exists for an archive that completed,
   and its write failing **fails the run** even though the data is safe — a user with no receipt has
   no id and no route to a restore, so the message says the data IS archived and names the id.
-- **`TimeoutSeconds` 10,800 is top-level and ships WITH its EventBridge `TIMED_OUT` rule**
+- **`TimeoutSeconds` is top-level and ships WITH its EventBridge `TIMED_OUT` rule**
   (SPEC-169), notify-failure's second door and its 15s → 60s raise. Catchers do not cover a
   top-level execution failure. Sized by a **makespan** (`MAP_MAX_CONCURRENCY` ×
   `CONSERVATIVE_STREAM_BYTES_PER_SECOND` = 500 MB/s), never an aggregate; a test adds the copy, the
   per-child overhead and the seven serial verbs and reads the ceiling out of `locals.tf`.
+  **SPEC-171 raised it 10,800 → 43,200**, and not because the data grew: the restore arm's long
+  pole is a *wait*, and a 3-hour ceiling would have killed healthy restores before S3 finished
+  with them. It is one field on one machine, so the archive arm's backstop rose with it — a wedged
+  archive is now reported after twelve hours rather than three, which is accepted and pinned by a
+  test asserting the archive arm still clears the ceiling by more than 4×.
+- **THE DESTINATION GUARD RUNS TWICE, and the second pass is SPEC-171's own correction.** One check
+  was sufficient while the guard and the copy were seconds apart; this arc puts 3-5 BILLED HOURS
+  between them and spends those hours telling the user a restore is in flight — so re-creating a
+  file in that window is the ordinary case the guard was written for, arriving late, and the
+  copy-back would have overwritten it, reported success and swept the vault. `ReCheckDestinationClear`
+  is the same verb over the same plan immediately before the copy: seconds against a run that has
+  already waited hours. The two refusals are worded apart (after the retrieval the objects stay
+  ready for `RESTORE_AVAILABILITY_DAYS`, so trying again soon is free) and the ASL **seeds** which
+  pass it is rather than the verb inferring it.
+- **Retrieval is the point of no return, and its Map tolerates NO failure** (SPEC-171) — the exact
+  inverse of the copy's 100%. The copy must finish whatever happens or the commit gate cannot tell
+  "failed" from "not attempted"; the retrieval has no such gate, so a genuine fault fails the Map
+  Run with nothing copied and the archive untouched. What makes re-submitting free is the two
+  TOLERATED responses: `RestoreAlreadyInProgress` (the desired state wearing an error's clothes)
+  and `InvalidObjectState` (which keeps the restore path unconditional on `ARCHIVE_STORAGE_CLASS`).
+- **Completion is the `Restore` HEADER, and an absent header is a FAILURE** (SPEC-171). Nothing
+  about an archived object changes when its retrieval finishes — it stays `GLACIER`, and what
+  appears beside it is a temporary copy the header describes — so "no header" on a Glacier object
+  means nobody ever asked, not "not yet". Read as pending it would burn every iteration and then
+  report a timeout naming the wrong cause. The poll SAMPLES: progress is an S3 pointer beside the
+  plan, and one invocation sweeps as far as complete pages allow rather than one page per `Wait`.
+- **The retrieval budget has deliberate headroom** (SPEC-171): 7 hours against a tier whose worst
+  case is 5, because giving up on a retrieval that was going to finish makes the user pay for a
+  SECOND billed one, while waiting costs an invocation every five minutes.
+- **The copy IS what changes the storage class** (SPEC-171), so `STANDARD` is stated and never
+  omitted. The engine treats an absent class as "do not pass the argument", so relying on S3's
+  default would be invisible in the code and would land every restored object back in `GLACIER`,
+  looking like a success until it expired to unreadable.
+- **THE RESTORE'S GATE IS THE COMMIT GATE'S MIRROR IMAGE, not its twin** (SPEC-171). Archiving's
+  gate protects the SOURCE; this one protects the ARCHIVE, and the reason runs the other way — a
+  partial restore cannot be rolled back, because the user's space already holds some of their own
+  data. So the failure arm deletes **nothing**, and the archive it keeps is the only complete copy
+  left. `restore_incomplete` says all three things: how many came back, that the archive is intact
+  under the same id, and that re-requesting will report the files that DID land.
+- **The vault sweep may fail quietly and the source deletion may not** (SPEC-171) — same algorithm,
+  opposite consequence. A half-deleted source means a user told their archive completed while their
+  files are half there; a half-swept vault costs storage the 7-year expiry reclaims. So it is a
+  `cleanupIncomplete` flag on a SUCCESSFUL run. Deleting inside the 90-day minimum is an
+  early-deletion fee, not a defect.
+- **The receipt is REWRITTEN, never re-rendered** (SPEC-171). The archive lines record the archive
+  run and its start time is the one field no restore can recompute, so a fresh render would blank
+  it on the only durable record the user has. Keyed on the two LABELS, every other line verbatim. A
+  **proven** 404 composes a fresh document; a 403 raises rather than overwriting a receipt this
+  plane merely failed to read.
 - **The restore guard is absolute** (SPEC-170): any occupied destination key refuses the whole
   restore — no skip, no overwrite, no merge, no "restore what fits" — and a `403` counts as
   occupied, because a key this role cannot head is a key it must not overwrite. It runs **before

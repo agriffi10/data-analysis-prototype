@@ -18,14 +18,23 @@ import pytest
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(_HERE, "..", "archive-validate-authorize"))
+sys.path.insert(0, os.path.join(_HERE, "..", "archive-collect-transfer-results"))
 
 _ASL = os.path.join(_HERE, "..", "..", "infra", "modules", "archive", "state-machine.asl.json.tftpl")
 
 
 def _load():
+    """The rendered machine, with Terraform's interpolations stubbed.
+
+    Bare interpolations (a Wait's Seconds, the ceiling, the Map's batch numbers) become 0; the
+    quoted ones keep their VARIABLE NAME as their value rather than a shared placeholder, which
+    is what lets a test tell two states apart by the Lambda they invoke. With every ARN rendered
+    to one literal, "these three states call the same function" and "these three states call
+    three different functions" looked identical.
+    """
     raw = pathlib.Path(_ASL).read_text()
     raw = re.sub(r":\s*\$\{[^}]+\}", ": 0", raw)
-    return json.loads(re.sub(r"\$\{[^}]+\}", "stub", raw))
+    return json.loads(re.sub(r"\$\{([^}]+)\}", r"\1", raw))
 
 
 ASL = _load()
@@ -142,6 +151,9 @@ def test_the_seed_scan_found_every_seed():
         "NothingToArchiveSeed",
         "RollbackReturnedSeed",
         "RequestFailureSeed",
+        "NothingToRestoreSeed",
+        "RestoreTimedOutSeed",
+        "RestoreIncompleteReturnedSeed",
     }
 
 
@@ -169,6 +181,11 @@ def test_a_seed_reads_only_paths_its_own_input_actually_has():
         "NothingToArchiveSeed": validated,
         "RollbackReturnedSeed": validated,
         "RequestFailureSeed": post_validate,
+        # SPEC-171's three, all reached from post-validate states on the restore arm, so each
+        # may read the validated request's own top-level keys and nothing further.
+        "NothingToRestoreSeed": validated,
+        "RestoreTimedOutSeed": validated,
+        "RestoreIncompleteReturnedSeed": validated,
     }
 
     for name, seed in _seeds().items():
@@ -277,13 +294,18 @@ def _map_states() -> dict:
     return {name: state for name, state in STATES.items() if state.get("Type") == "Map"}
 
 
-def test_the_transfer_is_the_only_map_and_it_is_top_level():
+def test_every_map_is_top_level_and_there_are_exactly_three():
     """FR-003 AC1. A Distributed Map nested inside another Map is the shape SPEC-160 rejected:
     one flat fan-out over a (destination x object) manifest is what makes the ceiling the
     manifest's length rather than one Lambda's timeout. Asserted by walking every state's
     NESTED states rather than by reading the top-level list, because a nested Map is exactly
-    what would not appear there."""
-    assert set(_map_states()) == {"TransferObjects"}
+    what would not appear there.
+
+    THREE since SPEC-171, and the restore's two are a pair rather than a duplication: the same
+    manifest is read once to ASK for the objects and once, hours later, to COPY them, because a
+    GLACIER object is not readable until a billed retrieval has finished with it.
+    """
+    assert set(_map_states()) == {"TransferObjects", "RetrieveObjects", "CopyBackObjects"}
 
     for name, state in STATES.items():
         nested = ((state.get("ItemProcessor") or {}).get("States") or {}).values()
@@ -448,32 +470,343 @@ def test_the_restore_arm_reaches_the_guard_before_it_can_reach_anything_else():
     arm = [c["Next"] for c in STATES["ChooseMode"]["Choices"] if "restore" in json.dumps(c)]
 
     assert arm == ["InspectArchive"]
-    assert STATES["InspectArchive"]["Next"] == "CheckDestinationClear"
-    assert STATES["CheckDestinationClear"]["Next"] == "RestoreReady"
+    assert STATES["InspectArchive"]["Next"] == "SeedInitialGuard"
+    assert STATES["SeedInitialGuard"]["Next"] == "CheckDestinationClear"
+    assert STATES["CheckDestinationClear"]["Next"] == "StampRestoreExecution"
 
 
 def test_no_path_from_the_guards_refusal_reaches_anything_but_the_failure_terminal():
     """The other half of the same rule, walked from the GRAPH — because "there is no retrieval
-    state yet" makes a "no path to a retrieval" assertion pass vacuously today and forever after.
+    state yet" made a "no path to a retrieval" assertion pass vacuously right up until SPEC-171
+    added one.
 
     What is asserted instead is total: everything reachable from the guard's failure branch is
-    the failure path itself. SPEC-171 adds its retrieval states downstream of RestoreReady, and
-    the moment any of them becomes reachable from a refusal — through a Catch, a Next or a
-    Choice — this fails.
+    the failure path itself. The retrieval states now exist, so the moment any of them becomes
+    reachable from a refusal — through a Catch, a Next or a Choice — this fails.
     """
     refusal = _reachable_from(STATES["CheckDestinationClear"]["Catch"][0]["Next"])
 
     assert refusal == {"RequestFailureSeed", "RecordFailure", "NotifyFailure", "Failed"}
 
 
-def test_the_restore_terminal_names_what_it_keeps_and_carries_the_plan_forward():
-    """SPEC-171's replacement point. It keeps the plan KEY rather than the plan — the object
-    list is what the 256 KB payload limit exists to keep off the state — and the archive block,
-    because the retrieval is issued against those keys."""
-    kept = {name.removesuffix(".$") for name in STATES["RestoreReady"]["Parameters"]}
+# ── the bill, and everything that must not be able to reach it (SPEC-171) ────
 
-    assert kept == {"requestId", "mode", "actor", "archive", "planKey", "objectCount", "totalBytes"}
-    assert STATES["RestoreReady"]["Next"] == "Succeeded"
+
+def test_no_refusal_before_the_bill_can_reach_the_retrieval():
+    """FR-001 AC8, AND IT IS THE ONE ASSERTION THIS SPEC MOST NEEDS. `RestoreObject` is billed
+    the moment it is issued and cannot be cancelled, so a refusal that could somehow fall
+    through to it would charge a user for a restore that was already known to be impossible.
+
+    Walked from the GRAPH per refusing state rather than read off the ASL in order, because a
+    `Catch` or a `Next` added anywhere on those arms could reconnect them and nothing about the
+    diff would say so. All three of SPEC-170's refusals — `destination_occupied`,
+    `archive_not_found` and `restore_archive_incomplete` — are raised by these two verbs, so
+    their Catches are the whole surface.
+    """
+    for state in ("InspectArchive", "CheckDestinationClear"):
+        arm = _reachable_from(STATES[state]["Catch"][0]["Next"])
+
+        assert "RetrieveObjects" not in arm, (
+            f"{state}'s refusal reaches the retrieval via {sorted(arm)} — a user would be "
+            "billed for hours of Glacier retrieval that cannot land"
+        )
+        assert "CopyBackObjects" not in arm and "DeleteArchived" not in arm
+
+
+def test_the_guard_runs_before_the_retrieval_and_the_receipt_marker_between_them():
+    """FR-006 AC4's ordering, and it is a SAFETY ordering rather than a cosmetic one. The
+    receipt marker says a restore is in flight, and it is written BEFORE the retrieval rather
+    than after: there its failure costs nothing, where the same failure a moment later would
+    fail a run the user had already been billed for."""
+    assert STATES["StampRestoreExecution"]["Next"] == "BuildRestoreManifest"
+    assert STATES["BuildRestoreManifest"]["Next"] == "HasRestoreItems"
+    assert STATES["HasRestoreItems"]["Choices"][0]["Next"] == "SeedRestoreRequested"
+    assert STATES["SeedRestoreRequested"]["Next"] == "MarkRestoreRequested"
+    assert STATES["MarkRestoreRequested"]["Next"] == "RetrieveObjects"
+
+
+def test_the_retrieval_map_tolerates_no_failure_where_the_copy_tolerates_every_one():
+    """The two settings are opposites and both are right. The COPY must finish whatever happens,
+    or the gate after it cannot tell 'failed' from 'not attempted' — and that gate decides
+    whether data is deleted. The RETRIEVAL has no such gate: a genuine fault means nothing was
+    copied and the archive is untouched, so failing the Map Run outright is the cheapest correct
+    answer, and re-submitting costs no second bill because the verb tolerates
+    RestoreAlreadyInProgress.
+    """
+    assert STATES["RetrieveObjects"]["ToleratedFailurePercentage"] == 0
+    assert STATES["CopyBackObjects"]["ToleratedFailurePercentage"] == 100
+    assert STATES["TransferObjects"]["ToleratedFailurePercentage"] == 100
+
+
+def test_the_retrieval_map_exports_its_results_even_though_nothing_reads_them():
+    """A Distributed Map with no ResultWriter AGGREGATES its children's output onto the state,
+    and at ARCHIVE_MAX_OBJECTS in batches of 8 that is 2,500 children — States.DataLimitExceeded,
+    thrown outside every Catch, before ResultPath could discard anything. The export exists for
+    that reason alone, which is why its prefix is its own and the collector never reads it."""
+    retrieval = STATES["RetrieveObjects"]
+
+    assert retrieval["ResultWriter"]["Resource"] == "arn:aws:states:::s3:putObject"
+    assert retrieval["ResultWriter"]["Parameters"]["Prefix.$"] == "$.transfer.retrievalResultsPrefix"
+    assert retrieval["ResultPath"] is None
+    assert STATES["CopyBackObjects"]["ResultWriter"]["Parameters"]["Prefix.$"] == (
+        "$.transfer.resultsPrefix"
+    )
+
+
+def test_both_restore_maps_read_the_one_manifest():
+    """One dataset, read twice. Two would be two things that could disagree with the plan, and
+    the disagreement would surface as a restore that retrieved one set of objects and copied
+    another — with every count still agreeing with itself."""
+    for name in ("RetrieveObjects", "CopyBackObjects"):
+        reader = STATES[name]["ItemReader"]["Parameters"]
+
+        assert reader["Bucket.$"] == "$.transfer.manifestBucket"
+        assert reader["Key.$"] == "$.transfer.manifestKey"
+
+
+# ── the wait loop (SPEC-171 FR-002) ─────────────────────────────────────────
+
+
+def test_the_loop_is_wait_then_poll_then_choice_and_it_closes():
+    """FR-002 AC1. The only loop in this repo, and it exists because a GLACIER object is not
+    readable until S3 has spent 3-5 hours making a temporary copy of it. Asserted as a CYCLE —
+    the Default must come back to the Wait — because a loop whose exit is right and whose return
+    edge is missing is a machine that polls exactly once."""
+    assert STATES["RetrieveObjects"]["Next"] == "WaitForRetrieval"
+    assert STATES["WaitForRetrieval"]["Type"] == "Wait"
+    assert STATES["WaitForRetrieval"]["Next"] == "PollRestore"
+    assert STATES["PollRestore"]["Next"] == "RestoreRetrieved"
+    assert STATES["RestoreRetrieved"]["Default"] == "WaitForRetrieval"
+
+
+def test_the_wait_carries_the_interval_the_python_constant_names():
+    """Terraform cannot import Python, so the Wait's Seconds is a literal fed from locals.tf.
+    Two homes for one number is how a five-minute poll becomes a five-second one against a
+    3-5 hour retrieval, which is a Lambda invocation every five seconds for hours."""
+    from arcommon import config
+
+    assert re.search(rf"restore_poll_seconds\s*=\s*{config.RESTORE_POLL_SECONDS}\b", _locals_tf())
+
+
+def test_the_iteration_cap_is_not_an_ASL_literal():
+    """RESTORE_MAX_POLLS lives in Python alone: poll-restore computes `exhausted` and the Choice
+    reads a boolean. A literal here plus a constant there would be two numbers that could only
+    disagree on a restore already going badly — and the ASL copy is the one nobody would think
+    to change."""
+    from arcommon import config
+
+    assert "exhausted" in json.dumps(STATES["RestoreRetrieved"])
+    assert str(config.RESTORE_MAX_POLLS) not in json.dumps(STATES["RestoreRetrieved"])
+
+
+def test_the_loops_exit_guards_every_comparison_and_cannot_spin_on_a_lost_shape():
+    """The usual IsPresent rule, plus the one a LOOP needs and a linear machine does not. With
+    only the two positive clauses, a poll output that lost its shape would satisfy neither, fall
+    to the Default and go round again — every five minutes until the machine's own ceiling, with
+    nothing in the log to say why. The third clause is `IsPresent: false` on the poll's own
+    counter, so an unrecognisable verdict ends the loop instead of feeding it.
+    """
+    choices = STATES["RestoreRetrieved"]["Choices"]
+    positive = [c for c in choices if "And" in c]
+
+    for choice in positive:
+        guarded = {c["Variable"] for c in choice["And"] if c.get("IsPresent") is True}
+        compared = {c["Variable"] for c in choice["And"] if "BooleanEquals" in c}
+        assert compared and compared <= guarded
+
+    fail_closed = [c for c in choices if c.get("IsPresent") is False]
+    assert fail_closed, "the loop has no guard against a poll output that lost its shape"
+    assert {c["Next"] for c in fail_closed} == {"RestoreTimedOutSeed"}
+
+
+def test_the_loops_timeout_is_not_the_machines_and_reaches_the_ordinary_failure_door():
+    """The machine's own TimeoutSeconds kills the execution outright and needs the EventBridge
+    TIMED_OUT rule to say anything at all. This one fires while the execution is HEALTHY, so it
+    reaches RecordFailure and NotifyFailure through the door every other failure uses."""
+    arm = _reachable_from("RestoreTimedOutSeed")
+
+    assert arm == {"RestoreTimedOutSeed", "RecordFailure", "NotifyFailure", "Failed"}
+
+
+# ── the restore's gate: the commit gate's mirror image (SPEC-171 FR-004) ────
+
+
+def test_no_path_from_the_partial_restore_reaches_the_archive_deletion():
+    """**THE TEST THIS SPEC EXISTS FOR, and it is the archive gate's rule pointing the other
+    way.** A partial restore cannot be rolled back — the user's space already holds some of
+    their own data — so the archive is the only complete copy left in existence and NOTHING on
+    that arm may delete it. A restore that half succeeded and then deleted its own source would
+    be unrecoverable.
+
+    Walked from the GRAPH, because a Catch added anywhere on that arm could reconnect it.
+    """
+    partial = _reachable_from(STATES["RestoreCompleteOrPartial"]["Default"])
+
+    assert "DeleteArchived" not in partial, (
+        f"the partial-restore branch reaches the archive deletion via {sorted(partial)} — the "
+        "only complete copy of the user's data would be destroyed"
+    )
+    assert "Failed" in partial, "the partial-restore branch does not fail the execution"
+
+
+def test_a_fixtured_export_with_one_failure_lands_on_the_arm_that_cannot_delete():
+    """**FR-004 AC4 END TO END, joining the two halves nothing else joins.** The graph walk above
+    proves the arm cannot reach the deletion; the collector's own suite proves a failed item
+    yields `complete: false`. Neither says the verdict the collector actually produces is routed
+    to that arm — which is the claim the AC makes, and the one a renamed field or an inverted
+    Choice would break with both halves still green.
+
+    So this runs the REAL collector over a REAL `ResultWriter` export carrying one failure, reads
+    the boolean off its output, evaluates the gate's own Choice against it, and walks the graph
+    from wherever that lands.
+    """
+    import archive_collect_transfer_results as collector
+    from cpcommon import clients
+
+    export = {
+        "MapRunArn": "arn:aws:states:us-east-1:1:mapRun/m/r",
+        "ResultFiles": {
+            "SUCCEEDED": [{"Key": "archive/r/restore-results/SUCCEEDED_0.json", "Size": 1}]
+        },
+    }
+    succeeded = [
+        {"Input": json.dumps({"Items": [{"srcKey": "a"}, {"srcKey": "b"}]}),
+         "Output": json.dumps({"copied": 1, "failures": [{"reason": "copy_failed"}]})},
+    ]
+
+    class _FakeS3:
+        def get_object(self, Bucket, Key):
+            body = export if Key.endswith("manifest.json") else succeeded
+
+            class _B:
+                def read(self_inner):
+                    return json.dumps(body).encode()
+
+            return {"Body": _B()}
+
+    clients._s3 = _FakeS3()
+
+    out = collector.handler(
+        {
+            "requestId": "9f2c1b8e-1111-4222-8333-444444444444",
+            "actor": {"username": "alice"},
+            "objectCount": 2,
+            "transfer": {"itemCount": 2},
+            "mapRun": {
+                "ResultWriterDetails": {"Bucket": "admin-bkt", "Key": "archive/r/manifest.json"}
+            },
+        },
+        None,
+    )
+
+    assert out["transferOutcome"]["complete"] is False, "the fixture did not produce a failure"
+
+    gate = STATES["RestoreCompleteOrPartial"]
+    clause = gate["Choices"][0]["And"][1]
+    taken = (
+        gate["Choices"][0]["Next"]
+        if out["transferOutcome"]["complete"] == clause["BooleanEquals"]
+        else gate["Default"]
+    )
+
+    assert "DeleteArchived" not in _reachable_from(taken), (
+        "one failed item routed to an arm that can delete the archive — the only complete copy "
+        "of data the user has just half received"
+    )
+    assert "Failed" in _reachable_from(taken)
+
+
+def test_the_restores_gate_guards_its_comparison_and_fails_closed():
+    """Same shape as the commit gate and the same reasoning turned around: an unrecognisable
+    verdict must fail closed, which here means keeping a VAULT where on the archive arm it means
+    keeping a SOURCE."""
+    gate = STATES["RestoreCompleteOrPartial"]
+    clauses = gate["Choices"][0]["And"]
+
+    assert clauses[0]["IsPresent"] is True
+    assert clauses[1]["BooleanEquals"] is True
+    assert {c["Variable"] for c in clauses} == {"$.transferOutcome.complete"}
+    assert gate["Default"] == "SeedRestoreIncomplete"
+    assert gate["Choices"][0]["Next"] == "DeleteArchived"
+
+
+def test_the_partial_arm_records_the_outcome_before_it_fails():
+    """FR-006 AC2. The receipt must never claim a restore that did not finish, so the partial
+    arm writes it before raising — the rollback verb's shape on the archive arm, and the reason
+    update-receipt is reached from three states rather than one."""
+    assert STATES["SeedRestoreIncomplete"]["Parameters"]["status"] == "incomplete"
+    assert STATES["SeedRestoreIncomplete"]["Next"] == "ReportRestoreIncomplete"
+    assert STATES["ReportRestoreIncomplete"]["Next"] == "RestoreIncompleteReturnedSeed"
+
+
+# ── cleanup and the receipt: the two failures that do NOT fail a run ────────
+
+
+def test_the_cleanups_failure_reaches_the_success_terminal():
+    """FR-005 AC3, and it is the exact inverse of delete-source's discipline. There a partial
+    deletion means a user told their archive completed while their files were still half there.
+    Here the outcome the user asked for has already happened — their data is back — and residue
+    in a bucket the browser cannot reach costs storage the 7-year expiry sweeps. So it is a flag
+    on a SUCCESSFUL run, and the flag is injected by a Pass because RestoreComplete names
+    `$.cleanup` and a Pass reading an absent key raises an uncatchable States.Runtime.
+    """
+    assert STATES["DeleteArchived"]["Catch"][0]["Next"] == "CleanupIncomplete"
+    assert STATES["CleanupIncomplete"]["Result"]["cleanupIncomplete"] is True
+    assert STATES["CleanupIncomplete"]["ResultPath"] == "$.cleanup"
+    assert "Succeeded" in _reachable_from("CleanupIncomplete")
+    assert "Failed" not in _reachable_from("CleanupIncomplete")
+
+
+def test_the_receipt_rewrites_failure_reaches_the_success_terminal():
+    """FR-006 AC5. Most durable to least — data restored, then receipt, then notification — so
+    by this state the data is already back and a failed rewrite must not take it away."""
+    assert STATES["UpdateReceipt"]["Catch"][0]["Next"] == "RestoreComplete"
+    assert "Failed" not in _reachable_from(STATES["UpdateReceipt"]["Catch"][0]["Next"])
+
+
+def test_the_success_terminal_names_only_what_BOTH_arms_into_it_carry():
+    """The receipt's key is deliberately absent. The Catch above reaches this state without one,
+    and a Pass naming a key its input lacks raises an uncatchable States.Runtime — which would
+    turn a failed receipt write into a killed execution on a run whose data had landed."""
+    kept = {name.removesuffix(".$") for name in STATES["RestoreComplete"]["Parameters"]}
+
+    assert "receiptKey" not in kept
+    assert kept == {
+        "requestId",
+        "actor",
+        "archive",
+        "spaceRoot",
+        "spaceKind",
+        "objectCount",
+        "totalBytes",
+        "cleanup",
+    }
+    assert STATES["RestoreComplete"]["Next"] == "Succeeded"
+
+
+def test_the_receipt_verbs_stage_is_seeded_by_the_machine_and_never_inferred():
+    """One function serves three stages, so the STATE says which — the verb does not read the
+    absence of `$.transferOutcome` and conclude anything. 'Nothing has run yet' and 'the run
+    reported nothing' are different facts that look identical from inside a handler."""
+    seeds = {
+        "SeedRestoreRequested": "requested",
+        "SeedRestoreDone": "restored",
+        "SeedRestoreIncomplete": "incomplete",
+    }
+    for name, status in seeds.items():
+        assert STATES[name]["Parameters"]["status"] == status
+        assert STATES[name]["ResultPath"] == "$.restore"
+
+    receipt_states = {
+        name
+        for name, state in STATES.items()
+        if state.get("Type") == "Task"
+        and state["Parameters"]["FunctionName"] == STATES["UpdateReceipt"]["Parameters"]["FunctionName"]
+    }
+    assert receipt_states == {"MarkRestoreRequested", "UpdateReceipt", "ReportRestoreIncomplete"}
+    for name in receipt_states:
+        seeding = [n for n, s in STATES.items() if s.get("Next") == name and s["Type"] == "Pass"]
+        assert seeding, f"{name} invokes the receipt verb with no seeded stage"
 
 
 def test_every_seed_carries_the_mode_so_a_restore_is_not_worded_as_an_archive():
@@ -513,9 +846,42 @@ def test_every_verb_state_is_one_of_the_planes_deployed_functions():
         "WriteReceipt",
         "InspectArchive",
         "CheckDestinationClear",
+        "ReCheckDestinationClear",
+        "BuildRestoreManifest",
+        "MarkRestoreRequested",
+        "PollRestore",
+        "CollectRestoreResults",
+        "DeleteArchived",
+        "UpdateReceipt",
+        "ReportRestoreIncomplete",
         "NotifyFailure",
     }
-    assert nested == {"CopyObjects"}
+    assert nested == {"CopyObjects", "InitiateRestore", "CopyBack"}
+
+
+def test_the_state_count_is_not_the_verb_count_and_the_reuse_is_deliberate():
+    """Three states invoke update-receipt and two apiece invoke copy-objects and
+    collect-transfer-results, so the Task set above over-counts the plane's Lambdas. Both reuses
+    are decisions rather than savings and are asserted rather than left implicit: a restore
+    records its progress on the archive's own receipt at three stages, and the copy-back asks the
+    copy's identical question in the opposite direction — what differs is only what the answer
+    AUTHORIZES, which is the Choice after it."""
+    arns = {}
+    for name, state in STATES.items():
+        if state.get("Type") == "Task":
+            arns.setdefault(state["Parameters"]["FunctionName"], set()).add(name)
+    for states in ((state.get("ItemProcessor") or {}).get("States") or {} for state in STATES.values()):
+        for name, state in states.items():
+            arns.setdefault(state["Parameters"]["FunctionName"], set()).add(name)
+
+    shared = {frozenset(names) for names in arns.values() if len(names) > 1}
+
+    assert shared == {
+        frozenset({"MarkRestoreRequested", "UpdateReceipt", "ReportRestoreIncomplete"}),
+        frozenset({"CopyObjects", "CopyBack"}),
+        frozenset({"CollectTransferResults", "CollectRestoreResults"}),
+        frozenset({"CheckDestinationClear", "ReCheckDestinationClear"}),
+    }
 
 
 if __name__ == "__main__":

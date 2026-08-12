@@ -44,12 +44,29 @@
       ]
     },
     {
-      "Sid": "ReceiptWrite",
+      "Sid": "SpaceDataWrite",
       "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": [
+        "${user_space_bucket_arn}/*",
+        "${shared_space_bucket_arn}/*"
+      ]
+    },
+    {
+      "Sid": "NeverOverwritePortalManagedObjects",
+      "Effect": "Deny",
       "Action": "s3:PutObject",
       "Resource": [
-        "${user_space_bucket_arn}/*/archive/*",
-        "${shared_space_bucket_arn}/*/archive/*"
+        "${user_space_bucket_arn}/*/athenaresults/*",
+        "${shared_space_bucket_arn}/*/athenaresults/*",
+        "${user_space_bucket_arn}/*/user_settings/*",
+        "${shared_space_bucket_arn}/*/user_settings/*",
+        "${user_space_bucket_arn}/_config/*",
+        "${user_space_bucket_arn}/_directory/*"
       ]
     },
     {
@@ -87,6 +104,12 @@
         "s3:AbortMultipartUpload",
         "s3:ListMultipartUploadParts"
       ],
+      "Resource": "${archive_bucket_arn}/*"
+    },
+    {
+      "Sid": "ArchiveVaultRetrieve",
+      "Effect": "Allow",
+      "Action": "s3:RestoreObject",
       "Resource": "${archive_bucket_arn}/*"
     },
     {
