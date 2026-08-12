@@ -132,6 +132,31 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
     }
   }
 
+  # The archive copy plan, transfer manifest and Map Run results (SPEC-169) — the expanded
+  # object list inspect-source hands to the manifest builder, and the export the collector
+  # reads back. Same reasoning as the table-share and file-send rules above and the same
+  # retention: execution-scoped, read minutes after it is written, kept only so an operator can
+  # inspect the plan of a failed archive.
+  #
+  # IT IS A SEPARATE RULE FOR THE SAME REASON THE OTHER TWO ARE: S3 lifecycle takes one prefix
+  # per rule, and a prefix broad enough to cover all three ("") would match `logs/`, which
+  # SPEC-127 FR-009 retains indefinitely. The `archive/` prefix here is the ADMIN bucket's
+  # control-plane scratch space and has nothing to do with the `archive/` folder in a user's own
+  # space (which holds receipts and is never expired) or with the archive BUCKET (7 years).
+  # Three unrelated things named `archive/`, in three buckets, is worth stating once.
+  rule {
+    id     = "expire-archive-copy-plans"
+    status = "Enabled"
+
+    filter {
+      prefix = "archive/"
+    }
+
+    expiration {
+      days = var.admin_results_retention_days
+    }
+  }
+
   # Bucket-wide, and deliberately UNFILTERED (CKV_AWS_300). An abandoned multipart upload
   # leaves orphaned parts that are billed and invisible to every listing, anywhere in the
   # bucket — so scoping this to the prefixes we happen to know about today would leave a new

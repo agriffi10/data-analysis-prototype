@@ -347,6 +347,53 @@ def test_versioning_is_off_so_object_lock_stays_out_of_reach():
     assert "object_lock" not in body.lower()
 
 
+# ── The admin bucket's archive/ prefix, and the three unrelated things so named ──
+
+
+def test_the_admin_buckets_archive_prefix_expires_and_is_prefix_scoped():
+    """SPEC-169's copy plan, transfer manifest and Map Run results live in the ADMIN bucket, and
+    that bucket's own `admin_lifecycle_rules_are_prefix_scoped` check fails any EXPIRING rule
+    without a `filter.prefix` — because an unfiltered one there would reach `logs/`, which
+    SPEC-127 FR-009 retains indefinitely. The exact inverse of the archive bucket's rule, in the
+    same repo, for opposite and equally good reasons.
+    """
+    body = _read(INFRA / "modules" / "analytics" / "s3.tf")
+    block = body[body.index('id     = "expire-archive-copy-plans"'):]
+    block = block[: block.index("\n  }")]
+
+    assert 'prefix = "archive/"' in block
+    assert "expiration {" in block
+
+
+def test_the_three_things_named_archive_are_in_three_different_buckets():
+    """Worth pinning because the name collides three ways and only one of them expires quickly.
+
+    `{admin}/archive/` is control-plane scratch (days). `{space}/archive/` holds the user's
+    RECEIPTS and is never expired. The archive BUCKET holds the data itself (7 years). A
+    lifecycle rule written against the wrong one deletes either a user's only route to a restore
+    or the archive it points at.
+    """
+    admin = _read(INFRA / "modules" / "analytics" / "s3.tf")
+    archive = _read(INFRA / "modules" / "archive" / "s3.tf")
+
+    # The admin bucket expires its archive/ prefix; it has no rule reaching a user's space.
+    assert 'prefix = "archive/"' in admin
+    # The archive bucket's rule is unfiltered and 7-year; it names no prefix at all.
+    assert "archive_retention_days" in archive
+    assert 'prefix = "archive/"' not in archive
+    # Nothing anywhere expires the receipts, which live in the two SPACE buckets. Matched on
+    # lifecycle PREFIXES, not on the word: `data/s3.tf` legitimately names the archive execution
+    # role (the user-space bucket policy's allowlist) a few lines below its lifecycle block, and
+    # a whole-file grep reads that as a rule.
+    for module in ("data", "shared-spaces"):
+        body = _read(INFRA / "modules" / module / "s3.tf")
+        prefixes = re.findall(r'prefix\s*=\s*"([^"]*)"', body)
+        assert not [pfx for pfx in prefixes if "archive" in pfx.lower()], (
+            f"{module}/s3.tf has grown a lifecycle rule reaching archive/ — that folder holds "
+            "the receipts, which are a user's only route to a restore"
+        )
+
+
 # ── SPEC-139 parity: no new Resource "*" anywhere in this plane ──────────────
 
 
