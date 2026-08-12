@@ -2465,6 +2465,40 @@ exactly where they were" says nothing true about a restore.
 
 ## Retrieval as the point of no return, and the four asymmetries the restore introduces (SPEC-171)
 
+### The destination guard runs TWICE, because this spec turned a guarantee into a promise
+
+SPEC-170's rule is absolute: **any** occupied destination refuses the **whole** restore, because S3
+has no move and no rename, versioning is off, and a copy over a file the user re-created destroys it
+with no trace. One check was sufficient while the guard and the copy were seconds apart — the
+residual TOCTOU was an unlikely double-submit, the same one table-share and file-send carry.
+
+**SPEC-171 put three to five BILLED HOURS between the check and the write, and spent them telling
+the user a restore was in flight.** That is not the same window wearing a bigger number. It is a
+window the plane itself opens and then invites the user to act inside: the receipt marker exists
+precisely so somebody waiting hours knows something is happening, and somebody who knows their
+restore is hours away goes and works in their own space. Re-creating a file there is the ordinary
+case the guard was written for, arriving late — and the copy-back would have overwritten it,
+reported **success**, and swept the vault.
+
+`ReCheckDestinationClear` invokes the same verb over the same plan immediately before the copy-back.
+It costs one round of heads (the guard's own 20,000-at-8 bound, ~250 s worst case) against a run
+that has already waited hours, and it is what makes "any occupied destination refuses the whole
+restore" true at the moment of the WRITE rather than only at the moment of the PROMISE.
+
+Two details are decisions rather than mechanics. **The refusal is worded differently**, because the
+two passes leave the user somewhere different: before the retrieval nothing has been spent, and
+after it the objects are out of Glacier and stay ready for `RESTORE_AVAILABILITY_DAYS`, so a prompt
+second attempt costs neither the wait nor the bill again — a fact the user needs and cannot possibly
+infer from "some files are already there". And **the stage is SEEDED BY THE MACHINE**, never
+inferred from what else is on the state, for the same reason `update-receipt`'s three stages are:
+"the retrieval has not run" and "the retrieval reported nothing" look identical from inside a
+handler, and getting that wrong tells a user their retrieval is still warm when it was never made.
+
+It **narrows rather than closes**, as table-share's and file-send's guards do — two concurrent
+writers can still land a file between the second head and the copy. The difference in kind is what
+matters: seconds of overlap is a double-submit, and hours is the user acting on a message this plane
+sent them.
+
 ### The retrieval Map tolerates NO failure, and the copy tolerates every one
 
 `ToleratedFailurePercentage` is 0 on `RetrieveObjects` and 100 on `CopyBackObjects`, three states
@@ -2620,6 +2654,12 @@ read through Athena, which does not care about a content type. The fix is explic
 path (stated rather than assumed, because the path beside it proves the default is not universal)
 and a `HeadObject` on the multipart path whose headers are re-stated on the create call, skipping
 anything the source does not carry so the two existing callers' requests are unchanged below 5 GiB.
+
+**One thing `MetadataDirective` carries that the multipart path still does not: the object's TAG
+SET.** `CopyObject` copies tags by default; `HeadObject` does not report them, so parity would cost
+a `GetObjectTagging` per object over 5 GiB. Nothing in this portal tags an object, so it is
+**recorded in `copy.py` rather than bought** — the moment a plane starts tagging, every object over
+the threshold will start losing them silently.
 
 **A test that fixtured only a small object would have passed while the bug lived on**, so the round
 trip runs at both copy strategies. That is the same shape as SPEC-163's recipes that re-implemented

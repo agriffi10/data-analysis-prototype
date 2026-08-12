@@ -454,6 +454,27 @@ def _round_trip(size):
     return fake, creates
 
 
+def test_the_multipart_paths_new_HEAD_is_a_real_failure_point_and_is_handled():
+    """**SPEC-171 added a pre-copy S3 call to a path two SHIPPED planes already use**, so its
+    failure modes are theirs now too. A throttle must stay transient — the Map retries the whole
+    idempotent batch — and a deterministic fault must fail THAT ITEM rather than producing an
+    object stripped of the metadata this call exists to carry."""
+    fake = _setup()
+    fake.head_object = lambda **kw: (_ for _ in ()).throw(_S3Error("SlowDown"))
+
+    with pytest.raises(TransientError):
+        copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED)
+
+    fake = _setup()
+    fake.head_object = lambda **kw: (_ for _ in ()).throw(_S3Error("NoSuchKey"))
+
+    out = copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED)
+
+    assert out["copied"] == 0
+    assert out["failures"] == [{"recipient": "bob", "kind": "user", "reason": _FAILED}]
+    assert fake.multipart == [], "an unreadable source started a multipart upload anyway"
+
+
 def test_a_source_header_the_object_does_not_carry_is_not_stamped_over_the_default():
     """An empty `ContentType` passed to `CreateMultipartUpload` would stamp the default over
     nothing, which is harmless — but an empty `Metadata` dict or `ContentDisposition` reads as

@@ -252,14 +252,20 @@ def test_a_never_requested_object_refuses_the_sweep_rather_than_reporting_pendin
     assert caught.value.reason == "restore_never_requested"
 
 
-def test_an_unreadable_archived_object_refuses_rather_than_waiting_out_the_budget():
+def test_an_unreadable_archived_object_refuses_UNDER_ITS_OWN_CODE():
+    """**It is not the same failure as a missing `Restore` header and must not share its code.**
+    Both stop the loop, which is what matters most — but an object that has vanished from the
+    vault, or that this role cannot read, will fail identically on every retry, so its message
+    says "contact an administrator" where `restore_never_requested`'s says "please try again".
+    Conflated, the honest next step for one case sends the other round a loop that cannot
+    succeed."""
     keys = _keys(2)
     _install(heads={keys[1]: _S3Error("NoSuchKey", 404)})
 
     with pytest.raises(TerminalError) as caught:
         retrieval.advance("archive-bkt", keys, 0)
 
-    assert caught.value.reason == "restore_never_requested"
+    assert caught.value.reason == "archive_object_unreadable"
 
 
 def test_a_throttled_head_raises_transient_and_never_reports_progress_it_did_not_see():

@@ -18,6 +18,7 @@ import pytest
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_HERE, "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(_HERE, "..", "archive-validate-authorize"))
+sys.path.insert(0, os.path.join(_HERE, "..", "archive-collect-transfer-results"))
 
 _ASL = os.path.join(_HERE, "..", "..", "infra", "modules", "archive", "state-machine.asl.json.tftpl")
 
@@ -469,7 +470,8 @@ def test_the_restore_arm_reaches_the_guard_before_it_can_reach_anything_else():
     arm = [c["Next"] for c in STATES["ChooseMode"]["Choices"] if "restore" in json.dumps(c)]
 
     assert arm == ["InspectArchive"]
-    assert STATES["InspectArchive"]["Next"] == "CheckDestinationClear"
+    assert STATES["InspectArchive"]["Next"] == "SeedInitialGuard"
+    assert STATES["SeedInitialGuard"]["Next"] == "CheckDestinationClear"
     assert STATES["CheckDestinationClear"]["Next"] == "StampRestoreExecution"
 
 
@@ -647,6 +649,73 @@ def test_no_path_from_the_partial_restore_reaches_the_archive_deletion():
     assert "Failed" in partial, "the partial-restore branch does not fail the execution"
 
 
+def test_a_fixtured_export_with_one_failure_lands_on_the_arm_that_cannot_delete():
+    """**FR-004 AC4 END TO END, joining the two halves nothing else joins.** The graph walk above
+    proves the arm cannot reach the deletion; the collector's own suite proves a failed item
+    yields `complete: false`. Neither says the verdict the collector actually produces is routed
+    to that arm — which is the claim the AC makes, and the one a renamed field or an inverted
+    Choice would break with both halves still green.
+
+    So this runs the REAL collector over a REAL `ResultWriter` export carrying one failure, reads
+    the boolean off its output, evaluates the gate's own Choice against it, and walks the graph
+    from wherever that lands.
+    """
+    import archive_collect_transfer_results as collector
+    from cpcommon import clients
+
+    export = {
+        "MapRunArn": "arn:aws:states:us-east-1:1:mapRun/m/r",
+        "ResultFiles": {
+            "SUCCEEDED": [{"Key": "archive/r/restore-results/SUCCEEDED_0.json", "Size": 1}]
+        },
+    }
+    succeeded = [
+        {"Input": json.dumps({"Items": [{"srcKey": "a"}, {"srcKey": "b"}]}),
+         "Output": json.dumps({"copied": 1, "failures": [{"reason": "copy_failed"}]})},
+    ]
+
+    class _FakeS3:
+        def get_object(self, Bucket, Key):
+            body = export if Key.endswith("manifest.json") else succeeded
+
+            class _B:
+                def read(self_inner):
+                    return json.dumps(body).encode()
+
+            return {"Body": _B()}
+
+    clients._s3 = _FakeS3()
+
+    out = collector.handler(
+        {
+            "requestId": "9f2c1b8e-1111-4222-8333-444444444444",
+            "actor": {"username": "alice"},
+            "objectCount": 2,
+            "transfer": {"itemCount": 2},
+            "mapRun": {
+                "ResultWriterDetails": {"Bucket": "admin-bkt", "Key": "archive/r/manifest.json"}
+            },
+        },
+        None,
+    )
+
+    assert out["transferOutcome"]["complete"] is False, "the fixture did not produce a failure"
+
+    gate = STATES["RestoreCompleteOrPartial"]
+    clause = gate["Choices"][0]["And"][1]
+    taken = (
+        gate["Choices"][0]["Next"]
+        if out["transferOutcome"]["complete"] == clause["BooleanEquals"]
+        else gate["Default"]
+    )
+
+    assert "DeleteArchived" not in _reachable_from(taken), (
+        "one failed item routed to an arm that can delete the archive — the only complete copy "
+        "of data the user has just half received"
+    )
+    assert "Failed" in _reachable_from(taken)
+
+
 def test_the_restores_gate_guards_its_comparison_and_fails_closed():
     """Same shape as the commit gate and the same reasoning turned around: an unrecognisable
     verdict must fail closed, which here means keeping a VAULT where on the archive arm it means
@@ -777,6 +846,7 @@ def test_every_verb_state_is_one_of_the_planes_deployed_functions():
         "WriteReceipt",
         "InspectArchive",
         "CheckDestinationClear",
+        "ReCheckDestinationClear",
         "BuildRestoreManifest",
         "MarkRestoreRequested",
         "PollRestore",
@@ -810,6 +880,7 @@ def test_the_state_count_is_not_the_verb_count_and_the_reuse_is_deliberate():
         frozenset({"MarkRestoreRequested", "UpdateReceipt", "ReportRestoreIncomplete"}),
         frozenset({"CopyObjects", "CopyBack"}),
         frozenset({"CollectTransferResults", "CollectRestoreResults"}),
+        frozenset({"CheckDestinationClear", "ReCheckDestinationClear"}),
     }
 
 

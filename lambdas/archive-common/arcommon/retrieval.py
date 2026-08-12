@@ -204,16 +204,19 @@ def _state_of(bucket: str, key: str) -> str:
 
     Raises:
       TransientError: On a throttle or 5xx, so the poll verb's own Retry re-runs it.
-      TerminalError: ``restore_never_requested`` when the object is gone. An archived object that
-        cannot be headed at all is not a slow retrieval, and every remaining poll spent on it
-        would end in a ``restore_timed_out`` that named the wrong cause.
+      TerminalError: ``archive_object_unreadable`` when the object cannot be headed at all. That
+        is **not** the same failure as a missing ``Restore`` header and does not share its code:
+        an object that has vanished from the vault, or that this role cannot read, will fail
+        identically on every retry, so its message says "contact an administrator" where
+        ``restore_never_requested``'s says "please try again". Both stop the loop rather than
+        letting it spend seven hours on something that was never going to complete.
     """
     try:
         return classify(clients.s3().head_object(Bucket=bucket, Key=key))
     except Exception as err:
         errors.raise_if_transient(err, f"head {bucket}/{key}")
         raise TerminalError(
-            "restore_never_requested", f"{bucket}/{key} could not be read back: {err}"
+            "archive_object_unreadable", f"{bucket}/{key} could not be read back: {err}"
         ) from err
 
 

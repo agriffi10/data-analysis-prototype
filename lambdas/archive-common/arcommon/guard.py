@@ -11,6 +11,17 @@ as its own spec.** Glacier retrieval is billed and irreversible once initiated: 
 conflict afterwards would charge the user for hours of retrieval that cannot land, and there is
 no way to give it back.
 
+**AND IT RUNS AGAIN, IMMEDIATELY BEFORE THE COPY (SPEC-171).** Every other plane's conflict
+guard carries a residual TOCTOU of a few seconds, which is an unlikely double-submit. This one
+would have carried a window of **three to five hours** — the retrieval — during which the user is
+explicitly told a restore is in flight and invited to go and do something else. Re-creating a
+file in that window is not an exotic race; it is the ordinary case the guard was written for,
+arriving late. With versioning off, a single check at the start would have let the copy-back
+overwrite that file silently and report success. The second pass costs one round of heads
+against a run that has already waited hours, and it is the only thing that makes SPEC-170's
+"any occupied destination refuses the whole restore" still TRUE at the moment of the write
+rather than only at the moment of the promise.
+
 **A ``403`` counts as OCCUPIED.** A key this role cannot head is a key it must not overwrite —
 and on these buckets that is a live case rather than a hypothetical, because the execution
 role's own policy Denies it under ``athenaresults/``, ``user_settings/`` and ``archive/``.
@@ -137,27 +148,37 @@ def find_collisions(bucket: str, dest_keys: list, space_root: str) -> list:
     return found
 
 
-def assert_clear(bucket: str, dest_keys: list, space_root: str) -> None:
+def assert_clear(
+    bucket: str, dest_keys: list, space_root: str, reason: str = "destination_occupied"
+) -> None:
     """Refuses the whole restore if any destination is occupied.
+
+    **It runs TWICE on a restore, and the second time is what closes SPEC-171's window** (see this
+    module's docstring). The reason code is a parameter rather than a literal because the two
+    passes leave the user in genuinely different positions: before the retrieval nothing has been
+    spent, and after it the objects have been retrieved and stay readable for
+    ``RESTORE_AVAILABILITY_DAYS`` — so a prompt second attempt costs neither the wait nor the
+    retrieval again, which is a fact the user needs and cannot infer.
 
     Args:
       bucket: The space bucket the restore would write into.
       dest_keys: Every destination key, in plan order.
       space_root: The space root the sample is rendered relative to.
+      reason: The terminal reason code, which selects the wording for this pass.
 
     Returns:
       None.
 
     Raises:
-      TerminalError: ``destination_occupied``, carrying the sample as a user-facing token — the
-        user's own paths, never service text.
+      TerminalError: ``reason``, carrying the sample as a user-facing token — the user's own
+        paths, never service text.
       TransientError: On a throttle or 5xx from any head.
     """
     collisions = find_collisions(bucket, dest_keys, space_root)
     if not collisions:
         return
     raise TerminalError(
-        "destination_occupied",
+        reason,
         f"{len(collisions)} or more destination(s) under {space_root} are already occupied",
         tokens={"sample": ", ".join(collisions)},
     )

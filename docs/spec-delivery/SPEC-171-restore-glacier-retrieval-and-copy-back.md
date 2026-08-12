@@ -38,7 +38,9 @@ authorizes.
 - `restore.validate` now resolves the **receipt's** location beside the vault's, so the key is
   built once (SPEC-168's rule) rather than three agreeing times.
 
-**ASL** — twenty new states, the loop among them; `TimeoutSeconds` 10,800 → **43,200**.
+**ASL** — twenty-three new states, the loop among them; `TimeoutSeconds` 10,800 → **43,200**.
+`check-destination-clear` is now invoked **twice**, and that is the most important thing in this
+spec that the spec did not ask for — see below.
 
 **IAM** — `s3:RestoreObject` on the vault, and `SpaceDataWrite` replacing `ReceiptWrite`.
 
@@ -57,6 +59,42 @@ authorizes.
 be tight, because failing means re-running something free. Here, giving up on a retrieval that was
 going to finish makes the user pay for a **second billed retrieval**. Two extra hours of waiting
 costs one Lambda invocation every five minutes.
+
+## The defect review found, and the state that closes it
+
+**A fresh-context review found that this spec turned SPEC-170's destination guard into a promise
+rather than a guarantee, and the cost was silent data loss.** SPEC-170's rule is that any occupied
+destination refuses the *whole* restore, because S3 has no move and no rename, versioning is off,
+and a copy over a file the user re-created destroys it with no trace. One check was sufficient
+while the guard and the copy were seconds apart.
+
+This spec put **three to five billed hours** between them — and, worse, spent them telling the user
+a restore is in flight, which is precisely when they would go and work in their own space.
+Re-creating a file in that window is not an exotic race; it is the ordinary case the guard was
+written for, arriving late. The copy-back would have overwritten it, reported **success**, and then
+swept the vault.
+
+`ReCheckDestinationClear` runs the **same verb over the same plan** immediately before the
+copy-back: one round of heads against a run that has already waited hours. The two passes are
+worded differently, because they leave the user somewhere different — after the retrieval the
+objects are out of Glacier and stay ready for `RESTORE_AVAILABILITY_DAYS`, so a prompt second
+attempt costs neither the wait nor the bill again, and that is a fact nobody could infer.
+**The stage is SEEDED by the machine**, not inferred by the verb: "the retrieval has not run" and
+"the retrieval reported nothing" look identical from inside a handler, and getting it wrong tells a
+user their retrieval is warm when it was never made.
+
+The review's other findings, all fixed: the multipart copy now carries `Expires` and
+`WebsiteRedirectLocation` too (**tags are still dropped above 5 GiB and that is recorded in
+`copy.py` rather than fixed** — matching `CopyObject`'s `TaggingDirective` would cost a
+`GetObjectTagging` per object and nothing in this portal tags one); the head's own failure path is
+now exercised, since it is a *new* pre-copy failure point for two shipped planes;
+`archive_object_unreadable` split out of `restore_never_requested`, because "please try again" is
+the wrong next step for an object that has vanished from the vault; the `PutObject` Deny extended
+to `_config/` and `_directory/`, which sit at the **bucket root** where a `*/x/*` pattern cannot
+reach them; a vacuous assertion in the receipt suite replaced (it matched the destination anywhere
+in the document, and `Original path` already contains it — measured: it stayed green with the
+restore line blanked); and FR-004 AC4 now has the test it literally asked for, driving the real
+collector over a fixtured export and walking the graph from the verdict it actually produces.
 
 ## The decisions this spec made
 
@@ -153,6 +191,11 @@ wording has to be argued for rather than merely passing.
 
 ## Not met by this spec, deliberately and not silently
 
+- **The guard's residual TOCTOU is narrowed, not closed** — as table-share's and file-send's are.
+  Two concurrent writers can still land a file between the second head and the copy. What the
+  second pass removes is the *hours-long* window this spec introduced, which is a different thing
+  in kind: seconds of overlap is a double-submit, and hours is the user acting on a message this
+  plane sent them.
 - **FR-007 AC4 — the policy simulation against the DEPLOYED role — is owed until the apply lands.**
   The pre-apply baseline was run and is recorded in the live-check script: every new grant reads
   `implicitDeny` today, each paired with an `allowed` control on the same bucket and a similar ARN,

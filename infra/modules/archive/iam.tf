@@ -54,11 +54,20 @@
 #
 # NeverOverwritePortalManagedObjects is the narrowing that goes with that widening, and it
 # is defence in depth rather than the rule itself. `athenaresults/` and `user_settings/` can
-# never appear in an archive — RESERVED_SOURCE_ROOTS refuses them at archive time, and the
-# destination guard's fail-closed 403-is-occupied rule refuses them again at restore time —
-# so this Deny cannot refuse a legitimate restore. What it buys is that a plan which somehow
-# named one of them could not overwrite the notification inbox or a user's query results. It
-# deliberately does NOT cover `archive/`, which is where the receipt this plane writes lives.
+# never appear in an archive — RESERVED_SOURCE_ROOTS refuses them at archive time,
+# plan._assert_deletable_folder refuses them at ANY depth, and the destination guard's
+# fail-closed 403-is-occupied rule refuses them again at restore time — so this Deny cannot
+# refuse a legitimate restore. What it buys is that a plan which somehow named one of them
+# could not overwrite the notification inbox or a user's query results. It deliberately does
+# NOT cover `archive/`, which is where the receipt this plane writes lives.
+#
+# IT ALSO COVERS `_config/` AND `_directory/`, WHICH ARE AT THE BUCKET ROOT AND NOT INSIDE ANY
+# SPACE. A `*/x/*` pattern cannot match a key with one segment before the folder, so the two
+# documents that are arguably the most dangerous things in that bucket — the feature-flag
+# document that decides what every user can see (SPEC-162) and the username directory
+# (SPEC-146) — were outside a statement whose name claims to cover portal-managed state. They
+# are unreachable from code, because every restore destination is built by paths.origin_key
+# under an authorized space root, but the widening is what made naming them cheap and correct.
 
 # NOTE: the Deny above and NeverDeletePortalManagedObjects are two different verbs on two
 # overlapping prefix sets, and the difference is the receipt: this plane may WRITE under

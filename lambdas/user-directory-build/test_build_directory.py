@@ -272,8 +272,18 @@ def test_no_other_lambda_references_the_directory(s3):
     what lives one prefix over. Forbidding the mention would delete the reasoning, not the
     coupling. What this tripwire is actually about — a control plane treating the directory
     as an authorization input — is untouched by it.
+
+    `test_archive_bucket_isolation.py` is the third and is the same class again: SPEC-171
+    widened the archive execution role's `s3:PutObject` to the whole user-space bucket, so it
+    asserts the accompanying DENY covers this key. That is the exact opposite of reading the
+    document — it is making sure nothing can WRITE to it — and dropping the mention would leave
+    the widening's narrowest edge unasserted to satisfy a tripwire aimed elsewhere.
     """
-    allowed = {"data-quality-common/dqcommon/config.py", "test_feature_flags_config.py"}
+    allowed = {
+        "data-quality-common/dqcommon/config.py",
+        "test_feature_flags_config.py",
+        "test_archive_bucket_isolation.py",
+    }
     markers = ("usernames.json", "_directory/", "DIRECTORY_PREFIX", "DIRECTORY_KEY")
     offenders = []
     for path in LAMBDAS.rglob("*.py"):

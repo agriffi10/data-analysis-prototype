@@ -181,6 +181,17 @@ _BODIES = {
         "{sample}. There may be more. Please move, rename or delete them and then request the "
         "restore again."
     ),
+    "destination_occupied_after_retrieval": (
+        "these files appeared where they would be restored to while the restore was being "
+        "prepared, so nothing was restored: {sample}. There may be more. Please move, rename or "
+        "delete them and then request the restore again - the files have already been retrieved "
+        "from long-term storage and will stay ready for a few days, so trying again soon will "
+        "not mean another long wait."
+    ),
+    "archive_object_unreadable": (
+        "one of the archived files could not be read back, so nothing was restored. Nothing was "
+        "changed in your space. Please contact an administrator."
+    ),
 }
 
 

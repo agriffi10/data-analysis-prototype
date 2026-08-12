@@ -100,6 +100,10 @@ def _request(**overrides):
         "planKey": _PLAN_KEY,
         "objectCount": 2,
         "totalBytes": 11,
+        # SPEC-171: the machine SEEDS which pass this is. The verb never infers it — "the
+        # retrieval has not run" and "the retrieval reported nothing" look identical from inside
+        # a handler, and getting it wrong tells a user their retrieval is warm when it never ran.
+        "guard": {"stage": "before"},
     }
     base.update(overrides)
     return base
@@ -192,6 +196,51 @@ def test_the_guard_issues_no_head_at_all_when_the_plan_is_not_ours():
         m.handler(_request(), None)
 
     assert fake.heads == []
+
+
+# ── SPEC-171: the SECOND pass, and why it is worded differently ─────────────
+
+
+def test_the_second_pass_after_the_retrieval_refuses_with_its_own_reason(_sink):
+    """**THE STATE THAT KEEPS SPEC-170'S GUARANTEE TRUE AT THE MOMENT OF THE WRITE.** SPEC-171
+    puts three to five BILLED hours between this guard and the copy — during which the receipt
+    tells the user a restore is in flight and they have every reason to be working in their own
+    space. Re-creating a file in that window is not an exotic race; it is the ordinary case this
+    guard was written for, arriving late. With versioning off, one check at the start would let
+    the copy-back overwrite it silently, report SUCCESS, and then sweep the vault.
+
+    The reason code differs because the two refusals leave the user somewhere different: after
+    the retrieval the objects are already out of Glacier and stay ready for a few days, so a
+    prompt second attempt costs neither the wait nor the bill again — a fact they cannot infer.
+    """
+    _install(occupied={"alice/notes.txt"})
+
+    with pytest.raises(TerminalError) as caught:
+        m.handler(_request(guard={"stage": "after"}), None)
+
+    assert caught.value.reason == "destination_occupied_after_retrieval"
+    assert _sink and "already been retrieved" in _sink[0][1]
+    assert "not mean another long wait" in _sink[0][1]
+
+
+def test_the_second_pass_heads_the_destinations_again_rather_than_trusting_the_first():
+    """The whole value of the second pass is that it observes the world as it is when the write
+    happens. A pass that read a cached verdict would be a comment, not a guard."""
+    fake = _install(occupied=set())
+
+    m.handler(_request(guard={"stage": "after"}), None)
+
+    assert set(fake.heads) == {"alice/reports/q1.csv", "alice/notes.txt"}
+
+
+def test_an_unseeded_stage_fails_loudly_rather_than_defaulting_to_a_wording():
+    """The stage is the machine's to declare. Defaulting it would mean a state that forgot to
+    seed still passed — and the wording it fell back to would be the one that promises a warm
+    retrieval, on a run that may never have made one."""
+    _install()
+
+    with pytest.raises(KeyError):
+        m.handler(_request(guard={}), None)
 
 
 if __name__ == "__main__":

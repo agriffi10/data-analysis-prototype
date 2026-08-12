@@ -136,11 +136,19 @@ def test_the_requested_stage_marks_the_receipt_before_anything_is_billed():
 
 
 def test_the_restored_stage_names_where_the_data_landed():
+    """**The assertion has to be on the `Restored to` LINE, not on the document.** `render`
+    already emits `Original path: s3://user-bkt/alice/`, and the rewrite keeps every other line
+    verbatim — so "the destination appears somewhere in the text" is true however the restore
+    line is filled in. Measured: forcing `restore_lines` to return a placeholder left the
+    document-wide version of this test GREEN."""
     fake = _install()
 
     m.handler(_request(), None)
 
-    assert "s3://user-bkt/alice/" in _written(fake)
+    line = next(
+        ln for ln in _written(fake).splitlines() if ln.startswith(receipt.RESTORED_TO_LABEL)
+    )
+    assert line.split(":", 1)[1].strip() == "s3://user-bkt/alice/"
 
 
 def test_the_incomplete_stage_ALWAYS_raises_after_recording_what_it_can():
@@ -238,7 +246,8 @@ def test_an_absent_receipt_is_composed_fresh_rather_than_leaving_the_restore_unr
 
     assert f"Request ID:        {_ARCHIVE_ID}" in written
     assert "Requested:         -" in written
-    assert "s3://user-bkt/alice/" in written
+    line = next(ln for ln in written.splitlines() if ln.startswith(receipt.RESTORED_TO_LABEL))
+    assert line.split(":", 1)[1].strip() == "s3://user-bkt/alice/"
 
 
 def test_the_composed_receipt_names_the_ARCHIVES_id_and_not_this_runs():

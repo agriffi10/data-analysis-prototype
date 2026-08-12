@@ -37,6 +37,13 @@ Attributes:
     ``CreateMultipartUpload``, mapped to that call's argument names. Only the ones S3 accepts
     there, and each is set only when the source actually carries it — passing an empty
     ``ContentType`` would stamp the default over a real value rather than leaving it alone.
+
+    **ONE THING ``MetadataDirective`` CARRIES THAT THIS DOES NOT: the object's TAG SET.**
+    ``CopyObject`` copies tags by default (``TaggingDirective`` defaults to ``COPY``);
+    ``HeadObject`` does not report them, so matching that would cost a ``GetObjectTagging`` call
+    per object over the threshold. **Nothing in this portal tags an object**, so the parity is
+    not bought — recorded here rather than left for someone to discover, because the moment a
+    plane starts tagging, every object over 5 GiB will start losing them silently.
 """
 
 import logging
@@ -58,6 +65,8 @@ _CARRIED_HEADERS = {
     "ContentDisposition": "ContentDisposition",
     "ContentLanguage": "ContentLanguage",
     "CacheControl": "CacheControl",
+    "Expires": "Expires",
+    "WebsiteRedirectLocation": "WebsiteRedirectLocation",
     "Metadata": "Metadata",
 }
 

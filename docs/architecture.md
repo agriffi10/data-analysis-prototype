@@ -547,6 +547,15 @@ only through a restore request that takes **hours**, not a click.
   with them. It is one field on one machine, so the archive arm's backstop rose with it — a wedged
   archive is now reported after twelve hours rather than three, which is accepted and pinned by a
   test asserting the archive arm still clears the ceiling by more than 4×.
+- **THE DESTINATION GUARD RUNS TWICE, and the second pass is SPEC-171's own correction.** One check
+  was sufficient while the guard and the copy were seconds apart; this arc puts 3-5 BILLED HOURS
+  between them and spends those hours telling the user a restore is in flight — so re-creating a
+  file in that window is the ordinary case the guard was written for, arriving late, and the
+  copy-back would have overwritten it, reported success and swept the vault. `ReCheckDestinationClear`
+  is the same verb over the same plan immediately before the copy: seconds against a run that has
+  already waited hours. The two refusals are worded apart (after the retrieval the objects stay
+  ready for `RESTORE_AVAILABILITY_DAYS`, so trying again soon is free) and the ASL **seeds** which
+  pass it is rather than the verb inferring it.
 - **Retrieval is the point of no return, and its Map tolerates NO failure** (SPEC-171) — the exact
   inverse of the copy's 100%. The copy must finish whatever happens or the commit gate cannot tell
   "failed" from "not attempted"; the retrieval has no such gate, so a genuine fault fails the Map

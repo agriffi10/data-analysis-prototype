@@ -237,7 +237,37 @@ way. Note the **archive id** and the **start time**.
   before the restore** — that is the rewrite-not-re-render rule, and a blanked `Requested` line is
   how you would know it broke.
 
-### 2. Shared space (Phase 4's second half)
+### 2. The second guard — the one worth staging deliberately (SPEC-171's own correction)
+
+**This is the only live step that exercises code the spec did not ask for, and it is the one that
+proves a real data-loss path is closed.** Do it on a SMALL archive; you are paying for a second
+retrieval.
+
+Start a restore. **While it is waiting** — any time before the poll reports complete — re-create one
+of the files it is going to restore, at its original path, with different content:
+
+```bash
+echo "I made this while waiting" > /tmp/q1.csv
+aws s3 cp /tmp/q1.csv "s3://dat-prod-user-space/$USERNAME/reports/q1.csv"
+```
+
+Expect, when the retrieval finishes:
+
+- The execution **FAILS** at `ReCheckDestinationClear` — **not** at `CheckDestinationClear`, which
+  passed hours ago and correctly.
+- The notification names `reports/q1.csv`, and says the files **"have already been retrieved from
+  long-term storage and will stay ready for a few days"**. That wording is the second pass; the
+  first pass's refusal does not contain it, so it is how you tell which guard fired.
+- **THE ASSERTION THIS STEP EXISTS FOR:** the file you just wrote is **still there and still yours**
+  — `shasum` it, or just open it. Without the second guard the copy-back would have overwritten it,
+  reported success, and swept the vault. Versioning is off, so it would have been unrecoverable.
+- The archive prefix is **intact** — nothing was deleted on the refusal path.
+
+Then clear the file and re-request. It should complete in **minutes rather than hours**: the objects
+are still retrieved, so `RestoreObject` returns immediately and the first poll finds them complete.
+That is the fact the second refusal's wording promises, and this is the only place it is observable.
+
+### 3. Shared space (Phase 4's second half)
 
 Repeat step 1 against the shared archive SPEC-169's step 2 produced. The destinations rebuild under
 the **space** root, the receipt is in the shared bucket, and `SpaceDataWrite`'s shared-bucket arm is

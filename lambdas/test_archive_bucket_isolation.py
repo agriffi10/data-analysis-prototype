@@ -225,7 +225,19 @@ def test_the_write_into_a_users_space_is_unrestricted_by_prefix_and_deliberately
     assert set(write["Resource"]) == {"user_space_bucket_arn/*", "shared_space_bucket_arn/*"}
 
 
-@pytest.mark.parametrize("pattern", ["/*/athenaresults/*", "/*/user_settings/*"])
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "/*/athenaresults/*",
+        "/*/user_settings/*",
+        # AT THE BUCKET ROOT, so a `*/x/*` pattern cannot match them: the feature-flag document
+        # that decides what every user can see (SPEC-162) and the username directory (SPEC-146).
+        # They are the two most dangerous objects in that bucket and were outside a statement
+        # whose NAME claims to cover portal-managed state.
+        "/_config/*",
+        "/_directory/*",
+    ],
+)
 def test_the_widened_write_can_never_reach_portal_managed_state(pattern):
     """The narrowing that goes with FR-007's widening, and it is defence in depth rather than
     the rule itself: `athenaresults/` and `user_settings/` can never appear in an archive
