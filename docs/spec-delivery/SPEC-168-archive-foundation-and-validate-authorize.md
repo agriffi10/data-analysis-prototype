@@ -120,6 +120,27 @@ not fail. Each was **proven** by mutating the source and re-running, then revert
   consequence is that a user-made `reports/archive/` is writable in a personal space and not in
   a shared one. Accepted, noted here so it is a decision rather than a surprise.
 
+## The merge apply went red, and the fix is structural
+
+`Deploy Infrastructure` failed on the merge commit: `CreateBucket`, `CreateRole`, `CreateQueue`
+and `CreateLogGroup` all returned `AccessDenied` for the archive resources. **The identical apply
+succeeded on a re-run two minutes later with no change at all**, which is the whole diagnosis:
+the deploy policy authorizing those creates is attached in the *same* apply, `module.archive`
+does carry `depends_on = [module.base]` so the attachment genuinely happened first, and IAM is
+eventually consistent anyway.
+
+Every other plane dodged this by **splitting the work across two PRs** — grants in one, resources
+in the next, which is the recorded deploy-perms-before-resources rule and is what those modules'
+comments mean by "no `time_sleep` guard is required here". That rule holds only while somebody
+remembers to split, and this spec shipped as one PR.
+
+`modules/base` now carries a `time_sleep.wait_for_archive_grant` on the attachment, so the
+existing `depends_on = [module.base]` covers it with no wiring in the child module. It matters
+again the moment **SPEC-169** extends this policy (`events:`, plus S3 on the space and archive
+buckets) in the same PR as the EventBridge rule and verbs that use them — the exact shape that
+just failed. A red *first* apply of a new plane remains expected rather than a defect; a re-run
+is still the remedy if AWS is slower than the floor.
+
 ## Owed
 
 **One live check, and it is two halves of one session** (Phase 5):
