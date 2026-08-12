@@ -145,10 +145,10 @@ the `Restore` header's exact format and the `InvalidObjectState` boundary are on
 Run SPEC-170's steps first. They are free, they take minutes, and step 2 of that section is the one
 that proves this section will not charge you for a restore that cannot land.
 
-### 0. The policy simulation, post-apply (FR-007 AC4)
+### 0. The policy simulation, post-apply (FR-007 AC4) — **DISCHARGED 2026-08-12**
 
-Run this **after `Deploy Infrastructure` is green on main**, not before. The pre-apply baseline is
-recorded below it for comparison — every new grant read `implicitDeny` then.
+Run after `Deploy Infrastructure` was green on main (run `31648992063`). **Every row below came
+back as the table predicts**; kept here as the command to re-run if these grants are ever touched.
 
 ```bash
 ROLE=arn:aws:iam::696000197480:role/dat-prod-archive-execution-role
@@ -161,20 +161,33 @@ run s3:PutObject     "arn:aws:s3:::dat-prod-user-space/alice/user_settings/notif
 run s3:DeleteObject  "arn:aws:s3:::dat-prod-user-space/alice/athenaresults/q.csv"
 ```
 
-| Action / resource | Pre-apply (recorded 2026-08-12) | Expected post-apply |
+| Action / resource | Pre-apply | Post-apply (observed) |
 |---|---|---|
-| `RestoreObject` on the vault | `implicitDeny` | **`allowed`** |
-| `PutObject` anywhere in user space | `implicitDeny` | **`allowed`** |
-| `PutObject` anywhere in shared space | `implicitDeny` | **`allowed`** |
-| `GetObject` on the vault (**control**) | `allowed` | `allowed` |
-| `PutObject` under `user_settings/` | `implicitDeny` | **`explicitDeny`** |
-| `DeleteObject` under `athenaresults/` (**control**) | `explicitDeny` | `explicitDeny` |
+| `RestoreObject` on the vault | `implicitDeny` | **`allowed`** ✅ |
+| `PutObject` anywhere in user space | `implicitDeny` | **`allowed`** ✅ |
+| `PutObject` anywhere in shared space | `implicitDeny` | **`allowed`** ✅ |
+| `AbortMultipartUpload` in user space | — | **`allowed`** ✅ |
+| `GetObject` on the vault (**control**) | `allowed` | `allowed` ✅ |
+| `PutObject` under `archive/` — the receipt (**control**) | `allowed` | `allowed` ✅ |
+| `DeleteObject` on the vault (**control**) | `allowed` | `allowed` ✅ |
+| `PutObject` under `user_settings/` | `implicitDeny` | **`explicitDeny`** ✅ |
+| `PutObject` under `athenaresults/` | `implicitDeny` | **`explicitDeny`** ✅ |
+| `PutObject` on `_config/feature-flags.json` | `implicitDeny` | **`explicitDeny`** ✅ |
+| `PutObject` on `_directory/usernames.json` | `implicitDeny` | **`explicitDeny`** ✅ |
+| `DeleteObject` under `athenaresults/` (**control**) | `explicitDeny` | `explicitDeny` ✅ |
+| `DeleteObject` on a `DO_NOT_DELETE.txt` (**control**) | `explicitDeny` | `explicitDeny` ✅ |
 
 **Every denial is paired with an `allowed` control on the same bucket on purpose.** An
 `implicitDeny` alone cannot tell an ungranted action from a wrong resource ARN — SPEC-149's trap,
-where `dat-prod-athena-admin` mistyped read as a pass. The `user_settings/` row is the one that
-must **change class**, from implicit to explicit: that is the new Deny working rather than the old
-absence of a grant.
+where `dat-prod-athena-admin` mistyped read as a pass.
+
+**The four rows that moved from `implicitDeny` to `explicitDeny` are the strongest evidence here,
+and the reason is the widening itself.** Before the apply those keys were denied only because
+nothing granted `PutObject` on them. After it, `SpaceDataWrite` grants `PutObject` on
+`{bucket}/*` — which covers all four — so the ONLY thing refusing them now is
+`NeverOverwritePortalManagedObjects`. A missing or mis-scoped Deny would read `allowed`, not
+`implicitDeny`. That is what makes this pass a real check on the narrowing rather than a restatement
+of the absence it replaced.
 
 ### 1. The restore that works (FR-001, FR-002, FR-003, FR-005, FR-006)
 

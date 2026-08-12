@@ -144,8 +144,12 @@ LOOPS (`retrieval polled` events hours apart), that `StorageClass` stays `GLACIE
 object throughout while the `Restore` header flips, that the restored object comes back at
 `STANDARD` **by `head-object`**, that content type and bytes survived, that the archive prefix is
 gone, and that the receipt's ARCHIVE lines are byte-identical to before the restore — a blanked
-`Requested` line is how you would know the rewrite broke. **171's IAM simulation is owed post-apply
-and the pre-apply baseline is already in the script**, each denial paired with an `allowed` control.
+`Requested` line is how you would know the rewrite broke. **171's IAM simulation is DISCHARGED against the
+DEPLOYED role** (2026-08-12): 13 rows, every denial paired with an `allowed` control, and the four
+that moved `implicitDeny` → **`explicitDeny`** are the load-bearing ones — after the widening
+`SpaceDataWrite` grants `PutObject` on `{bucket}/*`, so the ONLY thing refusing `user_settings/`,
+`athenaresults/`, `_config/` and `_directory/` is the new Deny; a mis-scoped one would read
+`allowed`, not `implicitDeny`.
 
 **Two things 171 left that outlive it.** The machine's ceiling went 10,800 → **43,200** because the
 restore's long pole is a WAIT, not a copy — one top-level field on one machine, so a wedged

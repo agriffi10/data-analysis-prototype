@@ -196,11 +196,11 @@ wording has to be argued for rather than merely passing.
   second pass removes is the *hours-long* window this spec introduced, which is a different thing
   in kind: seconds of overlap is a double-submit, and hours is the user acting on a message this
   plane sent them.
-- **FR-007 AC4 — the policy simulation against the DEPLOYED role — is owed until the apply lands.**
-  The pre-apply baseline was run and is recorded in the live-check script: every new grant reads
-  `implicitDeny` today, each paired with an `allowed` control on the same bucket and a similar ARN,
-  which is what distinguishes an ungranted action from a wrong resource ARN (SPEC-149's trap). The
-  post-apply repeat is one command and is in the script.
+- **FR-007 AC4 is DISCHARGED (2026-08-12, post-apply).** Thirteen rows against the deployed role,
+  every denial paired with an `allowed` control — see the table in the live-check script. The four
+  rows that moved `implicitDeny` → **`explicitDeny`** are the load-bearing ones: after the widening
+  `SpaceDataWrite` grants `PutObject` on `{bucket}/*`, which covers all four, so the only thing
+  refusing them is the new Deny. A missing or mis-scoped Deny would have read `allowed`.
 - **FR-004's `restore_incomplete` message and FR-005's cleanup flag reach nobody yet.** SPEC-172
   owns the notification producer; this spec fixes the outcomes and their wording, and the wording is
   reachable today only through the failure path's own decorator.
