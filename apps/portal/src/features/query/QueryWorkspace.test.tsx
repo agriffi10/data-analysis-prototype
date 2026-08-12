@@ -930,11 +930,12 @@ describe('QueryWorkspace', () => {
       await waitFor(() => expect(sessionStorage.getItem('s3portal.query.savedQuerySpace.alice')).toBe('teamspace'));
     });
 
-    it('appends .sql exactly once, whatever case the user typed it in', async () => {
-      // FR-002 AC4, at the workspace: `report`, `report.sql` and `report.SQL` are one key
-      // each and none of them doubles the suffix. The tab label drops the extension, so a
-      // user who types `report.sql` gets a tab reading `report` — what the load list shows
-      // for the same file.
+    it('resolves .sql, .SQL and no extension to ONE key, whatever case the user typed', async () => {
+      // FR-002 AC4, at the workspace. Not merely "never doubled": the three spellings are
+      // the SAME file, because `savedQueryName` strips the extension case-insensitively and
+      // two keys differing only there would render identically in the load list, on the tab
+      // and in the replace confirm. The tab label drops the extension too, so a user who
+      // types `report.sql` gets a tab reading `report` — what the load list shows for it.
       seedSingle('SELECT r;');
       withSharedSpace();
       const {user} = renderWorkspace();
@@ -953,7 +954,7 @@ describe('QueryWorkspace', () => {
       expect(keys).toEqual([
         'alice/saved_queries/report.sql',
         'alice/saved_queries/report.sql',
-        'alice/saved_queries/report.SQL'
+        'alice/saved_queries/report.sql'
       ]);
       expect(screen.getByRole('tab', {name: /report/})).toBeInTheDocument();
       expect(screen.queryByRole('tab', {name: /report\.sql/i})).not.toBeInTheDocument();
@@ -1143,6 +1144,35 @@ describe('QueryWorkspace', () => {
       expect(mockListSaved.mock.calls.length).toBe(listingsBefore);
     });
 
+    it('prompts from the KEY even when the loaded list holds the name — and not otherwise', async () => {
+      // The sharp end of FR-003 AC4. The in-memory scan and the HEAD disagree here in BOTH
+      // directions, so a dialog that consulted the list would fail this test twice: it would
+      // prompt for `Loaded` (in the list, absent from S3) and write `Absent` unprompted (in
+      // S3, absent from the list).
+      seedSingle('SELECT r;');
+      withSharedSpace();
+      mockListSaved.mockResolvedValue(savedListing('Loaded'));
+      const write = mockWriteSaved.getMockImplementation();
+      mockWriteSaved.mockImplementation(async (params) =>
+        !params.overwrite && params.name === 'Absent'
+          ? fail(`“${params.name}” already exists.`, 'Collision')
+          : write!(params)
+      );
+      const {user} = renderWorkspace();
+      await screen.findByLabelText('SQL editor');
+
+      // Open the drawer so the list is genuinely loaded and scannable.
+      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
+      expect(await screen.findByRole('button', {name: 'Open saved query Loaded'})).toBeInTheDocument();
+
+      await saveAs(user, 'Loaded');
+      expect(await screen.findByRole('tab', {name: /Loaded/})).toBeInTheDocument();
+      expect(screen.queryByRole('alertdialog', {name: /confirm replace saved query/i})).not.toBeInTheDocument();
+
+      await saveAs(user, 'Absent');
+      expect(await screen.findByRole('alertdialog', {name: /confirm replace saved query/i})).toBeInTheDocument();
+    });
+
     it('does not prompt for a name that exists in a DIFFERENT space, and names the space when it does', async () => {
       // FR-003 AC6 + AC2's wording: the collision is per space, and the confirm says which.
       seedSingle('SELECT r;');
@@ -1191,17 +1221,24 @@ describe('QueryWorkspace', () => {
       // FR-007. SPEC-167 records this exact failure in the send dialog: a `submitDisabled`
       // made the inline refusal dead code, and the test asserting "the button is disabled"
       // passed straight over the acceptance criterion. The banner is what is asserted here.
+      // RESTORED IN `finally`, and that is not tidiness: this file's env stubs live in the
+      // describe body, so they run once at collection and are never re-applied per test. A
+      // failure here that skipped the restore left every later test in this file with no
+      // user-space bucket — measured: one injected failure became 18.
       vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', '');
-      seedSingle('SELECT r;');
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
+      try {
+        seedSingle('SELECT r;');
+        const {user} = renderWorkspace();
+        await screen.findByLabelText('SQL editor');
 
-      await user.click(screen.getByRole('button', {name: 'Save query'}));
-      const dialog = await screen.findByRole('dialog', {name: 'Save query'});
-      expect(within(dialog).getByText(/There’s nowhere to save this query/)).toBeInTheDocument();
-      expect(mockWriteSaved).not.toHaveBeenCalled();
-      expect(ensureSavedQueriesFolder).not.toHaveBeenCalled();
-      vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
+        await user.click(screen.getByRole('button', {name: 'Save query'}));
+        const dialog = await screen.findByRole('dialog', {name: 'Save query'});
+        expect(within(dialog).getByText(/There’s nowhere to save this query/)).toBeInTheDocument();
+        expect(mockWriteSaved).not.toHaveBeenCalled();
+        expect(ensureSavedQueriesFolder).not.toHaveBeenCalled();
+      } finally {
+        vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
+      }
     });
 
     it('re-runs a history entry into the active tab (no database context)', async () => {

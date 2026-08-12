@@ -1932,3 +1932,28 @@ being gated, and this is the worse of the two failures, because it offers a coll
 **write** target. That is SPEC-167's own precedent for the send dialog's recipient kind. The row was
 **verified against a deliberate violation** — passing the ungated list reddens exactly that row and
 nothing else, measured — rather than trusted.
+
+**A typed `.sql` extension is LOWERCASED, correcting SPEC-173's `basenameFor`.** FR-002 AC4 wanted
+`report`, `report.sql` and `report.SQL` to be **one** key; 173 only skipped the *appending*, so
+`report.SQL` was a second object — and since `savedQueryName` strips the extension
+case-insensitively, the two rendered **identically** in the load list, on the tab and in the Replace
+confirm. The reachable failure is not the ambiguity but the overwrite behind it: a tab linked to
+`…/report.SQL` pre-fills `report`, which resolves to `…/report.sql`, so the confirm truthfully
+offers to replace `report` and **clobbers a file the user never opened** while the one they did is
+orphaned. The **stem is deliberately untouched** — `REPORT` and `report` stay two names, which is the
+case-sensitivity this same spec keeps — and a `.SQL` object already in a bucket still lists and
+opens; only the save path normalises, so re-saving a tab linked to one is a visible Save-as rather
+than a silent clobber.
+
+**Two of this spec's tests could not fail, and a third guarded the wrong mechanism.** All three are
+recorded because the pattern recurs. (1) The default-space fork (`linkedSpace ?? defaultSpace`) was
+only ever exercised where the two **agree** — `onSaved` calls `selectSpace` and keeps them in
+lockstep — so either operand could be deleted with the suite green; the bug it hid writes a **copy
+into a shared space** and re-links the tab, with every visible cue consistent. (2) **jsdom
+implements no implicit form submission**, so "Enter on the space control does not submit" passed
+whatever `FormDialog` did; the guard is asserted through **`defaultPrevented`** instead, and
+`FormDialog` now intercepts `<select>` as it always intercepted `<input>` — a browser submits a form
+from a closed select, and `DestinationPicker` had the same exposure. (3) FR-003 AC4's "does not list
+the folder" counter cannot catch the SPEC-043 regression it names, because an **in-memory scan
+issues no listing**; the force comes from a test where the loaded list and S3 **disagree in both
+directions**.

@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {fireEvent, render, screen, within} from '@testing-library/react';
+import {createEvent, fireEvent, render, screen, within} from '@testing-library/react';
 import {ColumnResizeHandle} from './ColumnResizeHandle';
 import {COLUMN_RESIZE_STEP_PX, MAX_RESULTS_PAGE_SIZE, MIN_RESULTS_PAGE_SIZE} from './query.constants';
 import {CreateViewDialog} from './CreateViewDialog';
@@ -629,12 +629,30 @@ describe('SaveQueryDialog', () => {
   });
 
   it('Enter submits from the NAME field only, never from the space control (SPEC-155)', () => {
+    // ASSERTED VIA `defaultPrevented`, NOT VIA "onSave was not called". jsdom implements no
+    // implicit form submission, so `expect(onSave).not.toHaveBeenCalled()` on the select
+    // holds whatever `FormDialog` does — measured: deleting its target guard entirely left
+    // that assertion green. A browser DOES submit on Enter in a closed select, so what has
+    // to be true is that the event was suppressed before it could (FR-004 AC8).
     const {onSave} = setup({initialName: 'Quarterly'});
-    fireEvent.keyDown(screen.getByLabelText('Space'), {key: 'Enter'});
+
+    const onSelect = createEvent.keyDown(screen.getByLabelText('Space'), {key: 'Enter'});
+    fireEvent(screen.getByLabelText('Space'), onSelect);
+    expect(onSelect.defaultPrevented).toBe(true);
     expect(onSave).not.toHaveBeenCalled();
 
     fireEvent.keyDown(screen.getByLabelText('Name'), {key: 'Enter'});
     expect(onSave).toHaveBeenCalledWith({space: mine, name: 'Quarterly'});
+  });
+
+  it('drops the host’s failure message once the user changes what it judged (FR-006)', () => {
+    // The message names a destination the user has since abandoned; the dialog cannot clear
+    // a prop it does not own, so it stops rendering it instead.
+    setup({error: 'You don’t have permission to do that.', initialName: 'Quarterly'});
+    expect(screen.getByText('You don’t have permission to do that.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Space'), {target: {value: 'project_alpha'}});
+    expect(screen.queryByText('You don’t have permission to do that.')).not.toBeInTheDocument();
   });
 
   it('Cancel closes the dialog', () => {

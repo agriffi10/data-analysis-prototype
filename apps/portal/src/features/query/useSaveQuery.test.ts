@@ -20,6 +20,14 @@ const PERSONAL: QuerySpace = {
   rootLabel: 'My Files'
 };
 
+const TEAM: QuerySpace = {
+  id: 'teamspace',
+  label: 'teamspace',
+  bucket: 'shared-space',
+  rootPrefix: 'teamspace/',
+  rootLabel: 'teamspace'
+};
+
 const ok = <T>(data: T) => ({success: true as const, data});
 const fail = (message: string, code?: string) => ({
   success: false as const,
@@ -113,6 +121,59 @@ describe('useSaveQuery (SPEC-175)', () => {
     act(() => result.current.save({space: PERSONAL, name: 'Quarterly'}));
     await waitFor(() => expect(result.current.busy).toBe(false));
     expect(result.current.error).toBeNull();
+  });
+
+  it('opens on the LINKED tab’s space even when the REMEMBERED one differs (FR-001 AC3)', () => {
+    // The two must be discriminated, and everywhere else in this suite they agree — so a
+    // `linkedSpace ?? defaultSpace` with either operand deleted would pass. Here they are
+    // deliberately different, and getting it wrong writes a COPY into the shared space and
+    // re-links the tab to it, silently, while every visible cue stays consistent.
+    const linked = {spaceId: 'personal', bucket: 'user-space', key: 'alice/saved_queries/Monthly.sql', name: 'Monthly'};
+    const {result} = renderHook(() =>
+      useSaveQuery({
+        spaces: [PERSONAL, TEAM],
+        defaultSpace: TEAM,
+        activeTab: tab({savedQuery: linked, label: 'Monthly'}),
+        onSaved: vi.fn(),
+        toast: {push: vi.fn(), dismiss: vi.fn()}
+      })
+    );
+    expect(result.current.initialSpace).toEqual(PERSONAL);
+  });
+
+  it('opens on the REMEMBERED space when the tab is unlinked (FR-001 AC2)', () => {
+    // The other half of the same fork, and the reason the pair has to be asserted together.
+    const {result} = renderHook(() =>
+      useSaveQuery({
+        spaces: [PERSONAL, TEAM],
+        defaultSpace: TEAM,
+        activeTab: tab(),
+        onSaved: vi.fn(),
+        toast: {push: vi.fn(), dismiss: vi.fn()}
+      })
+    );
+    expect(result.current.initialSpace).toEqual(TEAM);
+  });
+
+  it('falls back to the remembered space when the LINK’s space is no longer offered', () => {
+    // FR-001 AC4: membership revoked. The dialog then resolves it to personal itself, but
+    // the hook must not hand it a space that is not in the list.
+    const linked = {
+      spaceId: 'gone',
+      bucket: 'shared-space',
+      key: 'gone/saved_queries/Monthly.sql',
+      name: 'Monthly'
+    };
+    const {result} = renderHook(() =>
+      useSaveQuery({
+        spaces: [PERSONAL],
+        defaultSpace: PERSONAL,
+        activeTab: tab({savedQuery: linked, label: 'Monthly'}),
+        onSaved: vi.fn(),
+        toast: {push: vi.fn(), dismiss: vi.fn()}
+      })
+    );
+    expect(result.current.initialSpace).toEqual(PERSONAL);
   });
 
   it('opens on the LINKED tab’s name and space, and writes it through without a confirm', async () => {

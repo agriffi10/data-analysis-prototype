@@ -219,7 +219,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'With a valid query in the editor, click <b>Save</b>.',
           'Choose a <b>Space</b> to save it into: your own files, or any shared space available to you. It opens on the space the query came from, or the last one you worked in.',
           'Give it a <b>Name</b> and click <b>Save</b>. Saving always asks — even when you opened the query from a file — so you can see which file, in which space, you are about to write.',
-          'The query is written to that space’s <b>saved_queries</b> folder as a <code>.sql</code> file named after the name you gave it. Type <code>report</code> or <code>report.sql</code> and you get the same file.',
+          'The query is written to that space’s <b>saved_queries</b> folder as a <code>.sql</code> file named after the name you gave it. Type <code>report</code>, <code>report.sql</code> or <code>report.SQL</code> and you get the same file.',
           'If a query of that name is already there, you’re asked to confirm before it’s replaced. Names are case-sensitive, so <b>Report</b> and <b>report</b> are two different files.',
           'Saving into a different space than the one your tab came from writes a <i>new</i> file there and leaves the original alone. Your tab then follows the new file.',
           'Everyone with access to that space can open what you saved — a saved query in a shared space belongs to the space, not to you alone.',

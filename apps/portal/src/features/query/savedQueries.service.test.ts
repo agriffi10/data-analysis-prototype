@@ -4,6 +4,7 @@ import {
   __resetSavedQueriesFolderCache,
   deleteSavedQuery,
   ensureSavedQueriesFolder,
+  isLinkedSavedQuery,
   listSavedQueries,
   readSavedQuery,
   savedQueriesPrefix,
@@ -13,7 +14,7 @@ import {
   writeSavedQuery
 } from './savedQueries.service';
 import {LISTING_PAGE_SIZE, SAVED_QUERIES_MARKER_BODY} from '../file-browser';
-import type {QuerySpace} from './query.types';
+import type {QuerySpace, SavedQueryLink} from './query.types';
 
 // The AWS boundary is the only seam (react.md §21): the service composes
 // `objectExists`/`deleteObject` from the file browser and `readJsonDocument` from `lib/`,
@@ -66,8 +67,20 @@ describe('the name ↔ key rules (FR-004)', () => {
 
   it('never doubles the extension, and strips it case-insensitively', () => {
     expect(savedQueryKey('alice/', 'report.sql')).toBe('alice/saved_queries/report.sql');
-    expect(savedQueryKey('alice/', 'REPORT.SQL')).toBe('alice/saved_queries/REPORT.SQL');
+    // A key already in the bucket may carry any case — the store still reads it.
     expect(savedQueryName('alice/saved_queries/REPORT.SQL')).toBe('REPORT');
+  });
+
+  it('LOWERCASES a typed extension, so one name is one key (SPEC-175 FR-002 AC4)', () => {
+    // `savedQueryName` strips the extension case-insensitively, so `report.SQL` left alone
+    // would be a second object rendering identically to `report.sql` everywhere the user
+    // can see — and a re-save from a tab linked to one would resolve to, and replace, the
+    // other. The STEM is untouched: `REPORT` and `report` stay two visible names.
+    for (const typed of ['report', 'report.sql', 'report.SQL', 'report.Sql']) {
+      expect(savedQueryKey('alice/', typed)).toBe('alice/saved_queries/report.sql');
+    }
+    expect(savedQueryKey('alice/', 'REPORT.SQL')).toBe('alice/saved_queries/REPORT.sql');
+    expect(savedQueryName(savedQueryKey('alice/', 'REPORT.SQL'))).toBe('REPORT');
   });
 
   it('holds in a shared space, whose root is the space name', () => {
@@ -92,6 +105,47 @@ describe('validateSavedQueryName (FR-004)', () => {
 
   it.each(['Monthly revenue', 'q1-2026_report', 'sales.v2', 'ventes été', 'x'.repeat(124)])('accepts %j', (name) => {
     expect(validateSavedQueryName(name)).toBeNull();
+  });
+});
+
+describe('isLinkedSavedQuery (SPEC-175 FR-004)', () => {
+  // The most dangerous predicate in the save path: a `true` here is what lets the write
+  // skip the HEAD and clobber, so every edge is asserted directly rather than through a
+  // caller where a wrong answer mostly still looks right.
+  const LINK: SavedQueryLink = {
+    spaceId: 'personal',
+    bucket: 'user-space',
+    key: 'alice/saved_queries/Monthly.sql',
+    name: 'Monthly'
+  };
+
+  it('is true for the name that resolves to the linked key, extension typed or not', () => {
+    expect(isLinkedSavedQuery(LINK, PERSONAL, 'Monthly')).toBe(true);
+    expect(isLinkedSavedQuery(LINK, PERSONAL, 'Monthly.sql')).toBe(true);
+    expect(isLinkedSavedQuery(LINK, PERSONAL, '  Monthly  ')).toBe(true);
+  });
+
+  it('is false for a different NAME in the linked space', () => {
+    expect(isLinkedSavedQuery(LINK, PERSONAL, 'Monthly-v2')).toBe(false);
+    // Keys are case-sensitive, so this is a different file and must take the HEAD.
+    expect(isLinkedSavedQuery(LINK, PERSONAL, 'monthly')).toBe(false);
+  });
+
+  it('is false for the same name in a DIFFERENT space, across buckets', () => {
+    // The save-as case. A true here would overwrite a colleague's file with no prompt.
+    expect(isLinkedSavedQuery(LINK, SHARED, 'Monthly')).toBe(false);
+  });
+
+  it('is false for a link whose space is a different bucket at the same key', () => {
+    // Contrived, and deliberately asserted: the key alone is not identity across buckets.
+    const crossBucket: SavedQueryLink = {...LINK, bucket: 'shared-space'};
+    expect(isLinkedSavedQuery(crossBucket, PERSONAL, 'Monthly')).toBe(false);
+  });
+
+  it('is false with no link at all, and for an empty name', () => {
+    expect(isLinkedSavedQuery(undefined, PERSONAL, 'Monthly')).toBe(false);
+    expect(isLinkedSavedQuery(LINK, PERSONAL, '')).toBe(false);
+    expect(isLinkedSavedQuery(LINK, PERSONAL, '   ')).toBe(false);
   });
 });
 

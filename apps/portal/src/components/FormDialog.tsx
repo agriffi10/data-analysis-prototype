@@ -154,12 +154,20 @@ export function FormDialog({
           // composition is how every Japanese/Chinese name gets typed, and without this
           // the dialog would submit the pre-conversion text.
           if (e.nativeEvent.isComposing) return;
-          // Only inputs are intercepted: a `textarea` keeps its newline, Enter on a
-          // button stays a click on that button (including the submit button, which
+          // Inputs and SELECTS are intercepted: a `textarea` keeps its newline, Enter on
+          // a button stays a click on that button (including the submit button, which
           // then submits natively), and a combobox that already `preventDefault`ed
           // keeps its selection via the bail above.
-          if (!(e.target instanceof HTMLInputElement)) return;
-          // Suppress the browser's implicit submission for EVERY input, then submit
+          //
+          // A `<select>` belongs here for exactly the reason an input does, and it is
+          // easy to miss because jsdom implements no implicit submission at all — a test
+          // asserting "Enter on the select does not submit" passes in this environment
+          // whatever this handler does. Browsers submit the form when Enter is pressed on
+          // a closed select, which would file a save from the destination control
+          // (SPEC-175 FR-004 AC8). An OPEN dropdown is the browser's own modal and its
+          // Enter never reaches here.
+          if (!(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLSelectElement)) return;
+          // Suppress the browser's implicit submission for EVERY such control, then submit
           // only from the designated field. Without the blanket `preventDefault`, a
           // partition-key row or a radio would submit the dialog natively.
           e.preventDefault();

@@ -51,6 +51,10 @@ export function SaveQueryDialog({initialName, spaces, initialSpace, linked, erro
   // user cannot reach is dead code an "it's disabled" test passes straight over
   // (SPEC-167). Cleared as they type, so the message never outlives the value it judged.
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // …and the same is true of the HOST's message, which this cannot clear because it does
+  // not own it. An `AccessDenied` for one destination, still pinned to the field after the
+  // user has picked another, describes a choice they have already abandoned.
+  const [hostErrorStale, setHostErrorStale] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const space = spaces.find((s) => s.id === spaceId) ?? spaces[0] ?? null;
@@ -98,6 +102,7 @@ export function SaveQueryDialog({initialName, spaces, initialSpace, linked, erro
           return;
         }
         setSubmitError(null);
+        setHostErrorStale(false);
         onSave({space, name: trimmed});
       }}
       onCancel={onCancel}>
@@ -106,7 +111,10 @@ export function SaveQueryDialog({initialName, spaces, initialSpace, linked, erro
         <SavedQuerySpaceSelect
           spaces={spaces}
           space={space}
-          onSelectSpace={setSpaceId}
+          onSelectSpace={(id) => {
+            setSpaceId(id);
+            setHostErrorStale(true);
+          }}
         />
         <Input
           ref={inputRef}
@@ -115,11 +123,12 @@ export function SaveQueryDialog({initialName, spaces, initialSpace, linked, erro
           required
           aria-required="true"
           value={name}
-          error={submitError ?? error ?? undefined}
+          error={submitError ?? (hostErrorStale ? undefined : (error ?? undefined))}
           placeholder="e.g. Monthly revenue"
           onChange={(e) => {
             setName(e.target.value);
             setSubmitError(null);
+            setHostErrorStale(true);
           }}
         />
         <p className="text-sm text-text-3">

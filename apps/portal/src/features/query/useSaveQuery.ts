@@ -1,5 +1,6 @@
 import {useState} from 'react';
 import {toUserText} from '../../lib/errorMessages';
+import {toServiceError} from '../../lib/serviceResult';
 import {
   ensureSavedQueriesFolder,
   isLinkedSavedQuery,
@@ -101,7 +102,12 @@ export function useSaveQuery({spaces, defaultSpace, activeTab, onSaved, toast}: 
       // block the write, because the `PutObject` below creates the prefix on its own.
       await ensureSavedQueriesFolder(space).catch(() => undefined);
 
-      const result = await writeSavedQuery({space, name, sql, overwrite});
+      // The service does not throw by contract. A breach of it must not strand the dialog:
+      // `busy` locks BOTH buttons and `Modal`'s dismissal, so a write that neither resolves
+      // nor clears the flag leaves the buffer with no way out at all.
+      const result = await writeSavedQuery({space, name, sql, overwrite}).catch((err: unknown) =>
+        toServiceError(err, 'Failed to save query')
+      );
       setBusy(false);
       if (!result.success) {
         if (result.error.code === 'Collision') {

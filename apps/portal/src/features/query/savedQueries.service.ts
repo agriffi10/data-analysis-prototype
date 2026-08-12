@@ -40,8 +40,15 @@ export function savedQueriesPrefix(rootPrefix: string): string {
 
 // The basename a name maps to. A user who types `report.sql` gets `report.sql`, never
 // `report.sql.sql` — matched case-insensitively, because `REPORT.SQL` is one too.
+//
+// A TYPED extension is lowercased (SPEC-175 FR-002 AC4), and the reason is that
+// `savedQueryName` strips it case-insensitively: left alone, `report.SQL` and `report.sql`
+// are two distinct objects that BOTH render as `report` in the load list and on a tab, and
+// a re-save from a tab linked to one resolves to the other and replaces the wrong file.
+// The stem is untouched — `REPORT` and `report` stay two visibly different names.
 function basenameFor(name: string): string {
-  return name.toLowerCase().endsWith(SQL_EXTENSION) ? name : `${name}${SQL_EXTENSION}`;
+  const ext = name.slice(-SQL_EXTENSION.length).toLowerCase();
+  return ext === SQL_EXTENSION ? `${name.slice(0, -SQL_EXTENSION.length)}${SQL_EXTENSION}` : `${name}${SQL_EXTENSION}`;
 }
 
 /** The S3 key a saved query of this name lives at, in this space. */
