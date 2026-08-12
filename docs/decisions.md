@@ -2460,3 +2460,168 @@ retrieval makes the timeout *predominantly* a restore event, so it now reads the
 same raw body the actor comes from and `restore_timed_out` ships beside `archive_timed_out` —
 because what a timeout may PROMISE differs by arm, and "nothing was deleted and your files are
 exactly where they were" says nothing true about a restore.
+
+---
+
+## Retrieval as the point of no return, and the four asymmetries the restore introduces (SPEC-171)
+
+### The retrieval Map tolerates NO failure, and the copy tolerates every one
+
+`ToleratedFailurePercentage` is 0 on `RetrieveObjects` and 100 on `CopyBackObjects`, three states
+apart in one machine. Both are right, and the reason is what each Map's failure would cost the
+verdict after it.
+
+The COPY must finish whatever happens, because a Map that aborted early leaves the gate after it
+unable to tell "failed" from "not attempted" — on the archive arm that gate decides whether a user's
+only copy is deleted, and on the restore arm it decides whether the archive is. The RETRIEVAL has no
+verdict after it: a genuine fault means nothing was copied and the archive is untouched, so the
+cheapest correct answer is to fail the Map Run and let the user re-submit.
+
+**What makes that re-submission free is the two tolerated responses**, and without them the design
+would be indefensible. `RestoreAlreadyInProgress` (HTTP 409) is the state the call wanted to bring
+about, wearing an error's clothes — raised instead, a redriven execution or any re-submission would
+fail on exactly the objects already on their way back, and each retry would bill a second retrieval
+for the rest. `InvalidObjectState` is tolerated for a different reason: it is what S3 says when an
+object is not in an archival class at all, so tolerating it is what keeps the restore path
+**unconditional on `ARCHIVE_STORAGE_CLASS`**. Setting that constant to `GLACIER_IR` leaves this
+machinery harmlessly in place rather than requiring a branch, which is how a config change deletes a
+code path with nothing to show for it in a diff (SPEC-168's own rule, now load-bearing).
+
+The retrieval is issued through a Distributed Map over the same manifest the copy-back reads, rather
+than one verb with a longer timeout, because 20,000 `RestoreObject` calls is not work a single
+invocation should be sized for — and the plane already knows how to fan out over a JSONL dataset.
+**One manifest serves both Maps**: two would be two things that could disagree with the plan, and
+the disagreement would surface as a restore that retrieved one set of objects and copied another,
+with every count still agreeing with itself.
+
+### Completion is the `Restore` header, and an ABSENT header is a failure
+
+Nothing observable about an archived object changes when its retrieval completes. It stays
+`GLACIER`; what appears beside it is a temporary readable copy that the `Restore` response header
+describes. So the poll reads that header and nothing else, and there are three answers rather than
+two:
+
+- `ongoing-request="false"` — the temporary copy exists and the object can be copied.
+- `ongoing-request="true"` — S3 is still working.
+- **no header at all, on an object still in a Glacier class — nothing ever asked for this object.**
+
+The third is why this is a module with its own suite rather than a boolean. Read as "not yet" it
+would burn every one of the 84 poll iterations, wait seven hours, and then report `restore_timed_out`
+for something that was never going to complete — a wrong cause on a run the user has been watching.
+The mirror case matters too: an absent header on a NON-Glacier object means the object needs no
+retrieval, so treating a missing header as a failure everywhere would refuse a restore of something
+already readable.
+
+**The poll samples, and its progress is an S3 pointer.** A per-object status list on the state is the
+256 KB failure whose overflow escapes every `Catch` — which on this plane is a run that told the user
+nothing at all — so the record lives beside the plan in the admin bucket and only scalars ride. The
+paging rule has two halves that are easy to conflate: `RESTORE_POLL_PAGE` is the granularity progress
+is **recorded** at, and the invocation's own bound is the whole plan. One page per `Wait` was the
+obvious reading and is wrong: every object was requested at once at one tier, so they finish
+together, and sweeping 20,000 objects a page at a time would add twenty five-minute waits — over an
+hour and a half — *after* the retrieval had already completed.
+
+**S3 Event Notifications (`s3:ObjectRestore:Completed`) were rejected as the completion signal**, and
+not because polling is nicer. They would need bucket notification configuration covering every
+archive prefix, a correlation store keyed by object so an arriving event could be attributed to the
+run that asked for it, and a second delivery path with its own at-least-once semantics — to replace
+a poll inside a machine that is already sitting still for hours, and that the plane already knows how
+to write. The poll costs one Lambda invocation every five minutes.
+
+**The iteration cap lives in Python and not in the ASL `Choice`.** `poll-restore` computes
+`exhausted` itself and the Choice reads a boolean, because a literal in the rendered machine plus a
+constant in `config` is two homes for one number — and they would only ever disagree on a restore
+that was already going badly.
+
+### The retrieval budget has deliberate headroom, and the ceiling moved for the whole plane
+
+`RESTORE_MAX_POLLS × RESTORE_POLL_SECONDS` is **seven hours** against a tier whose documented worst
+case is five. Every other timeout in this repo can be tight, because failing means re-running
+something free. Here the cost is asymmetric in a way most timeouts are not: **giving up on a
+retrieval that was going to finish makes the user pay for a second billed retrieval**, while waiting
+two more hours costs one Lambda invocation every five minutes. AWS documents 3–5 hours as typical
+rather than contractual, which is exactly the class of premise this project has been burned by
+before.
+
+That budget forced `TimeoutSeconds` from 10,800 to **43,200**, and the raise is not about data
+volume: the archive arm's long pole is a copy, and the restore arm's is a *wait*. `TimeoutSeconds` is
+a top-level ASL field on one machine serving two arms, so **the archive arm's backstop rose with
+it** — a wedged archive is now reported after twelve hours rather than three. Accepted: it is a
+backstop, not an expectation, and the alternative was killing healthy restores. A test asserts the
+archive arm's own worst legal run still clears the ceiling by more than 4×, so the ceiling drifting
+until it stops being a backstop for the arm that does not wait would fail the build.
+
+### The restore's gate is the commit gate's MIRROR IMAGE, not its twin
+
+Archiving's gate protects the SOURCE: nothing is deleted unless every object was confirmed copied.
+The restore's gate looks identical — one boolean from one collector, `IsPresent`-guarded, failing
+closed — and protects the ARCHIVE, for a reason that runs the other way.
+
+**A partial restore cannot be rolled back.** The user's space already holds some of their own data,
+and deleting it to make the operation atomic would destroy the very thing the restore was for. So
+the failure arm deletes **nothing** — not the objects that landed, not the archive — and the archive
+it keeps is then the only complete copy in existence. A restore that half succeeded and then deleted
+its own source would be unrecoverable, versioning being off. A graph walk asserts no path from that
+arm reaches `DeleteArchived`, the same way SPEC-169's walk asserts no path from its rollback reaches
+`DeleteSource`.
+
+`restore_incomplete` therefore has to say **three** things, and the third is the one an author would
+leave out: how many objects came back, that the archive is intact and still restorable under the
+same id, and that **requesting it again will report the files that DID land**. Without that last
+sentence the obvious next action produces a `destination_occupied` refusal that reads like a new bug
+on top of the old one. It is also the one body on this plane that describes a partial outcome, so
+`test_no_body_promises_a_partial_outcome` gained a named exemption set rather than a skipped
+assertion — a second body drifting into partial wording has to be argued for.
+
+**The vault sweep's failure does NOT fail the run, where the source deletion's does.** Same
+algorithm, opposite consequence: a half-deleted source means a user told their archive completed
+while their files are still half there, and a half-swept vault costs storage in a bucket the browser
+cannot reach that the 7-year expiry reclaims. So it is a `cleanupIncomplete` flag on a *successful*
+run and the user is not told at all. Deleting inside the `GLACIER` 90-day minimum is an
+early-deletion fee brought forward, not a defect — recorded because a later cost investigation would
+otherwise read it as one.
+
+### The receipt is rewritten, never re-rendered, and the counts come from the run
+
+`arcommon.receipt` is still the single writer, but SPEC-171 rewrites **two lines by label** and
+keeps every other line verbatim. The archive lines record the archive RUN, and its start time is the
+one field no restore can recompute — so re-rendering the document from the restore's own state would
+silently blank `Requested` on the only durable record the user has of what was archived and when. An
+absent receipt (a **proven** 404) is composed fresh, losing only that one field; an **ambiguous**
+read — a 403, or a fault carrying no status — raises rather than taking that branch, which is the
+destination guard's fail-closed 403-is-occupied discipline pointed at a write.
+
+**The marker runs before the retrieval, not after.** FR-006 AC4 asks for it "when retrieval is
+initiated"; immediately before is the same guarantee and strictly safer, because there a
+receipt-write failure costs nothing where a moment later it would fail a run the user had already
+been billed for. It is also why that stage's failure contract differs from the other two: before the
+bill a failed write fails the run, and after the data has landed it must not — the ASL `Catch` on
+`UpdateReceipt` reaches the SUCCESS terminal, because the ordering is most durable to least (data
+restored → receipt → notification).
+
+One function serves all three stages and **the ASL seeds which one**, rather than the verb inferring
+it from what else is on the state: "nothing has run yet" and "the run reported nothing" are
+different facts that look identical from inside a handler. The seed carries the STAGE and the run
+carries the COUNTS — an earlier version let the seed supply `restored`/`expected` too, so the
+sentence written onto the receipt and the tokens in the notification had **two sources and could
+disagree**, with nothing to say which was right.
+
+### The metadata fix: a latent bug on all three planes, surfaced by a round trip
+
+FR-003 AC5 asked for `MetadataDirective: COPY` on both copies. `CopyObject` has that directive and
+defaults to it; **`CreateMultipartUpload` has no such directive at all**, and `UploadPartCopy` moves
+bytes and nothing else. So every object over `MULTIPART_COPY_THRESHOLD` (5 GiB) came out of a copy
+as `binary/octet-stream` with its user metadata gone — silently, and on table-share and file-send as
+much as here.
+
+It surfaced on this spec because an archive round trip is the first operation in this repo that
+copies an object **twice** and hands it back to the user expecting it unchanged; a shared table is
+read through Athena, which does not care about a content type. The fix is explicit on the single
+path (stated rather than assumed, because the path beside it proves the default is not universal)
+and a `HeadObject` on the multipart path whose headers are re-stated on the create call, skipping
+anything the source does not carry so the two existing callers' requests are unchanged below 5 GiB.
+
+**A test that fixtured only a small object would have passed while the bug lived on**, so the round
+trip runs at both copy strategies. That is the same shape as SPEC-163's recipes that re-implemented
+the gate they were testing: the fixture, not the assertion, is what decided whether the test could
+fail.

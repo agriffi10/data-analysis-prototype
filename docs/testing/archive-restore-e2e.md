@@ -132,3 +132,123 @@ id is lowercased, so a receipt retyped in caps still resolves.
 Repeat step 1 against a shared space you are an active member of, using the shared archive SPEC-169
 step 2 produced. The archive prefix must carry `shared/`, and the destinations must rebuild under
 the space root rather than your own.
+
+---
+
+## SPEC-171 — the retrieval, the wait and the copy-back
+
+**This is the only step in this file that cannot be compressed.** A `Standard` retrieval takes
+**3–5 hours** and is **billed and uncancellable** the moment it starts, so plan on starting step 1
+and coming back the same day. Nothing in CI exercises a real Glacier retrieval — the tier's latency,
+the `Restore` header's exact format and the `InvalidObjectState` boundary are only observable here.
+
+Run SPEC-170's steps first. They are free, they take minutes, and step 2 of that section is the one
+that proves this section will not charge you for a restore that cannot land.
+
+### 0. The policy simulation, post-apply (FR-007 AC4)
+
+Run this **after `Deploy Infrastructure` is green on main**, not before. The pre-apply baseline is
+recorded below it for comparison — every new grant read `implicitDeny` then.
+
+```bash
+ROLE=arn:aws:iam::696000197480:role/dat-prod-archive-execution-role
+run() { printf '%-28s %-64s ' "$1" "$2"; aws iam simulate-principal-policy --policy-source-arn "$ROLE" --action-names "$1" --resource-arns "$2" --query 'EvaluationResults[0].EvalDecision' --output text; }
+run s3:RestoreObject "arn:aws:s3:::dat-prod-archive/personal/alice/archive/x/q1.csv"
+run s3:PutObject     "arn:aws:s3:::dat-prod-user-space/alice/reports/q1.csv"
+run s3:PutObject     "arn:aws:s3:::dat-prod-shared-space/team-x/reports/q1.csv"
+run s3:GetObject     "arn:aws:s3:::dat-prod-archive/personal/alice/archive/x/q1.csv"
+run s3:PutObject     "arn:aws:s3:::dat-prod-user-space/alice/user_settings/notifications.json"
+run s3:DeleteObject  "arn:aws:s3:::dat-prod-user-space/alice/athenaresults/q.csv"
+```
+
+| Action / resource | Pre-apply (recorded 2026-08-12) | Expected post-apply |
+|---|---|---|
+| `RestoreObject` on the vault | `implicitDeny` | **`allowed`** |
+| `PutObject` anywhere in user space | `implicitDeny` | **`allowed`** |
+| `PutObject` anywhere in shared space | `implicitDeny` | **`allowed`** |
+| `GetObject` on the vault (**control**) | `allowed` | `allowed` |
+| `PutObject` under `user_settings/` | `implicitDeny` | **`explicitDeny`** |
+| `DeleteObject` under `athenaresults/` (**control**) | `explicitDeny` | `explicitDeny` |
+
+**Every denial is paired with an `allowed` control on the same bucket on purpose.** An
+`implicitDeny` alone cannot tell an ungranted action from a wrong resource ARN — SPEC-149's trap,
+where `dat-prod-athena-admin` mistyped read as a pass. The `user_settings/` row is the one that
+must **change class**, from implicit to explicit: that is the new Deny working rather than the old
+absence of a grant.
+
+### 1. The restore that works (FR-001, FR-002, FR-003, FR-005, FR-006)
+
+Restore the archive SPEC-169's step 2 created, having cleared whatever SPEC-170's step 2 put in the
+way. Note the **archive id** and the **start time**.
+
+**Immediately (within a minute), before you walk away:**
+
+- Download `{space}/archive/{ARCHIVE_ID}/receipt.txt` from the file browser. `Restore requested`
+  must already carry a timestamp and `Restored to` must still read `-`. **That is FR-006 AC4** — the
+  marker is written before the bill, so if it is absent here it never runs before the money is spent.
+- `logs/service=archive/` must carry `build-restore-manifest` and a `batch retrieval requested`
+  event per Map child.
+
+**Then wait.** Check back after ~1 h, ~3 h and ~5 h.
+
+- **The loop must actually loop.** `logs/service=archive/` carries multiple `retrieval polled`
+  events, **hours apart**, with `poll_count` climbing and `complete: false`. One poll and done means
+  the `Wait` is not doing what it says.
+- While it is running, confirm the retrieval is real rather than inferred:
+
+  ```bash
+  aws s3api head-object --bucket dat-prod-archive \
+    --key "personal/$USERNAME/archive/$ARCHIVE_ID/reports/q1.csv"
+  ```
+
+  Expect `Restore: ongoing-request="true"` while it works, and `ongoing-request="false", expiry-date=…`
+  once it finishes. **`StorageClass` stays `GLACIER` throughout** — that is the whole reason the poll
+  reads the header and not the class, and seeing it not move is the confirmation.
+
+**When it completes:**
+
+- Every file is back in the space at its original path, **including any empty folder** the archive
+  carried (FR-003 AC6).
+- **By `head-object`, never by inference** (FR-003 AC2):
+
+  ```bash
+  aws s3api head-object --bucket dat-prod-user-space --key "$USERNAME/reports/q1.csv"
+  ```
+
+  Expect **no `StorageClass` field at all** (which is `STANDARD`) and **no `Restore` header**. A
+  restored object still reading `GLACIER` is the silent failure this AC exists for: it looks
+  identical in the browser and becomes unreadable again in seven days.
+- **Content type survived** (FR-003 AC5). Use a fixture with a non-default type — upload a `.csv` and
+  confirm `ContentType: text/csv` on the same `head-object`. If you can stage a **>5 GiB** object,
+  do; that is the path the metadata fix was for and the only one a unit test cannot fully stand in
+  for.
+- **Byte-identical.** Download one file and `shasum` it against what you archived.
+- **The archive prefix is gone** (FR-005):
+
+  ```bash
+  aws s3api list-objects-v2 --bucket dat-prod-archive \
+    --prefix "personal/$USERNAME/archive/$ARCHIVE_ID/" --max-keys 5
+  ```
+
+  Expect `KeyCount: 0` — `_manifest.json` included.
+- **The receipt survived the archive's deletion** and now reads both fields: `Restore requested` with
+  the timestamp from step 1, `Restored to` with `s3://dat-prod-user-space/{username}/`. **Its
+  `Requested`, `Request ID`, `Total size` and `Files archived` lines must be exactly what they were
+  before the restore** — that is the rewrite-not-re-render rule, and a blanked `Requested` line is
+  how you would know it broke.
+
+### 2. Shared space (Phase 4's second half)
+
+Repeat step 1 against the shared archive SPEC-169's step 2 produced. The destinations rebuild under
+the **space** root, the receipt is in the shared bucket, and `SpaceDataWrite`'s shared-bucket arm is
+what makes the copy land at all.
+
+### What is NOT worth staging
+
+- **The partial restore (FR-004).** Forcing one item to fail mid-copy means denying a single
+  destination key, which the guard would have refused up front. The branch is asserted from the ASL
+  graph and driven from a fixtured `ResultWriter` export; **`restore_incomplete` reaches a user only
+  in SPEC-172**, which is where its wording should be read back.
+- **The timeout (`restore_timed_out`).** Seven hours of waiting to observe a counter.
+- **A never-requested object.** It needs an archive whose retrieval was deliberately half-issued,
+  which no reachable path produces.

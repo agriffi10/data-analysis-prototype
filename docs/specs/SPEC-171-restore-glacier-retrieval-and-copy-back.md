@@ -1,7 +1,7 @@
 # Spec: Restore — Glacier Retrieval, the Wait Loop, Copy-Back & Terminals
 
 **ID:** SPEC-171
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-10
 **Depends On:** SPEC-170 (the restore contract, the lookup and the guard), SPEC-169 (the archive layout and the receipt), SPEC-160 (`cpcommon.transfer`)
 
