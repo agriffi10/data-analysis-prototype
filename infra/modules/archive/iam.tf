@@ -4,28 +4,50 @@
 # policies are .tftpl templates rendered with templatefile() (no inline jsonencode IAM,
 # per architecture.md).
 #
-# The execution policy grants exactly what the SHIPPED verbs need and nothing this arc
-# does not yet provision: the registry read that authorizes a shared source, the
-# notifications queue, the logs queue and its own log group. THERE IS NO S3 GRANT ON ANY
-# DATA BUCKET YET — not the two space buckets, and not the archive bucket this module
-# creates. The source listing and read land with SPEC-169's expansion, the Glacier write
-# and the source DELETION with its transfer, and the restore reads with SPEC-170/171.
+# The execution policy grants exactly what the shipped verbs need: the registry read that
+# authorizes a shared source, the notifications and logs queues, its own log group, and —
+# since SPEC-169 — the source listing and read, the copy plan and manifest in the admin
+# bucket, the receipt write, the archive vault, and the SOURCE DELETION.
 #
-# THE SOURCE DELETION IS WHY THAT RESTRAINT MATTERS MORE HERE THAN ON ANY OTHER PLANE.
-# Archiving is the only operation in this repo that deletes a user's data as a side effect
-# of a copy. Every other plane's execution role can carry a blanket `Deny s3:DeleteObject`
-# from its first apply and have that be an enforced property forever (file-send and
-# table-share both do). THIS ROLE CANNOT — SPEC-169 has to grant DeleteObject on the
-# source buckets — so the property that replaces it is a narrower one and belongs in the
-# spec that grants it: the delete must be scoped to the space prefixes and must never
-# reach `athenaresults/`, `user_settings/` or any `DO_NOT_DELETE.txt`, and the commit gate
-# in front of it (every object confirmed copied, or the archive rolls back) is what keeps
-# "copied 900 of 1000, deleted 1000" out of reach. Granting nothing today keeps that a
-# decision SPEC-169 has to make explicitly rather than one it inherits.
+# THE SOURCE DELETION IS THE STATEMENT TO READ TWICE, AND IT IS WHY THIS ROLE IS UNLIKE
+# EVERY OTHER PLANE'S. Archiving is the only operation in this repo that deletes a user's
+# data as a side effect of a copy. File-send and table-share each carry a blanket
+# `Deny s3:DeleteObject` from their first apply and have that be an enforced property
+# forever; this role cannot, so the property that replaces it is narrower and is written
+# out rather than assumed:
+#
+#   * DeleteObject is granted on the two SPACE buckets only — never the admin bucket, and
+#     never the archive bucket's own data by this statement;
+#   * NeverDeletePortalManagedObjects then Denies it under `athenaresults/` (the portal
+#     role's own results, which the bucket policy would refuse mid-batch anyway),
+#     `user_settings/` (the notification inbox and connections cache), `archive/` (the
+#     receipts THIS plane writes — archiving an archive) and on any `DO_NOT_DELETE.txt` at
+#     any depth, because `*` matches `/` in an IAM resource;
+#   * an explicit Deny beats every Allow, including a future one, which is the point of
+#     writing it as a Deny rather than by narrowing the Allow.
+#
+# The IAM narrowing is the second line of defence and not the first. The first is the
+# commit gate — the source is deleted only when every object has been confirmed copied —
+# and the second is `arcommon.delete.assert_deletable`, which refuses the whole list
+# BEFORE issuing anything, so a key the policy would refuse fails the run rather than
+# stopping a deletion half way through.
+#
+# THE ARCHIVE BUCKET'S DeleteObject IS THE ROLLBACK'S, and it is the one grant that looks
+# surprising on a vault. A partial copy is not an archive, so it is removed; without this
+# the gate could refuse the deletion but not clean up after itself, and the residue would
+# sit at the GLACIER 90-day minimum until the 7-year expiry. SPEC-171 needs the same grant
+# to clear a restored archive.
 #
 # NOTE FOR ANYONE ADDING A STATEMENT: IAM rejects a "//" comment key inside a statement
 # ("Policy input list item 1 has invalid content" — verified with simulate_custom_policy),
 # so rationale goes HERE, not in the .tftpl.
+# states:DescribeExecution (SPEC-169 FR-003) is the ONE grant the timeout door needs, and
+# it is on THIS role rather than the state machine's because it is the notify-failure
+# LAMBDA that makes the call — invoked by EventBridge, outside any execution. It reads back
+# the input of a run whose event omitted it, which on this plane is the ordinary case for a
+# large archive: EventBridge caps an event at 256 KB and the Pipe record is allowed to
+# approach 200 KB, so the archives most likely to time out are the ones nobody could
+# otherwise be told about.
 
 # ── Shared Lambda execution role (uniform lambda trust) ──────────────────────
 resource "aws_iam_role" "execution" {
@@ -40,6 +62,10 @@ resource "aws_iam_role_policy" "execution" {
   policy = templatefile("${path.module}/policies/execution.json.tftpl", {
     log_group_arn           = local.archive_log_group_wildcard_arn
     admin_bucket_arn        = local.admin_bucket_arn
+    user_space_bucket_arn   = local.user_space_bucket_arn
+    shared_space_bucket_arn = local.shared_space_bucket_arn
+    archive_bucket_arn      = local.archive_bucket_arn
+    execution_arn_wildcard  = local.child_execution_arn_wildcard
     notifications_queue_arn = var.notifications_queue_arn
     logs_queue_arn          = var.logs_queue_arn
   })
@@ -77,15 +103,18 @@ resource "aws_iam_role_policy" "sfn" {
   name = "permissions"
   role = aws_iam_role.sfn.id
 
-  # InvokeFunction on the verbs + log delivery. No Distributed Map grants yet: this
-  # machine has no Map. When SPEC-169 adds one, its states:/S3 permissions belong HERE and
-  # not on the execution role — the state machine is what calls StartExecution for each
-  # child and what reads the ItemReader object. Putting them on the Lambda role renders,
-  # applies and unit-tests green, then fails on the first real run with AccessDenied at
-  # the ItemReader (SPEC-160 FR-006's finding).
+  # InvokeFunction on the verbs + log delivery, plus (SPEC-169) the Distributed Map's own
+  # permissions — which belong HERE and not on the execution role: the state machine is
+  # what calls StartExecution for each child and what reads the ItemReader object and
+  # writes the ResultWriter export. Putting them on the Lambda role renders, applies and
+  # unit-tests green, then fails on the first real archive with AccessDenied at the
+  # ItemReader (SPEC-160 FR-006's finding, inherited here rather than rediscovered).
   policy = templatefile("${path.module}/policies/sfn-permissions.json.tftpl", {
-    function_arns_json = jsonencode(local.archive_function_arns)
-    sfn_log_group_arn  = local.sfn_log_group_arn
+    function_arns_json           = jsonencode(local.archive_function_arns)
+    sfn_log_group_arn            = local.sfn_log_group_arn
+    state_machine_arn            = local.state_machine_arn
+    child_execution_arn_wildcard = local.child_execution_arn_wildcard
+    admin_bucket_arn             = local.admin_bucket_arn
   })
 }
 

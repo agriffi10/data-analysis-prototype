@@ -134,9 +134,14 @@ def _seeds():
     }
 
 
-def test_the_seed_scan_found_both_seeds():
+def test_the_seed_scan_found_every_seed():
     """Guards every check below against passing vacuously if the machine is restructured."""
-    assert set(_seeds()) == {"ValidateFailureSeed", "UnknownModeSeed"}
+    assert set(_seeds()) == {
+        "ValidateFailureSeed",
+        "UnknownModeSeed",
+        "NothingToArchiveSeed",
+        "RequestFailureSeed",
+    }
 
 
 def test_a_seed_reads_only_paths_its_own_input_actually_has():
@@ -156,9 +161,12 @@ def test_a_seed_reads_only_paths_its_own_input_actually_has():
     """
     validated = set(STATES["Validated"]["Parameters"])
     validated = {name.removesuffix(".$") for name in validated}
+    post_validate = validated | {"error"}
     allowed = {
         "ValidateFailureSeed": set(),
         "UnknownModeSeed": validated,
+        "NothingToArchiveSeed": validated,
+        "RequestFailureSeed": post_validate,
     }
 
     for name, seed in _seeds().items():
@@ -191,38 +199,256 @@ def test_no_seed_carries_the_selection_a_second_time():
         assert "raw.$" in seed["Parameters"], f"{name} must supply $.raw; RecordFailure reads it"
 
 
-# ── What this machine deliberately does NOT have yet ─────────────────────────
+# ── The ceiling, and the door that makes it reachable (SPEC-169 FR-003) ──────
 
 
-def test_the_machine_has_no_top_level_timeout_and_nothing_in_it_waits():
-    """The absence is deliberate and is only correct while the second half holds. A
-    TimeoutSeconds does NOT on its own reach NotifyFailure — AWS catchers cover Task, Parallel
-    and Map states but not top-level execution failures — so it must ship WITH an EventBridge
-    TIMED_OUT rule or it is SPEC-152 satisfied on paper and silent in practice.
+def _stepfunction_tf() -> str:
+    """The archive Step Function's Terraform, as text.
 
-    This test fails the moment SPEC-169 adds a Map, a Wait or a copy, which is the moment the
-    ceiling and its rule become required. That is the whole point: it is a tripwire on the
-    next spec, not a description of this one.
+    Read as DATA rather than restated: the ceiling and the rule that makes it reachable are
+    one decision written in two files, and a test that asserted one and described the other
+    is how the pair comes apart.
     """
-    waiting = [
-        name for name, state in STATES.items()
-        if state.get("Type") in ("Map", "Wait", "Parallel")
-    ]
+    return pathlib.Path(_HERE, "..", "..", "infra", "modules", "archive", "stepfunction.tf").read_text()
 
-    assert not waiting, (
-        f"{waiting} can wedge, so this machine now needs a top-level TimeoutSeconds AND the "
-        "EventBridge TIMED_OUT rule that makes it reachable by a notification"
+
+def _locals_tf() -> str:
+    """The archive module's Terraform locals, as text."""
+    return pathlib.Path(_HERE, "..", "..", "infra", "modules", "archive", "locals.tf").read_text()
+
+
+def test_the_machine_carries_a_top_level_ceiling():
+    """A Standard workflow with no TimeoutSeconds runs for ONE YEAR, and this is the first
+    version of this machine that can wedge — it is the first with a Map and a copy in it.
+
+    Asserted at the TOP level, which is where the field belongs: SPEC-157 settled that
+    distinction on the table-builder, where the same name exists as a Task field and means
+    something else entirely.
+    """
+    assert "TimeoutSeconds" in ASL, (
+        "this machine has a Map and a copy in it, so a run can wedge until Step Functions' own "
+        "one-year default"
     )
-    assert "TimeoutSeconds" not in ASL
+    assert re.search(r"state_machine_timeout_seconds\s*=\s*(\d+)", _locals_tf())
 
 
-def test_no_verb_state_writes_to_s3_yet():
-    """SPEC-168 copies nothing and deletes nothing. The execution role holds no S3 grant on
-    any data bucket, so a Task added here without the matching grant would fail at runtime
-    with an AccessDenied that reads like an IAM bug."""
+def test_the_ceiling_ships_with_the_rule_that_makes_it_reachable():
+    """THE HALF THAT IS EASY TO LEAVE OUT. AWS catchers cover Task, Parallel and Map states
+    but NOT top-level execution failures: the ceiling terminates the execution outright, so
+    no state runs, NotifyFailure is never invoked and the actor is told nothing at all — SPEC-152
+    satisfied on paper and silent in practice, on the one failure where the user has been
+    waiting for three hours.
+    """
+    body = _stepfunction_tf()
+
+    assert "aws_cloudwatch_event_rule" in body and "TIMED_OUT" in body
+    assert "aws_cloudwatch_event_target" in body, "the rule fires at nothing"
+    assert "aws_lambda_permission" in body, "EventBridge may not invoke the notifier"
+
+
+def test_the_timeout_rule_never_matches_a_plain_failure():
+    """Every other whole-request failure already reaches NotifyFailure through a Catch, so a
+    rule matching FAILED would send a second notification for every one of them."""
+    body = _stepfunction_tf()
+    pattern = body[body.index("event_pattern"):]
+    pattern = pattern[: pattern.index("}\n")]
+
+    assert "TIMED_OUT" in pattern, "the slice missed the status list — it is the parse that broke"
+    assert "FAILED" not in pattern
+
+
+def test_the_notifier_was_raised_for_the_door_it_grew():
+    """15s was sized for a decode and a send. The timeout door does strictly more: a
+    DescribeExecution read-back plus a cold-start JWKS fetch and a JWT verify, because the actor
+    has to come from the token in the timed-out execution's own input. File-send's twin and the
+    DLQ drain, which do the same verify, are both at 60s."""
+    row = re.search(r'"notify-failure"\s*=\s*\{[^}]*timeout\s*=\s*(\d+)', _locals_tf())
+
+    assert row and int(row.group(1)) >= 60
+
+
+# ── The transfer (SPEC-169 FR-003) ───────────────────────────────────────────
+
+
+def _map_states() -> dict:
+    """Every Map state in the machine, by name."""
+    return {name: state for name, state in STATES.items() if state.get("Type") == "Map"}
+
+
+def test_the_transfer_is_the_only_map_and_it_is_top_level():
+    """FR-003 AC1. A Distributed Map nested inside another Map is the shape SPEC-160 rejected:
+    one flat fan-out over a (destination x object) manifest is what makes the ceiling the
+    manifest's length rather than one Lambda's timeout. Asserted by walking every state's
+    NESTED states rather than by reading the top-level list, because a nested Map is exactly
+    what would not appear there."""
+    assert set(_map_states()) == {"TransferObjects"}
+
+    for name, state in STATES.items():
+        nested = ((state.get("ItemProcessor") or {}).get("States") or {}).values()
+        assert not [inner for inner in nested if inner.get("Type") == "Map"], (
+            f"{name} nests a Map inside its own ItemProcessor"
+        )
+
+
+def test_the_transfer_map_is_distributed_standard_and_tolerates_every_item_failure():
+    """Three settings, each for its own reason. DISTRIBUTED is what makes it a child-execution
+    fan-out at all. STANDARD, not EXPRESS: a batch may hold a multi-GiB object whose multipart
+    copy would blow EXPRESS's 5-minute ceiling, and at-least-once re-execution would recopy the
+    batch. ToleratedFailurePercentage 100 is the one this plane needs most — a Map that aborted
+    early would leave the COMMIT GATE unable to tell 'failed' from 'not attempted', and this
+    gate decides whether a user's only copy is deleted."""
+    transfer = STATES["TransferObjects"]
+
+    assert transfer["ItemProcessor"]["ProcessorConfig"] == {
+        "Mode": "DISTRIBUTED",
+        "ExecutionType": "STANDARD",
+    }
+    assert transfer["ToleratedFailurePercentage"] == 100
+    assert transfer["ItemReader"]["ReaderConfig"]["InputType"] == "JSONL"
+    assert transfer["ResultWriter"]["Resource"] == "arn:aws:states:::s3:putObject"
+
+
+def test_the_rendered_map_carries_the_engines_own_batch_numbers():
+    """Terraform cannot import Python, so the ASL's ItemBatcher and MaxConcurrency are literals
+    fed from locals.tf. Two homes for one number is how a batch silently grows past the limit it
+    was sized against."""
+    from cpcommon.transfer import config as transfer_config
+
+    text = _locals_tf()
+
+    assert re.search(
+        rf"transfer_max_items_per_batch\s*=\s*{transfer_config.MAX_ITEMS_PER_BATCH}\b", text
+    )
+    assert re.search(
+        rf"transfer_map_max_concurrency\s*=\s*{transfer_config.MAP_MAX_CONCURRENCY}\b", text
+    )
+
+
+def test_the_execution_name_is_stamped_by_a_pass_and_never_read_in_a_tasks_parameters():
+    """SPEC-157's recorded shape. Reading `$$` inside a Task's own Parameters WRAPS the payload
+    one level down, and every notify path on this plane reads the request at the TOP level — so
+    the request would still be there and every failure message would resolve to nothing."""
+    assert STATES["StampExecution"]["Parameters"]["name.$"] == "$$.Execution.Name"
+
+    for name, state in STATES.items():
+        if state.get("Type") != "Task":
+            continue
+        for key, value in (state.get("Parameters") or {}).items():
+            assert not (isinstance(value, str) and value.startswith("$$")), (
+                f"{name} reads the context object in a Task's Parameters ({key})"
+            )
+
+
+def test_the_choice_before_the_map_guards_its_comparison_and_refuses_an_empty_archive():
+    """FR-002 AC7 and FR-001 AC6 meeting in one state. IsPresent BEFORE the numeric test,
+    because a Choice on an absent path raises an uncatchable States.Runtime that `Default` does
+    not cover — and the Default is a REFUSAL rather than a skip to success, because a receipt
+    claiming zero files archived is worse than a refusal and an empty archive prefix is
+    indistinguishable at restore time from one whose objects have vanished."""
+    choice = STATES["HasTransferItems"]["Choices"][0]
+    clauses = choice["And"]
+
+    assert clauses[0]["IsPresent"] is True
+    assert "NumericGreaterThan" in clauses[1]
+    assert {c["Variable"] for c in clauses} == {"$.transfer.itemCount"}
+    assert STATES["HasTransferItems"]["Default"] == "NothingToArchiveSeed"
+
+
+# ── The commit gate (SPEC-169 FR-004) ────────────────────────────────────────
+
+
+def _reachable_from(start: str) -> set:
+    """Every state reachable from one state, following Next, Catch, Choices and Default."""
+    seen, frontier = set(), [start]
+    while frontier:
+        name = frontier.pop()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        state = STATES[name]
+        frontier.append(state.get("Next"))
+        frontier.append(state.get("Default"))
+        frontier.extend(c.get("Next") for c in state.get("Catch", []) or [])
+        frontier.extend(c.get("Next") for c in state.get("Choices", []) or [])
+    return seen
+
+
+def test_no_path_from_the_rollback_branch_reaches_the_deletion():
+    """**THE TEST THIS WHOLE SPEC EXISTS FOR.** The source is deleted only when every single
+    object has been confirmed copied, and the failure mode it must never have is "copied 900 of
+    1000, deleted 1000".
+
+    Asserted by walking the GRAPH from the gate's rollback arm, not by reading the states in
+    order: a Catch or a Next added anywhere on that arm could reconnect it, and nothing about
+    the diff would say so.
+    """
+    rollback_arm = _reachable_from(STATES["CommitOrRollback"]["Default"])
+
+    assert "DeleteSource" not in rollback_arm, (
+        f"the rollback branch reaches the deletion via {sorted(rollback_arm)} — a partial "
+        "archive would delete the source it does not hold"
+    )
+    assert "Failed" in rollback_arm, "the rollback branch does not fail the execution"
+
+
+def test_the_commit_gate_guards_its_comparison_and_fails_closed():
+    """The gate is one boolean computed by one verb, so there is one place it can be wrong. Its
+    Default is the ROLLBACK rather than the commit: an absent or unrecognisable verdict must
+    fail closed, because the failure on the other side is deleting a user's only copy."""
+    gate = STATES["CommitOrRollback"]
+    clauses = gate["Choices"][0]["And"]
+
+    assert clauses[0]["IsPresent"] is True
+    assert clauses[1]["BooleanEquals"] is True
+    assert {c["Variable"] for c in clauses} == {"$.transferOutcome.complete"}
+    assert gate["Default"] == "Rollback"
+    assert gate["Choices"][0]["Next"] != "Rollback"
+
+
+def test_the_deletion_sits_between_the_record_and_the_receipt():
+    """FR-006 AC2/AC8: most durable to least. The record that describes the archive is written
+    BEFORE the source is deleted, and the receipt AFTER it — so a receipt only ever exists for an
+    archive that actually completed, and a run interrupted between any two states leaves
+    something an operator can read."""
+    assert STATES["CommitOrRollback"]["Choices"][0]["Next"] == "WriteManifest"
+    assert STATES["WriteManifest"]["Next"] == "DeleteSource"
+    assert STATES["DeleteSource"]["Next"] == "WriteReceipt"
+
+
+def test_the_success_terminal_names_what_it_keeps_and_drops_the_rest():
+    """The ASL/verb cross-check for the last verb, and a payload decision: the plan key, the
+    transfer block, the Map Run pointer and the selection are all dropped rather than carried
+    into the execution output, where SPEC-172 will read this shape."""
+    kept = {name.removesuffix(".$") for name in STATES["ArchiveComplete"]["Parameters"]}
+
+    assert kept == {"requestId", "actor", "archive", "objectCount", "totalBytes", "receiptKey"}
+    assert STATES["ArchiveComplete"]["Next"] == "Succeeded"
+
+
+def test_every_verb_state_is_one_of_the_planes_deployed_functions():
+    """The Task set is the plane's shape, asserted so that adding a state without its Lambda —
+    or its IAM — fails here rather than at runtime with an AccessDenied that reads like an IAM
+    bug. SPEC-168's version of this test asserted the machine wrote to S3 NOWHERE; this one
+    replaces it, because the writes are now the point."""
     tasks = {name for name, state in STATES.items() if state.get("Type") == "Task"}
+    nested = {
+        name
+        for state in STATES.values()
+        for name in ((state.get("ItemProcessor") or {}).get("States") or {})
+    }
 
-    assert tasks == {"ValidateAuthorize", "NotifyFailure"}
+    assert tasks == {
+        "ValidateAuthorize",
+        "InspectSource",
+        "BuildTransferManifest",
+        "CollectTransferResults",
+        "Rollback",
+        "WriteManifest",
+        "DeleteSource",
+        "WriteReceipt",
+        "NotifyFailure",
+    }
+    assert nested == {"CopyObjects"}
 
 
 if __name__ == "__main__":

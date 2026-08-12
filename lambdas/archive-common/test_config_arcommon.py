@@ -191,6 +191,184 @@ def test_the_byte_cap_survives_every_link_of_the_chain_it_bounds():
 # ── FR-005: the reserved list ────────────────────────────────────────────────
 
 
+# ── SPEC-169: the caps over the EXPANDED selection ───────────────────────────
+
+#: Seconds of overhead per Distributed-Map child execution. A real term at 20,000 items in
+#: batches of 8, and one that bytes alone cannot see.
+_CHILD_EXECUTION_OVERHEAD_SECONDS = 3
+
+#: How much more a parsed JSON document costs in memory than its bytes. Plan entries are
+#: dominated by one ~1 KB string, so the true factor is nearer 1.3; 3 is the pessimistic
+#: direction, which is the safe one for a bound.
+_PARSED_OBJECT_OVERHEAD = 3
+
+
+def _locals_text() -> str:
+    """The archive module's Terraform locals, as text.
+
+    Read as DATA rather than restated, because a ceiling raised in one place and asserted in
+    another is how a cap comes to certify something it never checked.
+    """
+    return (
+        pathlib.Path(__file__).resolve().parent.parent.parent
+        / "infra" / "modules" / "archive" / "locals.tf"
+    ).read_text()
+
+
+def _verb_row(name: str) -> tuple:
+    """One verb's configured timeout and memory, from the Terraform locals.
+
+    Args:
+      name: The verb's suffix.
+
+    Returns:
+      ``(timeout, memory)``.
+
+    Raises:
+      AssertionError: When the row is gone, which would make every bound below vacuous.
+    """
+    text = _locals_text()
+    found = re.search(rf'"{name}"\s*=\s*\{{([^}}]*)\}}', text)
+    assert found, f"the archive locals no longer configure a {name!r} verb"
+    block = found.group(1)
+    return (
+        int(re.search(r"timeout\s*=\s*(\d+)", block).group(1)),
+        int(re.search(r"memory\s*=\s*(\d+)", block).group(1)),
+    )
+
+
+def _machine_timeout_seconds() -> int:
+    """The machine's own top-level TimeoutSeconds, from the Terraform locals."""
+    found = re.search(r"state_machine_timeout_seconds\s*=\s*(\d+)", _locals_text())
+
+    assert found, "the archive machine has no top-level TimeoutSeconds in its locals"
+    return int(found.group(1))
+
+
+def _plan_entry_bytes() -> int:
+    """One copy-plan entry at S3's worst-case key length, serialised.
+
+    Pessimistic in a way real entries cannot be: the relative key is a SUFFIX of a 1024-byte
+    absolute key, so it can never itself be 1024 bytes once the space root is taken off.
+    Over-counting is the safe direction for a bound.
+    """
+    entry = {"relKey": "r" * _MAX_S3_KEY, "bytes": 10 * 1024**3}
+    return len(json.dumps(entry, separators=(",", ":")).encode())
+
+
+def test_the_object_cap_is_a_bound_the_item_cap_could_not_express():
+    """The two-quantities argument one level down, asserted where it can fail. One selected
+    folder can hold any number of objects, so even a single item can breach the object cap —
+    which is why ``ARCHIVE_MAX_ITEMS`` cannot stand in for it."""
+    assert config.ARCHIVE_MAX_OBJECTS > 1
+    assert _plan_entry_bytes() * config.ARCHIVE_MAX_OBJECTS > config.ARCHIVE_MAX_ITEM_BYTES
+
+
+def test_the_worst_case_copy_plan_fits_in_the_verbs_memory():
+    """WHAT SIZES ARCHIVE_MAX_OBJECTS, computed rather than asserted.
+
+    inspect-source holds the whole plan as a list of dicts, serialises it to a string and
+    encodes that to bytes — three live copies at the moment of the write. Half the configured
+    memory is left for the interpreter, boto3 and its response buffers, which is not a rounding
+    allowance: a cold Lambda with botocore loaded is already tens of megabytes before the first
+    object.
+
+    delete-source is checked with it because it loads the same plan back and holds the same
+    list, so the two rows have to move together.
+    """
+    plan_bytes = _plan_entry_bytes() * config.ARCHIVE_MAX_OBJECTS
+    live_copies = plan_bytes * (_PARSED_OBJECT_OVERHEAD + 2)
+
+    for verb in ("inspect-source", "delete-source"):
+        memory_bytes = _verb_row(verb)[1] * 1024**2
+        assert live_copies < memory_bytes / 2, (
+            f"a worst-case plan is ~{live_copies / 1024**2:,.0f} MB live against {verb}'s "
+            f"{_verb_row(verb)[1]} MB — raise the memory in infra/modules/archive/locals.tf or "
+            "lower ARCHIVE_MAX_OBJECTS"
+        )
+
+
+def test_the_per_object_cap_keeps_one_object_inside_one_batch_timeout():
+    """WHAT SIZES ARCHIVE_MAX_OBJECT_BYTES, and the cap FR-001 does not name because this
+    arithmetic does.
+
+    A batch is one round of the worker pool and **one object is one worker**: ``copy_batch``
+    hands a whole object to a thread and ``copy_one``'s multipart loop is serial, so nothing
+    else bounds a single object's copy time. S3 accepts objects up to 5 TiB, which at the
+    conservative rate is ~220,000s — 240x the batch verb's own timeout. Without this cap the
+    makespan model certifies the distributed case only, which is SPEC-166's recorded finding.
+    """
+    from cpcommon.transfer import config as transfer_config
+
+    seconds = config.ARCHIVE_MAX_OBJECT_BYTES / transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
+    timeout = _verb_row("copy-objects")[0]
+
+    assert timeout == transfer_config.COPY_TIMEOUT_SECONDS, (
+        "the engine's copy budget and the deployed verb's timeout have come apart"
+    )
+    assert seconds < timeout, (
+        f"one {config.ARCHIVE_MAX_OBJECT_BYTES / 1024**3:.0f} GiB object is ~{seconds:,.0f}s of "
+        f"copying against a {timeout}s batch timeout"
+    )
+
+
+def test_the_whole_run_fits_the_machines_ceiling():
+    """WHAT SIZES ARCHIVE_MAX_BYTES, and the one place every term is added up.
+
+    The copy is not the only thing inside the ceiling, and a model that only counted it would be
+    the aggregate-bandwidth mistake wearing a different hat. Three terms, each read from the
+    locals or the engine's constants rather than restated here:
+
+    * the transfer itself, at the MAKESPAN rate (concurrency x per-stream), not the aggregate —
+      ``copy_batch`` gives one whole object to one worker, so an object occupies that worker for
+      ``size / rate`` however many other workers are idle;
+    * the per-child overhead of ``ARCHIVE_MAX_OBJECTS`` in batches of ``MAX_ITEMS_PER_BATCH`` at
+      ``MAP_MAX_CONCURRENCY``;
+    * the seven serial verbs, which on this plane include a whole deletion pass.
+
+    They are summed rather than checked one at a time because they all happen in the same run.
+    Unlike file-send there is no recipient product: an archive has one destination, so the
+    source cap IS the transfer cap.
+    """
+    from cpcommon.transfer import config as transfer_config
+
+    rate = transfer_config.MAP_MAX_CONCURRENCY * transfer_config.CONSERVATIVE_STREAM_BYTES_PER_SECOND
+    copying = config.ARCHIVE_MAX_BYTES / rate
+
+    batches = -(-config.ARCHIVE_MAX_OBJECTS // transfer_config.MAX_ITEMS_PER_BATCH)
+    rounds = -(-batches // transfer_config.MAP_MAX_CONCURRENCY)
+    child_overhead = rounds * _CHILD_EXECUTION_OVERHEAD_SECONDS
+
+    serial = sum(
+        _verb_row(verb)[0]
+        for verb in (
+            "validate-authorize",
+            "inspect-source",
+            "build-transfer-manifest",
+            "collect-transfer-results",
+            "write-manifest",
+            "delete-source",
+            "write-receipt",
+        )
+    )
+
+    worst = copying + child_overhead + serial
+
+    assert worst < _machine_timeout_seconds(), (
+        f"the worst legal run is {worst:,.0f}s — copy {copying:,.0f}s + child overhead "
+        f"{child_overhead:,.0f}s + serial verbs {serial:,.0f}s — against a "
+        f"{_machine_timeout_seconds():,}s ceiling. Lower a cap or raise the timeout in "
+        "infra/modules/archive/locals.tf, and do not raise the rate without evidence"
+    )
+
+
+def test_the_byte_cap_admits_more_than_one_object_at_the_per_object_cap():
+    """A relationship rather than arithmetic on two constants: a total cap beneath the
+    per-object one would refuse a selection of two large files while permitting one, which is a
+    product rule nobody wrote."""
+    assert config.ARCHIVE_MAX_BYTES > config.ARCHIVE_MAX_OBJECT_BYTES
+
+
 def test_every_reserved_root_is_a_bare_folder_name():
     """A trailing slash or a leading one here would silently stop the anchored comparison in
     `assert_not_reserved` from matching anything, and the rule would pass by refusing nothing."""

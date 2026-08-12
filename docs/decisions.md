@@ -2101,3 +2101,147 @@ constant resolved at import time in a layer runs for every attaching function an
 then crashes at **cold start**, where no test and no deploy can see it (PR #196). `cpcommon.config`
 gained a public `require()` so a domain layer reaches for the fleet's one fail-fast reader rather
 than writing a second.
+
+## The commit gate, and the four choices that make a deletion safe (SPEC-169)
+
+### The source is deleted only when EVERY object is confirmed copied
+
+Archiving is the only operation in this portal that deletes a user's data as a side effect of a
+copy, and the failure mode it must never have is **"copied 900 of 1000, deleted 1000"**. So the
+gate is a state, not a convention.
+
+`collect-transfer-results` returns ONE BOOLEAN and `CommitOrRollback` branches on it: the
+committing arm reaches `DeleteSource`, and the rollback arm **cannot** — asserted by walking the
+ASL graph from the gate's default, because a `Catch` or a `Next` added anywhere on that arm could
+reconnect it and nothing about the diff would say so. The `Default` is the ROLLBACK, so an absent
+or unrecognisable verdict fails closed; the failure on the other side is deleting a user's only
+copy.
+
+**Three ways to be short, one verdict.** A reported item failure; an export accounting for fewer
+items than the manifest listed; a manifest whose count disagrees with the plan it was built from.
+The last is a check file-send cannot make — there a manifest line is one `(recipient, object)`
+pair, so the two counts differ by design. Here they are the same number written twice, and a
+disagreement is the one shape where every downstream count agrees with itself and is wrong.
+
+**Both halves of the Map Run's export are read**, for SPEC-160's reason: Step Functions files a
+child by its execution STATUS, and the batch copier deliberately succeeds while carrying per-item
+failures. A `FAILED`-only collector reports universal success — and on this plane that reported
+success is a deletion.
+
+`plan.load` refuses a plan that is short of the `objectCount` it records, and that check is what
+makes the gate's guarantee true rather than aspirational: a truncated plan produces a manifest
+short of its lines, a copy that succeeds over it, and a gate that **agrees**, because both sides
+of the comparison are short by the same amount.
+
+### The rollback deletes what is THERE, not what it was told about
+
+FR-004 says the rollback removes the objects the collector reports as copied. It is implemented as
+a `ListObjectsV2` over the archive prefix, and the reading is deliberate. Keys are the unbounded
+term — tens of thousands of them cannot ride a 256 KB state — but the listing is also the strictly
+better answer: the prefix is `{kind}/{name}/archive/{uuid}/`, this request's alone, so everything
+under it was put there by this archive and by nothing else, **including anything a batch copied
+before it died and never reported**. A collector-supplied list would omit exactly those. Its
+predicate ignores nothing, because the shared paginator's default drops zero-byte placeholders and
+hidden segments and both are things this plane deliberately archives.
+
+**A rollback that itself fails partially does not change the outcome.** The property that matters
+is that the source is intact, and it is; the residue is billed at the GLACIER 90-day minimum, is
+unreachable by the user (the browser has no relationship with that bucket) and is swept by the
+7-year expiry. It is reported in the failure notification through its own reason code rather than
+retried forever. The same disposition covers a collector that cannot read the export at all: that
+is a whole-request terminal with the source untouched, and it does not roll back, because a
+collector that cannot read the export cannot say what there is to roll back.
+
+### The delete grant is the one this role could not inherit
+
+Every other plane's execution role carries a blanket `Deny s3:DeleteObject` from its first apply.
+This one cannot, so the narrower property is written out: `DeleteObject` on the two SPACE buckets
+only, plus an explicit **Deny** under `athenaresults/`, `user_settings/`, `archive/` and on any
+`DO_NOT_DELETE.txt` at any depth (`*` matches `/`). A Deny rather than a narrower Allow, because an
+explicit Deny beats every Allow — including one a later spec adds without reading the file.
+
+IAM is the SECOND line of defence. The first is the gate; the third is
+`arcommon.delete.assert_deletable`, which checks the whole list **before issuing anything**, so a
+key the policy would refuse fails the run rather than stopping a deletion half way through — after
+some of the user's data has already gone. It fails loudly rather than filtering: a silent filter
+would delete a source the archive is missing objects from.
+
+Review found that check accepting `alice/../bob/secrets.csv`, which starts with `alice/` and passed
+a prefix-only test. S3 resolves nothing, so no cross-tenant delete followed; it is closed because a
+containment rule that holds only while every consumer stays careful is not a rule, and this
+consumer is the one that deletes. **Containment is both of `cpcommon.paths`' rules, everywhere.**
+
+### The artifacts are ordered most durable to least, and the receipt's failure is terminal
+
+`_manifest.json` into the vault → the source deletion → the receipt into the user's own space,
+matching the data-quality plane's report → notification → index. A receipt therefore only ever
+exists for an archive that completed, and a run interrupted between any two states leaves something
+an operator can read.
+
+**The receipt failing fails the RUN**, even though the data is safely archived and the source is
+already gone: a user with no receipt has no id and therefore no route to a restore. The message
+says the data IS archived and names the request id, so the run is recoverable by hand.
+
+**The manifest is a report, not a record.** Nothing may come to depend on it — SPEC-170 rebuilds
+every restore destination from the archived keys themselves, because an archived key encodes its
+own origin. An AST sweep over the plane enforces that for the specs that have not been written yet,
+exempting docstrings by node identity (SPEC-165's recorded trap) and qualifying the import test,
+because `cpcommon.transfer.manifest` is a different module with the same name.
+
+Both timestamps come from `$$.Execution.StartTime`, stamped onto the state by the same `Pass` that
+stamps the execution name. Two `now()` calls would disagree by however long the deletion took, and
+a re-run would disagree with itself.
+
+### Three caps, and the one the spec does not name
+
+Each is COMPUTED by a test that reads `locals.tf` back, never asserted as a number.
+
+`ARCHIVE_MAX_OBJECTS` **20,000** is sized by the copy plan held in memory — by inspect-source,
+which builds and serialises it, and by delete-source, which loads it back. `ARCHIVE_MAX_BYTES`
+**3 TiB** is sized by the machine's own `TimeoutSeconds` at a **makespan** rate
+(`MAP_MAX_CONCURRENCY × CONSERVATIVE_STREAM_BYTES_PER_SECOND` = 500 MB/s), never the aggregate the
+same constants suggest multiplied together; the test adds the copy, the per-child overhead of
+20,000 items in batches of 8, and the seven serial verbs (~8,100s against 10,800s). Unlike
+file-send there is no product cap beside it: an archive has one destination, so the source cap IS
+the transfer cap.
+
+**`ARCHIVE_MAX_OBJECT_BYTES` 10 GiB is not in the spec, and the arithmetic above needs it.** A
+batch is one round of the worker pool and **one object is one worker** — `copy_batch` hands a whole
+object to a thread and `copy_one`'s multipart loop is serial — so nothing else bounds a single
+object's copy time. S3 accepts objects up to 5 TiB, which is ~220,000s at the conservative rate:
+240× the batch verb's timeout and 20× the whole machine's ceiling. Without it the makespan model
+certifies the distributed case only, which is SPEC-166's recorded finding inherited rather than
+rediscovered.
+
+### The ceiling ships with its rule, again
+
+`TimeoutSeconds` 10,800 is **top-level** (SPEC-157 settled that distinction), and it arrived in one
+PR with the EventBridge `TIMED_OUT` rule, `ar_notify_failure`'s second door and its 15s → 60s
+raise. AWS catchers cover Task, Parallel and Map states but **not top-level execution failures**, so
+without the rule the ceiling terminates the run outright and the actor is told nothing — SPEC-152
+satisfied on paper and silent in practice, on the one failure where the user has been waiting three
+hours. `TIMED_OUT` only, never `FAILED`, or every caught failure double-notifies.
+
+The door needs the same `DescribeExecution` fallback file-send's does, and for the same reason:
+EventBridge caps an event at 256 KB and this plane's execution input is the Pipe's record, which
+`ARCHIVE_MAX_ITEM_BYTES` deliberately allows to approach 200 KB — so the biggest selections, the
+ones that run for hours, are exactly the ones the event alone cannot attribute. What the timeout
+message may PROMISE is decided by where a timeout can land: the deletion is downstream of the gate,
+so a timed-out archive has never deleted anything, whatever else it did.
+
+### The receipt's paths name the ROOTS, and the expansion keeps what every other plane drops
+
+The spec's illustrative receipt shows a selected folder as the original path. That would be wrong
+for the key layout this arc shipped: `archived_key` keeps every object's path relative to the SPACE
+root, so naming the selection pairs it with an archive prefix that does not correspond to it — and
+a 200-item selection has no single original path at all. Rooted at the space root and the archive
+root, the two lines are exact inverses of each other for every object, for every selection.
+
+The expansion's ignore predicate is this plane's own, and it **keeps** what
+`cpcommon.s3_listing.is_ignored` drops: zero-byte folder placeholders (an archived empty folder has
+to come back, and nothing else in the plan records that it existed) and hidden or underscore-
+prefixed segments (those are ignored because *Athena* ignores them, which says nothing about a
+byte-for-byte copy of a user's own folder). It excludes only prefix markers and the portal-managed
+root folders. An empty expansion is a REFUSAL, never a success: a receipt claiming zero files
+archived is worse than a refusal, and an empty archive prefix is indistinguishable at restore time
+from one whose objects have vanished.

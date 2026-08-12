@@ -7,7 +7,6 @@ at all.
 
 import json
 import os
-import pathlib
 import sys
 
 import pytest
@@ -144,22 +143,118 @@ def test_a_non_dict_event_does_not_crash(sent):
     assert verb.handler("not an event", None) == {}
 
 
-# ── This plane has ONE door, and saying so is the point ──────────────────────
+# ── The second door: a run the machine's own ceiling stopped (SPEC-169) ──────
 
 
-def test_there_is_no_eventbridge_timeout_door_yet():
-    """File-send's twin grew a second door because its machine has a top-level TimeoutSeconds
-    and catchers do not cover a top-level execution failure. This machine validates and stops.
+class _FakeSfn:
+    """Step Functions, for the input read-back the timeout door falls back to."""
 
-    This test is a tripwire on SPEC-169: the moment that spec adds the transfer it must add
-    the ceiling, the EventBridge TIMED_OUT rule, the states:DescribeExecution grant and the
-    second door together — a ceiling that cannot notify is SPEC-152 satisfied on paper and
-    silent in practice.
-    """
-    source = pathlib.Path(verb.__file__).read_text()
+    def __init__(self, described=None, error=None):
+        self._described = described
+        self._error = error
+        self.calls = []
 
-    assert "Step Functions Execution Status Change" not in source
-    assert "describe_execution" not in source
+    def describe_execution(self, executionArn):
+        self.calls.append(executionArn)
+        if self._error:
+            raise self._error
+        return self._described or {}
+
+
+def _timed_out(included=True, input_body=None, arn="arn:aws:states:us-east-1:1:execution:m:e"):
+    detail = {"executionArn": arn, "status": "TIMED_OUT"}
+    if included:
+        detail["input"] = json.dumps(input_body if input_body is not None else _raw())
+    else:
+        detail["inputDetails"] = {"included": False}
+    return {"detail-type": "Step Functions Execution Status Change", "detail": detail}
+
+
+def test_a_timed_out_execution_notifies_the_actor_from_the_token_in_its_input(monkeypatch, sent):
+    """AWS catchers cover Task, Parallel and Map states but NOT a top-level execution failure:
+    the ceiling terminates the run outright, so no state runs, the ASL door is never invoked and
+    the actor would be told nothing at all — after waiting three hours."""
+    monkeypatch.setattr(auth, "verified_username_ignoring_expiry", lambda token, **kw: "alice")
+
+    verb.handler(_timed_out(), None)
+
+    assert [user for user, _ in sent] == ["alice"]
+    assert "ran for too long" in sent[0][1]
+
+
+def test_the_timeout_message_promises_the_source_and_nothing_about_the_vault(monkeypatch, sent):
+    """What a timeout can leave behind decides what the message may say. The source deletion sits
+    DOWNSTREAM of the commit gate, so a timed-out archive has never deleted anything — whatever
+    else it did — and the user's files are exactly where they were."""
+    monkeypatch.setattr(auth, "verified_username_ignoring_expiry", lambda token, **kw: "alice")
+
+    verb.handler(_timed_out(), None)
+
+    assert "nothing was deleted" in sent[0][1].lower()
+
+
+def test_the_input_is_read_back_when_eventbridge_dropped_it(monkeypatch, sent):
+    """**The ordinary case for the archives most likely to time out**, not belt and braces.
+    EventBridge caps an event at 256 KB and Step Functions drops the input rather than exceed it;
+    this plane's execution input is the Pipe's record, which ARCHIVE_MAX_ITEM_BYTES deliberately
+    allows to approach 200 KB. So the biggest selections — the ones that run for three hours —
+    are exactly the ones the event alone cannot attribute."""
+    monkeypatch.setattr(auth, "verified_username_ignoring_expiry", lambda token, **kw: "alice")
+    fake = _FakeSfn(described={"input": json.dumps(_raw())})
+    monkeypatch.setattr(verb.clients, "sfn", lambda: fake)
+
+    verb.handler(_timed_out(included=False), None)
+
+    assert fake.calls == ["arn:aws:states:us-east-1:1:execution:m:e"]
+    assert [user for user, _ in sent] == ["alice"]
+
+
+def test_a_failed_read_back_degrades_to_a_no_op_rather_than_raising(monkeypatch, sent):
+    """A raise here would be an async Lambda failure, and EventBridge retries those — turning one
+    unattributable event into three."""
+    monkeypatch.setattr(verb.clients, "sfn", lambda: _FakeSfn(error=RuntimeError("boom")))
+
+    outcome = verb.handler(_timed_out(included=False), None)
+
+    assert sent == []
+    assert outcome["actor"]["username"] == ""
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"detail-type": "Step Functions Execution Status Change", "detail": "not-an-object"},
+        {"detail-type": "Step Functions Execution Status Change", "detail": {}},
+    ],
+    ids=["detail-of-the-wrong-type", "no-execution-arn"],
+)
+def test_a_malformed_timeout_event_notifies_nobody_and_does_not_raise(event, sent):
+    outcome = verb.handler(event, None)
+
+    assert sent == []
+    assert outcome["error"]["Error"] == "States.Timeout"
+
+
+def test_an_unparseable_input_notifies_nobody(monkeypatch, sent):
+    detail = _timed_out()
+    detail["detail"]["input"] = "{not json"
+
+    outcome = verb.handler(detail, None)
+
+    assert sent == []
+    assert outcome["actor"]["username"] == ""
+
+
+def test_the_asl_door_is_untouched_by_the_second_one(monkeypatch, sent):
+    """The two doors cannot double-notify: the ASL door is reached only through a Catch, which a
+    timeout never fires, and the rule matches TIMED_OUT only, never FAILED. This asserts the
+    dispatch does not swallow an ordinary failed request that happens to carry a `detail` field."""
+    monkeypatch.setattr(auth, "verified_username_ignoring_expiry", lambda token, **kw: "alice")
+
+    verb.handler(_failed(detail={"status": "TIMED_OUT"}), None)
+
+    assert [user for user, _ in sent] == ["alice"]
+    assert "ran for too long" not in sent[0][1]
 
 
 if __name__ == "__main__":

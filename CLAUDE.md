@@ -117,33 +117,23 @@ assumed role or the portal UI. Three things nothing offline can prove: the cross
 receives, and the notification LINK — minted in Python, honoured by a TypeScript route rule.
 **168→172** archive/restore is next.
 
-**The archive arc (168 → 172) is UNDERWAY (2026-08-12). 168 is COMPLETE and DEPLOYED; 169 is
-two PRs in.** The vault and the front door exist — the bucket, the plane, `arcommon` and
-validate-authorize — and nothing is listed, copied or deleted yet.
-
-**169 has landed PR1 (the engine) and PR2 (the grants); PR3 is the whole rest of the spec.**
-PR1 gave `cpcommon.transfer` an optional **per-item** storage class — absent means the argument
-is *not passed*, so the two existing callers are byte-identical, and it is set on
-`CreateMultipartUpload` as well as `CopyObject` (single-path-only would archive everything under
-5 GiB to GLACIER and everything over it to STANDARD, silently). PR2 applied the `events:` grant
-and the admin-bucket `archive/` lifecycle rule **ahead of the resources that need them**.
-**What remains in 169 is FR-001 through FR-006:** inspect-source and the S3-pointer plan, the
-manifest builder + execution-name `Pass` stamp, the top-level Distributed Map, the **commit
-gate** (the source is deleted only when EVERY object is confirmed copied; a partial transfer
-rolls the archive copy back), `delete-source` with SPEC-151's per-item `Errors` discipline, and
-the two artifacts. **Three things must arrive together in PR3** — the gate, the `DeleteObject`
-grant this plane deliberately does not hold yet, and the top-level `TimeoutSeconds` **with** its
-EventBridge rule and notify-failure's second door (its 15s → 60s raise too). Two tests fail the
-moment a `Map`/`Wait` appears without them, which is deliberate.
+**The archive arc (168 → 172) is UNDERWAY (2026-08-12). 168 and 169 are COMPLETE; 170 → 172
+remain.** The plane now archives end to end: expand → manifest → Distributed-Map copy at
+`GLACIER` → **commit gate** → record → source deletion → receipt, with a rollback on the gate's
+other arm and a top-level `TimeoutSeconds` that ships with its `TIMED_OUT` rule and second door.
 
 **170 must land before 171**: the destination guard is what makes a billed, uncancellable
-retrieval safe to start. **One live check is owed for 168 and it is one session** —
-`docs/spec-delivery/SPEC-168-*.md` has the script: one valid and one unauthorized hand-crafted
+retrieval safe to start. **Two live checks are owed on this plane and they are ONE session.**
+168's is in `docs/spec-delivery/SPEC-168-*.md`: one valid and one unauthorized hand-crafted
 request through the queue (the only thing that proves the layer attaches at cold start), then a
-`PutObject` into your own `archive/` prefix refused, personal and shared. **The archive feature
-flag is 172's**, with the UI and the app's first prefix-based write gate — it is deliberately
-NOT added early, because `GATED_SURFACES` requires a flag to name real surfaces and one test
-walks each in both states, so a flag with none would fail that guard or pass vacuously.
+`PutObject` into your own `archive/` prefix refused, personal and shared. 169's is in its own
+delivery doc and **its third step is what the whole spec exists for** — archive a folder with a
+Deny temporarily on ONE key and confirm the source is still there, the archive prefix empty and
+the notification honest. Confirm `StorageClass: GLACIER` by `head-object`, never by inference.
+**The archive feature flag is 172's**, with the UI and the app's first prefix-based write gate —
+it is deliberately NOT added early, because `GATED_SURFACES` requires a flag to name real
+surfaces and one test walks each in both states, so a flag with none would fail that guard or
+pass vacuously.
 
 **One thing the arc has already cost, worth reading before the next infra PR:** SPEC-168's merge
 apply went RED because its deploy-role grants and the resources they authorize shipped in one
@@ -353,6 +343,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **The ceiling ships WITH its rule, and this plane's door needs a fallback (166):** `TimeoutSeconds` **10,800** top-level, plus an EventBridge `TIMED_OUT` rule (never `FAILED`), `fs_notify_failure`'s second door, its 15s→60s raise and the deploy-role `events:` grant — catchers do not cover top-level execution failures. **EventBridge drops an input this plane's own cap allows to approach 200 KB**, so the door reads it back with `states:DescribeExecution` on the **Lambda** role; table-share needs no such fallback and inheriting its shape would have left FR-005 half-delivered. **The seed that reports all this must not carry the request twice**: `RequestFailureSeed` supplies `$.raw` and **not** `$.source` — together ~300 KB, `States.DataLimitExceeded` on a Pass with no Catch, killing the run before `NotifyFailure`.
 - **ONE producer says every per-recipient outcome, and the link carries the RECIPIENT's own root (167):** a single verb at the end of the machine turns the terminal summary into messages — sender per outcome, recipient on success only (a `space` through its registered **owner**, never its membership), **a failed recipient told nothing**. That is why the guard and the collector emit nothing and why the guard returns its refusals as records; the whole-REQUEST verbs still notify from their decorators. The link is `/files?prefix={recipientRoot}shared_files/{sender}/` (plus `?space=`): a **root-relative** prefix is silently discarded by the route and lands the recipient at their space root, so tests read the route's `startsWith` gate, `rootPrefix`'s own definition AND `isSafeInAppPath` out of the TypeScript. **It is feature-gated too** — `NotificationRow` gates a MAP of flag→match (the space arm on `?space=`), because with `files` off the link was an anchor into the unavailable page and with `sharedWorkspaces` off it resolved the wrong space. **The double-submit guard is the in-flight ref, NOT the queue's dedup id** (FR-003 AC5 amended in build): the `requestId` is minted per SUBMIT, because reusing it makes a RETRY a silent no-op. **A refusal must be reachable to be a refusal** — `submitDisabled` made the dialog's inline "no recipients" banner dead code where an AC was supposed to be, and a test asserting "the button is disabled" passed over it.
 - **The archive vault is a bucket the browser has no relationship with, and its key carries its own origin (168):** Bucket 5 at `GLACIER` — not readable, so a restore is `RestoreObject` + a 3-5 h wait + a copy (`GLACIER_IR` rejected *because* it deletes that machinery; `DEEP_ARCHIVE` for 12-48 h and a 180-day minimum; the **90-day minimum is surfaced to the user**). No CORS, absent from `connect-src`, **zero** portal-role statements naming it, plus a browser **Deny** on `Put`/`Delete`/`AbortMultipartUpload` under `archive/` in both space buckets so a receipt cannot be forged (the **UI mirror is owed in 172**). Retention is a 7-year **ceiling**: the expiry rule is bucket-wide and **unfiltered**, the inverse of the admin bucket's check, because lifecycle can include a prefix but never exclude one; Object Lock is out (needs versioning, and compliance mode would block 171's cleanup). **ONE plane, `mode`-branched** (143's precedent) with `IsPresent` on every `Choice` comparison. `personal/`/`shared/` partitions the archive key because **nothing checks a space name against the User Pool** — flat, a space `alice` could restore user `alice`'s files; the receipt needs no such segment (different buckets). **The receipt is a report, not a record** — `origin_key` rebuilds every destination from a listing. **Containment moved to `cpcommon.paths`** (third caller; `fscommon` re-exports) and **`ARCHIVE_BUCKET` is NOT a `cpcommon` required var** — that set is a fleet-wide contract, and the guard caught it. The role holds **no S3 grant on any data bucket**: this is the one plane that cannot carry a blanket delete-Deny, so 169 grants it explicitly with the commit gate. **No `TimeoutSeconds` yet** — nothing waits; 169 adds the Map and must add the ceiling AND its EventBridge `TIMED_OUT` rule together (two tests are tripwires on exactly that).
+- **The source is deleted only when EVERY object is confirmed copied, and the gate is a STATE (169):** `collect-transfer-results` returns one boolean and `CommitOrRollback` branches on it — the committing arm reaches `DeleteSource`, the rollback arm **cannot** (asserted by walking the ASL graph, because a `Catch` added anywhere would reconnect it), and the `Default` is the rollback so an unrecognisable verdict **fails closed**. Three shortfalls, one verdict: an item failure, an export short of the manifest, a manifest disagreeing with the plan (a check file-send cannot make — there the two counts differ by design). **Both halves of the export are read**, or a `FAILED`-only collector reports universal success and that success IS a deletion. The **rollback lists the archive prefix** rather than taking keys from the collector — keys are unbounded AND the listing catches objects a batch copied before it died; a partial rollback does **not** change the outcome (residue is billed at the 90-day minimum and swept by the 7-year expiry). Artifacts run **most durable to least** — `_manifest.json` → deletion → receipt — and the **receipt failing fails the run**, because a user with no receipt has no id and no route to a restore. The delete grant is the one this role could not inherit: `DeleteObject` on the space buckets **plus an explicit Deny** under `athenaresults/`, `user_settings/`, `archive/` and any `DO_NOT_DELETE.txt`, with `assert_deletable` refusing the whole list **before issuing anything**. Caps are computed, and **`ARCHIVE_MAX_OBJECT_BYTES` (10 GiB) is not in the spec** — one object is one worker, so a 5 TiB object is 240× the batch timeout and the makespan model is a half-truth without it. `TimeoutSeconds` 10,800 shipped **with** its `TIMED_OUT` rule, the second door and its 15s→60s raise.
 - **Data-quality report view (113):** `/data-quality/:space/:requestId` — space is **in the route, not derived**; own username wins; unreachable space renders denied and issues **no S3 request** (no existence oracle).
 - **Data-quality runs index (123):** the `/data-quality` list is backed by a per-space `index.json` appended under **ETag CAS** (S3 lists lexicographically, so a UUID key gives no chronology); capped at 200, every failure swallowed — report → notification → index, most durable to least. No new IAM.
 - **Data-quality notifications (114):** the notification **is** the completion channel and must carry the report link (the reports folder is hidden); the link builder mirrors 113's precedence and mints **nothing** where the view would resolve wrong. One dedup token per *outcome*, not per verb. FR-005's alarms were **removed** → **SPEC-126**.

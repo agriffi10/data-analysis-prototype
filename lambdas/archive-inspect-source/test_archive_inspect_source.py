@@ -1,0 +1,169 @@
+"""Unit tests for the archive inspect-source Lambda (SPEC-169 FR-001).
+
+The expansion rules and the caps have their own suite in ``archive-common``; this file exercises
+them THROUGH the real handler and covers what only the verb can carry: the plan pointer coming
+back on the state, the object list NOT coming back with it, and the actor being notified before
+the Catch records a refusal. Runnable under pytest or directly:
+python3 test_archive_inspect_source.py.
+"""
+
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "archive-common"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
+
+os.environ.setdefault("COGNITO_USER_POOL_ID", "us-east-1_testpool")
+os.environ.setdefault("COGNITO_APP_CLIENT_ID", "test-app-client")
+os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
+os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
+os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
+os.environ.setdefault("ARCHIVE_BUCKET", "archive-bkt")
+
+import archive_inspect_source as m
+import pytest
+from arcommon import notify
+from cpcommon import clients
+from cpcommon.errors import TerminalError
+
+_REQUEST_ID = "9f2c1b8e-1111-4222-8333-444444444444"
+
+
+class _S3Error(Exception):
+    def __init__(self, code):
+        self.response = {"Error": {"Code": code}}
+        super().__init__(code)
+
+
+class _FakeS3:
+    def __init__(self, objects):
+        self._objects = objects
+        self.puts = []
+
+    def get_paginator(self, name):
+        objects = self._objects
+
+        class _P:
+            def paginate(self, Bucket, Prefix):
+                yield {
+                    "Contents": [
+                        {"Key": k, "Size": s}
+                        for k, s in sorted(objects.items())
+                        if k.startswith(Prefix)
+                    ]
+                }
+
+        return _P()
+
+    def head_object(self, Bucket, Key):
+        if Key not in self._objects:
+            raise _S3Error("NoSuchKey")
+        return {"ContentLength": self._objects[Key]}
+
+    def put_object(self, Bucket, Key, Body, ContentType):
+        self.puts.append({"Bucket": Bucket, "Key": Key, "Body": Body})
+        return {}
+
+
+def _install(objects):
+    fake = _FakeS3(objects)
+    clients._s3 = fake
+    return fake
+
+
+def _event(items=None):
+    return {
+        "requestId": _REQUEST_ID,
+        "mode": "archive",
+        "actor": {"username": "alice"},
+        "source": {
+            "bucket": "user-bkt",
+            "root": "alice/",
+            "kind": "personal",
+            "name": "alice",
+            "items": items or [{"kind": "folder", "key": "alice/reports/"}],
+        },
+        "archive": {
+            "bucket": "archive-bkt",
+            "root": f"personal/alice/archive/{_REQUEST_ID}/",
+            "receiptBucket": "user-bkt",
+            "receiptKey": f"alice/archive/{_REQUEST_ID}/receipt.txt",
+        },
+    }
+
+
+@pytest.fixture(autouse=True)
+def _no_real_notifications(monkeypatch):
+    sent = []
+    monkeypatch.setattr(notify, "emit_notification", lambda user, text, **kw: sent.append((user, text)))
+    monkeypatch.setattr(m.notify, "emit_notification", lambda user, text, **kw: sent.append((user, text)), raising=False)
+    return sent
+
+
+def test_the_plan_key_comes_back_and_the_object_list_does_not():
+    """At ARCHIVE_MAX_OBJECTS the plan is tens of megabytes against a 256 KB payload limit, and
+    States.DataLimitExceeded escapes every Catch — which on this plane is a run that deleted
+    nothing and told nobody. What rides is the pointer, the count and the byte total."""
+    fake = _install({"alice/reports/a.csv": 5, "alice/reports/b.csv": 7})
+
+    result = m.handler(_event(), None)
+
+    assert result["copyPlanKey"] == f"archive/{_REQUEST_ID}/copy-plan.json"
+    assert result["objectCount"] == 2
+    assert result["totalBytes"] == 12
+    assert "objects" not in result
+    assert len(json.dumps(result).encode()) < 4096
+    assert fake.puts[0]["Bucket"] == "admin-bkt"
+
+
+def test_the_validated_request_travels_through_unchanged():
+    """Everything downstream — the manifest builder, the record, the receipt — reads the archive
+    destination and the source off the state, so the verb must merge rather than replace."""
+    _install({"alice/reports/a.csv": 1})
+
+    result = m.handler(_event(), None)
+
+    assert result["archive"] == _event()["archive"]
+    assert result["source"]["items"] == _event()["source"]["items"]
+
+
+def test_the_plan_records_the_locations_it_was_expanded_for():
+    """A reader must not have to join the plan back against the execution to know what it
+    describes — delete-source deletes exactly its keys, under exactly its source root."""
+    fake = _install({"alice/reports/a.csv": 3})
+
+    m.handler(_event(), None)
+    body = json.loads(fake.puts[0]["Body"])
+
+    assert body["source"] == {"bucket": "user-bkt", "root": "alice/"}
+    assert body["archive"]["root"] == f"personal/alice/archive/{_REQUEST_ID}/"
+    assert body["objects"] == [{"relKey": "reports/a.csv", "bytes": 3}]
+    assert body["actor"] == "alice"
+
+
+def test_a_refusal_notifies_the_actor_before_the_catch_records_it(_no_real_notifications):
+    """The decorator is what makes a refusal a message rather than a silent failed execution;
+    the machine's own NotifyFailure then suppresses the duplicate on the TerminalError name."""
+    _install({})
+
+    with pytest.raises(TerminalError) as err:
+        m.handler(_event(), None)
+
+    assert err.value.reason == "nothing_to_archive"
+    assert [user for user, _ in _no_real_notifications] == ["alice"]
+
+
+def test_a_refusal_writes_no_plan():
+    """Every cap and every refusal is enforced before the write, so a refused archive leaves
+    nothing behind in the admin bucket."""
+    fake = _install({})
+
+    with pytest.raises(TerminalError):
+        m.handler(_event(), None)
+
+    assert fake.puts == []
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-q"]))
