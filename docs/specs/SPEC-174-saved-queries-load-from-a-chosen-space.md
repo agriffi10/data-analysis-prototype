@@ -1,7 +1,7 @@
 # Spec: Saved Queries — Loading from a Chosen Space
 
 **ID:** SPEC-174
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-11
 **Depends On:** SPEC-173 (the store and the folder), SPEC-163 (the gated-surface registry), SPEC-042 (the drawer pager pattern), SPEC-100 (the mobile query surface)
 

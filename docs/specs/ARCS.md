@@ -1241,3 +1241,12 @@ listing and the destination picker together (a destination you cannot see is not
 and that is the only place the gate touches an ordinary folder operation. The delete/rename refusal
 is **not** part of the gate and is asserted with the flag off: "you cannot see it" and "you cannot
 destroy it" are different guarantees, and only one of them survives a stale cached flag document.
+
+> **174 landed 2026-08-11**, and it took the gating note one step further than the paragraph above
+> anticipated. The **space selector** is itself a shared-workspace surface: with `sharedWorkspaces`
+> off it offers *My files* alone, filtered at the view exactly as SPEC-163 filters the connections
+> list and the schema rail, under a registry row of its own. That is a deliberate deviation from
+> 174's FR-001 ("exactly the spaces `useQuerySpaces()` returns") and is recorded in its delivery
+> doc. The keep-fetching rule this arc predicted for 174 shipped with a bound the arc did not name:
+> **an error stops the fill**, because a failed page leaves `hasNextPage` true — the fill's own
+> trigger — and would otherwise spin.
