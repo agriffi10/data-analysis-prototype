@@ -383,6 +383,47 @@ resource "aws_iam_role_policy_attachment" "deploy_file_send" {
   policy_arn = aws_iam_policy.deploy_file_send.arn
 }
 
+# SPEC-168 archive control-plane grants — a SEPARATE customer-managed policy, same
+# rationale + shape as deploy_file_send above (off the role's inline-policy aggregate,
+# separate 6,144-char budget). Covers the archive module's resource types: the FIFO
+# request queue + DLQ, the EventBridge Pipe, the Standard Step Function (+ its role), the
+# verb Lambdas + their ONE shared execution role (incl. scoped iam:PassRole), the
+# archive-common (arcommon) Lambda layer, and the Lambda + Step-Function log groups — all
+# scoped by {project_name}-*-archive-* name patterns.
+#
+# IT IS THE FIRST PLANE POLICY TO CARRY AN S3-BUCKET STATEMENT, because this is the first
+# plane that CREATES a bucket. That statement is scoped by EXACT NAME rather than by the
+# name pattern, and the reason is worth stating because it looks like an inconsistency:
+# "{project}-prod-archive" has no trailing segment, so it does not match
+# "{project}-*-archive-*" at all. A pattern-scoped grant would render, apply and then fail
+# the bucket create with an implicit deny.
+#
+# NO events: STATEMENT, deliberately, and the same note file-send's policy carried at this
+# stage applies: this machine validates and stops, so it has no TimeoutSeconds and no
+# TIMED_OUT rule to manage. SPEC-169 adds the transfer — and therefore the timeout, the
+# rule and the events: grant it needs — and must extend this policy FIRST and apply it
+# before those resources land.
+#
+# Granted FIRST and applied before the archive module's resources land (the
+# deploy-perms-before-resources rule), so there is no self-grant race.
+resource "aws_iam_policy" "deploy_archive" {
+  name        = "${var.project_name}-deploy-archive"
+  description = "Deploy-role grants for the SPEC-168 archive control plane (the archive bucket, FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, arcommon layer, log groups), kept off the role's inline-policy aggregate limit."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-archive.json.tftpl", {
+    project_name        = var.project_name
+    aws_region          = var.aws_region
+    archive_bucket_name = var.archive_bucket_name
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_archive" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_archive.arn
+}
+
 # Self-grant propagation guard. The main deploy-policy update above grants the deploy
 # role iam:CreatePolicy / iam:AttachRolePolicy on itself, then this SAME apply uses
 # those grants to create+attach the managed policy. IAM is eventually consistent, so

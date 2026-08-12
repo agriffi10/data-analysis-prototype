@@ -123,9 +123,9 @@ catalog-wide Describe, which fixes the `AccessDenied`-vs-`EntityNotFound` read f
 
 ## Control Planes (privileged async pipelines)
 
-Five features perform privileged, cross-user, multi-step AWS work that browser-scoped credentials
-must not: shared-space lifecycle, table creation, table sharing, data-quality checks, and sending
-files to another person or space. Each is a deliberate, recorded reversal of "no backend" for its
+Six features perform privileged, cross-user, multi-step AWS work that browser-scoped credentials
+must not: shared-space lifecycle, table creation, table sharing, data-quality checks, sending files
+to another person or space, and archiving a file or folder into Glacier (with its restore). Each is a deliberate, recorded reversal of "no backend" for its
 mutations only — the rest of the app stays browser-direct.
 
 ### The shared pattern
@@ -470,6 +470,64 @@ share did.
 - **No LF-admin designation** — no table is created here.
 - **The execution role is on the user-space bucket policy's allowlist (FR-006)** — see that
   spec-delivery doc before building any future plane that touches Bucket 1.
+
+### Archive — SPEC-168 → 172 (168 complete; 169-172 pending)
+
+"Put this away": move a file or folder out of a user's space into a separate bucket at the
+`GLACIER` storage class, delete the original, and leave behind a plain-text receipt. Reversible
+only through a restore request that takes **hours**, not a click.
+
+- **The storage class is the whole design.** `GLACIER` (Flexible Retrieval) is not readable, and a
+  `CopyObject` whose source is in it fails `InvalidObjectState` — so a restore is `RestoreObject` +
+  a 3-5 hour wait + a copy, and SPEC-171 grows a `Wait`/poll loop no other plane here has.
+  `GLACIER_IR` was rejected (readable in real time, which deletes the restore machinery but makes
+  "archive" mean "moved to a cheaper bucket") and `DEEP_ARCHIVE` too (12-48 h, 180-day minimum).
+  The **90-day minimum duration is surfaced to the user** in SPEC-172's confirm dialog: archive on
+  Monday and restore next week and you are still billed for 90 days.
+- **The archive bucket is the first bucket the browser has no relationship with at all** — no CORS,
+  absent from the CSP `connect-src`, and the portal role holds **zero** statements naming it. What
+  the browser does get is a **Deny**: `PutObject`/`DeleteObject`/`AbortMultipartUpload` under
+  `archive/` in **both** space buckets, so a receipt cannot be forged or deleted by the user it
+  describes. `lambdas/test_archive_bucket_isolation.py` pins all of that, because it is a NEGATIVE
+  claim and those rot silently.
+- **Retention is a CEILING, not a floor.** A 7-year expiry lifecycle, deliberately **bucket-wide
+  with no prefix filter** — the inverse of the admin bucket's `admin_lifecycle_rules_are_prefix_
+  scoped` check, which exists only because that bucket mixes retained and expiring content. Object
+  Lock is out of scope: it needs versioning (deferred 2026-08-03) and in compliance mode would make
+  SPEC-171's archive cleanup impossible.
+- **ONE plane serves both archive and restore**, branching on `mode` — SPEC-143's create/refresh
+  branch is the precedent, not a sixth module. The `Choice` guards every comparison with
+  **`IsPresent`**: a `Choice` on an absent path raises uncatchable `States.Runtime` and `Default`
+  does not cover it.
+- **The archived key encodes its own origin.** `personal/alice/archive/{uuid}/reports/q1.csv` came
+  from `alice/reports/q1.csv`, so SPEC-170 rebuilds every restore destination from a
+  `ListObjectsV2` over the archive prefix. **The receipt is a report, not a record** — same posture
+  as SPEC-143 judging a table by shape rather than by the marker it also writes.
+- **The leading `personal/` / `shared/` segment is not cosmetic.** Nothing anywhere checks a
+  proposed shared-space name against the User Pool, so a user `alice` and a space `alice` can both
+  exist. Flat, they would share one archive prefix — and since restore authorizes by *space* and
+  then reads whatever sits there, a member of space `alice` could restore user `alice`'s files.
+  Receipts need no such segment: they live in each space's own bucket.
+- **Containment lives in `cpcommon.paths`, not in `arcommon`** (SPEC-156). Archive is the third
+  plane to ask "is this key inside the root I authorized?", and it is the one place a second copy
+  is a cross-tenant read. `fscommon.paths` re-exports the three names.
+- **`ARCHIVE_BUCKET` is NOT a `cpcommon.config` required var.** That set is a fleet-wide contract
+  every plane's Lambda environment must satisfy; a variable only this plane sets belongs in
+  `arcommon.config.archive_bucket()` — a *function*, so the layer stays import-safe.
+- **The execution role holds no S3 grant on any data bucket at SPEC-168.** Every other plane's role
+  can carry a blanket `Deny s3:DeleteObject` forever; **this one cannot**, because SPEC-169 has to
+  grant the source deletion. Granting nothing early keeps that a decision 169 makes explicitly.
+- **No `TimeoutSeconds` yet, deliberately** — nothing in the machine waits. SPEC-169 adds the Map
+  and the copy and **must** add the ceiling, the EventBridge `TIMED_OUT` rule and notify-failure's
+  second door with it: catchers do not cover a top-level execution failure. Two tests are tripwires
+  on exactly that.
+- **Two decisions carry the correctness of the feature, and both are SPEC-169/170's to honour.**
+  The source is deleted only when **every** object is confirmed copied — "copied 900 of 1000,
+  deleted 1000" is the failure this must never have, and a partial transfer rolls the archive copy
+  back. And the restore guard is **absolute**: any occupied destination key refuses the whole
+  restore, before `RestoreObject`, because retrieval is billed and cannot be cancelled. That
+  asymmetry with archiving's rollback is deliberate — deleting restored data to make the operation
+  atomic would destroy the thing the restore was for.
 
 ### Data Quality — SPEC-108→114, 123, 124
 

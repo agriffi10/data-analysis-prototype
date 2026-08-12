@@ -69,6 +69,16 @@
       "Resource": "${shared_space_bucket_arn}/*/DO_NOT_DELETE.txt"
     },
     {
+      "Sid": "SharedArchiveReceiptsAreNotUserWritable",
+      "Effect": "Deny",
+      "Action": [
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:AbortMultipartUpload"
+      ],
+      "Resource": "${shared_space_bucket_arn}/*/archive/*"
+    },
+    {
       "Sid": "SharedSpaceEnqueue",
       "Effect": "Allow",
       "Action": "sqs:SendMessage",

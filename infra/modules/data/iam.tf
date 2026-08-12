@@ -83,6 +83,30 @@ resource "aws_cognito_identity_pool_roles_attachment" "portal" {
 # connect-src, and the portal role is already on the bucket policy's principal allowlist. The
 # admin bucket has none of the three. `lambdas/test_feature_flags_config.py` asserts all three
 # rather than assuming them, because a broken read here falls back silently to all-on.
+#
+# ── ArchiveReceiptsAreNotUserWritable (SPEC-168 FR-006) ──────────────────────
+# A Deny on PutObject/DeleteObject/AbortMultipartUpload under the user's own `archive/`
+# prefix. The receipt is written by the archive execution role and must not be editable,
+# forgeable or deletable by the browser: a user who can rewrite a receipt can misreport
+# what was archived, to themselves and to anyone they show it to.
+#
+# It lives HERE, beside the Allow it narrows, rather than in the analytics template where
+# the two existing personal denies happen to sit. GetObject and ListBucket are untouched —
+# the user can browse the archive folder and download a receipt, which is the whole point
+# of the receipt being a plain text file. Denying a WRITE action does not perturb listing.
+#
+# s3:AbortMultipartUpload IS INCLUDED ON PURPOSE, and it is the part that reads as
+# redundant and is not. A Deny on PutObject alone already blocks a multipart upload
+# (every part is authorized as PutObject), so nothing can be written either way — but with
+# abort left out, a half-started upload cannot be TIDIED, and its orphaned parts sit there
+# billed and invisible to every listing until the bucket's abort-incomplete rule catches
+# them.
+#
+# THE UI MIRROR IS OWED AND LANDS IN SPEC-172. An IAM Deny with no UI counterpart produces
+# a bare AccessDenied for a rule this application itself authored — exactly what
+# `isUndeletableRootFolder` exists to prevent for `athenaresults/`. Nothing gates Upload or
+# New folder on the current PREFIX today, so SPEC-172 builds the app's first prefix-based
+# write gate for it.
 resource "aws_iam_role_policy" "portal_permissions" {
   name = "user-space-access"
   role = aws_iam_role.portal.id

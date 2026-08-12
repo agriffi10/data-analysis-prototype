@@ -72,6 +72,12 @@ variable "shared_space_bucket_name" {
   default     = ""
 }
 
+variable "archive_bucket_name" {
+  description = "Override for the archive (Bucket 5) S3 name (SPEC-168). When empty, defaults to {project_name}-prod-archive. Override only if that global name is already taken (S3 names are globally unique)."
+  type        = string
+  default     = ""
+}
+
 variable "max_shared_memberships" {
   description = "SPEC-056: number of shared-space membership slots per user (Cognito custom attributes custom:shared_space_1..N + Identity-Pool principal tags shared_space_1..N + portal-role policy slots). Single source for the slot count across auth/data/shared-spaces. Bounded because a Cognito Identity Pool maps each claim to exactly one single-valued principal tag; raising it enlarges the portal-role policy (see docs/architecture.md, Bucket 2 membership slots)."
   type        = number

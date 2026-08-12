@@ -1,0 +1,156 @@
+{
+  "Comment": "Archive control plane (SPEC-168 foundation + front door). ONE machine serves both archive and restore, branching on `mode` — the two verbs share the bucket, the execution role, the key layout and the receipt, and a restore is meaningless without the archive that produced it (SPEC-143's create/refresh branch on the table-builder is the precedent, rather than standing up a sixth module). validate-authorize verifies the ID token into the actor, authorizes the SOURCE space the actor is archiving FROM, confirms every selected item sits inside that source root and is not one of the portal's own folders, enforces the request-shape caps and resolves the archive prefix. Nothing is listed, copied or deleted at this stage: ArchivePlaceholder is the terminal, and SPEC-169 replaces it with the expansion, the Glacier transfer, the commit gate and the receipt. RestorePlaceholder is SPEC-170/171's. The FailureSeeds/RecordFailure/NotifyFailure are the SPEC-152 whole-request failure path, present from day one because a plane that ships without it leaves 'it just never came back' reachable for the user. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried. NO TOP-LEVEL TimeoutSeconds, deliberately: nothing here WAITS — no Map, no manifest, no copy, no poll loop — so this machine cannot wedge, and Step Functions' own one-year default is the honest description of a machine that validates and stops. SPEC-169 adds the transfer and MUST add the ceiling, the EventBridge TIMED_OUT rule and notify-failure's second door with it, because catchers do not cover a top-level execution failure.",
+  "StartAt": "ValidateAuthorize",
+  "States": {
+    "ValidateAuthorize": {
+      "Type": "Task",
+      "Comment": "Verifies the ID token into the actor, authorizes the source space, checks every selected item is inside the authorized root and is not portal-managed, enforces the request-shape caps, and resolves the archive prefix and the receipt key. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state for the next steps. The request is deliberately NOT threaded alongside it: the Pipe record carries the same selection again as an escaped JSON string, so keeping both would roughly double the state for the whole run — the failure path reads the request from the CONTEXT OBJECT instead, which costs nothing until it is needed. TransientError (a throttled S3 registry read) is retried, never terminalized.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${validate_authorize_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "ValidateFailureSeed"
+        }
+      ],
+      "Next": "Validated"
+    },
+    "Validated": {
+      "Type": "Pass",
+      "Comment": "THE ASL/VERB CROSS-CHECK POINT. A Task hands its output on whole, so nothing in a Task-to-Task chain would notice validate-authorize renaming a field — while a Pass naming each key fails the build via test_state_machine_archive.py, which reads this block and the verb's real return value and requires them to agree. It emits exactly the five keys the verb returns, and it carries NO status literal: a placeholder marker that outlives its placeholder is how a field nothing reads survives into production.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "mode.$": "$.mode",
+        "actor.$": "$.actor",
+        "source.$": "$.source",
+        "archive.$": "$.archive"
+      },
+      "Next": "ChooseMode"
+    },
+    "ChooseMode": {
+      "Type": "Choice",
+      "Comment": "The archive/restore branch, on the VALIDATED request rather than on the raw Pipe record — `mode` is a plain field of a parsed object here, where in the record it is buried inside an escaped JSON string that ASL cannot look into. THE `IsPresent` GUARD IS NOT DEFENSIVE TIDYING: a Choice comparing a string on an ABSENT path raises States.Runtime, which is neither retriable nor catchable, and `Default` does NOT cover it — SPEC-143's recorded trap, learned by killing an execution outright before any state could record or notify. Guarded, the same request reaches UnknownModeSeed and the user is told. Today validate-authorize is an earlier gate that refuses anything but `archive`, so the restore and default arms are unreachable at RUNTIME while being reachable in the GRAPH; that is deliberate, because SPEC-170 replaces the restore arm's target rather than the branch, and a `mode` branch with one arm is not the branch this plane's design rests on.",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.mode", "IsPresent": true },
+            { "Variable": "$.mode", "StringEquals": "archive" }
+          ],
+          "Next": "ArchivePlaceholder"
+        },
+        {
+          "And": [
+            { "Variable": "$.mode", "IsPresent": true },
+            { "Variable": "$.mode", "StringEquals": "restore" }
+          ],
+          "Next": "RestorePlaceholder"
+        }
+      ],
+      "Default": "UnknownModeSeed"
+    },
+    "ArchivePlaceholder": {
+      "Type": "Pass",
+      "Comment": "SPEC-168's terminal, and a Pass rather than a Succeed so the shape of what replaces it is already visible: SPEC-169 puts the expansion, the Glacier transfer, the commit gate and the receipt write here, and its first Task is what makes a post-validate RequestFailureSeed reachable. The validated request travelling through unchanged is the honest representation of a plane that has validated and done nothing else.",
+      "Next": "Succeeded"
+    },
+    "RestorePlaceholder": {
+      "Type": "Pass",
+      "Comment": "SPEC-170/171's half of the machine. SPEC-170 replaces it with the request lookup and the destination guard; SPEC-171 with RestoreObject, the Wait/poll loop and the copy-back — the only loop of its kind in this repo, because a GLACIER source cannot be copied at all until a billed, uncancellable retrieval has finished. That ordering is load-bearing: 170's guard is what makes 171's retrieval safe to start.",
+      "Next": "Succeeded"
+    },
+    "UnknownModeSeed": {
+      "Type": "Pass",
+      "Comment": "The one whole-request failure this stage of the machine can produce outside a Task, and the reason ChooseMode's Default is not simply pointed at Succeeded. It seeds the SAME shape RecordFailure reads from every other path — requestId, actor, raw, error — so there is one failure terminal rather than two. $.raw comes from the CONTEXT OBJECT because RecordFailure reads it unconditionally; the actor comes from the state, which by here is the verified username. THE SEEDED ERROR NAME IS A REASON CODE, NEVER `TerminalError`: notify-failure treats that one name as positive evidence that a verb's decorator already sent a message, so a seed wearing it would be silently suppressed (the recorded DiffMissingSeed rule). `invalid_request` is a registered arcommon code, so the user reads a real sentence rather than the generic fallback.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor",
+        "raw.$": "$$.Execution.Input",
+        "error": {
+          "Error": "invalid_request",
+          "Cause": null
+        }
+      },
+      "Next": "RecordFailure"
+    },
+    "ValidateFailureSeed": {
+      "Type": "Pass",
+      "Comment": "A validate-authorize failure happens before the request identity exists, and its input was the raw SQS ARRAY — so the Catch has no object to merge a ResultPath into and the error REPLACES the state. That is why $.raw is read from the CONTEXT OBJECT rather than from the state: $$.Execution.Input is the Pipe's forwarded batch, still there whatever the Catch did to the state, and it is the only surviving copy of the caller's token. Without it NotifyFailure would take its no-recipient branch on every single failure — SPEC-152 satisfied on paper and silent in practice, on exactly the cold-start failures it exists for. Reading $$ in a PASS state rather than in the failing task's own Parameters is SPEC-157's recorded shape. The seed must supply every key the failure terminal reads: a Pass state's JSONPath hard-fails on an absent key with an uncatchable States.Runtime, which a fleet-wide test enforces.",
+      "Parameters": {
+        "requestId": null,
+        "actor": null,
+        "raw.$": "$$.Execution.Input",
+        "error.$": "$"
+      },
+      "Next": "RecordFailure"
+    },
+    "RecordFailure": {
+      "Type": "Pass",
+      "Comment": "The single recorded-failure state every whole-request path reaches (identity is null for a pre-identity validate failure). Shapes the structured outcome the notifier reads, then fails the execution. It carries the RAW $.error {Error, Cause}, not a decoded reason: States.StringToJson raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON (#252), which would kill the execution before it could record anything. Decode with cpcommon.errors.failure_reason, never in ASL.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor",
+        "raw.$": "$.raw",
+        "status": "failed",
+        "error.$": "$.error"
+      },
+      "Next": "NotifyFailure"
+    },
+    "NotifyFailure": {
+      "Type": "Task",
+      "Comment": "SPEC-152 FR-001. Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error, a task that could not be invoked — where @notifies_on_failure never ran and the actor would otherwise be told nothing at all. WHOLE-REQUEST ONLY. The duplicate it has to avoid is the whole-request verb's own decorator emit, which the verb suppresses in Python by reading Lambda's Error name. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${notify_failure_function_arn}",
+        "Payload.$": "$"
+      },
+      "ResultPath": null,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.notifyError",
+          "Next": "Failed"
+        }
+      ],
+      "Next": "Failed"
+    },
+    "Succeeded": {
+      "Type": "Succeed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "ArchiveFailed",
+      "Cause": "The archive control plane recorded an unrecoverable whole-request error (see the RecordFailure state output for the structured { status:'failed', error } outcome)."
+    }
+  }
+}

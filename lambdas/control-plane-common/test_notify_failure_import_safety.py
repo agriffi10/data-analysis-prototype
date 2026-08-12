@@ -61,6 +61,7 @@ NOTIFY_FAILURE_VERBS = {
     "table-share-notify-failure": "ts_notify_failure",
     "shared-space-notify-failure": "ss_notify_failure",
     "file-send-notify-failure": "fs_notify_failure",
+    "archive-notify-failure": "ar_notify_failure",
 }
 
 #: matrix flag -> the directory the layer publishes its contents FROM. ``layer`` is
@@ -72,6 +73,7 @@ LAYER_ROOTS = {
     "tscommon": LAMBDAS / "table-share-common",
     "dqcommon": LAMBDAS / "data-quality-common",
     "fscommon": LAMBDAS / "file-send-common",
+    "arcommon": LAMBDAS / "archive-common",
     "layer": LAMBDAS / "shared-space-common",
 }
 
