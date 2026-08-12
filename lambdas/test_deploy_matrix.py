@@ -46,6 +46,7 @@ LAYER_PACKAGES = {
     "tscommon": "tscommon",
     "dqcommon": "dqcommon",
     "fscommon": "fscommon",
+    "arcommon": "arcommon",
     "polars": None,  # two different polars layers — resolved per function below
     **dict.fromkeys(
         ("config", "casio", "auth", "registry", "membership", "cache", "notify", "messages",

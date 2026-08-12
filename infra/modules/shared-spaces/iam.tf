@@ -54,6 +54,15 @@ resource "aws_iam_role_policy" "orchestrator" {
 # and the SINGLE privileged grant the browser receives — sqs:SendMessage to the
 # request queue only. An unset slot stamps no tag → the statement matches nothing
 # (implicit deny); verified with aws iam simulate-custom-policy.
+#
+# SPEC-168 FR-006 adds a third deny — SharedArchiveReceiptsAreNotUserWritable — using the
+# WILDCARD SPACE SEGMENT form the two existing denies already use
+# (${shared_space_bucket_arn}/*/archive/*) rather than a per-slot loop. That is not a
+# shortcut: a Deny needs no tag to be correct, so one wildcard statement covers every
+# membership slot including ones the user does not hold, where the per-slot Allows above
+# must be tag-scoped or they would grant access to spaces the user is not in. Same
+# reasoning as SharedResultsNoDelete. GetObject/ListBucket are untouched: a member can
+# browse the space's archive folder and download a receipt.
 resource "aws_iam_role_policy" "portal_shared_space" {
   name = "shared-space-membership"
   role = var.portal_role_name

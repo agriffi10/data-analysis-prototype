@@ -22,6 +22,7 @@ _LAYER_DIRS = (
     "table-builder-common",
     "table-share-common",
     "file-send-common",
+    "archive-common",
 )
 _HERE = os.path.dirname(os.path.abspath(__file__))
 for _dir in _LAYER_DIRS:
@@ -56,7 +57,7 @@ import pytest
 # layers, and its process-wide worker/config already has purpose-built save-and-restore in
 # the `captured_events` fixture below. Two mechanisms restoring the same globals in an order
 # nobody chose is how a quiet teardown bug starts.
-_LAYER_PREFIXES = ("cpcommon", "tbcommon", "tscommon", "dqcommon", "fscommon")
+_LAYER_PREFIXES = ("cpcommon", "tbcommon", "tscommon", "dqcommon", "fscommon", "arcommon")
 
 #: shared-space-common publishes FLAT modules, so they have no package prefix to match on.
 #: DERIVED FROM THE DIRECTORY, never hand-listed: a hand-list drifts silently, and the leak
@@ -100,6 +101,10 @@ _REQUIRED_ENV = {
     "ADMIN_BUCKET": "admin-bkt",
     "SHARED_SPACE_BUCKET": "shared-bkt",
     "USER_SPACE_BUCKET": "user-bkt",
+    # SPEC-168. Not one of cpcommon.config's fleet-wide required vars (only the archive
+    # plane sets it); stamped here so the archive verb suites read a real name rather than
+    # each re-stamping it, exactly as the six above are.
+    "ARCHIVE_BUCKET": "archive-bkt",
     "PORTAL_ROLE_ARN": "arn:aws:iam::000000000000:role/test-portal",
     "ATHENA_WORKGROUP": "test-workgroup",
     "AWS_REGION": "us-east-1",

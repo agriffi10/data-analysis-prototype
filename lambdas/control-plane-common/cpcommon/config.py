@@ -88,6 +88,36 @@ def _require(name: str) -> str:
     return value
 
 
+def require(name: str) -> str:
+    """The fleet's ONE fail-fast environment reader, for values outside ``_REQUIRED_VARS``.
+
+    ``_REQUIRED_VARS`` above is the set every control plane needs, and a domain layer must not
+    add to it: that set is a fleet-wide contract, asserted per plane by
+    ``test_the_common_environment_satisfies_every_import_time_require``, so a variable only one
+    plane sets would fail every other plane's guard. SPEC-168's ``ARCHIVE_BUCKET`` is the first
+    such value and this is what it uses instead.
+
+    Exported rather than left private so a domain layer reaches for it instead of writing its
+    own three-line ``os.environ`` check — one reader means one error sentence and one place the
+    fail-fast behaviour is decided (SPEC-156).
+
+    **It is a FUNCTION, not a module attribute, and that is what keeps a domain config
+    import-safe.** A constant resolved at import time in a layer module runs for every
+    attaching function whether or not it uses the value, and an unset variable then crashes at
+    COLD START, where no test and no deploy can see it (PR #196).
+
+    Args:
+      name: The environment variable to read.
+
+    Returns:
+      Its value.
+
+    Raises:
+      RuntimeError: If the variable is unset or empty.
+    """
+    return _require(name)
+
+
 if TYPE_CHECKING:
     USER_POOL_ID: str
     APP_CLIENT_ID: str

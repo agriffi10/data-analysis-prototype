@@ -295,6 +295,71 @@ jobs:
           echo "Published ${ARN}"
           echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
 
+  # ── archive-common layer (SPEC-168) ────────────────────────────────────────
+  # Publishes the `archive-common` layer = the `arcommon` package (this plane's config,
+  # source authorization, archive key layout and wording). No external deps:
+  # PyJWT[crypto] is declared ONCE in the cpcommon layer (SPEC-107 FR-001), which every
+  # archive verb also attaches, and containment lives in cpcommon.paths rather than being
+  # copied here. A PACKAGE (python/arcommon/), not flat modules, so its names cannot
+  # collide with another domain layer's under pytest.
+  #
+  # NAMED AFTER THE PLANE, NOT THE PACKAGE. The deploy role's layer grant is scoped to
+  # `{project}-*-archive-*` (modules/base), so a layer called `dat-prod-arcommon` would
+  # fail publish with an implicit deny rather than a clear error.
+  archive_layer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      layer_arn: ${{ steps.publish.outputs.layer_arn }}
+      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Build layer package
+        id: build
+        run: |
+          set -euo pipefail
+          LAYER_DIR="build/arcommon-layer/python"
+          rm -rf build/arcommon-layer && mkdir -p "$LAYER_DIR"
+          # A whole-package copy, not a per-file list: a new arcommon module ships by
+          # existing. SPEC-153 FR-002 requires set equality against the directory for any
+          # layer packaged by an EXPLICIT list, and this is exempt for that named reason.
+          cp -r lambdas/archive-common/arcommon "$LAYER_DIR"/arcommon
+          find "$LAYER_DIR"/arcommon -name '__pycache__' -type d -prune -exec rm -rf {} +
+          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
+          (cd build/arcommon-layer && zip --quiet --recurse-paths ../archive-common-layer.zip .)
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
+
+      - name: Publish layer version
+        id: publish
+        run: |
+          set -euo pipefail
+          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-archive-common"
+          ARN=$(aws lambda publish-layer-version \
+            --layer-name "$LAYER_NAME" \
+            --description "Shared arcommon package for the archive verb Lambdas (SPEC-168)." \
+            --zip-file "fileb://build/archive-common-layer.zip" \
+            --compatible-runtimes python3.12 \
+            --query LayerVersionArn --output text)
+          echo "Published ${ARN}"
+          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
+
   # ── file-send-common layer (SPEC-164) ──────────────────────────────────────
   # Publishes the `file-send-common` layer = the `fscommon` package (this plane's config,
   # source authorization, key containment, wording and notification glue). No external
@@ -548,7 +613,7 @@ jobs:
           echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
 
   deploy:
-    needs: [layer, polars_layer, table_builder_layer, table_share_layer, file_send_layer, cpcommon_layer, dqcommon_layer, dq_polars_layer]
+    needs: [layer, polars_layer, table_builder_layer, table_share_layer, file_send_layer, archive_layer, cpcommon_layer, dqcommon_layer, dq_polars_layer]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -646,6 +711,14 @@ jobs:
           - { name: file-send-collect-transfer-results, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           - { name: file-send-notify, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           - { name: file-send-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
+          # Archive verbs (SPEC-168). The vault's front door and SPEC-152's notifier of
+          # last resort. `arcommon: true` attaches the archive-common layer — both verbs
+          # carry this plane's wording. Key containment is NOT in that layer: it is
+          # cpcommon.paths, shared with file-send, because a second copy of the rule that
+          # decides whether a key is inside the caller's own space is a second place a
+          # cross-tenant read can be introduced.
+          - { name: archive-validate-authorize, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
+          - { name: archive-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
           # Data-quality verbs (SPEC-108). All nine attach cpcommon + dqcommon; only
           # inspect-source also attaches the data-quality polars layer (it must read
           # Parquet footers — Athena needs an explicit column list). Stub handlers now;
@@ -722,6 +795,7 @@ jobs:
           [ "${{ matrix.lambda.dqcommon }}" = "true" ] && add "${{ needs.dqcommon_layer.outputs.unzipped_kb }}" data-quality-common
           [ "${{ matrix.lambda.dqpolars }}" = "true" ] && add "${{ needs.dq_polars_layer.outputs.unzipped_kb }}" data-quality-polars
           [ "${{ matrix.lambda.fscommon }}" = "true" ] && add "${{ needs.file_send_layer.outputs.unzipped_kb }}" file-send-common
+          [ "${{ matrix.lambda.arcommon }}" = "true" ] && add "${{ needs.archive_layer.outputs.unzipped_kb }}" archive-common
           echo "${{ matrix.lambda.name }} combined unzipped: $((TOTAL_KB / 1024)) MB  [${NAMES}]"
           if [ "$TOTAL_KB" -gt 245760 ]; then
             echo "::error::${{ matrix.lambda.name }} exceeds 240 MB unzipped: $((TOTAL_KB / 1024)) MB across ${NAMES} (Lambda's hard limit is 250 MB per function, package + all layers)."
@@ -789,6 +863,7 @@ jobs:
           [ "${{ matrix.lambda.dqcommon }}" = "true" ] && LAYERS+=("${{ needs.dqcommon_layer.outputs.layer_arn }}")
           [ "${{ matrix.lambda.dqpolars }}" = "true" ] && LAYERS+=("${{ needs.dq_polars_layer.outputs.layer_arn }}")
           [ "${{ matrix.lambda.fscommon }}" = "true" ] && LAYERS+=("${{ needs.file_send_layer.outputs.layer_arn }}")
+          [ "${{ matrix.lambda.arcommon }}" = "true" ] && LAYERS+=("${{ needs.archive_layer.outputs.layer_arn }}")
           if [ "${#LAYERS[@]}" -gt 0 ]; then
             aws lambda update-function-configuration \
               --function-name "$FUNCTION" \

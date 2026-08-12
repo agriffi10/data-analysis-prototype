@@ -116,6 +116,36 @@ locals {
   # inside a LIST silently drops the change.
   file_send_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-file-send-execution-role"
 
+  # Archive bucket (Bucket 5, SPEC-168) computed once the same cycle-free way: the archive
+  # module creates it, base's deploy policy is scoped to its NAME (an exact-name statement,
+  # because the bucket has no trailing segment and so does not match the plane's
+  # {project}-*-archive-* pattern). Overridable via the root archive_bucket_name variable
+  # (S3 names are globally unique).
+  #
+  # NOT IN modules/app's CSP INPUTS, and that absence is a requirement rather than an
+  # oversight (FR-001): the browser never reads this bucket, so its host must not appear in
+  # the enumerated connect-src. A reviewer should be able to read that list and see no
+  # archive host.
+  archive_bucket_name = var.archive_bucket_name != "" ? var.archive_bucket_name : "${var.project_name}-prod-archive"
+
+  # Archive SHARED execution role ARN (SPEC-168; one role for every verb, like every plane
+  # since SPEC-062), constructed cycle-free like the role ARNs above (module.archive creates
+  # it as "${project}-${env}-archive-execution-role").
+  #
+  # NOT ON THE LAKE FORMATION ADMINS LIST, for file-send's reason: an archive moves FILES.
+  # It creates no table, describes no database and runs no DDL.
+  #
+  # It is threaded THREE ways, which is one more than any previous plane and each one is
+  # load-bearing. (1) module.data, for the user-space bucket policy's principal allowlist —
+  # an explicit resource-policy Deny beats an identity-policy Allow, so without it every
+  # PERSONAL archive fails AccessDenied while every SHARED one succeeds, which reads like a
+  # code bug and is not. (2) module.archive itself, for the archive bucket's OWN policy,
+  # which denies every principal but this role and the deploy role. (3) Nothing in the SPA,
+  # ever. A constructed string rather than a module output for the usual reason, which the
+  # allowlist is precisely the shape of: an unknown-at-plan ARN inside a LIST silently drops
+  # the change.
+  archive_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-archive-execution-role"
+
   # Notifications-writer role ARN (SPEC-058), constructed cycle-free like the role ARNs
   # above (module.notifications creates it as "${project}-${env}-notifications-writer-role").
   # Passed to module.data so the user-space bucket policy can EXCLUDE it from the
@@ -210,6 +240,7 @@ locals {
     "${var.project_name}-${var.environment}-table-share-requests-dlq.fifo",
     "${var.project_name}-${var.environment}-shared-space-requests-dlq.fifo",
     "${var.project_name}-${var.environment}-file-send-requests-dlq.fifo",
+    "${var.project_name}-${var.environment}-archive-requests-dlq.fifo",
   ]
 }
 
@@ -247,6 +278,11 @@ module "base" {
   # s3:* on Bucket 2; the rest of the SPEC-050 deploy grants are scoped by name
   # pattern (${project_name}-*-shared-space-*) inside the policy template.
   shared_space_bucket_arn = local.shared_space_bucket_arn
+
+  # SPEC-168: the archive bucket the deploy role manages, by NAME. The rest of the archive
+  # deploy grants are scoped by {project_name}-*-archive-* name patterns in the policy
+  # template; the bucket needs an exact-name statement because it has no trailing segment.
+  archive_bucket_name = local.archive_bucket_name
 }
 
 module "auth" {
@@ -331,6 +367,13 @@ module "data" {
   # make this same three-part change (a variable here, the templatefile() argument, the
   # root wiring) or be denied at runtime with nothing in the plan to warn it.
   file_send_execution_role_arn = local.file_send_execution_role_arn
+
+  # SPEC-168 FR-007: the archive execution role reads the actor's personal-space files and
+  # (from SPEC-169) deletes them once every object is confirmed copied, so it needs the same
+  # exclusion. The allowlist is hand-maintained and this is the FIFTH plane to make the same
+  # three-part change (a variable there, the templatefile() argument, the root wiring); a
+  # plane that skips it is denied at runtime with nothing in the plan to warn it.
+  archive_execution_role_arn = local.archive_execution_role_arn
 
   # Identity Pool ID from auth — used as the portal role's trust audience and the
   # pool's authenticated-role binding. Dependency stays one-directional: data -> auth.
@@ -694,6 +737,69 @@ module "file_send" {
 
   # base grants the deploy role its file-send perms (SPEC-164 PR1, already applied); data
   # creates the portal role this module attaches the enqueue policy to. Settle both first.
+  depends_on = [module.base, module.data]
+}
+
+# Archive control plane + the archive bucket (SPEC-168): a DEDICATED FIFO SQS → EventBridge
+# Pipe → Standard Step Function pipeline running single-task verb Lambdas on ONE shared
+# execution role, plus Bucket 5 — the vault. ONE plane serves both archive and restore,
+# branching on `mode`, because the two share the bucket, the role, the key layout and the
+# receipt (SPEC-143's create/refresh branch is the precedent).
+#
+# SPEC-168 is the bucket + the plane + the front door (validate-authorize); nothing is
+# listed, copied or deleted yet, and nothing about restore exists. Decision record:
+# docs/architecture.md (Control Planes -> Archive).
+#
+# THE BROWSER HAS NO RELATIONSHIP WITH THE ARCHIVE BUCKET, which is why this block passes
+# no CSP input, no CORS origin and no bucket name to module.app: no CORS configuration, no
+# connect-src entry, and the portal role holds zero statements naming it. Its only browser
+# surface is sqs:SendMessage on this module's request queue.
+#
+# NOT on the analytics LF admins list — this plane creates no table and runs no DDL — so
+# module.analytics does not depend on it.
+module "archive" {
+  source = "./modules/archive"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  account_id   = data.aws_caller_identity.current.account_id
+
+  # The bucket this module creates, and the two ARNs its bucket policy admits. The
+  # execution-role ARN is the CONSTRUCTED twin from locals — the same string module.data
+  # gets for the user-space allowlist, so the two cannot drift.
+  archive_bucket_name = local.archive_bucket_name
+  deploy_role_arn     = local.deploy_role_arn
+  execution_role_arn  = local.archive_execution_role_arn
+
+  # The portal role this module attaches the sqs:SendMessage enqueue policy to (by name),
+  # the Cognito pool/client validate-authorize verifies tokens with, and the admin bucket
+  # holding the shared-spaces registry (source authorization — read-only).
+  portal_role_name  = local.portal_role_name
+  user_pool_id      = module.auth.user_pool_id
+  app_client_id     = module.auth.user_pool_client_id
+  admin_bucket_name = local.athena_admin_bucket_name
+
+  # The two space buckets an archive moves OUT of. Set as env on every verb; the S3 grants
+  # on them arrive with the verbs that need them (SPEC-169's listing, copy and delete).
+  user_space_bucket_name   = local.user_space_bucket_name
+  shared_space_bucket_name = local.shared_space_bucket_name
+
+  # SPEC-152: the SPEC-058 notifications queue the pre-verb failure path emits to. The ARN
+  # scopes the execution role's sqs:SendMessage, the URL is the verbs'
+  # NOTIFICATIONS_QUEUE_URL. Constructed-string locals (known at plan, cycle-free).
+  notifications_queue_arn = local.notifications_queue_arn
+  notifications_queue_url = local.notifications_queue_url
+
+  # SPEC-136 parity: the verbs join the structured-logging pipe. From module.observability's
+  # OUTPUTS rather than reconstructed, so the FIFO `.fifo` suffix cannot drift between
+  # producer and consumer (SPEC-129).
+  logs_queue_arn = module.observability.logs_queue_arn
+  logs_queue_url = module.observability.logs_queue_url
+
+  # base grants the deploy role its archive perms (including the bucket) BEFORE this
+  # module's resources land; data creates the portal role this module attaches the enqueue
+  # policy to. Settle both first.
   depends_on = [module.base, module.data]
 }
 
