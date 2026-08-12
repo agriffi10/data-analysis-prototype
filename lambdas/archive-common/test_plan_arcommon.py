@@ -258,6 +258,56 @@ def test_a_marker_named_as_a_FILE_is_excluded_too():
     assert err.value.reason == "nothing_to_archive"
 
 
+def test_a_users_own_record_named_file_at_the_SPACE_ROOT_refuses_the_whole_archive():
+    """**FOUND IN REVIEW, AND IT IS THE WORST OUTCOME THIS ARC COULD STILL PRODUCE.**
+
+    An object's archive key is `{archivePrefix}{relKey}`, and the integrity record's is
+    `{archivePrefix}_manifest.json` — so a user's own file at the space root with that name maps to
+    exactly the record's key. Nothing upstream stopped it: `assert_not_reserved` refuses selecting
+    the space root as a FOLDER, but naming that file directly passes containment, the reserved rule
+    and the marker rule.
+
+    What it would have cost: the copy lands, `write-manifest` OVERWRITES it with the record,
+    `delete-source` deletes the user's original — the vault has versioning off — and the run reports
+    SUCCESS. The archive is then permanently unrestorable too, because the restore excludes that key
+    as the record and counts one object fewer than the record claims, refusing
+    `restore_archive_incomplete` for everything archived alongside it.
+
+    A WHOLE-REQUEST refusal rather than an exclusion (SPEC-165's direction): dropping it silently
+    would archive everything else and delete the one object it could not carry.
+    """
+    _install({"alice/_manifest.json": 12, "alice/reports/a.csv": 4})
+
+    with pytest.raises(TerminalError) as err:
+        plan.expand(_source([{"kind": "file", "key": "alice/_manifest.json"}]))
+
+    assert err.value.reason == "reserved_object_name"
+    assert err.value.tokens == {"itemName": "_manifest.json"}
+
+
+def test_the_refusal_fires_through_a_folder_expansion_too():
+    """The collision is a property of the RELATIVE key, not of how the object was selected, so a
+    folder selection that expands onto it must refuse identically — otherwise the whole rule is
+    one selection kind away from being bypassed."""
+    _install({"alice/_manifest.json": 12, "alice/reports/a.csv": 4})
+
+    with pytest.raises(TerminalError) as err:
+        plan.expand(_source([{"kind": "folder", "key": "alice/"}]))
+
+    assert err.value.reason == "reserved_object_name"
+
+
+def test_the_same_name_deeper_down_archives_like_any_other_file():
+    """The rule is exactly as narrow as the collision is. `reports/_manifest.json` has a relative
+    key of `reports/_manifest.json`, lands at `{archivePrefix}reports/_manifest.json`, and collides
+    with nothing — refusing it would take a user's own file hostage to a name."""
+    _install({"alice/reports/_manifest.json": 12, "alice/reports/a.csv": 4})
+
+    objects, _ = plan.expand(_source([{"kind": "folder", "key": "alice/reports/"}]))
+
+    assert [entry["relKey"] for entry in objects] == ["reports/_manifest.json", "reports/a.csv"]
+
+
 def test_a_portal_managed_folder_at_the_space_root_is_excluded():
     """Defence in depth over the validator, anchored at the SPACE ROOT, which is where
     `assert_not_reserved` refuses it first."""

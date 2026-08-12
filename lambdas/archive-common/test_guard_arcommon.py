@@ -122,22 +122,38 @@ def test_a_throttle_stays_transient_and_never_falls_through_to_clear():
 # ── The short-circuit, and what the refusal is allowed to claim ──────────────
 
 
-def test_the_guard_short_circuits_rather_than_heading_the_whole_archive():
-    """An archive of 200,000 objects must not issue 200,000 heads to report a conflict found in
-    the first hundred — it would exhaust the verb's timeout before it could report anything.
-    Counted, because a short-circuit that does not short-circuit passes every other test here."""
-    fake = _install(occupied=set(_keys(64)))
+def test_the_guard_short_circuits_on_ONE_collision_not_on_a_full_sample():
+    """FR-004 AC3 verbatim: "an archive of 200,000 objects must not issue 200,000 heads to report a
+    conflict found in the first hundred".
+
+    **ONE collision, deliberately, and the first version of this test could not see the bug.** It
+    used 64 consecutive occupied keys, which fills RESTORE_CONFLICT_SAMPLE inside the first round —
+    so it passed against a guard that only stopped once it had a FULL sample, and a single
+    re-created file (the likeliest real conflict there is) headed all 20,000. Measured on that
+    code: 20,000 heads to report a collision at index 3.
+    """
+    fake = _install(occupied={"alice/f3.csv"})
 
     with pytest.raises(TerminalError):
         guard.assert_clear("user-bkt", _keys(20_000), "alice/")
 
-    assert len(fake.heads) < 200, f"headed {len(fake.heads)} keys before refusing"
+    assert len(fake.heads) < 200, f"headed {len(fake.heads)} keys to report one collision"
+
+
+def test_a_collision_in_a_later_round_still_stops_there():
+    """The stop is at the round that FINDS one, not at the first round overall."""
+    fake = _install(occupied={"alice/f100.csv"})
+
+    with pytest.raises(TerminalError):
+        guard.assert_clear("user-bkt", _keys(20_000), "alice/")
+
+    assert len(fake.heads) < 200, f"headed {len(fake.heads)} keys to report one collision"
 
 
 def test_the_sample_is_bounded_and_the_message_admits_there_may_be_more():
     """BECAUSE it short-circuits, the guard genuinely does not know the total — so a message
     implying the sample was exhaustive would send the user round the clear-and-retry loop once
-    per hidden collision."""
+    per hidden collision. Every key here collides, so one round alone overfills the sample."""
     _install(occupied=set(_keys(500)))
 
     with pytest.raises(TerminalError) as caught:

@@ -56,7 +56,7 @@ from cpcommon import config as cpconfig
 from cpcommon.errors import TerminalError
 from cpcommon.paths import assert_inside_root, normalize_root
 
-from . import messages  # noqa: F401
+from . import manifest, messages  # noqa: F401
 from .config import (
     ARCHIVE_MAX_BYTES,
     ARCHIVE_MAX_OBJECT_BYTES,
@@ -375,6 +375,48 @@ def _assert_deletable_folder(root: str, key: str) -> None:
             )
 
 
+def _assert_not_the_record(relative: str) -> str:
+    """Refuses the one relative key that would archive onto this plane's own integrity record.
+
+    **Found in review, and it is the worst outcome this arc could still produce.** An object's
+    archive key is ``{archivePrefix}{relKey}`` and the record's is ``{archivePrefix}_manifest.json``
+    — so a user's own file at the SPACE ROOT called ``_manifest.json`` maps to exactly the record's
+    key. Nothing upstream stops it: the reserved-root rule refuses selecting the space root as a
+    FOLDER, but naming that file directly passes containment, the reserved rule and the marker rule.
+
+    What it would cost is not a duplicate. The copy would land, ``write-manifest`` would OVERWRITE
+    it with the integrity record, ``delete-source`` would then delete the user's original — the
+    vault has versioning off — and the run would report success. The archive is then also
+    permanently unrestorable: the restore excludes that key as the record, counts one object fewer
+    than the record claims, and refuses ``restore_archive_incomplete`` for every object archived
+    alongside it. Alone, it restores as ``archive_not_found`` against a receipt the user is holding.
+
+    It is a WHOLE-REQUEST refusal rather than an exclusion, which is SPEC-165's direction: silently
+    dropping the file would archive everything else and delete the one object it could not carry.
+
+    Only the space root collides — a ``reports/_manifest.json`` three folders down has a relative
+    key of ``reports/_manifest.json`` and is an ordinary file that archives and restores like any
+    other.
+
+    Args:
+      relative: An object's key relative to the space root.
+
+    Returns:
+      The relative key, unchanged, so this reads as a checkpoint at the call site.
+
+    Raises:
+      TerminalError: ``reserved_object_name``, naming the basename so the message can tell the
+        user which file to rename.
+    """
+    if relative == manifest.BASENAME:
+        raise TerminalError(
+            "reserved_object_name",
+            f"{relative!r} at the space root would overwrite this archive's own record",
+            tokens={"itemName": manifest.BASENAME},
+        )
+    return relative
+
+
 def _object_size(bucket: str, key: str) -> int:
     """Reads one selected file's size, or fails the request naming it.
 
@@ -443,14 +485,14 @@ def _expand_item(bucket: str, root: str, entry: dict):
         _assert_deletable_folder(root, key)
         size = _object_size(bucket, key)
         if not exclude(key, size, key):
-            yield key[len(root):], size
+            yield _assert_not_the_record(key[len(root):]), size
         return
     for object_key, size in s3_listing.list_data_objects(bucket, key, ignore=exclude):
         assert_inside_root(root, object_key)
         _assert_deletable_folder(root, object_key)
         relative = object_key[len(root):]
         if relative:
-            yield relative, size
+            yield _assert_not_the_record(relative), size
 
 
 def expand(source: dict) -> tuple[list, int]:

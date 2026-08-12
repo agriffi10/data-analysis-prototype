@@ -92,17 +92,62 @@ carry, and here neither run deletes anything.
 
 ## What changed from earlier specs
 
-- **SPEC-169's `test_no_restore_verb_requires_the_manifest` fired, as designed.** The cross-check
-  reads `_manifest.json`, which the sweep forbade. The exemption is `arcommon/restore.py` **only**,
-  and it is sound because the tolerance is now pinned three ways (absent, unreadable, malformed all
-  proceed; only a disagreement refuses). A companion test keeps the other half shut: **no verb** may
-  name the basename, including SPEC-171's.
+- **SPEC-169's `test_no_restore_verb_requires_the_manifest` fired twice, as designed.** First for
+  the cross-check in `arcommon/restore.py`, then again for the collision guard review added to
+  `arcommon/plan.py`. Both exemptions are LAYER modules and both are sound because each has one
+  tested behaviour — the tolerance (absent, unreadable, malformed all proceed; only a disagreement
+  refuses) and the refusal. A companion test keeps the other half shut: the only **verb** that may
+  name the basename is the one that writes it, including against SPEC-171's.
+- **SPEC-169 wrote the record inside the user's own key namespace**, which is where finding 1 below
+  comes from. The layout is unchanged — FR-003 AC2 specifies the exclusion, so the record staying at
+  the archive root is the spec's own model — and the collision is refused up front instead.
 - `RestorePlaceholder` is gone, replaced exactly as its own comment predicted — the restore arm's
   **target**, not the branch.
 
 ## What review changed
 
-_(fresh-context review ran on the implementation commit; findings and their disposition below)_
+A fresh-context review of the implementation commit found six real defects. All six are fixed; two
+of them are the kind this arc exists to prevent.
+
+1. **A user's own `_manifest.json` at the SPACE ROOT destroyed itself and bricked the archive.**
+   An object's archive key is `{archivePrefix}{relKey}` and the record's is
+   `{archivePrefix}_manifest.json`, so a file at `{spaceRoot}_manifest.json` maps to exactly the
+   record's key. `assert_not_reserved` refuses selecting the space root as a *folder*, but naming
+   that file directly passed containment, the reserved rule and the marker rule. The copy would
+   land, `write-manifest` would **overwrite** it, `delete-source` would then delete the original —
+   versioning is off — and **the run would report success**. The archive was also permanently
+   unrestorable: the restore excludes that key as the record, counts one fewer than the record
+   claims, and refuses `restore_archive_incomplete` for everything archived alongside it; alone, it
+   restores as `archive_not_found` against a receipt the user is holding. Now a whole-request
+   refusal (`reserved_object_name`) in `plan._assert_not_the_record`, reachable through both
+   selection kinds, and **exactly as narrow as the collision** — `reports/_manifest.json` still
+   archives and restores like any other file.
+2. **The guard did not short-circuit in the case FR-004 AC3 names.** The sample check sat after a
+   full round *and* required `RESTORE_CONFLICT_SAMPLE` collisions, so fewer than five meant no
+   short-circuit at all: **measured, 20,000 heads to report a collision at index 3** — and one
+   re-created file is the likeliest real conflict there is. It now stops at the round that finds
+   the first one. The test that named this property could not fail: its fixture used 64
+   *consecutive* collisions, which fills the sample inside the first round. It now uses one.
+3. **A malformed *restore* was worded as an archive failure** — the exact case the two-prefix
+   design exists for. `mode` came from `_check_contract`'s return, so every refusal raised *inside*
+   it (bad request id, unknown field, non-string actor) was reported before the mode existed. The
+   wording mode is now seeded from the untrusted body first, which is safe because the value
+   selects between two fixed prefixes and reaches nothing else.
+4. **The EventBridge `TIMED_OUT` door never passed `mode`.** Unreachable today — nothing on the
+   restore arm waits — but SPEC-171's 3–5 hour retrieval makes the timeout *predominantly* a
+   restore event, and the archive sentence promises "nothing was deleted and your files are exactly
+   where they were", which says nothing true about a restore. The door now reads the mode out of
+   the same raw body the actor comes from, and `restore_timed_out` ships with it.
+5. **`derive_destinations` hand-rolled the paginator this plane already shares.** It is the third
+   listing of the same prefix; `list_data_objects` takes an `ignore` predicate for exactly this
+   (SPEC-165). The argument against reuse applied to the *default predicate*, not to the paginator.
+6. **The restore's `MessageGroupId` rule was recorded nowhere.** `sqs.tf` documented only the
+   archive-mode rule, so nothing would have told SPEC-172 that restores key on the *archive*. Now
+   written where its reader will be standing, marked as unenforced.
+
+Two tests were also strengthened: the manifest-record sweep's companion test was a strict **subset**
+of the test above it and could not fail on its own — it now asserts the exemption *list* — and a
+verb test asserted `ThreadPoolExecutor` completion order as if it were a property.
 
 ## Verification
 

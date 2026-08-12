@@ -184,6 +184,34 @@ def _normalize_items(items, source: dict) -> list:
     return normalized
 
 
+def _wording_mode(req) -> str:
+    """Reads the mode for the WORDING of a refusal, before the contract has validated anything.
+
+    **Found in review, and it is the case the two-prefix design exists for.** Every refusal
+    ``_check_contract`` raises — a non-object body, a bad request id, an unknown mode, an unknown
+    field — happens BEFORE the mode has been validated, so taking the mode from the validator's
+    return leaves exactly those failures worded as archives. A user who pasted an archive id and
+    clicked Restore would read "Couldn't archive that".
+
+    It reads the UNTRUSTED body, and that is safe here because of what the value can do: it selects
+    between two fixed prefixes and nothing else. It is not an authorization input, it does not
+    reach a key, and ``_check_contract`` still refuses anything outside ``ARCHIVE_MODES`` before a
+    single AWS call. An attacker's only reward is being told "Couldn't restore that" about a
+    request they malformed themselves.
+
+    Args:
+      req: The parsed request body, of any shape.
+
+    Returns:
+      The mode as the body claims it, or an empty string — which renders the archive wording.
+
+    Raises:
+      None.
+    """
+    mode = req.get("mode") if isinstance(req, dict) else None
+    return mode if mode in ARCHIVE_MODES else ""
+
+
 def _restore(req: dict, request_id: str, actor: str) -> dict:
     """Validates a restore request and logs what it resolved.
 
@@ -290,7 +318,9 @@ def _validate_and_authorize(event) -> dict:
         missing_token_detail="missing actor token",
     )
 
-    mode = ""
+    # Seeded from the untrusted body so a refusal raised INSIDE _check_contract is still worded as
+    # the operation the user asked for, then replaced by the validated value the branch below uses.
+    mode = _wording_mode(req)
     try:
         mode = _check_contract(req)
         request_id = paths.validated_request_id(req.get("requestId"))

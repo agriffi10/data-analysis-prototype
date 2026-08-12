@@ -70,6 +70,10 @@ _BODIES = {
         "that folder is managed by the portal and can't be archived. "
         "Please select your own files or folders instead."
     ),
+    "reserved_object_name": (
+        'the file "{itemName}" at the top of your space has the same name as the record this '
+        "archive writes, so nothing was archived. Please rename it and try again."
+    ),
     "protected_marker": (
         'the file "{itemName}" can\'t be removed from your space, so nothing was archived. '
         "Please select something else."
@@ -136,6 +140,10 @@ _BODIES = {
     "archive_timed_out": (
         "that archive ran for too long and was stopped. Nothing was deleted and your files are "
         "exactly where they were. Please try again with a smaller selection."
+    ),
+    "restore_timed_out": (
+        "that restore ran for too long and was stopped. Nothing was changed in your space and the "
+        "archive is untouched. Please try again."
     ),
     "archive_not_found": (
         'no archive with the id "{archiveId}" was found in "{spaceName}". Please check the id '

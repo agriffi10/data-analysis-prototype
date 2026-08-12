@@ -59,8 +59,13 @@ _ROOT = "personal/alice/archive/9f2c1b8e-1111-4222-8333-444444444444/"
 _ALLOWED = {
     "arcommon/manifest.py",
     "arcommon/restore.py",
+    "arcommon/plan.py",
     "archive-write-manifest/archive_write_manifest.py",
 }
+
+#: The only VERB permitted to name the record, asserted separately below. Everything else in
+#: _ALLOWED is layer code, where the rule has one home and one tested behaviour.
+_ALLOWED_VERBS = {"archive-write-manifest/archive_write_manifest.py"}
 
 #: Files under this prefix are VERBS. No restore verb may name the record itself: the cross-check
 #: belongs to the layer, where its tolerance is tested once, and a verb reaching for the basename
@@ -213,21 +218,24 @@ def test_no_restore_verb_requires_the_manifest():
     )
 
 
-def test_the_cross_check_lives_in_the_layer_and_never_in_a_verb():
-    """The half of the rule the exemption above could otherwise swallow.
+def test_the_only_verb_that_may_name_the_record_is_the_one_that_writes_it():
+    """The half of the rule the exemption above could otherwise swallow, and it is asserted
+    against ``_ALLOWED`` itself rather than against the sweep's output.
 
-    ``arcommon/restore.py`` may name the record. A verb may not — including the ones SPEC-171 has
-    not written yet, which is the whole point of asserting it now.
+    An earlier version of this test filtered the sweep's offenders — which made it a strict SUBSET
+    of the test above and therefore unable to fail on its own, the exact "test that cannot fail"
+    shape SPEC-163 records. What it checks now is the exemption LIST: adding a verb to it, which is
+    how a future spec would quietly reach for the record, fails here and nowhere else.
+
+    ``arcommon/plan.py`` and ``arcommon/restore.py`` are layer modules and are allowed. A VERB is
+    not, including the ones SPEC-171 has not written yet.
     """
-    verbs = [
-        name
-        for name, uses in _basename_users().items()
-        if uses and name.startswith(_VERB_PREFIXES) and name not in _ALLOWED
-    ]
+    verbs = {name for name in _ALLOWED if name.startswith(_VERB_PREFIXES)}
 
-    assert not verbs, (
-        f"{verbs} name {manifest.BASENAME} directly — the cross-check belongs to arcommon.restore, "
-        "where its tolerance of an absent or damaged record is tested in one place"
+    assert verbs == _ALLOWED_VERBS, (
+        f"{sorted(verbs - _ALLOWED_VERBS)} were exempted from the record sweep — the cross-check "
+        "belongs to arcommon.restore and the collision guard to arcommon.plan, where each has one "
+        "home and one tested behaviour"
     )
 
 

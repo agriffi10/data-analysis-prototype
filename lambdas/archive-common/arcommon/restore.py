@@ -28,7 +28,7 @@ Attributes:
 import json
 import logging
 
-from cpcommon import clients, errors, events
+from cpcommon import clients, errors, events, s3_listing
 from cpcommon.errors import TerminalError
 
 from . import manifest as _manifest
@@ -51,6 +51,12 @@ def validate(req: dict, request_id: str, actor: str) -> dict:
     anything, and the archive root is then built by ``paths.archive_root`` — the same function
     SPEC-168 used to WRITE it, so the read and the write cannot drift.
 
+    **``requestId`` and ``archiveId`` must be different values** (FR-001 AC2). Conflating them was
+    the obvious shortcut and is wrong in both directions: a refused restore must be re-submittable
+    under a new run id, and a second attempt at one archive is a new request rather than a
+    duplicate of the first. It is refused rather than tolerated, because a producer that has
+    conflated them will do it on every request and the symptom would surface only under a retry.
+
     Args:
       req: The parsed request body, already known to be an object carrying a request id, a mode
         and an actor token.
@@ -72,11 +78,6 @@ def validate(req: dict, request_id: str, actor: str) -> dict:
     """
     archive_id = paths.validated_archive_id(req.get("archiveId"))
     if archive_id == request_id:
-        # FR-001 AC2. Conflating the two was the obvious shortcut and is wrong in both
-        # directions: a refused restore must be re-submittable under a new request id, and a
-        # second attempt at the same archive is a new request rather than a duplicate of the
-        # first. Refused rather than tolerated, because a producer that has conflated them will
-        # do it on every request and the symptom would appear only under a retry.
         raise TerminalError(
             events.MALFORMED, "requestId and archiveId must be different values"
         )
@@ -100,11 +101,13 @@ def validate(req: dict, request_id: str, actor: str) -> dict:
 def derive_destinations(bucket: str, archive_root: str, space_root: str) -> tuple:
     """Lists an archive and rebuilds every destination it would write back.
 
-    Full pagination, with **no ignore rule at all** — the analytics predicate drops zero-byte
-    objects, hidden segments and folder keys, and every one of those is something this archive
-    deliberately CARRIED (SPEC-169's ``_excluder`` keeps what the others drop, so an archived
-    empty folder comes back). Restoring through a filter the archive did not write through
-    would silently return less than was taken.
+    Pagination is ``cpcommon.s3_listing``'s — the same paginator the expansion and the rollback
+    use, and the third listing of this same prefix — with a predicate of this plane's own. The
+    DEFAULT predicate is what must not be reused: it drops zero-byte objects, hidden segments and
+    folder keys, and every one of those is something this archive deliberately CARRIED (SPEC-169's
+    ``_excluder`` keeps what the others drop, so an archived empty folder comes back). Restoring
+    through a filter the archive did not write through would silently return less than was taken.
+    That is exactly the split SPEC-165 recorded: the pagination is shared, the exclusions are not.
 
     ``_manifest.json`` is excluded by its EXACT KEY at the archive root, never by basename: a
     user's own ``reports/_manifest.json`` three folders down was archived like any other file
@@ -126,23 +129,36 @@ def derive_destinations(bucket: str, archive_root: str, space_root: str) -> tupl
       TransientError: On a retryable S3 fault, so the caller's Retry re-runs the verb.
     """
     record_key = f"{archive_root}{_manifest.BASENAME}"
+
+    def ignore(key: str, size: int, prefix: str) -> bool:
+        """Reports whether a listed key is this plane's own record rather than archived data.
+
+        Args:
+          key: The absolute object key.
+          size: The object's size, unused — an archived placeholder is data here.
+          prefix: The listing prefix, unused — the rule is one exact key.
+
+        Returns:
+          True only for the record at the archive root.
+
+        Raises:
+          None.
+        """
+        del size, prefix
+        return key == record_key
+
     objects: list = []
     total_bytes = 0
     try:
-        paginator = clients.s3().get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=bucket, Prefix=archive_root):
-            for obj in page.get("Contents", []):
-                key, size = obj["Key"], int(obj["Size"])
-                if key == record_key:
-                    continue
-                objects.append(
-                    {
-                        "archiveKey": key,
-                        "destKey": paths.origin_key(key, archive_root, space_root),
-                        "bytes": size,
-                    }
-                )
-                total_bytes += size
+        for key, size in s3_listing.list_data_objects(bucket, archive_root, ignore=ignore):
+            objects.append(
+                {
+                    "archiveKey": key,
+                    "destKey": paths.origin_key(key, archive_root, space_root),
+                    "bytes": size,
+                }
+            )
+            total_bytes += size
     except TerminalError:
         raise
     except Exception as err:
@@ -151,7 +167,7 @@ def derive_destinations(bucket: str, archive_root: str, space_root: str) -> tupl
     return objects, total_bytes
 
 
-def read_recorded_count(bucket: str, archive_root: str):
+def read_recorded_count(bucket: str, archive_root: str) -> int | None:
     """Reads the object count ``_manifest.json`` recorded, or None when there is no record.
 
     **Absent is not a failure** (FR-003 AC5). The manifest is not load-bearing, and a restore

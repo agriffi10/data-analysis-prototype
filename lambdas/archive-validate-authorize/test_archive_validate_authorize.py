@@ -459,6 +459,43 @@ def test_a_pasted_archive_id_in_upper_case_still_resolves_its_prefix():
     assert out["archive"]["root"] == f"personal/alice/archive/{ARCHIVE_UUID}/"
 
 
+def test_a_MALFORMED_restore_is_worded_as_a_restore_too(_bind):
+    """FOUND IN REVIEW, and it is the case the two-prefix design exists for. Every refusal
+    `_check_contract` raises happens BEFORE the mode is validated, so taking the mode from the
+    validator's return left exactly these failures — a bad request id, an unknown field, a
+    non-string actor — telling a user who clicked Restore that an archive failed.
+
+    The wording mode is therefore seeded from the untrusted body, which is safe because the value
+    selects between two fixed prefixes and reaches nothing else.
+    """
+    _restore_refused(requestId=None)
+
+    assert _bind and _bind[0][1].startswith("Couldn't restore that: ")
+
+
+def test_an_unknown_field_on_a_restore_is_worded_as_a_restore(_bind):
+    """The other reachable pre-validation refusal, and the one a real producer would hit: a stale
+    field left on the body while the user is trying to restore."""
+    _restore_refused(source={"space": {"kind": "personal", "name": "alice"}})
+
+    assert _bind and _bind[0][1].startswith("Couldn't restore that: ")
+
+
+def test_a_malformed_ARCHIVE_is_still_worded_as_an_archive(_bind):
+    """The control for the two above: the seeding must not have made every refusal a restore."""
+    _refused(requestId=None)
+
+    assert _bind and _bind[0][1].startswith("Couldn't archive that: ")
+
+
+def test_an_unrecognisable_mode_falls_back_to_the_archive_wording(_bind):
+    """The body is untrusted, so the mode is taken only when it is one this plane knows. Anything
+    else renders the archive sentence rather than whatever the caller typed."""
+    _refused(mode="delete")
+
+    assert _bind and _bind[0][1].startswith("Couldn't archive that: ")
+
+
 def test_a_restore_refusal_is_worded_as_a_restore(_bind):
     """The two modes share one body table under two prefixes. A user who clicked Restore being
     told "Couldn't archive that" is being told about an operation they did not ask for."""

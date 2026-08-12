@@ -121,7 +121,9 @@ def test_a_clear_set_of_destinations_passes_and_threads_the_request_onward():
     assert out["checkedCount"] == 2
     assert out["requestId"] == _REQUEST_ID
     assert out["planKey"] == _PLAN_KEY
-    assert fake.heads == ["alice/reports/q1.csv", "alice/notes.txt"]
+    # A SET, not a list: `heads` records thread completion order inside the pool, which is not a
+    # property of this verb and would be a latent flake asserted as one.
+    assert set(fake.heads) == {"alice/reports/q1.csv", "alice/notes.txt"}
 
 
 def test_one_occupied_destination_refuses_the_whole_restore_and_notifies(_sink):
