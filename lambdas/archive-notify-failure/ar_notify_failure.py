@@ -18,25 +18,49 @@ this state exists for happens before a verb produced an actor, so the recorded o
 function would take its no-recipient branch on every single failure — satisfied on paper, silent
 in practice.
 
-**IT HAS ONE DOOR, AND SAYING SO IS THE POINT.** File-send's twin grew a second, EventBridge
-door because its machine has a top-level ``TimeoutSeconds`` and catchers do not cover a
-top-level execution failure. This machine validates and stops: no Map, no manifest, no copy,
-nothing that waits — so it has no timeout and there is no failure the ASL door cannot reach.
-**SPEC-169 adds the transfer, and it must add the timeout, the EventBridge rule, the
-``states:DescribeExecution`` grant and the second door with it** — a ceiling that cannot notify
-is SPEC-152 satisfied on paper and silent in practice.
+**IT HAS TWO DOORS SINCE SPEC-169, and the second exists because the first cannot reach one
+failure.** The ASL door is a state, so it is reached by a ``Catch`` — and Step Functions catchers
+cover Task, Parallel and Map states but **not top-level execution failures**. SPEC-169 gave this
+machine a Distributed Map, a copy and a ceiling; a run that exhausts that ceiling is terminated
+outright, so no state runs, no Catch fires and this function is never invoked. The documented
+remedy is the second door: an EventBridge rule on ``Step Functions Execution Status Change`` with
+``status: TIMED_OUT`` invokes this same function with an event of a completely different shape.
+
+The two doors cannot double-notify. The ASL door is reached only through a ``Catch``, which a
+timeout never fires; the EventBridge rule matches ``TIMED_OUT`` only, never ``FAILED``, so an
+execution that reached ``Fail`` normally does not appear on it.
+
+The timeout door has to recover the actor the hard way, and it needs a fallback the way file-send's
+does: the execution input is the Pipe's record, which ``ARCHIVE_MAX_ITEM_BYTES`` deliberately
+allows to approach 200 KB, while EventBridge caps an event at 256 KB and drops the input rather
+than exceed it. So the archives most likely to time out — the big ones — are exactly the ones whose
+actor the event alone cannot name, and ``states:DescribeExecution`` reads it back.
+
+**What the timeout message may say is constrained by what a timeout leaves behind.** The copy may
+have run and the commit gate may not have, so a timed-out archive can leave a partial copy in the
+vault — but never a deleted source, because deletion is downstream of the gate. That is why the
+wording promises the source and says nothing about the vault, which the user cannot see anyway.
+
+Attributes:
+  _TIMEOUT_DETAIL_TYPE: The EventBridge detail-type the timeout door matches on.
+  _TIMEOUT_REASON: Reason code for a run the state machine's own timeout stopped.
 """
 
+import json
 import logging
 
 from arcommon import messages, notify
-from cpcommon import auth, events, observability
+from cpcommon import auth, clients, events, observability
 from cpcommon.errors import TerminalError, failure_reason
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 observability.init(service="archive")
+
+_TIMEOUT_DETAIL_TYPE = "Step Functions Execution Status Change"
+
+_TIMEOUT_REASON = "archive_timed_out"
 
 
 def _actor_from_raw_request(raw) -> str:
@@ -74,6 +98,117 @@ def _actor_from_raw_request(raw) -> str:
     except Exception as exc:  # noqa: BLE001
         logger.info("could not recover a verified actor from the request: %s", exc)
         return ""
+
+
+def _is_execution_timeout(event) -> bool:
+    """Reports whether this invocation came through the EventBridge door.
+
+    Matched on the detail-type rather than on the presence of ``detail``, because the ASL door's
+    payload is a request object and a request could in principle carry any field name. The status
+    is NOT re-checked here — the rule pattern matches ``TIMED_OUT`` alone, and a second check in
+    Python would silently swallow anything a future pattern widening let through instead of
+    notifying about it.
+
+    Args:
+      event: The Lambda event.
+
+    Returns:
+      True when this is a Step Functions execution status-change event.
+
+    Raises:
+      None.
+    """
+    return isinstance(event, dict) and event.get("detail-type") == _TIMEOUT_DETAIL_TYPE
+
+
+def _timed_out_input(detail: dict) -> str:
+    """Returns the timed-out execution's input, fetching it back when the event omitted it.
+
+    **The fallback is the ordinary case for the archives most likely to time out.** EventBridge
+    caps an event at 256 KB, and Step Functions drops the input and sets
+    ``inputDetails.included: false`` rather than exceed it. This plane's execution input is the
+    Pipe's record, which ``ARCHIVE_MAX_ITEM_BYTES`` deliberately allows to approach 200 KB — so
+    the biggest selections, which are the ones that run for three hours, are the ones the event
+    alone cannot attribute. ``DescribeExecution`` returns the input whole, and is the one extra
+    grant this door needs.
+
+    Args:
+      detail: The EventBridge event's ``detail`` block.
+
+    Returns:
+      The execution input as a JSON string, or an empty string when it cannot be obtained.
+
+    Raises:
+      None. A failed lookup degrades to no actor, which the caller logs as a no-op — a raise
+      would be an async Lambda failure, and EventBridge retries those.
+    """
+    raw = detail.get("input")
+    if (detail.get("inputDetails") or {}).get("included") is not False and isinstance(raw, str) and raw:
+        return raw
+
+    arn = detail.get("executionArn")
+    if not isinstance(arn, str) or not arn:
+        return ""
+    try:
+        described = clients.sfn().describe_execution(executionArn=arn)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("could not read the timed-out execution's input back: %s", exc)
+        return ""
+    fetched = described.get("input")
+    return fetched if isinstance(fetched, str) else ""
+
+
+def _on_execution_timed_out(event) -> dict:
+    """Notifies the actor that the whole run was stopped by the machine's own timeout.
+
+    The wording is this plane's own rather than the generic failure sentence, and what it can
+    promise is decided by where the timeout can land: the source deletion sits downstream of the
+    commit gate, so a timed-out archive has never deleted anything — whatever else it did.
+
+    Args:
+      event: The EventBridge event.
+
+    Returns:
+      The recovered outcome, for the log and for symmetry with the ASL door.
+
+    Raises:
+      None. Every failure degrades to no verified actor, which is logged as a no-op. That
+      includes a ``detail`` of the wrong type: a raise here would be an async Lambda failure, and
+      EventBridge retries those, turning one unattributable event into three.
+    """
+    detail = event.get("detail") or {}
+    username = ""
+    if not isinstance(detail, dict):
+        logger.info("timed-out execution event carries no detail object")
+    else:
+        raw = _timed_out_input(detail)
+        if not raw:
+            logger.info("timed-out execution carries no input; nobody can be attributed")
+        else:
+            try:
+                username = _actor_from_raw_request(json.loads(raw))
+            except ValueError as exc:
+                logger.info("could not attribute the timed-out execution: %s", exc)
+
+    if not username:
+        observability.warning(
+            "no verified actor on a timed-out execution; nothing to notify",
+            outcome="no-recipient",
+            reason=_TIMEOUT_REASON,
+            notified=False,
+        )
+        return {"actor": {"username": ""}, "error": {"Error": "States.Timeout", "Cause": None}}
+
+    notify.emit_notification(username, messages.failure_message(_TIMEOUT_REASON))
+    logger.info("notified %s that their archive timed out", username)
+    observability.info(
+        "notified the actor that the execution timed out",
+        outcome="notified",
+        reason=_TIMEOUT_REASON,
+        actor=username,
+        notified=True,
+    )
+    return {"actor": {"username": username}, "error": {"Error": "States.Timeout", "Cause": None}}
 
 
 def _verb_already_notified(error) -> bool:
@@ -119,7 +254,9 @@ def handler(event, context) -> dict:
     any inbox.
 
     Args:
-      event: The failed request carrying the raw Step Functions error.
+      event: The failed request carrying the raw Step Functions error, or — through the second
+        door — an EventBridge execution status-change event for a run the machine's own timeout
+        stopped.
       context: The Lambda context, unused.
 
     Returns:
@@ -129,6 +266,9 @@ def handler(event, context) -> dict:
       None. The execution has already failed; the only thing this function can add is a message,
       and a crash here would replace a friendly notification with nothing.
     """
+    if _is_execution_timeout(event):
+        return _on_execution_timed_out(event)
+
     request = dict(event) if isinstance(event, dict) else {}
     actor = request.get("actor")
     username = actor.get("username") if isinstance(actor, dict) else None

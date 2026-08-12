@@ -14,6 +14,98 @@
       "Resource": "${admin_bucket_arn}/shared-spaces/*"
     },
     {
+      "Sid": "CopyPlanAndManifestReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject"
+      ],
+      "Resource": "${admin_bucket_arn}/archive/*"
+    },
+    {
+      "Sid": "SourceDataList",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": [
+        "${user_space_bucket_arn}",
+        "${shared_space_bucket_arn}"
+      ]
+    },
+    {
+      "Sid": "SourceDataRead",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*",
+        "${shared_space_bucket_arn}/*"
+      ]
+    },
+    {
+      "Sid": "ReceiptWrite",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*/archive/*",
+        "${shared_space_bucket_arn}/*/archive/*"
+      ]
+    },
+    {
+      "Sid": "SourceDataDelete",
+      "Effect": "Allow",
+      "Action": "s3:DeleteObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*",
+        "${shared_space_bucket_arn}/*"
+      ]
+    },
+    {
+      "Sid": "NeverDeletePortalManagedObjects",
+      "Effect": "Deny",
+      "Action": "s3:DeleteObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*/athenaresults/*",
+        "${shared_space_bucket_arn}/*/athenaresults/*",
+        "${user_space_bucket_arn}/*/user_settings/*",
+        "${shared_space_bucket_arn}/*/user_settings/*",
+        "${user_space_bucket_arn}/*/archive/*",
+        "${shared_space_bucket_arn}/*/archive/*",
+        "${user_space_bucket_arn}/*DO_NOT_DELETE.txt",
+        "${shared_space_bucket_arn}/*DO_NOT_DELETE.txt",
+        "${admin_bucket_arn}/*"
+      ]
+    },
+    {
+      "Sid": "ArchiveVaultWrite",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": "${archive_bucket_arn}/*"
+    },
+    {
+      "Sid": "ArchiveVaultList",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:ListBucketMultipartUploads",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": "${archive_bucket_arn}"
+    },
+    {
+      "Sid": "ReadTimedOutExecutionInput",
+      "Effect": "Allow",
+      "Action": "states:DescribeExecution",
+      "Resource": "${execution_arn_wildcard}"
+    },
+    {
       "Sid": "EmitStructuredLogEvents",
       "Effect": "Allow",
       "Action": "sqs:SendMessage",

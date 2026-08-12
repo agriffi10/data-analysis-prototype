@@ -471,7 +471,7 @@ share did.
 - **The execution role is on the user-space bucket policy's allowlist (FR-006)** — see that
   spec-delivery doc before building any future plane that touches Bucket 1.
 
-### Archive — SPEC-168 → 172 (168 complete; 169-172 pending)
+### Archive — SPEC-168 → 172 (168, 169 complete; 170-172 pending)
 
 "Put this away": move a file or folder out of a user's space into a separate bucket at the
 `GLACIER` storage class, delete the original, and leave behind a plain-text receipt. Reversible
@@ -514,20 +514,38 @@ only through a restore request that takes **hours**, not a click.
 - **`ARCHIVE_BUCKET` is NOT a `cpcommon.config` required var.** That set is a fleet-wide contract
   every plane's Lambda environment must satisfy; a variable only this plane sets belongs in
   `arcommon.config.archive_bucket()` — a *function*, so the layer stays import-safe.
-- **The execution role holds no S3 grant on any data bucket at SPEC-168.** Every other plane's role
-  can carry a blanket `Deny s3:DeleteObject` forever; **this one cannot**, because SPEC-169 has to
-  grant the source deletion. Granting nothing early keeps that a decision 169 makes explicitly.
-- **No `TimeoutSeconds` yet, deliberately** — nothing in the machine waits. SPEC-169 adds the Map
-  and the copy and **must** add the ceiling, the EventBridge `TIMED_OUT` rule and notify-failure's
-  second door with it: catchers do not cover a top-level execution failure. Two tests are tripwires
-  on exactly that.
-- **Two decisions carry the correctness of the feature, and both are SPEC-169/170's to honour.**
-  The source is deleted only when **every** object is confirmed copied — "copied 900 of 1000,
-  deleted 1000" is the failure this must never have, and a partial transfer rolls the archive copy
-  back. And the restore guard is **absolute**: any occupied destination key refuses the whole
-  restore, before `RestoreObject`, because retrieval is billed and cannot be cancelled. That
-  asymmetry with archiving's rollback is deliberate — deleting restored data to make the operation
-  atomic would destroy the thing the restore was for.
+- **The delete grant is the one this role could not inherit** (SPEC-169). Every other plane's
+  execution role carries a blanket `Deny s3:DeleteObject` from its first apply; this one cannot, so
+  the property that replaces it is written out: `DeleteObject` on the two SPACE buckets only, plus
+  an explicit **Deny** under `athenaresults/`, `user_settings/`, `archive/` and on any
+  `DO_NOT_DELETE.txt` at any depth. IAM is the second line — the first is the commit gate, and
+  `arcommon.delete.assert_deletable` refuses the whole list **before issuing anything**, so a key
+  the policy would refuse fails the run rather than stopping a deletion half way through.
+- **THE COMMIT GATE is the machine's shape** (SPEC-169). `collect-transfer-results` returns one
+  boolean — every object copied, or not — and `CommitOrRollback` branches on it: one arm reaches
+  `DeleteSource`, the other cannot, which a graph walk asserts rather than a comment. Its `Default`
+  is the ROLLBACK, so an unrecognisable verdict fails closed. Three ways to be short are one
+  verdict: a reported item failure, an export accounting for fewer items than the manifest, and a
+  manifest disagreeing with the plan. **"Copied 900 of 1000, deleted 1000" is the failure this
+  feature must never have.**
+- **The rollback deletes by LISTING the archive prefix**, not from a collector-supplied key list:
+  keys are the unbounded term, and the prefix is this request's alone — so the listing also catches
+  objects a batch copied before it died and never reported, which a list could not. A rollback that
+  itself fails partially does **not** change the outcome; the residue is billed at the GLACIER
+  90-day minimum, is unreachable by the user and is swept by the 7-year expiry.
+- **Most durable to least**: `_manifest.json` into the vault → the source deletion → the receipt
+  into the user's own space. A receipt therefore only ever exists for an archive that completed,
+  and its write failing **fails the run** even though the data is safe — a user with no receipt has
+  no id and no route to a restore, so the message says the data IS archived and names the id.
+- **`TimeoutSeconds` 10,800 is top-level and ships WITH its EventBridge `TIMED_OUT` rule**
+  (SPEC-169), notify-failure's second door and its 15s → 60s raise. Catchers do not cover a
+  top-level execution failure. Sized by a **makespan** (`MAP_MAX_CONCURRENCY` ×
+  `CONSERVATIVE_STREAM_BYTES_PER_SECOND` = 500 MB/s), never an aggregate; a test adds the copy, the
+  per-child overhead and the seven serial verbs and reads the ceiling out of `locals.tf`.
+- **The restore guard is still SPEC-170's, and it is absolute**: any occupied destination key
+  refuses the whole restore, before `RestoreObject`, because retrieval is billed and cannot be
+  cancelled. That asymmetry with archiving's rollback is deliberate — deleting restored data to
+  make the operation atomic would destroy the thing the restore was for.
 
 ### Data Quality — SPEC-108→114, 123, 124
 

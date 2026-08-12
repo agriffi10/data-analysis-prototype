@@ -711,13 +711,26 @@ jobs:
           - { name: file-send-collect-transfer-results, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           - { name: file-send-notify, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           - { name: file-send-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          # Archive verbs (SPEC-168). The vault's front door and SPEC-152's notifier of
-          # last resort. `arcommon: true` attaches the archive-common layer — both verbs
-          # carry this plane's wording. Key containment is NOT in that layer: it is
-          # cpcommon.paths, shared with file-send, because a second copy of the rule that
-          # decides whether a key is inside the caller's own space is a second place a
-          # cross-tenant read can be introduced.
+          # Archive verbs (SPEC-168 front door, SPEC-169 the transfer and the deletion).
+          # `arcommon: true` attaches the archive-common layer — every verb but the batch
+          # copier carries this plane's wording, its key layout or its caps. Key
+          # containment is NOT in that layer: it is cpcommon.paths, shared with file-send,
+          # because a second copy of the rule that decides whether a key is inside the
+          # caller's own space is a second place a cross-tenant read can be introduced.
+          #
+          # archive-copy-objects is `arcommon: false` and that is deliberate rather than an
+          # omission: it is cpcommon.transfer with a reason code, and knows nothing about
+          # the request — every destination and the storage class were resolved upstream
+          # and written into the manifest. file-send-copy-objects carries the same shape.
           - { name: archive-validate-authorize, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
+          - { name: archive-inspect-source, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
+          - { name: archive-build-transfer-manifest, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
+          - { name: archive-copy-objects, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: false }
+          - { name: archive-collect-transfer-results, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
+          - { name: archive-rollback, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
+          - { name: archive-write-manifest, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
+          - { name: archive-delete-source, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
+          - { name: archive-write-receipt, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
           - { name: archive-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
           # Data-quality verbs (SPEC-108). All nine attach cpcommon + dqcommon; only
           # inspect-source also attaches the data-quality polars layer (it must read

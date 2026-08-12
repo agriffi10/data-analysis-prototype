@@ -71,7 +71,17 @@ def test_a_raise_site_token_fills_its_marker():
 def test_every_marker_in_every_body_can_be_filled_by_somebody():
     """A marker no caller supplies renders BLANK (`blank_unfilled=True`), which reads as a
     typo in the sentence rather than as a bug — so it must be caught here."""
-    fillable = {"maxItems", "itemName"}
+    fillable = {
+        "maxItems",
+        "maxObjects",
+        "itemName",
+        "copied",
+        "total",
+        "failed",
+        "residue",
+        "requestId",
+        "folderName",
+    }
     for reason, body in messages._BODIES.items():
         for marker in re.findall(r"\{(\w+)\}", body):
             assert marker in fillable, f"{reason} names {{{marker}}}, which nothing supplies"

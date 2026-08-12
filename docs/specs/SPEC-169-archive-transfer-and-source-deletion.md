@@ -1,8 +1,8 @@
 # Spec: Archive — Source Resolution, Glacier Transfer & Source Deletion
 
 **ID:** SPEC-169
-**Status:** Draft
-**Last Updated:** 2026-08-10
+**Status:** Completed
+**Last Updated:** 2026-08-12
 **Depends On:** SPEC-168 (the plane, the bucket, `arcommon`, validate-authorize), SPEC-160 (`cpcommon.transfer`), SPEC-151 (the partial-delete discipline), SPEC-157 (execution-name stamping)
 
 ## Overview

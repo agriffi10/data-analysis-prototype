@@ -194,26 +194,97 @@ def test_the_archive_bucket_policy_denies_restore_object_too():
     assert "s3:RestoreObject" in deny["Action"]
 
 
-def test_the_archive_execution_role_holds_no_grant_on_any_data_bucket_yet():
-    """SPEC-168 copies nothing and deletes nothing. The listing, the Glacier write and the
-    source DELETION are SPEC-169's, and granting them early would make the delete a permission
-    this plane INHERITED rather than one a spec decided to give it — which matters more here
-    than anywhere else, because this is the only plane whose role cannot carry a blanket
-    `Deny s3:DeleteObject` forever.
+def _execution_statement(sid):
+    """One statement of the archive execution role's policy, by Sid."""
+    found = [s for s in _statements(ARCHIVE_EXECUTION) if s.get("Sid") == sid]
 
-    Scoped by RESOURCE, not by action. An action list is the wrong axis: the role legitimately
-    holds `s3:GetObject`, on the shared-spaces registry in the ADMIN bucket, so a check that
-    only forbids Put and Delete passes while its own name says otherwise — and would keep
-    passing if `s3:GetObject` on `${user_space_bucket_arn}/*` were added tomorrow.
+    assert len(found) == 1, f"{sid} is not in the archive execution policy exactly once"
+    return found[0]
+
+
+def test_the_only_write_into_a_users_space_is_the_receipt():
+    """SPEC-169 FR-007. This role can put an object into `archive/` and NOWHERE ELSE in
+    anybody's prefix — the archived data goes to the vault, and the only thing that comes back
+    into a user's own space is the receipt. It mirrors file-send's shipped `*/shared_files/*`
+    grant one for one, which is the point: three planes writing into user space under one
+    reviewable pattern beats three patterns.
     """
-    forbidden = ("user_space_bucket_arn", "shared_space_bucket_arn", "archive_bucket_arn")
+    write = _execution_statement("ReceiptWrite")
+
+    assert write["Effect"] == "Allow"
+    assert write["Action"] == "s3:PutObject"
+    assert all(arn.endswith("/*/archive/*") for arn in write["Resource"])
+
+
+def test_the_source_delete_is_granted_on_the_space_buckets_and_nowhere_else():
+    """**The one grant that makes this plane unlike every other one.** File-send and table-share
+    each carry a blanket `Deny s3:DeleteObject` from their first apply; this role cannot, because
+    archiving deletes what it copies. So the delete is scoped to the two SPACE buckets — never
+    the admin bucket, and never the vault by this statement, which has its own."""
+    delete = _execution_statement("SourceDataDelete")
+
+    assert delete["Effect"] == "Allow"
+    assert delete["Action"] == "s3:DeleteObject"
+    assert set(delete["Resource"]) == {"user_space_bucket_arn/*", "shared_space_bucket_arn/*"}
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "/*/athenaresults/*",
+        "/*/user_settings/*",
+        "/*/archive/*",
+        "/*DO_NOT_DELETE.txt",
+    ],
+)
+def test_the_delete_can_never_reach_a_portal_managed_object(pattern):
+    """The narrowing that replaces the blanket Deny the other planes get for free, and it is
+    written as a DENY rather than as a narrower Allow because an explicit Deny beats every
+    Allow, including one a later spec adds without reading this file.
+
+    Each pattern is a different way for a run to end badly: `athenaresults/` and any
+    `DO_NOT_DELETE.txt` would be refused by the BUCKET policy part way through a deletion, after
+    some of the user's data had gone; `user_settings/` is the notification inbox and connections
+    cache, so deleting it breaks the app for the user; `archive/` holds the receipts this plane
+    itself writes, which are a user's only route to a restore.
+
+    `*` matches `/` in an IAM resource, which is what makes the marker rule hold at any depth —
+    the same property both bucket policies already rely on.
+    """
+    deny = _execution_statement("NeverDeletePortalManagedObjects")
+
+    assert deny["Effect"] == "Deny"
+    assert deny["Action"] == "s3:DeleteObject"
+    assert [arn for arn in deny["Resource"] if arn.endswith(pattern)], (
+        f"nothing denies s3:DeleteObject on {pattern}"
+    )
+
+
+def test_the_vault_grants_belong_to_this_role_and_the_map_grants_do_not():
+    """SPEC-160 FR-006, inherited rather than rediscovered: the Distributed Map's own
+    permissions — StartExecution for each child, the ItemReader read, the ResultWriter write —
+    belong to the STATE MACHINE role. On the Lambda role they render, apply and unit-test green,
+    then fail on the first real archive with AccessDenied at the ItemReader.
+
+    The one states: action that IS on this role is the timeout door's DescribeExecution, because
+    it is the notify-failure LAMBDA that makes that call, invoked by EventBridge outside any
+    execution.
+    """
+    lambda_actions = set()
     for statement in _statements(ARCHIVE_EXECUTION):
-        resource = statement.get("Resource")
-        for arn in [resource] if isinstance(resource, str) else (resource or []):
-            assert not any(bucket in arn for bucket in forbidden), (
-                f'{statement.get("Sid")} already reaches {arn} — SPEC-169 grants the source '
-                "read, the Glacier write and the delete, each with the commit gate in front"
-            )
+        action = statement.get("Action")
+        lambda_actions.update([action] if isinstance(action, str) else action)
+
+    assert "states:StartExecution" not in lambda_actions
+    assert lambda_actions & {"states:DescribeExecution"} == {"states:DescribeExecution"}
+
+    sfn = _statements(INFRA / "modules" / "archive" / "policies" / "sfn-permissions.json.tftpl")
+    sfn_actions = set()
+    for statement in sfn:
+        action = statement.get("Action")
+        sfn_actions.update([action] if isinstance(action, str) else action)
+
+    assert "states:StartExecution" in sfn_actions
 
 
 # ── FR-006: the browser cannot write under archive/ in either space bucket ───

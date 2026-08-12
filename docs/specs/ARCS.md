@@ -1056,7 +1056,13 @@ cross-tenant read: an item's key is validated against a **trailing-slash-normali
 `alice2/` never passes as inside `alice/`, and 165 re-checks every key that comes back from
 `ListObjectsV2` rather than trusting the request-time check.
 
-## Archival arc (SPEC-168 → 169 → 170 → 171 → 172 — filed 2026-08-10)
+## Archival arc (SPEC-168 → 169 → 170 → 171 → 172 — filed 2026-08-10; 168 and 169 COMPLETE)
+
+> **SPEC-169 shipped (2026-08-12), so the commit gate below is now a state rather than a plan:**
+> `collect-transfer-results` returns one boolean and `CommitOrRollback` branches on it, with the
+> deletion reachable from exactly one arm (asserted by walking the ASL graph) and the rollback
+> deleting by LISTING the archive prefix — which also catches objects a batch copied before it
+> died and never reported. Details: `docs/spec-delivery/SPEC-169-*.md`.
 
 Data a user has finished with still costs S3 Standard rates and still fills the file browser. There
 is no way to put something away. The arc adds a fifth bucket, a fifth control plane, and two

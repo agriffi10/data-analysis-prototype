@@ -174,7 +174,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 166 — Send Files: Recipient Guard, Distributed-Map Transfer & Terminals | Completed |
 | 167 — Send Files: "Send to…" UI & Notification Producer | Completed |
 | 168 — Archive: Foundation Infrastructure, the Archive Bucket & validate-authorize | Completed |
-| 169 — Archive: Source Resolution, Glacier Transfer & Source Deletion | Draft |
+| 169 — Archive: Source Resolution, Glacier Transfer & Source Deletion | Completed |
 | 170 — Restore: Request Contract, Archive Lookup & the Destination Guard | Draft |
 | 171 — Restore: Glacier Retrieval, the Wait Loop, Copy-Back & Terminals | Draft |
 | 172 — Archive & Restore: File-Browser UI, the Receipt Surface & Notifications | Draft |

@@ -70,6 +70,35 @@ Attributes:
     a control character to six bytes, so 200 items at a 1024-byte key is 216 KB of ASCII or
     1.2 MB of ``\\x01``. ``test_config_arcommon`` computes all three links of the chain, so
     changing one without the others fails the build.
+  ARCHIVE_MAX_OBJECTS: Cap on the EXPANDED object count — what the selection actually resolves
+    to, which ``ARCHIVE_MAX_ITEMS`` says nothing about because one selected folder can hold any
+    number of objects. What sizes it is the copy plan held in MEMORY by inspect-source, which
+    builds the whole list, serialises it and encodes that at once;
+    ``test_the_worst_case_copy_plan_fits_in_the_verbs_memory`` computes it against the memory
+    ``locals.tf`` configures and READS THAT NUMBER BACK, so raising this without raising the
+    memory fails the build rather than the invocation.
+  ARCHIVE_MAX_BYTES: Cap on the expanded byte total, and it bounds the RUN rather than any one
+    verb: the Distributed Map's copy is the long pole, and the machine's own ``TimeoutSeconds``
+    is the thing it has to fit inside. The denominator is a **makespan**, not an aggregate
+    bandwidth — ``copy_batch`` hands one WHOLE object to one worker and ``copy_one``'s multipart
+    loop is serial, so the rate is ``MAP_MAX_CONCURRENCY x CONSERVATIVE_STREAM_BYTES_PER_SECOND``
+    and not the far larger number multiplying every constant together suggests.
+    ``test_the_whole_run_fits_the_machines_ceiling`` adds every term of the run — the copy, the
+    per-child overhead, the serial verbs and the deletion pass — and reads the ceiling out of
+    ``locals.tf``.
+
+    **Unlike file-send's there is no product cap beside it**, and the absence is structural: an
+    archive has one destination, so a manifest item is one object and the source cap IS the
+    transfer cap.
+  ARCHIVE_MAX_OBJECT_BYTES: Cap on ONE object, and the spec does not name it because the
+    arithmetic above does. A batch is one round of the worker pool and **one object is one
+    worker**, so a single object's copy time is bounded by nothing else: S3 accepts objects up to
+    5 TiB, which at the conservative rate is ~220,000s — 240x the batch verb's own timeout and
+    20x the whole machine's ceiling. Without this the makespan model certifies the DISTRIBUTED
+    case only, which is SPEC-166's recorded finding inherited rather than rediscovered.
+
+    10 GiB matches the two shipped planes, and at the conservative rate it is 429s inside
+    ``COPY_TIMEOUT_SECONDS``' 900.
   RESERVED_SOURCE_ROOTS: Root-level folders that may not be archived, **anchored at the space
     root**, each with its own reason. This is archive's **OWN list** — it is not
     ``protectedFolders.ts`` reused and not a union of the browser's three lists, whose own header
@@ -112,6 +141,12 @@ SPACE_KINDS = frozenset({"personal", "shared"})
 ARCHIVE_MAX_ITEMS = 200
 
 ARCHIVE_MAX_ITEM_BYTES = 96 * 1024
+
+ARCHIVE_MAX_OBJECTS = 20_000
+
+ARCHIVE_MAX_BYTES = 3 * 1024**4
+
+ARCHIVE_MAX_OBJECT_BYTES = 10 * 1024**3
 
 RESERVED_SOURCE_ROOTS = (
     "archive",
