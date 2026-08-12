@@ -1,7 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {waitFor} from '@testing-library/react';
 import {renderHookWithProviders} from '../../test/renderWithProviders';
-import {authenticated} from '../../test/authFixtures';
+import {authenticated, unauthenticated} from '../../test/authFixtures';
 import {useQuerySpaces} from './useQuerySpaces';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {SharedConnectionStatus} from '../shared-spaces/sharedSpaces.types';
@@ -83,6 +83,15 @@ describe('useQuerySpaces (SPEC-173 FR-005)', () => {
     const {result} = render();
 
     await waitFor(() => expect(result.current.map((s) => s.id)).toEqual(['personal']));
+  });
+
+  it('is EMPTY with no signed-in user, rather than a space rooted at the bucket root', async () => {
+    // The dev-unauth path renders the workspace with no user. An empty username used to
+    // build `rootPrefix: '/'`, which would hold a marker open and list saved queries at
+    // the BUCKET root — new S3 traffic where SPEC-043's hook was simply disabled.
+    const {result} = renderHookWithProviders(() => useQuerySpaces(), {auth: unauthenticated()});
+
+    await waitFor(() => expect(result.current).toEqual([]));
   });
 
   it('is EMPTY with no user-space bucket — a configuration error, not an empty list', async () => {

@@ -29,7 +29,10 @@ vi.mock('../file-browser/fileBrowser.service', async (importActual) => ({
   listFiles: vi.fn(),
   getObjectMetadata: vi.fn(),
   getDownloadUrl: vi.fn(),
-  objectExists: vi.fn(),
+  // Resolved, not bare: `QueryWorkspace` holds its `saved_queries/` folder open on mount
+  // (SPEC-173 FR-001), and a `vi.fn()` returning undefined made that a rejection that
+  // reddened the whole run from a recipe that has nothing to do with it.
+  objectExists: vi.fn().mockResolvedValue({success: true, data: true}),
   uploadFile: vi.fn(),
   createFolder: vi.fn()
 }));

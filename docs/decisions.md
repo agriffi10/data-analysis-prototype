@@ -1838,6 +1838,8 @@ picker in the app inherits the rule from one place. The cost is real and accepte
 requires an auth context, which one bespoke a11y tree had to be given.
 
 **The delete/rename refusal is unconditional, and structurally so** — `deleteFolder`/`moveFolder`
-take no flag. A test asserts the refusal with the flag off, because "you cannot see it" and "you
-cannot destroy it" are different guarantees and only one of them survives a stale cached flag
-document.
+take **no flag**, so there is no state in which the gate can reach them. That is the argument, and
+it is stronger than the test FR-008 AC3 asks for: a service-level test cannot render "with the flag
+off" because the service never reads one. The refusal is tested directly and the structural claim
+is recorded in the test's own comment. "You cannot see it" and "you cannot destroy it" are
+different guarantees, and only one of them survives a stale cached flag document.

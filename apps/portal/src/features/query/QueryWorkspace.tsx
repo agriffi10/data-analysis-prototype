@@ -212,14 +212,21 @@ export function QueryWorkspace() {
   const personalSpace: QuerySpace | null = spaces[0] ?? null;
   const saved = useSavedQueries(personalSpace);
 
-  // FR-001: hold the folder open, once per space per session. Best effort — a failure
-  // is logged and the workspace renders regardless, because saving a query creates the
+  // FR-001: hold the folder open, once per space per session. Best effort — a failure is
+  // logged and the workspace renders regardless, because saving a query creates the
   // prefix on its own.
+  //
+  // The `.catch` is what makes "best effort" true of a REJECTION and not just of a failed
+  // `ServiceResult`. The service does not throw by contract, but a `.then`-only chain
+  // turns any breach of that contract into an unhandled rejection, which fails the whole
+  // test run rather than this one non-blocking call.
   useEffect(() => {
     if (!personalSpace) return;
-    void ensureSavedQueriesFolder(personalSpace).then((result) => {
-      if (!result.success) logBackgroundFailure('saved-queries-folder', result.error);
-    });
+    void ensureSavedQueriesFolder(personalSpace)
+      .then((result) => {
+        if (!result.success) logBackgroundFailure('saved-queries-folder', result.error);
+      })
+      .catch((error: unknown) => logBackgroundFailure('saved-queries-folder', error));
   }, [personalSpace]);
 
   // SPEC-043 FR-008: a linked tab is "dirty" when its editor SQL differs from the file
@@ -425,9 +432,13 @@ export function QueryWorkspace() {
   // `writeSavedQuery`, so this resolves its `Collision` failure into a replace confirm
   // rather than scanning a list that may be paginated and may not be this space's.
   const [saveCollision, setSaveCollision] = useState<string | null>(null);
+  // What the user last typed, so a trip through the replace confirm and back does not
+  // discard it. Cleared once the save lands or the dialog is dismissed.
+  const [typedName, setTypedName] = useState<string | null>(null);
 
   const commitSave = (name: string, overwrite: boolean) => {
     if (!personalSpace) return;
+    setTypedName(name);
     const sql = activeTab.sql;
     void (async () => {
       const result = await writeSavedQuery({space: personalSpace, name, sql, overwrite});
@@ -437,6 +448,10 @@ export function QueryWorkspace() {
           setSaveCollision(name);
           return;
         }
+        // Clear the confirm too: it was raised by the FIRST attempt's collision, and
+        // leaving it up after the replace itself failed offers a retry of a step that has
+        // already happened.
+        setSaveCollision(null);
         toast.push({variant: 'danger', message: `Couldn’t save the query. ${toUserText(result.error)}`});
         return;
       }
@@ -450,6 +465,7 @@ export function QueryWorkspace() {
       });
       setSaveOpen(false);
       setSaveCollision(null);
+      setTypedName(null);
       saved.refresh();
       editorRef.current?.focus();
     })();
@@ -780,16 +796,21 @@ export function QueryWorkspace() {
         clear={{open: clearOpen, onConfirm: handleClearConfirm, onCancel: () => setClearOpen(false)}}
         save={{
           open: saveOpen,
-          initialName: activeLinkedSaved?.name ?? '',
+          // The name the user TYPED wins over the linked file's, so backing out of the
+          // replace confirm returns them to what they wrote rather than an empty field.
+          initialName: saveCollision ?? typedName ?? activeLinkedSaved?.name ?? '',
           spaceLabel: personalSpace?.label ?? 'My files',
           collidingName: saveCollision,
           onSave: (name) => commitSave(name, false),
           onReplace: (name) => commitSave(name, true),
           onCancelReplace: () => {
             setSaveCollision(null);
-            setSaveOpen(true); // back to the dialog with the name editable
+            setSaveOpen(true); // back to the dialog with the name still in the field
           },
-          onCancel: () => setSaveOpen(false)
+          onCancel: () => {
+            setTypedName(null);
+            setSaveOpen(false);
+          }
         }}
         closing={{tab: closing, onConfirm: confirmClose, onCancel: () => setClosing(null)}}
         tabLimit={{open: limitOpen, onDismiss: () => setLimitOpen(false)}}

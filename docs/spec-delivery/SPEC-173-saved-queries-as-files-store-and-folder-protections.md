@@ -76,9 +76,11 @@ With `query` off the folder leaves the file-browser listing **and** the destinat
 than taking it from four callers, which is the same reasoning the registry exists for; the cost is
 that `DestinationPicker` now needs an auth context, which one bespoke a11y tree had to be given.
 
-The delete/rename refusal is **unconditional** and structurally so: the service takes no flag. A
-test asserts it with the flag off, because "you cannot see it" and "you cannot destroy it" are
-different guarantees and only one survives a stale cached flag document.
+The delete/rename refusal is **unconditional** and structurally so: `deleteFolder`/`moveFolder`
+take no flag, so there is no state in which the gate reaches them. FR-008 AC3 asks for a test "with
+the flag off"; a service-level test cannot render a flag state at all, so the refusal is tested
+directly and the structural argument is recorded beside it. "You cannot see it" and "you cannot
+destroy it" are different guarantees, and only one survives a stale cached flag document.
 
 ## What is owed
 
@@ -94,6 +96,33 @@ Worth doing in the same pass, since they are the same session: save a query and 
 appears in the file browser under `saved_queries/`; upload a CSV into that folder and confirm the
 Query drawer does not offer it; try to delete the folder and confirm the refusal names saved
 queries.
+
+## Found in review, and fixed
+
+- **An unhandled rejection reddened the whole suite.** `ensureSavedQueriesFolder` was called with
+  a `.then` and no `.catch`, so a service that breached its never-throw contract became an
+  unhandled rejection rather than a logged, non-fatal one — and `gatedSurfaces.test.tsx`'s bare
+  `objectExists: vi.fn()` did exactly that from a recipe with nothing to do with saved queries.
+  The suite still reported **1950 passed** while exiting **1**, which is how it was missed: a test
+  count is not an exit code. Both halves are closed, and a test now pins the REJECTION path, not
+  just the failed-`ServiceResult` path.
+- **`useQuerySpaces` built a personal space from an empty username.** On the dev-unauth path the
+  workspace mounts with no user, so the space's root was the BUCKET root — a marker held open and
+  a `saved_queries/` listing there, where SPEC-043's hook was simply disabled. It now returns an
+  empty list without a username, with a test.
+- **Backing out of the replace confirm discarded the typed name**, returning an empty field on a
+  new save; and a non-`Collision` failure on the overwrite path left the confirm on screen. Both
+  fixed, and the collision test now models the service (every non-overwrite write collides) rather
+  than colliding once and letting the second attempt through.
+
+## Two assertions that are proxied, not literal
+
+- **FR-010's tripwire counts `writeSavedQuery` calls, not `PutObject`s.** The module is mocked at
+  the service boundary, per the repo's testing rule, so a new write through a *different* path
+  would not trip it. The service-level tests pin the commands separately.
+- **FR-002 AC5/AC7 are implied, not performed.** The individual-file delete and the subfolder move
+  are tested, and the marker is proven hidden from selection, but no test performs an upload into
+  the folder or a select-all-then-delete. Nothing in the app refuses either.
 
 ## Notes for SPEC-174/175
 

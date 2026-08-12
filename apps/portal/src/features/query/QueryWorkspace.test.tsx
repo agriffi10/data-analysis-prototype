@@ -560,7 +560,14 @@ describe('QueryWorkspace', () => {
       // of the loaded list stopped being sound once it is paginated and the target space
       // may not be the one on screen.
       seedSingle('SELECT r;');
-      mockWriteSaved.mockResolvedValueOnce(fail('“My report” already exists.', 'Collision'));
+      // Models the real service: the key exists, so every non-overwrite write collides and
+      // only an explicit Replace gets through. A single `…Once` would let the second
+      // attempt succeed and quietly skip the half this test exists for.
+      mockWriteSaved.mockImplementation(async ({space, name, sql, overwrite}) =>
+        overwrite
+          ? ok(savedFile(name, {spaceId: space.id, bucket: space.bucket, size: sql.length}))
+          : fail(`“${name}” already exists.`, 'Collision')
+      );
       const {user} = renderWorkspace();
       await screen.findByLabelText('SQL editor');
 
@@ -570,8 +577,15 @@ describe('QueryWorkspace', () => {
 
       const confirm = await screen.findByRole('alertdialog', {name: /confirm replace saved query/i});
       expect(mockWriteSaved).toHaveBeenCalledTimes(1);
+      expect(mockWriteSaved).toHaveBeenLastCalledWith(expect.objectContaining({overwrite: false}));
 
-      await user.click(within(confirm).getByRole('button', {name: 'Replace'}));
+      // Backing out returns the user to what they TYPED, not to an empty field.
+      await user.click(within(confirm).getByRole('button', {name: 'Cancel'}));
+      expect(within(screen.getByRole('dialog', {name: 'Save query'})).getByLabelText('Name')).toHaveValue('My report');
+
+      await user.click(within(screen.getByRole('dialog', {name: 'Save query'})).getByRole('button', {name: 'Save'}));
+      const confirmAgain = await screen.findByRole('alertdialog', {name: /confirm replace saved query/i});
+      await user.click(within(confirmAgain).getByRole('button', {name: 'Replace'}));
       expect(mockWriteSaved).toHaveBeenLastCalledWith(expect.objectContaining({name: 'My report', overwrite: true}));
       expect(await screen.findByRole('tab', {name: /My report/})).toBeInTheDocument();
     });
@@ -602,6 +616,16 @@ describe('QueryWorkspace', () => {
       await waitFor(() =>
         expect(ensureSavedQueriesFolder).toHaveBeenCalledWith(expect.objectContaining({rootPrefix: 'alice/'}))
       );
+    });
+
+    it('survives the folder call REJECTING, not just returning a failed result', async () => {
+      // The service does not throw by contract. A `.then`-only chain made any breach of
+      // that contract an unhandled rejection, which fails the whole vitest run — so
+      // "best effort" was true of a failed `ServiceResult` and false of a rejection.
+      vi.mocked(ensureSavedQueriesFolder).mockRejectedValue(new Error('boom'));
+      renderWorkspace();
+
+      expect(await screen.findByLabelText('SQL editor')).toBeInTheDocument();
     });
 
     it('shows a dirty marker once a tab’s buffer diverges from the file it was opened from', async () => {
