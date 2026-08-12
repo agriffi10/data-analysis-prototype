@@ -411,6 +411,48 @@
           "Next": "RequestFailureSeed"
         }
       ],
+      "Next": "NotifyArchived"
+    },
+    "NotifyArchived": {
+      "Type": "Task",
+      "Comment": "SPEC-172 FR-006. The archive's success message, and the only place the archive id reaches the user outside the receipt — which lives inside the folder that id names. AFTER write-receipt on purpose: the id it hands out is only useful once the receipt exists to be read. ResultPath is null and the Catch leads onward rather than to the failure seed, because by this state the source is DELETED: a notifier that could fail the run would turn a completed archive into a reported failure, and the data would still be gone.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${notify_function_arn}",
+        "Payload": {
+          "outcome": "archived",
+          "requestId.$": "$.requestId",
+          "actor.$": "$.actor.username",
+          "space": {
+            "kind.$": "$.source.kind",
+            "name.$": "$.source.name"
+          },
+          "objectCount.$": "$.objectCount",
+          "totalBytes.$": "$.totalBytes"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": null,
+          "Next": "ArchiveComplete"
+        }
+      ],
+      "ResultPath": null,
       "Next": "ArchiveComplete"
     },
     "ArchiveComplete": {
@@ -691,8 +733,51 @@
           "Next": "RequestFailureSeed"
         }
       ],
+      "Next": "NotifyRestoreStarted"
+    },
+    "NotifyRestoreStarted": {
+      "Type": "Task",
+      "Comment": "SPEC-172 FR-006. The only START notification in this application, and it is here rather than earlier because THIS is where the bill and the hours begin: RestoreObject is billed on request and cannot be cancelled, so a message before the Map would announce a wait that a failed retrieval never actually starts. Three to five hours of silence is indistinguishable from a request that was dropped, which is the whole reason this outcome exists.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${notify_function_arn}",
+        "Payload": {
+          "outcome": "restore_started",
+          "requestId.$": "$.requestId",
+          "actor.$": "$.actor.username",
+          "space": {
+            "kind.$": "$.source.kind",
+            "name.$": "$.source.name"
+          },
+          "objectCount.$": "$.objectCount",
+          "totalBytes.$": "$.totalBytes"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": null,
+          "Next": "WaitForRetrieval"
+        }
+      ],
+      "ResultPath": null,
       "Next": "WaitForRetrieval"
     },
+
     "WaitForRetrieval": {
       "Type": "Wait",
       "Comment": "SPEC-171 FR-002. The only Wait in this repo, and it is the storage class rather than a design choice: a GLACIER object is not readable, a CopyObject whose source is in that class fails InvalidObjectState, and the Standard tier takes 3-5 HOURS to produce the temporary readable copy. Five minutes against that is ~1% of the wait spent asking. The interval is mirrored from arcommon.config.RESTORE_POLL_SECONDS via locals.tf because ASL cannot import Python, and a test asserts the two still agree — the same discipline the transfer Map's batch numbers are held to. THE ITERATION CAP IS NOT HERE: poll-restore computes it, so RESTORE_MAX_POLLS has one home rather than a constant and an ASL literal that could disagree on a restore already going badly.",
@@ -993,11 +1078,54 @@
         {
           "ErrorEquals": ["States.ALL"],
           "ResultPath": "$.receiptError",
+          "Next": "NotifyRestored"
+        }
+      ],
+      "Next": "NotifyRestored"
+    },
+    "NotifyRestored": {
+      "Type": "Task",
+      "Comment": "SPEC-172 FR-006. The restore's success message. Reached from BOTH of update-receipt's exits, including its Catch: a receipt that could not be rewritten is a flag on a successful run (SPEC-171), and the user whose files are back must be told they are back whether or not the document recording it could be updated.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${notify_function_arn}",
+        "Payload": {
+          "outcome": "restored",
+          "requestId.$": "$.requestId",
+          "actor.$": "$.actor.username",
+          "space": {
+            "kind.$": "$.source.kind",
+            "name.$": "$.source.name"
+          },
+          "objectCount.$": "$.objectCount",
+          "totalBytes.$": "$.totalBytes"
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": null,
           "Next": "RestoreComplete"
         }
       ],
+      "ResultPath": null,
       "Next": "RestoreComplete"
     },
+
     "RestoreComplete": {
       "Type": "Pass",
       "Comment": "The restore's success terminal. It names only paths BOTH arms into it carry — the receipt's key is not among them, because the Catch above reaches here without one and a Pass naming an absent key raises an uncatchable States.Runtime. Everything the run no longer needs is dropped: the plan key, the transfer block, the Map Run pointer, the poll's progress. SPEC-172 reads this shape for the success notification; this spec deliberately emits none.",

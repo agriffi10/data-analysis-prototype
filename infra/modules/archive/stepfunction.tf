@@ -64,6 +64,11 @@ resource "aws_sfn_state_machine" "archive" {
     poll_restore_function_arn           = aws_lambda_function.functions["poll-restore"].arn
     delete_archived_function_arn        = aws_lambda_function.functions["delete-archived"].arn
     update_receipt_function_arn         = aws_lambda_function.functions["update-receipt"].arn
+    # SPEC-172 — the SUCCESS producer, fed to THREE states for the same reason update-receipt is
+    # fed to three: the outcome is a property of WHERE the machine is, not of what is on the
+    # state, and the three points carry identical keys. The ASL seeds the outcome; the verb never
+    # infers it.
+    notify_function_arn = aws_lambda_function.functions["notify"].arn
     # Mirrored from cpcommon/transfer/config.py; a test holds the two together.
     transfer_max_items_per_batch = local.transfer_max_items_per_batch
     transfer_map_max_concurrency = local.transfer_map_max_concurrency

@@ -186,16 +186,16 @@ describe('DestinationPicker', () => {
 
   describe('DestinationPicker', () => {
     it('navigates into a folder and confirms the browsed prefix', async () => {
-      listing({'alice/': pageOf([folder('alice/archive/', 'archive')]), 'alice/archive/': pageOf()});
+      listing({'alice/': pageOf([folder('alice/backups/', 'backups')]), 'alice/backups/': pageOf()});
       const {user, onConfirm} = renderPicker();
 
-      await user.click(await screen.findByRole('button', {name: /open folder archive/i}));
+      await user.click(await screen.findByRole('button', {name: /open folder backups/i}));
       await waitFor(() =>
-        expect(mock.listFiles).toHaveBeenCalledWith('us', 'alice/archive/', undefined, expect.any(AbortSignal))
+        expect(mock.listFiles).toHaveBeenCalledWith('us', 'alice/backups/', undefined, expect.any(AbortSignal))
       );
 
       await user.click(screen.getByRole('button', {name: /copy here/i}));
-      expect(onConfirm).toHaveBeenCalledWith('alice/archive/', 'us', undefined);
+      expect(onConfirm).toHaveBeenCalledWith('alice/backups/', 'us', undefined);
     });
 
     it('excludes the protected athenaresults folder from the listing', async () => {
@@ -241,7 +241,7 @@ describe('DestinationPicker', () => {
     });
 
     it('shows existing files as non-interactive, unselectable rows', async () => {
-      listing({'alice/': pageOf([folder('alice/archive/', 'archive')], [file('alice/report.csv', 'report.csv')])});
+      listing({'alice/': pageOf([folder('alice/backups/', 'backups')], [file('alice/report.csv', 'report.csv')])});
       renderPicker();
 
       // The file is visible so the destination's contents aren't a mystery…
@@ -249,7 +249,7 @@ describe('DestinationPicker', () => {
       // …but it's not a button (you pick a folder, not a file).
       expect(screen.queryByRole('button', {name: /report\.csv/i})).not.toBeInTheDocument();
       // The folder is still navigable.
-      expect(screen.getByRole('button', {name: /open folder archive/i})).toBeInTheDocument();
+      expect(screen.getByRole('button', {name: /open folder backups/i})).toBeInTheDocument();
     });
 
     it('shows the empty message only when there are no folders and no files', async () => {
@@ -336,7 +336,7 @@ describe('DestinationPicker', () => {
     const selectable = {selectableFiles: true, allowCurrentParent: true};
 
     it('leaves the three default-mode callers (Move / Copy / Save results) unaffected', async () => {
-      listing({'alice/': pageOf([folder('alice/archive/', 'archive')], [file('alice/report.csv', 'report.csv')])});
+      listing({'alice/': pageOf([folder('alice/backups/', 'backups')], [file('alice/report.csv', 'report.csv')])});
       // Every shipped caller omits `selectableFiles`, so the default IS their behaviour:
       // the file is visible, not a button, and not selectable by any means.
       const {user, onConfirm} = renderPicker({currentPrefix: 'alice/docs/'});
@@ -354,8 +354,8 @@ describe('DestinationPicker', () => {
 
     it('selects a file, deselects it, and clears the selection on navigation', async () => {
       listing({
-        'alice/': pageOf([folder('alice/archive/', 'archive')], [file('alice/report.csv', 'report.csv')]),
-        'alice/archive/': pageOf([], [file('alice/archive/old.csv', 'old.csv')])
+        'alice/': pageOf([folder('alice/backups/', 'backups')], [file('alice/report.csv', 'report.csv')]),
+        'alice/backups/': pageOf([], [file('alice/backups/old.csv', 'old.csv')])
       });
       const {user, onConfirm} = renderPicker({...selectable, currentPrefix: 'alice/'});
 
@@ -373,12 +373,12 @@ describe('DestinationPicker', () => {
 
       // Re-select, then navigate: the selection must NOT survive into the new folder.
       await user.click(screen.getByRole('button', {name: 'Select file report.csv'}));
-      await user.click(screen.getByRole('button', {name: /open folder archive/i}));
+      await user.click(screen.getByRole('button', {name: /open folder backups/i}));
       const moved = await screen.findByRole('button', {name: 'Select file old.csv'});
       expect(moved).toHaveAttribute('aria-pressed', 'false');
 
       await user.click(screen.getByRole('button', {name: /copy here/i}));
-      expect(onConfirm).toHaveBeenCalledWith('alice/archive/', 'us', undefined);
+      expect(onConfirm).toHaveBeenCalledWith('alice/backups/', 'us', undefined);
     });
 
     it('confirms with the selected file key only while a file is selected', async () => {
@@ -392,8 +392,8 @@ describe('DestinationPicker', () => {
 
     it('reports the target on mount and on every navigation/selection change', async () => {
       listing({
-        'alice/': pageOf([folder('alice/archive/', 'archive')], [file('alice/report.csv', 'report.csv')]),
-        'alice/archive/': pageOf([], [file('alice/archive/old.csv', 'old.csv')])
+        'alice/': pageOf([folder('alice/backups/', 'backups')], [file('alice/report.csv', 'report.csv')]),
+        'alice/backups/': pageOf([], [file('alice/backups/old.csv', 'old.csv')])
       });
       const onTargetChange = vi.fn();
       const {user} = renderPicker({...selectable, currentPrefix: 'alice/', onTargetChange});
@@ -403,8 +403,8 @@ describe('DestinationPicker', () => {
       await user.click(await screen.findByRole('button', {name: 'Select file report.csv'}));
       expect(onTargetChange).toHaveBeenLastCalledWith({prefix: 'alice/', fileKey: 'alice/report.csv'});
 
-      await user.click(screen.getByRole('button', {name: /open folder archive/i}));
-      expect(onTargetChange).toHaveBeenLastCalledWith({prefix: 'alice/archive/', fileKey: undefined});
+      await user.click(screen.getByRole('button', {name: /open folder backups/i}));
+      expect(onTargetChange).toHaveBeenLastCalledWith({prefix: 'alice/backups/', fileKey: undefined});
     });
 
     it('hides the prefix marker, so it can never be selected as a target', async () => {
@@ -488,30 +488,30 @@ describe('MoveDialog', () => {
 
   describe('MoveDialog', () => {
     it('navigates into a folder and moves there', async () => {
-      listing({'alice/': pageOf([folder('alice/archive/', 'archive')]), 'alice/archive/': pageOf()});
+      listing({'alice/': pageOf([folder('alice/backups/', 'backups')]), 'alice/backups/': pageOf()});
       const {user, onMove} = renderDialog();
 
-      await user.click(await screen.findByRole('button', {name: /open folder archive/i}));
+      await user.click(await screen.findByRole('button', {name: /open folder backups/i}));
       await waitFor(() =>
-        expect(mock.listFiles).toHaveBeenCalledWith('us', 'alice/archive/', undefined, expect.any(AbortSignal))
+        expect(mock.listFiles).toHaveBeenCalledWith('us', 'alice/backups/', undefined, expect.any(AbortSignal))
       );
 
       await user.click(screen.getByRole('button', {name: /move here/i}));
-      expect(onMove).toHaveBeenCalledWith('alice/archive/', 'us', undefined);
+      expect(onMove).toHaveBeenCalledWith('alice/backups/', 'us', undefined);
     });
 
     it('climbs back to the root via the ".." row and can move there', async () => {
-      listing({'alice/': pageOf([folder('alice/archive/', 'archive')]), 'alice/archive/': pageOf()});
+      listing({'alice/': pageOf([folder('alice/backups/', 'backups')]), 'alice/backups/': pageOf()});
       const {user, onMove} = renderDialog();
 
       // No ".." at the root (already at the navigation floor).
-      await screen.findByRole('button', {name: /open folder archive/i});
+      await screen.findByRole('button', {name: /open folder backups/i});
       expect(screen.queryByRole('button', {name: /go up to parent folder/i})).not.toBeInTheDocument();
 
       // Descend, then the ".." row appears and climbs back to the root.
-      await user.click(screen.getByRole('button', {name: /open folder archive/i}));
+      await user.click(screen.getByRole('button', {name: /open folder backups/i}));
       await waitFor(() =>
-        expect(mock.listFiles).toHaveBeenLastCalledWith('us', 'alice/archive/', undefined, expect.any(AbortSignal))
+        expect(mock.listFiles).toHaveBeenLastCalledWith('us', 'alice/backups/', undefined, expect.any(AbortSignal))
       );
       await user.click(await screen.findByRole('button', {name: /go up to parent folder/i}));
       await waitFor(() =>
@@ -533,9 +533,9 @@ describe('MoveDialog', () => {
     });
 
     it('hides the folders being moved (no descending into them)', async () => {
-      listing({'alice/': pageOf([folder('alice/archive/', 'archive'), folder('alice/photos/', 'photos')])});
+      listing({'alice/': pageOf([folder('alice/backups/', 'backups'), folder('alice/photos/', 'photos')])});
       renderDialog({items: [{type: 'folder', prefix: 'alice/photos/'}], currentPrefix: 'alice/'});
-      expect(await screen.findByRole('button', {name: /open folder archive/i})).toBeInTheDocument();
+      expect(await screen.findByRole('button', {name: /open folder backups/i})).toBeInTheDocument();
       expect(screen.queryByRole('button', {name: /open folder photos/i})).not.toBeInTheDocument();
     });
   });

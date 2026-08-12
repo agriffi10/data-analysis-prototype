@@ -153,5 +153,68 @@ def test_the_partial_restore_body_says_all_three_things_it_has_to():
     assert "already there" in text and "request the restore again" in text, "what to do next"
 
 
+# ── SPEC-172: the three outcomes a failure table cannot carry ────────────────
+
+
+def test_the_success_bodies_are_not_in_the_failure_table():
+    """They are composed, not registered. A success rendered through the resolver would come out
+    as "Couldn't archive that: archived 12 files", and the resolver's codes double as
+    ``TerminalError``'s raise-time validation set — so a success reason there would also make
+    ``raise TerminalError("archived")`` a legal statement."""
+    for name in ("archived", "restored", "restore_started"):
+        assert name not in messages._BODIES
+
+
+def test_the_archived_message_carries_the_id_the_restore_needs():
+    """The archived objects are in a bucket the browser cannot reach, so this id is the user's
+    only route back to them — and the receipt that repeats it lives inside the folder it names."""
+    text = messages.archived_message("3f8a1c2e-9b4d-4a17-8c65-2e0d7b1f4a93", 12, 1536)
+
+    assert "3f8a1c2e-9b4d-4a17-8c65-2e0d7b1f4a93" in text
+    assert "12 files" in text and "1.5 KB" in text
+    assert "removed from your space" in text
+
+
+def test_the_size_renders_through_the_receipts_own_formatter():
+    """One archive must not read as 3072.0 GB in its notification and 3.0 TB in its receipt —
+    the shared TB ceiling, SPEC-155 FR-007."""
+    from arcommon import receipt
+
+    size = 3 * 1024**4
+    assert receipt.human_bytes(size) in messages.archived_message("id", 1, size)
+
+
+def test_the_started_message_says_the_duration_and_that_more_is_coming():
+    """The only START notification in the app. Without the duration it reads as a completion that
+    has not shown up yet, which is exactly the confusion three billed hours of silence creates."""
+    text = messages.restore_started_message(12)
+
+    assert "several hours" in text
+    assert "another notification" in text
+    assert "Nothing has changed" in text
+
+
+def test_every_outcome_message_stays_ascii():
+    """The same rule the failure bodies follow: these are read in an inbox and, for the receipt's
+    sake, in whatever the user opens a text file with."""
+    for text in (
+        messages.archived_message("id", 2, 10),
+        messages.restore_started_message(2),
+        messages.restored_message(2, 10),
+    ):
+        assert text.isascii(), text
+
+
+def test_one_object_reads_as_one_file_in_all_three():
+    """A count phrase that says "1 files" is the sort of thing a user quotes back at you."""
+    for text in (
+        messages.archived_message("id", 1, 10),
+        messages.restore_started_message(1),
+        messages.restored_message(1, 10),
+    ):
+        assert "1 file " in text or "1 file(" in text, text
+        assert "1 files" not in text, text
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

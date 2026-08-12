@@ -11,6 +11,7 @@ import type {useDelete} from './useDelete';
 import type {useMove} from './useMove';
 import type {FileSpaceKind, FileSpaceTarget} from './useFileSpace';
 import type {SelectableItem} from './selectionContext';
+import type {S3FileItem, S3FolderItem} from '../../types/s3.types';
 
 type Props = {
   dialogs: UseFileBrowserDialogsResult;
@@ -23,6 +24,17 @@ type Props = {
   spaceKind: FileSpaceKind | undefined;
   destinations: FileSpaceTarget[] | undefined;
   canModify: boolean;
+  /**
+   * SPEC-172 FR-001: the per-item Archive action in each details panel. Absent when the space
+   * can't be resolved, the `files` flag is off, or the user is inside the read-only `archive/`
+   * folder — removed rather than disabled, which is SPEC-163's rule.
+   */
+  onRequestArchiveFile?: (file: S3FileItem) => void;
+  onRequestArchiveFolder?: (folder: S3FolderItem) => void;
+  /** Why THIS item can't be archived (a portal-managed root), if it can't. */
+  archiveRefusalFor: (key: string, kind: 'file' | 'folder') => string | undefined;
+  /** Why nothing in the current folder can be written (SPEC-172 FR-004). */
+  writeLockReason?: string;
   /** The current selection, for the delete confirmation's item list. */
   selectedItems: SelectableItem[];
   del: ReturnType<typeof useDelete>;
@@ -45,6 +57,10 @@ export function FileBrowserDialogs({
   spaceKind,
   destinations,
   canModify,
+  onRequestArchiveFile,
+  onRequestArchiveFolder,
+  archiveRefusalFor,
+  writeLockReason,
   selectedItems,
   del,
   move,
@@ -60,6 +76,8 @@ export function FileBrowserDialogs({
           rootPrefix={rootPrefix}
           canModify={canModify}
           onRequestRename={dialogs.openRenameFile}
+          onRequestArchive={onRequestArchiveFile}
+          writeLockReason={writeLockReason}
           onClose={dialogs.closeFileDetails}
         />
       )}
@@ -72,6 +90,9 @@ export function FileBrowserDialogs({
           rootPrefix={rootPrefix}
           canModify={canModify}
           onRequestRename={dialogs.openRenameFolder}
+          onRequestArchive={onRequestArchiveFolder}
+          archiveDisabledReason={archiveRefusalFor(dialogs.detailsFolder.prefix, 'folder')}
+          writeLockReason={writeLockReason}
           onClose={dialogs.closeFolderDetails}
         />
       )}

@@ -572,7 +572,11 @@ def test_the_loop_is_wait_then_poll_then_choice_and_it_closes():
     readable until S3 has spent 3-5 hours making a temporary copy of it. Asserted as a CYCLE —
     the Default must come back to the Wait — because a loop whose exit is right and whose return
     edge is missing is a machine that polls exactly once."""
-    assert STATES["RetrieveObjects"]["Next"] == "WaitForRetrieval"
+    # SPEC-172 inserted the restore-started notification between the retrieval and the wait, so
+    # the edge is now two hops. Followed rather than re-pinned to the new state's name: what this
+    # test is about is that the retrieval reaches the LOOP, and a notification is not a loop.
+    assert STATES["RetrieveObjects"]["Next"] == "NotifyRestoreStarted"
+    assert STATES["NotifyRestoreStarted"]["Next"] == "WaitForRetrieval"
     assert STATES["WaitForRetrieval"]["Type"] == "Wait"
     assert STATES["WaitForRetrieval"]["Next"] == "PollRestore"
     assert STATES["PollRestore"]["Next"] == "RestoreRetrieved"
@@ -760,7 +764,11 @@ def test_the_cleanups_failure_reaches_the_success_terminal():
 def test_the_receipt_rewrites_failure_reaches_the_success_terminal():
     """FR-006 AC5. Most durable to least — data restored, then receipt, then notification — so
     by this state the data is already back and a failed rewrite must not take it away."""
-    assert STATES["UpdateReceipt"]["Catch"][0]["Next"] == "RestoreComplete"
+    # Both exits now run through SPEC-172's success notification first, and the Catch reaching it
+    # is the point: a user whose files are back must be told so whether or not the document
+    # recording it could be rewritten.
+    assert STATES["UpdateReceipt"]["Catch"][0]["Next"] == "NotifyRestored"
+    assert STATES["NotifyRestored"]["Next"] == "RestoreComplete"
     assert "Failed" not in _reachable_from(STATES["UpdateReceipt"]["Catch"][0]["Next"])
 
 
@@ -854,6 +862,12 @@ def test_every_verb_state_is_one_of_the_planes_deployed_functions():
         "DeleteArchived",
         "UpdateReceipt",
         "ReportRestoreIncomplete",
+        # SPEC-172's success producer, at the three points an outcome is known. It is a Task like
+        # any other and belongs in this set for the same reason: a state whose Lambda is not
+        # deployed fails at runtime with an error that reads like an IAM bug.
+        "NotifyArchived",
+        "NotifyRestoreStarted",
+        "NotifyRestored",
         "NotifyFailure",
     }
     assert nested == {"CopyObjects", "InitiateRestore", "CopyBack"}
@@ -881,7 +895,107 @@ def test_the_state_count_is_not_the_verb_count_and_the_reuse_is_deliberate():
         frozenset({"CopyObjects", "CopyBack"}),
         frozenset({"CollectTransferResults", "CollectRestoreResults"}),
         frozenset({"CheckDestinationClear", "ReCheckDestinationClear"}),
+        # SPEC-172. The third deliberate reuse, and the same reasoning as update-receipt's: the
+        # outcome is a property of WHERE the machine is rather than of what is on the state — all
+        # three points carry identical keys — so the ASL seeds it and one verb renders all three.
+        frozenset({"NotifyArchived", "NotifyRestoreStarted", "NotifyRestored"}),
     }
+
+
+# ── SPEC-172: the success producer, and the two things it must never do ──────
+
+
+def _notify_states():
+    """The three states that invoke the success producer, by name."""
+    return {"NotifyArchived", "NotifyRestoreStarted", "NotifyRestored"}
+
+
+def test_the_success_producer_can_never_fail_the_run():
+    """THE INVARIANT THIS FEATURE CANNOT LOSE. On the archive arm the source is DELETED before
+    the notification is sent, so a notifier that could fail the execution would turn a completed
+    archive into a reported failure with the data already gone — and on the restore arm it would
+    report a failure over files that are back in the user's space.
+
+    Asserted as "every exit is a forward one": both the Next and every Catch must lead to the
+    state this one was inserted in front of, and never to the failure seed.
+    """
+    forward = {
+        "NotifyArchived": "ArchiveComplete",
+        "NotifyRestoreStarted": "WaitForRetrieval",
+        "NotifyRestored": "RestoreComplete",
+    }
+    for name, onward in forward.items():
+        state = STATES[name]
+        assert state["Next"] == onward, name
+        catches = state.get("Catch") or []
+        assert catches, f"{name} has no Catch, so a Lambda fault fails the execution"
+        for catch in catches:
+            assert catch["ErrorEquals"] == ["States.ALL"], name
+            assert catch["Next"] == onward, name
+
+
+def test_the_success_producer_cannot_reshape_the_running_object():
+    """`ResultPath: null` on all three. Two of them sit MID-machine — the restore-started one is
+    followed by a Wait, a poll loop, a second guard and a copy — and a verb that returned onto
+    the state would replace the object every one of those reads."""
+    for name in _notify_states():
+        assert STATES[name]["ResultPath"] is None, name
+
+
+def test_the_asl_seeds_the_outcome_rather_than_the_verb_inferring_it():
+    """The three call sites carry IDENTICAL keys — request id, actor, space, counts — so nothing
+    on the state distinguishes them. Inferring would mean guessing, and a restore-started message
+    on a finished restore is worse than no message at all (SPEC-171 settled its two destination
+    guards the same way)."""
+    seeded = {STATES[name]["Parameters"]["Payload"]["outcome"] for name in _notify_states()}
+
+    assert seeded == {"archived", "restore_started", "restored"}
+
+
+def test_each_outcome_is_seeded_from_exactly_one_state():
+    """One notification per outcome (SPEC-114's rule, which is about OUTCOMES and not verbs). A
+    second state seeding the same token would put two rows in one inbox for one event."""
+    seeded = [STATES[name]["Parameters"]["Payload"]["outcome"] for name in sorted(_notify_states())]
+
+    assert len(seeded) == len(set(seeded))
+
+
+def test_the_archived_notification_runs_after_the_receipt_exists():
+    """It hands out the archive id, and the receipt is where that id can be read back. Announced
+    before write-receipt, a run whose receipt then failed would have told the user to look in a
+    folder holding nothing — on the one plane where the source is already gone."""
+    assert STATES["WriteReceipt"]["Next"] == "NotifyArchived"
+
+
+def test_the_restore_start_is_announced_after_the_retrieval_is_actually_requested():
+    """RestoreObject is billed on request and cannot be cancelled, so THIS is where the hours
+    begin. Announced before the Map, a failed retrieval would leave the user waiting for a
+    completion that was never going to come."""
+    assert STATES["RetrieveObjects"]["Next"] == "NotifyRestoreStarted"
+
+
+def test_the_restore_success_is_announced_on_both_of_the_receipts_exits():
+    """A receipt that could not be rewritten is a FLAG on a successful run (SPEC-171), not a
+    failure of it — so the user whose files are back is told they are back either way."""
+    assert STATES["UpdateReceipt"]["Next"] == "NotifyRestored"
+    assert STATES["UpdateReceipt"]["Catch"][0]["Next"] == "NotifyRestored"
+
+
+def test_no_success_notification_sits_on_a_failure_path():
+    """The failure arm has its own producer (SPEC-152's NotifyFailure) and its own wording. A
+    success state reachable from RecordFailure would tell a user their archive completed on the
+    run that reported it had not."""
+    seen, frontier = set(), ["RecordFailure"]
+    while frontier:
+        name = frontier.pop()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        state = STATES[name]
+        frontier.append(state.get("Next"))
+        frontier.extend(c.get("Next") for c in state.get("Catch", []) or [])
+
+    assert not (seen & _notify_states())
 
 
 if __name__ == "__main__":
