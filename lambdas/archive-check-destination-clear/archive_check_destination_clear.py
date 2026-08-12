@@ -1,0 +1,89 @@
+"""check-destination-clear — the absolute collision guard, and the last state before a bill.
+
+SPEC-170 FR-004. Reads the restore plan back and refuses the whole restore if ANY destination is
+already occupied. Read-only: it decides whether a retrieval may start, and never starts one.
+
+**This is the state SPEC-170 exists for, and its position in the machine is the point.** Glacier
+retrieval is billed and irreversible once initiated, so every question that can be answered in
+seconds is answered here, before SPEC-171 spends hours and money on one that cannot be taken
+back. A guard on the other side of the retrieval would report the same conflict and charge the
+user for the privilege.
+
+**The refusal is whole-request, unlike file-send's per-recipient one.** There is one actor, one
+archive and one destination space, so there is nothing to refuse partially — which is also why
+it raises rather than returning a record: the colliding paths ride as a message TOKEN, which is
+the channel that survives to the user, where a per-recipient outcome had to be a return value
+because it had to be attributed to one of many.
+
+The service name is the control plane, not the function, so one restore's invocations stay one
+queryable set. The per-verb identity rides as the ``verb`` field.
+"""
+
+import logging
+
+from arcommon import guard, notify, plan
+from cpcommon import observability
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+observability.init(service="archive")
+
+
+@observability.traced("check-destination-clear")
+@notify.notifies_on_failure("check-destination-clear")
+def handler(event, context) -> dict:
+    """Step Functions entry point: confirms nothing the restore would write already exists.
+
+    Args:
+      event: The validated restore request, carrying the restore plan's key.
+      context: The Lambda context, unused.
+
+    Returns:
+      The request, threaded onward unchanged apart from the checked count.
+
+    Raises:
+      TerminalError: ``destination_occupied`` naming a bounded sample of the collisions,
+        ``plan_unreadable`` or ``plan_superseded`` when the plan is not this run's.
+      TransientError: On a retryable S3 fault — a guard that cannot see the destination retries
+        and then fails, and never falls through to "nothing is there".
+    """
+    return _check_destination_clear(event)
+
+
+def _check_destination_clear(event) -> dict:
+    """Loads the plan and heads every destination it names.
+
+    Args:
+      event: The validated restore request.
+
+    Returns:
+      The request with the number of destinations checked.
+
+    Raises:
+      TerminalError: ``destination_occupied``, ``plan_unreadable`` or ``plan_superseded``.
+      TransientError: On a retryable S3 fault.
+    """
+    space = event.get("source") or {}
+    archive = event.get("archive") or {}
+    actor = (event.get("actor") or {}).get("username")
+    bucket, root = space.get("bucket"), space.get("root")
+
+    loaded = plan.load_restore_plan(event.get("planKey"), event)
+    dest_keys = [entry["destKey"] for entry in loaded["objects"]]
+
+    guard.assert_clear(bucket, dest_keys, root)
+
+    logger.info("all %d destination(s) under %s are clear for %s", len(dest_keys), root, actor)
+    observability.info(
+        "destinations clear",
+        actor=actor,
+        archive_id=archive.get("archiveId"),
+        space_bucket=bucket,
+        space_root=root,
+        space_kind=space.get("kind"),
+        objects=len(dest_keys),
+        bytes=event.get("totalBytes"),
+        exists=False,
+    )
+    return {**event, "checkedCount": len(dest_keys)}

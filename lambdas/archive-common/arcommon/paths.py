@@ -30,6 +30,12 @@ Attributes:
     ever put into an S3 key** (FR-004): the id is browser-supplied and becomes a path segment in
     two buckets, so anything that is not exactly a UUID v4 — a slash, a ``..``, an empty string —
     is refused here rather than normalised into something that resolves.
+
+    **SPEC-170's pasted archive id is held to the SAME pattern, deliberately, and this is the
+    one regex either mode may use.** A restore's ``archiveId`` is the more dangerous of the two
+    — the user types it, where a request id is minted by the browser — so a second, laxer copy
+    of the rule would be a second door into the same key. ``validated_archive_id`` differs from
+    ``validated_request_id`` in its refusal's WORDING and in nothing else.
 """
 
 import re
@@ -65,6 +71,35 @@ def validated_request_id(request_id) -> str:
     if not isinstance(request_id, str) or not _UUID_V4.match(request_id):
         raise TerminalError("invalid_request", f"request id {request_id!r} is not a UUID v4")
     return request_id.lower()
+
+
+def validated_archive_id(archive_id) -> str:
+    """Returns the pasted archive id, or fails terminally if it is not a well-formed UUID v4.
+
+    SPEC-170 FR-002. **The archive id is the only part of a restore request that is both typed
+    by a human and used to build an S3 key**, so it is matched against the pattern rather than
+    sanitised into one: a value carrying ``/``, ``..``, a percent escape or a trailing space is
+    refused as malformed and never normalised, the same discipline SPEC-151 applied to DDL
+    literals after a raw interpolation turned out to be the defect.
+
+    It shares ``validated_request_id``'s regex on purpose — one rule, so the id that opened an
+    archive and the id that reopens it cannot be judged differently — and differs only in the
+    refusal's wording, because "the archive id you pasted" and "this run's id" are different
+    things to the person reading the message.
+
+    Args:
+      archive_id: The archive id the user pasted from a receipt.
+
+    Returns:
+      The id, lowercased, so a receipt read back in upper case still resolves the prefix the
+      archive was written under.
+
+    Raises:
+      TerminalError: ``invalid_request`` when the id is missing or is not a UUID v4.
+    """
+    if not isinstance(archive_id, str) or not _UUID_V4.match(archive_id):
+        raise TerminalError("invalid_request", f"archive id {archive_id!r} is not a UUID v4")
+    return archive_id.lower()
 
 
 def archive_root(kind: str, name: str, request_id) -> str:

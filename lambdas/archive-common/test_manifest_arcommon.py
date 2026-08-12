@@ -50,8 +50,27 @@ def _install(error=None):
 
 _ROOT = "personal/alice/archive/9f2c1b8e-1111-4222-8333-444444444444/"
 
-#: The two files that may name the record: the writer, and the module that defines it.
-_ALLOWED = {"arcommon/manifest.py", "archive-write-manifest/archive_write_manifest.py"}
+#: The files that may name the record: the writer, the module that defines it, and — since
+#: SPEC-170 — the restore layer that reads it as a CROSS-CHECK. The third one is the interesting
+#: entry, and its exemption is only sound because ``test_restore_arcommon`` pins the tolerance
+#: that makes it a cross-check rather than a dependency: an absent, unreadable or malformed
+#: record lets the restore proceed, and only a record that DISAGREES refuses. Delete those tests
+#: and this exemption becomes the hole the sweep exists to keep shut.
+_ALLOWED = {
+    "arcommon/manifest.py",
+    "arcommon/restore.py",
+    "arcommon/plan.py",
+    "archive-write-manifest/archive_write_manifest.py",
+}
+
+#: The only VERB permitted to name the record, asserted separately below. Everything else in
+#: _ALLOWED is layer code, where the rule has one home and one tested behaviour.
+_ALLOWED_VERBS = {"archive-write-manifest/archive_write_manifest.py"}
+
+#: Files under this prefix are VERBS. No restore verb may name the record itself: the cross-check
+#: belongs to the layer, where its tolerance is tested once, and a verb reaching for the basename
+#: directly is a verb that has grown its own rule about it.
+_VERB_PREFIXES = ("archive-",)
 
 
 def receipt_module_path() -> str:
@@ -176,17 +195,19 @@ def test_a_retryable_write_fault_stays_transient():
 
 
 def test_no_restore_verb_requires_the_manifest():
-    """FR-006 AC3, as a TRIPWIRE on the specs that have not been written yet.
+    """SPEC-169 FR-006 AC3, now that SPEC-170 has arrived and the tripwire has fired once.
 
-    SPEC-170 rebuilds every restore destination by listing the archive prefix and running each
-    key through ``paths.origin_key`` — the archived key encodes its own origin — exactly as
-    SPEC-143 judges a table by its shape rather than by the marker it also writes. That is what
-    makes a lost, truncated or hand-edited manifest unable to make a restore WRONG rather than
-    merely unavailable.
+    The restore rebuilds every destination by listing the archive prefix and running each key
+    through ``paths.origin_key`` — the archived key encodes its own origin — exactly as SPEC-143
+    judges a table by its shape rather than by the marker it also writes. That is what makes a
+    lost, truncated or hand-edited manifest unable to make a restore WRONG rather than merely
+    unavailable.
 
-    The moment a restore verb reads this file, that property is gone and nothing else in the
-    suite would notice. So the sweep names the writer and its own module, and anything else
-    naming the basename fails here.
+    SPEC-170 reads the record for its count cross-check, which the sweep caught and which is
+    allowed: the property is that no restore path REQUIRES it, and ``arcommon.restore`` tolerates
+    absent, unreadable and malformed alike. What stays forbidden is a VERB naming the basename —
+    the cross-check has one home, tested once, and a verb reaching past it has grown its own rule
+    about a file this arc deliberately made optional.
     """
     offenders = [name for name, uses in _basename_users().items() if uses and name not in _ALLOWED]
 
@@ -194,6 +215,27 @@ def test_no_restore_verb_requires_the_manifest():
         f"{offenders} read {manifest.BASENAME} — a restore that depends on the record can be "
         "made wrong by a lost or edited file, which is what the self-describing archive key "
         "exists to prevent"
+    )
+
+
+def test_the_only_verb_that_may_name_the_record_is_the_one_that_writes_it():
+    """The half of the rule the exemption above could otherwise swallow, and it is asserted
+    against ``_ALLOWED`` itself rather than against the sweep's output.
+
+    An earlier version of this test filtered the sweep's offenders — which made it a strict SUBSET
+    of the test above and therefore unable to fail on its own, the exact "test that cannot fail"
+    shape SPEC-163 records. What it checks now is the exemption LIST: adding a verb to it, which is
+    how a future spec would quietly reach for the record, fails here and nowhere else.
+
+    ``arcommon/plan.py`` and ``arcommon/restore.py`` are layer modules and are allowed. A VERB is
+    not, including the ones SPEC-171 has not written yet.
+    """
+    verbs = {name for name in _ALLOWED if name.startswith(_VERB_PREFIXES)}
+
+    assert verbs == _ALLOWED_VERBS, (
+        f"{sorted(verbs - _ALLOWED_VERBS)} were exempted from the record sweep — the cross-check "
+        "belongs to arcommon.restore and the collision guard to arcommon.plan, where each has one "
+        "home and one tested behaviour"
     )
 
 

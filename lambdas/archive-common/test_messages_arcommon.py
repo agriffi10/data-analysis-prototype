@@ -81,6 +81,14 @@ def test_every_marker_in_every_body_can_be_filled_by_somebody():
         "residue",
         "requestId",
         "folderName",
+        # SPEC-170's restore refusals. Every one is filled from its raise site — the id the user
+        # pasted, the space they named, the two counts and the collision sample are all facts of
+        # one request rather than properties this plane can know.
+        "archiveId",
+        "spaceName",
+        "expected",
+        "found",
+        "sample",
     }
     for reason, body in messages._BODIES.items():
         for marker in re.findall(r"\{(\w+)\}", body):

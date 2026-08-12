@@ -433,6 +433,63 @@ def test_the_success_terminal_names_what_it_keeps_and_drops_the_rest():
     assert STATES["ArchiveComplete"]["Next"] == "Succeeded"
 
 
+# ── The restore arm, and the ordering the bill depends on (SPEC-170) ─────────
+
+
+def test_the_restore_arm_reaches_the_guard_before_it_can_reach_anything_else():
+    """FR-004 AC7, and the reason SPEC-170 is its own spec. Glacier retrieval is BILLED and
+    IRREVERSIBLE once initiated, so the conflict has to be found on this side of it — a guard
+    after the retrieval would report the same refusal and charge the user for the privilege.
+
+    Asserted as an ORDER over the arm rather than as "the guard exists": SPEC-171 adds
+    RestoreObject and a Wait loop after RestoreReady, and the property that has to survive that
+    is this one.
+    """
+    arm = [c["Next"] for c in STATES["ChooseMode"]["Choices"] if "restore" in json.dumps(c)]
+
+    assert arm == ["InspectArchive"]
+    assert STATES["InspectArchive"]["Next"] == "CheckDestinationClear"
+    assert STATES["CheckDestinationClear"]["Next"] == "RestoreReady"
+
+
+def test_no_path_from_the_guards_refusal_reaches_anything_but_the_failure_terminal():
+    """The other half of the same rule, walked from the GRAPH — because "there is no retrieval
+    state yet" makes a "no path to a retrieval" assertion pass vacuously today and forever after.
+
+    What is asserted instead is total: everything reachable from the guard's failure branch is
+    the failure path itself. SPEC-171 adds its retrieval states downstream of RestoreReady, and
+    the moment any of them becomes reachable from a refusal — through a Catch, a Next or a
+    Choice — this fails.
+    """
+    refusal = _reachable_from(STATES["CheckDestinationClear"]["Catch"][0]["Next"])
+
+    assert refusal == {"RequestFailureSeed", "RecordFailure", "NotifyFailure", "Failed"}
+
+
+def test_the_restore_terminal_names_what_it_keeps_and_carries_the_plan_forward():
+    """SPEC-171's replacement point. It keeps the plan KEY rather than the plan — the object
+    list is what the 256 KB payload limit exists to keep off the state — and the archive block,
+    because the retrieval is issued against those keys."""
+    kept = {name.removesuffix(".$") for name in STATES["RestoreReady"]["Parameters"]}
+
+    assert kept == {"requestId", "mode", "actor", "archive", "planKey", "objectCount", "totalBytes"}
+    assert STATES["RestoreReady"]["Next"] == "Succeeded"
+
+
+def test_every_seed_carries_the_mode_so_a_restore_is_not_worded_as_an_archive():
+    """One body table under two prefixes (arcommon.messages), so the failure path has to say
+    which one it is. `ValidateFailureSeed` supplies a literal null because its input is the raw
+    error — a Pass reading `$.mode` there would raise an uncatchable States.Runtime on the
+    failure path itself."""
+    for name, seed in _seeds().items():
+        assert "mode" in seed["Parameters"] or "mode.$" in seed["Parameters"], (
+            f"{name} does not carry the mode; a restore failure would be worded as an archive"
+        )
+
+    assert STATES["ValidateFailureSeed"]["Parameters"]["mode"] is None
+    assert STATES["RecordFailure"]["Parameters"]["mode.$"] == "$.mode"
+
+
 def test_every_verb_state_is_one_of_the_planes_deployed_functions():
     """The Task set is the plane's shape, asserted so that adding a state without its Lambda —
     or its IAM — fails here rather than at runtime with an AccessDenied that reads like an IAM
@@ -454,6 +511,8 @@ def test_every_verb_state_is_one_of_the_planes_deployed_functions():
         "WriteManifest",
         "DeleteSource",
         "WriteReceipt",
+        "InspectArchive",
+        "CheckDestinationClear",
         "NotifyFailure",
     }
     assert nested == {"CopyObjects"}

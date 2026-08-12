@@ -37,6 +37,16 @@ def _raw(actor_token="eyJ-token"):
     })}]
 
 
+def _raw_restore(actor_token="eyJ-token"):
+    """A RESTORE request body, for the timeout door's wording. See the tests at the foot of this
+    file: SPEC-171's retrieval wait is what makes a timed-out restore reachable at all."""
+    return [{"messageId": "m-1", "body": json.dumps({
+        "requestId": UUID, "mode": "restore", "actor": actor_token,
+        "space": {"kind": "personal", "name": "alice"},
+        "archiveId": "b71d0f42-9c3e-4a17-b8f5-0d1e2f3a4b5c",
+    })}]
+
+
 def _failed(**overrides):
     request = {"requestId": UUID, "actor": None, "raw": _raw(), "status": "failed",
                "error": {"Error": "States.Timeout", "Cause": None}}
@@ -191,6 +201,47 @@ def test_the_timeout_message_promises_the_source_and_nothing_about_the_vault(mon
     verb.handler(_timed_out(), None)
 
     assert "nothing was deleted" in sent[0][1].lower()
+
+
+def test_a_timed_out_RESTORE_is_worded_as_a_restore_and_promises_the_right_thing(monkeypatch, sent):
+    """FOUND IN REVIEW. The second door is the ONE path where the mode cannot come off the state —
+    a top-level timeout terminates the execution outright — so it reads it back out of the same raw
+    body the actor comes from.
+
+    **SPEC-171 is what makes this reachable**: nothing on the restore arm waits today, and that
+    spec adds a 3-5 hour retrieval, which makes the timeout predominantly a RESTORE event. Left
+    alone, the user would have read "Couldn't archive that: ... Nothing was deleted and your files
+    are exactly where they were" — the wrong operation, and a promise about a deletion that says
+    nothing true about a restore.
+    """
+    monkeypatch.setattr(auth, "verified_username_ignoring_expiry", lambda token, **kw: "alice")
+
+    verb.handler(_timed_out(input_body=_raw_restore()), None)
+
+    text = sent[0][1]
+    assert text.startswith("Couldn't restore that: ")
+    assert "nothing was changed in your space" in text.lower()
+    assert "deleted" not in text.lower()
+
+
+def test_a_timed_out_archive_is_still_worded_as_an_archive(monkeypatch, sent):
+    """The control for the test above: reading the mode must not have made every timeout a
+    restore, and the archive sentence's deletion promise is load-bearing."""
+    monkeypatch.setattr(auth, "verified_username_ignoring_expiry", lambda token, **kw: "alice")
+
+    verb.handler(_timed_out(), None)
+
+    assert sent[0][1].startswith("Couldn't archive that: ")
+
+
+def test_an_unrecoverable_mode_falls_back_to_the_archive_wording(monkeypatch, sent):
+    """A dropped or unparseable input degrades to the archive sentence rather than to no message —
+    the same direction every other fallback on this door takes."""
+    monkeypatch.setattr(auth, "verified_username_ignoring_expiry", lambda token, **kw: "alice")
+
+    verb.handler(_timed_out(input_body=[{"messageId": "m-1", "body": "{not json"}]), None)
+
+    assert not sent or sent[0][1].startswith("Couldn't archive that: ")
 
 
 def test_the_input_is_read_back_when_eventbridge_dropped_it(monkeypatch, sent):

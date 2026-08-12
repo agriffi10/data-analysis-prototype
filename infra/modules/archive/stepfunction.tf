@@ -1,9 +1,14 @@
-# ── Archive Step Function (SPEC-168 FR-003, completed by SPEC-169) ───────────
-# Standard state machine — validate-authorize and inspect-source once per request, then the
-# transfer manifest, the top-level Distributed-Map copy into the vault, the collector, the
-# COMMIT GATE and, on its one committing arm, the record, the source deletion and the
-# receipt. The SPEC-152 failure path (a seed → RecordFailure → NotifyFailure → Failed) is
-# complete from day one.
+# ── Archive Step Function (SPEC-168 FR-003, SPEC-169's transfer, SPEC-170's restore arm) ──
+# Standard state machine, TWO ARMS off one mode Choice. The archive arm: validate-authorize
+# and inspect-source once per request, then the transfer manifest, the top-level
+# Distributed-Map copy into the vault, the collector, the COMMIT GATE and, on its one
+# committing arm, the record, the source deletion and the receipt. The restore arm:
+# inspect-archive rebuilds every destination from the archived keys, check-destination-clear
+# refuses the whole restore if any of them is occupied, and RestoreReady is where SPEC-171
+# picks up — the split is at exactly the point where seconds become hours and a free check
+# becomes a billed, uncancellable retrieval. The SPEC-152 failure path (a seed →
+# RecordFailure → NotifyFailure → Failed) is complete from day one and now carries `mode`,
+# because the two arms' failures are worded differently.
 #
 # The state machine runs under its OWN role (iam.tf, sfn-permissions: InvokeFunction on
 # the verbs + log delivery + the Distributed Map's own grants); the verb Lambdas run under
@@ -44,6 +49,10 @@ resource "aws_sfn_state_machine" "archive" {
     write_manifest_function_arn           = aws_lambda_function.functions["write-manifest"].arn
     delete_source_function_arn            = aws_lambda_function.functions["delete-source"].arn
     write_receipt_function_arn            = aws_lambda_function.functions["write-receipt"].arn
+    # SPEC-170 — the restore arm's two verbs. The guard is the LAST state before SPEC-171 starts
+    # spending money it cannot get back, which is why both live on this side of the split.
+    inspect_archive_function_arn         = aws_lambda_function.functions["inspect-archive"].arn
+    check_destination_clear_function_arn = aws_lambda_function.functions["check-destination-clear"].arn
     # Mirrored from cpcommon/transfer/config.py; a test holds the two together.
     transfer_max_items_per_batch = local.transfer_max_items_per_batch
     transfer_map_max_concurrency = local.transfer_map_max_concurrency

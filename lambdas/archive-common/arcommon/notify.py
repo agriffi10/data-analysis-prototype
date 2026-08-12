@@ -58,6 +58,26 @@ def _actor(event) -> str:
     return actor if isinstance(actor, str) else ""
 
 
+def _mode(event) -> str:
+    """Reads the request's mode out of a verb's event, for the wording.
+
+    Returns an empty string for anything that is not a request object with a mode on it, which
+    renders the archive sentence — the same fallback ``failure_message`` documents. That window
+    is real: validate-authorize's event is the raw SQS array until the body is parsed.
+
+    Args:
+      event: The verb's event.
+
+    Returns:
+      The mode, or an empty string.
+
+    Raises:
+      None.
+    """
+    mode = event.get("mode") if isinstance(event, dict) else None
+    return mode if isinstance(mode, str) else ""
+
+
 def emit_failure(event, err: TerminalError, step: str) -> None:
     """Emits the actor-addressed failure notification for a verb's terminal error.
 
@@ -78,7 +98,9 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
     Raises:
       None.
     """
-    emit_notification(_actor(event), failure_message(err.reason, tokens=err.tokens))
+    emit_notification(
+        _actor(event), failure_message(err.reason, tokens=err.tokens, mode=_mode(event))
+    )
 
 
 def emit_unexpected(event, step: str) -> None:
@@ -96,7 +118,7 @@ def emit_unexpected(event, step: str) -> None:
     Raises:
       None.
     """
-    emit_notification(_actor(event), failure_message("unexpected_error"))
+    emit_notification(_actor(event), failure_message("unexpected_error", mode=_mode(event)))
 
 
 def notifies_on_failure(step: str, *, notify_terminal: bool = True):

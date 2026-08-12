@@ -2289,3 +2289,174 @@ byte-for-byte copy of a user's own folder). It excludes only prefix markers and 
 root folders. An empty expansion is a REFUSAL, never a success: a receipt claiming zero files
 archived is worse than a refusal, and an empty archive prefix is indistinguishable at restore time
 from one whose objects have vanished.
+
+## The restore guard, and the four choices that make it safe to start a bill (SPEC-170)
+
+### The guard is absolute, and it runs before the retrieval
+
+S3 has no move and no rename, so a restore is a copy and a copy overwrites. If the user has
+re-created `reports/q1.csv` since archiving it, restoring on top destroys the newer file with no
+trace and no versioning to recover from. So **any** occupied destination refuses the **whole**
+restore: no skip, no overwrite, no merge and no "restore what fits". Partial restores around an
+obstacle were considered and rejected — they leave a folder holding two generations of the same
+data with nothing recording which is which, and the user cannot tell by looking.
+
+**A `403` counts as OCCUPIED.** A key this role cannot head is a key it must not overwrite, and on
+these buckets that is live rather than hypothetical: the execution role's own policy Denies it
+beneath `athenaresults/`, `user_settings/` and `archive/`. Reading an ambiguous answer as "clear" is
+the one mistake here that ends in data loss, so the guard fails closed on anything that is not a
+proven 404 — including an error carrying no status at all.
+
+**And it runs before any `RestoreObject`, which is why the arc splits at exactly this state.**
+Glacier retrieval is billed and irreversible once initiated. Everything in SPEC-170 is verifiable in
+seconds; everything in SPEC-171 takes 3–5 hours and cannot be cancelled. A guard on the far side
+would report the same refusal and charge the user for the privilege. The property is asserted by
+walking the ASL graph from the guard's failure branch and requiring that **everything** reachable
+from it is the failure path itself — not by asserting "no path to a retrieval state", which passes
+vacuously while no retrieval state exists and would go on passing forever.
+
+The refusal names a **bounded sample** because the guard **short-circuits**: an archive of 200,000
+objects must not issue 200,000 heads to report a conflict found in the first hundred. Having
+short-circuited, it genuinely does not know the total — so the message says there may be more.
+Implying the sample was exhaustive would send the user round the clear-and-retry loop once per
+hidden collision. The sampled keys render **relative to the space root**, so the user reads a path
+they recognise from the file browser.
+
+### The bound is botocore's connection pool, not the thread count
+
+`RESTORE_HEAD_CONCURRENCY`'s first value was 32, computed against "workers × timeout / latency",
+which is the model that makes a head-heavy verb look like a scheduling problem. It is wrong in a way
+its own arithmetic cannot show: `boto3.client("s3")` takes botocore's default
+`max_pool_connections` of **10**, so threads past that do not each get a connection — they contend,
+and urllib3 opens and discards sockets rather than reusing them. A pool of 32 buys throughput the
+client cannot deliver *while every bound computed from it reads as satisfied*.
+
+So the concurrency sits inside the client's ceiling at **8** — which is also, not coincidentally,
+why `COPY_CONCURRENCY` is 8 — and the **timeout** is what pays for the work: 20,000 heads, 8 at a
+time, at a pessimistic 100 ms each is ~250 s, and `locals.tf` gives the guard 600 s. A test reads
+the ceiling off `botocore.config.Config` rather than restating it, because that is the term a later
+"just raise the concurrency" would skip.
+
+`RESTORE_CONFLICT_SAMPLE` (5) is a **presentation** bound and is documented as one: the guard has
+usually seen only a handful, so the number is about what fits in a sentence a person reads.
+
+### The lookup reads the KEYS; the record is a cross-check it can do without
+
+`inspect-archive` derives every destination by listing the archive prefix and running each key
+through `paths.origin_key` — the exact inverse of the writer — because the archived key encodes its
+own origin. `_manifest.json` is consulted only to compare counts, and **absent, unreadable and
+malformed are all tolerated**: a restore that refused for want of a convenience record would be
+precisely the failure mode the self-describing key layout exists to prevent. Only a record that
+**disagrees** refuses, which can fire only when something is already wrong.
+
+That tolerance is what made SPEC-169's `test_no_restore_verb_requires_the_manifest` sweep survivable
+rather than deleted. The exemption is the layer module alone; a companion test keeps **verbs** out,
+including SPEC-171's, so the cross-check has one home and one tested tolerance.
+
+The exclusion is by **exact key at the archive root**, never by basename: a user's own
+`reports/_manifest.json` three folders down was archived like any other file and must come back.
+Conversely the lookup applies **no ignore predicate at all** — SPEC-169's expansion deliberately
+KEEPS zero-byte placeholders and hidden segments, so restoring through a filter the archive did not
+write through would silently return less than was taken.
+
+The restore plan goes to the admin bucket and only its **key** rides on the state, for the reason
+every artifact on this plane does: at `ARCHIVE_MAX_OBJECTS` the list is tens of megabytes against a
+256 KB payload limit, and `States.DataLimitExceeded` escapes every `Catch`. It is read back with the
+same identity check SPEC-169's review added to the copy plan — the key is a pure function of the
+request id, so a second run under a reused id overwrites it, and a guard that cleared **that** plan's
+destinations would clear a restore for keys this run is not going to write.
+
+### The space comes from the request, and the two ids are different things
+
+Authorization is a question about the space the user's route names (SPEC-113's rule), never about
+whatever the archive claims — so an archive belonging to another space resolves to an empty prefix
+and is simply **not found**. `archive_not_found` therefore never distinguishes "never existed" from
+"not yours"; the difference is an existence oracle over other people's archives.
+
+`requestId` ≠ `archiveId` is enforced rather than conventional. The run and the archive are
+different things: a refused restore must be re-submittable under a new run id, and a second attempt
+at one archive is a new request rather than a duplicate of the first. A producer that conflates them
+will do it on every request, and the symptom would surface only under a retry.
+
+The pasted id is matched against `arcommon.paths`' **one** UUID regex before it is concatenated into
+anything — the same rule `validated_request_id` uses, differing only in the refusal's wording,
+because a second and laxer copy would be a second door into the same key. It is lowercased, so a
+receipt retyped in capitals still resolves the prefix the archive was written under.
+
+### One front door, one `Validated` Pass, and two message prefixes
+
+The restore validator is a **branch of the existing verb**, not a second Lambda, and that is forced
+rather than chosen: `ChooseMode` sits downstream of validate-authorize and reads `$.mode` off the
+parsed request, while in the raw Pipe record the same field is inside an escaped JSON string ASL
+cannot look into. A separate front door would need the branch to happen before anything had parsed
+the body.
+
+Both modes therefore return the **same five top-level keys**, because a shared `Validated` Pass
+naming a path one mode lacks raises an uncatchable `States.Runtime`. `source` is the authorized
+SPACE in both — the archive's source in one, the restore's destination in the other — and only its
+`items` are archive-only. The unknown-field check is made **per mode**: a union of the two contracts
+would accept a restore carrying a selection and an archive naming an archive id, and silently ignore
+whichever the mode did not read.
+
+The failure path carries `mode`, and `arcommon.messages` registers **two resolvers over one body
+table**. The codes only one mode can reach are unambiguous; `forbidden`, `malformed_event` and
+`invalid_request` are reachable by both and are exactly what a single "Couldn't archive that" prefix
+gets wrong. `ValidateFailureSeed` supplies a literal `null` — its input is the raw error, so reading
+`$.mode` there would raise on the failure path itself.
+
+**`restore_archive_incomplete` does not reuse FR-005's proposed `archive_incomplete`.** SPEC-169 had
+already registered that code for a copy that fell short, its body promises "nothing was deleted and
+your files are exactly where they were" — meaningless about a restore — and the ASL seeds the
+literal in `RollbackReturnedSeed`. One code cannot carry both sentences, and the shorter name
+belongs to the arm that shipped first.
+
+### This spec adds no IAM, and that is asserted rather than assumed
+
+FR-006's additions were already in place: `SourceDataRead` grants the `s3:GetObject` a `HeadObject`
+authorizes against, and `ArchiveVaultList`/`ArchiveVaultWrite` cover the vault — all SPEC-169's. So
+there was no grants-first PR split to make, unlike 168 and 169.
+
+The `GetObject`-not-`ListBucket` distinction is nonetheless pinned by a test, because the failure
+mode of the wrong grant is a **false pass**: a role holding only the bucket-level listing permission
+gets a 403 on every head, and a guard that read 403 as "clear" would then report every destination
+clear and overwrite the lot. Both directions of that mistake come back to one statement existing.
+
+### Review closed two holes, and one of them was a silent, unrecoverable deletion
+
+**A user's own file at the SPACE ROOT called `_manifest.json` archived onto this plane's own
+record.** An object's archive key is `{archivePrefix}{relKey}` and the record's is
+`{archivePrefix}_manifest.json`, so the two collide for exactly one relative key. Nothing upstream
+caught it: `assert_not_reserved` refuses selecting the space root as a *folder*, but naming that
+file directly passes containment, the reserved-root rule and the marker rule. The copy would land,
+`write-manifest` would **overwrite** it with the record, `delete-source` would then delete the
+user's original — the vault has versioning off — and the run would report **success**. The archive
+was also permanently unrestorable: the restore excludes that key as the record, counts one object
+fewer than the record claims, and refuses `restore_archive_incomplete` for everything archived
+beside it; archived alone, it restores as `archive_not_found` against a receipt the user is holding.
+
+It is refused up front (`reserved_object_name`), for the whole request, rather than excluded —
+SPEC-165's direction, because dropping it silently would archive everything else and delete the one
+object it could not carry. Moving the record out of the archive prefix would remove the class
+rather than the instance, and was **rejected**: FR-003 AC2 specifies the exclusion, so the record
+living at the archive root is the spec's own model, and a sibling key would make the exclusion test
+assert nothing. The rule is exactly as narrow as the collision — `reports/_manifest.json` three
+folders down has a different relative key, collides with nothing, and archives and restores like any
+other file.
+
+**The guard did not short-circuit in the case FR-004 AC3 names.** The sample check sat after a full
+round *and* required `RESTORE_CONFLICT_SAMPLE` collisions before returning — so fewer than five
+meant no short-circuit at all. Measured: 20,000 heads to report a collision at index 3, when one
+re-created file is the likeliest real conflict there is. It now stops at the round that finds the
+first one. **The test that named the property could not fail**: its fixture used 64 *consecutive*
+collisions, which fills the sample inside the first round, so it passed against the broken code — a
+fixture that makes an assertion trivially true, which is the shape SPEC-163 records.
+
+Two smaller ones, both about the wording rather than the data. A malformed **restore** was worded
+as an archive failure, because `mode` came from the contract check's *return* and every refusal it
+raises happens before that — so the wording mode is now seeded from the untrusted body first, which
+is safe because the value selects between two fixed prefixes and reaches nothing else. And the
+EventBridge `TIMED_OUT` door never passed `mode` at all: unreachable today, but SPEC-171's 3-5 hour
+retrieval makes the timeout *predominantly* a restore event, so it now reads the mode out of the
+same raw body the actor comes from and `restore_timed_out` ships beside `archive_timed_out` —
+because what a timeout may PROMISE differs by arm, and "nothing was deleted and your files are
+exactly where they were" says nothing true about a restore.

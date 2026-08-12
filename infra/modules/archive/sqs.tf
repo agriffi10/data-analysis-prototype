@@ -13,6 +13,16 @@
 # reaches 1024, so the raw form would be a length failure that only appears for deeply
 # nested sources (the reason first recorded for data quality).
 #
+# A RESTORE KEYS ON THE ARCHIVE, NOT THE SPACE (SPEC-170 FR-001): MessageGroupId is the
+# SHA-256 of "{archiveBucket}/{archiveRoot}", so two restores OF ONE ARCHIVE serialize
+# while restores of different archives in the same space proceed in parallel. Without it a
+# double-submitted restore can pass the destination guard twice before either copy lands —
+# the guard is a read, and two of them see the same empty destinations. **NOTHING ENFORCES
+# THIS YET.** The producer is the browser, which SPEC-172 builds; SPEC-170 could not
+# enforce a rule about a message nothing in it sends, and the contract is recorded here
+# rather than left in a spec file, because this is where its reader will be standing.
+# `docs/testing/archive-restore-e2e.md` types it correctly so the live check exercises it.
+#
 # content_based_deduplication is OFF (FR-003): the producer sends an explicit
 # MessageDeduplicationId = requestId (FR-004) as the double-submit guard. That id is also
 # the archive's permanent identity, which makes the two properties one: a resend of the

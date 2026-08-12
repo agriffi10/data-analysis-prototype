@@ -711,7 +711,8 @@ jobs:
           - { name: file-send-collect-transfer-results, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           - { name: file-send-notify, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           - { name: file-send-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          # Archive verbs (SPEC-168 front door, SPEC-169 the transfer and the deletion).
+          # Archive verbs (SPEC-168 front door, SPEC-169 the transfer and the deletion,
+          # SPEC-170 the restore arm's lookup and destination guard).
           # `arcommon: true` attaches the archive-common layer — every verb but the batch
           # copier carries this plane's wording, its key layout or its caps. Key
           # containment is NOT in that layer: it is cpcommon.paths, shared with file-send,
@@ -731,6 +732,8 @@ jobs:
           - { name: archive-write-manifest, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
           - { name: archive-delete-source, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
           - { name: archive-write-receipt, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
+          - { name: archive-inspect-archive, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
+          - { name: archive-check-destination-clear, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
           - { name: archive-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
           # Data-quality verbs (SPEC-108). All nine attach cpcommon + dqcommon; only
           # inspect-source also attaches the data-quality polars layer (it must read

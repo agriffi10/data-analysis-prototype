@@ -44,10 +44,12 @@ locals {
   # "archive-<suffix>"); value = the handler + the task's real timeout/memory need
   # (a small validator is not a long parallel S3 copy — lambdas.md §4).
   #
-  # NINE VERBS: SPEC-168's front door, SPEC-169's expansion, manifest, batch copy,
-  # collector, rollback, deletion and two artifacts, and SPEC-152's notifier of last
-  # resort. Only the copy runs inside the Distributed Map; everything else runs once per
-  # request. The restore verbs are SPEC-170/171's.
+  # ELEVEN VERBS: SPEC-168's front door, SPEC-169's expansion, manifest, batch copy,
+  # collector, rollback, deletion and two artifacts, SPEC-170's archive lookup and
+  # destination guard, and SPEC-152's notifier of last resort. Only the copy runs inside
+  # the Distributed Map; everything else runs once per request. The front door serves BOTH
+  # modes — the ASL's mode Choice sits downstream of it, so a second restore-only validator
+  # would need the branch to happen before anything had parsed the body.
   #
   # Every module name is plane-qualified so two planes' identically-named verbs cannot
   # collide on sys.modules under one `pytest lambdas/` process. The qualifier is the
@@ -100,6 +102,24 @@ locals {
     # values already on the state. Neither reads the plan, so neither is sized by the caps.
     "write-manifest" = { handler = "archive_write_manifest.handler", timeout = 30, memory = 256 }
     "write-receipt"  = { handler = "archive_write_receipt.handler", timeout = 30, memory = 256 }
+    # SPEC-170 FR-003/FR-004. The restore arm, and both rows are sized by the SAME quantity the
+    # archive arm's are — ARCHIVE_MAX_OBJECTS — because a restore handles exactly what its
+    # archive held.
+    #
+    # inspect-archive is inspect-source's mirror: it lists (20 pages at the object cap, 20 round
+    # trips) and holds the whole restore plan in memory to serialise it. Same memory for the same
+    # reason, and the same test computes it.
+    #
+    # THE GUARD'S TIMEOUT IS THE FREE VARIABLE IN RESTORE_HEAD_CONCURRENCY'S ARITHMETIC, and
+    # arcommon/config.py says so from its side. The pool cannot simply be widened to go faster:
+    # boto3's S3 client takes botocore's default max_pool_connections of 10, so 8 workers is the
+    # ceiling that actually holds and the TIME is what has to be bought. 20,000 destinations, 8 at
+    # a time, at a pessimistic 100 ms each is ~250s.
+    # test_the_guard_can_head_every_destination_inside_its_timeout READS THIS NUMBER, so lowering
+    # it — or raising the object cap — fails the build rather than the invocation. The memory buys
+    # CPU for the pool's threads and holds the plan; no object bytes pass through it.
+    "inspect-archive"         = { handler = "archive_inspect_archive.handler", timeout = 120, memory = 1024 }
+    "check-destination-clear" = { handler = "archive_check_destination_clear.handler", timeout = 600, memory = 1024 }
     # SPEC-152's notification of last resort: one decode + one SQS send on the ASL door.
     #
     # SPEC-169 RAISED IT 15s -> 60s, WITH the second door that made 15s wrong. The

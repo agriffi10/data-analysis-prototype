@@ -175,7 +175,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 167 — Send Files: "Send to…" UI & Notification Producer | Completed |
 | 168 — Archive: Foundation Infrastructure, the Archive Bucket & validate-authorize | Completed |
 | 169 — Archive: Source Resolution, Glacier Transfer & Source Deletion | Completed |
-| 170 — Restore: Request Contract, Archive Lookup & the Destination Guard | Draft |
+| 170 — Restore: Request Contract, Archive Lookup & the Destination Guard | Completed |
 | 171 — Restore: Glacier Retrieval, the Wait Loop, Copy-Back & Terminals | Draft |
 | 172 — Archive & Restore: File-Browser UI, the Receipt Surface & Notifications | Draft |
 | 173 — Saved Queries as Files: the `saved_queries/` Folder, Its Protections & the Store | Completed |

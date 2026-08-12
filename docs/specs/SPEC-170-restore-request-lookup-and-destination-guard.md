@@ -1,7 +1,7 @@
 # Spec: Restore — Request Contract, Archive Lookup & the Destination Guard
 
 **ID:** SPEC-170
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-10
 **Depends On:** SPEC-168 (the plane, the bucket, the `mode` branch, `arcommon`), SPEC-169 (the archive key layout and the receipt)
 
@@ -59,9 +59,9 @@ means a restore still works when the manifest is missing and refuses when it dis
 
 #### Acceptance Criteria:
 
-- [ ] The message carries `requestId`, `mode` (`"restore"`), `actor.idToken`, `space` (kind + name)
+- [x] The message carries `requestId`, `mode` (`"restore"`), `actor.idToken`, `space` (kind + name)
       and `archiveId` — the UUID the user pasted. Unknown top-level fields are rejected, not ignored.
-- [ ] `requestId` and `archiveId` are **different values**. `requestId` identifies this restore run;
+- [x] `requestId` and `archiveId` are **different values**. `requestId` identifies this restore run;
       `archiveId` identifies the archive being restored. Conflating them was the obvious shortcut and
       is wrong: a refused restore must be re-submittable, and a second attempt at the same archive is
       a new request.
@@ -70,11 +70,18 @@ means a restore still works when the manifest is missing and refuses when it dis
       different archives in one space proceed in parallel. This is the field's one job here: without
       it, a double-submitted restore could pass the guard twice before either copy lands.
 - [ ] `MessageDeduplicationId` is `requestId`.
-- [ ] **The space comes from the request, not from the archive.** The route the user is standing in
+      **NOT MET BY THIS SPEC, AND NOT SILENTLY:** both are properties of the PRODUCER, and the
+      producer is the browser, which SPEC-172 builds. Nothing in this spec enqueues, so there is no
+      Python home for either rule and a test here could only restate them. They are carried as a
+      contract in the delivery doc and in `docs/testing/archive-restore-e2e.md`, and SPEC-172 owes
+      them. Consequence while they are unmet: two concurrent restores of one archive are not
+      serialized, so both could pass the guard — the same TOCTOU table-share and file-send both
+      carry, and here neither run deletes anything.
+- [x] **The space comes from the request, not from the archive.** The route the user is standing in
       names the space, exactly as the data-quality report view takes its space from the route rather
       than deriving it (SPEC-113). Authorization is then a question about *that* space, and an
       archive belonging to a different one simply is not found.
-- [ ] A malformed or unparseable body fails before any AWS call and reaches `NotifyFailure`.
+- [x] A malformed or unparseable body fails before any AWS call and reaches `NotifyFailure`.
 
 ### FR-002: Actor identity, space authorization and the pasted UUID
 
@@ -85,18 +92,18 @@ key. It is validated as a UUID before it is concatenated, not sanitised afterwar
 
 #### Acceptance Criteria:
 
-- [ ] The ID token is verified through the single `cpcommon` JWKS path (SPEC-156); `username` comes
+- [x] The ID token is verified through the single `cpcommon` JWKS path (SPEC-156); `username` comes
       from the verified claim and nowhere else.
-- [ ] A `personal` space is authorized only when its name equals the verified username; a `shared`
+- [x] A `personal` space is authorized only when its name equals the verified username; a `shared`
       space only when the verified username is an **active** member. Any active member may restore,
       matching SPEC-168's archive rule and the space's existing write model.
-- [ ] `archiveId` is matched against a **strict UUID pattern** in `arcommon.paths` and rejected
+- [x] `archiveId` is matched against a **strict UUID pattern** in `arcommon.paths` and rejected
       otherwise, **before** any key is built from it. A value containing `/`, `..`, a percent escape,
       or a trailing space is refused as malformed, not normalised — the same discipline SPEC-151
       applied to DDL literals, where a raw interpolation of a user-supplied string was the defect.
-- [ ] A test enumerates the rejection cases explicitly: `../`, a bare `.`, an embedded `/`, an empty
+- [x] A test enumerates the rejection cases explicitly: `../`, a bare `.`, an embedded `/`, an empty
       string, a UUID with surrounding whitespace, and a 36-character string that is not a UUID.
-- [ ] The archive root is built **only** by `arcommon.paths.archive_root(kind, name, archiveId)` —
+- [x] The archive root is built **only** by `arcommon.paths.archive_root(kind, name, archiveId)` —
       the same function SPEC-168 used to write it. One builder, so the read and the write cannot
       drift.
 
@@ -104,26 +111,26 @@ key. It is validated as a UUID before it is concatenated, not sanitised afterwar
 
 #### Acceptance Criteria:
 
-- [ ] `inspect-archive` lists `{archiveRoot}` with full pagination and derives, for each object, its
+- [x] `inspect-archive` lists `{archiveRoot}` with full pagination and derives, for each object, its
       destination as `{spaceRoot}{relKey}` where `relKey` is the archived key minus the archive root
       — `arcommon.paths.origin_key`, the exact inverse of the writer.
-- [ ] `_manifest.json` is **excluded** from the restored object set. A test asserts it is never
+- [x] `_manifest.json` is **excluded** from the restored object set. A test asserts it is never
       assigned a destination, because a restored `_manifest.json` would land in the user's space as a
       stray file.
-- [ ] An empty listing is the terminal failure `archive_not_found`. The message says the archive id
+- [x] An empty listing is the terminal failure `archive_not_found`. The message says the archive id
       was not found **in this space** and does not distinguish "never existed" from "belongs to
       someone else" — the same no-existence-oracle rule the data-quality report view follows.
-- [ ] When `_manifest.json` is present, its `objectCount` is compared against the listing. A
+- [x] When `_manifest.json` is present, its `objectCount` is compared against the listing. A
       disagreement is the terminal failure `archive_incomplete`, naming both numbers. This can only
       fire when something is already wrong, which is the point of an integrity check.
-- [ ] When `_manifest.json` is **absent**, the restore proceeds on the listing alone and records that
+- [x] When `_manifest.json` is **absent**, the restore proceeds on the listing alone and records that
       it did so in the structured log. The manifest is not load-bearing (SPEC-169 FR-006), and a
       restore that refuses for want of a convenience record would be the failure mode the
       self-describing key layout exists to prevent.
-- [ ] The derived object set is written to `{admin_bucket}/archive/{requestId}/restore-plan.json` and
+- [x] The derived object set is written to `{admin_bucket}/archive/{requestId}/restore-plan.json` and
       passed onward as an **S3 pointer, never inline** — the 256 KB state cap, whose overflow escapes
       every `Catch`.
-- [ ] The plan carries each object's size, so SPEC-172's notification can tell the user how much is
+- [x] The plan carries each object's size, so SPEC-172's notification can tell the user how much is
       coming back and SPEC-171 can bound its wait.
 
 ### FR-004: The destination guard
@@ -135,26 +142,26 @@ denied and the user is told to clear it.
 
 #### Acceptance Criteria:
 
-- [ ] Every destination key in the plan is checked for existence. **Any** occupied key refuses the
+- [x] Every destination key in the plan is checked for existence. **Any** occupied key refuses the
       whole request with the terminal failure `destination_occupied`. There is no skip, no overwrite,
       no merge and no "restore what fits".
-- [ ] Existence is established by `HeadObject` per key, tolerating `404` as absent and treating a
+- [x] Existence is established by `HeadObject` per key, tolerating `404` as absent and treating a
       `403` as **occupied** — a key the execution role cannot head is a key it must not overwrite.
       Both branches have a test.
-- [ ] The check is batched with a bounded worker pool and **short-circuits on the first collision**;
+- [x] The check is batched with a bounded worker pool and **short-circuits on the first collision**;
       an archive of 200,000 objects must not issue 200,000 heads to report a conflict found in the
       first hundred.
-- [ ] Because it short-circuits, the failure names a **bounded sample** of colliding keys — at most
+- [x] Because it short-circuits, the failure names a **bounded sample** of colliding keys — at most
       `RESTORE_CONFLICT_SAMPLE` of them — and states plainly that there may be more. A message
       implying the sample is exhaustive would send the user round the loop repeatedly.
-- [ ] The sampled keys are rendered **relative to the space root**, not as full `s3://` URIs, so the
+- [x] The sampled keys are rendered **relative to the space root**, not as full `s3://` URIs, so the
       user reads a path they recognise from the file browser.
-- [ ] A folder placeholder object at a destination counts as a collision like any other key.
-- [ ] The guard runs **before** any `RestoreObject` call. Glacier retrieval is billed and irreversible
+- [x] A folder placeholder object at a destination counts as a collision like any other key.
+- [x] The guard runs **before** any `RestoreObject` call. Glacier retrieval is billed and irreversible
       once initiated; discovering the conflict afterwards would charge the user for a restore that
       cannot land. A test asserts there is no ASL path from the guard's failure branch to any
       retrieval state.
-- [ ] A restore whose destinations are all clear reaches the placeholder terminal, and the run
+- [x] A restore whose destinations are all clear reaches the placeholder terminal, and the run
       appears in `logs/service=archive/` with the object count and total bytes.
 
 ### FR-005: Refusal wording
@@ -166,29 +173,33 @@ notification; the vocabulary is fixed here so that the two specs cannot disagree
 
 #### Acceptance Criteria:
 
-- [ ] `archive_not_found` — names the archive id and the space, and points the user at the `archive/`
+- [x] `archive_not_found` — names the archive id and the space, and points the user at the `archive/`
       folder where receipts live.
-- [ ] `archive_incomplete` — names the expected and found object counts and says the archive should
-      not be restored.
-- [ ] `destination_occupied` — names the sample, says there may be more, and states the required
+- [x] `restore_archive_incomplete` — names the expected and found object counts and says the
+      archive should not be restored. **AMENDED IN BUILD (the code name only, not the behaviour):**
+      this FR proposed `archive_incomplete`, which SPEC-169 had already registered for a copy that
+      fell short — its body promises "nothing was deleted and your files are exactly where they
+      were", which is meaningless about a restore, and the ASL seeds the literal in
+      `RollbackReturnedSeed`. One code cannot carry both sentences.
+- [x] `destination_occupied` — names the sample, says there may be more, and states the required
       action: clear or rename the listed paths, then request the restore again.
-- [ ] All three go through `arcommon.messages` on `cpcommon`'s `Resolver`, which renders the **whole
+- [x] All three go through `arcommon.messages` on `cpcommon`'s `Resolver`, which renders the **whole
       sentence** (SPEC-156) — no verb assembles wording from fragments, and no raw AWS text reaches
       the user (SPEC-106).
-- [ ] Each has its own dedup token per **outcome**, not per verb, matching the data-quality
+- [x] Each has its own dedup token per **outcome**, not per verb, matching the data-quality
       notification rule.
 
 ### FR-006: Execution-role IAM
 
 #### Acceptance Criteria:
 
-- [ ] The role's additions for this spec are `s3:ListBucket` and `s3:GetObject` on the archive bucket
+- [x] The role's additions for this spec are `s3:ListBucket` and `s3:GetObject` on the archive bucket
       (already present from SPEC-169 FR-007) and `s3:GetObject` on the two space buckets for the
       `HeadObject` guard — `HeadObject` is authorized as `s3:GetObject`, which is the trap here: a
       role granted only `ListBucket` reads every destination as absent and the guard silently passes.
-- [ ] A test asserts the guard's permission is `s3:GetObject` and not `s3:ListBucket`, with the reason
+- [x] A test asserts the guard's permission is `s3:GetObject` and not `s3:ListBucket`, with the reason
       recorded, because the failure mode is a **false pass** rather than an error.
-- [ ] A rendered-policy test asserts no new `Resource: "*"` statement.
+- [x] A rendered-policy test asserts no new `Resource: "*"` statement.
 
 ---
 

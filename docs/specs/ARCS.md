@@ -1115,6 +1115,15 @@ archiving's rollback is deliberate and recorded: a partial *archive* rolls back,
 does not, because deleting restored data to make the operation atomic would destroy the thing the
 restore was for.
 
+**Shipped in 170, with three things the narrative above did not anticipate.** A **403 counts as
+occupied** — a key the role cannot head is one it must not overwrite, and on these buckets that is
+live rather than hypothetical. The guard's pool is bounded by **botocore's default
+`max_pool_connections` (10)** and not by the obvious "workers x timeout / latency", so the verb buys
+**time** (600 s) rather than threads. And the restore validator turned out to be a **branch of the
+existing front door** rather than its own verb: `ChooseMode` sits downstream of validate-authorize
+and the raw Pipe record buries `mode` in an escaped JSON string, so both modes return the same five
+keys through one `Validated` Pass. Full reasoning: `decisions.md` → *The restore guard*.
+
 The arc is the table-share shape, one spec per reviewable unit: **168** the bucket, the plane and
 validate-authorize; **169** expansion, the Glacier transfer, the commit gate and the receipt;
 **170** the restore contract, the archive lookup and the destination guard — everything verifiable in
