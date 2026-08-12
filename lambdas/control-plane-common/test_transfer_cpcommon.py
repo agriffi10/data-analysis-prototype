@@ -9,6 +9,7 @@ python3 test_transfer_cpcommon.py.
 import json
 import math
 import os
+import pathlib
 import re
 import sys
 
@@ -280,6 +281,89 @@ def test_a_large_object_still_multipart_copies():
     assert parts[0]["CopySourceRange"] == f"bytes=0-{GIB - 1}"
     assert parts[-1]["CopySourceRange"] == f"bytes={5 * GIB}-{size - 1}"
     assert [p["PartNumber"] for p in complete[0]["complete"]["MultipartUpload"]["Parts"]] == [1, 2, 3, 4, 5, 6]
+
+
+# ── the per-item storage class (SPEC-169) ───────────────────────────────────
+
+
+def test_an_item_with_no_storage_class_issues_the_request_it_always_did():
+    """THE PROPERTY THE TWO EXISTING CALLERS DEPEND ON, and it is about the ABSENCE of a key
+    rather than about a default value. Passing `StorageClass="STANDARD"` would also be
+    "correct" and would change every table-share and file-send request; asserting the exact
+    argument set is what keeps them byte-identical.
+    """
+    fake = _setup()
+
+    copy_mod.copy_batch([_item()], _FAILED)
+
+    assert set(fake.copies[0]) == {"Bucket", "Key", "CopySource"}
+
+
+def test_an_item_carrying_a_storage_class_passes_it_to_the_copy():
+    fake = _setup()
+
+    copy_mod.copy_batch([{**_item(), "storageClass": "GLACIER"}], _FAILED)
+
+    assert fake.copies[0]["StorageClass"] == "GLACIER"
+
+
+def test_the_storage_class_is_set_on_the_MULTIPART_CREATE_not_the_part_copies():
+    """THE HALF AN OBVIOUS IMPLEMENTATION MISSES, and the failure it produces is silent and
+    expensive. The class belongs to `CreateMultipartUpload`; the part copies inherit it, and
+    `UploadPartCopy` does not accept it at all.
+
+    Set on the single-copy path only, an archive would write every object under 5 GiB to
+    GLACIER and every object OVER it to STANDARD — at roughly 20x the storage cost, with no
+    error anywhere, and with SPEC-171's restore mysteriously unnecessary for exactly the
+    biggest objects.
+    """
+    fake = _setup()
+    creates = []
+    real_create = fake.create_multipart_upload
+    fake.create_multipart_upload = lambda **kw: creates.append(kw) or real_create(**kw)
+
+    copy_mod.copy_batch(
+        [{**_item(rel="big.parquet", size=6 * GIB), "storageClass": "GLACIER"}], _FAILED
+    )
+
+    assert creates[0]["StorageClass"] == "GLACIER"
+    part_copies = [m for m in fake.multipart if "complete" not in m]
+    assert part_copies, "the multipart path did not run — this test is measuring nothing"
+    assert not any("StorageClass" in m for m in part_copies)
+
+
+def test_a_large_object_with_no_storage_class_creates_the_upload_it_always_did():
+    """The absence half of the multipart path, for the same reason as the single-copy one."""
+    fake = _setup()
+    creates = []
+    real_create = fake.create_multipart_upload
+    fake.create_multipart_upload = lambda **kw: creates.append(kw) or real_create(**kw)
+
+    copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED)
+
+    assert set(creates[0]) == {"Bucket", "Key"}
+
+
+def test_the_storage_class_travels_per_ITEM_and_not_per_batch():
+    """One manifest could in principle mix classes. Nothing does today, and the parameter is
+    still per item rather than per call — a batch-level argument would be an invitation for a
+    future caller to assume the wrong scope, and the engine has three callers now."""
+    fake = _setup()
+
+    copy_mod.copy_batch(
+        [{**_item(rel="a.parquet"), "storageClass": "GLACIER"}, _item(rel="b.parquet")], _FAILED
+    )
+
+    assert [c.get("StorageClass") for c in fake.copies] == ["GLACIER", None]
+
+
+def test_the_two_existing_planes_write_no_storage_class_into_their_manifests():
+    """The other end of the same guarantee, asserted against the SOURCE of the two callers
+    rather than against a fixture: absent in the manifest is what makes absent in the request."""
+    lambdas = pathlib.Path(__file__).resolve().parent.parent
+    for verb in ("table-share-build-transfer-manifest", "file-send-build-transfer-manifest"):
+        body = "".join(p.read_text() for p in (lambdas / verb).glob("*.py") if not p.name.startswith("test_"))
+        assert "storageClass" not in body, f"{verb} now sets a storage class"
 
 
 def test_one_bad_item_never_costs_its_siblings_their_copy():
