@@ -1,5 +1,5 @@
 {
-  "Comment": "Archive control plane (SPEC-168 foundation + front door, SPEC-169 the transfer, the commit gate and the deletion). ONE machine serves both archive and restore, branching on `mode` — the two verbs share the bucket, the execution role, the key layout and the receipt, and a restore is meaningless without the archive that produced it (SPEC-143's create/refresh branch on the table-builder is the precedent, rather than standing up a sixth module). validate-authorize verifies the ID token into the actor, authorizes the SOURCE space, confirms every selected item sits inside it and is not one of the portal's own folders, and resolves the archive prefix; inspect-source expands that selection into a copy plan in the admin bucket; build-transfer-manifest turns the plan into the Distributed Map's JSONL dataset at the GLACIER storage class; the Map copies it; collect-transfer-results reads the export back and returns the ONE BOOLEAN this whole plane turns on. THE COMMIT GATE IS CommitOrRollback, AND IT IS THE POINT OF THE MACHINE: the source is deleted only when every single object has been confirmed copied, so DeleteSource is reachable from exactly one arm and Rollback from the other — the failure mode this feature must never have is 'copied 900 of 1000, deleted 1000'. The artifacts are ordered most durable to least: _manifest.json into the vault, then the deletion, then the receipt into the user's own space, so a receipt only ever exists for an archive that completed. THE RESTORE ARM (SPEC-170) IS THE ARCHIVE READ BACKWARDS AND STOPS DELIBERATELY SHORT: inspect-archive rebuilds every destination from the archived keys themselves, check-destination-clear refuses the whole restore if ANY of them is occupied, and RestoreReady is where SPEC-171 adds RestoreObject and the wait — everything before that state is verifiable in seconds and everything after it takes hours, which is why the guard is on this side of the line. The FailureSeeds/RecordFailure/NotifyFailure are the SPEC-152 whole-request failure path, and every one of them now carries `mode`: the two modes' failures are worded differently (arcommon.messages holds one body table under two prefixes), and a user who clicked Restore must not be told an archive failed. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried. THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY — this is the first version of this machine that can wedge, because it is the first with a Map and a copy in it — and it ships WITH the EventBridge TIMED_OUT rule (stepfunction.tf) and notify-failure's second door, because AWS catchers cover Task, Parallel and Map states but NOT a top-level execution failure: a ceiling that cannot notify is SPEC-152 satisfied on paper and silent in practice.",
+  "Comment": "Archive control plane (SPEC-168 foundation + front door, SPEC-169 the transfer, the commit gate and the deletion). ONE machine serves both archive and restore, branching on `mode` — the two verbs share the bucket, the execution role, the key layout and the receipt, and a restore is meaningless without the archive that produced it (SPEC-143's create/refresh branch on the table-builder is the precedent, rather than standing up a sixth module). validate-authorize verifies the ID token into the actor, authorizes the SOURCE space, confirms every selected item sits inside it and is not one of the portal's own folders, and resolves the archive prefix; inspect-source expands that selection into a copy plan in the admin bucket; build-transfer-manifest turns the plan into the Distributed Map's JSONL dataset at the GLACIER storage class; the Map copies it; collect-transfer-results reads the export back and returns the ONE BOOLEAN this whole plane turns on. THE COMMIT GATE IS CommitOrRollback, AND IT IS THE POINT OF THE MACHINE: the source is deleted only when every single object has been confirmed copied, so DeleteSource is reachable from exactly one arm and Rollback from the other — the failure mode this feature must never have is 'copied 900 of 1000, deleted 1000'. The artifacts are ordered most durable to least: _manifest.json into the vault, then the deletion, then the receipt into the user's own space, so a receipt only ever exists for an archive that completed. THE RESTORE ARM IS THE ARCHIVE READ BACKWARDS, AND IT IS SPLIT ACROSS THE BILL: inspect-archive rebuilds every destination from the archived keys themselves and check-destination-clear refuses the whole restore if ANY of them is occupied — everything up to there is verifiable in SECONDS, and everything after it takes HOURS and cannot be taken back, which is why the guard is on this side of the line. SPEC-171 completes it: build-restore-manifest writes the ONE dataset both restore Maps read, RetrieveObjects is the point of no return (RestoreObject is billed on request and cannot be cancelled, so its Map tolerates NO failure — nothing is copied and the archive is untouched, and the user re-submits at no second bill), the Wait/PollRestore/RestoreRetrieved loop is the only loop in this repo and exists because a GLACIER object is not readable until S3 has spent 3-5 hours making a temporary copy of it, CopyBackObjects is the copy that actually changes the storage class, and RestoreCompleteOrPartial is the archive gate's MIRROR IMAGE rather than its twin — a partial restore cannot be rolled back to nothing, because the user's space now holds some of their own data, so that arm deletes NOTHING and keeps the archive, which after a partial restore is the only complete copy in existence. The FailureSeeds/RecordFailure/NotifyFailure are the SPEC-152 whole-request failure path, and every one of them now carries `mode`: the two modes' failures are worded differently (arcommon.messages holds one body table under two prefixes), and a user who clicked Restore must not be told an archive failed. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried. THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY — this is the first version of this machine that can wedge, because it is the first with a Map and a copy in it — and it ships WITH the EventBridge TIMED_OUT rule (stepfunction.tf) and notify-failure's second door, because AWS catchers cover Task, Parallel and Map states but NOT a top-level execution failure: a ceiling that cannot notify is SPEC-152 satisfied on paper and silent in practice.",
   "TimeoutSeconds": ${state_machine_timeout_seconds},
   "StartAt": "ValidateAuthorize",
   "States": {
@@ -515,21 +515,540 @@
           "Next": "RequestFailureSeed"
         }
       ],
-      "Next": "RestoreReady"
+      "Next": "StampRestoreExecution"
     },
-    "RestoreReady": {
+    "StampRestoreExecution": {
       "Type": "Pass",
-      "Comment": "SPEC-170's terminal, and SPEC-171's replacement point — everything up to here is verifiable in seconds, while everything after it takes hours, which is why the arc is split at exactly this state. SPEC-171 replaces it with RestoreObject, the Wait/poll loop and the copy-back: the only loop of its kind in this repo, because a GLACIER source cannot be copied at all until a billed, uncancellable retrieval has finished. It is also the ASL/verb cross-check for the guard, the same job Validated does for the validator: a Task hands its output on whole, so nothing in a Task-to-Task chain would notice a renamed field, while a Pass naming each key fails the build.",
+      "Comment": "SPEC-171. StampExecution's restore twin, and it is a second state rather than a shared one because that state's Next is the ARCHIVE manifest builder. Same two values and the same reasons: the execution NAME makes the restore manifest's key execution-unique where the plan's is deliberately not, so two overlapping executions of one request cannot clobber each other's dataset while a Map is reading it; and the START TIME is the receipt's 'Restore requested' line, taken from the context object so the receipt agrees with the execution record and a re-run agrees with itself. Read in a PASS rather than in the task's own Parameters, which wraps the payload one level down (SPEC-157).",
+      "Parameters": {
+        "name.$": "$$.Execution.Name",
+        "startedAt.$": "$$.Execution.StartTime"
+      },
+      "ResultPath": "$.execution",
+      "Next": "BuildRestoreManifest"
+    },
+    "BuildRestoreManifest": {
+      "Type": "Task",
+      "Comment": "SPEC-171 FR-001/FR-003. Writes ONE JSON Lines manifest that BOTH of the restore's Distributed Maps read: the retrieval reads each item's source fields, and the copy-back — hours later — reads the same items whole. They run over the same object set in the same order, so a second dataset would be a second thing that could disagree with the plan, and the disagreement would surface as a restore that retrieved one set of objects and copied another. Destination keys come from the PLAN and are not recomputed: they were built by paths.origin_key and they are the keys the destination guard cleared. The storage class is passed rather than omitted, because THE COPY IS WHAT CHANGES THE CLASS — the object a retrieval materialises is temporary, so without an explicit STANDARD the restored object is still GLACIER and expires back to unreadable.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${build_restore_manifest_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RequestFailureSeed"
+        }
+      ],
+      "Next": "HasRestoreItems"
+    },
+    "HasRestoreItems": {
+      "Type": "Choice",
+      "Comment": "HasTransferItems' restore twin, for the same two reasons. An ItemReader pointed at a manifest that was never written fails the state, and IsPresent is tested BEFORE the numeric comparison because a Choice on an ABSENT path raises an uncatchable States.Runtime that `Default` does NOT cover. The Default is a REFUSAL and is unreachable in practice — inspect-archive already refuses an empty archive as archive_not_found — because a branch that raises States.Runtime when it is reached is a worse outcome than one that refuses.",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.transfer.itemCount", "IsPresent": true },
+            { "Variable": "$.transfer.itemCount", "NumericGreaterThan": 0 }
+          ],
+          "Next": "SeedRestoreRequested"
+        }
+      ],
+      "Default": "NothingToRestoreSeed"
+    },
+    "SeedRestoreRequested": {
+      "Type": "Pass",
+      "Comment": "SPEC-171 FR-006. update-receipt serves three stages of a restore and the STATE says which — the verb does not infer it from what else happens to be lying on the state, because 'no transferOutcome yet' is an accident of ordering rather than a statement of intent. This one seeds the stage that runs BEFORE any bill.",
+      "Parameters": {
+        "status": "requested",
+        "requestedAt.$": "$.execution.startedAt"
+      },
+      "ResultPath": "$.restore",
+      "Next": "MarkRestoreRequested"
+    },
+    "MarkRestoreRequested": {
+      "Type": "Task",
+      "Comment": "SPEC-171 FR-006 AC4. Writes 'Restore requested' onto the archive's receipt, and it runs BEFORE the retrieval Map rather than after it. The user is about to wait 3-5 hours and the receipt is the only durable place that says a restore is in flight; running it here means a receipt-write failure costs nothing, where the same failure after initiation would fail a run the user had already been billed for. A failure here IS a whole-request failure, which this state can afford and the one after the copy-back cannot.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${update_receipt_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RequestFailureSeed"
+        }
+      ],
+      "Next": "RetrieveObjects"
+    },
+    "RetrieveObjects": {
+      "Type": "Map",
+      "Comment": "SPEC-171 FR-001, AND IT IS THE POINT OF NO RETURN FOR THE WHOLE ARC. Every state before it exists so that this one can be reached safely: a Glacier retrieval is BILLED the moment it is requested and CANNOT BE CANCELLED, which is why SPEC-170's destination guard sits on the other side of it and refuses a restore that could not land. It is a Distributed Map over the same manifest the copy-back reads rather than one long verb, because 20,000 RestoreObject calls is not work a single invocation should be sized for. ToleratedFailurePercentage is 0 — the OPPOSITE of the copy's 100 — because there is no partial state to reconcile here: a genuine fault on any object fails the run with nothing copied and the archive untouched, and the user re-submits at no second bill, since RestoreAlreadyInProgress and InvalidObjectState are tolerated by the verb. ResultPath is null because nothing downstream reads the children's output; the ResultWriter is still required, because a Distributed Map with none AGGREGATES 2,500 children onto the state and breaches 256 KB before ResultPath is ever applied.",
+      "ItemReader": {
+        "Resource": "arn:aws:states:::s3:getObject",
+        "ReaderConfig": {
+          "InputType": "JSONL"
+        },
+        "Parameters": {
+          "Bucket.$": "$.transfer.manifestBucket",
+          "Key.$": "$.transfer.manifestKey"
+        }
+      },
+      "ItemBatcher": {
+        "MaxItemsPerBatch": ${transfer_max_items_per_batch}
+      },
+      "MaxConcurrency": ${transfer_map_max_concurrency},
+      "ToleratedFailurePercentage": 0,
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "StartAt": "InitiateRestore",
+        "States": {
+          "InitiateRestore": {
+            "Type": "Task",
+            "Comment": "One batch of retrieval requests per invocation, on the same bounded pool the destination guard uses. No Catch: a batch that fails after its retries must FAIL its child execution, and with ToleratedFailurePercentage 0 that fails the Map Run and the run — which is exactly the outcome FR-001 asks for, because nothing has been copied and the archive is untouched.",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${initiate_restore_function_arn}",
+              "Payload.$": "$"
+            },
+            "OutputPath": "$.Payload",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "TransientError"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "ResultWriter": {
+        "Resource": "arn:aws:states:::s3:putObject",
+        "Parameters": {
+          "Bucket.$": "$.transfer.resultsBucket",
+          "Prefix.$": "$.transfer.retrievalResultsPrefix"
+        }
+      },
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RequestFailureSeed"
+        }
+      ],
+      "Next": "WaitForRetrieval"
+    },
+    "WaitForRetrieval": {
+      "Type": "Wait",
+      "Comment": "SPEC-171 FR-002. The only Wait in this repo, and it is the storage class rather than a design choice: a GLACIER object is not readable, a CopyObject whose source is in that class fails InvalidObjectState, and the Standard tier takes 3-5 HOURS to produce the temporary readable copy. Five minutes against that is ~1% of the wait spent asking. The interval is mirrored from arcommon.config.RESTORE_POLL_SECONDS via locals.tf because ASL cannot import Python, and a test asserts the two still agree — the same discipline the transfer Map's batch numbers are held to. THE ITERATION CAP IS NOT HERE: poll-restore computes it, so RESTORE_MAX_POLLS has one home rather than a constant and an ASL literal that could disagree on a restore already going badly.",
+      "Seconds": ${restore_poll_seconds},
+      "Next": "PollRestore"
+    },
+    "PollRestore": {
+      "Type": "Task",
+      "Comment": "SPEC-171 FR-002. Establishes completion by HeadObject and the RESTORE HEADER — not by the storage class and not by the object's presence, neither of which moves when a retrieval finishes: the archived object stays GLACIER and what appears beside it is a temporary copy the header describes. Three answers, and the third is why this is a verb rather than a Choice on a listing: no header at all, on an object still in a Glacier class, means nothing ever asked for that object, which is a FAILURE rather than a 'not yet' — read as pending it would burn every remaining iteration and then report a timeout naming the wrong cause. It SAMPLES: progress lives beside the plan in the admin bucket, so an archive of 200,000 objects is not 200,000 heads every five minutes for hours, and the per-object status list never touches the state — that is the 256 KB failure whose overflow escapes every Catch.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${poll_restore_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RequestFailureSeed"
+        }
+      ],
+      "Next": "RestoreRetrieved"
+    },
+    "RestoreRetrieved": {
+      "Type": "Choice",
+      "Comment": "The loop's exit, and its Default is the ONE Default on this plane that is not a refusal — it goes back round, because 'not yet' is the expected answer for hours. Both booleans are computed by the verb rather than compared here, so RESTORE_MAX_POLLS has one home. THE THIRD CLAUSE IS THE FAIL-CLOSED GUARD and it is not tidying: with only the first two, a poll output that lost its shape would satisfy neither, fall to the Default and SPIN — every five minutes until the machine's own ceiling, which is the one failure mode a loop can have that a linear machine cannot. IsPresent guards every comparison for the usual reason: a Choice on an absent path raises an uncatchable States.Runtime that Default does not cover.",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.restorePoll.complete", "IsPresent": true },
+            { "Variable": "$.restorePoll.complete", "BooleanEquals": true }
+          ],
+          "Next": "CopyBackObjects"
+        },
+        {
+          "And": [
+            { "Variable": "$.restorePoll.exhausted", "IsPresent": true },
+            { "Variable": "$.restorePoll.exhausted", "BooleanEquals": true }
+          ],
+          "Next": "RestoreTimedOutSeed"
+        },
+        {
+          "Variable": "$.restorePoll.pollCount",
+          "IsPresent": false,
+          "Next": "RestoreTimedOutSeed"
+        }
+      ],
+      "Default": "WaitForRetrieval"
+    },
+    "CopyBackObjects": {
+      "Type": "Map",
+      "Comment": "SPEC-171 FR-003. The copy that actually delivers the restore, and THE COPY IS WHAT CHANGES THE STORAGE CLASS: the object a retrieval materialises is temporary, so an item copied without an explicit STANDARD lands back in GLACIER and expires to unreadable a few days later, having looked like a success throughout. Same engine as the archive copy (cpcommon.transfer, SPEC-160's third caller) over the same manifest the retrieval read, with ToleratedFailurePercentage 100 for the archive Map's reason: the run MUST finish, or the gate after it cannot tell 'failed' from 'not attempted'. Its states:/S3 permissions belong to the STATE MACHINE role, not the Lambda execution role — on the wrong role it renders, applies and unit-tests green, then AccessDenies at the ItemReader (SPEC-160 FR-006).",
+      "ItemReader": {
+        "Resource": "arn:aws:states:::s3:getObject",
+        "ReaderConfig": {
+          "InputType": "JSONL"
+        },
+        "Parameters": {
+          "Bucket.$": "$.transfer.manifestBucket",
+          "Key.$": "$.transfer.manifestKey"
+        }
+      },
+      "ItemBatcher": {
+        "MaxItemsPerBatch": ${transfer_max_items_per_batch}
+      },
+      "MaxConcurrency": ${transfer_map_max_concurrency},
+      "ToleratedFailurePercentage": 100,
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "StartAt": "CopyBack",
+        "States": {
+          "CopyBack": {
+            "Type": "Task",
+            "Comment": "The SAME batch copier the archive arm uses — it knows nothing about the request, and every destination and the class were resolved upstream into the manifest, so a restore is the archive's own copy with the source and destination the other way round. No Catch, for the archive Map's reason: a batch that fails after its retries must FAIL its child execution, because that is what files it under FAILED_n.json where the collector can attribute every item it carried.",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${copy_objects_function_arn}",
+              "Payload.$": "$"
+            },
+            "OutputPath": "$.Payload",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "TransientError"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "ResultWriter": {
+        "Resource": "arn:aws:states:::s3:putObject",
+        "Parameters": {
+          "Bucket.$": "$.transfer.resultsBucket",
+          "Prefix.$": "$.transfer.resultsPrefix"
+        }
+      },
+      "ResultPath": "$.mapRun",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RequestFailureSeed"
+        }
+      ],
+      "Next": "CollectRestoreResults"
+    },
+    "CollectRestoreResults": {
+      "Type": "Task",
+      "Comment": "SPEC-171 FR-004. The SAME collector the archive arm uses, reading both halves of the Map Run's export for the same reason — Step Functions files a child by its execution STATUS, and the batch copier deliberately succeeds while carrying per-item failures, so a collector reading only FAILED_n.json would report universal success over an incomplete restore. Reused rather than forked because the question is identical: did every planned item land. What differs is only what the answer AUTHORIZES, and that is the Choice below.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${collect_transfer_results_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RequestFailureSeed"
+        }
+      ],
+      "Next": "RestoreCompleteOrPartial"
+    },
+    "RestoreCompleteOrPartial": {
+      "Type": "Choice",
+      "Comment": "THE RESTORE'S GATE, AND IT IS THE COMMIT GATE'S MIRROR IMAGE RATHER THAN ITS TWIN. Archiving's gate protects the SOURCE: nothing is deleted unless every object was confirmed copied. This one protects the ARCHIVE, and for a reason that runs the other way — a partial restore CANNOT be rolled back to nothing, because the user's space now holds some of their own data and deleting it to make the operation atomic would destroy the very thing the restore was for. So the failure arm deletes NOTHING: not the objects that landed, not the archive. The archive is kept deliberately, because after a partial restore it is the only complete copy in existence, and a restore that half succeeded and then deleted its own source would be unrecoverable. IsPresent guards the comparison, and the Default is the failure arm so an unrecognisable verdict fails closed — here that means keeping a vault, where on the archive arm it means keeping a source.",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.transferOutcome.complete", "IsPresent": true },
+            { "Variable": "$.transferOutcome.complete", "BooleanEquals": true }
+          ],
+          "Next": "DeleteArchived"
+        }
+      ],
+      "Default": "SeedRestoreIncomplete"
+    },
+    "DeleteArchived": {
+      "Type": "Task",
+      "Comment": "SPEC-171 FR-005. The archive prefix and its _manifest.json, removed now that every object is back — reachable from exactly one arm of the gate above. It lists rather than taking keys from the plan, the rollback's reason: the prefix is this archive's alone, so everything under it belongs to this archive. ITS CATCH DOES NOT FAIL THE RUN, which is the exact inverse of delete-source's discipline and is FR-005's decision: the user's data is back, which is the outcome they asked for, and residue in a bucket the browser cannot reach costs storage the 7-year expiry sweeps. The failure is carried as a flag on a SUCCESSFUL run instead. Deleting inside the GLACIER 90-day minimum is expected and is charged as an early-deletion fee — a cost line, not a defect.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${delete_archived_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.cleanupError",
+          "Next": "CleanupIncomplete"
+        }
+      ],
+      "Next": "SeedRestoreDone"
+    },
+    "CleanupIncomplete": {
+      "Type": "Pass",
+      "Comment": "The cleanup's failure branch, and it leads to the SUCCESS terminal. It exists rather than the Catch pointing straight on because RestoreComplete names $.cleanup, and a Pass state's JSONPath hard-fails on an absent key with an uncatchable States.Runtime — which would turn a swept-vault failure into a killed execution on a run whose data had already landed. Result is a literal because there is nothing to count: the verb did not get far enough to report.",
+      "Result": {
+        "deleted": 0,
+        "residue": null,
+        "cleanupIncomplete": true
+      },
+      "ResultPath": "$.cleanup",
+      "Next": "SeedRestoreDone"
+    },
+    "SeedRestoreDone": {
+      "Type": "Pass",
+      "Comment": "SPEC-171 FR-006. Seeds update-receipt's success stage. IT CARRIES THE STAGE AND NOT THE COUNTS: the seed says what this invocation is RECORDING and the run says what HAPPENED, so the verb reads $.transferOutcome for both the receipt's sentence and the failure message's tokens. Carried here too they would have two sources and could disagree — a receipt reading '40 of 100' beside a notification reading something else, with nothing to say which was right.",
+      "Parameters": {
+        "status": "restored",
+        "requestedAt.$": "$.execution.startedAt"
+      },
+      "ResultPath": "$.restore",
+      "Next": "UpdateReceipt"
+    },
+    "UpdateReceipt": {
+      "Type": "Task",
+      "Comment": "SPEC-171 FR-006. 'Restored to' filled in on the archive's own receipt, which is REWRITTEN and never deleted — the archive lines record the archive run, and its start time is the one field no restore can recompute, so a fresh render would silently blank it. ITS CATCH REACHES THE SUCCESS TERMINAL, which is FR-006 AC5 rather than laxity: the ordering is most durable to least — data restored, then receipt, then notification — and by this state the data is already back. The receipt outlives the archive it describes and users cannot delete it, so receipts accumulate; that is the accepted cost of making the two restore fields readable at all.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${update_receipt_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.receiptError",
+          "Next": "RestoreComplete"
+        }
+      ],
+      "Next": "RestoreComplete"
+    },
+    "RestoreComplete": {
+      "Type": "Pass",
+      "Comment": "The restore's success terminal. It names only paths BOTH arms into it carry — the receipt's key is not among them, because the Catch above reaches here without one and a Pass naming an absent key raises an uncatchable States.Runtime. Everything the run no longer needs is dropped: the plan key, the transfer block, the Map Run pointer, the poll's progress. SPEC-172 reads this shape for the success notification; this spec deliberately emits none.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "actor.$": "$.actor.username",
+        "archive.$": "$.archive",
+        "spaceRoot.$": "$.source.root",
+        "spaceKind.$": "$.source.kind",
+        "objectCount.$": "$.objectCount",
+        "totalBytes.$": "$.totalBytes",
+        "cleanup.$": "$.cleanup"
+      },
+      "Next": "Succeeded"
+    },
+    "SeedRestoreIncomplete": {
+      "Type": "Pass",
+      "Comment": "SPEC-171 FR-004. Seeds update-receipt's third stage, the one that always fails the run. The stage is DECLARED here rather than inferred by the verb from an absent field, because 'no transferOutcome yet' and 'transferOutcome says no' are different facts that happen to look alike from inside a handler.",
+      "Parameters": {
+        "status": "incomplete",
+        "requestedAt.$": "$.execution.startedAt"
+      },
+      "ResultPath": "$.restore",
+      "Next": "ReportRestoreIncomplete"
+    },
+    "ReportRestoreIncomplete": {
+      "Type": "Task",
+      "Comment": "SPEC-171 FR-004, and it is the rollback verb's shape rather than the rollback itself: record the outcome, then raise deliberately. NOTHING IS DELETED ON THIS PATH — not the objects that landed, not the archive — and the message says all three things the user needs: how many came back, that the archive is intact under the same id, and that requesting it again will report the files that did land, which they resolve by clearing them. Without that last sentence the obvious next action produces a destination_occupied refusal that reads like a new bug. Its receipt write is best-effort, for UpdateReceipt's reason: the data that landed has landed either way, and the raise below is the outcome that matters.",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${update_receipt_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "RequestFailureSeed"
+        }
+      ],
+      "Next": "RestoreIncompleteReturnedSeed"
+    },
+    "RestoreIncompleteReturnedSeed": {
+      "Type": "Pass",
+      "Comment": "RollbackReturnedSeed's twin, and unreachable for the same reason — the verb it follows always raises on this branch. It is here rather than the Next pointing at RequestFailureSeed because that seed reads $.error, which a RETURNING verb does not leave on the state (OutputPath is $.Payload): the Pass would raise an uncatchable States.Runtime on the failure path itself, on a run that had already put some of the user's data back. The error name is a registered reason code, never `TerminalError`, which notify-failure treats as evidence a verb's decorator already spoke.",
       "Parameters": {
         "requestId.$": "$.requestId",
         "mode.$": "$.mode",
-        "actor.$": "$.actor.username",
-        "archive.$": "$.archive",
-        "planKey.$": "$.planKey",
-        "objectCount.$": "$.objectCount",
-        "totalBytes.$": "$.totalBytes"
+        "actor.$": "$.actor",
+        "raw.$": "$$.Execution.Input",
+        "error": {
+          "Error": "restore_incomplete",
+          "Cause": null
+        }
       },
-      "Next": "Succeeded"
+      "Next": "RecordFailure"
+    },
+    "RestoreTimedOutSeed": {
+      "Type": "Pass",
+      "Comment": "SPEC-171 FR-002. The wait loop's own terminal, which is NOT the machine's TimeoutSeconds: this one fires while the execution is healthy, so it reaches RecordFailure and NotifyFailure through the ordinary door rather than needing the EventBridge rule. A restore that exceeds its budget is terminal and is re-submitted — safe at any time, because nothing was copied and the archive is untouched, which is the same property that makes the retrieval's tolerated 409 free.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "mode.$": "$.mode",
+        "actor.$": "$.actor",
+        "raw.$": "$$.Execution.Input",
+        "error": {
+          "Error": "restore_timed_out",
+          "Cause": null
+        }
+      },
+      "Next": "RecordFailure"
+    },
+    "NothingToRestoreSeed": {
+      "Type": "Pass",
+      "Comment": "HasRestoreItems' default arm, unreachable in practice because inspect-archive already refuses an empty archive as archive_not_found. Specified rather than omitted for the reason its archive twin gives: a branch that raises States.Runtime when it is reached is worse than one that refuses.",
+      "Parameters": {
+        "requestId.$": "$.requestId",
+        "mode.$": "$.mode",
+        "actor.$": "$.actor",
+        "raw.$": "$$.Execution.Input",
+        "error": {
+          "Error": "nothing_to_restore",
+          "Cause": null
+        }
+      },
+      "Next": "RecordFailure"
     },
     "UnknownModeSeed": {
       "Type": "Pass",

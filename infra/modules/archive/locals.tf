@@ -44,12 +44,18 @@ locals {
   # "archive-<suffix>"); value = the handler + the task's real timeout/memory need
   # (a small validator is not a long parallel S3 copy — lambdas.md §4).
   #
-  # ELEVEN VERBS: SPEC-168's front door, SPEC-169's expansion, manifest, batch copy,
+  # SIXTEEN VERBS: SPEC-168's front door, SPEC-169's expansion, manifest, batch copy,
   # collector, rollback, deletion and two artifacts, SPEC-170's archive lookup and
-  # destination guard, and SPEC-152's notifier of last resort. Only the copy runs inside
-  # the Distributed Map; everything else runs once per request. The front door serves BOTH
-  # modes — the ASL's mode Choice sits downstream of it, so a second restore-only validator
-  # would need the branch to happen before anything had parsed the body.
+  # destination guard, SPEC-171's restore manifest, retrieval, poll, vault sweep and receipt
+  # rewrite, and SPEC-152's notifier of last resort. TWO of them run inside a Distributed
+  # Map — the batch copy and the batch retrieval — and everything else runs once per request.
+  # The front door serves BOTH modes: the ASL's mode Choice sits downstream of it, so a second
+  # restore-only validator would need the branch to happen before anything had parsed the body.
+  #
+  # THREE ASL STATES POINT AT update-receipt AND TWO POINT AT copy-objects AND
+  # collect-transfer-results, so the state count is not the verb count. Both reuses are
+  # deliberate: a restore records its progress on the archive's own receipt at three stages, and
+  # the copy-back asks the copy's identical question in the opposite direction.
   #
   # Every module name is plane-qualified so two planes' identically-named verbs cannot
   # collide on sys.modules under one `pytest lambdas/` process. The qualifier is the
@@ -120,6 +126,33 @@ locals {
     # CPU for the pool's threads and holds the plan; no object bytes pass through it.
     "inspect-archive"         = { handler = "archive_inspect_archive.handler", timeout = 120, memory = 1024 }
     "check-destination-clear" = { handler = "archive_check_destination_clear.handler", timeout = 600, memory = 1024 }
+    # SPEC-171 FR-003. build-restore-manifest is build-transfer-manifest's twin and is sized by
+    # the same quantity — the whole manifest expanded and serialised in memory, at the object cap
+    # — so it takes the same row, and the SAME test computes it against this number.
+    "build-restore-manifest" = { handler = "archive_build_restore_manifest.handler", timeout = 300, memory = 2048 }
+    # SPEC-171 FR-001. One BATCH of RestoreObject calls per invocation, on the same bounded pool
+    # the destination guard uses. Far cheaper than the copy verb beside it — a retrieval request
+    # is a small synchronous call and no bytes move — so it needs neither 900s nor the memory.
+    # MAX_ITEMS_PER_BATCH items, 8 at a time, at a pessimistic 200 ms each is under 1s; 60s is
+    # the room a cold start and a retry storm need, not the work.
+    "initiate-restore" = { handler = "archive_initiate_restore.handler", timeout = 60, memory = 512 }
+    # SPEC-171 FR-002. THE POLL'S TIMEOUT IS THE GUARD'S ARITHMETIC, RE-USED RATHER THAN
+    # RE-DERIVED, because it does the same work: HeadObject over the plan at
+    # RESTORE_HEAD_CONCURRENCY, which botocore's connection pool holds at 8. A sweep that finds
+    # every page complete heads ARCHIVE_MAX_OBJECTS (20,000) objects in one invocation — that is
+    # the point of sweeping past the page rather than stopping at it, since one page per
+    # five-minute Wait would add over an hour after a retrieval had already finished — so its
+    # worst case is the guard's ~250s and it gets the guard's 600s.
+    # test_the_poll_can_sweep_the_whole_plan_inside_its_timeout READS THIS NUMBER.
+    "poll-restore" = { handler = "archive_poll_restore.handler", timeout = 600, memory = 1024 }
+    # SPEC-171 FR-005. Lists the archive prefix and deletes what is under it — the rollback's
+    # work exactly, on the same bound (20 listing pages and 20 DeleteObjects calls at the object
+    # cap, holding the key list in memory once), so it takes the rollback's row.
+    "delete-archived" = { handler = "archive_delete_archived.handler", timeout = 300, memory = 1024 }
+    # SPEC-171 FR-006. One GetObject and one PutObject of a document assembled from values
+    # already on the state, exactly like write-receipt beside it — invoked from THREE states,
+    # which changes nothing about its sizing.
+    "update-receipt" = { handler = "archive_update_receipt.handler", timeout = 30, memory = 256 }
     # SPEC-152's notification of last resort: one decode + one SQS send on the ASL door.
     #
     # SPEC-169 RAISED IT 15s -> 60s, WITH the second door that made 15s wrong. The
@@ -211,7 +244,36 @@ locals {
   #
   # Unlike file-send there is no recipient product to multiply by: an archive has one
   # destination, so the source cap IS the transfer cap.
-  state_machine_timeout_seconds = 10800
+  #
+  # SPEC-171 RAISED IT 10,800 -> 43,200, AND THE REASON IS THE STORAGE CLASS RATHER THAN THE
+  # DATA. Three hours was sized against the archive arm, whose long pole is a copy. The restore
+  # arm's long pole is a WAIT: a GLACIER object is not readable, and the Standard retrieval tier
+  # takes 3-5 hours to produce the temporary copy the copy-back reads — so the old ceiling would
+  # have killed a healthy restore before S3 had finished with it. The restore's terms are the
+  # retrieval budget (RESTORE_POLL_SECONDS x RESTORE_MAX_POLLS = 7 hours, deliberately above the
+  # tier's own 5 because giving up early makes the user pay for a SECOND billed retrieval), the
+  # poll's own work, the copy-back at the same makespan rate as the archive copy, both Maps'
+  # per-child overhead and the serial verbs — ~35,500s in total.
+  # test_the_whole_restore_fits_the_machines_ceiling COMPUTES every one of those from the
+  # constants and reads this number back.
+  #
+  # IT IS ONE FIELD ON ONE MACHINE, so the ARCHIVE arm's backstop rises with it — a wedged
+  # archive is now reported after twelve hours rather than three. That is the accepted cost of
+  # the two arms sharing a machine (which they do because a restore is meaningless without the
+  # archive that produced it); TimeoutSeconds is top-level ASL and cannot differ per branch. The
+  # archive arm's own worst legal run is ~8,100s and still clears this by 5x.
+  state_machine_timeout_seconds = 43200
+
+  # SPEC-171 FR-002. Mirrored from arcommon/config.py's RESTORE_POLL_SECONDS, which is where it
+  # is REASONED about — five minutes against a 3-5 hour retrieval is ~1% of the wait spent
+  # asking. Terraform cannot import Python, so the ASL's Wait carries a literal fed from here and
+  # a test asserts the rendered number still equals the constant, exactly as the transfer Map's
+  # batch numbers are held together.
+  #
+  # THE ITERATION CAP IS DELIBERATELY NOT HERE. RESTORE_MAX_POLLS lives only in Python, because
+  # poll-restore computes `exhausted` itself rather than the Choice comparing against a literal —
+  # two homes for that number would only disagree on a restore that was already going badly.
+  restore_poll_seconds = 300
 
   # SPEC-169 FR-003/FR-007. The Distributed Map's OWN permissions belong to the STATE
   # MACHINE role: it is the state machine that calls StartExecution for each child and

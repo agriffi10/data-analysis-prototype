@@ -21,15 +21,28 @@ from cpcommon.errors import TransientError
 
 
 class _S3Error(Exception):
-    def __init__(self, code):
-        self.response = {"Error": {"Code": code}}
+    def __init__(self, code, status=400):
+        self.response = {
+            "Error": {"Code": code},
+            "ResponseMetadata": {"HTTPStatusCode": status},
+        }
         super().__init__(code)
 
 
+class _Body:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def read(self):
+        return self._payload
+
+
 class _FakeS3:
-    def __init__(self, error=None):
+    def __init__(self, error=None, existing=None, get_error=None):
         self.puts = []
         self._error = error
+        self._existing = existing
+        self._get_error = get_error
 
     def put_object(self, Bucket, Key, Body, ContentType):
         if self._error:
@@ -37,9 +50,16 @@ class _FakeS3:
         self.puts.append({"Bucket": Bucket, "Key": Key, "Body": Body, "ContentType": ContentType})
         return {}
 
+    def get_object(self, Bucket, Key):
+        if self._get_error:
+            raise self._get_error
+        if self._existing is None:
+            raise _S3Error("NoSuchKey", 404)
+        return {"Body": _Body(self._existing.encode())}
 
-def _install(error=None):
-    fake = _FakeS3(error)
+
+def _install(error=None, existing=None, get_error=None):
+    fake = _FakeS3(error, existing, get_error)
     clients._s3 = fake
     return fake
 
@@ -191,6 +211,118 @@ def test_a_retryable_write_fault_stays_transient():
 
     with pytest.raises(TransientError):
         receipt.write("user-bkt", f"alice/archive/{_REQUEST_ID}/receipt.txt", _record())
+
+
+# ── the restore rewrite (SPEC-171 FR-006) ───────────────────────────────────
+
+
+def _restore(**overrides):
+    state = {
+        "status": "restored",
+        "requestedAt": "2026-08-12T09:30:00.000Z",
+        "destination": "s3://dat-prod-user-space/alice/",
+        "restored": 1204,
+        "expected": 1204,
+    }
+    state.update(overrides)
+    return state
+
+
+def test_the_rewrite_replaces_the_two_restore_lines_and_touches_nothing_else():
+    """**THE PROPERTY THE WHOLE REWRITE EXISTS FOR.** The archive lines record the archive RUN,
+    and its start time is the one field no restore can recompute — so re-rendering the document
+    from the restore's own state would silently blank `Requested`. Asserted as line-for-line
+    equality on every other line rather than as "the timestamp survives", because the next field
+    somebody adds must survive too and nothing would have said so."""
+    original = receipt.render(_record())
+
+    rewritten = receipt.rewrite(original, _restore())
+
+    before = original.splitlines()
+    after = rewritten.splitlines()
+    assert len(before) == len(after)
+    for old, new in zip(before, after, strict=True):
+        label = old.split(":", 1)[0]
+        if label in (receipt.RESTORE_REQUESTED_LABEL, receipt.RESTORED_TO_LABEL):
+            assert old != new, f"{label} was not rewritten"
+        else:
+            assert old == new, f"{label} was disturbed by the rewrite"
+
+
+def test_a_successful_restore_names_where_the_data_landed():
+    rewritten = receipt.rewrite(receipt.render(_record()), _restore())
+
+    assert "2026-08-12 09:30:00 UTC" in rewritten
+    assert "s3://dat-prod-user-space/alice/" in rewritten
+
+
+def test_an_incomplete_restore_never_claims_a_restore_that_did_not_finish():
+    """FR-006 AC2. "Restored to: s3://…" on a run that put back 40 of 100 files would be a lie
+    told by the only durable record the user has."""
+    rewritten = receipt.rewrite(
+        receipt.render(_record()), _restore(status="incomplete", restored=40, expected=100)
+    )
+
+    line = next(ln for ln in rewritten.splitlines() if ln.startswith(receipt.RESTORED_TO_LABEL))
+    assert "did not finish" in line
+    assert "40 of 100" in line
+    assert "archive is intact" in line.lower()
+
+
+def test_a_restore_only_requested_leaves_the_destination_blank():
+    """The marker written before the retrieval says a restore is in flight, and nothing more —
+    the data has not moved and the receipt must not suggest it has."""
+    rewritten = receipt.rewrite(receipt.render(_record()), _restore(status="requested"))
+
+    line = next(ln for ln in rewritten.splitlines() if ln.startswith(receipt.RESTORED_TO_LABEL))
+    assert line.split(":", 1)[1].strip() == "-"
+    assert "2026-08-12 09:30:00 UTC" in rewritten
+
+
+def test_a_second_restore_rewrites_the_same_two_lines_rather_than_stacking_them():
+    """Nothing stops a user restoring an archive twice — the first restore deletes the vault, so
+    in practice the second fails earlier, but the document must not grow a line per attempt."""
+    once = receipt.rewrite(receipt.render(_record()), _restore())
+    twice = receipt.rewrite(once, _restore(requestedAt="2026-08-13T09:30:00.000Z"))
+
+    assert len(once.splitlines()) == len(twice.splitlines())
+    assert "2026-08-13 09:30:00 UTC" in twice
+    assert "2026-08-12" not in twice
+
+
+def test_a_document_missing_the_restore_labels_gains_them_rather_than_losing_the_record():
+    """Not reachable from anything this plane wrote — both fields have been present since
+    SPEC-169's first version, deliberately, so the format would never be conditional on the
+    file's own history — and handled because the alternative is a rewrite that silently records
+    nothing."""
+    rewritten = receipt.rewrite("Requested:         2026-08-10 14:02:11 UTC\n", _restore())
+
+    assert receipt.RESTORE_REQUESTED_LABEL in rewritten
+    assert receipt.RESTORED_TO_LABEL in rewritten
+    assert "Requested:         2026-08-10 14:02:11 UTC" in rewritten
+
+
+def test_reading_a_receipt_returns_its_text_and_a_proven_absence_returns_None():
+    _install(existing="Requested:         2026-08-10 14:02:11 UTC\n")
+    assert receipt.read("user-bkt", "alice/archive/x/receipt.txt").startswith("Requested:")
+
+    _install(existing=None)
+    assert receipt.read("user-bkt", "alice/archive/x/receipt.txt") is None
+
+
+def test_an_ambiguous_read_raises_rather_than_reporting_the_receipt_absent():
+    """**The guard's 403-is-occupied discipline, applied to a WRITE.** The caller's fallback for
+    "there is no receipt" is to compose a fresh one, which loses the archive's own timestamp — so
+    a 403, or a fault carrying no status at all, must not take that branch. It raises, the
+    state's Retry runs, and the run fails rather than overwriting a document it merely failed to
+    read."""
+    _install(get_error=_S3Error("AccessDenied", 403))
+    with pytest.raises(_S3Error):
+        receipt.read("user-bkt", "alice/archive/x/receipt.txt")
+
+    _install(get_error=_S3Error("SlowDown", 503))
+    with pytest.raises(TransientError):
+        receipt.read("user-bkt", "alice/archive/x/receipt.txt")
 
 
 if __name__ == "__main__":

@@ -119,6 +119,67 @@ Attributes:
     fails the build rather than the invocation — and
     ``test_the_guards_pool_fits_inside_the_clients_connection_pool`` pins the ceiling that sizes
     this number, because that is the term a later "just raise the concurrency" would skip.
+  RESTORE_STORAGE_CLASS: The class the copy-back writes at, and **it is stated rather than
+    omitted**. ``cpcommon.transfer`` treats an empty storage class as "do not pass the argument",
+    which is S3's own default and is what table-share and file-send rely on — but here the
+    default is not what makes the restore work, the explicit class is. **The copy IS the thing
+    that changes the storage class.** The temporary object a retrieval materialises expires;
+    without a copy at ``STANDARD`` the object is still ``GLACIER`` and becomes unreadable again,
+    so a restore that relied on a default nobody stated would look identical for a few days and
+    then have delivered nothing.
+  RESTORE_TIER: The Glacier retrieval tier every ``RestoreObject`` asks for, and the constant
+    that decides how long a user waits. ``Standard`` restores in **3-5 hours**, which is what
+    ``RESTORE_MAX_POLLS`` is sized against.
+
+    **The two alternatives are rejected rather than unconsidered.** ``Expedited`` returns in
+    1-5 minutes but is per-request, costs several times as much, and is **subject to capacity**
+    — without provisioned capacity units it can return ``GlacierExpeditedRetrievalNotAvailable``,
+    which turns a restore into a failure for a reason the user cannot act on. Buying capacity
+    units is a standing monthly charge this portal does not make. ``Bulk`` is the cheapest and
+    takes **5-12 hours**, which doubles the worst-case wait for somebody sitting in front of a
+    browser and would push the machine's ceiling past half a day.
+  RESTORE_AVAILABILITY_DAYS: How long the temporary readable copy S3 materialises stays
+    available. **It is measured against the COPY-BACK, not against the retrieval**, and it is
+    generous on purpose: the copy reads that temporary object, so the object has to outlive the
+    copy that reads it.
+
+    **The failure mode if it does not is the one worth stating**, because it does not look like
+    a configuration error. The copy-back begins succeeding, and then partway through — as the
+    earliest-restored objects expire back to unreadable — items start failing
+    ``InvalidObjectState``. It presents as a partial restore with no obvious cause, on a run
+    that has already worked for hours, and the objects it fails on are the ones it retrieved
+    FIRST. Seven days against a copy-back whose worst case is under two hours is not caution
+    about the copy; it is caution about a retrieval that finishes hours before the machine
+    notices, since the window starts when each object becomes available and not when the copy
+    starts.
+  RESTORE_POLL_SECONDS: The ``Wait`` between poll iterations, mirrored into ``locals.tf``
+    because ASL cannot import Python — a test asserts the two agree, the same way the transfer
+    Map's batch numbers are held together. Five minutes against a 3-5 hour retrieval is ~1% of
+    the wait spent asking, which is the ratio worth having: shorter buys nothing a user can
+    perceive and costs an invocation every time.
+  RESTORE_MAX_POLLS: How many iterations before the loop gives up with ``restore_timed_out``.
+    ``RESTORE_POLL_SECONDS x RESTORE_MAX_POLLS`` is the retrieval BUDGET — seven hours — and
+    **the headroom over the tier's own five is the whole point of the number.** AWS documents
+    3-5 hours as typical rather than contractual, and the cost of being wrong is asymmetric in a
+    way most timeouts are not: giving up on a retrieval that was going to finish does not merely
+    fail a run, it makes the user pay for a SECOND billed retrieval to try again. Waiting two
+    more hours costs a Lambda invocation every five minutes.
+    ``test_the_retrieval_budget_clears_the_tiers_own_worst_case`` computes it, and
+    ``test_the_whole_restore_fits_the_machines_ceiling`` adds it to the copy-back — so raising it
+    without raising the machine's ceiling fails the build.
+  RESTORE_POLL_PAGE: How many objects the poll advances its recorded progress by. **The poll
+    samples rather than re-heading the archive on every iteration**: it starts at the index the
+    last iteration reached, and a page whose every object reports complete moves that index on.
+    An archive of 200,000 objects would otherwise issue 200,000 heads every five minutes for
+    hours.
+
+    One invocation advances as MANY pages as it can before it meets an incomplete object, which
+    is the half a strict one-page-per-iteration reading gets wrong: all objects were requested
+    at once at one tier, so they complete together, and sweeping 20,000 objects a page at a time
+    would add twenty ``Wait``s — over an hour and a half — after the retrieval had already
+    finished. The page is the granularity progress is RECORDED at, not a bound on one
+    invocation's work; the invocation's bound is ``ARCHIVE_MAX_OBJECTS`` heads at
+    ``RESTORE_HEAD_CONCURRENCY``, which is the guard's own arithmetic and the guard's own 600s.
   RESTORE_CONFLICT_SAMPLE: How many colliding destinations the refusal NAMES. It is a
     presentation bound, not a work bound — the guard short-circuits, so it has usually seen only
     a handful — and it exists because the message must fit in a notification a person reads:
@@ -177,6 +238,18 @@ ARCHIVE_MAX_OBJECT_BYTES = 10 * 1024**3
 RESTORE_HEAD_CONCURRENCY = 8
 
 RESTORE_CONFLICT_SAMPLE = 5
+
+RESTORE_STORAGE_CLASS = "STANDARD"
+
+RESTORE_TIER = "Standard"
+
+RESTORE_AVAILABILITY_DAYS = 7
+
+RESTORE_POLL_SECONDS = 300
+
+RESTORE_MAX_POLLS = 84
+
+RESTORE_POLL_PAGE = 1000
 
 RESERVED_SOURCE_ROOTS = (
     "archive",

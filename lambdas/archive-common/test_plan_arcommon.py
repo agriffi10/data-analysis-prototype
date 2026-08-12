@@ -144,9 +144,71 @@ def test_a_manifest_key_with_no_execution_name_is_refused_rather_than_fallen_bac
 def test_every_key_needs_the_request_id_and_refuses_without_one():
     """The value becomes an S3 KEY, and a key built from `None` is a real object in a real
     bucket."""
-    for builder in (plan.plan_key, plan.transfer_results_prefix):
+    for builder in (
+        plan.plan_key,
+        plan.transfer_results_prefix,
+        plan.restore_plan_key,
+        plan.restore_progress_key,
+        plan.retrieval_results_prefix,
+        plan.restore_results_prefix,
+    ):
         with pytest.raises(TerminalError):
             builder({"requestId": ""})
+
+
+# ── SPEC-171's three new layouts ────────────────────────────────────────────
+
+
+def test_every_artifact_of_one_run_shares_its_folder_and_none_collides():
+    """Six key layouts on one plane now, and this module owns all of them for SPEC-161's reason:
+    one module, one place a key can be wrong. Asserted as DISTINCTNESS rather than by restating
+    each string, because the failure mode is two of them colliding — a progress record written
+    over a plan is a restore that reads its own poll counter as an object list."""
+    request = _request()
+    keys = {
+        plan.plan_key(request),
+        plan.restore_plan_key(request),
+        plan.restore_progress_key(request),
+        plan.transfer_manifest_key(request, "exec-1"),
+        plan.restore_manifest_key(request, "exec-1"),
+        plan.transfer_results_prefix(request),
+        plan.retrieval_results_prefix(request),
+        plan.restore_results_prefix(request),
+    }
+
+    assert len(keys) == 8
+    assert all(key.startswith(f"archive/{request['requestId']}/") for key in keys)
+
+
+def test_the_restore_manifest_is_execution_unique_and_the_progress_record_is_not():
+    """The manifest carries the execution for the transfer manifest's reason — two overlapping
+    executions must not clobber each other's dataset while a Map is reading it. The progress
+    record deliberately does NOT: it exists so a poll does not re-head what an earlier one saw
+    complete, and a Retry or a redrive should pick that up rather than start again from zero.
+    There is nothing there for two runs to clobber that re-heading would not repair."""
+    request = _request()
+
+    assert plan.restore_manifest_key(request, "exec-1") != plan.restore_manifest_key(request, "exec-2")
+    assert plan.restore_progress_key(request) == plan.restore_progress_key(dict(request))
+    assert plan.restore_progress_key(request).endswith(plan.PROGRESS_BASENAME)
+
+
+def test_a_restore_manifest_key_refuses_a_missing_execution_name():
+    """It refuses rather than falling back to the bare request id: the fallback is exactly the
+    collision the execution segment exists to prevent, and it would appear only under
+    concurrency."""
+    with pytest.raises(TerminalError):
+        plan.restore_manifest_key(_request(), "")
+
+
+def test_the_two_map_exports_are_told_apart_by_their_prefix():
+    """FR-003 AC3. They could not collide — the two Maps run in one execution under one request
+    id — and they are named apart so an operator reading the admin bucket can tell which
+    direction a run was going, and so the collector's prefix names only what it reads."""
+    request = _request()
+
+    assert plan.retrieval_results_prefix(request).endswith(f"/{plan.RETRIEVAL_RESULTS_FOLDER}")
+    assert plan.restore_results_prefix(request).endswith(f"/{plan.RESTORE_RESULTS_FOLDER}")
 
 
 def test_the_admin_prefix_matches_the_iam_grant_and_the_lifecycle_rule():

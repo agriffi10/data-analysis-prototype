@@ -89,6 +89,9 @@ def test_every_marker_in_every_body_can_be_filled_by_somebody():
         "expected",
         "found",
         "sample",
+        # SPEC-171's partial restore, filled by update-receipt from the collector's own
+        # verdict — how many objects actually landed is a fact of one run, not of this plane.
+        "restored",
     }
     for reason, body in messages._BODIES.items():
         for marker in re.findall(r"\{(\w+)\}", body):
@@ -110,12 +113,44 @@ def test_the_wording_is_ascii_and_carries_no_smart_quotes():
         assert "\u2018" not in text and "\u2019" not in text
 
 
-def test_no_body_promises_a_partial_outcome():
-    """Every refusal on this plane is a WHOLE-request refusal, which is what makes "nothing
-    was archived" true in every sentence this table can produce. A body implying some of the
-    selection went through would be wrong for every code here."""
+#: The ONE outcome on this plane that is genuinely partial, and it is SPEC-171's asymmetry
+#: rather than a slipped standard. Every other code here refuses whole because it CAN: the
+#: archive's commit gate means nothing was deleted, and a refused restore has written nothing.
+#: A partial RESTORE cannot be made whole in either direction — the user's space already holds
+#: some of their own data, and deleting it to make the operation atomic would destroy the very
+#: thing the restore was for — so its body has to say so.
+_DELIBERATELY_PARTIAL = {"restore_incomplete"}
+
+
+def test_no_body_promises_a_partial_outcome_except_the_one_that_is():
+    """Every refusal on this plane but one is a WHOLE-request refusal, which is what makes
+    "nothing was archived" and "nothing was changed in your space" true in almost every sentence
+    this table can produce. A body implying part of the request went through would be wrong for
+    every code outside the exemption.
+
+    The exemption is a SET rather than a skipped assertion so that a second body drifting into
+    partial wording has to be argued for here, beside the reasoning, rather than merely passing.
+    """
     for reason, body in messages._BODIES.items():
+        if reason in _DELIBERATELY_PARTIAL:
+            continue
         assert "some of" not in body.lower(), reason
+        assert "were restored" not in body.lower(), reason
+
+
+def test_the_partial_restore_body_says_all_three_things_it_has_to():
+    """SPEC-171 FR-004 AC3, and the third is the one an author would leave out. A user reading
+    "the restore did not finish" will request it again; the destination guard will then refuse
+    against the files that DID land, and without the last sentence that refusal reads like a new
+    bug on top of the old one.
+    """
+    text = messages.failure_message(
+        "restore_incomplete", tokens={"restored": "40", "total": "100"}, mode="restore"
+    )
+
+    assert "40 of 100" in text, "the count of what came back"
+    assert "archive is still intact" in text and "same id" in text, "the archive is still there"
+    assert "already there" in text and "request the restore again" in text, "what to do next"
 
 
 if __name__ == "__main__":

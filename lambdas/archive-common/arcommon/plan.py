@@ -7,10 +7,11 @@ limit, and ``States.DataLimitExceeded`` escapes every ``Catch`` — the worst fa
 has, because it is the one where the user is told nothing at all. So the plan goes to the admin
 bucket and its KEY is threaded onward, with the count and the byte total beside it.
 
-This module owns **all three** admin-bucket key layouts — the plan, the transfer manifest and the
-Map Run's results export — for SPEC-161's reason: one module, one place a key can be wrong.
-Where they live is this plane's business; the manifest's BYTES and the export's reader belong to
-``cpcommon.transfer``, which is shared with table-share and file-send.
+This module owns **every** admin-bucket key layout on this plane — the two plans, the two
+transfer manifests, the poll's progress record and the three Map Run result exports — for
+SPEC-161's reason: one module, one place a key can be wrong. Where they live is this plane's
+business; a manifest's BYTES and an export's reader belong to ``cpcommon.transfer``, which is
+shared with table-share and file-send.
 
 **Two of the three keys are pure functions of the request id and one is not.** The plan and the
 results prefix are execution-stable, so a ``Retry`` of inspect-source rewrites the same object
@@ -40,8 +41,24 @@ Attributes:
     values (SPEC-170 FR-001), so two restores of one archive write two plans and neither
     collides with the copy plan the archive itself wrote.
   MANIFEST_BASENAME: The transfer manifest's basename.
+  RESTORE_MANIFEST_BASENAME: The restore transfer manifest's basename. **One manifest feeds BOTH
+    of the restore's Distributed Maps** (SPEC-171) — the retrieval reads its source fields and
+    the copy-back reads all of them — because they run over the same object set in the same
+    order, and a second dataset would be a second thing that could disagree with the plan.
+  PROGRESS_BASENAME: The poll's progress record. It lives in the admin bucket rather than on the
+    state for FR-002 AC5's reason: the loop runs for hours and a per-object status list on the
+    state is the 256 KB failure whose overflow escapes every ``Catch``. What rides is the small
+    scalar block the ``Choice`` branches on.
   RESULTS_FOLDER: The folder under the request's prefix that the Distributed Map's
     ``ResultWriter`` exports into. Step Functions appends its own Map Run component below it.
+  RETRIEVAL_RESULTS_FOLDER: The retrieval Map's export folder. Nothing reads it — that Map
+    tolerates NO item failure, so a failed child fails the Map Run and the state's ``Catch``
+    reports it — and it exists because a Distributed Map with no ``ResultWriter`` aggregates its
+    children's output onto the state, which at 2,500 children is the same 256 KB failure.
+  RESTORE_RESULTS_FOLDER: The copy-back Map's export folder, which the collector DOES read.
+    Deliberately not ``RESULTS_FOLDER``: an archive and a restore of it are two different runs
+    with two different request ids, so they could not collide, but naming them apart means an
+    operator reading the admin bucket can tell which direction a run was going.
   _UNDELETABLE_FOLDERS: Folder names this plane may not delete AT ANY DEPTH, because the two
     bucket policies and the execution role's own Deny refuse ``s3:DeleteObject`` beneath them
     with a wildcard that matches ``/``. They are NOT the same rule as
@@ -69,7 +86,11 @@ PREFIX = "archive"
 BASENAME = "copy-plan.json"
 RESTORE_BASENAME = "restore-plan.json"
 MANIFEST_BASENAME = "transfer-manifest.jsonl"
+RESTORE_MANIFEST_BASENAME = "restore-manifest.jsonl"
+PROGRESS_BASENAME = "restore-progress.json"
 RESULTS_FOLDER = "results"
+RETRIEVAL_RESULTS_FOLDER = "retrieval-results"
+RESTORE_RESULTS_FOLDER = "restore-results"
 
 _UNDELETABLE_FOLDERS = ("archive", "athenaresults", "user_settings")
 
@@ -249,17 +270,18 @@ def load_restore_plan(key: str, request: dict) -> dict:
     return loaded
 
 
-def transfer_manifest_key(request: dict, execution_name) -> str:
-    """Derives the transfer manifest's key, which is EXECUTION-unique where the plan is not.
+def _execution_folder(request: dict, execution_name, what: str) -> str:
+    """Derives the EXECUTION-unique folder a transfer manifest sits in.
 
     Args:
-      request: The validated archive request.
+      request: The validated request.
       execution_name: The execution's name, stamped onto the state by a ``Pass`` — never read
         from ``$$`` inside the task's own ``Parameters``, which wraps the payload and would put
         the request one level below where every notify path reads it (SPEC-157).
+      what: The artifact being keyed, for the refusal's detail.
 
     Returns:
-      The manifest key under the admin bucket.
+      The folder under the admin bucket, ending in a slash.
 
     Raises:
       TerminalError: ``malformed_event`` when the request carries no usable id, or when the
@@ -267,12 +289,94 @@ def transfer_manifest_key(request: dict, execution_name) -> str:
         the fallback is exactly the collision the execution segment exists to prevent, and it
         would appear only under concurrency.
     """
-    folder = _request_folder(request, "transfer manifest")
+    folder = _request_folder(request, what)
     if not isinstance(execution_name, str) or not execution_name.strip():
-        raise TerminalError(
-            events.MALFORMED, "a transfer manifest key needs the execution name"
-        )
-    return f"{folder}{execution_name.strip()}/{MANIFEST_BASENAME}"
+        raise TerminalError(events.MALFORMED, f"a {what} key needs the execution name")
+    return f"{folder}{execution_name.strip()}/"
+
+
+def transfer_manifest_key(request: dict, execution_name) -> str:
+    """Derives the transfer manifest's key, which is EXECUTION-unique where the plan is not.
+
+    Args:
+      request: The validated archive request.
+      execution_name: The execution's name.
+
+    Returns:
+      The manifest key under the admin bucket.
+
+    Raises:
+      TerminalError: ``malformed_event`` when the request carries no usable id or execution name.
+    """
+    return f"{_execution_folder(request, execution_name, 'transfer manifest')}{MANIFEST_BASENAME}"
+
+
+def restore_manifest_key(request: dict, execution_name) -> str:
+    """Derives the restore transfer manifest's key, EXECUTION-unique for the same reason.
+
+    Args:
+      request: The validated restore request.
+      execution_name: The execution's name.
+
+    Returns:
+      The restore manifest's key under the admin bucket.
+
+    Raises:
+      TerminalError: ``malformed_event`` when the request carries no usable id or execution name.
+    """
+    folder = _execution_folder(request, execution_name, "restore manifest")
+    return f"{folder}{RESTORE_MANIFEST_BASENAME}"
+
+
+def restore_progress_key(request: dict) -> str:
+    """Derives the poll's progress record key, which is REQUEST-stable and not execution-unique.
+
+    Stable on purpose, unlike the manifest beside it. The record exists so a poll iteration does
+    not re-head what an earlier one already saw complete, and a ``Retry`` of the poll verb — or a
+    redriven execution — should pick that progress up rather than start again from zero. There is
+    nothing for two concurrent executions to clobber here that re-heading would not repair.
+
+    Args:
+      request: The validated restore request.
+
+    Returns:
+      The progress record's key under the admin bucket.
+
+    Raises:
+      TerminalError: ``malformed_event`` when the request carries no usable id.
+    """
+    return f"{_request_folder(request, 'restore progress')}{PROGRESS_BASENAME}"
+
+
+def retrieval_results_prefix(request: dict) -> str:
+    """Derives the prefix the RETRIEVAL Map's ``ResultWriter`` exports under.
+
+    Args:
+      request: The validated restore request.
+
+    Returns:
+      The prefix under the admin bucket, with NO trailing slash — Step Functions appends its own
+      Map Run component and manifest basename below it.
+
+    Raises:
+      TerminalError: ``malformed_event`` when the request carries no usable id.
+    """
+    return f"{_request_folder(request, 'retrieval results')}{RETRIEVAL_RESULTS_FOLDER}"
+
+
+def restore_results_prefix(request: dict) -> str:
+    """Derives the prefix the COPY-BACK Map's ``ResultWriter`` exports under.
+
+    Args:
+      request: The validated restore request.
+
+    Returns:
+      The prefix under the admin bucket, with NO trailing slash.
+
+    Raises:
+      TerminalError: ``malformed_event`` when the request carries no usable id.
+    """
+    return f"{_request_folder(request, 'restore results')}{RESTORE_RESULTS_FOLDER}"
 
 
 def transfer_results_prefix(request: dict) -> str:

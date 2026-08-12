@@ -35,8 +35,34 @@
 # THE ARCHIVE BUCKET'S DeleteObject IS THE ROLLBACK'S, and it is the one grant that looks
 # surprising on a vault. A partial copy is not an archive, so it is removed; without this
 # the gate could refuse the deletion but not clean up after itself, and the residue would
-# sit at the GLACIER 90-day minimum until the 7-year expiry. SPEC-171 needs the same grant
+# sit at the GLACIER 90-day minimum until the 7-year expiry. SPEC-171 uses the same grant
 # to clear a restored archive.
+#
+# SPEC-171 ADDS TWO THINGS, AND THE SECOND IS A DELIBERATE WIDENING THAT MUST NOT ARRIVE
+# SILENTLY IN A DIFF.
+#
+#   * s3:RestoreObject on the vault (ArchiveVaultRetrieve). It is a DISTINCT ACTION from
+#     GetObject and PutObject — a role holding both still cannot initiate a retrieval, and
+#     the failure would be an AccessDenied at the point of no return rather than at plan
+#     time.
+#   * s3:PutObject on the two SPACE buckets, unrestricted by prefix within the space root
+#     (SpaceDataWrite, replacing SPEC-169's ReceiptWrite). SPEC-169 needed only `*/archive/*`
+#     because the only thing it wrote into a user's space was a receipt. A RESTORE writes
+#     wherever the data came from, which is anywhere in the space, so the narrow grant cannot
+#     stand. The multipart pair joins it because an archived object may be up to
+#     ARCHIVE_MAX_OBJECT_BYTES (10 GiB) and the copy-back part-copies above 5 GiB.
+#
+# NeverOverwritePortalManagedObjects is the narrowing that goes with that widening, and it
+# is defence in depth rather than the rule itself. `athenaresults/` and `user_settings/` can
+# never appear in an archive — RESERVED_SOURCE_ROOTS refuses them at archive time, and the
+# destination guard's fail-closed 403-is-occupied rule refuses them again at restore time —
+# so this Deny cannot refuse a legitimate restore. What it buys is that a plan which somehow
+# named one of them could not overwrite the notification inbox or a user's query results. It
+# deliberately does NOT cover `archive/`, which is where the receipt this plane writes lives.
+
+# NOTE: the Deny above and NeverDeletePortalManagedObjects are two different verbs on two
+# overlapping prefix sets, and the difference is the receipt: this plane may WRITE under
+# `archive/` and may never DELETE there.
 #
 # NOTE FOR ANYONE ADDING A STATEMENT: IAM rejects a "//" comment key inside a statement
 # ("Policy input list item 1 has invalid content" — verified with simulate_custom_policy),

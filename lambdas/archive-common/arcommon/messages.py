@@ -35,6 +35,14 @@ Attributes:
     not a member" must not be distinguishable to a caller — the difference is an existence
     oracle over other people's spaces.
 
+    **``restore_incomplete`` is the one body that has to say three things** (SPEC-171 FR-004),
+    and the third is the one an author would leave out. A partial restore cannot be rolled back
+    the way a partial archive can: the user's space now holds some of their data, and deleting it
+    to make the operation atomic would destroy the very thing the restore was for. So the archive
+    is deliberately kept, the id stays valid — and **re-requesting will hit the destination guard
+    against the files that DID land**. Without that sentence the obvious next action produces a
+    refusal that reads like a new bug, on a run that already went wrong.
+
     ``restore_archive_incomplete`` is SPEC-170's manifest-disagreement refusal, and it does NOT
     reuse the ``archive_incomplete`` name FR-005 proposed: that code was already registered by
     SPEC-169 for a copy that fell short, its body promises "nothing was deleted and your files
@@ -152,6 +160,21 @@ _BODIES = {
     "restore_archive_incomplete": (
         "that archive holds {found} file(s) but its record says {expected}, so it should not be "
         "restored. Nothing was changed in your space. Please contact an administrator."
+    ),
+    "nothing_to_restore": (
+        "that archive holds no files, so there was nothing to restore. Nothing was changed in "
+        "your space."
+    ),
+    "restore_never_requested": (
+        "the archived files were not all retrieved from long-term storage, so nothing was "
+        "restored. Nothing was changed in your space and the archive is untouched. "
+        "Please try again."
+    ),
+    "restore_incomplete": (
+        "{restored} of {total} file(s) were restored to your space before the restore stopped, "
+        "so it did not finish. The archive is still intact and can still be restored under the "
+        "same id. Requesting it again will report that some files are already there - move, "
+        "rename or delete the ones that came back and then request the restore again."
     ),
     "destination_occupied": (
         "these files already exist where they would be restored to, so nothing was restored: "
