@@ -321,7 +321,8 @@ def read(bucket: str, key: str) -> str | None:
       ClientError: On any other fault, including a 403.
     """
     try:
-        return clients.s3().get_object(Bucket=bucket, Key=key)["Body"].read().decode()
+        body: bytes = clients.s3().get_object(Bucket=bucket, Key=key)["Body"].read()
+        return body.decode()
     except Exception as err:
         errors.raise_if_transient(err, f"get {bucket}/{key}")
         meta = getattr(err, "response", None) or {}
