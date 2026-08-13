@@ -1,0 +1,120 @@
+import {useEffect, useMemo, useRef} from 'react';
+import {useQuery, useQueryClient} from '@tanstack/react-query';
+import {useAuth} from '../auth';
+import {isTerminalState, runQuery} from '../catalog/athena.service';
+import {useQueryExecution} from '../catalog/useQueryExecution';
+import {unwrap} from '../../lib/serviceResult';
+import {NO_KEY} from '../../lib/queryKeys';
+import {explorerKeys} from './explorerKeys';
+import {renderExplorationSql} from './renderExplorationSql';
+import type {QueryState} from '../catalog/catalog.types';
+import type {ExecutionCost, Exploration} from './dataExplorer.types';
+
+export type UseExplorationResult = {
+  /** The rendered statement, or null when there is no exploration / it could not render. */
+  sql: string | null;
+  queryExecutionId: string | null;
+  state: QueryState | null;
+  /** What this execution scanned. Null until the execution reports it. */
+  cost: ExecutionCost | null;
+  /** The statement is starting or still running. */
+  isPending: boolean;
+  /** A render refusal, a failed StartQueryExecution, or a failed poll. Render via `toUserMessage`. */
+  error: unknown;
+};
+
+/**
+ * Runs an exploration and reports what it cost (SPEC-178 FR-006 / FR-007).
+ *
+ * The rendered SQL is the cache key, so this hook is the feature's cost control as much
+ * as its data path: an identical description resolves to the execution already run.
+ * Paging is NOT here — the caller pages the returned execution id through SPEC-176's
+ * `useQueryResults`, whose `NextToken` walk scans no additional bytes.
+ *
+ * @param exploration - The exploration to run, or null to run nothing.
+ * @returns The rendered SQL, the execution, its state, its cost, and any failure.
+ */
+export function useExploration(exploration: Exploration | null): UseExplorationResult {
+  const {user} = useAuth();
+  const username = user?.username ?? '';
+  const queryClient = useQueryClient();
+
+  // A description that cannot render is a caller bug, but it must not take the page down
+  // with it — it surfaces as an error like any other, and no query is started.
+  const rendered = useMemo((): {sql: string; error: null} | {sql: null; error: unknown} => {
+    if (!exploration) return {sql: null, error: null};
+    try {
+      return {sql: renderExplorationSql(exploration.source, exploration.query), error: null};
+    } catch (error) {
+      return {sql: null, error};
+    }
+  }, [exploration]);
+
+  const sql = rendered.sql;
+
+  const enabled = sql !== null && username !== '';
+
+  const start = useQuery({
+    // A stable placeholder keeps the hook order constant while disabled.
+    queryKey: explorerKeys.execution(sql ?? NO_KEY),
+    enabled,
+    // The execution id is durable for the session: re-running an identical statement
+    // would scan the same bytes for the same rows, so the cached id IS the right answer.
+    staleTime: Infinity,
+    queryFn: async (): Promise<string> => {
+      const result = await runQuery({sql: sql as string, username});
+      return unwrap(result).queryExecutionId;
+    }
+  });
+
+  const queryExecutionId = start.data ?? null;
+  const poll = useQueryExecution(queryExecutionId);
+  const status = poll.data ?? null;
+  const state = status?.state ?? null;
+
+  // What the poll last said about THIS statement, read by the cleanup below. A ref rather
+  // than state: nothing renders from it, and it must survive the render in which `sql`
+  // changes so the cleanup can still see the outgoing statement's verdict.
+  const lastVerdict = useRef<{sql: string; state: QueryState} | null>(null);
+  useEffect(() => {
+    if (sql !== null && state !== null) lastVerdict.current = {sql, state};
+  }, [sql, state]);
+
+  // FR-006 AC4: a failed execution must not be cached as a success — re-applying the same
+  // description retries. The eviction happens on the way OUT (the statement changed, or
+  // the hook unmounted), never while mounted: evicting on FAILED with an observer
+  // attached refetches immediately, which is start → FAILED → evict → start, a BILLING
+  // LOOP on any permanently-bad statement. Leaving on the way out costs the user one bill
+  // for the failure they can see, and retries only if they come back to it.
+  useEffect(() => {
+    if (sql === null) return;
+    return () => {
+      const verdict = lastVerdict.current;
+      if (verdict?.sql === sql && (verdict.state === 'FAILED' || verdict.state === 'CANCELLED')) {
+        queryClient.removeQueries({queryKey: explorerKeys.execution(sql)});
+      }
+    };
+  }, [sql, queryClient]);
+
+  const cost = useMemo((): ExecutionCost | null => {
+    if (!status) return null;
+    // FR-007 AC4: an execution that fails before reporting statistics contributes ZERO,
+    // never NaN — a NaN here propagates silently into the tab's cumulative total and
+    // renders as "NaN B" long after the failed run is forgotten.
+    return {
+      bytesScanned: status.dataScannedBytes ?? 0,
+      engineMillis: status.engineExecutionTimeMillis ?? 0
+    };
+  }, [status]);
+
+  return {
+    sql,
+    queryExecutionId,
+    state,
+    cost,
+    // A disabled query reports `isPending` forever in TanStack v5, so `enabled` gates it:
+    // signed out with no username, nothing is in flight and a permanent spinner is a lie.
+    isPending: enabled && (start.isPending || start.isFetching || (state !== null && !isTerminalState(state))),
+    error: rendered.error ?? start.error ?? poll.error ?? null
+  };
+}
