@@ -121,6 +121,13 @@ The split lines:
 
 `formatBytes` goes to neither — see FR-004.
 
+> **Corrected in build (2026-08-13): there is a fifth split.** `DatabaseSchema`
+> (`{database, tables: GlueTableSummary[]}`) was declared in `query/sqlCompletions.ts`, which
+> stays — but `useSchema.ts`'s `useAllSchemas` **produces** it and moves, so leaving it behind
+> breaks FR-001 AC2 on the first file moved. It is in `catalog.types.ts`, imported by
+> `sqlCompletions.ts`. Where a producer sits in the lower layer, the type goes with the
+> producer.
+
 #### Acceptance Criteria:
 
 - [ ] Each of the four modules exists in both features, and no symbol is exported from both.

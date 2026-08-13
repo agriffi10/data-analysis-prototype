@@ -106,7 +106,8 @@ export default defineConfig([
     // Explorer both read the Glue catalog and run Athena queries, and the cheap way to
     // build the second is to import the first — which is exactly the undeclared shared
     // layer SPEC-155 spent a spec dismantling, one directory over. What they share is
-    // `features/catalog/`, which this rule deliberately does not restrict.
+    // `features/catalog/`, and importing IT is deliberately never restricted — it appears in
+    // no `group` pattern below.
     //
     // `features/data-explorer/` does not exist yet. It is named anyway so the first file
     // created there lands under a guard that is already working rather than one added
@@ -124,7 +125,16 @@ export default defineConfig([
     // `lib/` sit above `features/` and must name it. Written with the `features/` globs
     // alone this clause read correctly and caught nothing — which is why FR-006 requires
     // it be verified by committing a violation in each direction, not by reading it.
-    files: ['src/features/query/**/*.{ts,tsx}', 'src/features/data-explorer/**/*.{ts,tsx}'],
+    // `features/catalog/` is under this rule too, in the one direction that matters: it is
+    // the layer BELOW both, so it may import neither. FR-001 AC2 asserts that and this is
+    // what keeps it true for SPEC-177 onward — a catalog module reaching back into
+    // `features/query/` is the inversion the whole arc exists to prevent, and it was reached
+    // on the very first file moved (`useSchema` -> `DatabaseSchema`).
+    files: [
+      'src/features/query/**/*.{ts,tsx}',
+      'src/features/data-explorer/**/*.{ts,tsx}',
+      'src/features/catalog/**/*.{ts,tsx}'
+    ],
     rules: {
       'no-restricted-imports': [
         'error',

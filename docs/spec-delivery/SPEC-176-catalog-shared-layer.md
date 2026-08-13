@@ -84,6 +84,27 @@ reverting.
 `features/help/` changed, no wording in `lib/errorMessages.ts` changed, and no onboarding copy
 changed — there is no shipped behaviour to document, which is FR-007's point.
 
+## Review findings, all taken
+
+A fresh-context review confirmed every requirement independently — including re-verifying the lint
+rule by violating it in both directions — and raised three low findings, all applied here:
+
+- **`fileBrowser.format.ts`'s docstring** still pointed the TB-ceiling note at `query.format`'s
+  `formatBytes`, which is the one comment in the repo tying the two formatters together and now
+  named the wrong file.
+- **`connectionKeys` was not on the connections barrel**, unlike every other feature's key factory.
+- **The lint clause did not cover `features/catalog/` itself.** FR-001 AC2 ("no module under
+  `features/catalog/` imports from `features/query/`") was asserted and true, but unenforced — and
+  it is the inversion the arc exists to prevent, reached on the very first file moved. The clause
+  now governs `features/catalog/**` in that one direction; importing catalog stays unrestricted
+  (it appears in no `group` pattern). Verified the same way: a catalog→query import errors, a
+  catalog→connections import is clean.
+
+**One thing the review found that is NOT this spec's:** `features/file-browser/FileBrowser.test.tsx`
+(around the alertdialog-dismissal `waitFor`) failed once under coverage instrumentation and passed
+on re-run and in every plain run. The file is untouched by this diff — a pre-existing timing flake,
+recorded here so the next person to see it does not go looking in `features/catalog/`.
+
 ## Notes for the next spec
 
 - **`lib/format.ts` did not already hold `formatSize`**, as FR-004's rationale stated — it lives in
