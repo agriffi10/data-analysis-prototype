@@ -2,7 +2,8 @@ import {forwardRef, useEffect, useImperativeHandle, useRef} from 'react';
 import Editor, {loader, type OnMount} from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import editorWorker from 'monaco-editor/editor/editor.worker?worker';
-import {createSqlCompletionProvider, type DatabaseSchema} from './sqlCompletions';
+import {createSqlCompletionProvider} from './sqlCompletions';
+import type {DatabaseSchema} from '../catalog/catalog.types';
 
 // Self-host Monaco: no CDN/runtime external. Vite builds the editor worker
 // (?worker), and we point @monaco-editor/react's loader at the bundled

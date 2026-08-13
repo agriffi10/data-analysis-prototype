@@ -1,9 +1,9 @@
 import {useQuery} from '@tanstack/react-query';
-import {getQueryResults} from './query.service';
+import {getQueryResults} from './athena.service';
 import {unwrap} from '../../lib/serviceResult';
-import {queryKeys} from './queryKeys';
+import {catalogKeys} from './catalogKeys';
 import {NO_KEY} from '../../lib/queryKeys';
-import {ROW_COUNT_PAGE_SIZE} from './query.constants';
+import {ROW_COUNT_PAGE_SIZE} from './catalog.constants';
 
 export type UseRowCountResult = {
   /** Exact total once the walk finishes; null while still counting (or on a failed page). */
@@ -29,7 +29,7 @@ export type UseRowCountResult = {
  */
 export function useResultRowCount(queryExecutionId: string | null): UseRowCountResult {
   const query = useQuery<number>({
-    queryKey: queryKeys.rowCount(queryExecutionId ?? NO_KEY),
+    queryKey: catalogKeys.rowCount(queryExecutionId ?? NO_KEY),
     enabled: queryExecutionId !== null,
     staleTime: Infinity,
     gcTime: Infinity,

@@ -9,9 +9,9 @@ import {withCredentialRetry} from '../../lib/credentialRetry';
 import {toServiceError} from '../../lib/serviceResult';
 import {userSpaceBucket} from '../../lib/userSpace';
 import type {ServiceResult} from '../../types/service.types';
-import {DEFAULT_MAX_ROWS} from './query.constants';
-import {normalizeColumnType} from './query.format';
-import type {QueryColumn, QueryResultPage, QueryState, QueryStatus} from './query.types';
+import {DEFAULT_MAX_ROWS} from './catalog.constants';
+import {normalizeColumnType} from './catalog.format';
+import type {QueryColumn, QueryResultPage, QueryState, QueryStatus} from './catalog.types';
 
 // The caller's own protected results prefix. The app supplies this OutputLocation
 // per query, but it is enforced server-side: IAM (SPEC-032 FR-006) restricts

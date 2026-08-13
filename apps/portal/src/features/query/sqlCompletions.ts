@@ -1,5 +1,5 @@
 import type * as monaco from 'monaco-editor';
-import type {GlueTableSummary} from './query.types';
+import type {DatabaseSchema} from '../catalog/catalog.types';
 
 // Schema-aware editor autocomplete. Intentionally Monaco-runtime-free at the
 // value level (only a type-only `monaco` import) so the builder + provider
@@ -20,9 +20,6 @@ export type SqlCompletion = {
 
 // A Glue `VIRTUAL_VIEW` is a view; everything else is a table.
 const VIEW_TABLE_TYPE = 'VIRTUAL_VIEW';
-
-/** One accessible database's schema, as fed to the completion provider (SPEC-077). */
-export type DatabaseSchema = {database: string; tables: GlueTableSummary[]};
 
 /**
  * Builds schema completion descriptors across every accessible database

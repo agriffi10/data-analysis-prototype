@@ -3,7 +3,7 @@ import {useAuth} from '../auth';
 import {spaceBuckets} from '../../lib/userSpace';
 import {useConnections} from '../connections/useConnections';
 import {isConnectionUsable} from '../connections/connection.types';
-import type {QuerySpace} from './query.types';
+import type {QuerySpace} from './catalog.types';
 
 /**
  * Every space the query feature can read from or write into: the user's own space

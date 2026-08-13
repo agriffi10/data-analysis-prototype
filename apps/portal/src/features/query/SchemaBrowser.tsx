@@ -1,7 +1,7 @@
 import {CollapsibleRail} from '../../components/CollapsibleRail';
 import {DatabaseRowIcon} from '../../components/icons';
 import {DatabaseNode} from './DatabaseNode';
-import type {GlueTableSummary} from './query.types';
+import type {GlueTableSummary} from '../catalog/catalog.types';
 import {isConnectionUsable} from '../connections/connection.types';
 import type {Connection} from '../connections/connection.types';
 import {connectionStatusLabel} from '../connections/connectionStatus';

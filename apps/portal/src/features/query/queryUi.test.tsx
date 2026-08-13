@@ -1,7 +1,8 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {createEvent, fireEvent, render, screen, within} from '@testing-library/react';
 import {ColumnResizeHandle} from './ColumnResizeHandle';
-import {COLUMN_RESIZE_STEP_PX, MAX_RESULTS_PAGE_SIZE, MIN_RESULTS_PAGE_SIZE} from './query.constants';
+import {MAX_RESULTS_PAGE_SIZE, MIN_RESULTS_PAGE_SIZE} from './query.constants';
+import {COLUMN_RESIZE_STEP_PX} from '../catalog/catalog.constants';
 import {CreateViewDialog} from './CreateViewDialog';
 import {axe} from 'vitest-axe';
 import {EditorLayoutControl} from './EditorLayoutControl';
@@ -14,7 +15,8 @@ import {TableActionsMenu} from './TableActionsMenu';
 import type {TableMenuItem} from './TableActionsMenu';
 import {QueryTabStrip} from './QueryTabStrip';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations, expectNoA11yViolations} from '../../test/axe';
-import type {QueryHistoryEntry, QuerySpace, QueryTab, ResultTab, SavedQuery, SavedQueryLink} from './query.types';
+import type {QueryHistoryEntry, QueryTab, ResultTab, SavedQuery, SavedQueryLink} from './query.types';
+import type {QuerySpace} from '../catalog/catalog.types';
 
 // A tab's link to the file it was opened from (SPEC-173) — the key IS the identity.
 const LINK: SavedQueryLink = {

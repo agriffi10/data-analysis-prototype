@@ -1,10 +1,10 @@
 import {useCallback, useState} from 'react';
 import {useInfiniteQuery} from '@tanstack/react-query';
-import {getQueryResults} from './query.service';
+import {getQueryResults} from './athena.service';
 import {unwrap} from '../../lib/serviceResult';
-import {queryKeys} from './queryKeys';
+import {catalogKeys} from './catalogKeys';
 import {NO_KEY} from '../../lib/queryKeys';
-import type {QueryColumn, QueryResultPage} from './query.types';
+import type {QueryColumn, QueryResultPage} from './catalog.types';
 
 export type UseQueryResultsResult = {
   columns: QueryColumn[];
@@ -75,7 +75,7 @@ export function useQueryResults(queryExecutionId: string | null, pageSize: numbe
   );
 
   const query = useInfiniteQuery({
-    queryKey: queryKeys.results(queryExecutionId ?? NO_KEY, pageSize),
+    queryKey: catalogKeys.results(queryExecutionId ?? NO_KEY, pageSize),
     enabled: queryExecutionId !== null,
     queryFn: async ({pageParam}): Promise<QueryResultPage> => {
       const result = await getQueryResults({

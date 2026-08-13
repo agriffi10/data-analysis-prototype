@@ -1,5 +1,5 @@
 import {useCallback, useState} from 'react';
-import {DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH} from './query.constants';
+import {DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH} from './catalog.constants';
 
 export type UseColumnWidthsResult = {
   /** Px per data column for the current execution; defaults to DEFAULT_COLUMN_WIDTH. */

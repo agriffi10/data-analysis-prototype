@@ -5,7 +5,7 @@ import {FEATURE_FLAG_DEFAULTS, featureFlagKeys} from '../feature-flags';
 import {TableShareDialog} from './TableShareDialog';
 import {getUserDirectory} from '../user-directory';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
-import {queryKeys} from '../query/queryKeys';
+import {connectionKeys} from '../connections/connectionKeys';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {AuthContext} from '../auth/authContext';
@@ -412,7 +412,7 @@ describe('TableShareDialog', () => {
       // the connections query the Connections page and the Query rail already populate, the
       // dialog suggests without touching the service at all.
       const client = new QueryClient({defaultOptions: {queries: {retry: false, staleTime: Infinity}}});
-      client.setQueryData(queryKeys.connections('alice'), spacesCache(['salesteam', 'salesops']).data);
+      client.setQueryData(connectionKeys.list('alice'), spacesCache(['salesteam', 'salesops']).data);
       const {user} = renderDialog({}, {queryClient: client});
 
       await spaceKind(user, 'sales');

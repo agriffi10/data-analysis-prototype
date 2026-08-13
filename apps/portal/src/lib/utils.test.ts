@@ -4,7 +4,8 @@ import {formatPageTitle} from './formatPageTitle';
 import {parseS3Url} from './s3Url';
 import {sharedSpaceBucket, spaceBuckets, userSettingsKey, userSpaceBucket} from './userSpace';
 import {setReturnPath, setReturnPathIfAbsent, takeReturnPath} from './returnPath';
-import {formatAbsoluteDate, formatCount, formatDurationMs, formatRelativeTime} from './format';
+import {formatAbsoluteDate, formatBytes, formatCount, formatDurationMs, formatRelativeTime} from './format';
+import {formatSize} from '../features/file-browser/fileBrowser.format';
 import {renderHook} from '@testing-library/react';
 import {useBreakpoint, useIsMobile} from './useBreakpoint';
 
@@ -187,6 +188,26 @@ describe('returnPath', () => {
 describe('format', () => {
   const NOW = Date.parse('2026-03-10T12:00:00Z');
   const ago = (ms: number) => new Date(NOW - ms).toISOString();
+
+  describe('formatBytes', () => {
+    it('formats byte sizes with sensible units + precision', () => {
+      expect(formatBytes(undefined)).toBe('—');
+      expect(formatBytes(512)).toBe('512 B');
+      expect(formatBytes(2048)).toBe('2.0 KB');
+      expect(formatBytes(1_258_291)).toBe('1.2 MB');
+      expect(formatBytes(53_687_091)).toBe('51 MB'); // ≥10 drops the decimal
+    });
+
+    // SPEC-155 FR-007 aligned the two formatters' unit ceiling; SPEC-176 FR-004 moved
+    // `formatBytes` here, out of `features/query/`, so neither feature owns a formatter
+    // the other needs. The ceiling is the thing that must survive the move: a 3 TB figure
+    // reading "3072.0 GB" on one screen and "3.0 TB" on another is the bug it closed.
+    it("shares the TB ceiling with the file browser's formatSize", () => {
+      const threeTb = 3 * 1_099_511_627_776;
+      expect(formatBytes(threeTb)).toBe('3.0 TB');
+      expect(formatSize(threeTb)).toBe('3.0 TB');
+    });
+  });
 
   describe('formatCount', () => {
     it('adds thousands separators', () => {

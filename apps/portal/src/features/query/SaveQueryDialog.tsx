@@ -3,7 +3,8 @@ import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {SavedQuerySpaceSelect} from './SavedQuerySpaceSelect';
 import {isLinkedSavedQuery, validateSavedQueryName} from './savedQueries.service';
-import type {QuerySpace, SavedQueryLink} from './query.types';
+import type {SavedQueryLink} from './query.types';
+import type {QuerySpace} from '../catalog/catalog.types';
 
 /** What the dialog reports on submit. `overwrite` is decided by the host, not here. */
 export type SaveQueryRequest = {

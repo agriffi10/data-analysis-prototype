@@ -4,7 +4,8 @@ import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {useSavedQueries} from './useSavedQueries';
 import {queryKeys} from './queryKeys';
 import {deleteSavedQuery, listSavedQueries} from './savedQueries.service';
-import type {QuerySpace, SavedQuery} from './query.types';
+import type {SavedQuery} from './query.types';
+import type {QuerySpace} from '../catalog/catalog.types';
 
 vi.mock('./savedQueries.service');
 

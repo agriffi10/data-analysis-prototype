@@ -5,10 +5,10 @@ import {renderHookWithProviders, renderWithProviders} from '../../test/renderWit
 import {CreateTableButton} from './CreateTableButton';
 import {enqueueTableBuild, enqueueTableRefresh} from './tableBuild.service';
 import {authenticated} from '../../test/authFixtures';
-import {queryKeys} from '../query/queryKeys';
+import {catalogKeys} from '../catalog/catalogKeys';
 import {getS3Client} from '../../lib/s3Client';
 import {useTableRefresh} from './useTableRefresh';
-import type {GlueTableSummary} from '../query/query.types';
+import type {GlueTableSummary} from '../catalog/catalog.types';
 
 // ─── from CreateTableButton.test.tsx ───
 vi.mock('./tableBuild.service', async (orig) => ({
@@ -282,7 +282,7 @@ describe('useTableRefresh', () => {
       await act(() => result.current.submit(false));
 
       expect(invalidate).toHaveBeenCalledTimes(1);
-      expect(invalidate).toHaveBeenCalledWith({queryKey: queryKeys.schema('alice')});
+      expect(invalidate).toHaveBeenCalledWith({queryKey: catalogKeys.schema('alice')});
 
       // The refresh lands while the user is elsewhere, so coming back re-reads once…
       await act(async () => void window.dispatchEvent(new Event('focus')));

@@ -1,7 +1,7 @@
 import {useEffect, useRef} from 'react';
-import {isTerminalState} from './query.service';
-import {useQueryExecution} from './useQueryExecution';
-import type {QueryStatus} from './query.types';
+import {isTerminalState} from '../catalog/athena.service';
+import {useQueryExecution} from '../catalog/useQueryExecution';
+import type {QueryStatus} from '../catalog/catalog.types';
 
 // SPEC-041 FR-004: a headless poller, one per tab holding an execution. Each runs
 // its own useQueryExecution so a backgrounded query keeps polling to terminal

@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useRef} from 'react';
 import {useNavigate} from 'react-router';
-import {getTableDdl} from './query.service';
+import {getTableDdl} from '../catalog/athena.service';
 import {parseS3Url} from '../../lib/s3Url';
 import {toUserText} from '../../lib/errorMessages';
 import {splitSqlStatements} from './query.sql';
@@ -8,7 +8,7 @@ import {SchemaTree, type TableActions} from './SchemaBrowser';
 import {useProvideNavRail} from '../../components/navRailContext';
 import type {ToastApi} from '../../components/toastContext';
 import type {Connection} from '../connections/connection.types';
-import type {GlueTableSummary} from './query.types';
+import type {GlueTableSummary} from '../catalog/catalog.types';
 import type {UseMobileQuerySurfaceResult} from './useMobileQuerySurface';
 import type {UseTabRunsResult} from './useTabRuns';
 import type {UseQueryTabsResult} from './useQueryTabs';

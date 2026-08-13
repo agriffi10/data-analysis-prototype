@@ -3,7 +3,7 @@ import {useQuery, useQueryClient} from '@tanstack/react-query';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import {unwrap} from '../../lib/serviceResult';
 import {getSessionCredentials} from '../../lib/awsCredentials';
-import {queryKeys} from '../query/queryKeys';
+import {connectionKeys} from './connectionKeys';
 import {NO_KEY} from '../../lib/queryKeys';
 import type {Connection} from './connection.types';
 import type {SharedConnectionsCache} from '../shared-spaces/sharedSpaces.types';
@@ -51,7 +51,7 @@ export type UseConnectionsResult = {
  */
 export function useConnections(username: string | null): UseConnectionsResult {
   const queryClient = useQueryClient();
-  const key = useMemo(() => queryKeys.connections(username ?? NO_KEY), [username]);
+  const key = useMemo(() => connectionKeys.list(username ?? NO_KEY), [username]);
   // End of the active reconcile window (epoch ms). A ref (not state) because the
   // refetchInterval callback below is re-evaluated by the query after each fetch —
   // it reads the latest value without needing a re-render.

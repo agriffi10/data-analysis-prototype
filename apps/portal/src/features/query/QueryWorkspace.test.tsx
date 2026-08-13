@@ -13,8 +13,8 @@ import {
   runQuery,
   runStatementToCompletion,
   stopQuery
-} from './query.service';
-import {getDatabase, listTables} from './glue.service';
+} from '../catalog/athena.service';
+import {getDatabase, listTables} from '../catalog/glue.service';
 import {appendQueryHistory, getQueryHistory, updateQueryHistoryEntry} from './queryHistory.service';
 import {
   deleteSavedQuery,
@@ -35,7 +35,10 @@ import {ROUTE_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
 import {ToastProvider} from '../../components/ToastProvider';
 import {AuthContext} from '../auth/authContext';
 import {queryKeys} from './queryKeys';
-import type {QueryState, QueryTabsState} from './query.types';
+import {catalogKeys} from '../catalog/catalogKeys';
+import {connectionKeys} from '../connections/connectionKeys';
+import type {QueryTabsState} from './query.types';
+import type {QueryState} from '../catalog/catalog.types';
 import type {ReactElement} from 'react';
 
 // ─── from QueryWorkspace.test.tsx ───
@@ -83,8 +86,8 @@ vi.mock('./SqlEditor', async () => {
 });
 
 // ── AWS service boundary (the only real seam) ────────────────────────────────
-vi.mock('./query.service', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./query.service')>()),
+vi.mock('../catalog/athena.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../catalog/athena.service')>()),
   runQuery: vi.fn(),
   stopQuery: vi.fn(),
   getTableDdl: vi.fn(),
@@ -93,8 +96,8 @@ vi.mock('./query.service', async (importOriginal) => ({
   getQueryResults: vi.fn()
 }));
 
-vi.mock('./glue.service', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./glue.service')>()),
+vi.mock('../catalog/glue.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../catalog/glue.service')>()),
   getDatabase: vi.fn(),
   listTables: vi.fn()
 }));
@@ -2398,8 +2401,8 @@ describe('QueryWorkspace.a11y', () => {
    */
   function workspace(): ReactElement {
     const client = createTestQueryClient();
-    client.setQueryData(queryKeys.connections('alice'), {version: 1, connections: []});
-    client.setQueryData(queryKeys.schema('alice'), {
+    client.setQueryData(connectionKeys.list('alice'), {version: 1, connections: []});
+    client.setQueryData(catalogKeys.schema('alice'), {
       database: {name: 'alice'},
       tables: [{name: 'sales_2026', location: 's3://b/alice/sales/', columns: [{name: 'region', type: 'string'}]}]
     });

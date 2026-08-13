@@ -3,7 +3,7 @@ import {Input} from '../../components/Input';
 import {Modal} from '../../components/Modal';
 import {DestinationPicker, validateFolderName} from '../file-browser';
 import {normalizeCsvName} from './query.format';
-import type {QuerySpace} from './query.types';
+import type {QuerySpace} from '../catalog/catalog.types';
 
 type Props = {
   /** The destination spaces the user can save into (personal first, then shared). */

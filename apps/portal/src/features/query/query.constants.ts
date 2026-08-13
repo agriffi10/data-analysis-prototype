@@ -1,24 +1,5 @@
-// Named constants for the query data layer.
-
-/**
- * Athena execution polling cadence while a query is non-terminal — responsive
- * without hammering GetQueryExecution (most queries finish in seconds).
- */
-export const POLL_INTERVAL_MS = 1_500;
-
-/**
- * Stop polling after this long even if the query has not reached a terminal
- * state, so a stuck/forgotten execution can't poll forever. The query keeps
- * running in Athena (the workgroup's bytes-scanned cutoff is the real cost
- * guard); the UI can re-attach to the execution id later.
- */
-export const MAX_POLL_DURATION_MS = 5 * 60_000;
-
-/**
- * Default GetQueryResults page size — the service-level fallback when a
- * caller omits maxRows. The results UI passes QUERY_RESULTS_PAGE_SIZE instead.
- */
-export const DEFAULT_MAX_ROWS = 100;
+// Named constants for the query workspace. The Athena polling cadence, the service-level
+// page sizes and the result-column sizing live in `features/catalog/` (SPEC-176).
 
 /**
  * Default data rows per query-results page when the user hasn't chosen a
@@ -39,13 +20,6 @@ export const MAX_RESULTS_PAGE_SIZE = 1000;
 
 /** sessionStorage key prefix for the per-user results page size (full key: prefix + username). */
 export const QUERY_RESULTS_PAGE_SIZE_STORAGE_PREFIX = 's3portal.query.resultsPageSize.';
-
-/**
- * GetQueryResults MaxResults for the background total-row-count walk (SPEC-080) —
- * Athena's per-page maximum, so the walk makes the fewest round-trips. These
- * calls scan no extra bytes; they only re-read the already-computed result set.
- */
-export const ROW_COUNT_PAGE_SIZE = 1000;
 
 /** Cap on the per-user query-history JSON; the oldest entries beyond this are dropped. */
 export const QUERY_HISTORY_MAX = 100;
@@ -83,13 +57,6 @@ export const QUERY_TABS_STORAGE_PREFIX = 's3portal.query.tabs.';
  * first" dialog.
  */
 export const QUERY_TABS_MAX = 10;
-
-// Result-column sizing: MIN is the hard drag floor (small enough that a narrow
-// column ellipsis-truncates its own header); STEP is the keyboard (Arrow)
-// resize increment.
-export const DEFAULT_COLUMN_WIDTH = 180; // px
-export const MIN_COLUMN_WIDTH = 72; // px
-export const COLUMN_RESIZE_STEP_PX = 16; // px per Arrow key press
 
 /**
  * Editor/results layout presets (SPEC-079): the vertical split snaps to one of

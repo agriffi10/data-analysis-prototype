@@ -45,7 +45,7 @@ vi.mock('../notifications/notifications.service', () => ({
   getNotifications: vi.fn().mockResolvedValue({success: true, data: []}),
   enqueueNotificationAction: vi.fn().mockResolvedValue({success: true, data: undefined})
 }));
-vi.mock('../query/glue.service', () => ({
+vi.mock('../catalog/glue.service', () => ({
   getDatabase: vi.fn().mockResolvedValue({success: true, data: {name: 'alice'}}),
   listTables: vi.fn().mockResolvedValue({
     success: true,

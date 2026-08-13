@@ -1,11 +1,11 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../auth';
-import {invalidateSchema} from '../query/useSchema';
+import {invalidateSchema} from '../catalog/useSchema';
 import {toUserText} from '../../lib/errorMessages';
 import {enqueueTableRefresh} from './tableBuild.service';
 import {parseTableLocation} from './tableRefresh.location';
-import type {GlueTableSummary} from '../query/query.types';
+import type {GlueTableSummary} from '../catalog/catalog.types';
 import type {PendingRemoval, TableRefreshTarget} from './tableRefresh.types';
 
 type RefreshToast = {variant: 'success' | 'danger'; message: string};

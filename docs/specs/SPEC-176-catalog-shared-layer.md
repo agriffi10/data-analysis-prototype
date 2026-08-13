@@ -1,7 +1,7 @@
 # Spec: Extracting `features/catalog/` — the Shared Catalog & Execution Layer
 
 **ID:** SPEC-176
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-13
 **Depends On:** None (pure refactor of shipped code; first spec of the Data Explorer arc)
 
@@ -41,9 +41,20 @@ the one everything else is built on.
   `features/data-explorer/` importing each other.
 - Rewriting every internal import. **60 of the ~76 files under `features/query/` import at
   least one moving module** — `query.types.ts` and `query.constants.ts` are imported almost
-  everywhere, which is what makes this a large mechanical diff rather than a small one. Only
-  **one** file outside the feature is affected at all (`routes/QueryPage.tsx`, which imports
-  `QueryWorkspace` and is untouched by the move).
+  everywhere, which is what makes this a large mechanical diff rather than a small one.
+
+  > **Corrected in build (2026-08-13).** This bullet originally claimed only one file outside
+  > the feature was affected (`routes/QueryPage.tsx`, which imports `QueryWorkspace` and is
+  > indeed untouched). **Six are**, and they repoint to `features/catalog/`:
+  > `features/table-builder/useTableRefresh.ts` (`invalidateSchema`, `GlueTableSummary`),
+  > `features/table-builder/tableRefresh.types.ts` (`GlueTableSummary`),
+  > `features/table-builder/tableBuilderHooks.test.tsx` (`queryKeys.schema`),
+  > `features/table-share/TableShareDialog.test.tsx` (`queryKeys.connections`),
+  > `features/feature-flags/gatedSurfaces.test.tsx` (a `vi.mock` of `../query/glue.service`),
+  > plus the two FR-005 already names. The correction **strengthens** the spec's premise
+  > rather than widening its scope: `features/table-builder/` was already reaching into
+  > `features/query/` for the Glue reader and the schema key, which is the undeclared shared
+  > layer this spec exists to declare. Nothing about what gets built changes.
 
 ### Out of Scope
 
@@ -109,6 +120,13 @@ The split lines:
 | `queryKeys.ts` | `schema`, `execution`, `results`, `rowCount` (as `catalogKeys`) | `history`, `savedQueries` |
 
 `formatBytes` goes to neither — see FR-004.
+
+> **Corrected in build (2026-08-13): there is a fifth split.** `DatabaseSchema`
+> (`{database, tables: GlueTableSummary[]}`) was declared in `query/sqlCompletions.ts`, which
+> stays — but `useSchema.ts`'s `useAllSchemas` **produces** it and moves, so leaving it behind
+> breaks FR-001 AC2 on the first file moved. It is in `catalog.types.ts`, imported by
+> `sqlCompletions.ts`. Where a producer sits in the lower layer, the type goes with the
+> producer.
 
 #### Acceptance Criteria:
 

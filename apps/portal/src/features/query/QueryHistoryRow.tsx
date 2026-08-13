@@ -1,8 +1,9 @@
 import {cx} from '../../lib/cx';
 import {DocumentIcon} from '../../components/icons';
-import {formatBytes} from './query.format';
+import {formatBytes} from '../../lib/format';
 import {formatDurationMs, formatRelativeTime} from '../../lib/format';
-import type {QueryHistoryEntry, QueryState} from './query.types';
+import type {QueryHistoryEntry} from './query.types';
+import type {QueryState} from '../catalog/catalog.types';
 
 // Status → badge presentation. A prior-session entry left non-terminal (tab
 // closed mid-run) has a non-terminal/absent status — shown as a neutral

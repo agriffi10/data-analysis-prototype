@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {SaveQueryDialog} from './SaveQueryDialog';
 import {QueryDialogs} from './QueryDialogs';
-import type {QuerySpace} from './query.types';
+import type {QuerySpace} from '../catalog/catalog.types';
 import type {UseSaveQueryResult} from './useSaveQuery';
 
 /**

@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
-import {isAbandoned, runStatementToCompletion} from './query.service';
-import {invalidateSchema} from './useSchema';
+import {isAbandoned, runStatementToCompletion} from '../catalog/athena.service';
+import {invalidateSchema} from '../catalog/useSchema';
 import {logBackgroundFailure, toUserText} from '../../lib/errorMessages';
 import type {ToastApi} from '../../components/toastContext';
 import type {UseQueryHistoryResult} from './useQueryHistory';

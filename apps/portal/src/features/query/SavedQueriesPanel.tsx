@@ -6,10 +6,11 @@ import {Pager} from '../../components/Pager';
 import {ConfirmDialog} from '../../components/ConfirmDialog';
 import {DocumentIcon} from '../../components/icons';
 import {formatRelativeTime} from '../../lib/format';
-import {formatBytes} from './query.format';
+import {formatBytes} from '../../lib/format';
 import {SavedQuerySpaceSelect} from './SavedQuerySpaceSelect';
 import {useSavedQueriesPager} from './useSavedQueriesPager';
-import type {QuerySpace, SavedQuery} from './query.types';
+import type {SavedQuery} from './query.types';
+import type {QuerySpace} from '../catalog/catalog.types';
 
 type Props = {
   open: boolean;

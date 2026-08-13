@@ -3,8 +3,8 @@ import {formatAbsoluteDate} from '../../lib/format';
 /**
  * Human-readable size, e.g. 1234 → "1.2 KB".
  *
- * SPEC-155 FR-007 decided the unit ceiling: TB, matching `query.format`'s
- * `formatBytes`. It used to stop at GB, so a 3 TB object read "3072.0 GB" in the file
+ * SPEC-155 FR-007 decided the unit ceiling: TB, matching `lib/format.ts`'s
+ * `formatBytes` (which lived in `features/query/` until SPEC-176 FR-004 moved it). It used to stop at GB, so a 3 TB object read "3072.0 GB" in the file
  * browser and "3.0 TB" in the query status bar — the same number, two answers, and
  * S3 allows objects up to 5 TB. A VISIBLE CHANGE, and the point of making it.
  *

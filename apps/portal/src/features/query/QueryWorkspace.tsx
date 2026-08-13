@@ -2,10 +2,10 @@ import {Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef
 import {useLocation, useSearchParams} from 'react-router';
 import {useAuth} from '../auth';
 import {cx} from '../../lib/cx';
-import {useQueryResults} from './useQueryResults';
+import {useQueryResults} from '../catalog/useQueryResults';
 import {useResultsPageSize} from './useResultsPageSize';
-import {useResultRowCount} from './useResultRowCount';
-import {useColumnWidths} from './useColumnWidths';
+import {useResultRowCount} from '../catalog/useResultRowCount';
+import {useColumnWidths} from '../catalog/useColumnWidths';
 import {useQueryHistory} from './useQueryHistory';
 import {useQueryTabs} from './useQueryTabs';
 import {useTabRuns} from './useTabRuns';
@@ -16,12 +16,12 @@ import {useTableActions} from './useTableActions';
 import {useEditorLayout} from './useEditorLayout';
 import {useSavedQueries} from './useSavedQueries';
 import {useSavedQuerySpace} from './useSavedQuerySpace';
-import {useQuerySpaces} from './useQuerySpaces';
+import {useQuerySpaces} from '../catalog/useQuerySpaces';
 import {ensureSavedQueriesFolder, readSavedQuery} from './savedQueries.service';
 import {useSaveQuery} from './useSaveQuery';
 import {useConnections} from '../connections/useConnections';
 import {useFeature} from '../feature-flags';
-import {useAllSchemas, useSchema} from './useSchema';
+import {useAllSchemas, useSchema} from '../catalog/useSchema';
 import {
   deriveViewTargetDatabase,
   resolveRunStatements,
@@ -46,7 +46,8 @@ import {QueryToolbar} from './QueryToolbar';
 import {QueryDialogs} from './QueryDialogs';
 import type {SqlEditorHandle} from './SqlEditor';
 import {isConnectionUsable} from '../connections/connection.types';
-import type {QueryHistoryEntry, QuerySpace, QueryTab, SavedQuery, GlueTableSummary} from './query.types';
+import type {QueryHistoryEntry, QueryTab, SavedQuery} from './query.types';
+import type {QuerySpace, GlueTableSummary} from '../catalog/catalog.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
 // route / landing page never pay for it (SPEC-035 FR-003).

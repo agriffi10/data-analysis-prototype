@@ -1,5 +1,5 @@
 import {useCallback} from 'react';
-import {COLUMN_RESIZE_STEP_PX} from './query.constants';
+import {COLUMN_RESIZE_STEP_PX} from '../catalog/catalog.constants';
 
 type ColumnResizeHandleProps = {
   columnIndex: number;

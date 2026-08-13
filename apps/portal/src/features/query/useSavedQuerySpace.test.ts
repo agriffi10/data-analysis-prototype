@@ -2,7 +2,7 @@ import {act, renderHook} from '@testing-library/react';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {useSavedQuerySpace} from './useSavedQuerySpace';
 import {QUERY_SAVED_QUERY_SPACE_STORAGE_PREFIX} from './query.constants';
-import type {QuerySpace} from './query.types';
+import type {QuerySpace} from '../catalog/catalog.types';
 
 const PERSONAL: QuerySpace = {
   id: 'personal',

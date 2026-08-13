@@ -5,7 +5,7 @@ import {authenticated, unauthenticated} from '../../test/authFixtures';
 import {useSpaceSuggestions} from './useSpaceSuggestions';
 import {readSharedConnectionsCache} from './sharedSpaces.service';
 import {buildIndex} from '../user-directory/usernameTrie';
-import {queryKeys} from '../query/queryKeys';
+import {connectionKeys} from '../connections/connectionKeys';
 import type {SharedConnectionEntry} from './sharedSpaces.types';
 
 vi.mock('./sharedSpaces.service', () => ({
@@ -115,7 +115,7 @@ describe('useSpaceSuggestions', () => {
     rendered.result.current.search('sales');
     expect(buildIndex).toHaveBeenCalledTimes(1);
 
-    rendered.queryClient.setQueryData(queryKeys.connections('alice'), {
+    rendered.queryClient.setQueryData(connectionKeys.list('alice'), {
       version: 1,
       connections: [active('salesteam'), active('salesops'), active('finance')]
     });

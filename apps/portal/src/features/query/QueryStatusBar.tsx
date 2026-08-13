@@ -1,7 +1,7 @@
 import {useEffect, useState} from 'react';
-import {formatBytes} from './query.format';
+import {formatBytes} from '../../lib/format';
 import {formatCount, formatDurationMs} from '../../lib/format';
-import type {QueryStatus} from './query.types';
+import type {QueryStatus} from '../catalog/catalog.types';
 
 type QueryStatusBarProps = {
   status?: QueryStatus;

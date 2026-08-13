@@ -8,7 +8,8 @@ import {SaveQueryDialog} from './SaveQueryDialog';
 import {CreateViewDialog} from './CreateViewDialog';
 import {DropTableDialog} from './DropTableDialog';
 import {SaveResultsDialog} from './SaveResultsDialog';
-import type {GlueTableSummary, QueryTab} from './query.types';
+import type {QueryTab} from './query.types';
+import type {GlueTableSummary} from '../catalog/catalog.types';
 import type {UseSaveResultsResult} from './useSaveResults';
 import type {UseSaveQueryResult} from './useSaveQuery';
 

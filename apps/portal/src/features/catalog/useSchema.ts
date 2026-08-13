@@ -1,10 +1,10 @@
 import {useQueries, useQuery, type QueryClient} from '@tanstack/react-query';
 import {getDatabase, listTables} from './glue.service';
 import {unwrap} from '../../lib/serviceResult';
-import {queryKeys} from './queryKeys';
+import {catalogKeys} from './catalogKeys';
 import {NO_KEY} from '../../lib/queryKeys';
-import type {GlueTableSummary} from './query.types';
-import type {DatabaseSchema} from './sqlCompletions';
+import type {GlueTableSummary} from './catalog.types';
+import type {DatabaseSchema} from './catalog.types';
 
 export type SchemaData = {
   database: {name: string};
@@ -24,7 +24,7 @@ async function fetchSchema(db: string): Promise<SchemaData> {
  */
 export function useSchema(databaseName: string | null) {
   return useQuery({
-    queryKey: queryKeys.schema(databaseName ?? NO_KEY),
+    queryKey: catalogKeys.schema(databaseName ?? NO_KEY),
     enabled: databaseName !== null,
     queryFn: () => fetchSchema(databaseName as string)
   });
@@ -40,7 +40,7 @@ export function useSchema(databaseName: string | null) {
 export function useAllSchemas(databaseNames: string[]): DatabaseSchema[] {
   const results = useQueries({
     queries: databaseNames.map((db) => ({
-      queryKey: queryKeys.schema(db),
+      queryKey: catalogKeys.schema(db),
       queryFn: () => fetchSchema(db)
     }))
   });
@@ -51,5 +51,5 @@ export function useAllSchemas(databaseNames: string[]): DatabaseSchema[] {
 
 /** Refreshes a database's cached schema after schema-changing DDL runs. */
 export async function invalidateSchema(client: QueryClient, databaseName: string): Promise<void> {
-  await client.invalidateQueries({queryKey: queryKeys.schema(databaseName)});
+  await client.invalidateQueries({queryKey: catalogKeys.schema(databaseName)});
 }

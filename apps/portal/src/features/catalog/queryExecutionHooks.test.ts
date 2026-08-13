@@ -1,17 +1,17 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, waitFor} from '@testing-library/react';
 import {renderHookWithProviders} from '../../test/renderWithProviders';
-import {getQueryResults, getQueryStatus} from './query.service';
+import {getQueryResults, getQueryStatus} from './athena.service';
 import {useQueryExecution} from './useQueryExecution';
 import {useQueryResults} from './useQueryResults';
 import {useResultRowCount} from './useResultRowCount';
-import {ROW_COUNT_PAGE_SIZE} from './query.constants';
-import type {QueryResultPage, QueryStatus} from './query.types';
+import {ROW_COUNT_PAGE_SIZE} from './catalog.constants';
+import type {QueryResultPage, QueryStatus} from './catalog.types';
 
 // One boundary for all three hook suites. `isTerminalState` and friends stay real
 // (importActual) so the polling/stop logic runs exactly as in production.
-vi.mock('./query.service', async (importActual) => {
-  const actual = await importActual<typeof import('./query.service')>();
+vi.mock('./athena.service', async (importActual) => {
+  const actual = await importActual<typeof import('./athena.service')>();
   return {...actual, getQueryStatus: vi.fn(), getQueryResults: vi.fn()};
 });
 
