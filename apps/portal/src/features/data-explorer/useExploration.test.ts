@@ -235,7 +235,12 @@ describe('useExploration — a description that cannot render (FR-002)', () => {
       ...base,
       query: {
         ...base.query,
-        grouping: {columns: ['status'], aggregates: [{fn: 'COUNT', column: '*'}]},
+        grouping: {
+          columns: ['status'],
+          aggregates: [{fn: 'COUNT', column: '*'}],
+          duplicatesOnly: false,
+          showPercentage: false
+        },
         ordering: [{column: 'placed_at', direction: 'asc', priority: 0}]
       }
     };
@@ -254,7 +259,12 @@ describe('useExploration — a description that cannot render (FR-002)', () => {
       ...base,
       query: {
         ...base.query,
-        grouping: {columns: ['status'], aggregates: [{fn: 'COUNT', column: '*'}]},
+        grouping: {
+          columns: ['status'],
+          aggregates: [{fn: 'COUNT', column: '*'}],
+          duplicatesOnly: false,
+          showPercentage: false
+        },
         ordering: [{column: 'placed_at', direction: 'asc', priority: 0}]
       }
     };

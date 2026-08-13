@@ -1,6 +1,8 @@
 // Named constants for the Data Explorer. The Athena polling cadence and the result page
 // sizing are `features/catalog/` (SPEC-176) — this feature adds no second pager.
 
+import type {CalcFunction} from './dataExplorer.types';
+
 /**
  * Soft cap on open exploration tabs, enforced by refusal: `openTab` returns null and the
  * caller raises the cap dialog (SPEC-179 renders it). Mirrors `QUERY_TABS_MAX` — the two
@@ -55,6 +57,59 @@ export const EXPLORATION_TABS_STORAGE_PREFIX = 's3portal.dataExplorer.tabs.';
  * `sessionStorage` document small rather than about memory. Oldest is dropped first.
  */
 export const EXPLORER_FILTER_HISTORY_MAX = 25;
+
+/**
+ * The Calc panel's functions, in the ONE order they are ever listed (SPEC-182 FR-001).
+ *
+ * A fixed order rather than the order they were added: the panel is read repeatedly during
+ * a selection gesture, and a list that reshuffles as functions come and go is a list nobody
+ * can scan.
+ */
+export const CALC_FUNCTIONS: CalcFunction[] = [
+  'count',
+  'countDistinct',
+  'countNulls',
+  'sum',
+  'avg',
+  'min',
+  'max',
+  'median',
+  'mode'
+];
+
+/** The two shown before anyone chooses: the questions a selection is usually asking. */
+export const CALC_DEFAULT_FUNCTIONS: CalcFunction[] = ['count', 'countDistinct'];
+
+/** The one wording for each function, so a checkbox and its result never disagree. */
+export const CALC_FUNCTION_LABELS: Record<CalcFunction, string> = {
+  count: 'Count',
+  countDistinct: 'Count distinct',
+  countNulls: 'Count nulls',
+  sum: 'Sum',
+  avg: 'Average',
+  min: 'Minimum',
+  max: 'Maximum',
+  median: 'Median',
+  mode: 'Mode'
+};
+
+/**
+ * What a function with no answer shows.
+ *
+ * An average over no numeric cells has no value — and `0` would be a computed-looking
+ * answer to a question that was not asked, which is the same lie FR-002 keeps the whole
+ * panel away from.
+ */
+export const CALC_NO_VALUE = '—';
+
+/**
+ * Significant digits a computed number is rounded to before it is shown.
+ *
+ * Binary floating point makes `0.1 + 0.2` render as `0.30000000000000004`, which reads as
+ * precision where it is noise. Twelve digits is far past anything a double carries
+ * meaningfully and short of the artefacts.
+ */
+export const CALC_PRECISION = 12;
 
 /**
  * The alias a `sql` source's subquery is given: `FROM (<body>) AS t`.

@@ -23,6 +23,8 @@ export type ExplorationGridProps = {
   actions: ColumnQueryActions;
   /** A comparison was chosen and needs a value; the REGION raises the dialog, not the header. */
   onRequestFilterValue: (column: string, operator: FilterOperator) => void;
+  /** A header drag started (the column) or ended (null) — for drop targets outside the grid. */
+  onColumnDrag?: (name: string | null) => void;
   /** The grid element, shared with `useCellSelection` so focus can find the cursor cell. */
   gridRef: RefObject<HTMLTableElement | null>;
 };
@@ -46,6 +48,7 @@ export function ExplorationGrid({
   selection,
   actions,
   onRequestFilterValue,
+  onColumnDrag,
   gridRef
 }: ExplorationGridProps) {
   // Sticky offsets for the pinned block: each pinned column sits after the row-number
@@ -87,6 +90,7 @@ export function ExplorationGrid({
           onResize={geometry.setWidth}
           onResetWidth={geometry.resetWidth}
           onDropColumn={geometry.moveTo}
+          onColumnDrag={onColumnDrag}
           onSelectColumn={selection.selectColumn}
           actions={actions}
           onRequestFilterValue={onRequestFilterValue}

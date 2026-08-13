@@ -207,9 +207,10 @@ describe('remove all', () => {
     render();
     await screen.findAllByRole('gridcell');
 
+    // The grouping is named too, from SPEC-182: it is one of the things this clears.
     expect(screen.getByRole('button', {name: 'Remove all filters'})).toHaveAttribute(
       'title',
-      'There are no filters, expressions or sorts to clear.'
+      'There are no filters, expressions, sorts or grouping to clear.'
     );
   });
 });
