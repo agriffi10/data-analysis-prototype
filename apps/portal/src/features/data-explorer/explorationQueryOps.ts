@@ -1,4 +1,4 @@
-import {aggregateAlias, groupingOrderingViolation} from './renderExplorationSql';
+import {aggregateAlias, groupingNameCollision, groupingOrderingViolation} from './renderExplorationSql';
 import type {
   ColumnFilter,
   ExplorationQuery,
@@ -269,11 +269,13 @@ export function setGrouping(query: ExplorationQuery, grouping: Grouping | null):
 /**
  * Why applying a grouping would be refused, for `Button.disabledReason`.
  *
- * The one reachable way to build this conflict is to sort a column and then group it away:
- * while a grouping is in force the grid shows only the grouped columns and the aggregates,
- * so every column a user can reach from the header IS orderable. The refusal therefore
- * belongs on the Grouping panel's own Apply, and it names the offending sort because
- * "clear that sort first" is the only way out.
+ * The reachable way to build this conflict is to sort a column and then group it away, so
+ * the refusal belongs on the Grouping panel's own Apply and names the offending sort —
+ * "clear that sort first" is the only way out. It is **not** the only guard the rule needs:
+ * a grouped result also carries the calculated percentage column, which is in no statement
+ * at all, so every per-column sort and filter surface asks `queryRefusalOf` first
+ * (`ColumnQueryActions`). Found in review — the header menu offered that column a sort,
+ * and taking it put the whole exploration behind an error banner.
  *
  * The rule is the RENDERER's (`groupingOrderingViolation`), not a copy of it: the message
  * the renderer throws names a column and an operator, which SPEC-106 forbids showing
@@ -287,6 +289,10 @@ export function setGrouping(query: ExplorationQuery, grouping: Grouping | null):
 export function groupingApplyRefusal(query: ExplorationQuery, grouping: Grouping | null): string | null {
   // Leaving grouping mode drops the sorts that could not survive it, so it never refuses.
   if (!grouping || grouping.columns.length === 0) return null;
+  const collision = groupingNameCollision(grouping);
+  if (collision !== null) {
+    return `Two of these would both be called “${collision}” — remove one of them.`;
+  }
   const offender = groupingOrderingViolation(query.ordering, grouping);
   if (offender === null) return null;
   return `Remove the sort on “${offender}” first — a grouped result can only be sorted by a grouping column or an aggregate.`;

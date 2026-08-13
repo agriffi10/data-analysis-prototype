@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {calcResults, selectedCellValues} from './calc';
+import {calcResults, calcScopeText, percentageColumnName, percentageOfTotal, selectedCellValues} from './calc';
 import {CALC_FUNCTIONS, CALC_NO_VALUE} from './dataExplorer.constants';
 import type {CalcFunction, CellRange} from './dataExplorer.types';
 
@@ -140,5 +140,36 @@ describe('the aggregates', () => {
     expect(results.count.value).toBe('1');
     expect(results.sum.value).toBe('5');
     expect(results.sum.skipped).toBe(4);
+  });
+});
+
+describe('the grouped result’s percentage column', () => {
+  it('shares each value against the total of the values it was given', () => {
+    expect(percentageOfTotal(['2', '6'])).toEqual(['25%', '75%']);
+    expect(percentageOfTotal(['1', '1', '1'])).toEqual(['33.3%', '33.3%', '33.3%']);
+  });
+
+  it('shows no share rather than NaN or Infinity when there is no total', () => {
+    // A grouped SUM whose page values are all zero — reachable, and a division that
+    // rendered `NaN%` down the whole column would be the panel's most visible failure.
+    expect(percentageOfTotal(['0', '0'])).toEqual([CALC_NO_VALUE, CALC_NO_VALUE]);
+    expect(percentageOfTotal([])).toEqual([]);
+  });
+
+  it('gives a NULL or non-numeric cell no share, and lets the rest keep theirs', () => {
+    expect(percentageOfTotal(['3', null, 'lots', '1'])).toEqual(['75%', CALC_NO_VALUE, CALC_NO_VALUE, '25%']);
+  });
+
+  it('names the aggregate AND the page in the column header', () => {
+    // Both halves are load-bearing: only one page is ever in the browser, and with a SUM
+    // in the grouping the proportion is of revenue rather than of rows.
+    const name = percentageColumnName('sum_qty');
+    expect(name).toContain('sum_qty');
+    expect(name).toContain('this page');
+  });
+
+  it('says the Calc scope is selected cells on this page, singular and plural', () => {
+    expect(calcScopeText(1)).toBe('1 selected cell on this page');
+    expect(calcScopeText(4)).toBe('4 selected cells on this page');
   });
 });

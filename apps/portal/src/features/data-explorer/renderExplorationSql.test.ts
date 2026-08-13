@@ -354,7 +354,24 @@ describe('renderExplorationSql — grouping (FR-002 AC5)', () => {
           })
         })
       )
-    ).toThrow(/both produce the column/);
+    ).toThrow(/both be called/);
+  });
+
+  it('refuses a grouping COLUMN whose name an aggregate would also produce', () => {
+    // The half the aggregate-vs-aggregate check above misses: grouping columns are
+    // projected beside the aggregates under their own names, so a column called
+    // `count_all` beside the default COUNT(*) yields two result columns of one name —
+    // one geometry key in the grid, and an ORDER BY that cannot say which it means.
+    // SPEC-182's panel made this reachable, because ANY column can be grouped by.
+    expect(() =>
+      renderExplorationSql(TABLE, q({grouping: g({columns: ['count_all'], aggregates: [{fn: 'COUNT', column: '*'}]})}))
+    ).toThrow(/both be called "count_all"/);
+
+    // And the pair: the same column with no colliding aggregate renders fine, so the
+    // check cannot be passing by refusing every grouping.
+    expect(
+      renderExplorationSql(TABLE, q({grouping: g({columns: ['count_all'], aggregates: [{fn: 'SUM', column: 'qty'}]})}))
+    ).toContain('GROUP BY "count_all"');
   });
 
   it('refuses an empty grouping rather than rendering a bare GROUP BY', () => {

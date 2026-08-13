@@ -31,6 +31,15 @@ export type OrderFilterSettings = {
 export type OrderFilterDialogProps = {
   /** Every column in display order, hidden ones included. */
   columns: GridColumn[];
+  /**
+   * Why a column takes no filter and no sort, or null when it does.
+   *
+   * The same reader the header menu asks (SPEC-182). It matters most HERE: below `tablet`
+   * the header menu is unreachable, so this dialog is the only way to sort or filter — and
+   * a calculated column offered a sort here would be refused by the renderer, not by
+   * Athena, taking the whole exploration to an error banner.
+   */
+  queryRefusalOf: (column: string) => string | null;
   /** The applied description — the starting point for the staged one. */
   query: ExplorationQuery;
   onApply: (settings: OrderFilterSettings) => void;
@@ -58,7 +67,7 @@ const SELECT_CLASS =
  * the whole dialog is exactly what that suppression exists to prevent. Enter on the Apply
  * button still submits, natively.
  */
-export function OrderFilterDialog({columns, query, onApply, onCancel}: OrderFilterDialogProps) {
+export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCancel}: OrderFilterDialogProps) {
   const [draft, setDraft] = useState<OrderFilterSettings>({
     query,
     hiddenColumns: columns.filter((c) => c.hidden).map((c) => c.name),
@@ -126,6 +135,9 @@ export function OrderFilterDialog({columns, query, onApply, onCancel}: OrderFilt
           const hidden = draft.hiddenColumns.includes(column.name);
           const sort = sortOf(draft.query, column.name);
           const filter = filterOf(draft.query, column.name);
+          // Show and Pin stay available on a calculated column — geometry applies to it
+          // like any other; only the two controls that would reach the SQL are refused.
+          const refusal = queryRefusalOf(column.name);
           return (
             <li
               key={column.name}
@@ -162,6 +174,8 @@ export function OrderFilterDialog({columns, query, onApply, onCancel}: OrderFilt
               <select
                 aria-label={`Sort ${column.name}`}
                 className={SELECT_CLASS}
+                disabled={refusal !== null}
+                title={refusal ?? undefined}
                 value={sort?.direction ?? ''}
                 onChange={(e) =>
                   editQuery((q) =>
@@ -200,6 +214,8 @@ export function OrderFilterDialog({columns, query, onApply, onCancel}: OrderFilt
               <select
                 aria-label={`Filter ${column.name}`}
                 className={SELECT_CLASS}
+                disabled={refusal !== null}
+                title={refusal ?? undefined}
                 value={filter?.operator ?? ''}
                 onChange={(e) => changeOperator(column.name, e.target.value as FilterOperator | '')}>
                 <option value="">No filter</option>

@@ -4,7 +4,7 @@ import {IconButton} from '../../components/IconButton';
 import {useEscapeKey} from '../../hooks/useEscapeKey';
 import {emptyGrouping} from './exploration';
 import {groupingApplyRefusal} from './explorationQueryOps';
-import {aggregateAlias} from './renderExplorationSql';
+import {aggregateAlias, groupingNameCollision} from './renderExplorationSql';
 import type {AggregateFunction, ExplorationQuery, Grouping} from './dataExplorer.types';
 
 /** The five functions, in the one order the picker offers them. Never assembled from text. */
@@ -17,7 +17,6 @@ const SELECT_CLASS =
   'h-9 rounded-md border border-border bg-surface px-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
 export const GROUPING_NO_COLUMNS = 'Drag a column header here, or add one below, to group by it.';
-export const GROUPING_DUPLICATE_AGGREGATE = 'That aggregate is already here.';
 
 export type GroupingPanelProps = {
   /**
@@ -103,16 +102,18 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
     // `SUM(*)` is not SQL and an aggregate over no column is nothing — both are refused by
     // making them unreachable in the pickers, and turned back here in case they are not.
     if (pendingColumn === '' || (pendingColumn === ALL_ROWS && pendingFn !== 'COUNT')) return;
-    const proposed = {fn: pendingFn, column: pendingColumn};
-    // Two aggregates producing one output name make the result's columns
+    const next = {...draft, aggregates: [...draft.aggregates, {fn: pendingFn, column: pendingColumn}]};
+    // Two projections producing one output name make the result's columns
     // indistinguishable and the ordering rule ambiguous — the renderer refuses it, so the
-    // panel has to refuse it first (its message is operator text, SPEC-106).
-    if (draft.aggregates.some((a) => aggregateAlias(a) === aggregateAlias(proposed))) {
-      setError(GROUPING_DUPLICATE_AGGREGATE);
+    // panel has to refuse it first (its message is operator text, SPEC-106). The renderer's
+    // OWN rule, which also catches an alias colliding with a grouping COLUMN's name.
+    const collision = groupingNameCollision(next);
+    if (collision !== null) {
+      setError(`Something here is already called “${collision}”.`);
       return;
     }
     setError(null);
-    setDraft((d) => ({...d, aggregates: [...d.aggregates, proposed]}));
+    setDraft(next);
   };
 
   // Read from the APPLIED description, because that is the ordering the grouping would
@@ -242,6 +243,9 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
             value={pendingFn}
             onChange={(event) => {
               const fn = event.target.value as AggregateFunction;
+              // A refusal is about the pair that was proposed, so changing either half
+              // retires it — an alert left standing describes a gesture nobody is making.
+              setError(null);
               setPendingFn(fn);
               // `*` is COUNT's alone: `SUM(*)` is not SQL, and the renderer refuses it.
               if (fn !== 'COUNT' && pendingColumn === ALL_ROWS) setPendingColumn(names[0] ?? '');
@@ -258,7 +262,10 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
             aria-label="Aggregate column"
             className={`${SELECT_CLASS} min-w-0 flex-1`}
             value={pendingColumn}
-            onChange={(event) => setPendingColumn(event.target.value)}>
+            onChange={(event) => {
+              setError(null);
+              setPendingColumn(event.target.value);
+            }}>
             {pendingFn === 'COUNT' && <option value={ALL_ROWS}>All rows (*)</option>}
             {names.map((name) => (
               <option

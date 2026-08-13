@@ -1,4 +1,4 @@
-export const NO_GENERATED_SQL = 'Nothing has been run yet.';
+export const NO_GENERATED_SQL = 'There’s no statement to show yet.';
 
 export type GeneratedSqlDisclosureProps = {
   /**
@@ -20,6 +20,11 @@ export type GeneratedSqlDisclosureProps = {
  *
  * A `<details>` rather than a panel: it is available whether or not grouping is active
  * (AC4) and is not something to keep on screen, so it costs a toolbar row only when open.
+ *
+ * `sql` is null in three states and the wording has to be true in all of them: nothing has
+ * run yet, the description was REFUSED before it could render, and a history step is being
+ * held back (SPEC-181's suspension). Two of those keep the previous rows on screen, so
+ * "nothing has been run" would be read as a claim about them.
  * The statement sits in a read-only `<textarea>` (the `ValuePanel` precedent) so it is
  * selectable and copyable with the platform's own shortcuts — a copy CONTROL is SPEC-185's.
  */

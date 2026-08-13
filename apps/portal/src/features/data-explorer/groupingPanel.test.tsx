@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {fireEvent, screen, waitFor, within} from '@testing-library/react';
+import {cleanup, fireEvent, screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
@@ -7,8 +7,9 @@ import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../t
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {CLEAR_ALL_LABEL, CLEAR_ALL_WITH_GROUPING_LABEL} from './useExplorationQuery';
-import {NO_GENERATED_SQL} from './GeneratedSqlDisclosure';
+import {GeneratedSqlDisclosure, NO_GENERATED_SQL} from './GeneratedSqlDisclosure';
 import {GROUPING_NO_COLUMNS} from './GroupingPanel';
+import {CALCULATED_COLUMN_REFUSAL} from './ExplorationResultsRegion';
 import {newExploration} from './exploration';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
@@ -96,6 +97,16 @@ function shownSql(): string {
   return (screen.getByLabelText('Generated SQL') as HTMLTextAreaElement).value;
 }
 
+/** The cell at (row, column) — rows are the grid's body rows, 0-based. */
+function cell(row: number, name: string): HTMLElement {
+  const columns = screen
+    .getAllByRole('columnheader')
+    .map((th) => th.getAttribute('aria-label'))
+    .filter((label): label is string => label !== null && label !== '#');
+  const bodyRow = screen.getAllByRole('row')[row + 1]; // row 0 is the header
+  return within(bodyRow).getAllByRole('gridcell')[columns.indexOf(name)];
+}
+
 /** Stages one grouping column through the explicit control. */
 async function addColumn(user: ReturnType<typeof userEvent.setup>, panel: HTMLElement, name: string) {
   await user.selectOptions(within(panel).getByRole('combobox', {name: 'Column to group by'}), name);
@@ -160,6 +171,9 @@ describe('the Grouping panel', () => {
         'GROUP BY "status"\n' +
         'HAVING COUNT(*) > 1'
     );
+    // AC1 names the DISCLOSED SQL, not the statement alone.
+    await user.click(screen.getByText('Generated SQL'));
+    expect(shownSql()).toContain('HAVING COUNT(*) > 1');
     // The grid adopts the changed column set (AC5): the grouping columns, then the
     // aggregates, and nothing of the ungrouped result.
     await waitFor(() => expect(screen.getByRole('columnheader', {name: 'count_all'})).toBeInTheDocument());
@@ -291,6 +305,64 @@ describe('grouping’s extras', () => {
     expect(screen.getByText('75%')).toBeInTheDocument();
   });
 
+  it('refuses to sort or filter the calculated percentage column, from every surface', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    const panel = await openGrouping(user);
+    await addColumn(user, panel, 'status');
+    await user.click(within(panel).getByRole('checkbox', {name: /Show percentage/}));
+    await user.click(within(panel).getByRole('button', {name: 'Apply grouping'}));
+    const percent = '% of count_all (this page)';
+    await screen.findByRole('columnheader', {name: percent});
+    await user.click(within(panel).getByRole('button', {name: 'Close grouping panel'}));
+    expect(runQuery).toHaveBeenCalledTimes(2);
+
+    // The column is drawn by the grid but exists in no statement: an ORDER BY on it is a
+    // description the RENDERER refuses, which would take the whole exploration to an error
+    // banner, and a WHERE on it is an unknown column at Athena.
+    await user.click(screen.getByRole('button', {name: `Column options: ${percent}`}));
+    const items = await screen.findAllByRole('menuitem');
+    expect(items.map((item) => item.textContent)).toEqual([CALCULATED_COLUMN_REFUSAL]);
+    await user.keyboard('{Escape}');
+
+    // The cursor can sit in it like any other cell, and this action does not go through
+    // that menu.
+    await user.click(cell(0, percent));
+    const byValue = screen.getByRole('button', {name: 'Filter by this value'});
+    await waitFor(() => expect(byValue).toHaveAttribute('title', CALCULATED_COLUMN_REFUSAL));
+    await user.click(byValue);
+
+    // And the settings dialog, which below `tablet` is the ONLY way to sort or filter.
+    await user.click(screen.getByRole('button', {name: 'Order and filter'}));
+    expect(await screen.findByRole('combobox', {name: `Sort ${percent}`})).toBeDisabled();
+    expect(screen.getByRole('combobox', {name: `Filter ${percent}`})).toBeDisabled();
+    // Geometry still applies to it — only the two controls that reach SQL are refused.
+    expect(screen.getByRole('checkbox', {name: `Show ${percent}`})).toBeEnabled();
+
+    expect(runQuery).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('refuses a grouping whose output columns would share a name', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    const panel = await openGrouping(user);
+    await addColumn(user, panel, 'status');
+
+    // A second SUM("qty") produces one output name twice — and so would a grouping column
+    // literally called `count_all` beside the default COUNT(*). Both are the renderer's
+    // one rule, whose own message SPEC-106 forbids showing.
+    await user.selectOptions(within(panel).getByRole('combobox', {name: 'Aggregate function'}), 'SUM');
+    await user.selectOptions(within(panel).getByRole('combobox', {name: 'Aggregate column'}), 'qty');
+    await user.click(within(panel).getByRole('button', {name: 'Add'}));
+    await user.click(within(panel).getByRole('button', {name: 'Add'}));
+    expect(within(panel).getByRole('alert')).toHaveTextContent('sum_qty');
+
+    // The refusal is about the pair that was proposed, so changing either half retires it.
+    await user.selectOptions(within(panel).getByRole('combobox', {name: 'Aggregate function'}), 'MIN');
+    expect(within(panel).queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('refuses a grouping while a sort on an ungrouped column stands, and says which', async () => {
     const {user} = render();
     await screen.findAllByRole('gridcell');
@@ -307,6 +379,12 @@ describe('grouping’s extras', () => {
     await waitFor(() => expect(apply).toHaveAttribute('aria-disabled', 'true'));
     expect(apply.getAttribute('title')).toContain('qty');
     await user.click(apply);
+
+    // Not "no execution ran" — without the refusal none would run EITHER, because the
+    // description would be refused by the renderer instead. What must not happen is the
+    // exploration going to an error banner over a gesture the user was allowed to make.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('columnheader', {name: 'qty'})).toBeInTheDocument();
     expect(runQuery).toHaveBeenCalledTimes(2);
   });
 });
@@ -331,6 +409,27 @@ describe('the generated SQL, and what grouping composes with', () => {
 
     await waitFor(() => expect(shown()).toContain('GROUP BY "status"'));
     expect(shown()).toBe(lastSql());
+  });
+
+  it('shows the string it was GIVEN, not one it rendered', async () => {
+    // FR-005 AC2 is structural — the disclosure takes a `sql` prop and has no renderer to
+    // call — but "equals what ran" is satisfied by a component that re-derives, so this
+    // hands it a statement no renderer would ever produce and checks it comes back whole.
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    await user.click(screen.getByText('Generated SQL'));
+
+    const textarea = screen.getByLabelText('Generated SQL') as HTMLTextAreaElement;
+    expect(textarea.value).toBe(lastSql());
+    expect(textarea).toHaveAttribute('readonly'); // selectable and copyable, not editable (AC3)
+    expect(textarea).not.toBeDisabled(); // a disabled textarea cannot be selected from
+
+    // The assertion above holds for a component that re-derived the SQL too, so the claim
+    // is settled here: given a string no renderer could ever produce, it shows THAT.
+    cleanup();
+    renderWithProviders(<GeneratedSqlDisclosure sql="-- not SQL at all --" />, {auth: authenticated('alice')});
+    await user.click(screen.getByText('Generated SQL'));
+    expect((screen.getByLabelText('Generated SQL') as HTMLTextAreaElement).value).toBe('-- not SQL at all --');
   });
 
   it('keeps filters and the expression in the WHERE, before the grouping', async () => {

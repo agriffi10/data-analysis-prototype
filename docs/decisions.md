@@ -3258,8 +3258,28 @@ differently: operator text in the renderer, a sentence naming the sort to clear 
 (`Button.disabledReason` — `aria-disabled`, reachable rather than hover-only). A second rule at the
 panel is a rule that can disagree, and the way it would disagree is a grouping the panel accepts and
 the renderer throws on, which takes the whole exploration to an error banner. The refusal belongs on
-Apply because that is the only reachable way to build the conflict: while a grouping is in force the
-grid shows only the grouping columns and the aggregates, so every column a user can see IS orderable.
+Apply because that is where the conflict is *built* — sort a column, then group it away.
+
+**But the panel's Apply is not the only guard the rule needs, and this spec falsified its own premise
+in the same commit.** "While a grouping is in force the grid shows only the grouping columns and the
+aggregates" stopped being true the moment the percentage column was appended: it is a real
+`GridColumn`, so it gets a header menu, a row in the settings dialog (the ONLY sort/filter path below
+`tablet`) and the toolbar's *Filter by this value* — and it exists in no statement, so sorting it is
+a description the renderer REFUSES and filtering it is a `COLUMN_NOT_FOUND`. `ColumnQueryActions`
+therefore carries **`queryRefusalOf`**, asked by every per-column surface before it offers a filter
+or a sort; the header menu opens and states the reason rather than offering controls that each fail,
+while Show, Pin, width and order stay available, because geometry applies to a calculated column like
+any other. The lesson generalises past this column: **appending anything to `columns` before
+`useColumnGeometry` hands it every affordance a real column has**, and the grid has no other way to
+tell the two apart.
+
+The same reachability argument closed a second hole. `assertGroupingIsRenderable` compared aggregate
+aliases with each other and not with the **grouping columns**, which are projected beside them under
+their own names — so grouping by a column called `count_all` while `COUNT(*)` is present produced two
+result columns of one name, sharing one geometry key and leaving `groupingOrderingViolation` to
+answer for whichever the reader meant. Unreachable before this spec, because nothing let a user
+choose what to group by. `groupingNameCollision` is now the renderer's rule, exported on the same
+precedent, and the panel refuses at the gesture.
 
 **Both panels are `<aside>`s, not `Drawer`s, and that is structural rather than stylistic.** A
 `Drawer` traps focus. Calc has to recompute as the selection changes and grouping takes a column
@@ -3278,6 +3298,12 @@ a caller passed a slightly different description — and a disclosure that is ri
 is worse than none, because it would be believed. It is available whether or not grouping is active:
 the Explorer writes SQL the user did not, grouped or otherwise, and every statement it writes is an
 invoice.
+
+**Calc opens on MIXED aggregation, and that default is not cosmetic.** Numbers-only narrows every
+function, so a numbers-only default answers `Count 0` over a selection of three text cells — printed
+directly under "3 selected cells on this page", which is the one pair of numbers this panel must
+never show together. The toggle still narrows everything when a user asks for it; what changed is
+which reading is the default.
 
 Two smaller things worth carrying. `canonical()` folds the grouping's two new flags **explicitly**
 and `readExplorationTabsState` normalises them (absent ⇒ false) — needed together, because a

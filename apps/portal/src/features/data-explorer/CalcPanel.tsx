@@ -123,7 +123,7 @@ export function CalcPanel({values, state, onStateChange, onClose}: CalcPanelProp
 
       <Button
         size="sm"
-        onClick={() => onStateChange({...state, functions: CALC_DEFAULT_FUNCTIONS})}>
+        onClick={() => onStateChange({...state, functions: [...CALC_DEFAULT_FUNCTIONS]})}>
         Reset functions
       </Button>
     </aside>

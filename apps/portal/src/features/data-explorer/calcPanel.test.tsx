@@ -135,6 +135,20 @@ afterEach(() => {
 });
 
 describe('the Calc panel', () => {
+  it('never shows a Count of 0 beside a non-empty selection', async () => {
+    // The two numbers this panel must never print together. Text cells are ordinary, and
+    // "3 selected cells" over "Count 0" reads as a broken panel rather than as a mode.
+    const {user} = render();
+    await screen.findByRole('columnheader', {name: 'note'});
+    await user.click(cell(0, 'note'));
+    const panel = await openCalc(user);
+    await shiftClick(user, cell(2, 'note'));
+
+    await waitFor(() => expect(within(panel).getByText(calcScopeText(3))).toBeInTheDocument());
+    expect(valueOf(panel, 'Count')).toContain('2'); // 'a', '', and one NULL
+    expect(valueOf(panel, 'Count')).not.toContain('0 ');
+  });
+
   it('shows Count and Count distinct over the selection, and recomputes as it changes', async () => {
     const {user} = render();
     await screen.findByRole('columnheader', {name: 'id'});
@@ -225,10 +239,12 @@ describe('the Calc panel', () => {
     await shiftClick(user, cell(2, 'qty')); // 10, 20, 'lots'
     await waitFor(() => expect(within(panel).getByText(calcScopeText(3))).toBeInTheDocument());
 
-    // Numbers only: the non-numeric cell is not counted.
-    expect(valueOf(panel, 'Count')).toContain('2');
+    // The panel OPENS mixed, so Count answers the question the selection asked: three
+    // cells were selected, three cells were counted. A numbers-only default would print
+    // `Count 0` directly under "3 selected cells on this page".
+    expect(valueOf(panel, 'Count')).toContain('3');
     await user.click(within(panel).getByRole('checkbox', {name: 'Include text values'}));
-    await waitFor(() => expect(valueOf(panel, 'Count')).toContain('3'));
+    await waitFor(() => expect(valueOf(panel, 'Count')).toContain('2'));
   });
 
   it('adds, removes and resets functions', async () => {

@@ -39,10 +39,10 @@ inside `/explore`, which `dataExplorer` already gates.
 - **`CalcPanelState` is region state, not tab state.** It describes a selection, and a selection
   does not survive a page change — persisting the function list with the tab would outlive
   everything it was chosen for.
-- **The ordering refusal lands on the Grouping panel's Apply, not on a sort control.** While a
-  grouping is in force the grid shows only the grouped columns and the aggregates, so every column
-  a user can reach IS orderable; the one reachable way to build the conflict is to sort a column and
-  then group it away.
+- **The ordering refusal lands on the Grouping panel's Apply *and* on every per-column surface.**
+  The reachable way to build the ordering conflict is to sort a column and then group it away, which
+  is what the panel's Apply refuses. The percentage column needed the second half — see *What review
+  changed* below.
 
 ## What changed from earlier specs?
 
@@ -79,9 +79,56 @@ Beside it, `setGrouping` drops any sort on an **aggregate's** output column when
 query Athena rejects — and it would also miss the cached ungrouped execution AC6 promises to return
 to.
 
+## What review changed
+
+A fresh-context review found one user-reachable defect and several weak proofs. Every fix has a test
+that was **mutation-checked** — the fix is reverted, the test must redden.
+
+- **The percentage column was a fully-armed grid column, and sorting it took the exploration down.**
+  It is appended before geometry resolves, so it gained a header menu, a row in the settings dialog
+  and the toolbar's *Filter by this value* — and it is in no statement, so an `ORDER BY` on it is a
+  description `renderExplorationSql` **refuses**, which replaces the whole exploration with an error
+  banner two clicks from a working grouping (a `WHERE` on it fails at Athena instead). This spec
+  wrote the premise it had just falsified into three documents: "every column a user can reach IS
+  orderable". `ColumnQueryActions` gained **`queryRefusalOf`**, which the header menu, the settings
+  dialog and the cell action all ask first; the menu opens and states the reason rather than
+  offering controls that would each fail. Geometry (Show, Pin, width, order) still applies to it —
+  only the two controls that reach SQL are refused.
+- **A grouping column could collide with an aggregate's output name.** Grouping by a column called
+  `count_all` beside the default `COUNT(*)` produced two result columns of one name — one geometry
+  key, and an ordering rule that cannot say which it means. `groupingNameCollision` is now the
+  renderer's own rule, exported like `groupingOrderingViolation`, and the panel refuses at the
+  gesture.
+- **Calc opened numbers-only, so `Count` answered `0` over a selection of text cells** — directly
+  under the line reading "3 selected cells on this page". It opens on mixed aggregation now; the
+  toggle still narrows every function, which is what it is for.
+- **The Grouping panel's draft never resynced.** A history step, Clear all or a tab switch rewrites
+  the grouping without going through the draft, so the panel kept offering to re-apply a grouping
+  the description no longer had. Re-seeded during render, the pattern `ExpressionBar` already uses.
+- Three smaller ones: a stale duplicate-aggregate alert survived a change to either picker; the
+  disclosure said "Nothing has been run yet" in two states where rows were on screen (a render
+  refusal and a suspended history step); and `CALC_DEFAULT_FUNCTIONS` was placed into React state by
+  reference.
+- **Four weak proofs were tightened.** `percentageOfTotal` had no unit test at all, so deleting its
+  zero-total guard reddened nothing (a grouped `SUM` over a page of zeroes would have rendered
+  `NaN%` down the column); the disclosure's "equals what ran" assertion would have passed for a
+  component that re-derived, so it is now handed a string no renderer could produce; the
+  execution-count line after a refused apply was decorative (without the refusal no query runs
+  *either* — it throws instead), so it asserts the absence of the error banner; and the
+  `normalizeQuery` / widened-validator persistence path had no test on the one route where a wrong
+  answer silently costs the user every tab.
+
+## Known limitation for SPEC-183
+
+While a grouping is active the panel is offered the **source's** columns, which for a `sql` source
+are empty by design (`useSourceColumns` cannot know them until an execution reports them). So on a
+`.sql` source a grouping can be reordered, removed and stopped but not *extended* without stopping
+it first. Not reachable today — the `sql` arm has no UI until SPEC-183 — and that spec should decide
+whether the fallback is the ungrouped execution's columns.
+
 ## Verification
 
-`npm run format`, `npm run lint`, `npm run build` and the full Vitest suite (2390 tests, 111 files)
+`npm run format`, `npm run lint`, `npm run build` and the full Vitest suite (2403 tests, 111 files)
 green locally; coverage above every floor. Three new test files —
 `calc.test.ts` (the arithmetic), `calcPanel.test.tsx` (the panel, including the zero-execution
 assertion) and `groupingPanel.test.tsx` (the SQL that reaches Athena and how many statements do).

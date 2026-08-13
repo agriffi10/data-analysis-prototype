@@ -67,6 +67,17 @@ export type ExplorationResultsRegionProps = {
 };
 
 export const NO_CELL_TO_FILTER = 'Select a cell first.';
+/**
+ * Why the percentage column takes no filter and no sort (SPEC-182 FR-004 AC2).
+ *
+ * It is computed in the browser and appended to the result, so there is no such column in
+ * the SQL: an `ORDER BY` on it is a description `renderExplorationSql` REFUSES — which
+ * would take the whole exploration to an error banner — and a `WHERE` on it fails at
+ * Athena as an unknown column. The refusal is user text; the renderer's own names a column
+ * and an operator, which SPEC-106 forbids showing anyone.
+ */
+export const CALCULATED_COLUMN_REFUSAL =
+  'This column is worked out in your browser, so it can’t be sorted or filtered.';
 export const UNFILTERABLE_VALUE = 'This cell’s value can’t be used as a filter on a numeric column.';
 export const SUSPENDED_TEXT = 'This set of filters failed last time it ran. Nothing has been run.';
 
@@ -108,7 +119,13 @@ export function ExplorationResultsRegion({
   // Which aggregates the Calc panel shows: a preference of this SURFACE, not of the tab,
   // so it is held here rather than in the exploration's presentation — it describes a
   // selection, and a selection does not survive a page change, let alone a session.
-  const [calc, setCalc] = useState<CalcPanelState>({functions: CALC_DEFAULT_FUNCTIONS, includeStrings: false});
+  //
+  // It opens on MIXED aggregation, and that default is not arbitrary: numbers-only narrows
+  // every function, so a numbers-only default answers `Count 0` over a selection of three
+  // text cells while the line above it reads "3 selected cells" — the one pair of numbers
+  // this panel must never show together. The functions are COPIED out of the constant,
+  // which is state from here on.
+  const [calc, setCalc] = useState<CalcPanelState>({functions: [...CALC_DEFAULT_FUNCTIONS], includeStrings: true});
   const [pendingFilter, setPendingFilter] = useState<{column: string; operator: FilterOperator} | null>(null);
   const gridRef = useRef<HTMLTableElement>(null);
   const {query, apply} = queryControls;
@@ -202,6 +219,10 @@ export function ExplorationResultsRegion({
   // `apply` — so a menu choice is a description change, and a description change is at
   // most one execution (FR-001 AC5).
   const actions: ColumnQueryActions = {
+    // The ONE reader every filter and sort surface asks first. Today it names exactly the
+    // appended percentage column, which the grid draws like any other and the SQL has
+    // never heard of.
+    queryRefusalOf: (column) => (column === percentage?.column.name ? CALCULATED_COLUMN_REFUSAL : null),
     sortOf: (column) => sortOf(query, column),
     sortCount: query.ordering.length,
     filterOf: (column) => filterOf(query, column),
@@ -264,13 +285,16 @@ export function ExplorationResultsRegion({
   const hasCell = cursorColumn !== null && cursorValue !== undefined;
   const filterByCellRefusal = !hasCell
     ? NO_CELL_TO_FILTER
-    : cursorValue !== null &&
-        valueKindOf(cursorColumn.name) === 'number' &&
-        !isBareNumeric(cursorValue) /* a numeric column's value is emitted BARE, so one
+    : // The cursor can sit in the calculated column like any other, and this action does
+      // not go through the header menu — so it asks the same reader the menu does.
+      (actions.queryRefusalOf(cursorColumn.name) ??
+      (cursorValue !== null &&
+      valueKindOf(cursorColumn.name) === 'number' &&
+      !isBareNumeric(cursorValue) /* a numeric column's value is emitted BARE, so one
         the renderer would refuse has to be refused at the gesture instead — the refusal
         it throws is operator text (SPEC-106). */
-      ? UNFILTERABLE_VALUE
-      : null;
+        ? UNFILTERABLE_VALUE
+        : null));
 
   const filterByCell = () => {
     if (!cursorColumn || cursorValue === undefined) return;
@@ -501,6 +525,7 @@ export function ExplorationResultsRegion({
       {settingsOpen && (
         <OrderFilterDialog
           columns={geometry.all}
+          queryRefusalOf={actions.queryRefusalOf}
           query={query}
           onCancel={() => setSettingsOpen(false)}
           onApply={({query: staged, hiddenColumns, pinnedColumns}) => {

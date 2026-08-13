@@ -177,19 +177,42 @@ function assertOrderingIsGroupable(ordering: SortEntry[], grouping: Grouping): v
   }
 }
 
+/**
+ * The output column name a grouping would produce twice, if any.
+ *
+ * Seeded with the GROUPING COLUMNS rather than the aggregates alone: they are projected
+ * beside the aggregates under their own names, so grouping by a column called `count_all`
+ * while `COUNT(*)` is present yields two result columns of one name — which share one
+ * geometry entry in the grid and make `groupingOrderingViolation` answer for whichever the
+ * reader meant. SPEC-182's panel made that reachable, because any column can be grouped by.
+ *
+ * **Exported for the same reason `groupingOrderingViolation` is**: the panel has to turn
+ * the collision back at the gesture, and the message thrown below is operator text.
+ *
+ * @param grouping - The grouping to check.
+ * @returns The first duplicated output name, or null when every column is distinct.
+ */
+export function groupingNameCollision(grouping: Grouping): string | null {
+  const names = new Set<string>(grouping.columns);
+  for (const aggregate of grouping.aggregates) {
+    const alias = aggregateAlias(aggregate);
+    if (names.has(alias)) return alias;
+    names.add(alias);
+  }
+  return null;
+}
+
 function assertGroupingIsRenderable(grouping: Grouping): void {
-  const aliases = new Set<string>();
   for (const aggregate of grouping.aggregates) {
     if (aggregate.column === '*' && aggregate.fn !== 'COUNT') {
       throw new ExplorationRenderError(`${aggregate.fn}(*) is not a valid aggregate; only COUNT(*) is.`);
     }
-    const alias = aggregateAlias(aggregate);
-    if (aliases.has(alias)) {
-      // Two aggregates producing one name make the ORDER BY check above ambiguous and the
-      // result set's columns indistinguishable. Cheaper to refuse than to disambiguate.
-      throw new ExplorationRenderError(`Two aggregates both produce the column "${alias}".`);
-    }
-    aliases.add(alias);
+  }
+  const collision = groupingNameCollision(grouping);
+  if (collision !== null) {
+    // Cheaper to refuse than to disambiguate: a result set with two columns of one name
+    // has no ordering rule and no geometry key that can tell them apart.
+    throw new ExplorationRenderError(`Two columns of this grouping would both be called "${collision}".`);
   }
   if (grouping.columns.length === 0 && grouping.aggregates.length === 0) {
     throw new ExplorationRenderError('A grouping must have at least one column or aggregate.');
