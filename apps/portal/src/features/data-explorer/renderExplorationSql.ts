@@ -101,7 +101,12 @@ function renderFrom(source: ExplorationSource): string {
   // Trino requires a subquery in a FROM be aliased. The body is the user's own SQL and is
   // composed verbatim, exactly as the expression is (FR-005) — SPEC-183 owns refusing a
   // multi-statement or non-SELECT file before it ever becomes a source.
-  return `(${source.body}) AS ${SQL_SOURCE_ALIAS}`;
+  //
+  // The NEWLINES are not formatting. A saved query ending in a `--` line comment swallows
+  // whatever follows it on the same line, so `(${body}) AS t` would put the closing paren
+  // and the alias inside the comment and hand Athena an unbalanced statement — reported as
+  // a syntax error with nothing on screen to explain it.
+  return `(\n${source.body}\n) AS ${SQL_SOURCE_ALIAS}`;
 }
 
 function renderProjection(grouping: Grouping | null): string {
@@ -133,8 +138,11 @@ function renderWhere(filters: ColumnFilter[], expression: string | null): string
 }
 
 function assertOrderingIsGroupable(ordering: SortEntry[], grouping: Grouping): void {
-  // Trino rejects an ORDER BY on a column that is neither grouped nor aggregated, and it
-  // rejects it AFTER the scan has been paid for. Refusing here makes it free.
+  // Trino rejects an ORDER BY on a column that is neither grouped nor aggregated. It
+  // rejects it at ANALYSIS, so nothing is scanned and AWS does not bill a failed query —
+  // what refusing here buys is not money but immediacy: the gesture is refused where the
+  // user made it, instead of surfacing seconds later as an engine error the app is
+  // forbidden to render (SPEC-106).
   const grouped = new Set(grouping.columns);
   const aggregated = new Set(grouping.aggregates.map(aggregateAlias));
   for (const entry of ordering) {

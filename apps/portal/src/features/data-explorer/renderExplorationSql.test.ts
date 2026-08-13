@@ -13,8 +13,31 @@ describe('renderExplorationSql — the source arms (FR-002)', () => {
     expect(renderExplorationSql(TABLE, q())).toBe('SELECT *\nFROM "alice"."orders"');
   });
 
-  it('renders a sql source as an aliased subquery', () => {
-    expect(renderExplorationSql(SQL_SOURCE, q())).toBe('SELECT *\nFROM (SELECT * FROM alice.orders) AS t');
+  it('renders a sql source as an aliased subquery, on its own lines', () => {
+    expect(renderExplorationSql(SQL_SOURCE, q())).toBe('SELECT *\nFROM (\nSELECT * FROM alice.orders\n) AS t');
+  });
+
+  it('survives a body ending in a `--` line comment', () => {
+    // Composed on one line, `(${body}) AS t` puts the closing paren and the alias INSIDE
+    // the comment and hands Athena an unbalanced statement — a syntax error with nothing
+    // on screen to explain it. A saved query ending in a trailing comment is ordinary.
+    const commented: ExplorationSource = {
+      kind: 'sql',
+      body: "SELECT * FROM alice.orders WHERE status = 'open' -- only the open ones",
+      label: 'Open orders'
+    };
+    const sql = renderExplorationSql(commented, q({ordering: [{column: 'qty', direction: 'asc', priority: 0}]}));
+
+    // The closing paren and the alias survive on a line the comment cannot reach.
+    expect(sql).toContain('\n) AS t');
+    const opens = (sql.match(/\(/g) ?? []).length;
+    const closes = (sql.match(/\)/g) ?? []).length;
+    expect(opens).toBe(closes);
+  });
+
+  it('survives a body ending in a semicolon the same way', () => {
+    const terminated: ExplorationSource = {kind: 'sql', body: 'SELECT 1;', label: 'One'};
+    expect(renderExplorationSql(terminated, q())).toBe('SELECT *\nFROM (\nSELECT 1;\n) AS t');
   });
 
   it('composes the SAME clauses over either arm — only the FROM differs', () => {
@@ -28,13 +51,16 @@ describe('renderExplorationSql — the source arms (FR-002)', () => {
     const fromTable = renderExplorationSql(TABLE, query);
     const fromSql = renderExplorationSql(SQL_SOURCE, query);
 
-    const clausesOf = (sql: string) => sql.split('\n').filter((line) => !line.startsWith('FROM '));
-    expect(clausesOf(fromTable)).toEqual(clausesOf(fromSql));
-    expect(clausesOf(fromTable)).toEqual([
-      'SELECT *',
-      `WHERE "status" = 'open' AND (qty > 0)`,
-      'ORDER BY "placed_at" DESC'
-    ]);
+    // Substituting each arm's OWN from-clause out must leave two identical statements —
+    // which says "identical apart from the FROM" exactly, rather than dropping lines by
+    // prefix (the `sql` arm's from-clause spans three lines, one of them a `SELECT`).
+    const normalized = (sql: string, from: string) => sql.replace(from, 'FROM <source>');
+    expect(normalized(fromTable, 'FROM "alice"."orders"')).toEqual(
+      normalized(fromSql, 'FROM (\nSELECT * FROM alice.orders\n) AS t')
+    );
+    expect(normalized(fromTable, 'FROM "alice"."orders"')).toBe(
+      ['SELECT *', 'FROM <source>', `WHERE "status" = 'open' AND (qty > 0)`, 'ORDER BY "placed_at" DESC'].join('\n')
+    );
   });
 
   it('quotes an identifier containing a double quote rather than trusting the catalog', () => {
@@ -336,7 +362,9 @@ describe('renderExplorationSql — grouping (FR-002 AC5)', () => {
       q({grouping: {columns: ['status'], aggregates: [{fn: 'COUNT', column: '*'}]}})
     );
     expect(sql).toBe(
-      'SELECT "status", COUNT(*) AS "count_all"\n' + 'FROM (SELECT * FROM alice.orders) AS t\n' + 'GROUP BY "status"'
+      'SELECT "status", COUNT(*) AS "count_all"\n' +
+        'FROM (\nSELECT * FROM alice.orders\n) AS t\n' +
+        'GROUP BY "status"'
     );
   });
 });

@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {EXPLORATION_TABS_MAX} from './dataExplorer.constants';
 import {explorationSourceLabel, newExploration, newExplorationId} from './exploration';
 import {
@@ -59,11 +59,23 @@ export function useExplorationTabs(username: string): UseExplorationTabsResult {
     [state.tabs, state.activeTabId]
   );
 
+  // How many tabs are open, readable SYNCHRONOUSLY. `openTab` has to decide its return
+  // value before the updater runs, and this render's `state` is stale the moment a second
+  // open happens in the same tick — three rapid opens two below the cap would each see
+  // room, each return an id, and only two tabs would appear, so the caller would believe
+  // it opened three and raise no cap dialog. A plausible shape for a multi-select "open
+  // these tables" in SPEC-179.
+  const openCount = useRef(state.tabs.length);
+  useEffect(() => {
+    openCount.current = state.tabs.length;
+  }, [state.tabs.length]);
+
   const openTab = (source: ExplorationSource, opts: OpenExplorationOpts = {}): string | null => {
-    // Checked against this render's state so the caller can raise the cap dialog; the
-    // updater re-checks so a double-open can never exceed the cap.
-    if (state.tabs.length >= EXPLORATION_TABS_MAX) return null;
+    if (openCount.current >= EXPLORATION_TABS_MAX) return null;
+    openCount.current += 1;
     const id = newExplorationId();
+    // The updater re-checks anyway: the ref is the synchronous view, the state is the
+    // authority, and only the state can be trusted to have applied every prior open.
     setState((s) => {
       if (s.tabs.length >= EXPLORATION_TABS_MAX) return s;
       const named = opts.label !== undefined;
@@ -76,8 +88,7 @@ export function useExplorationTabs(username: string): UseExplorationTabsResult {
       return {
         ...s,
         tabs: [...s.tabs, tab],
-        activeTabId: id,
-        nextExplorationNumber: s.nextExplorationNumber + 1
+        activeTabId: id
       };
     });
     return id;

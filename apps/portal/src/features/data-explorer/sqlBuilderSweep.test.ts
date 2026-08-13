@@ -27,10 +27,17 @@ const SQL_FRAGMENT_RE = /\b(SELECT|FROM|WHERE|ORDER\s+BY|GROUP\s+BY)\b/;
 
 describe('renderExplorationSql is the only SQL builder in the feature (FR-002 AC6)', () => {
   it('no other module in features/data-explorer/ builds a SQL fragment', () => {
-    const files = import.meta.glob('./*.{ts,tsx}', {query: '?raw', import: 'default', eager: true}) as Record<
+    // RECURSIVE. Every feature in the repo is flat today, so `./*` would pass — and would
+    // silently stop covering the first module SPEC-179/180 put in a subdirectory, which is
+    // exactly when a grid component starts wanting to build a fragment.
+    const files = import.meta.glob('./**/*.{ts,tsx}', {query: '?raw', import: 'default', eager: true}) as Record<
       string,
       string
     >;
+
+    // A glob that matches nothing makes every assertion below vacuous, and it would still
+    // be green.
+    expect(Object.keys(files).length).toBeGreaterThan(0);
 
     const offenders = Object.entries(files)
       // The builder's own declaration, exempted by identity rather than by pattern.

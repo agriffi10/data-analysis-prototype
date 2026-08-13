@@ -2945,9 +2945,13 @@ rendered SQL is the cache key, which makes the cache the cost control: an identi
 cache hit, so changing a filter and changing it back is free, and paging *within* an execution
 scans no extra bytes. Requiring that a re-applied description **retry** after a failure is the
 subtle part — evicting on observing `FAILED`, with an observer still mounted, refetches
-immediately, which is start → FAILED → evict → start, a **BILLING LOOP** on any permanently-bad
-statement. The eviction happens in the effect cleanup, when the statement changes or the hook
-unmounts: the user pays once for the failure they can see. A paired test asserts a SUCCEEDED
+immediately, which is start → FAILED → evict → start, an **unbounded loop against
+StartQueryExecution** on any permanently-bad statement. The eviction happens in the effect cleanup,
+when the statement changes or the hook unmounts. **Be precise about what that loop costs**: AWS does
+not bill a FAILED Athena query, so the first cost is the API hammering and the account-wide query
+concurrency it consumes — but the same branch covers **CANCELLED**, which *is* billed for whatever it
+scanned before it stopped, so a loop over a statement the user keeps stopping bills every pass. A
+paired test asserts a SUCCEEDED
 execution is *not* evicted, because an unconditional eviction makes every remount a fresh bill and
 the failure test alone would still pass.
 

@@ -36,10 +36,10 @@ export type FilterOperator = '=' | '<>' | '>' | '>=' | '<' | '<=' | 'isNull' | '
  *
  * Athena is Trino and Trino does not coerce: `WHERE "qty" > '5'` against a `bigint` is a
  * query-time error, not a comparison. So a value the user is filtering a numeric column
- * by must reach the SQL bare, and `'number'` says so. It carries **no injection surface**
- * — the renderer admits only `[-+]?digits[.digits][e±digits]`, so there is nothing left
- * to escape; a value that fails that check is refused rather than quoted as a fallback,
- * because falling back would reintroduce the type error this exists to prevent.
+ * by must reach the SQL bare, and `'number'` says so. It carries **no injection surface**:
+ * the renderer admits it only through a bounded charset AND `Number.isFinite`, so there is
+ * nothing left to escape. A value that fails either gate is refused rather than quoted as
+ * a fallback, because falling back would reintroduce the type error this exists to prevent.
  *
  * `'string'` is the default and everything else goes through `sqlLiteral`.
  */
@@ -128,10 +128,8 @@ export type ExplorationTab = {
 
 export type ExplorationTabsState = {
   version: 1;
-  /** Display order = creation order; always length >= 1. */
+  /** Display order = creation order. May be empty — this surface has a legal zero-tab state. */
   tabs: ExplorationTab[];
-  /** Must reference an existing tab. */
+  /** Must reference an existing tab, or `''` when there are none. */
   activeTabId: string;
-  /** Monotonic per-session counter for blank "Exploration N" tabs only. */
-  nextExplorationNumber: number;
 };

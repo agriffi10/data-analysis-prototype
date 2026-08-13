@@ -60,7 +60,15 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
     enabled,
     // The execution id is durable for the session: re-running an identical statement
     // would scan the same bytes for the same rows, so the cached id IS the right answer.
+    //
+    // `gcTime` is as load-bearing as `staleTime` and is the half that is easy to omit.
+    // Changing a filter detaches the previous statement's observer, and under TanStack's
+    // 5-minute default its entry is then collected — so FR-006 AC2's "changing a filter
+    // and changing it back is a cache hit" would hold for five minutes and silently
+    // become a second execution, and a second bill, after that. An exploration session
+    // lasts longer than five minutes; the cache is a few dozen strings.
     staleTime: Infinity,
+    gcTime: Infinity,
     queryFn: async (): Promise<string> => {
       const result = await runQuery({sql: sql as string, username});
       return unwrap(result).queryExecutionId;
@@ -83,9 +91,13 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
   // FR-006 AC4: a failed execution must not be cached as a success — re-applying the same
   // description retries. The eviction happens on the way OUT (the statement changed, or
   // the hook unmounted), never while mounted: evicting on FAILED with an observer
-  // attached refetches immediately, which is start → FAILED → evict → start, a BILLING
-  // LOOP on any permanently-bad statement. Leaving on the way out costs the user one bill
-  // for the failure they can see, and retries only if they come back to it.
+  // attached refetches immediately, which is start → FAILED → evict → start, an unbounded
+  // loop against StartQueryExecution on any permanently-bad statement.
+  //
+  // AWS does not bill a FAILED query, so the loop's first cost is the API hammering and
+  // the account-wide concurrency it consumes. It is not only that: this branch also covers
+  // CANCELLED, and a cancelled query IS billed for what it scanned before it stopped — so
+  // a loop over a statement the user keeps stopping bills every pass.
   useEffect(() => {
     if (sql === null) return;
     return () => {

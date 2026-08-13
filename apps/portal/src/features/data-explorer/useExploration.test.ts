@@ -72,10 +72,10 @@ describe('useExploration — one execution per distinct rendered SQL (FR-006)', 
       ...base,
       query: {...base.query, ordering: [{column: 'qty', direction: 'asc', priority: 0}]}
     };
+    // No `setQueryDefaults` here: the hook must set its OWN `gcTime`, because the harness's
+    // client (like production's) would otherwise collect the detached entry and turn the
+    // return trip into a second execution.
     const client = createTestQueryClient();
-    // gcTime 0 evicts an observer-less entry, which would make the return trip a miss for
-    // a reason production never has. staleTime Infinity is what the hook itself sets.
-    client.setQueryDefaults(explorerKeys.all, {gcTime: Infinity, staleTime: Infinity});
 
     const {result, rerender} = renderHookWithProviders(
       ({exploration}: {exploration: Exploration}) => useExploration(exploration),
@@ -142,7 +142,6 @@ describe('useExploration — one execution per distinct rendered SQL (FR-006)', 
     vi.mocked(runQuery).mockResolvedValueOnce(fail('Athena said no', 'InvalidRequest'));
     const exploration = newExploration(TABLE);
     const client = createTestQueryClient();
-    client.setQueryDefaults(explorerKeys.all, {gcTime: Infinity, staleTime: Infinity});
 
     const first = renderHookWithProviders(() => useExploration(exploration), {queryClient: client});
     await waitFor(() => expect(first.result.current.error).toBeTruthy());
@@ -164,7 +163,6 @@ describe('useExploration — one execution per distinct rendered SQL (FR-006)', 
     vi.mocked(getQueryStatus).mockResolvedValue(status({state: 'FAILED', bytes: 0}));
     const exploration = newExploration(TABLE);
     const client = createTestQueryClient();
-    client.setQueryDefaults(explorerKeys.all, {gcTime: Infinity, staleTime: Infinity});
 
     const first = renderHookWithProviders(() => useExploration(exploration), {queryClient: client});
     await waitFor(() => expect(first.result.current.state).toBe('FAILED'));
@@ -186,7 +184,6 @@ describe('useExploration — one execution per distinct rendered SQL (FR-006)', 
     // remount a fresh bill, and the failure test above would still pass.
     const exploration = newExploration(TABLE);
     const client = createTestQueryClient();
-    client.setQueryDefaults(explorerKeys.all, {gcTime: Infinity, staleTime: Infinity});
 
     const first = renderHookWithProviders(() => useExploration(exploration), {queryClient: client});
     await waitFor(() => expect(first.result.current.state).toBe('SUCCEEDED'));
@@ -242,16 +239,27 @@ describe('useExploration — a description that cannot render (FR-002)', () => {
   });
 
   it('recovers once the description becomes renderable again', async () => {
+    // Starts from a description that genuinely CANNOT render, or the recovery is never
+    // exercised and the assertion passes over its own title.
     const base = newExploration(TABLE);
+    const impossible: Exploration = {
+      ...base,
+      query: {
+        ...base.query,
+        grouping: {columns: ['status'], aggregates: [{fn: 'COUNT', column: '*'}]},
+        ordering: [{column: 'placed_at', direction: 'asc', priority: 0}]
+      }
+    };
     const {result, rerender} = renderHookWithProviders(
       ({exploration}: {exploration: Exploration}) => useExploration(exploration),
-      {initialProps: {exploration: withFilter(base, "O'Brien")}}
+      {initialProps: {exploration: impossible}}
     );
+    expect(result.current.error).toBeInstanceOf(Error);
+    expect(result.current.sql).toBeNull();
+
+    rerender({exploration: withFilter(base, "O'Brien")});
     await waitFor(() => expect(result.current.queryExecutionId).toBe('exec-1'));
     expect(result.current.sql).toContain("'O''Brien'");
-
-    rerender({exploration: base});
-    await waitFor(() => expect(result.current.sql).toBe('SELECT *\nFROM "alice"."orders"'));
     expect(result.current.error).toBeNull();
   });
 });

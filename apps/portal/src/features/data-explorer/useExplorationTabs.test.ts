@@ -66,6 +66,48 @@ describe('useExplorationTabs — opening and the cap (FR-008)', () => {
     expect(refused).toBeNull();
     expect(result.current.tabs).toHaveLength(EXPLORATION_TABS_MAX);
   });
+
+  it('refuses within a BATCH — an id is never returned for a tab that is not created', () => {
+    // The shape a multi-select "open these tables" produces in SPEC-179. Checked against
+    // this render's state alone, three opens two below the cap each see room, each return
+    // an id, and only two tabs appear — so the caller believes it opened three and raises
+    // no cap dialog. Every returned id must name a real tab.
+    const {result} = setup();
+    act(() => {
+      for (let i = 0; i < EXPLORATION_TABS_MAX - 2; i += 1) result.current.openTab(TABLE);
+    });
+    expect(result.current.tabs).toHaveLength(EXPLORATION_TABS_MAX - 2);
+
+    const returned: (string | null)[] = [];
+    act(() => {
+      returned.push(result.current.openTab(TABLE));
+      returned.push(result.current.openTab(TABLE));
+      returned.push(result.current.openTab(TABLE));
+    });
+
+    expect(returned.filter(Boolean)).toHaveLength(2);
+    expect(returned[2]).toBeNull();
+    expect(result.current.tabs).toHaveLength(EXPLORATION_TABS_MAX);
+    const openIds = new Set(result.current.tabs.map((t) => t.id));
+    for (const id of returned.filter(Boolean)) expect(openIds.has(id as string)).toBe(true);
+  });
+
+  it('frees capacity again after a close', () => {
+    // The counter must track closes as well as opens, or the cap becomes a high-water mark
+    // and a user who closes a tab can never open another.
+    const {result} = setup();
+    act(() => {
+      for (let i = 0; i < EXPLORATION_TABS_MAX; i += 1) result.current.openTab(TABLE);
+    });
+    act(() => result.current.closeTab(result.current.tabs[0].id));
+
+    let reopened: string | null = null;
+    act(() => {
+      reopened = result.current.openTab(OTHER);
+    });
+    expect(reopened).toBeTruthy();
+    expect(result.current.tabs).toHaveLength(EXPLORATION_TABS_MAX);
+  });
 });
 
 describe('useExplorationTabs — closing keeps the invariant (FR-008 AC4)', () => {
@@ -196,6 +238,118 @@ describe('useExplorationTabs — persistence (FR-008 AC2/AC3)', () => {
       expect(result.current.tabs).toEqual([]);
       expect(result.current.activeTabId).toBe('');
     }
+  });
+
+  it('discards a document that is well-SHAPED but would render garbage', () => {
+    // "Restorable" is not "renderable", and the stored document is the only untrusted
+    // input this model has. Each of these passes a shape-only check and then does damage:
+    // an unknown operator renders `"a" undefined 'x'` — invalid SQL sent to
+    // StartQueryExecution rather than refused; a `grouping` of `{}` throws a raw TypeError
+    // out of the renderer instead of an ExplorationRenderError; and a non-numeric ledger
+    // value breaks the never-NaN invariant FR-007 AC4 exists to hold.
+    const tab = (over: Record<string, unknown>) => ({
+      version: 1,
+      tabs: [
+        {
+          id: 'a',
+          label: 'orders',
+          exploration: {
+            id: 'e',
+            source: {kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'},
+            query: {filters: [], expression: null, ordering: [], grouping: null},
+            presentation: {hiddenColumns: [], columnOrder: [], pinnedColumns: [], columnWidths: {}},
+            ...(over.exploration as object)
+          },
+          scannedByExecution: over.scannedByExecution ?? {}
+        }
+      ],
+      activeTabId: 'a'
+    });
+
+    const hostile = [
+      tab({
+        exploration: {
+          query: {
+            filters: [{column: 'a', operator: 'DROP', value: 'x'}],
+            expression: null,
+            ordering: [],
+            grouping: null
+          }
+        }
+      }),
+      tab({
+        exploration: {
+          query: {
+            filters: [{column: 'a', operator: '=', value: 'x', valueKind: 'raw'}],
+            expression: null,
+            ordering: [],
+            grouping: null
+          }
+        }
+      }),
+      tab({exploration: {query: {filters: [], expression: null, ordering: [], grouping: {}}}}),
+      tab({
+        exploration: {
+          query: {
+            filters: [],
+            expression: null,
+            ordering: [],
+            grouping: {columns: ['a'], aggregates: [{fn: 'EXEC', column: 'b'}]}
+          }
+        }
+      }),
+      tab({
+        exploration: {
+          query: {
+            filters: [],
+            expression: null,
+            ordering: [{column: 'a', direction: 'sideways', priority: 0}],
+            grouping: null
+          }
+        }
+      }),
+      tab({scannedByExecution: {'exec-1': '0x'}}),
+      tab({scannedByExecution: {'exec-1': null}})
+    ];
+
+    for (const document of hostile) {
+      sessionStorage.setItem(KEY, JSON.stringify(document));
+      const {result} = setup();
+      expect(result.current.tabs).toEqual([]);
+    }
+  });
+
+  it('restores the same document once its one hostile field is corrected', () => {
+    // The pair that keeps the test above honest: these documents are rejected for the
+    // field named, not because the fixture is malformed in some other way.
+    sessionStorage.setItem(
+      KEY,
+      JSON.stringify({
+        version: 1,
+        tabs: [
+          {
+            id: 'a',
+            label: 'orders',
+            exploration: {
+              id: 'e',
+              source: {kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'},
+              query: {
+                filters: [{column: 'a', operator: '=', value: 'x', valueKind: 'number'}],
+                expression: null,
+                ordering: [{column: 'a', direction: 'asc', priority: 0}],
+                grouping: {columns: ['a'], aggregates: [{fn: 'COUNT', column: '*'}]}
+              },
+              presentation: {hiddenColumns: [], columnOrder: [], pinnedColumns: [], columnWidths: {}}
+            },
+            scannedByExecution: {'exec-1': 1024}
+          }
+        ],
+        activeTabId: 'a'
+      })
+    );
+    const {result} = setup();
+    expect(result.current.tabs).toHaveLength(1);
+    expect(result.current.activeTabBytesScanned).toBe(1024);
   });
 
   it('restores a well-formed document, so the discard test above is not vacuous', () => {

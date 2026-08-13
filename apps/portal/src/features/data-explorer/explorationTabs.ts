@@ -22,7 +22,7 @@ function tabsKey(username: string): string | null {
  * @returns An empty, valid tabs state.
  */
 export function initialExplorationTabsState(): ExplorationTabsState {
-  return {version: 1, tabs: [], activeTabId: '', nextExplorationNumber: 1};
+  return {version: 1, tabs: [], activeTabId: ''};
 }
 
 function isValidSource(value: unknown): boolean {
@@ -39,6 +39,57 @@ function isValidSource(value: unknown): boolean {
   return false;
 }
 
+// A stored document is the ONE untrusted input this model has, and "well-formed enough to
+// restore" is not the same as "renderable". These check the fields the renderer branches
+// on, because a filter with an unrecognised operator renders `"a" undefined 'x'` — invalid
+// SQL, sent to StartQueryExecution rather than refused — and a `grouping` of `{}` throws a
+// raw TypeError out of the renderer instead of an ExplorationRenderError.
+const FILTER_OPERATORS = new Set(['=', '<>', '>', '>=', '<', '<=', 'isNull', 'isNotNull']);
+const AGGREGATE_FUNCTIONS = new Set(['COUNT', 'SUM', 'AVG', 'MIN', 'MAX']);
+
+function isValidFilter(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const filter = value as Record<string, unknown>;
+  if (typeof filter.column !== 'string') return false;
+  if (typeof filter.operator !== 'string' || !FILTER_OPERATORS.has(filter.operator)) return false;
+  if (filter.value !== undefined && typeof filter.value !== 'string') return false;
+  return filter.valueKind === undefined || filter.valueKind === 'string' || filter.valueKind === 'number';
+}
+
+function isValidSortEntry(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  return (
+    typeof entry.column === 'string' &&
+    (entry.direction === 'asc' || entry.direction === 'desc') &&
+    typeof entry.priority === 'number' &&
+    Number.isFinite(entry.priority)
+  );
+}
+
+function isValidGrouping(value: unknown): boolean {
+  if (value === null) return true;
+  if (typeof value !== 'object') return false;
+  const grouping = value as Record<string, unknown>;
+  if (!Array.isArray(grouping.columns) || !grouping.columns.every((c) => typeof c === 'string')) return false;
+  if (!Array.isArray(grouping.aggregates)) return false;
+  return grouping.aggregates.every((a) => {
+    if (typeof a !== 'object' || a === null) return false;
+    const aggregate = a as Record<string, unknown>;
+    return (
+      typeof aggregate.fn === 'string' && AGGREGATE_FUNCTIONS.has(aggregate.fn) && typeof aggregate.column === 'string'
+    );
+  });
+}
+
+function isValidLedger(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  // The VALUES matter as much as the shape: `tabBytesScanned` sums them, so one string
+  // turns a total into `"0x"` and one NaN turns it into NaN — breaking the never-NaN
+  // invariant FR-007 AC4 exists to hold, from the only untrusted input this model has.
+  return Object.values(value).every((bytes) => typeof bytes === 'number' && Number.isFinite(bytes));
+}
+
 function isValidExploration(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const exploration = value as Record<string, unknown>;
@@ -47,9 +98,10 @@ function isValidExploration(value: unknown): boolean {
 
   const query = exploration.query as Record<string, unknown> | undefined;
   if (typeof query !== 'object' || query === null) return false;
-  if (!Array.isArray(query.filters) || !Array.isArray(query.ordering)) return false;
+  if (!Array.isArray(query.filters) || !query.filters.every(isValidFilter)) return false;
+  if (!Array.isArray(query.ordering) || !query.ordering.every(isValidSortEntry)) return false;
   if (query.expression !== null && typeof query.expression !== 'string') return false;
-  if (query.grouping !== null && typeof query.grouping !== 'object') return false;
+  if (!isValidGrouping(query.grouping)) return false;
 
   const presentation = exploration.presentation as Record<string, unknown> | undefined;
   if (typeof presentation !== 'object' || presentation === null) return false;
@@ -71,7 +123,6 @@ function isValidTabsState(value: unknown): value is ExplorationTabsState {
   if (state.version !== 1) return false;
   if (!Array.isArray(state.tabs)) return false;
   if (typeof state.activeTabId !== 'string') return false;
-  if (typeof state.nextExplorationNumber !== 'number') return false;
 
   const tabsOk = state.tabs.every((t) => {
     if (typeof t !== 'object' || t === null) return false;
@@ -80,9 +131,7 @@ function isValidTabsState(value: unknown): value is ExplorationTabsState {
       typeof tab.id === 'string' &&
       typeof tab.label === 'string' &&
       isValidExploration(tab.exploration) &&
-      typeof tab.scannedByExecution === 'object' &&
-      tab.scannedByExecution !== null &&
-      !Array.isArray(tab.scannedByExecution)
+      isValidLedger(tab.scannedByExecution)
     );
   });
   if (!tabsOk) return false;
