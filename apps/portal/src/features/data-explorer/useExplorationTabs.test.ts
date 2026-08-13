@@ -178,6 +178,93 @@ describe('useExplorationTabs — persistence (FR-008 AC2/AC3)', () => {
     expect(second.result.current.activeTab?.exploration.source).toEqual(TABLE);
   });
 
+  it('restores a grouping written before SPEC-182 rather than discarding the document', () => {
+    // The flags did not exist when such a document was written. Requiring them would fail
+    // `isValidTabsState`, which discards the WHOLE state — every tab, over one absent
+    // boolean — so they are accepted absent and normalised to false on the way out.
+    sessionStorage.setItem(
+      KEY,
+      JSON.stringify({
+        version: 1,
+        tabs: [
+          {
+            id: 'a',
+            label: 'orders',
+            exploration: {
+              id: 'e',
+              source: TABLE,
+              query: {
+                filters: [],
+                expression: null,
+                ordering: [],
+                grouping: {columns: ['status'], aggregates: [{fn: 'COUNT', column: '*'}]}
+              },
+              presentation: {}
+            },
+            scannedByExecution: {},
+            history: {
+              past: [
+                {
+                  filters: [],
+                  expression: null,
+                  ordering: [],
+                  grouping: {columns: ['id'], aggregates: []}
+                }
+              ],
+              future: []
+            }
+          }
+        ],
+        activeTabId: 'a'
+      })
+    );
+
+    const {result} = setup();
+    expect(result.current.tabs).toHaveLength(1);
+    const grouping = result.current.activeTab?.exploration.query.grouping;
+    expect(grouping?.columns).toEqual(['status']);
+    // Normalised, not left undefined: `sameQuery` compares descriptions on a canonical
+    // form, so an absent flag would compare unequal to the identical grouping the panel
+    // builds — and the first apply after a reload would push a history entry for a change
+    // nobody made.
+    expect(grouping?.duplicatesOnly).toBe(false);
+    expect(grouping?.showPercentage).toBe(false);
+    // History entries render SQL too, so they are normalised on the same pass.
+    expect(result.current.activeTab?.history.past[0].grouping?.duplicatesOnly).toBe(false);
+  });
+
+  it('discards a document whose grouping flags are the wrong TYPE', () => {
+    // Absent is a version difference; a string is a corrupt document, and the renderer
+    // branches on these.
+    sessionStorage.setItem(
+      KEY,
+      JSON.stringify({
+        version: 1,
+        tabs: [
+          {
+            id: 'a',
+            label: 'orders',
+            exploration: {
+              id: 'e',
+              source: TABLE,
+              query: {
+                filters: [],
+                expression: null,
+                ordering: [],
+                grouping: {columns: ['status'], aggregates: [], duplicatesOnly: 'yes'}
+              },
+              presentation: {}
+            },
+            scannedByExecution: {}
+          }
+        ],
+        activeTabId: 'a'
+      })
+    );
+
+    expect(setup().result.current.tabs).toEqual([]);
+  });
+
   it('keeps each user’s tabs separate', () => {
     const alice = setup('alice');
     act(() => {

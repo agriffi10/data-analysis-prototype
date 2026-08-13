@@ -4,12 +4,19 @@
 // The Glue reader, the Athena execution/results layer and the space list are
 // `features/catalog/` (SPEC-176) and the `.sql` store is `features/saved-queries/`
 // (SPEC-177) — this feature composes both and may not import `features/query/`.
-export {renderExplorationSql, ExplorationRenderError, aggregateAlias, isBareNumeric} from './renderExplorationSql';
+export {
+  renderExplorationSql,
+  ExplorationRenderError,
+  aggregateAlias,
+  groupingOrderingViolation,
+  isBareNumeric
+} from './renderExplorationSql';
 export {
   newExploration,
   newExplorationId,
   emptyExplorationQuery,
   emptyExplorationPresentation,
+  emptyGrouping,
   emptyQueryHistory,
   explorationSourceLabel
 } from './exploration';
@@ -20,15 +27,18 @@ export {
   clearSort,
   filterOf,
   filterValueKind,
+  groupingApplyRefusal,
   isEmptyQuery,
   moveSortPriority,
   moveSortRefusal,
   operatorTakesValue,
   sameQuery,
   setFilter,
+  setGrouping,
   setSort,
   sortOf
 } from './explorationQueryOps';
+export {calcResults, calcScopeText, percentageColumnName, percentageOfTotal, selectedCellValues} from './calc';
 export {useExploration} from './useExploration';
 export type {UseExplorationResult} from './useExploration';
 export {useExplorationQuery} from './useExplorationQuery';
@@ -38,6 +48,10 @@ export type {UseExplorationTabsResult, OpenExplorationOpts} from './useExplorati
 export {tabBytesScanned} from './explorationTabs';
 export {explorerKeys} from './explorerKeys';
 export {
+  CALC_DEFAULT_FUNCTIONS,
+  CALC_FUNCTIONS,
+  CALC_FUNCTION_LABELS,
+  CALC_NO_VALUE,
   EXPLORATION_PAGE_SIZE,
   EXPLORATION_TABS_MAX,
   EXPLORER_FILTER_HISTORY_MAX,
@@ -56,6 +70,9 @@ export {ExplorationTextView} from './ExplorationTextView';
 export {PresentationSwitch} from './PresentationSwitch';
 export {ValuePanel} from './ValuePanel';
 export {ColumnsPanel} from './ColumnsPanel';
+export {CalcPanel} from './CalcPanel';
+export {GroupingPanel} from './GroupingPanel';
+export {GeneratedSqlDisclosure} from './GeneratedSqlDisclosure';
 export {ColumnFilterMenu} from './ColumnFilterMenu';
 export type {ColumnQueryActions} from './ColumnFilterMenu';
 export {FilterValueDialog} from './FilterValueDialog';
@@ -93,5 +110,8 @@ export type {
   Grouping,
   GroupingAggregate,
   AggregateFunction,
+  CalcFunction,
+  CalcPanelState,
+  CalcResult,
   ExecutionCost
 } from './dataExplorer.types';

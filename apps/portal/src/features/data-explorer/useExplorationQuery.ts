@@ -11,10 +11,12 @@ export type UseExplorationQueryResult = {
   query: ExplorationQuery;
   /** Applies changes to the description. THIS is what mints an execution. */
   apply: (next: Partial<ExplorationQuery>) => void;
-  /** Clears every filter, the expression and every sort in ONE apply (FR-007). */
+  /** Clears every filter, the expression, every sort and the grouping in ONE apply. */
   clearAll: () => void;
   /** Null when there is something to clear, else why the control is unavailable. */
   clearAllRefusal: string | null;
+  /** What the clear-all control is called — it names the grouping when there is one. */
+  clearAllLabel: string;
   canGoBack: boolean;
   canGoForward: boolean;
   back: () => void;
@@ -32,7 +34,17 @@ export type UseExplorationQueryResult = {
   noteFailure: (sql: string) => void;
 };
 
-const NOTHING_TO_CLEAR = 'There are no filters, expressions or sorts to clear.';
+const NOTHING_TO_CLEAR = 'There are no filters, expressions, sorts or grouping to clear.';
+
+/**
+ * The two names the clear-all control goes by (SPEC-182 FR-006 AC3).
+ *
+ * The label changes because the ACTION does: with a grouping in force, pressing it also
+ * un-groups the result, and a control that says "filters" while removing a grouping is
+ * lying about what the click will do.
+ */
+export const CLEAR_ALL_LABEL = 'Remove all filters';
+export const CLEAR_ALL_WITH_GROUPING_LABEL = 'Remove all filters and grouping';
 
 function cap(entries: ExplorationQuery[]): ExplorationQuery[] {
   return entries.length > EXPLORER_FILTER_HISTORY_MAX
@@ -142,9 +154,10 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
 
   const clearAll = useCallback(() => {
     if (isEmptyQuery(query)) return;
-    // Grouping is SPEC-182's and is deliberately preserved: "Remove all filters" beside a
-    // grouped view must not silently un-group it.
-    apply({...emptyExplorationQuery(), grouping: query.grouping});
+    // Grouping goes too (SPEC-182 FR-006 AC3), superseding SPEC-181's preservation — and
+    // the control SAYS so, because "Remove all filters" silently un-grouping a view would
+    // be the change nobody asked for that the earlier decision was protecting against.
+    apply(emptyExplorationQuery());
   }, [apply, query]);
 
   const step = useCallback(
@@ -182,6 +195,7 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
       apply,
       clearAll,
       clearAllRefusal: isEmptyQuery(query) ? NOTHING_TO_CLEAR : null,
+      clearAllLabel: query.grouping ? CLEAR_ALL_WITH_GROUPING_LABEL : CLEAR_ALL_LABEL,
       canGoBack: history.past.length > 0,
       canGoForward: history.future.length > 0,
       back,

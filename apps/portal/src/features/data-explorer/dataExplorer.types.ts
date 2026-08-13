@@ -72,6 +72,17 @@ export type GroupingAggregate = {
 export type Grouping = {
   columns: string[];
   aggregates: GroupingAggregate[];
+  /** `HAVING COUNT(*) > 1` — the grouped rows that occur more than once (SPEC-182 FR-004). */
+  duplicatesOnly: boolean;
+  /**
+   * Whether the grid shows each grouped row's share of the first aggregate's total.
+   *
+   * Presentation in every sense except where it lives: it is computed in the browser from
+   * rows already fetched and renders NO SQL. It rides here because it is meaningless
+   * without the grouping it describes — a percentage of nothing is not a column — and
+   * because a grouping restored from a document must restore whole.
+   */
+  showPercentage: boolean;
 };
 
 /** Everything that renders SQL. Nothing else may. */
@@ -81,6 +92,29 @@ export type ExplorationQuery = {
   expression: string | null;
   ordering: SortEntry[];
   grouping: Grouping | null;
+};
+
+/**
+ * The aggregates the Calc panel offers over a cell selection (SPEC-182 FR-001).
+ *
+ * Named apart from `AggregateFunction` above, and the difference is the whole point of
+ * the spec: that one is a `GROUP BY` clause rendered into SQL and billed, this one runs in
+ * the browser over the cells the user has selected — which exist nowhere else.
+ */
+export type CalcFunction = 'count' | 'countDistinct' | 'countNulls' | 'sum' | 'avg' | 'min' | 'max' | 'median' | 'mode';
+
+export type CalcPanelState = {
+  functions: CalcFunction[];
+  /** Numeric-only aggregation when false. */
+  includeStrings: boolean;
+};
+
+export type CalcResult = {
+  fn: CalcFunction;
+  /** Already formatted for display; `CALC_NO_VALUE` where the function has no answer. */
+  value: string;
+  /** Cells excluded as non-numeric; surfaced beside the value. */
+  skipped: number;
 };
 
 /** How the current page's rows are drawn (SPEC-180). None of these render SQL. */

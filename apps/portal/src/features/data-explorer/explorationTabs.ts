@@ -79,6 +79,11 @@ function isValidGrouping(value: unknown): boolean {
   if (typeof value !== 'object') return false;
   const grouping = value as Record<string, unknown>;
   if (!Array.isArray(grouping.columns) || !grouping.columns.every((c) => typeof c === 'string')) return false;
+  // SPEC-182's two flags are accepted ABSENT as well as boolean, and normalised to false on
+  // the way out. Requiring them would discard the whole document — every tab, not just the
+  // grouping — over a field that did not exist when it was written.
+  if (grouping.duplicatesOnly !== undefined && typeof grouping.duplicatesOnly !== 'boolean') return false;
+  if (grouping.showPercentage !== undefined && typeof grouping.showPercentage !== 'boolean') return false;
   if (!Array.isArray(grouping.aggregates)) return false;
   return grouping.aggregates.every((a) => {
     if (typeof a !== 'object' || a === null) return false;
@@ -107,6 +112,29 @@ function isValidQuery(value: unknown): boolean {
 }
 
 /**
+ * Fills in a grouping's SPEC-182 flags, which a document written before it does not carry.
+ *
+ * Absent has to become `false` rather than staying undefined: `sameQuery` compares
+ * descriptions on a canonical form, and a restored description whose flag is missing would
+ * compare unequal to the identical one the panel builds — so the first apply after a
+ * reload would push a history entry for a change nobody made.
+ *
+ * @param query - A description that has already passed validation.
+ * @returns The same description, with a complete grouping or none.
+ */
+function normalizeQuery(query: ExplorationQuery): ExplorationQuery {
+  if (!query.grouping) return query;
+  return {
+    ...query,
+    grouping: {
+      ...query.grouping,
+      duplicatesOnly: query.grouping.duplicatesOnly === true,
+      showPercentage: query.grouping.showPercentage === true
+    }
+  };
+}
+
+/**
  * Reads a stored history cursor, defaulting anything it cannot trust to no history.
  *
  * Unlike the presentation beside it, every entry here is a description that RENDERS SQL,
@@ -121,7 +149,7 @@ function normalizeHistory(value: unknown): QueryHistoryCursor {
   const stored = (value ?? {}) as Record<string, unknown>;
   const side = (entries: unknown): ExplorationQuery[] =>
     Array.isArray(entries) && entries.every(isValidQuery)
-      ? (entries as ExplorationQuery[]).slice(-EXPLORER_FILTER_HISTORY_MAX)
+      ? (entries as ExplorationQuery[]).slice(-EXPLORER_FILTER_HISTORY_MAX).map(normalizeQuery)
       : [];
   return {past: side(stored.past), future: side(stored.future)};
 }
@@ -227,7 +255,11 @@ export function readExplorationTabsState(username: string): ExplorationTabsState
         // A document written before SPEC-181 carries no history at all, which is the
         // ordinary case for the first session after a deploy — not a fault.
         history: normalizeHistory(tab.history),
-        exploration: {...tab.exploration, presentation: normalizePresentation(tab.exploration.presentation)}
+        exploration: {
+          ...tab.exploration,
+          query: normalizeQuery(tab.exploration.query),
+          presentation: normalizePresentation(tab.exploration.presentation)
+        }
       }))
     };
   } catch {

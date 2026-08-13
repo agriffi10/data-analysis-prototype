@@ -188,6 +188,9 @@ export function DataExplorerWorkspace() {
           className="flex min-h-0 flex-1 flex-col">
           <ExplorationResultsRegion
             tabId={tabs.activeTabId}
+            // The statement that RAN, so the disclosure (SPEC-182 FR-005) shows the string
+            // handed to StartQueryExecution rather than a second rendering of it.
+            sql={exploration.sql}
             queryExecutionId={exploration.queryExecutionId}
             isPending={exploration.isPending}
             error={exploration.error}

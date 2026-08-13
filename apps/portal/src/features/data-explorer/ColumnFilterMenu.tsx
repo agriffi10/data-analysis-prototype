@@ -12,6 +12,17 @@ import type {ColumnFilter, FilterOperator, FilterValueKind} from './dataExplorer
  * "replaces rather than accumulates" is a property of `setFilter`, not of a caller).
  */
 export type ColumnQueryActions = {
+  /**
+   * Why this column takes no filter and no sort, or null when it does.
+   *
+   * SPEC-182 introduced the first column that is **not part of the query**: the grouped
+   * result's percentage, computed in the browser and appended to the result. It is a real
+   * grid column — it sizes, hides, pins and reorders — but there is no such column in the
+   * SQL, so an `ORDER BY` on it is a description the renderer REFUSES (taking the whole
+   * exploration to an error banner) and a `WHERE` on it is a `COLUMN_NOT_FOUND` at Athena.
+   * Every surface that offers a filter or a sort asks this first.
+   */
+  queryRefusalOf: (column: string) => string | null;
   sortOf: (column: string) => {direction: 'asc' | 'desc'; position: number} | null;
   /** How many columns the ordering has, so a lone sort need not show a priority. */
   sortCount: number;
@@ -51,25 +62,31 @@ export type ColumnFilterMenuProps = {
 export function ColumnFilterMenu({column, actions, onRequestValue}: ColumnFilterMenuProps) {
   const sort = actions.sortOf(column);
   const filter = actions.filterOf(column);
+  const refusal = actions.queryRefusalOf(column);
 
-  const items: MenuItem[] = [
-    {kind: 'action', label: 'Sort ascending', onSelect: () => actions.sort(column, 'asc')},
-    {kind: 'action', label: 'Sort descending', onSelect: () => actions.sort(column, 'desc')},
-    {kind: 'action', label: 'Clear sort', disabled: !sort, onSelect: () => actions.clearSort(column)},
-    {kind: 'separator'},
-    // Derived from the operator list rather than re-listed: a hand-written array cast to
-    // `FilterOperator[]` type-checks with three of the six missing.
-    ...FILTER_OPERATORS.filter(operatorTakesValue).map(
-      (operator): MenuItem => ({
-        kind: 'action',
-        label: `Filter: ${FILTER_OPERATOR_LABELS[operator]}…`,
-        onSelect: () => onRequestValue(column, operator)
-      })
-    ),
-    {kind: 'action', label: 'Filter: is null', onSelect: () => actions.filter(column, 'isNull')},
-    {kind: 'action', label: 'Filter: is not null', onSelect: () => actions.filter(column, 'isNotNull')},
-    {kind: 'action', label: 'Clear filter', disabled: !filter, onSelect: () => actions.clearFilter(column)}
-  ];
+  // A column the query cannot address keeps its menu and offers ONE disabled item saying
+  // why — rather than a menu of controls that would each take the exploration down, or no
+  // menu at all, which would leave the user to discover the difference by clicking.
+  const items: MenuItem[] = refusal
+    ? [{kind: 'action', label: refusal, disabled: true, onSelect: () => {}}]
+    : [
+        {kind: 'action', label: 'Sort ascending', onSelect: () => actions.sort(column, 'asc')},
+        {kind: 'action', label: 'Sort descending', onSelect: () => actions.sort(column, 'desc')},
+        {kind: 'action', label: 'Clear sort', disabled: !sort, onSelect: () => actions.clearSort(column)},
+        {kind: 'separator'},
+        // Derived from the operator list rather than re-listed: a hand-written array cast to
+        // `FilterOperator[]` type-checks with three of the six missing.
+        ...FILTER_OPERATORS.filter(operatorTakesValue).map(
+          (operator): MenuItem => ({
+            kind: 'action',
+            label: `Filter: ${FILTER_OPERATOR_LABELS[operator]}…`,
+            onSelect: () => onRequestValue(column, operator)
+          })
+        ),
+        {kind: 'action', label: 'Filter: is null', onSelect: () => actions.filter(column, 'isNull')},
+        {kind: 'action', label: 'Filter: is not null', onSelect: () => actions.filter(column, 'isNotNull')},
+        {kind: 'action', label: 'Clear filter', disabled: !filter, onSelect: () => actions.clearFilter(column)}
+      ];
 
   // The whole state of the column in one string, because the trigger's glyphs are
   // decoration: `aria-label` on the header cell already suppresses everything inside it,

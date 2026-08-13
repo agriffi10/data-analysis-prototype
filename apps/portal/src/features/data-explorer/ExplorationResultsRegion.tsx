@@ -4,8 +4,12 @@ import {ErrorBanner} from '../../components/ErrorBanner';
 import {Pager} from '../../components/Pager';
 import {useIsMobile} from '../../lib/useBreakpoint';
 import {useQueryResults} from '../catalog/useQueryResults';
-import {EXPLORATION_PAGE_SIZE} from './dataExplorer.constants';
+import {CALC_DEFAULT_FUNCTIONS, EXPLORATION_PAGE_SIZE} from './dataExplorer.constants';
+import {CalcPanel} from './CalcPanel';
+import {percentageColumnName, percentageOfTotal, selectedCellValues} from './calc';
 import {ColumnsPanel} from './ColumnsPanel';
+import {GeneratedSqlDisclosure} from './GeneratedSqlDisclosure';
+import {GroupingPanel} from './GroupingPanel';
 import {ExplorationGrid} from './ExplorationGrid';
 import {ExplorationRecordView} from './ExplorationRecordView';
 import {ExplorationTextView} from './ExplorationTextView';
@@ -17,7 +21,7 @@ import {PresentationSwitch} from './PresentationSwitch';
 import {ValuePanel} from './ValuePanel';
 import {useCellSelection} from './useCellSelection';
 import {useColumnGeometry} from './useColumnGeometry';
-import {isBareNumeric} from './renderExplorationSql';
+import {aggregateAlias, isBareNumeric} from './renderExplorationSql';
 import {
   clearFilter,
   clearSort,
@@ -25,17 +29,25 @@ import {
   filterValueKind,
   operatorTakesValue,
   setFilter,
+  setGrouping,
   setSort,
   sortOf
 } from './explorationQueryOps';
 import type {ColumnQueryActions} from './ColumnFilterMenu';
 import type {QueryColumn} from '../catalog/catalog.types';
-import type {ExplorationPresentation, FilterOperator, GridPresentation} from './dataExplorer.types';
+import type {CalcPanelState, ExplorationPresentation, FilterOperator, GridPresentation} from './dataExplorer.types';
 import type {UseExplorationQueryResult} from './useExplorationQuery';
 
 export type ExplorationResultsRegionProps = {
   /** The tab these rows belong to — what the fallback execution below is scoped by. */
   tabId: string;
+  /**
+   * The statement that was run, straight from `useExploration` (SPEC-182 FR-005).
+   *
+   * Passed down rather than rendered here, so the disclosure shows the string the
+   * execution used and the two cannot drift.
+   */
+  sql: string | null;
   queryExecutionId: string | null;
   /** The exploration is starting or still running. */
   isPending: boolean;
@@ -55,6 +67,17 @@ export type ExplorationResultsRegionProps = {
 };
 
 export const NO_CELL_TO_FILTER = 'Select a cell first.';
+/**
+ * Why the percentage column takes no filter and no sort (SPEC-182 FR-004 AC2).
+ *
+ * It is computed in the browser and appended to the result, so there is no such column in
+ * the SQL: an `ORDER BY` on it is a description `renderExplorationSql` REFUSES — which
+ * would take the whole exploration to an error banner — and a `WHERE` on it fails at
+ * Athena as an unknown column. The refusal is user text; the renderer's own names a column
+ * and an operator, which SPEC-106 forbids showing anyone.
+ */
+export const CALCULATED_COLUMN_REFUSAL =
+  'This column is worked out in your browser, so it can’t be sorted or filtered.';
 export const UNFILTERABLE_VALUE = 'This cell’s value can’t be used as a filter on a numeric column.';
 export const SUSPENDED_TEXT = 'This set of filters failed last time it ran. Nothing has been run.';
 
@@ -76,6 +99,7 @@ export const SUSPENDED_TEXT = 'This set of filters failed last time it ran. Noth
  */
 export function ExplorationResultsRegion({
   tabId,
+  sql,
   queryExecutionId,
   isPending,
   error,
@@ -86,6 +110,22 @@ export function ExplorationResultsRegion({
 }: ExplorationResultsRegionProps) {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [calcOpen, setCalcOpen] = useState(false);
+  const [groupingOpen, setGroupingOpen] = useState(false);
+  // What a header drag is carrying, so the Grouping panel can be a drop target for it. A
+  // ref rather than state: the drop handler reads it at event time and nothing renders
+  // from it, so a drag would otherwise re-render the whole grid on every start and end.
+  const draggedColumn = useRef<string | null>(null);
+  // Which aggregates the Calc panel shows: a preference of this SURFACE, not of the tab,
+  // so it is held here rather than in the exploration's presentation — it describes a
+  // selection, and a selection does not survive a page change, let alone a session.
+  //
+  // It opens on MIXED aggregation, and that default is not arbitrary: numbers-only narrows
+  // every function, so a numbers-only default answers `Count 0` over a selection of three
+  // text cells while the line above it reads "3 selected cells" — the one pair of numbers
+  // this panel must never show together. The functions are COPIED out of the constant,
+  // which is state from here on.
+  const [calc, setCalc] = useState<CalcPanelState>({functions: [...CALC_DEFAULT_FUNCTIONS], includeStrings: true});
   const [pendingFilter, setPendingFilter] = useState<{column: string; operator: FilterOperator} | null>(null);
   const gridRef = useRef<HTMLTableElement>(null);
   const {query, apply} = queryControls;
@@ -115,21 +155,61 @@ export function ExplorationResultsRegion({
     setLastGood({tabId, executionId: queryExecutionId});
   }
 
-  // FR-006: a `table` source knows its columns from Glue before anything runs, a `sql`
-  // source only from the execution. The execution's own metadata WINS once it lands —
-  // grouping changes the column set entirely, and Glue would still be describing the
+  // SPEC-180 FR-006: a `table` source knows its columns from Glue before anything runs, a
+  // `sql` source only from the execution. The execution's own metadata WINS once it lands
+  // — grouping changes the column set entirely, and Glue would still be describing the
   // table underneath it.
-  const columns = results.columns.length > 0 ? results.columns : schemaColumns;
+  const executionColumns = results.columns.length > 0 ? results.columns : schemaColumns;
+
+  // SPEC-182 FR-004 AC2: the percentage is computed HERE, from rows already fetched, and
+  // appended as a real column so it sizes, hides and pins like any other. It is deliberately
+  // not in the SQL — a windowed total would be a second scan of the same data for a column
+  // the user asked to SEE.
+  const percentage = useMemo(() => {
+    const grouping = query.grouping;
+    if (!grouping?.showPercentage || grouping.aggregates.length === 0) return null;
+    const alias = aggregateAlias(grouping.aggregates[0]);
+    // Located in the EXECUTION's columns rather than assumed to be last: an aggregate the
+    // running statement does not have is a grouping the user has since changed, and a
+    // percentage of the wrong column is worse than none.
+    const index = results.columns.findIndex((column) => column.name === alias);
+    if (index === -1) return null;
+    return {
+      column: {name: percentageColumnName(alias), type: 'varchar'},
+      cells: percentageOfTotal(results.rows.map((row) => row[index] ?? null))
+    };
+  }, [query.grouping, results.columns, results.rows]);
+
+  const columns = useMemo(
+    () => (percentage ? [...executionColumns, percentage.column] : executionColumns),
+    [executionColumns, percentage]
+  );
+  // The appended value sits at the appended column's index, which is what
+  // `useColumnGeometry` assigns it — every row Athena returns is exactly as long as its
+  // column list, so the two agree by construction.
+  const rows = useMemo(
+    () => (percentage ? results.rows.map((row, index) => [...row, percentage.cells[index]]) : results.rows),
+    [percentage, results.rows]
+  );
+
   const geometry = useColumnGeometry(columns, presentation, onPresentationChange);
   const visibleNames = geometry.visible.map((column) => column.name);
   // Paging clears the selection rather than carrying coordinates onto different rows
   // (FR-002 AC8), and so does a change to the column set — a row/column pair means
   // nothing once either axis has moved underneath it.
   const selection = useCellSelection(
-    results.rows.length,
+    rows.length,
     visibleNames,
     `${shownExecutionId ?? ''}:${results.pageIndex}:${visibleNames.join(' ')}`,
     gridRef
+  );
+
+  // The cells Calc aggregates. Computed here rather than in the panel because the panel is
+  // not always mounted and this is the only place holding all three inputs — and memoised
+  // because it is recomputed on every cursor move.
+  const selectedValues = useMemo(
+    () => selectedCellValues(selection.selection.ranges, geometry.visible, rows),
+    [selection.selection.ranges, geometry.visible, rows]
   );
 
   const typeOf = useMemo(() => new Map(geometry.all.map((column) => [column.name, column.type])), [geometry.all]);
@@ -139,6 +219,10 @@ export function ExplorationResultsRegion({
   // `apply` — so a menu choice is a description change, and a description change is at
   // most one execution (FR-001 AC5).
   const actions: ColumnQueryActions = {
+    // The ONE reader every filter and sort surface asks first. Today it names exactly the
+    // appended percentage column, which the grid draws like any other and the SQL has
+    // never heard of.
+    queryRefusalOf: (column) => (column === percentage?.column.name ? CALCULATED_COLUMN_REFUSAL : null),
     sortOf: (column) => sortOf(query, column),
     sortCount: query.ordering.length,
     filterOf: (column) => filterOf(query, column),
@@ -171,7 +255,7 @@ export function ExplorationResultsRegion({
 
   // The stored row outlives the page it was taken on (a tab switch, a restore), so it is
   // clamped where it is READ.
-  const recordRow = Math.min(Math.max(presentation.recordRowIndex, 0), Math.max(results.rows.length - 1, 0));
+  const recordRow = Math.min(Math.max(presentation.recordRowIndex, 0), Math.max(rows.length - 1, 0));
 
   // Record and the grid share ONE focused row, and the sync runs in BOTH directions —
   // entering Record from the cursor, and moving the cursor to the row Record left off at
@@ -193,7 +277,7 @@ export function ExplorationResultsRegion({
   // THE RAW CELL VALUE, never `cellText` and never a formatted rendering (FR-002 AC2): a
   // NULL reads as "NULL" on screen and a transformed URL will not look like its value at
   // all (SPEC-184), and either one as a predicate matches nothing.
-  const cursorValue = cursorColumn ? results.rows[cursorRow]?.[cursorColumn.index] : undefined;
+  const cursorValue = cursorColumn ? rows[cursorRow]?.[cursorColumn.index] : undefined;
 
   // Suspended is not loading: nothing is in flight, deliberately. Without this the status
   // line announced "Running…" directly above the panel saying nothing had been run.
@@ -201,13 +285,16 @@ export function ExplorationResultsRegion({
   const hasCell = cursorColumn !== null && cursorValue !== undefined;
   const filterByCellRefusal = !hasCell
     ? NO_CELL_TO_FILTER
-    : cursorValue !== null &&
-        valueKindOf(cursorColumn.name) === 'number' &&
-        !isBareNumeric(cursorValue) /* a numeric column's value is emitted BARE, so one
+    : // The cursor can sit in the calculated column like any other, and this action does
+      // not go through the header menu — so it asks the same reader the menu does.
+      (actions.queryRefusalOf(cursorColumn.name) ??
+      (cursorValue !== null &&
+      valueKindOf(cursorColumn.name) === 'number' &&
+      !isBareNumeric(cursorValue) /* a numeric column's value is emitted BARE, so one
         the renderer would refuse has to be refused at the gesture instead — the refusal
         it throws is operator text (SPEC-106). */
-      ? UNFILTERABLE_VALUE
-      : null;
+        ? UNFILTERABLE_VALUE
+        : null));
 
   const filterByCell = () => {
     if (!cursorColumn || cursorValue === undefined) return;
@@ -239,7 +326,7 @@ export function ExplorationResultsRegion({
     }
     // A query that succeeded over no matching rows is an ANSWER, not a fault — the
     // friendly empty state, never the error banner.
-    if (!loading && results.rows.length === 0) return <p className="p-4 text-sm text-text-2">No rows returned.</p>;
+    if (!loading && rows.length === 0) return <p className="p-4 text-sm text-text-2">No rows returned.</p>;
 
     return (
       <>
@@ -247,19 +334,22 @@ export function ExplorationResultsRegion({
           {view === 'grid' && (
             <ExplorationGrid
               columns={geometry.visible}
-              rows={results.rows}
+              rows={rows}
               rangeStart={results.rangeStart}
               geometry={geometry}
               selection={selection}
               actions={actions}
               onRequestFilterValue={(column, operator) => setPendingFilter({column, operator})}
+              onColumnDrag={(name) => {
+                draggedColumn.current = name;
+              }}
               gridRef={gridRef}
             />
           )}
           {view === 'record' && (
             <ExplorationRecordView
               columns={geometry.visible}
-              rows={results.rows}
+              rows={rows}
               rowIndex={recordRow}
               rangeStart={results.rangeStart}
               onRowIndexChange={(next) => onPresentationChange((p) => ({...p, recordRowIndex: next}))}
@@ -269,9 +359,31 @@ export function ExplorationResultsRegion({
           {view === 'text' && (
             <ExplorationTextView
               columns={geometry.visible}
-              rows={results.rows}
+              rows={rows}
               rangeStart={results.rangeStart}
               rangeEnd={results.rangeEnd}
+            />
+          )}
+
+          {groupingOpen && (
+            <GroupingPanel
+              // The SOURCE's columns while grouping is in force, because the result's are
+              // the grouping columns and the aggregate aliases by then — offering those
+              // would let a user group by `count_all`.
+              columns={query.grouping ? schemaColumns : geometry.all}
+              query={query}
+              draggedColumnRef={draggedColumn}
+              onApply={(grouping) => apply(setGrouping(query, grouping))}
+              onClose={() => setGroupingOpen(false)}
+            />
+          )}
+
+          {calcOpen && (
+            <CalcPanel
+              values={selectedValues}
+              state={calc}
+              onStateChange={setCalc}
+              onClose={() => setCalcOpen(false)}
             />
           )}
 
@@ -315,7 +427,7 @@ export function ExplorationResultsRegion({
           size="sm"
           disabledReason={queryControls.clearAllRefusal ?? undefined}
           onClick={queryControls.clearAll}>
-          Remove all filters
+          {queryControls.clearAllLabel}
         </Button>
         <Button
           size="sm"
@@ -338,6 +450,23 @@ export function ExplorationResultsRegion({
           onClick={() => onPresentationChange((p) => ({...p, valuePanelOpen: !p.valuePanelOpen}))}>
           Value
         </Button>
+        {/* Calc runs no query — opening it, changing its functions and re-selecting cells
+            are all free, which is exactly why it aggregates the SELECTION and not the
+            result set (FR-001 AC7). */}
+        <Button
+          size="sm"
+          aria-pressed={calcOpen}
+          onClick={() => setCalcOpen((open) => !open)}>
+          Calc
+        </Button>
+        {/* Grouping is the sibling that is not one: opening the panel is free, but what it
+            applies is a GROUP BY, and that is an execution like any other. */}
+        <Button
+          size="sm"
+          aria-pressed={groupingOpen}
+          onClick={() => setGroupingOpen((open) => !open)}>
+          Grouping
+        </Button>
         {/* The count says "on this page" every time it is said, because that is the only
             thing a selection here can ever mean — Ctrl/Cmd+A included (FR-002 AC4). */}
         <p
@@ -357,6 +486,10 @@ export function ExplorationResultsRegion({
         expression={query.expression}
         onApply={(expression) => apply({expression})}
       />
+
+      {/* Available whether or not grouping is active (FR-005 AC4): the Explorer writes SQL
+          the user did not, grouped or otherwise, and every statement it writes is a bill. */}
+      <GeneratedSqlDisclosure sql={sql} />
 
       {/* One banner at a time, and the exploration's own failure outranks the results
           read: a statement that failed is WHY its rows could not be fetched, and saying
@@ -392,6 +525,7 @@ export function ExplorationResultsRegion({
       {settingsOpen && (
         <OrderFilterDialog
           columns={geometry.all}
+          queryRefusalOf={actions.queryRefusalOf}
           query={query}
           onCancel={() => setSettingsOpen(false)}
           onApply={({query: staged, hiddenColumns, pinnedColumns}) => {

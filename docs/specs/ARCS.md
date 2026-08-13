@@ -1337,6 +1337,26 @@ rather than by widening the Query workspace's.
 > SPEC-155's suppression exists for. FR-008 also settled a question the arc kept asking: **a
 > pre-flight "this looks expensive" confirm is not buildable**, because Athena will not report what
 > a query will scan until it has run it.
+>
+> **SUPERSEDED in part by 182:** `clearAll` no longer preserves the grouping — it clears that too,
+> and the control's label changes to *Remove all filters and grouping* while one is in force. The
+> concern was never the clearing but the silence.
+
+> **182 landed 2026-08-13, and its two panels are the arc's clearest statement of its own premise.**
+> Calc and Grouping look like siblings and are opposites: a **selection** exists only in the browser,
+> so aggregating it server-side would be a billed execution per selection change — Calc therefore
+> issues **zero**, and says "N selected cells **on this page**" every time it says anything. Grouping
+> is the mirror: aggregating in the browser would aggregate whichever rows happened to be fetched,
+> which is the scale lie this feature was designed around, so it renders a real `GROUP BY` and mints
+> an execution like any other change. The percentage column inherits both halves of that argument —
+> computed client-side from rows already fetched (a windowed total would re-scan for a column asked
+> for by eye) and headed **`% of count_all (this page)`**, because only one page is ever in memory.
+> Two things the spec did not name turned out to be load-bearing: **leaving grouping mode has to drop
+> sorts on aggregate aliases** (`count_all` exists only while the grouping does, so FR-003 AC6's
+> "returns to the ungrouped execution, from cache" is otherwise a query Athena rejects), and the
+> ordering refusal belongs on the **Grouping panel's Apply** rather than on a sort control — while a
+> grouping is in force every column a user can see is orderable, so the only reachable way to build
+> the conflict is to sort a column and then group it away.
 
 **The arc is ordered by risk, descending, and its first three specs ship nothing a user can see.**
 That is the rule the whole decomposition follows: layer extractions, shared-model design and the

@@ -143,34 +143,76 @@ function renderWhere(filters: ColumnFilter[], expression: string | null): string
   return clauses.join(' AND ');
 }
 
-function assertOrderingIsGroupable(ordering: SortEntry[], grouping: Grouping): void {
-  // Trino rejects an ORDER BY on a column that is neither grouped nor aggregated. It
-  // rejects it at ANALYSIS, so nothing is scanned and AWS does not bill a failed query —
-  // what refusing here buys is not money but immediacy: the gesture is refused where the
-  // user made it, instead of surfacing seconds later as an engine error the app is
-  // forbidden to render (SPEC-106).
+/**
+ * The first ordered column a grouping cannot serve, if any.
+ *
+ * Trino rejects an `ORDER BY` on a column that is neither grouped nor aggregated. It
+ * rejects it at ANALYSIS, so nothing is scanned and AWS does not bill a failed query —
+ * what refusing buys is not money but immediacy: the gesture is refused where the user
+ * made it, instead of surfacing seconds later as an engine error the app is forbidden to
+ * render (SPEC-106).
+ *
+ * **Exported so the Grouping panel refuses exactly what the renderer refuses** (SPEC-182
+ * FR-004 AC3), on the `isBareNumeric` precedent. It returns the offending COLUMN rather
+ * than a message, because the two callers have to word it differently: this file wraps it
+ * in operator text naming the column, and the panel wraps it in a sentence a user is
+ * allowed to read. A second rule at the panel is a rule that can disagree with this one —
+ * and the way it would disagree is a grouping the panel accepts and the renderer throws
+ * on, which takes the whole exploration down.
+ *
+ * @param ordering - The description's sort entries.
+ * @param grouping - The grouping in force.
+ * @returns The first column that is neither a grouping column nor an aggregate's output, else null.
+ */
+export function groupingOrderingViolation(ordering: SortEntry[], grouping: Grouping): string | null {
   const grouped = new Set(grouping.columns);
   const aggregated = new Set(grouping.aggregates.map(aggregateAlias));
-  for (const entry of ordering) {
-    if (!grouped.has(entry.column) && !aggregated.has(entry.column)) {
-      throw new ExplorationRenderError(`Cannot order by "${entry.column}": it is neither grouped nor aggregated.`);
-    }
+  return ordering.find((entry) => !grouped.has(entry.column) && !aggregated.has(entry.column))?.column ?? null;
+}
+
+function assertOrderingIsGroupable(ordering: SortEntry[], grouping: Grouping): void {
+  const offender = groupingOrderingViolation(ordering, grouping);
+  if (offender !== null) {
+    throw new ExplorationRenderError(`Cannot order by "${offender}": it is neither grouped nor aggregated.`);
   }
 }
 
+/**
+ * The output column name a grouping would produce twice, if any.
+ *
+ * Seeded with the GROUPING COLUMNS rather than the aggregates alone: they are projected
+ * beside the aggregates under their own names, so grouping by a column called `count_all`
+ * while `COUNT(*)` is present yields two result columns of one name — which share one
+ * geometry entry in the grid and make `groupingOrderingViolation` answer for whichever the
+ * reader meant. SPEC-182's panel made that reachable, because any column can be grouped by.
+ *
+ * **Exported for the same reason `groupingOrderingViolation` is**: the panel has to turn
+ * the collision back at the gesture, and the message thrown below is operator text.
+ *
+ * @param grouping - The grouping to check.
+ * @returns The first duplicated output name, or null when every column is distinct.
+ */
+export function groupingNameCollision(grouping: Grouping): string | null {
+  const names = new Set<string>(grouping.columns);
+  for (const aggregate of grouping.aggregates) {
+    const alias = aggregateAlias(aggregate);
+    if (names.has(alias)) return alias;
+    names.add(alias);
+  }
+  return null;
+}
+
 function assertGroupingIsRenderable(grouping: Grouping): void {
-  const aliases = new Set<string>();
   for (const aggregate of grouping.aggregates) {
     if (aggregate.column === '*' && aggregate.fn !== 'COUNT') {
       throw new ExplorationRenderError(`${aggregate.fn}(*) is not a valid aggregate; only COUNT(*) is.`);
     }
-    const alias = aggregateAlias(aggregate);
-    if (aliases.has(alias)) {
-      // Two aggregates producing one name make the ORDER BY check above ambiguous and the
-      // result set's columns indistinguishable. Cheaper to refuse than to disambiguate.
-      throw new ExplorationRenderError(`Two aggregates both produce the column "${alias}".`);
-    }
-    aliases.add(alias);
+  }
+  const collision = groupingNameCollision(grouping);
+  if (collision !== null) {
+    // Cheaper to refuse than to disambiguate: a result set with two columns of one name
+    // has no ordering rule and no geometry key that can tell them apart.
+    throw new ExplorationRenderError(`Two columns of this grouping would both be called "${collision}".`);
   }
   if (grouping.columns.length === 0 && grouping.aggregates.length === 0) {
     throw new ExplorationRenderError('A grouping must have at least one column or aggregate.');
@@ -220,6 +262,13 @@ export function renderExplorationSql(source: ExplorationSource, query: Explorati
   if (grouping && grouping.columns.length > 0) {
     parts.push(`GROUP BY ${grouping.columns.map(sqlIdentifier).join(', ')}`);
   }
+
+  // FR-004 AC1: the duplicate finder. `COUNT(*)` is written out rather than referencing an
+  // aggregate's alias, because the predicate must hold whether or not the user kept the
+  // default `COUNT(*)` among the aggregates — and Trino does not accept a SELECT alias in
+  // a HAVING clause anyway. It follows the GROUP BY and precedes the ORDER BY, which is
+  // the only order Trino parses.
+  if (grouping?.duplicatesOnly) parts.push('HAVING COUNT(*) > 1');
 
   const orderBy = renderOrderBy(ordering);
   if (orderBy) parts.push(`ORDER BY ${orderBy}`);

@@ -15,6 +15,15 @@ export type ExplorationGridHeaderProps = {
   onResetWidth: (name: string) => void;
   /** Drag-drop reorder: `name` takes `target`'s place. */
   onDropColumn: (name: string, target: string) => void;
+  /**
+   * The column a drag is carrying, or null when it ends — for drop targets OUTSIDE the
+   * header (SPEC-182's Grouping panel).
+   *
+   * A callback rather than the panel reading `dataTransfer`, for the reason the local ref
+   * below already exists: `DataTransfer` is not implemented everywhere, and a drop handler
+   * that depends on it works in a browser and nowhere else.
+   */
+  onColumnDrag?: (name: string | null) => void;
   /** Clicking the header selects the whole column (FR-002 AC3). */
   onSelectColumn: (name: string) => void;
   /** Ordering and filtering, for each column's own menu (SPEC-181 FR-001). */
@@ -42,6 +51,7 @@ export function ExplorationGridHeader({
   onResize,
   onResetWidth,
   onDropColumn,
+  onColumnDrag,
   onSelectColumn,
   actions,
   onRequestFilterValue
@@ -90,10 +100,12 @@ export function ExplorationGridHeader({
               role="presentation"
               onDragStart={(e) => {
                 dragging.current = column.name;
+                onColumnDrag?.(column.name);
                 e.dataTransfer?.setData('text/plain', column.name);
               }}
               onDragEnd={() => {
                 dragging.current = null;
+                onColumnDrag?.(null);
               }}
               className="block cursor-grab truncate active:cursor-grabbing"
               title={column.name}>

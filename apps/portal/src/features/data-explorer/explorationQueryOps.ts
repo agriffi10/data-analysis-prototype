@@ -1,4 +1,12 @@
-import type {ColumnFilter, ExplorationQuery, FilterOperator, FilterValueKind, SortEntry} from './dataExplorer.types';
+import {aggregateAlias, groupingNameCollision, groupingOrderingViolation} from './renderExplorationSql';
+import type {
+  ColumnFilter,
+  ExplorationQuery,
+  FilterOperator,
+  FilterValueKind,
+  Grouping,
+  SortEntry
+} from './dataExplorer.types';
 
 // The pure edits every filtering and ordering surface makes to a query description
 // (SPEC-181). They live apart from the components for the reason `exploration.ts` gives
@@ -74,9 +82,33 @@ export function filterValueKind(type: string): FilterValueKind {
   return normalized.startsWith('decimal(') || normalized === 'decimal' ? 'number' : 'string';
 }
 
-/** A description with nothing to clear: no filters, no expression, no ordering. */
+/**
+ * A description with nothing to clear: no filters, no expression, no ordering, no grouping.
+ *
+ * Grouping counts from SPEC-182 (FR-006 AC3), superseding SPEC-181's deliberate exclusion:
+ * Clear all now clears the grouping too, so a grouped view with no filters is no longer
+ * "empty" — a control that refused there would refuse the only thing left to clear.
+ */
 export function isEmptyQuery(query: ExplorationQuery): boolean {
-  return query.filters.length === 0 && query.ordering.length === 0 && !query.expression?.trim();
+  return (
+    query.filters.length === 0 && query.ordering.length === 0 && !query.expression?.trim() && query.grouping === null
+  );
+}
+
+// A grouping's ARRAYS are not sorted, unlike the filters and the ordering below: their
+// order is the projection's and the GROUP BY's, so two groupings listing the same columns
+// differently render different SQL and are different queries. Only the two flags are
+// normalised — a document written before SPEC-182 carries neither, and an absent flag
+// comparing unequal to `false` would push a history entry for an apply that changed
+// nothing.
+function canonicalGrouping(grouping: ExplorationQuery['grouping']) {
+  if (!grouping) return null;
+  return {
+    columns: grouping.columns,
+    aggregates: grouping.aggregates.map((a) => [a.fn, a.column]),
+    duplicatesOnly: grouping.duplicatesOnly === true,
+    showPercentage: grouping.showPercentage === true
+  };
 }
 
 // Compared on a CANONICAL form rather than field by field: `filters` and `ordering` are
@@ -95,7 +127,7 @@ function canonical(query: ExplorationQuery): string {
       .sort((a, b) => a.column.localeCompare(b.column) || a.operator.localeCompare(b.operator)),
     expression: query.expression?.trim() || null,
     ordering: [...query.ordering].sort((a, b) => a.priority - b.priority).map((e) => [e.column, e.direction]),
-    grouping: query.grouping
+    grouping: canonicalGrouping(query.grouping)
   });
 }
 
@@ -208,6 +240,62 @@ export function moveSortPriority(query: ExplorationQuery, column: string, direct
   // the priorities they had, so sorting by them would put the two back where they were and
   // the move would be a silent no-op (found by the test that drives the ↑ control).
   return {...query, ordering: stamp(sorted)};
+}
+
+/**
+ * Applies a grouping to a description, or leaves grouping mode (SPEC-182 FR-003).
+ *
+ * **Grouping mode is exactly "at least one grouping column"** (AC6). A grouping with no
+ * columns is legal SQL — a global aggregate over the whole table — but it is not what the
+ * panel is for, and expressing "no columns left" as anything other than "not grouped"
+ * would leave the user in a mode with nothing in it.
+ *
+ * Leaving grouping mode **drops any sort on an aggregate's output column**, which is the
+ * half that is easy to miss: `count_all` exists only while the grouping does, so an
+ * ORDER BY carrying it onto the ungrouped table is a query Athena rejects — and it would
+ * also miss the cached ungrouped execution AC6 promises to return to.
+ *
+ * @param query - The description to edit.
+ * @param grouping - The grouping to apply, or null to leave grouping mode.
+ * @returns A new description.
+ */
+export function setGrouping(query: ExplorationQuery, grouping: Grouping | null): ExplorationQuery {
+  if (grouping && grouping.columns.length > 0) return {...query, grouping};
+
+  const aliases = new Set((query.grouping?.aggregates ?? []).map(aggregateAlias));
+  return {...query, grouping: null, ordering: restamp(query.ordering.filter((e) => !aliases.has(e.column)))};
+}
+
+/**
+ * Why applying a grouping would be refused, for `Button.disabledReason`.
+ *
+ * The reachable way to build this conflict is to sort a column and then group it away, so
+ * the refusal belongs on the Grouping panel's own Apply and names the offending sort —
+ * "clear that sort first" is the only way out. It is **not** the only guard the rule needs:
+ * a grouped result also carries the calculated percentage column, which is in no statement
+ * at all, so every per-column sort and filter surface asks `queryRefusalOf` first
+ * (`ColumnQueryActions`). Found in review — the header menu offered that column a sort,
+ * and taking it put the whole exploration behind an error banner.
+ *
+ * The rule is the RENDERER's (`groupingOrderingViolation`), not a copy of it: the message
+ * the renderer throws names a column and an operator, which SPEC-106 forbids showing
+ * anyone, so the refusal has to be worded here — but a second rule here could disagree,
+ * and the way it would disagree is a grouping this accepts and the renderer throws on.
+ *
+ * @param query - The description the grouping would be applied to.
+ * @param grouping - The proposed grouping, or null to leave grouping mode.
+ * @returns The reason, or null when the grouping can be applied.
+ */
+export function groupingApplyRefusal(query: ExplorationQuery, grouping: Grouping | null): string | null {
+  // Leaving grouping mode drops the sorts that could not survive it, so it never refuses.
+  if (!grouping || grouping.columns.length === 0) return null;
+  const collision = groupingNameCollision(grouping);
+  if (collision !== null) {
+    return `Two of these would both be called “${collision}” — remove one of them.`;
+  }
+  const offender = groupingOrderingViolation(query.ordering, grouping);
+  if (offender === null) return null;
+  return `Remove the sort on “${offender}” first — a grouped result can only be sorted by a grouping column or an aggregate.`;
 }
 
 /**

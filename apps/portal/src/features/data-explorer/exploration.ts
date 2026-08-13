@@ -3,6 +3,7 @@ import type {
   ExplorationPresentation,
   ExplorationQuery,
   ExplorationSource,
+  Grouping,
   QueryHistoryCursor
 } from './dataExplorer.types';
 
@@ -34,6 +35,19 @@ export function newExplorationId(): string {
  */
 export function emptyExplorationQuery(): ExplorationQuery {
   return {filters: [], expression: null, ordering: [], grouping: null};
+}
+
+/**
+ * The grouping a panel starts from: no columns yet, and `COUNT(*)` (SPEC-182 FR-003 AC2).
+ *
+ * `COUNT(*)` is present by default because a grouping with no aggregate answers nothing —
+ * it is a distinct list — and "how many in each" is the question grouping is nearly always
+ * asked for. It is removable like any other aggregate.
+ *
+ * @returns A draft grouping, not yet in grouping mode (it has no columns).
+ */
+export function emptyGrouping(): Grouping {
+  return {columns: [], aggregates: [{fn: 'COUNT', column: '*'}], duplicatesOnly: false, showPercentage: false};
 }
 
 /**

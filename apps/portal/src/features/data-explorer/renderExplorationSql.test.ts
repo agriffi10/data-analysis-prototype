@@ -1,12 +1,25 @@
 import {describe, expect, it} from 'vitest';
-import {ExplorationRenderError, aggregateAlias, renderExplorationSql} from './renderExplorationSql';
-import {emptyExplorationQuery, newExploration} from './exploration';
-import type {ExplorationQuery, ExplorationSource} from './dataExplorer.types';
+import {
+  ExplorationRenderError,
+  aggregateAlias,
+  groupingOrderingViolation,
+  renderExplorationSql
+} from './renderExplorationSql';
+import {emptyExplorationQuery, emptyGrouping, newExploration} from './exploration';
+import type {ExplorationQuery, ExplorationSource, Grouping} from './dataExplorer.types';
 
 const TABLE: ExplorationSource = {kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'};
 const SQL_SOURCE: ExplorationSource = {kind: 'sql', body: 'SELECT * FROM alice.orders', label: 'Monthly'};
 
 const q = (over: Partial<ExplorationQuery> = {}): ExplorationQuery => ({...emptyExplorationQuery(), ...over});
+/** A grouping with SPEC-182's flags off unless a case is about them. */
+const g = (over: Partial<Grouping> = {}): Grouping => ({
+  columns: [],
+  aggregates: [],
+  duplicatesOnly: false,
+  showPercentage: false,
+  ...over
+});
 
 describe('renderExplorationSql — the source arms (FR-002)', () => {
   it('renders a table source as a quoted, qualified FROM', () => {
@@ -265,13 +278,13 @@ describe('renderExplorationSql — grouping (FR-002 AC5)', () => {
     const sql = renderExplorationSql(
       TABLE,
       q({
-        grouping: {
+        grouping: g({
           columns: ['status'],
           aggregates: [
             {fn: 'COUNT', column: '*'},
             {fn: 'SUM', column: 'qty'}
           ]
-        }
+        })
       })
     );
     expect(sql).toBe(
@@ -289,7 +302,7 @@ describe('renderExplorationSql — grouping (FR-002 AC5)', () => {
   });
 
   it('allows an ORDER BY on a grouped column or an aggregate alias', () => {
-    const grouping = {columns: ['status'], aggregates: [{fn: 'COUNT' as const, column: '*' as const}]};
+    const grouping = g({columns: ['status'], aggregates: [{fn: 'COUNT', column: '*'}]});
     expect(
       renderExplorationSql(TABLE, q({grouping, ordering: [{column: 'status', direction: 'asc', priority: 0}]}))
     ).toContain('ORDER BY "status" ASC');
@@ -306,7 +319,7 @@ describe('renderExplorationSql — grouping (FR-002 AC5)', () => {
       renderExplorationSql(
         TABLE,
         q({
-          grouping: {columns: ['status'], aggregates: [{fn: 'COUNT', column: '*'}]},
+          grouping: g({columns: ['status'], aggregates: [{fn: 'COUNT', column: '*'}]}),
           ordering: [{column: 'placed_at', direction: 'asc', priority: 0}]
         })
       )
@@ -323,7 +336,7 @@ describe('renderExplorationSql — grouping (FR-002 AC5)', () => {
 
   it('refuses a non-COUNT aggregate over `*`', () => {
     expect(() =>
-      renderExplorationSql(TABLE, q({grouping: {columns: ['status'], aggregates: [{fn: 'SUM', column: '*'}]}}))
+      renderExplorationSql(TABLE, q({grouping: g({columns: ['status'], aggregates: [{fn: 'SUM', column: '*'}]})}))
     ).toThrow(ExplorationRenderError);
   });
 
@@ -332,34 +345,104 @@ describe('renderExplorationSql — grouping (FR-002 AC5)', () => {
       renderExplorationSql(
         TABLE,
         q({
-          grouping: {
+          grouping: g({
             columns: [],
             aggregates: [
               {fn: 'COUNT', column: 'qty'},
               {fn: 'COUNT', column: 'qty'}
             ]
-          }
+          })
         })
       )
-    ).toThrow(/both produce the column/);
+    ).toThrow(/both be called/);
+  });
+
+  it('refuses a grouping COLUMN whose name an aggregate would also produce', () => {
+    // The half the aggregate-vs-aggregate check above misses: grouping columns are
+    // projected beside the aggregates under their own names, so a column called
+    // `count_all` beside the default COUNT(*) yields two result columns of one name —
+    // one geometry key in the grid, and an ORDER BY that cannot say which it means.
+    // SPEC-182's panel made this reachable, because ANY column can be grouped by.
+    expect(() =>
+      renderExplorationSql(TABLE, q({grouping: g({columns: ['count_all'], aggregates: [{fn: 'COUNT', column: '*'}]})}))
+    ).toThrow(/both be called "count_all"/);
+
+    // And the pair: the same column with no colliding aggregate renders fine, so the
+    // check cannot be passing by refusing every grouping.
+    expect(
+      renderExplorationSql(TABLE, q({grouping: g({columns: ['count_all'], aggregates: [{fn: 'SUM', column: 'qty'}]})}))
+    ).toContain('GROUP BY "count_all"');
   });
 
   it('refuses an empty grouping rather than rendering a bare GROUP BY', () => {
-    expect(() => renderExplorationSql(TABLE, q({grouping: {columns: [], aggregates: []}}))).toThrow(
-      ExplorationRenderError
-    );
+    expect(() => renderExplorationSql(TABLE, q({grouping: g()}))).toThrow(ExplorationRenderError);
   });
 
   it('renders aggregates with no grouping columns and emits NO GROUP BY', () => {
-    const sql = renderExplorationSql(TABLE, q({grouping: {columns: [], aggregates: [{fn: 'COUNT', column: '*'}]}}));
+    const sql = renderExplorationSql(TABLE, q({grouping: g({aggregates: [{fn: 'COUNT', column: '*'}]})}));
     expect(sql).toBe('SELECT COUNT(*) AS "count_all"\nFROM "alice"."orders"');
     expect(sql).not.toContain('GROUP BY');
+  });
+
+  it('emits HAVING COUNT(*) > 1 for duplicates only, between the GROUP BY and the ORDER BY', () => {
+    // SPEC-182 FR-004 AC1. The clause order is the only one Trino parses, and `COUNT(*)`
+    // is written out rather than referencing an alias — Trino does not accept a SELECT
+    // alias in a HAVING, and the predicate must hold whether or not the user kept the
+    // default aggregate.
+    const sql = renderExplorationSql(
+      TABLE,
+      q({
+        grouping: g({columns: ['status'], aggregates: [{fn: 'COUNT', column: '*'}], duplicatesOnly: true}),
+        ordering: [{column: 'count_all', direction: 'desc', priority: 0}]
+      })
+    );
+    expect(sql).toBe(
+      'SELECT "status", COUNT(*) AS "count_all"\n' +
+        'FROM "alice"."orders"\n' +
+        'GROUP BY "status"\n' +
+        'HAVING COUNT(*) > 1\n' +
+        'ORDER BY "count_all" DESC'
+    );
+  });
+
+  it('emits no HAVING when duplicates-only is off, and none from the percentage flag ever', () => {
+    // `showPercentage` is computed in the browser from rows already fetched — if it ever
+    // reached the SQL it would be a second scan for a column the user asked to SEE.
+    const sql = renderExplorationSql(
+      TABLE,
+      q({grouping: g({columns: ['status'], aggregates: [{fn: 'COUNT', column: '*'}], showPercentage: true})})
+    );
+    expect(sql).not.toContain('HAVING');
+    expect(sql).toBe('SELECT "status", COUNT(*) AS "count_all"\nFROM "alice"."orders"\nGROUP BY "status"');
+  });
+
+  it('names the offending ordered column through the same rule the refusal uses', () => {
+    // Exported so SPEC-182's panel refuses exactly what this refuses — the thrown message
+    // names a column and an operator, which SPEC-106 forbids showing a user, so the panel
+    // has to word its own refusal from the column alone.
+    const grouping = g({columns: ['status'], aggregates: [{fn: 'COUNT', column: '*'}]});
+    expect(groupingOrderingViolation([{column: 'placed_at', direction: 'asc', priority: 0}], grouping)).toBe(
+      'placed_at'
+    );
+    expect(groupingOrderingViolation([{column: 'status', direction: 'asc', priority: 0}], grouping)).toBeNull();
+    expect(groupingOrderingViolation([{column: 'count_all', direction: 'asc', priority: 0}], grouping)).toBeNull();
+    expect(groupingOrderingViolation([], grouping)).toBeNull();
+  });
+
+  it('starts a panel’s draft with COUNT(*) and no columns — which is NOT grouping mode', () => {
+    const draft = emptyGrouping();
+    expect(draft).toEqual({
+      columns: [],
+      aggregates: [{fn: 'COUNT', column: '*'}],
+      duplicatesOnly: false,
+      showPercentage: false
+    });
   });
 
   it('composes grouping over the sql arm identically', () => {
     const sql = renderExplorationSql(
       SQL_SOURCE,
-      q({grouping: {columns: ['status'], aggregates: [{fn: 'COUNT', column: '*'}]}})
+      q({grouping: g({columns: ['status'], aggregates: [{fn: 'COUNT', column: '*'}]})})
     );
     expect(sql).toBe(
       'SELECT "status", COUNT(*) AS "count_all"\n' +
