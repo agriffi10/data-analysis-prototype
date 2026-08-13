@@ -182,6 +182,15 @@ Add a row when a spec is created; update its status on completion (status only �
 | 174 — Saved Queries: Loading from a Chosen Space | Completed |
 | 175 — Saved Queries: Saving into a Chosen Space | Completed |
 | 176 — Extracting `features/catalog/` — the Shared Catalog & Execution Layer | Completed |
+| 177 — Extracting `features/saved-queries/` — the Shared `.sql` Store | Draft |
+| 178 — The Exploration Model, the SQL Renderer & the Execution Cache | Draft |
+| 179 — Data Explorer: the Feature Flag, the `/explore` Route & the Shell | Draft |
+| 180 — The Grid, Cell Selection, the Value Panel & the Record View | Draft |
+| 181 — Filtering and Ordering | Draft |
+| 182 — The Calc and Grouping Panels | Draft |
+| 183 — Saved Queries in the Data Explorer | Draft |
+| 184 — Presentation and Formatting | Draft |
+| 185 — Copy, Export, Help & the Arc's Live Checks | Draft |
 
 ## Arcs
 
