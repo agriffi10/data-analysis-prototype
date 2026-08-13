@@ -1277,7 +1277,7 @@ destroy it" are different guarantees, and only one of them survives a stale cach
 > drift apart. Choosing a different space **copies**; nothing in this arc ever moves or deletes a
 > colleague's file.
 
-## Data Explorer arc (SPEC-176 → 185 — filed 2026-08-13; 176 COMPLETE)
+## Data Explorer arc (SPEC-176 → 185 — filed 2026-08-13; 176 → 177 COMPLETE)
 
 The portal can already run SQL. What it cannot do is let someone **look at a table** without writing
 any — pick a database and a table, see its rows, page through them. That is the Data Explorer, and
@@ -1296,8 +1296,13 @@ that is already working rather than one added afterwards. A spec that ships noth
 fine way to open an arc when it is the change most likely to go wrong.
 
 **177** takes the saved-query store out too, deliberately separated from 176 so a harder move cannot
-block the one everything else is built on. **179 onward** build the surface itself — the picker and
-the grid — as their own components rather than by widening the Query workspace's.
+block the one everything else is built on. It landed the same way — nothing user-visible, nothing
+live owed — and its one deliberate change is the point of the whole extraction: `useSaveQuery` now
+takes **`{sql, link}`** rather than a `QueryTab`, a shape the Data Explorer has no way to produce, so
+SPEC-183 reuses SPEC-175's collision-and-confirm path instead of reimplementing it. Only
+`SavedQueriesPanel` stayed behind, because it is a workspace rail surface rather than part of the
+store. **179 onward** build the surface itself — the picker and the grid — as their own components
+rather than by widening the Query workspace's.
 
 **The arc is ordered by risk, descending, and its first four specs ship nothing a user can see.**
 That is the rule the whole decomposition follows: layer extractions, shared-model design and the
