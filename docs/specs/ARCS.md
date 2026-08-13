@@ -1277,7 +1277,7 @@ destroy it" are different guarantees, and only one of them survives a stale cach
 > drift apart. Choosing a different space **copies**; nothing in this arc ever moves or deletes a
 > colleague's file.
 
-## Data Explorer arc (176 → …)
+## Data Explorer arc (SPEC-176 → 185 — filed 2026-08-13; 176 COMPLETE)
 
 The portal can already run SQL. What it cannot do is let someone **look at a table** without writing
 any — pick a database and a table, see its rows, page through them. That is the Data Explorer, and
@@ -1298,6 +1298,91 @@ fine way to open an arc when it is the change most likely to go wrong.
 **177** takes the saved-query store out too, deliberately separated from 176 so a harder move cannot
 block the one everything else is built on. **179 onward** build the surface itself — the picker and
 the grid — as their own components rather than by widening the Query workspace's.
+
+**The arc is ordered by risk, descending, and its first four specs ship nothing a user can see.**
+That is the rule the whole decomposition follows: layer extractions, shared-model design and the
+injection surface go at the front; polish, formatting and help go at the back. The alternative
+ordering — shell first, so there is something to look at — buys a demo and pays for it by
+discovering structural problems after several specs have built on them.
+
+**178 is the engine, and it is where the arc's two hardest decisions live.** The first is that
+**filter, order and grouping render SQL, and everything else is presentation** — column visibility,
+order, pinning, width, colour and transformers must never change the rendered SQL, so they cost
+nothing and apply instantly. That means `SELECT *` always: narrowing the projection to the visible
+columns would cut bytes scanned on Parquet, and would also turn un-hiding a column into a billed
+several-second re-run, making cost depend on a gesture users read as cosmetic. The rule is enforced
+by `renderExplorationSql`'s **signature** — it takes the source and the query description and
+nothing else, so a function that cannot reach presentation cannot be made to depend on it by a
+later edit.
+
+The second is that this is **the first place in the repo where the browser interpolates
+user-supplied values into SQL**. Everything the portal builds today is either typed into Monaco or
+assembled from identifiers already validated against `CATALOG_IDENTIFIER_RE`; a filter value is
+neither, and there was no TypeScript literal escaper. 178 adds one, and it is the **Trino/DML** rule
+(double the single quote), not the Hive/DDL backslash rule the Python side carries for a different
+dialect — the repo's "two escapers, never confused" note gains its TypeScript half here. The raw
+expression bar does not relax this: the bar is the *user's own SQL* and passes through verbatim, as
+Monaco's does, while the **per-column menus and filter-by-cell-value** are the app composing SQL
+around a value the user never wrote as SQL. A cell containing `O'Brien` filtered by `=` is the whole
+hazard in one click, and it arrives from real data long before anyone thinks to type it.
+
+**Everything is server-side, and the forward-only cursor stops mattering because of it.** Athena's
+`GetQueryResults` gives a `NextToken` with no random access and no re-sort of a finished result,
+which reads like a blocker for an Excel-like grid. It is not, once the engine is one **execution per
+distinct rendered SQL**: paging *within* an execution is free — those calls scan no extra bytes, a
+property `useResultRowCount` already relies on — so Prev/Next never bills and only filter, order and
+grouping do. Toggling a sort back is a cache hit rather than a second charge. There is deliberately
+**no client-side toggle**: DBeaver offers one, and here the client half cannot be made honest, since
+sorting whichever rows happened to be fetched is a lie a grid this Excel-like would tell
+convincingly.
+
+**Cost is the through-line, and it can only ever be reported, never predicted.** Athena will not say
+what a query will scan before running it, so a "this looks expensive, continue?" confirm is not
+buildable; the guards are the workgroup's per-query bytes cutoff and honest after-the-fact
+reporting. Which is why filters apply on an **explicit gesture, never per keystroke** — a keystroke
+would be a query.
+
+**180 → 182 build the surface, and the two analysis panels land on opposite sides of the
+client/server line** — not as a compromise, but because of what each one is. **Calc** aggregates the
+current cell *selection*, which exists only in the browser, so it computes client-side and says so;
+a query per selection change would be absurd for a gesture as cheap as dragging across ten cells.
+**Grouping** *is* a `GROUP BY`, so it renders SQL and mints an execution like any other query
+change. Because grouping generates SQL the user did not write, and that SQL is an invoice, the panel
+**discloses it** — DBeaver's Query button is a nicety there and the difference between understanding
+a charge and not, here.
+
+**183 is where the arc's model earns its shape.** A saved `.sql` file cannot be reverse-engineered
+into a table plus filters without a SQL parser, so a loaded file is a **source**, not a view state —
+which makes `ExplorationSource` a union: `table` renders `FROM "db"."table"`, `sql` renders
+`FROM (<body>) AS t`, and filters, ordering and grouping compose over either arm without knowing
+which. The union therefore lives in **178**, with only the `table` arm reachable for five specs;
+retrofitting it at 183 would have touched every spec in between. The arc's most user-visible loss is
+here and is accepted rather than hidden: **a saved exploration reloads as a query, not as an
+exploration**, its filters baked into the SQL rather than returning as editable chips. The
+alternative is a sidecar JSON carrying the view state, rejected because SPEC-173 settled that a
+saved query is a `.sql` **file** in an ordinary folder — a sidecar reintroduces exactly the JSON
+store that spec deleted, plus a second artifact to keep in sync with a file users can freely rename,
+edit or delete from the file browser.
+
+**The flag is independent, and the expression bar is not gated on `query`.** `dataExplorer` stands
+alone, so an environment can ship the grid while keeping the SQL editor hidden — arguably the main
+reason to want the feature. The tempting corollary is that the free-text `WHERE` box should then
+follow the `query` flag, and that is a category error against a rule the project already settled: a
+feature flag is **presentation, never authorization** (SPEC-162). It revokes no grant, the IAM
+boundary is identical either way, and gating the bar would buy no security while leaving the feature
+unable to express what analysts actually filter on. The accepted cost is stated plainly — an
+environment that turns `query` off to *tidy SQL away* will still be offering a SQL input on this
+page.
+
+**Four of DBeaver's surfaces are excluded by nature rather than by scope.** Chart, Spatial/GIS and
+the JSON/XML presentations have no column types here to render, and the **References panel is
+impossible**: Glue has no foreign keys, so "related rows via FK" has nothing to read. The whole
+write half of DBeaver's Data Editor — inline edit, row add/duplicate/delete, save, generated DML,
+virtual keys — is out for the same kind of reason: an Athena result is not an editable table.
+
+**The arc needs no IaC and no IAM.** The Athena and Glue grants exist, results land in the
+already-granted `{username}/athenaresults/` prefix, and the only non-app change in ten specs is
+`config/feature-flags.json` plus the `deploy-config.yml` matrix that SPEC-162's validator reads.
 
 > **176 landed 2026-08-13.** Two things the spec did not anticipate, both worth carrying. Its scope
 > claim that only one file outside `features/query/` was affected was **wrong — six were**, and the
