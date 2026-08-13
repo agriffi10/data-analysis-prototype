@@ -82,30 +82,6 @@ def _expected_items(event) -> int:
     return expected
 
 
-def _results_location(event) -> tuple:
-    """Reads where the Map Run exported its results.
-
-    Args:
-      event: The request, carrying the Map state's output.
-
-    Returns:
-      ``(bucket, key)`` of the run's manifest.
-
-    Raises:
-      TerminalError: ``transfer_results_unreadable`` when the Map state reported no export. The
-        run finished by the time this verb is invoked, so an absent pointer is a fault rather
-        than a race.
-    """
-    details = (event.get("mapRun") or {}).get("ResultWriterDetails") or {}
-    bucket, key = details.get("Bucket"), details.get("Key")
-    if not bucket or not key:
-        raise TerminalError(
-            RESULTS_UNREADABLE,
-            "the transfer ran but its results export was not reported by the Map state",
-        )
-    return bucket, key
-
-
 @observability.traced("collect-transfer-results")
 @notify.notifies_on_failure("collect")
 def handler(event, context) -> dict:
@@ -148,7 +124,7 @@ def _collect_transfer_results(event) -> dict:
       TransientError: On a retryable S3 fault.
     """
     expected = _expected_items(event)
-    bucket, key = _results_location(event)
+    bucket, key = results_mod.results_location(event, unreadable_reason=RESULTS_UNREADABLE)
 
     outcome = results_mod.read_failed_items(
         bucket,

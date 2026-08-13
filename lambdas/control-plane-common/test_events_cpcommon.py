@@ -107,3 +107,99 @@ def test_the_default_path_is_untouched_by_the_new_parameter():
         assert exc.detail == "empty event"
     else:
         raise AssertionError("expected TerminalError")
+
+
+# ── timed_out_execution_input — the second door's read-back ──────────────────
+#
+# Consolidates the `_timed_out_input` copy that file-send and archive notify-failure each
+# carried. Both doors kept a test that they are WIRED to this; the mechanism's own branches,
+# and every way it can decline to answer, are exercised once here.
+
+
+class _FakeSfn:
+    """Step Functions, for the read-back the timeout door falls back to."""
+
+    def __init__(self, described=None, error=None):
+        self._described = described
+        self._error = error
+        self.calls = []
+
+    def describe_execution(self, executionArn):
+        self.calls.append(executionArn)
+        if self._error:
+            raise self._error
+        return self._described or {}
+
+
+@pytest.fixture
+def sfn(monkeypatch):
+    """Installs a fake Step Functions client and hands it back for assertions."""
+    fake = _FakeSfn()
+    monkeypatch.setattr(events.clients, "sfn", lambda: fake)
+    return fake
+
+
+def test_the_event_s_own_input_is_used_when_it_carries_one(sfn):
+    """One API call per timeout at most, and none at all in the common case."""
+    detail = {"input": '{"a":1}', "inputDetails": {"included": True}}
+
+    assert events.timed_out_execution_input(detail) == '{"a":1}'
+    assert sfn.calls == []
+
+
+def test_the_input_is_read_back_when_eventbridge_dropped_it(sfn):
+    """EventBridge caps an event at 256 KB and Step Functions drops the input rather than exceed
+    it, so on a plane whose item cap approaches 200 KB the biggest requests — the ones that run
+    long enough to time out — are exactly the ones the event alone cannot attribute."""
+    sfn._described = {"input": '{"recovered":true}'}
+    detail = {"inputDetails": {"included": False}, "executionArn": "arn:x"}
+
+    assert events.timed_out_execution_input(detail) == '{"recovered":true}'
+    assert sfn.calls == ["arn:x"]
+
+
+def test_an_empty_input_is_read_back_even_though_included_is_true(sfn):
+    """`included: true` with an empty string is still nothing to attribute — the read-back is
+    gated on having usable input, not on the flag alone."""
+    sfn._described = {"input": '{"recovered":true}'}
+
+    assert events.timed_out_execution_input({"input": "", "executionArn": "arn:x"}) == (
+        '{"recovered":true}'
+    )
+    assert sfn.calls == ["arn:x"]
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "not-an-object",
+        None,
+        {"inputDetails": {"included": False}},
+        {"inputDetails": {"included": False}, "executionArn": ""},
+        {"inputDetails": {"included": False}, "executionArn": 42},
+    ],
+    ids=["detail-not-an-object", "no-detail", "no-arn", "blank-arn", "arn-not-a-string"],
+)
+def test_an_unattributable_detail_yields_no_input_rather_than_raising(detail, sfn):
+    """A raise would be an async Lambda failure, and EventBridge RETRIES those — turning one
+    unattributable event into three."""
+    assert events.timed_out_execution_input(detail) == ""
+    assert sfn.calls == []
+
+
+def test_a_failed_read_back_yields_no_input_rather_than_raising(monkeypatch):
+    """Same reason: the caller degrades to no addressee and logs it, which is a no-op. An
+    AccessDenied here must not become three retried invocations."""
+    fake = _FakeSfn(error=RuntimeError("AccessDenied"))
+    monkeypatch.setattr(events.clients, "sfn", lambda: fake)
+
+    assert events.timed_out_execution_input({"inputDetails": {"included": False}, "executionArn": "arn:x"}) == ""
+    assert fake.calls == ["arn:x"]
+
+
+def test_a_described_execution_with_no_usable_input_yields_no_input(monkeypatch):
+    """DescribeExecution answered, but with nothing to parse — indistinguishable, for the
+    caller's purposes, from not having asked."""
+    monkeypatch.setattr(events.clients, "sfn", lambda: _FakeSfn(described={"input": None}))
+
+    assert events.timed_out_execution_input({"inputDetails": {"included": False}, "executionArn": "arn:x"}) == ""

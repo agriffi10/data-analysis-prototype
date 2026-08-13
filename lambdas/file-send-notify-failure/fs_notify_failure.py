@@ -45,7 +45,7 @@ Attributes:
 import json
 import logging
 
-from cpcommon import auth, clients, events, observability
+from cpcommon import auth, events, observability
 from cpcommon.errors import TerminalError, failure_reason
 from fscommon import messages, notify
 
@@ -80,46 +80,6 @@ def _is_execution_timeout(event) -> bool:
     return isinstance(event, dict) and event.get("detail-type") == _TIMEOUT_DETAIL_TYPE
 
 
-def _timed_out_input(detail: dict) -> str:
-    """Returns the timed-out execution's input, fetching it back when the event omitted it.
-
-    **THE FALLBACK IS NOT BELT AND BRACES ON THIS PLANE — it is the ordinary case for the sends
-    most likely to time out.** EventBridge caps an event at 256 KB, and Step Functions drops the
-    input and sets ``inputDetails.included: false`` rather than exceed it. A file-send execution
-    input is the Pipe's record, which ``SEND_MAX_ITEM_BYTES`` deliberately allows to approach
-    200 KB — so the biggest sends, which are exactly the ones that run for three hours, are the
-    ones whose sender the event alone cannot name. Table-share's inputs are a table name and a
-    recipient list, which is why its door needs no fallback and why inheriting its shape without
-    re-checking would have left this half-delivered.
-
-    ``DescribeExecution`` returns the input whole, and is the one extra grant this door needs.
-
-    Args:
-      detail: The EventBridge event's ``detail`` block.
-
-    Returns:
-      The execution input as a JSON string, or an empty string when it cannot be obtained.
-
-    Raises:
-      None. A failed lookup degrades to no sender, which the caller logs as a no-op — a raise
-      would be an async Lambda failure, and EventBridge retries those.
-    """
-    raw = detail.get("input")
-    if (detail.get("inputDetails") or {}).get("included") is not False and isinstance(raw, str) and raw:
-        return raw
-
-    arn = detail.get("executionArn")
-    if not isinstance(arn, str) or not arn:
-        return ""
-    try:
-        described = clients.sfn().describe_execution(executionArn=arn)
-    except Exception as exc:  # noqa: BLE001
-        logger.info("could not read the timed-out execution's input back: %s", exc)
-        return ""
-    fetched = described.get("input")
-    return fetched if isinstance(fetched, str) else ""
-
-
 def _on_execution_timed_out(event) -> dict:
     """Notifies the sender that the whole run was stopped by the machine's own timeout.
 
@@ -144,7 +104,7 @@ def _on_execution_timed_out(event) -> dict:
     if not isinstance(detail, dict):
         logger.info("timed-out execution event carries no detail object")
     else:
-        raw = _timed_out_input(detail)
+        raw = events.timed_out_execution_input(detail)
         if not raw:
             logger.info("timed-out execution carries no input; nobody can be attributed")
         else:

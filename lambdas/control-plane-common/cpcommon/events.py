@@ -6,14 +6,21 @@ opaque failure with no actor notification. These helpers turn that into a typed
 ``TerminalError`` with a specific reason, so the failure is both recorded meaningfully and
 surfaced to the actor.
 
+``timed_out_execution_input`` reads the other event shape a plane can receive: the EventBridge
+status-change event that reaches a notify-failure verb through its second door.
+
 Attributes:
   MALFORMED: Stable reason code for a bad task input, registered in ``cpcommon.messages``.
 """
 
 import json
+import logging
 from typing import Any
 
+from . import clients
 from .errors import TerminalError
+
+logger = logging.getLogger()
 
 MALFORMED = "malformed_event"
 
@@ -94,3 +101,45 @@ def require(event: Any, *path: str, reason: str = MALFORMED) -> Any:
     if node is None or (isinstance(node, str) and not node.strip()):
         raise TerminalError(reason, f"empty required field {'.'.join(path)!r}")
     return node
+
+
+def timed_out_execution_input(detail: Any) -> str:
+    """Returns a timed-out execution's input, fetching it back when the event omitted it.
+
+    **The fallback is the ordinary case on any plane whose item cap approaches 200 KB**, not belt
+    and braces. EventBridge caps an event at 256 KB, and Step Functions drops the input and sets
+    ``inputDetails.included: false`` rather than exceed it. Where a plane's execution input is the
+    Pipe's record — file-send and archive both allow one to approach 200 KB — the biggest requests
+    are the ones that run long enough to time out, so they are exactly the ones the event alone
+    cannot attribute. ``DescribeExecution`` returns the input whole, and is the one extra grant
+    such a door needs. A plane whose inputs are small (table-share's are a table name and a
+    recipient list) needs no fallback, which is why this is a shared helper rather than a shared
+    assumption.
+
+    Args:
+      detail: The EventBridge event's ``detail`` block.
+
+    Returns:
+      The execution input as a JSON string, or an empty string when it cannot be obtained.
+
+    Raises:
+      None. A failed lookup degrades to no input, which the caller turns into no addressee and
+      logs as a no-op — a raise would be an async Lambda failure, and EventBridge retries those,
+      turning one unattributable event into three.
+    """
+    if not isinstance(detail, dict):
+        return ""
+    raw = detail.get("input")
+    if (detail.get("inputDetails") or {}).get("included") is not False and isinstance(raw, str) and raw:
+        return raw
+
+    arn = detail.get("executionArn")
+    if not isinstance(arn, str) or not arn:
+        return ""
+    try:
+        described = clients.sfn().describe_execution(executionArn=arn)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("could not read the timed-out execution's input back: %s", exc)
+        return ""
+    fetched = described.get("input")
+    return fetched if isinstance(fetched, str) else ""

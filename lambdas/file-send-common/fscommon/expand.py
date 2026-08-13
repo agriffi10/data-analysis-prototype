@@ -34,7 +34,7 @@ Attributes:
     been made.
 """
 
-from cpcommon import clients, errors, s3_listing
+from cpcommon import s3_listing
 from cpcommon.errors import TerminalError
 
 from .authz import assert_not_results_folder
@@ -193,30 +193,6 @@ def _assert_no_name_collision(items: list) -> None:
         seen[name] = entry["key"]
 
 
-def _object_size(bucket: str, key: str) -> int:
-    """Reads one selected file's size, or fails the request naming it.
-
-    Args:
-      bucket: The source bucket.
-      key: The selected file's key.
-
-    Returns:
-      The object's size in bytes.
-
-    Raises:
-      TerminalError: ``source_missing`` when the object is absent or unreadable. A selection
-        naming a key that is not there is not a request with one bad row in it — the sender
-        picked it from their own browser moments ago, so a miss means the request no longer
-        describes reality and every other item is suspect too.
-      TransientError: On a retryable S3 fault, so the state's Retry re-runs the verb.
-    """
-    try:
-        return int(clients.s3().head_object(Bucket=bucket, Key=key)["ContentLength"])
-    except Exception as err:
-        errors.raise_if_transient(err, f"head {bucket}/{key}")
-        raise TerminalError("source_missing", f"{key!r}: {err}") from err
-
-
 def _checked(root: str, key: str) -> str:
     """Re-runs every containment rule against a key that arrived from S3.
 
@@ -276,7 +252,9 @@ def _expand_item(bucket: str, root: str, entry: dict):
 
     Raises:
       TerminalError: ``source_missing`` for an absent file, or a containment reason for a
-        listed key that fails the re-check.
+        listed key that fails the re-check. An absent file fails the WHOLE request rather than
+        being one bad row in it: the sender picked it from their own browser moments ago, so a
+        miss means the request no longer describes reality and every other item is suspect too.
       TransientError: On a retryable S3 fault.
     """
     key = entry["key"]
@@ -284,7 +262,7 @@ def _expand_item(bucket: str, root: str, entry: dict):
     exclude = _excluder(root)
     if entry["kind"] == "file":
         src_key = _checked(root, key)
-        size = _object_size(bucket, src_key)
+        size = s3_listing.object_size(bucket, src_key, missing_reason="source_missing")
         if not exclude(src_key, size, key):
             yield name, "", src_key, size
         return

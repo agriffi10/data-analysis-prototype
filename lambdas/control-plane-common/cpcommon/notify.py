@@ -2,11 +2,16 @@
 
 Three pieces are genuinely shared: the sender, the failure-notification skeleton and the
 *shape* of the FIFO deduplication token. The domain emitters — ``emit_failure``,
-``emit_unexpected``, the per-arc success emitters and event-context extraction — stay in each
-domain layer, because their signatures differ. So do the dedup **strategies**: ``dedup_id``
-composes an id, it does not decide what goes in one, and the four planes make four different
-choices (see its docstring). A plane relying on the queue's content-based dedup simply does
-not call it.
+``emit_unexpected`` and the per-arc success emitters — stay in each domain layer, because
+their signatures differ. So do the dedup **strategies**: ``dedup_id`` composes an id, it does
+not decide what goes in one, and the four planes make four different choices (see its
+docstring). A plane relying on the queue's content-based dedup simply does not call it.
+
+Event-context extraction is domain work too, with **one narrow exception**: ``actor_of`` reads
+the flat ``actor`` envelope SPEC-164 introduced for file-send and archive inherited, where the
+field may be either the verified username or the token object it was verified from. The other
+four planes bind a plain string and read it directly, so this is a two-plane contract living
+here rather than a fleet-wide one.
 """
 
 import functools
@@ -54,6 +59,30 @@ def dedup_id(request_id, step: str) -> str | None:
       None.
     """
     return f"{request_id}:{step}" if request_id else None
+
+
+def actor_of(event) -> str:
+    """Reads the verified actor out of a verb's event, tolerating the pre-identity shapes.
+
+    Returns an empty actor rather than raising for anything that is not a request object with a
+    username on it. That window is real and is not an error: validate-authorize's event is the
+    raw SQS array until the token is verified, and an emit with no addressee is a logged no-op —
+    never a message sent to whoever the untrusted body named.
+
+    Args:
+      event: The verb's event, of any shape.
+
+    Returns:
+      The verified username, or an empty string when the event carries none.
+
+    Raises:
+      None.
+    """
+    data = event if isinstance(event, dict) else {}
+    actor = data.get("actor")
+    if isinstance(actor, dict):
+        actor = actor.get("username")
+    return actor if isinstance(actor, str) else ""
 
 
 def emit_notification(

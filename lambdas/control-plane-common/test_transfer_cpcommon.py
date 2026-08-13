@@ -906,13 +906,61 @@ def test_a_throttled_results_read_is_transient():
 
 
 if __name__ == "__main__":
-    failures = 0
-    for name, fn in sorted(globals().items()):
-        if name.startswith("test_") and callable(fn):
-            try:
-                fn()
-                print(f"PASS {name}")
-            except AssertionError as exc:
-                failures += 1
-                print(f"FAIL {name}: {exc}")
-    raise SystemExit(1 if failures else 0)
+    sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── results_location — the Map state's export pointer ────────────────────────
+#
+# Consolidates the reader all three collectors carried: archive as its own `_results_location`,
+# file-send and table-share inline. Each plane keeps the test that its collector refuses when the
+# pointer is absent; the reader itself is asserted once here.
+
+
+def test_the_bucket_and_key_come_off_the_map_states_result_writer_details():
+    event = {"mapRun": {"ResultWriterDetails": {"Bucket": "admin-bkt", "Key": "r/manifest.json"}}}
+
+    assert results_mod.results_location(event, unreadable_reason=_UNREADABLE) == (
+        "admin-bkt",
+        "r/manifest.json",
+    )
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {},
+        {"mapRun": None},
+        {"mapRun": {}},
+        {"mapRun": {"ResultWriterDetails": None}},
+        {"mapRun": {"ResultWriterDetails": {"Bucket": "admin-bkt"}}},
+        {"mapRun": {"ResultWriterDetails": {"Key": "r/manifest.json"}}},
+        {"mapRun": {"ResultWriterDetails": {"Bucket": "", "Key": "r/manifest.json"}}},
+    ],
+    ids=[
+        "no-map-run",
+        "null-map-run",
+        "no-result-writer-details",
+        "null-result-writer-details",
+        "no-key",
+        "no-bucket",
+        "blank-bucket",
+    ],
+)
+def test_an_absent_pointer_is_terminal_rather_than_transient(event):
+    """The run has FINISHED by the time a collector is invoked, so an absent pointer is a fault
+    rather than a race — and retrying against a finished run would never resolve."""
+    with pytest.raises(TerminalError) as caught:
+        results_mod.results_location(event, unreadable_reason=_UNREADABLE)
+
+    assert caught.value.reason == _UNREADABLE
+
+
+def test_the_reason_code_is_the_callers_and_never_this_layers():
+    """The engine takes every domain reason code as a parameter, so a plane's own registered
+    wording reaches the user rather than a shared string this layer invented."""
+    messages.register({"a_second_planes_wording": "somebody else's sentence."}, prefix="Test: ")
+
+    with pytest.raises(TerminalError) as caught:
+        results_mod.results_location({}, unreadable_reason="a_second_planes_wording")
+
+    assert caught.value.reason == "a_second_planes_wording"

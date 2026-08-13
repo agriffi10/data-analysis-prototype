@@ -521,30 +521,6 @@ def _assert_not_the_record(relative: str) -> str:
     return relative
 
 
-def _object_size(bucket: str, key: str) -> int:
-    """Reads one selected file's size, or fails the request naming it.
-
-    Args:
-      bucket: The source bucket.
-      key: The selected file's key.
-
-    Returns:
-      The object's size in bytes.
-
-    Raises:
-      TerminalError: ``source_missing`` when the object is absent or unreadable. The user picked
-        it from their own browser moments ago, so a miss means the request no longer describes
-        reality and every other item in it is suspect too — and this plane DELETES what it
-        copies, which makes proceeding over a stale selection the worst of the options.
-      TransientError: On a retryable S3 fault, so the state's Retry re-runs the verb.
-    """
-    try:
-        return int(clients.s3().head_object(Bucket=bucket, Key=key)["ContentLength"])
-    except Exception as err:
-        errors.raise_if_transient(err, f"head {bucket}/{key}")
-        raise TerminalError("source_missing", f"{key!r}: {err}") from err
-
-
 def _expand_item(bucket: str, root: str, entry: dict):
     """Yields every object one selected item resolves to, with its key relative to the root.
 
@@ -579,7 +555,10 @@ def _expand_item(bucket: str, root: str, entry: dict):
 
     Raises:
       TerminalError: ``source_missing`` for an absent file, or ``forbidden`` for a listed key
-        that fails the containment re-check.
+        that fails the containment re-check. An absent file fails the WHOLE request: the user
+        picked it from their own browser moments ago, so a miss means the request no longer
+        describes reality and every other item in it is suspect too — and this plane DELETES
+        what it copies, which makes proceeding over a stale selection the worst of the options.
       TransientError: On a retryable S3 fault.
     """
     key = entry["key"]
@@ -587,7 +566,7 @@ def _expand_item(bucket: str, root: str, entry: dict):
     if entry["kind"] == "file":
         assert_inside_root(root, key)
         _assert_deletable_folder(root, key)
-        size = _object_size(bucket, key)
+        size = s3_listing.object_size(bucket, key, missing_reason="source_missing")
         if not exclude(key, size, key):
             yield _assert_not_the_record(key[len(root):]), size
         return

@@ -37,7 +37,7 @@ import re
 
 from cpcommon import registry as reg
 from cpcommon.errors import TerminalError
-from cpcommon.notify import emit_notification
+from cpcommon.notify import actor_of, emit_notification
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
 from .messages import (
@@ -115,30 +115,6 @@ def _plain(value) -> bool:
     return isinstance(value, str) and bool(_SEGMENT.match(value))
 
 
-def _actor(event) -> str:
-    """Reads the verified actor out of a verb's event, tolerating the pre-identity shapes.
-
-    Returns an empty actor rather than raising for anything that is not a request object with
-    a username on it. That window is real and is not an error: validate-authorize's event is
-    the raw SQS array until the token is verified, and an emit with no addressee is a logged
-    no-op — never a message sent to whoever the untrusted body named.
-
-    Args:
-      event: The verb's event.
-
-    Returns:
-      The verified username, or an empty string.
-
-    Raises:
-      None.
-    """
-    data = event if isinstance(event, dict) else {}
-    actor = data.get("actor")
-    if isinstance(actor, dict):
-        actor = actor.get("username")
-    return actor if isinstance(actor, str) else ""
-
-
 def emit_failure(event, err: TerminalError, step: str) -> None:
     """Emits the sender-addressed failure notification for a verb's terminal error.
 
@@ -159,7 +135,7 @@ def emit_failure(event, err: TerminalError, step: str) -> None:
     Raises:
       None.
     """
-    emit_notification(_actor(event), failure_message(err.reason, tokens=err.tokens))
+    emit_notification(actor_of(event), failure_message(err.reason, tokens=err.tokens))
 
 
 def emit_unexpected(event, step: str) -> None:
@@ -177,7 +153,7 @@ def emit_unexpected(event, step: str) -> None:
     Raises:
       None.
     """
-    emit_notification(_actor(event), failure_message("unexpected_error"))
+    emit_notification(actor_of(event), failure_message("unexpected_error"))
 
 
 def notifies_on_failure(step: str, *, notify_terminal: bool = True):
