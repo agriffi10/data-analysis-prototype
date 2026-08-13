@@ -38,6 +38,7 @@ whole new area appears.
 | Data quality | `component-inventory/data-quality-feature.md` |
 | Table builder | `component-inventory/table-builder-feature.md` |
 | File send | `component-inventory/file-send-feature.md` |
+| Archive | `component-inventory/archive-feature.md` |
 | Help | `component-inventory/help-feature.md` |
 | Auth | `component-inventory/auth-feature.md` |
 | User directory | `component-inventory/user-directory-feature.md` |

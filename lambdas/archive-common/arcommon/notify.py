@@ -14,20 +14,26 @@ SPEC-114's one-token-per-outcome rule exists to prevent.
 A missed notification must never change or fail the outcome, so every emit goes through
 ``cpcommon.notify.emit_notification``, which catches, logs and never raises.
 
-**No per-message dedup token is passed, and the queue's content-based dedup is load-bearing
-rather than incidental.** SPEC-114's rule is one token per OUTCOME, not per verb; here every
-outcome is emitted from exactly one place, while a verb's state carries a ``Retry`` and a
-re-invocation after a transient Lambda fault would otherwise send the message twice. Content
-dedup is what makes that retry safe. The cost is inherited from the other planes and is worth
-knowing: two archives that render a byte-identical sentence inside the queue's five-minute
-window collapse to one message.
+**The FAILURE emitters pass no dedup token and rely on the queue's content-based dedup** — the
+shape inherited from table-share. Every failure body names its own reason and most name a count
+or a file, so two distinct runs rendering byte-identical text is remote, and content dedup is
+what makes a verb's ``Retry`` safe.
+
+**The three SUCCESS emitters pass one, and that is SPEC-172 closing a real hole rather than a
+stylistic difference.** ``restore_started_message`` says only how many files are being retrieved;
+``restored_message`` adds a byte total and a space-root link. Two restores of the same folder
+started back to back render **identical** text, and the queue's five-minute window would collapse
+them into one inbox row — the user sees a response to one of two requests and cannot tell which.
+``cpcommon.notify.dedup_id(requestId, outcome)`` is per RUN and per OUTCOME, so it keeps the
+retry-safety content dedup was providing (a re-invocation composes the same token) without
+letting two runs share one. This is SPEC-114's rule read literally: one token per outcome.
 """
 
 import logging
 import re
 
 from cpcommon.errors import TerminalError
-from cpcommon.notify import emit_notification
+from cpcommon.notify import dedup_id, emit_notification
 from cpcommon.notify import notifies_on_failure as _notifies_on_failure
 
 from .messages import (
@@ -227,7 +233,18 @@ def archive_folder_link(kind: str, name: str, request_id: str) -> str | None:
     if kind not in ("personal", "shared") or not _plain(name) or not _plain(request_id):
         logger.warning("refusing to build an archive link from unexpected segments")
         return None
-    return f"{_FILES_ROUTE}?{_space_query(kind, name)}prefix={receipt_root(name, request_id)}"
+    try:
+        prefix = receipt_root(name, request_id)
+    except TerminalError:
+        # `_plain` and `validated_request_id` do not agree — the first accepts any plain segment,
+        # the second only a UUID v4 — and the gap between them RAISES rather than returning None.
+        # Unreachable today (the id is validated at the front door), but this function's contract
+        # is "None when no working link can be minted", and the caller's caller would otherwise
+        # lose the WHOLE `archived` message to its blanket except: the only one carrying the
+        # archive id, on the arm where the source is already deleted.
+        logger.warning("refusing to build an archive link from an id that is not a UUID")
+        return None
+    return f"{_FILES_ROUTE}?{_space_query(kind, name)}prefix={prefix}"
 
 
 def space_link(kind: str, name: str) -> str | None:
@@ -274,11 +291,12 @@ def emit_archived(actor: str, space: dict, request_id: str, objects: int, total_
     emit_notification(
         actor,
         archived_message(request_id, objects, total_bytes),
+        dedup_id=dedup_id(request_id, "archived"),
         link=archive_folder_link(space.get("kind") or "", space.get("name") or "", request_id),
     )
 
 
-def emit_restore_started(actor: str, objects: int) -> None:
+def emit_restore_started(actor: str, request_id: str, objects: int) -> None:
     """Tells the actor a restore is under way and will take hours.
 
     No link: nothing has arrived yet, and a link to a space that has not changed would suggest
@@ -286,25 +304,10 @@ def emit_restore_started(actor: str, objects: int) -> None:
 
     Args:
       actor: The verified username.
+      request_id: This RUN's id — the dedup token's discriminator, and the reason this message
+        needs one: its text names a count and nothing else, so two restores started together
+        would otherwise collapse into one inbox row.
       objects: How many objects are being retrieved.
-
-    Returns:
-      None.
-
-    Raises:
-      None.
-    """
-    emit_notification(actor, restore_started_message(objects))
-
-
-def emit_restored(actor: str, space: dict, objects: int, total_bytes: int) -> None:
-    """Tells the actor their restore finished, and links to the space it landed in.
-
-    Args:
-      actor: The verified username.
-      space: The destination space, carrying its kind and name.
-      objects: How many objects were restored.
-      total_bytes: Their total size.
 
     Returns:
       None.
@@ -314,6 +317,40 @@ def emit_restored(actor: str, space: dict, objects: int, total_bytes: int) -> No
     """
     emit_notification(
         actor,
-        restored_message(objects, total_bytes),
+        restore_started_message(objects),
+        dedup_id=dedup_id(request_id, "restore_started"),
+    )
+
+
+def emit_restored(
+    actor: str,
+    space: dict,
+    request_id: str,
+    objects: int,
+    total_bytes: int,
+    *,
+    archive_swept: bool = True,
+) -> None:
+    """Tells the actor their restore finished, and links to the space it landed in.
+
+    Args:
+      actor: The verified username.
+      space: The destination space, carrying its kind and name.
+      request_id: This RUN's id, for the dedup token.
+      objects: How many objects were restored.
+      total_bytes: Their total size.
+      archive_swept: Whether the vault copy was actually removed. False on the route through
+        ``CleanupIncomplete``, where the run succeeded and the sweep did not.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    emit_notification(
+        actor,
+        restored_message(objects, total_bytes, archive_swept=archive_swept),
+        dedup_id=dedup_id(request_id, "restored"),
         link=space_link(space.get("kind") or "", space.get("name") or ""),
     )

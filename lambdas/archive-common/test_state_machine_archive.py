@@ -998,5 +998,86 @@ def test_no_success_notification_sits_on_a_failure_path():
     assert not (seen & _notify_states())
 
 
+def _payload_paths(name):
+    """The `.$` fields of one Task's Payload, as `{field: path}`."""
+    payload = STATES[name]["Parameters"]["Payload"]
+    flat = {}
+    for key, value in payload.items():
+        if key.endswith(".$"):
+            flat[key[:-2]] = value
+        elif isinstance(value, dict):
+            for inner, path in value.items():
+                flat[f"{key}.{inner[:-2]}"] = path
+    return flat
+
+
+def test_the_success_producers_payload_paths_are_the_ones_they_are_meant_to_read():
+    """THE GUARD THIS SPEC'S THREE STATES NEEDED AND DID NOT HAVE.
+
+    Every other Task on this machine passes ``"Payload.$": "$"`` — these three NAME their paths,
+    which is the one shape a Pass-only seed check cannot see, and a Parameters path that is absent
+    at runtime raises an uncatchable ``States.Runtime``. Measured while this was written: replacing
+    ``$.source.kind`` with a path no state carries left the whole fleet suite green.
+
+    Pinned as EXACT SETS rather than "contains", because the failure that matters most is not a
+    typo — it is ``"actor.$": "$.actor"`` instead of ``$.actor.username``. That hands a dict to a
+    message composer and then to ``MessageGroupId``, which throws inside SQS, is swallowed by
+    ``emit_notification``'s except, and loses the notification silently with every test green.
+    """
+    common = {
+        "requestId": "$.requestId",
+        "actor": "$.actor.username",
+        "space.kind": "$.source.kind",
+        "space.name": "$.source.name",
+        "objectCount": "$.objectCount",
+        "totalBytes": "$.totalBytes",
+    }
+
+    assert _payload_paths("NotifyArchived") == common
+    assert _payload_paths("NotifyRestoreStarted") == common
+    # The restore's terminal alone reads the cleanup block, because it is the only outcome whose
+    # wording depends on it (SPEC-171 made a failed vault sweep a flag on a SUCCESSFUL run).
+    assert _payload_paths("NotifyRestored") == {**common, "cleanup": "$.cleanup"}
+
+
+def test_every_path_the_producers_read_is_one_the_machine_carries_there():
+    """The other half: the paths above have to EXIST at those three points.
+
+    `requestId`, `actor` and `source` come from validate-authorize's five-key contract and are
+    threaded by every verb's `{**event, ...}`. `objectCount`/`totalBytes` are set by inspect-source
+    on the archive arm and inspect-archive on the restore arm — both upstream of all three states.
+    `cleanup` is the only one written INSIDE the restore's tail, and it is written on BOTH routes
+    into the terminal, which is what this asserts: `DeleteArchived` on success and the
+    `CleanupIncomplete` Pass on its Catch. One route writing it would be a States.Runtime on the
+    other, on a run whose data is already safely back.
+    """
+    assert STATES["CleanupIncomplete"]["ResultPath"] == "$.cleanup"
+    assert "cleanupIncomplete" in STATES["CleanupIncomplete"]["Result"]
+    assert STATES["DeleteArchived"]["Catch"][0]["Next"] == "CleanupIncomplete"
+    # And the success route reaches the same terminal without passing through that Pass, so the
+    # verb itself must write the block — asserted from its source rather than from a fixture,
+    # because a fixture here would only restate the test's own assumption.
+    delete_archived = (
+        pathlib.Path(__file__).resolve().parents[1]
+        / "archive-delete-archived"
+        / "archive_delete_archived.py"
+    ).read_text()
+
+    assert '"cleanup": {' in delete_archived and '"cleanupIncomplete"' in delete_archived
+
+
+def test_the_producer_reads_exactly_what_the_asl_sends_it():
+    """The two halves of one contract, held together. A field renamed on either side alone is a
+    notification that silently degrades — the verb reads `None`, composes a sentence about zero
+    files, and every test on both sides stays green."""
+    verb = (
+        pathlib.Path(__file__).resolve().parents[1] / "archive-notify" / "archive_notify.py"
+    ).read_text()
+    sent = {field.split(".")[0] for field in _payload_paths("NotifyRestored")} | {"outcome"}
+    read = set(re.findall(r'summary\.get\("([^"]+)"\)', verb))
+
+    assert read == sent, f"the ASL sends {sorted(sent)}; the verb reads {sorted(read)}"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

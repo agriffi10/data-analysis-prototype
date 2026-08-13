@@ -67,6 +67,18 @@ function listing(prefix: string) {
     'alice/archive/': {
       files: [],
       folders: [{type: 'folder', prefix: `alice/archive/${ARCHIVE_ID}/`, name: ARCHIVE_ID}]
+    },
+    'alice/athenaresults/': {
+      files: [
+        {
+          type: 'file',
+          key: 'alice/athenaresults/q1.csv',
+          name: 'q1.csv',
+          size: 10,
+          lastModified: new Date('2026-01-01')
+        }
+      ],
+      folders: []
     }
   };
   return {success: true, data: {...(rows[prefix] ?? {files: [], folders: []}), nextToken: undefined}};
@@ -202,6 +214,26 @@ describe('the archive journey', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it('refuses a file inside a reserved root FROM ITS DETAILS PANEL too', async () => {
+    // Found in review, and it is the failure FR-001 AC5's list-equality test exists to prevent
+    // arriving through the entry point that test does not walk: `athenaresults/` is VISIBLE, so a
+    // file inside it is reachable and openable, and the panel offered an Archive the plane then
+    // refused as `reserved_folder`. The toolbar had the guard; the file panel had none.
+    const user = userEvent.setup();
+    const send = fakeQueue();
+    renderBrowser();
+
+    await user.click(await screen.findByRole('button', {name: 'Open folder athenaresults'}));
+    await user.click(await screen.findByRole('button', {name: 'Details for q1.csv'}));
+    const archive = await screen.findByRole('button', {name: 'Archive this item'});
+
+    expect(archive).toHaveAttribute('aria-disabled', 'true');
+    expect(archive).toHaveAttribute('title', expect.stringContaining('athenaresults'));
+    await user.click(archive);
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('is absent entirely in a read-only space', async () => {
     // Removed, not disabled — SPEC-163's rule, and here it is also simply true: the dev-unauth
     // path has no username and therefore no space to archive from.
@@ -294,6 +326,26 @@ describe('the archive folder is read-only in the browser', () => {
     for (const name of ['Move selected items', 'Delete selected items']) {
       expect(screen.getByRole('button', {name})).toHaveAttribute('aria-disabled', 'true');
     }
+  });
+
+  it('KEEPS Restore Archived Data, which is the whole reason to be in this folder', async () => {
+    // Found in review. A restore writes into the space ROOT, never into the folder being browsed,
+    // so the write lock is the wrong gate for it — and gating it here removed the button from the
+    // one place the dialog itself tells the user to go and find an id.
+    const user = userEvent.setup();
+    await browseIntoArchive(user);
+
+    expect(screen.getByRole('button', {name: 'Restore Archived Data'})).toBeInTheDocument();
+  });
+
+  it('says why, VISIBLY, not only in a tooltip', async () => {
+    // FR-004 AC4 asks for an explanation. A `title` needs a hover, so at the 400px width this
+    // feature's own live check is run at, the greyed controls would say nothing at all: the tap
+    // does nothing and no reason appears anywhere.
+    const user = userEvent.setup();
+    await browseIntoArchive(user);
+
+    expect(screen.getByRole('note')).toHaveTextContent(/read-only/i);
   });
 
   it('leaves Details available, because a receipt is meant to be read', async () => {

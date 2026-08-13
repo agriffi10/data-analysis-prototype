@@ -194,6 +194,30 @@ def test_the_started_message_says_the_duration_and_that_more_is_coming():
     assert "Nothing has changed" in text
 
 
+def test_the_restored_message_only_claims_the_sweep_when_it_HAPPENED():
+    """SPEC-171 made a failed vault sweep a FLAG on a successful run, not a failure of it — and
+    `DeleteArchived`'s Catch reaches the same success terminal through `CleanupIncomplete`. Said
+    unconditionally, "the archive has been cleaned up" turns that flag into a positive claim about
+    the one route where it is false, and nothing else a user can see carries it."""
+    swept = messages.restored_message(3, 10)
+    kept = messages.restored_message(3, 10, archive_swept=False)
+
+    assert "cleaned up" in swept
+    assert "cleaned up" not in kept
+    # What IS true on both routes is said on both routes.
+    assert "Restored 3 files" in kept and "back where they came from" in kept
+
+
+def test_the_unswept_wording_does_not_ask_the_user_to_do_anything():
+    """There is nothing for them to do: the residue is billed at the 90-day minimum and swept by
+    the bucket's own expiry rule. An "please contact an administrator" here would manufacture a
+    support ticket out of a run that worked."""
+    kept = messages.restored_message(3, 10, archive_swept=False)
+
+    assert "administrator" not in kept
+    assert "try again" not in kept
+
+
 def test_every_outcome_message_stays_ascii():
     """The same rule the failure bodies follow: these are read in an inbox and, for the receipt's
     sake, in whatever the user opens a text file with."""
@@ -201,6 +225,7 @@ def test_every_outcome_message_stays_ascii():
         messages.archived_message("id", 2, 10),
         messages.restore_started_message(2),
         messages.restored_message(2, 10),
+        messages.restored_message(2, 10, archive_swept=False),
     ):
         assert text.isascii(), text
 

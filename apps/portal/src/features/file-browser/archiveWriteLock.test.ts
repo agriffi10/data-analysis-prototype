@@ -4,7 +4,12 @@ import {describe, expect, it} from 'vitest';
 import portalRolePolicy from '../../../../../infra/modules/data/policies/portal-role-permissions.json.tftpl?raw';
 import sharedSpacePolicy from '../../../../../infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl?raw';
 import {isWriteLockedPrefix, writeLockRefusal} from './writeLockedPrefix';
-import {isRootFolderNamed, PICKER_LOCKED_FOLDERS, undeletableRootFolderRefusal} from './protectedFolders';
+import {
+  HIDDEN_BROWSER_FOLDERS,
+  isRootFolderNamed,
+  PICKER_LOCKED_FOLDERS,
+  undeletableRootFolderRefusal
+} from './protectedFolders';
 
 /**
  * SPEC-172 FR-004's last acceptance criterion, executable on BOTH sides.
@@ -132,8 +137,10 @@ describe('the folder-name lists archive joined, and the two it did not', () => {
   });
 
   it('stays VISIBLE, because the folder names are the archive ids', () => {
-    // Hiding it would remove the only surface that carries an id a restore needs. It is also the
-    // reason there is no archive index and no picker listing past archives (spec Out of Scope).
-    expect(isWriteLockedPrefix('alice/archive/', 'alice/', 'personal')).toBe(true);
+    // Hiding it would remove the only surface that carries an id a restore needs — which is also
+    // why there is no archive index and no picker of past archives (spec Out of Scope). Asserted
+    // as ABSENCE from the hiding list: the first version of this test re-asserted the write lock
+    // instead, which says nothing about visibility and passed with `archive` hidden (measured).
+    expect(HIDDEN_BROWSER_FOLDERS).not.toContain('archive');
   });
 });

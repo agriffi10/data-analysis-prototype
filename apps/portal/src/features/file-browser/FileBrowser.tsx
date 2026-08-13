@@ -173,7 +173,12 @@ function FileBrowserContent({
   // SPEC-172 FR-004: the first prefix-based write gate. IAM denies writes beneath `archive/`, so
   // every control that would attempt one says why instead of producing a bare AccessDenied.
   const writeLockReason = writeLockRefusal(currentPrefix, rootPrefix, spaceKind ?? 'personal') ?? undefined;
+  // Archive is gated by the write lock because an archive DELETES from the current folder.
   const archiveEnabled = !!username && filesEnabled && !writeLockReason;
+  // A RESTORE is not: it writes into the space root, never into the folder being browsed — and
+  // gating it on the write lock removed the button from `archive/`, which is the one place the
+  // dialog itself tells the user to go and look for an id (FR-003 AC1 says `writable`).
+  const restoreEnabled = !!username && filesEnabled;
 
   // Per-file download (SPEC-015 FR-003). Tracks the key being signed so its row
   // shows a busy state; surfaces a ServiceResult failure inline rather than
@@ -275,7 +280,7 @@ function FileBrowserContent({
             )}
             {/* SPEC-172 FR-003: a restore has no selection — it takes a pasted id — so it sits
                 with the primary actions rather than on the selection toolbar. */}
-            {archiveEnabled && <RestoreArchiveButton onClick={restore.openDialog} />}
+            {restoreEnabled && <RestoreArchiveButton onClick={restore.openDialog} />}
             <Button
               variant="default"
               className="shrink-0"
@@ -301,7 +306,7 @@ function FileBrowserContent({
         <MobileActionBar ariaLabel="File actions">
           {/* Mount-gated into the bar rather than CSS-hidden (SPEC-099 FR-005), so exactly one
               instance of each control exists in the DOM at any width. */}
-          {archiveEnabled && (
+          {restoreEnabled && (
             <RestoreArchiveButton
               onClick={restore.openDialog}
               fullWidth
@@ -323,6 +328,18 @@ function FileBrowserContent({
             Upload
           </Button>
         </MobileActionBar>
+      )}
+
+      {/* SPEC-172 FR-004. The explanation, where a `title` cannot be one: a tooltip needs a
+          hover, so on touch — and at the 400px width this feature's own live check is run at —
+          the greyed controls above would say nothing at all. Rendered once for the folder rather
+          than per control, because it is a fact about where you are standing. */}
+      {writeLockReason && (
+        <div
+          role="note"
+          className="mb-4 rounded-lg border border-border bg-surface-2 p-3 text-sm text-text-2">
+          {writeLockReason}
+        </div>
       )}
 
       {/* Write controls — create folder (modal dialog, SPEC-016); file uploads go

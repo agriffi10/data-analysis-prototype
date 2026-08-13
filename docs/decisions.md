@@ -2665,3 +2665,120 @@ the threshold will start losing them silently.
 trip runs at both copy strategies. That is the same shape as SPEC-163's recipes that re-implemented
 the gate they were testing: the fixture, not the assertion, is what decided whether the test could
 fail.
+
+---
+
+## The archive surface: a confirm that is not a confirm, folder names as identity, and the first prefix write gate (SPEC-172)
+
+### The one dialog in this app where the confirm is not the default, and Enter does nothing
+
+Every other destructive confirm in this portal focuses Cancel because a stray Enter should not
+delete a file. Archiving raises that from a courtesy to a structural requirement: it is the **only**
+action here that removes the user's data and cannot be undone in the same sitting — getting it back
+takes three to five billed hours.
+
+So `ArchiveDialog` is built on `ConfirmDialog` **because of what `FormDialog` has**. `FormDialog`'s
+`submitOnEnterRef` is a real affordance, and a dialog that merely declined to pass one would be one
+refactor away from acquiring it. `ConfirmDialog` is not a form at all: focus lands on Cancel and
+Enter cancels, by construction rather than by discipline. `RestoreArchiveDialog` makes the opposite
+call for the opposite reason — one field, and Enter submits from it.
+
+**The dialog does NOT say "This can't be undone."** `ConfirmDialog` will render that line on
+request, the delete confirm uses it, and it would be the single false sentence in this dialog: a
+restore is exactly that undo. What it says instead is how long one takes, which is the fact the user
+actually needs and the one no button label can carry.
+
+### The folder names ARE the archive ids, so the folder must stay visible
+
+An archive is identified by a UUID the browser minted, and the user needs it back to restore. There
+are three places it could come from: a notification, the receipt, and the folder that holds the
+receipt. The notification is transient and the receipt is inside the folder — so the FOLDER is the
+durable surface, and `archive/` is therefore the first app-managed root that is visible, unpasteable
+and undestroyable at once.
+
+That is also why this spec ships **no archive index, no archive browser and no picker of past
+archives**. A cross-space index is the directory-shaped disclosure SPEC-158 declined; a per-space
+one would be a second, weaker copy of a listing the file browser already renders. `ls` is the index.
+
+**The receipt is downloaded and read, not previewed.** The project's no-in-browser-preview rule is
+untouched, and this is the intended surface rather than a workaround: the ids are readable from the
+folder names without opening anything at all.
+
+### The write gate mirrors each bucket's own Deny, and averaging them gets one case wrong
+
+`isWriteLockedPrefix` is the app's first rule about the prefix the user is STANDING in, as opposed
+to a rule about a folder's name. It exists because IAM already denies writes beneath `archive/`, and
+without a browser counterpart every attempt produces a bare `AccessDenied` for a rule this
+application authored — the situation `isUndeletableRootFolder` exists to prevent for
+`athenaresults/`.
+
+**The two space buckets are denied differently**, and that asymmetry is structural rather than an
+oversight:
+
+- personal: `{bucket}/${aws:PrincipalTag/username}/archive/*` — anchored at the caller's own root,
+  because in that bucket the prefix IS the principal tag;
+- shared: `{bucket}/*/archive/*` — where the wildcard is the space slot, and **an S3 resource
+  wildcard matches `/`**, so it reaches an `archive` folder at any depth.
+
+Anchoring both at the root offers writes into a nested shared `archive/` that IAM refuses; applying
+the any-depth rule to both refuses writes into a user's own `alice/backups/archive/` that IAM
+permits. FR-004's criterion is both directions — "must not offer a write the policy refuses, and
+must not refuse one it permits" — so the predicate takes the space kind. `archiveWriteLock.test.ts`
+turns each `Resource` into a key matcher and runs the app's own predicate over the same keys;
+deleting the shared branch reddens it (measured).
+
+**The refusal is `aria-disabled`, not `disabled`.** A `disabled` control is skipped by the tab order,
+so its reason is reachable only by hovering — which is how "it's greyed out and I can't find out
+why" happens. `Button.disabledReason` renders the reason as the accessible DESCRIPTION and swallows
+the click, and deliberately does not put the text inside the button: content becomes part of the
+accessible NAME, which every `GATED_SURFACES` row and journey test queries by.
+
+### Only three outcomes needed a producer, and one of them had to be invented
+
+FR-006 names nine terminal outcomes. Six were already reason codes in `arcommon.messages`, emitted
+exactly once by `notifies_on_failure` or by the machine's `NotifyFailure` — a second producer for
+them would be the duplicate SPEC-114's one-token-per-OUTCOME rule exists to prevent. What was
+missing was what a failure table cannot carry: `archived`, `restored`, and `restore_started`.
+
+**`restore_started` is the only "started" notification in this application**, and the reason is
+specific to this plane rather than a general improvement: every other control plane finishes in
+seconds or minutes, so silence until the outcome is honest there. Here it is three to five *billed*
+hours, during which silence is indistinguishable from a request that was dropped. It is emitted
+**after** `RetrieveObjects`, not before — that Map is where the bill and the wait actually begin, so
+announcing earlier would promise a wait that a failed retrieval never starts.
+
+**The producer cannot fail the run, and the ASL enforces it.** On the archive arm the source is
+already deleted when it speaks; a raise would turn a completed archive into a reported failure with
+the data gone. All three states carry `ResultPath: null` (two sit mid-machine, ahead of a wait, a
+poll loop, a second guard and a copy) and a `States.ALL` Catch whose `Next` is the state they were
+inserted in front of. The verb carries `@traced` and no `@notifies_on_failure` — that decorator
+would report a failure of the NOTIFIER as a failure of the archive.
+
+**The ASL seeds which outcome it is.** All three call sites carry identical keys, so nothing on the
+state distinguishes them and inferring would mean guessing — SPEC-171 settled its two destination
+guards the same way, for the same reason.
+
+**The restored link is the SPACE ROOT.** A restore puts every object back where it came from, which
+for any selection of more than one folder is several places at once; picking the first would send
+the user to a folder holding part of what they asked for. The archived link is the receipt's own
+folder, and both carry the recipient's full key including the space root — SPEC-167's finding, that
+a root-relative prefix is silently discarded by the route and lands the user at their space root
+looking like a link that worked.
+
+### The restore's FIFO group id hashes the archive ROOT, not the bucket and the root
+
+SPEC-170 FR-001 specifies the digest of `{archiveBucket}/{archiveRoot}` and left it owed to this
+spec, which is the producer. The browser cannot produce it: SPEC-168 decided the browser has **no
+relationship with that bucket** — no CORS, no `connect-src` entry, zero portal-role statements — and
+`test_archive_bucket_isolation.py` asserts the SPA's build env learns the archive QUEUE and nothing
+else about the plane.
+
+Including it would also buy nothing. The group id's one job here is that two restores of ONE archive
+serialize, and the archive root's own leading `personal/`/`shared/` segment — the segment SPEC-168
+added precisely because nothing checks a space name against the User Pool — already makes it
+globally unique. The bucket is one constant across every restore this app can make.
+
+So the canonical string is `{kind}/{name}/archive/{archiveId}/`, mirroring `arcommon.paths.
+archive_root`, and `docs/testing/archive-restore-e2e.md`'s hand-crafted command was corrected to
+match so the live check exercises the rule the browser reproduces. A test pins the derivation and
+names SPEC-168's browser isolation — not the test — as the decision to re-open if it ever fails.

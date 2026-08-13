@@ -49,7 +49,8 @@ def handler(event, context) -> dict:
     ``@traced`` is the only decorator, for the reason in the module docstring.
 
     Args:
-      event: The seeded summary — ``{outcome, requestId, actor, space, objectCount, totalBytes}``.
+      event: The seeded summary — ``{outcome, requestId, actor, space, objectCount, totalBytes}``,
+        plus ``cleanup`` on the ``restored`` outcome alone.
       context: The Lambda context, unused.
 
     Returns:
@@ -82,10 +83,16 @@ def _notify(event) -> dict:
     """
     summary = event if isinstance(event, dict) else {}
     outcome = summary.get("outcome")
+    # The WHOLE cleanup block is threaded, not the flag: a Parameters path that is absent raises
+    # an uncatchable States.Runtime, and `$.cleanup` is present on both routes into the terminal
+    # while the shape of what is inside it belongs to the verb that wrote it.
+    cleanup = summary.get("cleanup") if isinstance(summary.get("cleanup"), dict) else {}
     actor = summary.get("actor") or ""
     space = summary.get("space") if isinstance(summary.get("space"), dict) else {}
     objects = summary.get("objectCount") or 0
     total_bytes = summary.get("totalBytes") or 0
+
+    request_id = summary.get("requestId") or ""
 
     if outcome not in _OUTCOMES or not actor:
         logger.warning("nothing to notify: outcome=%r, actor=%r", outcome, actor)
@@ -96,11 +103,20 @@ def _notify(event) -> dict:
 
     try:
         if outcome == "archived":
-            notify.emit_archived(actor, space, summary.get("requestId") or "", objects, total_bytes)
+            notify.emit_archived(actor, space, request_id, objects, total_bytes)
         elif outcome == "restore_started":
-            notify.emit_restore_started(actor, objects)
+            notify.emit_restore_started(actor, request_id, objects)
         else:
-            notify.emit_restored(actor, space, objects, total_bytes)
+            notify.emit_restored(
+                actor,
+                space,
+                request_id,
+                objects,
+                total_bytes,
+                # Absent reads as SWEPT, which is the safe default here for once: the flag is only
+                # ever set true, so a missing block means the run took the ordinary route.
+                archive_swept=not cleanup.get("cleanupIncomplete"),
+            )
     except Exception:
         logger.exception("could not notify the %s outcome; the run is unaffected", outcome)
         observability.warning("outcome notification failed", outcome=outcome, notified=False)

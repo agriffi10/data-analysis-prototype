@@ -244,12 +244,17 @@ describe('enqueueRestore', () => {
     );
   });
 
-  it('lowercases the pasted id, so a receipt read back in upper case resolves one prefix', async () => {
+  it('sends the archive id through untouched — the normalising happens in the hook', async () => {
+    // Stated because the obvious reading is wrong and a test once asserted the opposite while
+    // being unable to fail: its fixture id was digits and hyphens only, so `toUpperCase()` was a
+    // no-op on it and the service's pass-through looked like a lowercase. The real normalising is
+    // `useRestoreArchive`'s, and it is asserted there, against an id that HAS letters in it.
     const {send} = fakeQueue();
+    const mixed = '3F8A1C2E-9b4d-4A17-8c65-2E0D7B1F4A93';
 
-    await enqueueRestore({...restoreReq, archiveId: ` ${restoreReq.archiveId.toUpperCase()} `.trim()});
+    await enqueueRestore({...restoreReq, archiveId: mixed});
 
-    expect(body(send).archiveId).toBe(restoreReq.archiveId);
+    expect(body(send).archiveId).toBe(mixed);
   });
 
   it('deduplicates on the RUN id, not the archive id', async () => {

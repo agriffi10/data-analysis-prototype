@@ -77,6 +77,7 @@ export function FileBrowserDialogs({
           canModify={canModify}
           onRequestRename={dialogs.openRenameFile}
           onRequestArchive={onRequestArchiveFile}
+          archiveDisabledReason={archiveRefusalFor(dialogs.detailsFile.key, 'file')}
           writeLockReason={writeLockReason}
           onClose={dialogs.closeFileDetails}
         />

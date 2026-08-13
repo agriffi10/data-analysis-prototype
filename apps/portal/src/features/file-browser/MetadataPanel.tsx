@@ -24,6 +24,14 @@ type Props = {
    * resolved, the `files` flag is off, or the user is inside the read-only `archive/` folder.
    */
   onRequestArchive?: (file: S3FileItem) => void;
+  /**
+   * Why THIS file can't be archived (it sits in a portal-managed root), if it can't. Needed here
+   * as much as in the folder panel: `athenaresults/` and `shared_tables/` are VISIBLE, so a file
+   * inside one is reachable, selectable and openable — and without this the panel offered an
+   * Archive the plane then refused as `reserved_folder`, which is the exact failure FR-001 AC5's
+   * list-equality test exists to prevent, arriving through the entry point it does not walk.
+   */
+  archiveDisabledReason?: string;
   /** Why nothing here can be written (SPEC-172 FR-004) — Rename carries it. */
   writeLockReason?: string;
   onClose: () => void;
@@ -39,6 +47,7 @@ function PanelActions({
   canModify,
   onRequestRename,
   onRequestArchive,
+  archiveDisabledReason,
   writeLockReason
 }: {
   bucket: string;
@@ -46,6 +55,7 @@ function PanelActions({
   canModify: boolean;
   onRequestRename: (file: S3FileItem) => void;
   onRequestArchive?: (file: S3FileItem) => void;
+  archiveDisabledReason?: string;
   writeLockReason?: string;
 }) {
   const dl = useFileDownload(bucket);
@@ -83,6 +93,7 @@ function PanelActions({
         <ArchiveButton
           placement="panel"
           onClick={() => onRequestArchive(file)}
+          disabledReason={archiveDisabledReason}
           label="Archive this item"
         />
       )}
@@ -182,6 +193,7 @@ export function MetadataPanel({
   canModify,
   onRequestRename,
   onRequestArchive,
+  archiveDisabledReason,
   writeLockReason,
   onClose
 }: Props) {
@@ -200,6 +212,7 @@ export function MetadataPanel({
         canModify={canModify}
         onRequestRename={onRequestRename}
         onRequestArchive={onRequestArchive}
+        archiveDisabledReason={archiveDisabledReason}
         writeLockReason={writeLockReason}
       />
 

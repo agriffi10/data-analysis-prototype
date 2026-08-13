@@ -9,7 +9,10 @@ a user's space needs an assumed role or the portal UI**. The archive bucket is s
 this plane's execution role can reach it, and the deploy role, so `aws s3 ls` on it from a laptop
 identity fails and that is the isolation working.
 
-**There is no UI yet.** SPEC-172 builds it. Until then every request is a hand-crafted message onto
+**SPEC-172 has now built the UI**, so every check below can be driven from the file browser instead
+— and the SPEC-172 section at the foot of this file is the pass that does exactly that. The
+hand-crafted form is kept because it is still the only way to stage a malformed request. Every
+request is otherwise a hand-crafted message onto
 the FIFO queue, which is also the only thing that proves the layer attaches at cold start.
 
 ## Fixtures
@@ -60,15 +63,22 @@ Every request below is the same shape; only `requestId` and the space change:
 ```bash
 aws sqs send-message \
   --queue-url "$(aws sqs get-queue-url --queue-name dat-prod-archive-requests.fifo --query QueueUrl --output text)" \
-  --message-group-id "$(printf 'dat-prod-archive/personal/%s/archive/%s/' "$USERNAME" "$ARCHIVE_ID" | shasum -a 256 | cut -d' ' -f1)" \
+  --message-group-id "$(printf 'personal/%s/archive/%s/' "$USERNAME" "$ARCHIVE_ID" | shasum -a 256 | cut -d' ' -f1)" \
   --message-deduplication-id "$REQUEST_ID" \
   --message-body "$(jq -nc --arg r "$REQUEST_ID" --arg t "$ID_TOKEN" --arg u "$USERNAME" --arg a "$ARCHIVE_ID" \
       '{requestId:$r, mode:"restore", actor:$t, space:{kind:"personal", name:$u}, archiveId:$a}')"
 ```
 
-The `MessageGroupId` above is the contract **SPEC-172 owes** (SHA-256 of
-`{archiveBucket}/{archiveRoot}`); nothing enforces it yet, so type it correctly here and the check
-also exercises the rule the browser will have to reproduce.
+The `MessageGroupId` above is the contract **SPEC-172 has now shipped**, and it is the digest of
+the **archive root alone** — `personal/{username}/archive/{archiveId}/` — not of
+`{archiveBucket}/{archiveRoot}` as SPEC-170 FR-001 first wrote it. The browser deliberately does not
+know the archive bucket's name (a test enforces that absence), and the root's own
+`personal/`/`shared/` segment already makes it unique, which is the only property a group id needs.
+Type it exactly as below and the hand-crafted check exercises the same rule the browser reproduces:
+
+```bash
+--message-group-id "$(printf 'personal/%s/archive/%s/' "$USERNAME" "$ARCHIVE_ID" | shasum -a 256 | cut -d' ' -f1)"
+```
 
 ### 1. The clear path
 
@@ -295,3 +305,94 @@ what makes the copy land at all.
 - **The timeout (`restore_timed_out`).** Seven hours of waiting to observe a counter.
 - **A never-requested object.** It needs an archive whose retrieval was deliberately half-issued,
   which no reachable path produces.
+
+
+---
+
+## SPEC-172 — the UI, the read-only folder and the notifications
+
+**Safari, at 400px and at desktop width.** This is the arc's only browser pass, and it is the only
+check that exercises the notification wording, the deep links and the write gate at all — every
+other section here drives the plane through hand-crafted SQS.
+
+Run it **after** SPEC-169's and SPEC-170's sections, or bring your own archive: step 4 needs a
+restore that will actually take hours, and steps 1–3 make one.
+
+### 1. Archive a folder, from the browser
+
+Pick a folder holding a handful of files. Tick it in the file list, then **Archive** in the
+selection toolbar.
+
+Expect, in the dialog:
+
+- The heading names the folder **relative to the space root** — `Archive the folder "reports/2026/"
+  and everything inside it?`, never `alice/reports/...`.
+- It says the data **will be removed from this space** and that a restore takes **several hours**.
+- It does **not** say "This can't be undone" — that would be false here.
+- **Focus is on Cancel.** Press **Enter**: the dialog CANCELS. This is the one dialog in the app
+  where that is the wanted behaviour, and it is the only place it can be observed.
+
+Re-open it, press **Archive**, and expect:
+
+- A toast saying the archive **started** — never that it finished.
+- Within a few minutes, a notification reading `Archived N files (X MB). They have been removed from
+  your space. Archive id: {uuid} - you'll need it to restore them.`
+- **The notification is a LINK.** Click it: it lands in `archive/{uuid}/`, not at your space root.
+  A link that silently drops its prefix looks identical from the inbox and is the failure this is
+  here to catch.
+- The folder is gone from the listing; `archive/{uuid}/receipt.txt` downloads and reads correctly.
+
+**Keep the archive id.** Steps 2 and 4 need it.
+
+### 2. The archive folder is read-only, and says so
+
+Navigate into `archive/`, then into `archive/{uuid}/`.
+
+Expect at BOTH widths (the mobile action bar mounts its own controls — a CSS-hidden twin would pass
+a desktop-only pass):
+
+- **Upload** and **New folder** are present but unavailable, and hovering or focusing either gives
+  a reason mentioning the folder is read-only. **No `AccessDenied` ever reaches you.**
+- Selecting the receipt: **Move** and **Delete** are likewise unavailable with a reason.
+- **Archive** is GONE — not disabled. An archive of an archive is not a thing.
+- **Details** and **Download** work normally. This is the point of the folder being visible.
+- Back at the space root, select `archive/` itself: **Delete** and **Rename** refuse it by name, and
+  it is absent from the destination picker when you Move or Copy something else.
+
+Also confirm, at the space root, that selecting `athenaresults/` disables **Archive** with a reason
+naming that folder — the browser's mirror of the plane's `reserved_folder` refusal.
+
+### 3. Archive a single file from its details panel
+
+Open **Details** on any file, then **Archive** in the panel. Confirm. This is the only route to
+archiving something you have not ticked, and it is a different component from step 1's.
+
+### 4. Restore, and the two notifications
+
+Click **Restore Archived Data** in the toolbar.
+
+- Type nonsense and submit: an inline error names what a valid id looks like, and **the submit
+  control is never merely disabled**.
+- Paste step 1's id and submit. Expect a toast saying the restore has **started**, and the dialog
+  naming the space it will restore into.
+- Within a few minutes: `Restoring N files from long-term storage. This takes several hours - you'll
+  get another notification when it finishes. Nothing has changed in your space yet.` **No link** on
+  this one.
+- **Come back the same day.** The terminal notification reads `Restored N files (X MB) to your
+  space, back where they came from. The archive has been cleaned up.` and **its link works** —
+  landing in the space, with the files back where they were.
+
+### 5. The refusal a user is most likely to hit
+
+Re-create one of the restored files, then submit the same id again.
+
+Expect `destination_occupied`'s wording, **naming that file**, with the "there may be more" caveat —
+rendered from `arcommon.messages` verbatim. The browser composes nothing.
+
+### 6. A shared space, as a non-owner member
+
+Repeat steps 1 and 4 in a shared space you are a member of but do not own. This is the membership
+rule SPEC-168 FR-005 and SPEC-170 FR-002 both specify and **no unit test exercises against real
+Cognito tags**. Confirm the notification link carries `?space=` and lands in the space rather than
+in your own files — the failure mode SPEC-167 records is that it silently resolves the personal
+space instead.

@@ -75,6 +75,16 @@ def test_nothing_that_could_change_a_url_is_ever_interpolated(kind, name, reques
     assert notify.archive_folder_link(kind, name, request_id) is None
 
 
+def test_an_id_that_is_plain_but_not_a_UUID_returns_None_rather_than_raising():
+    """`_plain` and `validated_request_id` do not agree — the first accepts any plain segment, the
+    second only a UUID v4 — and the gap between them used to RAISE. Unreachable today, but this
+    function's contract is "None when no working link can be minted", and the caller's caller
+    would otherwise lose the whole `archived` message to its blanket except: the only message
+    carrying the archive id, on the arm where the source is already deleted."""
+    assert notify.archive_folder_link("personal", "alice", "abc") is None
+    assert notify.archive_folder_link("personal", "alice", "not-a-uuid") is None
+
+
 # ── the restore link ─────────────────────────────────────────────────────────
 
 
@@ -99,7 +109,9 @@ def sent(monkeypatch):
     monkeypatch.setattr(
         notify,
         "emit_notification",
-        lambda user, message, dedup_id=None, link=None: captured.append((user, message, link)),
+        lambda user, message, dedup_id=None, link=None: captured.append(
+            (user, message, link, dedup_id)
+        ),
     )
     return captured
 
@@ -110,33 +122,54 @@ def test_every_outcome_addresses_the_actor_and_nobody_else(sent):
     plane deliberately does not have)."""
     space = {"kind": "personal", "name": "alice"}
     notify.emit_archived("alice", space, _ARCHIVE_ID, 2, 10)
-    notify.emit_restore_started("alice", 2)
-    notify.emit_restored("alice", space, 2, 10)
+    notify.emit_restore_started("alice", "run-1", 2)
+    notify.emit_restored("alice", space, "run-1", 2, 10)
 
-    assert [user for user, _, _ in sent] == ["alice", "alice", "alice"]
+    assert [row[0] for row in sent] == ["alice", "alice", "alice"]
 
 
-def test_no_dedup_token_is_passed_and_that_is_the_planes_existing_rule(monkeypatch):
-    """Each outcome is emitted from exactly ONE state, so there is no duplicate pair for a token
-    to collapse — while the states carry a `Retry`, and the queue's content dedup is what makes a
-    re-invocation after a transient Lambda fault safe. Inherited from this module's failure
-    emitters rather than introduced here."""
-    seen = {}
-    monkeypatch.setattr(
-        notify,
-        "emit_notification",
-        lambda user, message, dedup_id=None, link=None: seen.setdefault("dedup", dedup_id),
-    )
+def test_each_success_outcome_carries_a_token_that_is_PER_RUN(sent):
+    """SPEC-114's rule read literally: one token per outcome. Two of these three bodies have no
+    discriminator in them at all — `restore_started` names a count and nothing else — so the
+    queue's content dedup would collapse two restores of the same folder started together into
+    ONE inbox row, and the user would see a response to one of two requests with no way to tell
+    which. The token keeps the retry-safety content dedup was providing, because a re-invocation
+    of the same state composes the same one."""
+    space = {"kind": "personal", "name": "alice"}
+    notify.emit_restore_started("alice", "run-1", 2)
+    notify.emit_restore_started("alice", "run-2", 2)
+    notify.emit_restored("alice", space, "run-1", 2, 10)
 
-    notify.emit_restore_started("alice", 2)
+    assert sent[0][1] == sent[1][1], "the two bodies really are identical — that is the hazard"
+    tokens = [row[3] for row in sent]
+    assert all(tokens), "a success outcome with no token falls back to content dedup"
+    assert len(set(tokens)) == 3
 
-    assert seen["dedup"] is None
+
+def test_the_token_is_stable_for_one_run_and_one_outcome(sent):
+    """Which is what makes a state's `Retry` safe: a re-invocation after a transient Lambda fault
+    composes the same token and the queue drops the second copy."""
+    notify.emit_restore_started("alice", "run-1", 2)
+    notify.emit_restore_started("alice", "run-1", 2)
+
+    assert sent[0][3] == sent[1][3]
+
+
+def test_a_kept_archive_is_reported_as_kept(sent):
+    """The emitter's half of the conditional sentence. `archive_swept=False` is the route through
+    `CleanupIncomplete`, which is a SUCCESSFUL run whose vault sweep did not happen."""
+    space = {"kind": "personal", "name": "alice"}
+    notify.emit_restored("alice", space, "run-1", 2, 10, archive_swept=False)
+    notify.emit_restored("alice", space, "run-2", 2, 10)
+
+    assert "cleaned up" not in sent[0][1]
+    assert "cleaned up" in sent[1][1]
 
 
 def test_a_started_notification_offers_no_link(sent):
     """Nothing has arrived yet. A link to an unchanged space would suggest there is something to
     look at, three hours before there is."""
-    notify.emit_restore_started("alice", 2)
+    notify.emit_restore_started("alice", "run-1", 2)
 
     assert sent[0][2] is None
 

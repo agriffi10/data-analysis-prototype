@@ -157,6 +157,18 @@ describe('useRestoreArchive', () => {
     expect(message).toMatch(/notification/i);
   });
 
+  it('lowercases and trims the pasted id, so a receipt read back in caps resolves one prefix', async () => {
+    // S3 keys are case-sensitive: a re-submitted id in different case would open a second prefix
+    // that reads identically in every message and every listing (`arcommon.paths` records it).
+    // The id here HAS letters — an all-digit fixture makes `toUpperCase()` a no-op and the
+    // assertion unable to fail, which is how this was tested before and was not tested at all.
+    const {hook} = setup();
+    act(() => hook.result.current.openDialog());
+    await act(async () => hook.result.current.submit('  3F8A1C2E-9B4D-4A17-8C65-2E0D7B1F4A93  '));
+
+    expect(vi.mocked(enqueueRestore).mock.calls[0][0].archiveId).toBe('3f8a1c2e-9b4d-4a17-8c65-2e0d7b1f4a93');
+  });
+
   it('sends the run id and the archive id as different values', async () => {
     const {hook} = setup();
     act(() => hook.result.current.openDialog());

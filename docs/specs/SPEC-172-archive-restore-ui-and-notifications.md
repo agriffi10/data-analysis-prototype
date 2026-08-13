@@ -1,7 +1,7 @@
 # Spec: Archive & Restore — File-Browser UI, the Receipt Surface & Notifications
 
 **ID:** SPEC-172
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-10
 **Depends On:** SPEC-168 → SPEC-171 (the plane), SPEC-155 (`FormDialog`, the Escape registry), SPEC-058→061 (notifications), SPEC-074 (Help & guides), SPEC-095/099 (responsive)
 
@@ -162,6 +162,12 @@ prevent for `athenaresults/`.
 - [ ] `MessageGroupId` is computed as each spec requires — the SHA-256 of the space root for archive
       (SPEC-168 FR-004), of the archive root for restore (SPEC-170 FR-001) — and a test asserts the
       two differ, because using one for both would serialize unrelated work.
+      > **Note on SPEC-170 FR-001:** that AC writes the restore's canonical string as
+      > `{archiveBucket}/{archiveRoot}`. The browser cannot produce it — SPEC-168 keeps the archive
+      > bucket's name out of the SPA entirely and a test enforces the absence — and the bucket adds
+      > no discrimination, since it is one constant across every restore. The archive ROOT alone is
+      > used, and its `personal/`/`shared/` segment already makes it unique. `decisions.md` carries
+      > the reasoning; `docs/testing/archive-restore-e2e.md` was corrected to match.
 - [ ] The body carries the ID token and **never a username**; the actor is derived server-side.
 - [ ] Success means *enqueued*, not done — the hooks expose a pending state and never a completion.
 - [ ] The feature lives at `src/features/archive/` with the standard barrel, and imports nothing from
@@ -188,6 +194,11 @@ prevent for `athenaresults/`.
 - [ ] The optional `link` points at the file browser at the relevant folder — the `archive/` folder
       for `archived`, the restored path for `restored` — and passes `isSafeInAppPath` (SPEC-061). A
       link that cannot be built is omitted, never guessed.
+      > **Amended in build:** `restored` links to the **space root**, not "the restored path". A
+      > restore puts every object back where it came from, which for any selection of more than one
+      > folder is several places at once — there is no single restored path, and picking the first
+      > would send the user to a folder holding part of what they asked for. Reasoning in
+      > `decisions.md`; the `archived` link is unchanged.
 - [ ] One dedup token **per outcome**, not per verb (the data-quality rule).
 - [ ] Every message is a literal, `echo=` is not used, and no message carries a file's contents
       (SPEC-127's field rule).
@@ -215,8 +226,11 @@ prevent for `athenaresults/`.
 
 ```ts
 // src/features/archive/archive.service.ts
-enqueueArchive(req: ArchiveRequest): Promise<ServiceResult<{ requestId: string }>>;
-enqueueRestore(req: RestoreRequest): Promise<ServiceResult<{ requestId: string }>>;
+// Amended in build to ServiceResult<void>: the caller MINTS the request id (it is the FIFO
+// deduplication id, so it must be per-submit), which means handing it back is echoing an
+// argument. Every other plane's enqueue has the same shape.
+enqueueArchive(req: ArchiveRequest): Promise<ServiceResult<void>>;
+enqueueRestore(req: RestoreRequest): Promise<ServiceResult<void>>;
 ```
 
 ```ts

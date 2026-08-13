@@ -33,7 +33,9 @@ def sent(monkeypatch):
     monkeypatch.setattr(
         notify,
         "emit_notification",
-        lambda user, message, dedup_id=None, link=None: captured.append((user, message, link)),
+        lambda user, message, dedup_id=None, link=None: captured.append(
+            (user, message, link, dedup_id)
+        ),
     )
     return captured
 
@@ -58,7 +60,7 @@ def test_the_archived_message_names_the_count_the_size_and_the_id(sent):
     browser has no relationship with, so it is the user's only route back to them."""
     m._notify(_event("archived"))
 
-    user, message, _ = sent[0]
+    user, message = sent[0][0], sent[0][1]
     assert user == "alice"
     assert "12 files" in message
     assert "3.0 MB" in message
@@ -94,7 +96,7 @@ def test_a_link_that_cannot_be_built_is_omitted_rather_than_guessed(sent):
     """FR-006 AC6. The notification still says what happened; it just cannot offer a link."""
     m._notify(_event("archived", space={"kind": "personal", "name": "../evil"}))
 
-    _, message, link = sent[0]
+    message, link = sent[0][1], sent[0][2]
     assert link is None
     assert _ARCHIVE_ID in message
 
@@ -107,7 +109,7 @@ def test_the_started_message_states_the_duration_and_promises_a_second_one(sent)
     hours of silence is indistinguishable from a request that was dropped."""
     m._notify(_event("restore_started"))
 
-    _, message, link = sent[0]
+    message, link = sent[0][1], sent[0][2]
     assert "several hours" in message
     assert "another notification" in message
     assert link is None
@@ -127,7 +129,7 @@ def test_the_started_message_says_nothing_has_changed_yet(sent):
 def test_the_restored_message_names_the_count_and_the_size(sent):
     m._notify(_event("restored"))
 
-    _, message, _ = sent[0]
+    message = sent[0][1]
     assert "12 files" in message
     assert "3.0 MB" in message
 
@@ -151,6 +153,36 @@ def test_exactly_one_message_is_sent_per_invocation(sent):
         sent.clear()
         m._notify(_event(outcome))
         assert len(sent) == 1, outcome
+
+
+def test_the_cleanup_flag_decides_whether_the_sweep_is_claimed(sent):
+    """SPEC-171 made a failed vault sweep a FLAG on a successful run, and `DeleteArchived`'s Catch
+    reaches this same terminal through `CleanupIncomplete`. The flag reaches nothing else a user
+    can see, so an unconditional "the archive has been cleaned up" is a positive claim about the
+    one route where it is false."""
+    m._notify(_event("restored", cleanup={"deleted": 0, "residue": None, "cleanupIncomplete": True}))
+    m._notify(_event("restored", cleanup={"deleted": 3, "residue": 0, "cleanupIncomplete": False}))
+
+    assert "cleaned up" not in sent[0][1]
+    assert "cleaned up" in sent[1][1]
+
+
+def test_an_absent_cleanup_block_reads_as_SWEPT(sent):
+    """The flag is only ever set true, so a missing block means the run took the ordinary route —
+    and the block is threaded whole rather than as a boolean, because a Parameters path that is
+    absent raises an uncatchable States.Runtime."""
+    m._notify(_event("restored"))
+
+    assert "cleaned up" in sent[0][1]
+
+
+def test_every_success_outcome_carries_a_per_run_dedup_token(sent):
+    """Two of the three bodies have no discriminator in them, so without a token the queue's
+    content dedup collapses two runs that render identically into one inbox row."""
+    for outcome in ("archived", "restore_started", "restored"):
+        sent.clear()
+        m._notify(_event(outcome))
+        assert sent[0][3], outcome
 
 
 def test_an_unseeded_outcome_notifies_nobody_and_does_not_raise(sent):
