@@ -1,6 +1,5 @@
-// The Data Explorer's engine (SPEC-178): the exploration model, the one SQL builder, the
-// execution cache and the tab state. NO visible surface ships here — SPEC-179 mounts the
-// first of them.
+// The Data Explorer (SPEC-178's engine, SPEC-179's shell): the exploration model, the one
+// SQL builder, the execution cache, the tab state, and the surfaces that mount them.
 //
 // The Glue reader, the Athena execution/results layer and the space list are
 // `features/catalog/` (SPEC-176) and the `.sql` store is `features/saved-queries/`
@@ -19,7 +18,14 @@ export {useExplorationTabs} from './useExplorationTabs';
 export type {UseExplorationTabsResult, OpenExplorationOpts} from './useExplorationTabs';
 export {tabBytesScanned} from './explorationTabs';
 export {explorerKeys} from './explorerKeys';
-export {EXPLORATION_TABS_MAX, SQL_SOURCE_ALIAS} from './dataExplorer.constants';
+export {EXPLORATION_PAGE_SIZE, EXPLORATION_TABS_MAX, SQL_SOURCE_ALIAS} from './dataExplorer.constants';
+export {DataExplorerWorkspace} from './DataExplorerWorkspace';
+export {SourcePicker} from './SourcePicker';
+export {ExplorationTabStrip} from './ExplorationTabStrip';
+export {ExplorationResultsTable} from './ExplorationResultsTable';
+export {useExploreDeepLink} from './useExploreDeepLink';
+export {resolveExploreParams, spaceDatabase} from './exploreSources';
+export type {ExploreParams, ExploreResolution, ExploreTarget} from './exploreSources';
 export type {
   Exploration,
   ExplorationSource,

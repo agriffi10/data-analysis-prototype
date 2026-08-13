@@ -1282,6 +1282,27 @@ describe('QueryWorkspace', () => {
       expect(await screen.findByRole('menuitem', {name: 'View source files'})).toBeDisabled();
     });
 
+    // SPEC-179 FR-007: the Data Explorer's entry point on a Query surface. The database
+    // comes from the rail NODE the table was invoked from (SPEC-077 FR-007) — there is no
+    // active-database selection to take it from — and `space` carries the same name, which
+    // `/explore` re-resolves: the personal database IS the username, which resolves to the
+    // personal space by SPEC-113's precedence.
+    it('Explore data navigates to /explore carrying the node’s own database, for a table and a view alike', async () => {
+      const {user} = renderWorkspace();
+
+      await openTableMenu(user, 'sales_2026');
+      await user.click(await screen.findByRole('menuitem', {name: 'Explore data'}));
+      expect(screen.getByLabelText('probe-location')).toHaveTextContent(
+        '/explore?space=alice&db=alice&table=sales_2026'
+      );
+
+      await openTableMenu(user, 'revenue_view');
+      await user.click(await screen.findByRole('menuitem', {name: 'Explore data'}));
+      expect(screen.getByLabelText('probe-location')).toHaveTextContent(
+        '/explore?space=alice&db=alice&table=revenue_view'
+      );
+    });
+
     it('View DDL opens non-run DDL tabs for a table (SHOW CREATE TABLE) and a view (isView passthrough)', async () => {
       mockGetTableDdl.mockResolvedValue(ok('CREATE EXTERNAL TABLE sales_2026 (...)'));
       const {user} = renderWorkspace();
@@ -1765,6 +1786,7 @@ describe('QueryWorkspace', () => {
         <NavRailProvider>
           <QueryWorkspace />
           <NavRailProbe />
+          <LocationProbe />
         </NavRailProvider>,
         {auth: authenticated('alice')}
       );
@@ -1798,6 +1820,21 @@ describe('QueryWorkspace', () => {
       window.innerWidth = 1024;
       renderWorkspace();
       expect(await screen.findByRole('complementary', {name: 'Schema browser'})).toBeInTheDocument();
+    });
+
+    // SPEC-179 FR-007 AC5: the drawer's copy of the tree is fed through the ref indirection,
+    // so an action added to the rail has to arrive there too — the mobile surface is where a
+    // handler that closed over a stale `actions` object would silently do nothing.
+    it('offers Explore data in the mobile nav drawer’s copy of the rail, and it navigates', async () => {
+      const {user} = renderMobileWorkspace();
+      const rail = await screen.findByLabelText('mobile nav rail');
+
+      await user.click(await within(rail).findByRole('button', {name: 'Options for sales_2026'}));
+      await user.click(await screen.findByRole('menuitem', {name: 'Explore data'}));
+
+      expect(screen.getByLabelText('probe-location')).toHaveTextContent(
+        '/explore?space=alice&db=alice&table=sales_2026'
+      );
     });
 
     it('runs a saved query from a card and shows row cards with a pager', async () => {

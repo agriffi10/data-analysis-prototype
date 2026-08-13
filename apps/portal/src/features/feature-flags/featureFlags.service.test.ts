@@ -16,12 +16,12 @@ const body = (value: unknown) => ({
 
 const document = (over: Record<string, unknown> = {}) => ({
   version: 1,
-  defaults: {files: true, query: true, sharedWorkspaces: true, dataQuality: true},
+  defaults: {files: true, query: true, sharedWorkspaces: true, dataQuality: true, dataExplorer: true},
   environments: {prod: {}},
   ...over
 });
 
-const allOn = {files: true, query: true, sharedWorkspaces: true, dataQuality: true};
+const allOn = {files: true, query: true, sharedWorkspaces: true, dataQuality: true, dataExplorer: true};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -62,7 +62,7 @@ describe('getFeatureFlags — resolution', () => {
 
     expect(await getFeatureFlags('prod')).toEqual({
       success: true,
-      data: {files: true, query: false, sharedWorkspaces: true, dataQuality: false}
+      data: {files: true, query: false, sharedWorkspaces: true, dataQuality: false, dataExplorer: true}
     });
   });
 
@@ -87,7 +87,7 @@ describe('getFeatureFlags — resolution', () => {
     expect(await getFeatureFlags(undefined)).toEqual({success: true, data: {...allOn, query: false}});
   });
 
-  it('always returns all four keys as booleans, whatever the document named', async () => {
+  it('always returns all five keys as booleans, whatever the document named', async () => {
     // The resolver walks the KEY LIST, not the document, so no consumer ever sees undefined.
     send.mockResolvedValue(body(document({defaults: {}, environments: {}})));
 
@@ -110,7 +110,13 @@ describe('getFeatureFlags — one bad value is not a bad document', () => {
       // `query` takes the compiled-in default (true), NOT the string's truthiness — which
       // would happen to agree here and disagree for `"false"` in a document whose default
       // was off, so the assertion below pins the source rather than the value.
-      data: {files: true, query: FEATURE_FLAG_DEFAULTS.query, sharedWorkspaces: false, dataQuality: true}
+      data: {
+        files: true,
+        query: FEATURE_FLAG_DEFAULTS.query,
+        sharedWorkspaces: false,
+        dataQuality: true,
+        dataExplorer: true
+      }
     });
   });
 

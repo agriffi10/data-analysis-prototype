@@ -73,6 +73,15 @@ export function useTableActions({
       if (!key) return;
       navigate(`/files?prefix=${encodeURIComponent(key)}`);
     },
+    // SPEC-179 FR-007: hand the table to the Data Explorer. `space` and `db` are BOTH the
+    // node's own database, which is exact rather than convenient — a shared space's database
+    // IS its space id, and the personal database is the username, which `/explore` resolves
+    // to the personal space by SPEC-113's precedence rule. The route re-resolves both against
+    // the spaces this user can reach, so a stale link opens the picker rather than failing.
+    onExploreData: (database: string, table: GlueTableSummary) => {
+      const params = new URLSearchParams({space: database, db: database, table: table.name});
+      navigate(`/explore?${params.toString()}`);
+    },
     // SHOW CREATE TABLE against the node's database → a new, non-run "DDL: {table}" tab.
     onViewDdl: (database: string, table: GlueTableSummary) => {
       toast.push({variant: 'info', message: `Loading DDL for ${table.name}…`});
@@ -147,6 +156,7 @@ export function useTableActions({
       onViewSourceFiles: (database, table) => actionsRef.current.onViewSourceFiles(database, table),
       onViewDdl: (database, table) => actionsRef.current.onViewDdl(database, table),
       onViewData: (database, table) => actionsRef.current.onViewData(database, table),
+      onExploreData: (database, table) => actionsRef.current.onExploreData(database, table),
       onRefreshTable: (database, table) => actionsRef.current.onRefreshTable(database, table),
       onShareTable: (database, table) => actionsRef.current.onShareTable(database, table),
       onDropTable: (database, table) => actionsRef.current.onDropTable(database, table)
