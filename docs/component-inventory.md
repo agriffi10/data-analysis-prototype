@@ -31,6 +31,7 @@ whole new area appears.
 | Feature | File |
 |---|---|
 | File browser | `component-inventory/file-browser-feature.md` |
+| Catalog (shared by Query + Data Explorer) | `component-inventory/catalog-feature.md` |
 | Query | `component-inventory/query-feature.md` |
 | Connections | `component-inventory/connections-feature.md` |
 | Notifications | `component-inventory/notifications-feature.md` |

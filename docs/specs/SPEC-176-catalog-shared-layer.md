@@ -1,7 +1,7 @@
 # Spec: Extracting `features/catalog/` — the Shared Catalog & Execution Layer
 
 **ID:** SPEC-176
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-13
 **Depends On:** None (pure refactor of shipped code; first spec of the Data Explorer arc)
 

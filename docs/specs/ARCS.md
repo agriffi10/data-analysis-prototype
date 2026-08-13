@@ -1276,3 +1276,34 @@ destroy it" are different guarantees, and only one of them survives a stale cach
 > `isLinkedSavedQuery` judges the **key**, so the dialog's promise and the host's `overwrite` cannot
 > drift apart. Choosing a different space **copies**; nothing in this arc ever moves or deletes a
 > colleague's file.
+
+## Data Explorer arc (176 → …)
+
+The portal can already run SQL. What it cannot do is let someone **look at a table** without writing
+any — pick a database and a table, see its rows, page through them. That is the Data Explorer, and
+everything it needs to do it already exists inside `features/query/`: the Glue reader, the Athena
+start/poll/results/cancel layer, the space list, the results pager, the row-count walk and the
+column-width store.
+
+**The arc opens with the refactor, and that ordering is the whole point.** A `features/data-explorer/`
+built first would import those from `features/query/` because that is where they are — recreating
+the undeclared shared layer SPEC-155 spent a whole spec dismantling, one directory over, and the
+ESLint rule that now guards `components/`, `lib/` and `hooks/` does not reach feature-to-feature
+imports. **176** moves the shared ground into `features/catalog/` while nothing is riding on it,
+ships no user-visible change at all, and extends the layering rule to name
+`features/data-explorer/` **before it exists** — so the first file created there lands under a guard
+that is already working rather than one added afterwards. A spec that ships nothing visible is a
+fine way to open an arc when it is the change most likely to go wrong.
+
+**177** takes the saved-query store out too, deliberately separated from 176 so a harder move cannot
+block the one everything else is built on. **179 onward** build the surface itself — the picker and
+the grid — as their own components rather than by widening the Query workspace's.
+
+> **176 landed 2026-08-13.** Two things the spec did not anticipate, both worth carrying. Its scope
+> claim that only one file outside `features/query/` was affected was **wrong — six were**, and the
+> discovery strengthened the premise rather than widening the work: `features/table-builder/` had
+> been reaching into a leaf feature for the Glue reader and the schema key for two arcs. And the new
+> ESLint clause, written in the same shape as the rule it extends, **resolved onto the right files
+> and caught nothing** — `no-restricted-imports` matches the literal import source, and one sibling
+> feature reaches another as `'../query/…'`, which contains no `features/` segment. FR-006's demand
+> that it be verified by violating it in both directions is the only reason it shipped working.

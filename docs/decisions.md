@@ -2782,3 +2782,66 @@ So the canonical string is `{kind}/{name}/archive/{archiveId}/`, mirroring `arco
 archive_root`, and `docs/testing/archive-restore-e2e.md`'s hand-crafted command was corrected to
 match so the live check exercises the rule the browser reproduces. A test pins the derivation and
 names SPEC-168's browser isolation — not the test — as the decision to re-open if it ever fails.
+
+## The shared layer is extracted before its second consumer exists, and the rule that guards it had to be verified by violating it (SPEC-176)
+
+`features/query/` had become the portal's catalog layer by accident: the Glue reader, the Athena
+start/poll/results/cancel layer, the space list, the results pager, the background row-count walk and
+the column-width store all lived inside a feature that owns an editor and a tab strip. The Data
+Explorer (SPEC-179 onward) needs every one of them.
+
+**The extraction leads the arc rather than following it.** Building the Data Explorer first and
+factoring afterwards would mean writing `import {useSchema} from '../query/useSchema'` and living
+with it — which is exactly the undeclared shared layer SPEC-155 spent a whole spec dismantling, one
+directory over. Extracting first costs a large mechanical diff against a codebase where every test
+still passes; extracting later costs the same diff plus a second feature's worth of call sites, at a
+moment when the pressure is to ship the feature. So `features/catalog/` exists with **no** user-
+visible change, no new behaviour and no altered AWS call — the change most likely to go wrong,
+made when nothing is riding on it.
+
+### The key namespace moves with the module, and a prefix is not cosmetic
+
+`catalogKeys` is rooted at `['catalog']`, not `['query']`. Keeping the old prefix would have been a
+smaller diff and is the wrong call: a key namespace naming a feature the module no longer belongs to
+is the same hidden coupling the extraction removes, and it would make a future
+`invalidateQueries({queryKey: queryKeys.all})` in the Query workspace silently reach into the Data
+Explorer's caches. Cache keys are in-memory and per session, so the change needs no migration and the
+spec asserts none.
+
+### The producer decides where a type lives, not the consumer
+
+`useSchema.ts` moved carrying an import of `DatabaseSchema` from `sqlCompletions.ts`, which stays
+behind — FR-001's "no catalog module imports from `features/query/`" broken by the first file moved.
+`DatabaseSchema` is `{database: string; tables: GlueTableSummary[]}`: it had been declared beside the
+completion provider that consumes it rather than the hook that produces it, and nobody had reason to
+think of it as domain until the layers were separated. It is in `catalog.types.ts` now. Where a
+producer sits in a lower layer than its consumer, the type belongs with the producer.
+
+### `no-restricted-imports` matches the SOURCE STRING, so a sibling rule needs relative patterns
+
+The SPEC-155 rule forbids `components/`, `lib/` and `hooks/` importing `**/features/**`, and it works
+because those layers sit *above* `features/` and must name it: `'../features/query/queryKeys'`. The
+sibling clause written the same way — `'**/features/query/**'`, `'**/features/data-explorer/**'` —
+resolved onto exactly the right files and **caught nothing**, because one feature reaches another as
+`'../query/queryKeys'`, which contains no `features/` segment at all. The load-bearing patterns are
+the relative ones (`'../query'`, `'../query/**'`, `'../../query'`, `'../../query/**'`, and the same
+four for `data-explorer`); the `**/features/…` globs stay for any path written the long way.
+
+This is why FR-006 required the rule be **verified by committing a violation in each direction and
+observing the failure**, not by reading the config. A rule that resolves onto the right files, prints
+a correct `--print-config` and is written in the same shape as a working one is not a rule that
+fires. `features/data-explorer/` is named in the rule before it exists, so the first file created
+there lands under a guard already known to work.
+
+**Tests are not exempt from this clause**, unlike the shared-layer rule above it. That exemption
+exists because integration-style tests mount real features by design (react.md §21) — but a Query
+test importing the Data Explorer is the coupling itself, not a mount of the tree under test.
+
+### What did not move, and why
+
+`SchemaBrowser`, `DatabaseNode`, `QueryResultsTable` and every dialog stay: the Data Explorer's
+picker and grid are different components with different requirements, and SPEC-155's precedent is to
+move the *domain*, not every consumer. The display page-size constants stay too —
+`MAX_RESULTS_PAGE_SIZE` is a SPEC-087 workspace preference, not a property of Athena. `formatBytes`
+went to `lib/format.ts` rather than into `catalog/`: it is a pure formatter with no catalog domain,
+and both features render the same scanned-bytes figure.
