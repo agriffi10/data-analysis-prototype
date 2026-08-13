@@ -1,7 +1,7 @@
 # Spec: The Exploration Model, the SQL Renderer and the Execution Cache
 
 **ID:** SPEC-178
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-13
 **Depends On:** SPEC-176, SPEC-177
 
@@ -47,6 +47,32 @@ carries for a different dialect.
   SPEC-183, which also owns the multi-statement and non-`SELECT` refusals.
 - **Grouping's UI.** The `Grouping` type and its rendering are here; the panel is SPEC-182.
 - Any change to the Query workspace.
+
+### Corrections made during the build
+
+- **`ColumnFilter` gains an optional `valueKind: 'string' | 'number'`, and FR-004 AC2 is
+  narrowed to match.** As specified — every filter value through `sqlLiteral` — a filter on
+  any non-string column renders `WHERE "qty" > '5'`, which Athena rejects: Trino does not
+  coerce varchar to bigint. It is a *query-time* error, so nothing offline catches it, and it
+  stays invisible on CSV-derived tables (the Table Builder makes those all-string) until the
+  first Parquet table. The repo's own Trino renderer already emits numeric values bare for
+  this reason (`dqcommon/sql.py`). A `'number'` value carries no injection surface: the
+  renderer admits only a bounded charset that `Number.isFinite` then accepts, and refuses
+  anything else rather than falling back to quoting — falling back would restore the very
+  type error the kind exists to prevent. Everything else still goes through `sqlLiteral`.
+- **The one-builder sweep (FR-002 AC6) is scoped to `features/data-explorer/`, not the repo.**
+  A literal repo-wide sweep is not achievable and never was: `useTableActions.tsx`,
+  `useRunDdl.ts` and `CreateViewDialog.tsx` build real DDL for the Query workspace, and
+  `query.constants.ts`'s `DEFAULT_SQL` is `SELECT 1;`. A sweep exempting three legitimate
+  builders would prove nothing about the fourth. SPEC-165's precedent is one-builder within
+  the package that owns the concept, which is what shipped.
+- **`renderExplorationSql` rejects by throwing** (`ExplorationRenderError`). The interface
+  contract returns `string`, so there is no result type to carry a refusal, and every case is
+  a caller bug the panels refuse before reaching here.
+- **Two modules beyond the File & Folder sketch**: `exploration.ts` (the model constructors,
+  so "empty" has one definition) and `explorationTabs.ts` (the persistence half of the tab
+  state, mirroring `features/query/queryTabs.ts`, which is the precedent the whole model
+  follows).
 
 ---
 
