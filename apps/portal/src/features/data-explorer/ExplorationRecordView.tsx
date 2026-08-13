@@ -70,14 +70,23 @@ export function ExplorationRecordView({
           {columns.map((column) => (
             <div
               key={column.name}
-              onClick={() => onFocusColumn(column.name)}
               className="flex gap-3 border-b border-border-2 px-3 py-2 text-sm last:border-b-0">
               <dt className="w-2/5 flex-none truncate text-text-3">
                 {column.name}
                 <span className="block truncate font-mono text-[10px] text-text-3">{column.type}</span>
               </dt>
               <dd className="min-w-0 flex-1 break-words font-mono text-text">
-                <CellValue value={row[column.index] ?? null} />
+                {/* A BUTTON, not a click handler on the row: this is the only way to move
+                    the Value panel while in Record, and Record is the default below
+                    `tablet` — a pointer-only path would make the panel unreachable on the
+                    surface that needs it most. */}
+                <button
+                  type="button"
+                  aria-label={`Show the full value of ${column.name}`}
+                  onClick={() => onFocusColumn(column.name)}
+                  className="w-full break-words text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+                  <CellValue value={row[column.index] ?? null} />
+                </button>
               </dd>
             </div>
           ))}

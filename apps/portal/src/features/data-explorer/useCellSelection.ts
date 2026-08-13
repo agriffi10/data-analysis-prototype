@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState, type RefObject} from 'react';
 import type {CellRange, CellRef, CellSelection} from './dataExplorer.types';
 
 export type UseCellSelectionResult = {
@@ -15,11 +15,12 @@ export type UseCellSelectionResult = {
   selectColumn: (column: string) => void;
   /** Whole-row selection from a row-number click. */
   selectRow: (row: number) => void;
-  /** The grid's key handler: cursor movement, extension, and Ctrl/Cmd+A. */
+  /** The grid's key handler: cursor movement, extension, Ctrl/Cmd+A and the Space selectors. */
   onKeyDown: (event: React.KeyboardEvent) => void;
-  /** Registers the cell element that currently holds the cursor, so focus can follow it. */
-  registerCursorCell: (element: HTMLElement | null) => void;
 };
+
+/** Marks the cursor cell in the DOM, so focus can find it without a per-cell ref. */
+export const CURSOR_CELL_ATTRIBUTE = 'data-cursor';
 
 function sameCell(a: CellRef, b: CellRef): boolean {
   return a.row === b.row && a.column === b.column;
@@ -46,16 +47,23 @@ function clamp(value: number, max: number): number {
  * @param rowCount - Rows on the loaded page.
  * @param columns - Visible column names, in display order.
  * @param resetKey - Changes whenever the page or the column set does; resets the selection.
+ * @param grid - The grid element, so DOM focus can be moved to the cursor cell inside it.
  * @returns The selection, the predicates the cells render from, and the gestures.
  */
-export function useCellSelection(rowCount: number, columns: string[], resetKey: string): UseCellSelectionResult {
+export function useCellSelection(
+  rowCount: number,
+  columns: string[],
+  resetKey: string,
+  grid: RefObject<HTMLElement | null>
+): UseCellSelectionResult {
   const empty = useMemo((): CellSelection => ({cursor: {row: 0, column: columns[0] ?? ''}, ranges: []}), [columns]);
   const [stored, setSelection] = useState<CellSelection>(empty);
 
-  // The cell that owns the cursor, so a keyboard move can put DOM focus where the model
-  // says it is — but only when focus is already inside the grid. Focusing unconditionally
-  // would steal it from whatever the user is doing every time a page of results arrives.
-  const cursorCell = useRef<HTMLElement | null>(null);
+  // Focus follows the cursor by LOOKING THE CELL UP in the committed DOM, not by holding a
+  // ref to the cell. A per-cell `ref` callback detaches the old cell and attaches the new
+  // one in an order React does not promise, so the first keyboard move could read a ref
+  // that had just been nulled — the cursor moved and DOM focus stayed behind, on exactly
+  // the path a keyboard-only user takes (found in review).
   const pendingFocus = useRef(false);
 
   // Reset during render (React's "adjust state when a prop changes" pattern, as
@@ -69,11 +77,13 @@ export function useCellSelection(rowCount: number, columns: string[], resetKey: 
   }
   const selection = previousKey === resetKey ? stored : empty;
 
+  // Keyed on the selection, so it runs in the commit that rendered the new cursor cell —
+  // and only when a gesture asked for focus, never when a page of results simply arrived.
   useEffect(() => {
     if (!pendingFocus.current) return;
     pendingFocus.current = false;
-    cursorCell.current?.focus();
-  });
+    grid.current?.querySelector<HTMLElement>(`[${CURSOR_CELL_ATTRIBUTE}="true"]`)?.focus();
+  }, [grid, selection]);
 
   const columnIndex = useCallback((column: string) => columns.indexOf(column), [columns]);
 
@@ -177,6 +187,11 @@ export function useCellSelection(rowCount: number, columns: string[], resetKey: 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
       if (rowCount === 0 || columns.length === 0) return;
+      // The handler sits on the grid, and the grid contains other keyboard widgets — a
+      // focusable resize separator per column. Without this, an Arrow that widened a
+      // column ALSO moved the cell cursor and threw focus into the body, so the second
+      // press resized nothing (found in review).
+      if (!(event.target as HTMLElement).closest('[role="gridcell"]')) return;
       const {cursor} = selection;
       const col = Math.max(columnIndex(cursor.column), 0);
       const extend = event.shiftKey;
@@ -191,6 +206,20 @@ export function useCellSelection(rowCount: number, columns: string[], resetKey: 
           cursor: s.cursor,
           ranges: [{from: {row: 0, column: columns[0]}, to: {row: rowCount - 1, column: columns[columns.length - 1]}}]
         }));
+        return;
+      }
+
+      // The keyboard half of "click a header selects the column, click a row number
+      // selects the row" (the WAI-ARIA grid pattern's own bindings) — without them those
+      // two gestures would be pointer-only.
+      if (event.key === ' ' && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        selectColumn(cursor.column);
+        return;
+      }
+      if (event.key === ' ' && event.shiftKey) {
+        event.preventDefault();
+        selectRow(cursor.row);
         return;
       }
 
@@ -232,12 +261,8 @@ export function useCellSelection(rowCount: number, columns: string[], resetKey: 
         default:
       }
     },
-    [columnIndex, columns, moveCursor, rowCount, selection]
+    [columnIndex, columns, moveCursor, rowCount, selectColumn, selectRow, selection]
   );
-
-  const registerCursorCell = useCallback((element: HTMLElement | null) => {
-    cursorCell.current = element;
-  }, []);
 
   return {
     selection,
@@ -247,7 +272,6 @@ export function useCellSelection(rowCount: number, columns: string[], resetKey: 
     selectCell,
     selectColumn,
     selectRow,
-    onKeyDown,
-    registerCursorCell
+    onKeyDown
   };
 }

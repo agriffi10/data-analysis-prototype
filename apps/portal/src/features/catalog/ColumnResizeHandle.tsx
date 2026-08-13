@@ -1,5 +1,5 @@
 import {useCallback} from 'react';
-import {COLUMN_RESIZE_STEP_PX, MIN_COLUMN_WIDTH} from './catalog.constants';
+import {COLUMN_RESIZE_STEP_PX, MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH} from './catalog.constants';
 
 type ColumnResizeHandleProps<K extends string | number> = {
   /** Whatever identifies the column to the caller — an index in one surface, a name in another. */
@@ -56,13 +56,13 @@ export function ColumnResizeHandle<K extends string | number>({
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        onResize(column, width + COLUMN_RESIZE_STEP_PX);
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        onResize(column, width - COLUMN_RESIZE_STEP_PX);
-      }
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      e.preventDefault();
+      // The Data Explorer's grid listens for Arrow keys on an ANCESTOR of this handle, so
+      // an un-stopped event resized the column AND moved the cell cursor, taking focus off
+      // the handle with it — the second press then resized nothing (found in review).
+      e.stopPropagation();
+      onResize(column, width + (e.key === 'ArrowRight' ? COLUMN_RESIZE_STEP_PX : -COLUMN_RESIZE_STEP_PX));
     },
     [column, width, onResize]
   );
@@ -78,6 +78,7 @@ export function ColumnResizeHandle<K extends string | number>({
       // (SPEC-180). The pixel width is the value the Arrow keys move.
       aria-valuenow={Math.round(width)}
       aria-valuemin={MIN_COLUMN_WIDTH}
+      aria-valuemax={MAX_COLUMN_WIDTH}
       aria-valuetext={`${Math.round(width)} pixels`}
       onPointerDown={onPointerDown}
       onDoubleClick={() => onReset(column)}

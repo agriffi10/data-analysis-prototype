@@ -225,12 +225,68 @@ describe('the cell cursor and range selection', () => {
     await user.click(cell(0, 'total'));
     expect(selectedText()).toEqual(['9.99']);
 
+    // Hide a DIFFERENT column: hiding the selected one removes its cells from the DOM, so
+    // "nothing is selected" would hold whether or not the reset ran — the assertion has to
+    // be made where the selected cell is still on screen to be one at all.
     await user.click(screen.getByRole('button', {name: 'Columns'}));
     const panel = await screen.findByRole('dialog', {name: 'Columns'});
-    await user.click(within(panel).getByRole('button', {name: 'Hide total'}));
+    await user.click(within(panel).getByRole('button', {name: 'Hide status'}));
     await user.click(screen.getByRole('button', {name: 'Close columns'}));
 
-    await waitFor(() => expect(selectedText()).toEqual([]));
+    await waitFor(() => expect(screen.queryByRole('columnheader', {name: 'status'})).not.toBeInTheDocument());
+    expect(cell(0, 'total')).toBeInTheDocument();
+    expect(selectedText()).toEqual([]);
+  });
+
+  it('moves DOM focus with the cursor on the FIRST keyboard move, with no click first', async () => {
+    // The path a keyboard-only user takes: Tab into the grid, then Arrow. The cursor cell
+    // is looked up in the committed DOM rather than held in a per-cell ref, because ref
+    // detach/attach order is not promised and the first move read a nulled one — the
+    // cursor moved and focus stayed behind.
+    const {user} = render();
+    await screen.findByRole('columnheader', {name: 'id'});
+
+    cell(0, 'id').focus();
+    await user.keyboard('{ArrowRight}');
+
+    expect(cell(0, 'total')).toHaveFocus();
+    expect(cell(0, 'total')).toHaveAttribute('tabindex', '0');
+  });
+
+  it('keeps every cell with its own column after a reorder', async () => {
+    // The assertion the header-name checks cannot make: a reorder that moved the headers
+    // and left the cells where they were would pass all of them.
+    const {user} = render();
+    await screen.findByRole('columnheader', {name: 'status'});
+
+    await user.click(screen.getByRole('button', {name: 'Columns'}));
+    const panel = await screen.findByRole('dialog', {name: 'Columns'});
+    await user.click(within(panel).getByRole('button', {name: 'Pin status'}));
+    await user.click(screen.getByRole('button', {name: 'Close columns'}));
+
+    await waitFor(() =>
+      expect(
+        within(screen.getAllByRole('row')[1])
+          .getAllByRole('gridcell')
+          .map((td) => td.textContent)
+      ).toEqual(['paid', '1', '9.99'])
+    );
+  });
+
+  it('Ctrl+Space selects the cursor’s column and Shift+Space its row', async () => {
+    // The keyboard half of the header/row-number clicks — the WAI-ARIA grid bindings.
+    const {user} = render();
+    await screen.findByRole('columnheader', {name: 'total'});
+
+    await user.click(cell(1, 'total'));
+    await user.keyboard('{Control>} {/Control}');
+    expect(selectedText()).toEqual(['9.99', '12.50', '3.25']);
+
+    // Each selector re-homes the cursor the way its pointer twin does — a column selection
+    // puts it on row 1 — so the row case starts from its own click rather than from there.
+    await user.click(cell(1, 'total'));
+    await user.keyboard('{Shift>} {/Shift}');
+    expect(selectedText()).toEqual(['2', '12.50', 'open']);
   });
 
   it('leaves the grid axe-clean with a multi-cell selection active', async () => {

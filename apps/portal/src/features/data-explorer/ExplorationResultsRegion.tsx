@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useRef, useState} from 'react';
 import {Button} from '../../components/Button';
 import {ErrorBanner} from '../../components/ErrorBanner';
 import {Pager} from '../../components/Pager';
@@ -55,6 +55,7 @@ export function ExplorationResultsRegion({
 }: ExplorationResultsRegionProps) {
   const results = useQueryResults(queryExecutionId, EXPLORATION_PAGE_SIZE);
   const [columnsOpen, setColumnsOpen] = useState(false);
+  const gridRef = useRef<HTMLTableElement>(null);
   // FR-006: a `table` source knows its columns from Glue before anything runs, a `sql`
   // source only from the execution. The execution's own metadata WINS once it lands —
   // grouping changes the column set entirely, and Glue would still be describing the
@@ -68,7 +69,8 @@ export function ExplorationResultsRegion({
   const selection = useCellSelection(
     results.rows.length,
     visibleNames,
-    `${queryExecutionId ?? ''}:${results.pageIndex}:${visibleNames.join(' ')}`
+    `${queryExecutionId ?? ''}:${results.pageIndex}:${visibleNames.join(' ')}`,
+    gridRef
   );
 
   // FR-007: below `tablet` an UNCHOSEN tab opens in Record — a horizontally-scrolling grid
@@ -78,16 +80,25 @@ export function ExplorationResultsRegion({
   const isMobile = useIsMobile();
   const view: GridPresentation = presentation.presentation ?? (isMobile ? 'record' : 'grid');
 
-  const setView = (next: GridPresentation) =>
+  // The stored row outlives the page it was taken on (a tab switch, a restore), so it is
+  // clamped where it is READ.
+  const recordRow = Math.min(Math.max(presentation.recordRowIndex, 0), Math.max(results.rows.length - 1, 0));
+
+  // Record and the grid share ONE focused row, and the sync runs in BOTH directions —
+  // entering Record from the cursor, and moving the cursor to the row Record left off at
+  // (FR-004 AC3). Only the first half shipped at first, so "switch back" landed on
+  // whatever the cursor last touched (found in review).
+  const setView = (next: GridPresentation) => {
+    if (next !== 'record' && view === 'record') {
+      selection.selectCell({row: recordRow, column: selection.selection.cursor.column}, {});
+    }
     onPresentationChange((p) => ({
       ...p,
       presentation: next,
-      // Record and the grid share ONE focused row, so switching back lands where the
-      // record left off (FR-004 AC3) rather than wherever the cursor last was.
       recordRowIndex: next === 'record' ? selection.selection.cursor.row : p.recordRowIndex
     }));
+  };
 
-  const recordRow = Math.min(Math.max(presentation.recordRowIndex, 0), Math.max(results.rows.length - 1, 0));
   const cursorColumn = geometry.visible.find((column) => column.name === selection.selection.cursor.column) ?? null;
   const cursorValue = cursorColumn
     ? results.rows[view === 'record' ? recordRow : selection.selection.cursor.row]?.[cursorColumn.index]
@@ -171,6 +182,7 @@ export function ExplorationResultsRegion({
             rangeStart={results.rangeStart}
             geometry={geometry}
             selection={selection}
+            gridRef={gridRef}
           />
         )}
         {view === 'record' && (

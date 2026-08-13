@@ -1,10 +1,11 @@
-import {useMemo} from 'react';
+import {useMemo, type RefObject} from 'react';
 import {cx} from '../../lib/cx';
 import {CellValue} from './CellValue';
 import {cellText} from './cellText';
 import {ROW_NUMBER_COLUMN_WIDTH} from './dataExplorer.constants';
 import {ExplorationGridHeader} from './ExplorationGridHeader';
 import type {GridColumn, UseColumnGeometryResult} from './useColumnGeometry';
+import {CURSOR_CELL_ATTRIBUTE} from './useCellSelection';
 import type {UseCellSelectionResult} from './useCellSelection';
 
 export type ExplorationGridProps = {
@@ -16,6 +17,8 @@ export type ExplorationGridProps = {
   rangeStart: number;
   geometry: UseColumnGeometryResult;
   selection: UseCellSelectionResult;
+  /** The grid element, shared with `useCellSelection` so focus can find the cursor cell. */
+  gridRef: RefObject<HTMLTableElement | null>;
 };
 
 /**
@@ -29,7 +32,7 @@ export type ExplorationGridProps = {
  * composite widget rather than a static table, and the roles have to be in place before
  * the selection model lands on them.
  */
-export function ExplorationGrid({columns, rows, rangeStart, geometry, selection}: ExplorationGridProps) {
+export function ExplorationGrid({columns, rows, rangeStart, geometry, selection, gridRef}: ExplorationGridProps) {
   // Sticky offsets for the pinned block: each pinned column sits after the row-number
   // column and every pinned column before it. Computed from widths rather than measured,
   // because the widths ARE the layout here (`table-fixed` + an explicit `<colgroup>`).
@@ -48,6 +51,7 @@ export function ExplorationGrid({columns, rows, rangeStart, geometry, selection}
   return (
     <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-surface">
       <table
+        ref={gridRef}
         role="grid"
         aria-label="Results"
         aria-multiselectable="true"
@@ -98,7 +102,7 @@ export function ExplorationGrid({columns, rows, rangeStart, geometry, selection}
                     // the Arrow keys move within, which is what `role="grid"` promises —
                     // a hundred cells in the tab order is not a grid, it is a maze.
                     tabIndex={cursor ? 0 : -1}
-                    ref={cursor ? selection.registerCursorCell : undefined}
+                    {...{[CURSOR_CELL_ATTRIBUTE]: cursor ? 'true' : undefined}}
                     aria-selected={selected}
                     onMouseDown={(e) =>
                       selection.selectCell(
@@ -113,8 +117,8 @@ export function ExplorationGrid({columns, rows, rangeStart, geometry, selection}
                       selected && 'bg-accent-soft',
                       cursor && 'ring-2 ring-inset ring-accent'
                     )}
-                    title={cellText(row[column.index])}>
-                    <CellValue value={row[column.index]} />
+                    title={cellText(row[column.index] ?? null)}>
+                    <CellValue value={row[column.index] ?? null} />
                   </td>
                 );
               })}

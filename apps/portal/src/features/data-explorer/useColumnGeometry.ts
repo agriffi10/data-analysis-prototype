@@ -1,5 +1,5 @@
 import {useCallback, useMemo} from 'react';
-import {DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH} from '../catalog/catalog.constants';
+import {DEFAULT_COLUMN_WIDTH, MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH} from '../catalog/catalog.constants';
 import type {QueryColumn} from '../catalog/catalog.types';
 import type {ExplorationPresentation} from './dataExplorer.types';
 
@@ -98,12 +98,21 @@ export function useColumnGeometry(
       })
       .map(({column}) => column);
 
-    // The pinned block leads, in the order the columns were pinned — so a pinned column
-    // stays put while the body scrolls, and pinning one does not silently reorder the rest.
+    // The pinned block leads, in pin order — but only for columns the stored order has
+    // nothing to say about. An earlier version sorted the block by pin order ALONE, which
+    // silently overrode every reorder inside it: the ↑/↓ buttons stayed enabled, the live
+    // region announced a new position, and nothing moved (found in review).
     const pinnedRank = new Map(pinnedColumns.map((name, i) => [name, i]));
     const pinned = ordered
       .filter((column) => column.pinned)
-      .sort((a, b) => (pinnedRank.get(a.name) ?? 0) - (pinnedRank.get(b.name) ?? 0));
+      .sort((a, b) => {
+        const ra = rank.get(a.name);
+        const rb = rank.get(b.name);
+        if (ra !== undefined && rb !== undefined) return ra - rb;
+        if (ra !== undefined) return -1;
+        if (rb !== undefined) return 1;
+        return (pinnedRank.get(a.name) ?? 0) - (pinnedRank.get(b.name) ?? 0);
+      });
     return [...pinned, ...ordered.filter((column) => !column.pinned)];
   }, [columns, columnOrder, hiddenColumns, pinnedColumns, columnWidths]);
 
@@ -111,7 +120,8 @@ export function useColumnGeometry(
 
   const setWidth = useCallback(
     (name: string, px: number) => {
-      onChange((p) => ({...p, columnWidths: {...p.columnWidths, [name]: Math.max(MIN_COLUMN_WIDTH, Math.round(px))}}));
+      const clamped = Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, Math.round(px)));
+      onChange((p) => ({...p, columnWidths: {...p.columnWidths, [name]: clamped}}));
     },
     [onChange]
   );
@@ -206,8 +216,12 @@ export function useColumnGeometry(
       // a mutation the user did not ask for.
       if (!column || !onto || column.name === onto.name || block(column) !== block(onto)) return;
       const siblings = all.filter((c) => block(c) === block(column)).map((c) => c.name);
+      // Dropped to the RIGHT, the column lands after the target; to the left, before it.
+      // Splicing at the target's post-removal index does the left case only — a one-place
+      // rightward drag was a no-op, which is half of drag-reorder (found in review).
+      const rightward = siblings.indexOf(name) < siblings.indexOf(target);
       const without = siblings.filter((n) => n !== name);
-      const at = without.indexOf(target);
+      const at = without.indexOf(target) + (rightward ? 1 : 0);
       const reordered = [...without.slice(0, at), name, ...without.slice(at)];
       const others = all.filter((c) => block(c) !== block(column)).map((c) => c.name);
       writeOrder(column.pinned ? [...reordered, ...others] : [...others, ...reordered]);

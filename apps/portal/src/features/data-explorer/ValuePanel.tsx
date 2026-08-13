@@ -5,7 +5,11 @@ import {EMPTY_DISPLAY, NULL_DISPLAY} from './cellText';
 export type ValuePanelProps = {
   /** The focused cell's column, or null when nothing is focused. */
   column: string | null;
-  /** The focused cell's complete value — never the truncated rendering. */
+  /**
+   * The focused cell's complete value — never the truncated rendering. `null` is SQL NULL;
+   * **`undefined` is "no cell is focused"**, which is a different thing and must not be
+   * announced as NULL: telling those two apart is the panel's whole job.
+   */
   value: string | null | undefined;
   onClose: () => void;
 };
@@ -28,7 +32,14 @@ export type ValuePanelProps = {
  */
 export function ValuePanel({column, value, onClose}: ValuePanelProps) {
   useEscapeKey(onClose, true);
-  const marker = value === null || value === undefined ? NULL_DISPLAY : value === '' ? EMPTY_DISPLAY : null;
+  const focused = column !== null && value !== undefined;
+  const marker = !focused
+    ? 'Select a cell to see its value.'
+    : value === null
+      ? NULL_DISPLAY
+      : value === ''
+        ? EMPTY_DISPLAY
+        : null;
 
   return (
     <aside

@@ -199,18 +199,63 @@ describe('column geometry', () => {
     expect(earlier.getAttribute('title')).toMatch(/already first/);
   });
 
-  it('reorders by dragging one header onto another', async () => {
+  it('reorders a PINNED column within the pinned block', async () => {
+    // The pinned block used to be ordered by pin order ALONE, so a move inside it was a
+    // silent no-op that the live region still announced.
+    seedTabs([{id: 't1', table: 'orders'}]);
+    const {user} = render();
+    await screen.findByRole('columnheader', {name: 'status'});
+
+    await user.click(within(await columnRow(user, 'status')).getByRole('button', {name: 'Pin status'}));
+    await user.click(within(await columnRow(user, 'id')).getByRole('button', {name: 'Pin id'}));
+    await waitFor(() => expect(headerNames()).toEqual(['status', 'id', 'total']));
+
+    await user.click(within(await columnRow(user, 'id')).getByRole('button', {name: 'Move id earlier'}));
+    await waitFor(() => expect(headerNames()).toEqual(['id', 'status', 'total']));
+
+    const panel = screen.getByRole('dialog', {name: 'Columns'});
+    expect(within(panel).getByRole('status')).toHaveTextContent('id moved to position 1 of 2.');
+  });
+
+  it('reorders by dragging one header onto another, in BOTH directions', async () => {
     seedTabs([{id: 't1', table: 'orders'}]);
     render();
     await screen.findByRole('columnheader', {name: 'status'});
 
-    const dragged = within(screen.getByRole('columnheader', {name: 'status'})).getByTitle('status');
-    const target = screen.getByRole('columnheader', {name: 'id'});
-    fireEvent.dragStart(dragged);
-    fireEvent.dragOver(target);
-    fireEvent.drop(target);
+    const drag = async (from: string, onto: string) => {
+      const dragged = within(screen.getByRole('columnheader', {name: from})).getByTitle(from);
+      const target = screen.getByRole('columnheader', {name: onto});
+      fireEvent.dragStart(dragged);
+      fireEvent.dragOver(target);
+      fireEvent.drop(target);
+    };
 
+    await drag('status', 'id'); // leftward
     await waitFor(() => expect(headerNames()).toEqual(['status', 'id', 'total']));
+
+    // Rightward was a no-op while the insert was always BEFORE the target — half of
+    // drag-reorder, silently missing.
+    await drag('status', 'total');
+    await waitFor(() => expect(headerNames()).toEqual(['id', 'total', 'status']));
+  });
+
+  it('keeps Arrow keys on a resize handle out of the cell cursor', async () => {
+    seedTabs([{id: 't1', table: 'orders'}]);
+    render();
+    const handle = await screen.findByRole('separator', {name: 'Resize column id'});
+
+    handle.focus();
+    fireEvent.keyDown(handle, {key: 'ArrowRight'});
+    fireEvent.keyDown(handle, {key: 'ArrowRight'});
+
+    // Both presses land on the column, and focus never leaves the handle for the body —
+    // un-stopped, the first press resized and threw focus into the grid, so the second
+    // moved the cell cursor instead. TWO guards make this true (the handle stops the event,
+    // and the grid ignores keys from outside a gridcell), so deleting either one alone
+    // leaves this green; deleting both reddens it, which is the bug it was written for.
+    expect(handle).toHaveAttribute('aria-valuenow', String(DEFAULT_COLUMN_WIDTH + 2 * COLUMN_RESIZE_STEP_PX));
+    expect(handle).toHaveFocus();
+    expect(screen.queryAllByRole('gridcell').filter((c) => c.getAttribute('aria-selected') === 'true')).toHaveLength(0);
   });
 
   it('keeps geometry across paging and tab switches, and costs NOTHING (FR-001 AC6/AC7)', async () => {

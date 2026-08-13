@@ -65,9 +65,55 @@ case covers the collected path.
 - **Two files the structure did not list.** `ColumnsPanel.tsx` — SPEC-181 owns the per-column header
   menu, so hide/pin/reorder needed a home that does not collide with it. `ExplorationResultsRegion.tsx`
   — the container the three presentations hang off, so each view stays presentational.
+- **`grid.a11y.test.tsx` was not created.** The axe passes live in the suites that drive the
+  states worth checking — a live multi-cell selection in `gridSelection.test.tsx`, Record with its
+  Value panel open in `gridPresentations.test.tsx` — because axe snapshots the tree when it starts,
+  so an a11y file that mounts nothing driven asserts nothing. `gridGeometry.test.tsx` was added.
 - **A cross-block drag is refused rather than coerced.** Dropping an unpinned column onto the pinned
   block does nothing, because inferring "pin this too" from where a drag ended is a mutation the user
   did not ask for. Pinning has its own control.
+
+## What review changed
+
+A fresh-context review found six real defects, all fixed here, and each now has a test that was
+**mutation-checked** — the fix is reverted, the test must redden.
+
+- **DOM focus did not follow the cursor on the FIRST keyboard move.** A per-cell `ref` callback
+  detaches the old cell and attaches the new one in an order React does not promise, so the effect
+  could read a ref that had just been nulled. Focus now looks the cursor cell up in the committed
+  DOM (`data-cursor`), keyed on the selection. Every keyboard test clicked a cell first, which warmed
+  the ref — the cold path, the one a keyboard-only user takes, was the untested one.
+- **Arrow keys on a resize handle also moved the cell cursor**, throwing focus into the grid body, so
+  the second press resized nothing. The handle now stops the event AND the grid ignores keys that did
+  not come from a gridcell. Two independent guards, so the test reddens only when both are removed —
+  which is the bug, not either half of the fix.
+- **Reordering a PINNED column was a silent no-op that the live region announced anyway.** The pinned
+  block was sorted by pin order alone, overriding the stored order every move writes.
+- **A one-place RIGHTWARD drag did nothing** — the insert was always before the target, so only
+  leftward drags worked, and only leftward drags were tested.
+- **Record → Grid did not restore the row.** The cursor/record sync ran one way only, and the test
+  named for FR-004 AC3 asserted "there is exactly one cursor cell", which is always true.
+- **The Value panel said `NULL` when no cell was focused** — conflating "no cell" with the one value
+  the panel exists to distinguish. It now says so in words.
+
+Three more that were not bugs but were untested or unreachable: a test that "cleared the selection"
+by hiding the very column it had selected (the cells were gone either way — it now hides a different
+one), no test that **cells travel with their column** (verified by mutation: swapping `column.index`
+for the display position left the whole suite green), and the keyboard half of the header/row-number
+selectors — **Ctrl/Cmd+Space and Shift+Space**, the WAI-ARIA grid bindings, without which those two
+gestures were pointer-only. Record's values became **buttons** for the same reason: moving the Value
+panel in Record was mouse-only, on the presentation that is the default below `tablet`.
+
+`MAX_COLUMN_WIDTH` (1200px) is new: a focusable `role="separator"` needs `aria-valuemax`, whose ARIA
+default of 100 sat below every real width. Both width stores clamp to it.
+
+## Accepted tension
+
+**FR-002 AC5 ("the grid is a single tab stop") is literally false, and knowingly so.** Each column's
+resize handle is a focusable `role="separator"` inside the grid, because FR-001 AC1 requires a
+keyboard-resizable handle. The AC's intent — that the *cells* are one tab stop, reached by a roving
+`tabIndex` rather than N×M stops — holds. Both ACs cannot be met literally at once, and the handles
+are the cheaper thing to keep.
 
 ## What is NOT here
 

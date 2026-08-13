@@ -168,9 +168,13 @@ describe('the Record and Text presentations', () => {
     expect(await screen.findByRole('region', {name: 'Row 2'})).toBeInTheDocument();
 
     // Back to the grid, on the row Record left off at — not the one the cursor started on.
+    // Asserting "there is exactly one cursor cell" would say nothing: there always is one.
+    // The claim is WHICH row it is in.
     await user.click(screen.getByRole('button', {name: 'Grid'}));
     await screen.findByRole('grid');
-    expect(screen.getAllByRole('gridcell').filter((c) => c.getAttribute('tabindex') === '0')).toHaveLength(1);
+    const cursor = screen.getAllByRole('gridcell').find((c) => c.getAttribute('tabindex') === '0');
+    const cursorRow = screen.getAllByRole('row').findIndex((r) => r.contains(cursor ?? null));
+    expect(within(screen.getAllByRole('row')[cursorRow]).getByRole('rowheader')).toHaveTextContent('2');
     expect(runQuery).toHaveBeenCalledTimes(1);
   });
 
