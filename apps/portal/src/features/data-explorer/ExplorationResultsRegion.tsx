@@ -10,6 +10,7 @@ import {ExplorationGrid} from './ExplorationGrid';
 import {ExplorationRecordView} from './ExplorationRecordView';
 import {ExplorationTextView} from './ExplorationTextView';
 import {ExpressionBar} from './ExpressionBar';
+import {FilterValueDialog} from './FilterValueDialog';
 import {FilterHistoryControls} from './FilterHistoryControls';
 import {OrderFilterDialog} from './OrderFilterDialog';
 import {PresentationSwitch} from './PresentationSwitch';
@@ -29,10 +30,12 @@ import {
 } from './explorationQueryOps';
 import type {ColumnQueryActions} from './ColumnFilterMenu';
 import type {QueryColumn} from '../catalog/catalog.types';
-import type {ExplorationPresentation, GridPresentation} from './dataExplorer.types';
+import type {ExplorationPresentation, FilterOperator, GridPresentation} from './dataExplorer.types';
 import type {UseExplorationQueryResult} from './useExplorationQuery';
 
 export type ExplorationResultsRegionProps = {
+  /** The tab these rows belong to — what the fallback execution below is scoped by. */
+  tabId: string;
   queryExecutionId: string | null;
   /** The exploration is starting or still running. */
   isPending: boolean;
@@ -72,6 +75,7 @@ export const SUSPENDED_TEXT = 'This set of filters failed last time it ran. Noth
  * neither does an `ExplorationRenderError`, whose message names a column for an operator.
  */
 export function ExplorationResultsRegion({
+  tabId,
   queryExecutionId,
   isPending,
   error,
@@ -82,12 +86,18 @@ export function ExplorationResultsRegion({
 }: ExplorationResultsRegionProps) {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pendingFilter, setPendingFilter] = useState<{column: string; operator: FilterOperator} | null>(null);
   const gridRef = useRef<HTMLTableElement>(null);
   const {query, apply} = queryControls;
 
   // The last execution whose rows actually arrived. A failed apply falls back to it, so
   // the grid keeps showing something true rather than going blank behind a banner.
-  const [lastGoodExecutionId, setLastGoodExecutionId] = useState<string | null>(null);
+  //
+  // Scoped to the TAB, and this component is not remounted per tab: without the reset, a
+  // failed apply in one tab drew the OTHER tab's rows and columns under its own error
+  // banner (found in review).
+  const [lastGood, setLastGood] = useState<{tabId: string; executionId: string} | null>(null);
+  const lastGoodExecutionId = lastGood?.tabId === tabId ? lastGood.executionId : null;
   const failed = Boolean(error);
   const shownExecutionId = failed ? lastGoodExecutionId : queryExecutionId;
 
@@ -102,7 +112,7 @@ export function ExplorationResultsRegion({
     !results.isError &&
     lastGoodExecutionId !== queryExecutionId
   ) {
-    setLastGoodExecutionId(queryExecutionId);
+    setLastGood({tabId, executionId: queryExecutionId});
   }
 
   // FR-006: a `table` source knows its columns from Glue before anything runs, a `sql`
@@ -147,6 +157,11 @@ export function ExplorationResultsRegion({
     clearFilter: (column) => apply({filters: clearFilter(query, column).filters})
   };
 
+  // The value already on that column, so re-filtering it is an edit rather than a retype.
+  const pendingExisting = pendingFilter ? filterOf(query, pendingFilter.column) : null;
+  const pendingInitialValue =
+    pendingExisting && operatorTakesValue(pendingExisting.operator) ? (pendingExisting.value ?? '') : '';
+
   // FR-007: below `tablet` an UNCHOSEN tab opens in Record — a horizontally-scrolling grid
   // on a 400px screen is not a data explorer. `useIsMobile` decides which view MOUNTS,
   // never how anything is styled (SPEC-095 FR-008), and a tab whose user HAS chosen keeps
@@ -180,7 +195,9 @@ export function ExplorationResultsRegion({
   // all (SPEC-184), and either one as a predicate matches nothing.
   const cursorValue = cursorColumn ? results.rows[cursorRow]?.[cursorColumn.index] : undefined;
 
-  const loading = isPending || !shownExecutionId || results.isPending;
+  // Suspended is not loading: nothing is in flight, deliberately. Without this the status
+  // line announced "Running…" directly above the panel saying nothing had been run.
+  const loading = !queryControls.suspended && (isPending || !shownExecutionId || results.isPending);
   const hasCell = cursorColumn !== null && cursorValue !== undefined;
   const filterByCellRefusal = !hasCell
     ? NO_CELL_TO_FILTER
@@ -235,6 +252,7 @@ export function ExplorationResultsRegion({
               geometry={geometry}
               selection={selection}
               actions={actions}
+              onRequestFilterValue={(column, operator) => setPendingFilter({column, operator})}
               gridRef={gridRef}
             />
           )}
@@ -356,6 +374,20 @@ export function ExplorationResultsRegion({
         onClose={() => setColumnsOpen(false)}
         geometry={geometry}
       />
+
+      {pendingFilter && (
+        <FilterValueDialog
+          column={pendingFilter.column}
+          operator={pendingFilter.operator}
+          valueKind={valueKindOf(pendingFilter.column)}
+          initialValue={pendingInitialValue}
+          onApply={(value) => {
+            actions.filter(pendingFilter.column, pendingFilter.operator, value);
+            setPendingFilter(null);
+          }}
+          onCancel={() => setPendingFilter(null)}
+        />
+      )}
 
       {settingsOpen && (
         <OrderFilterDialog

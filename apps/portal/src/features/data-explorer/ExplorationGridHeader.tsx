@@ -3,6 +3,7 @@ import {ColumnResizeHandle} from '../catalog/ColumnResizeHandle';
 import {cx} from '../../lib/cx';
 import {ROW_NUMBER_COLUMN_WIDTH} from './dataExplorer.constants';
 import {ColumnFilterMenu, type ColumnQueryActions} from './ColumnFilterMenu';
+import type {FilterOperator} from './dataExplorer.types';
 import type {GridColumn} from './useColumnGeometry';
 
 export type ExplorationGridHeaderProps = {
@@ -18,6 +19,8 @@ export type ExplorationGridHeaderProps = {
   onSelectColumn: (name: string) => void;
   /** Ordering and filtering, for each column's own menu (SPEC-181 FR-001). */
   actions: ColumnQueryActions;
+  /** A comparison needs a value; the region raises the dialog (`Modal` does not portal). */
+  onRequestFilterValue: (column: string, operator: FilterOperator) => void;
 };
 
 /**
@@ -40,7 +43,8 @@ export function ExplorationGridHeader({
   onResetWidth,
   onDropColumn,
   onSelectColumn,
-  actions
+  actions,
+  onRequestFilterValue
 }: ExplorationGridHeaderProps) {
   const dragging = useRef<string | null>(null);
 
@@ -103,6 +107,7 @@ export function ExplorationGridHeader({
             <ColumnFilterMenu
               column={column.name}
               actions={actions}
+              onRequestValue={onRequestFilterValue}
             />
             <ColumnResizeHandle
               column={column.name}

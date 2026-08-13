@@ -104,12 +104,63 @@ is true about the execution and false about the gesture. It is decided by readin
 *during render, before `recordScan` writes to it* — after that write every execution looks known and
 every apply would report itself free.
 
+## What review changed
+
+A fresh-context review found five real defects and three weak proofs. Every fix has a test that was
+**mutation-checked** — the fix is reverted, the test must redden.
+
+- **The per-apply cost was frozen at the first poll, so the surface read "This query scanned 0 B"
+  for every real query.** A `QUEUED`/`RUNNING` poll carries no `Statistics`, so `cost` reported a
+  confident zero; the per-apply figure is captured **once** per execution (deliberately — a cache hit
+  has to be read before the ledger is written), so that zero stuck while the running total beside it
+  said 2 GB. `useExploration` now reports `cost` only for a **terminal** state. Every test fixture in
+  the feature returned `SUCCEEDED` on the first call, which is what hid it; the new test polls
+  `RUNNING` then `SUCCEEDED`.
+- **`suspended` was one boolean for every tab.** A held-back history step in one tab handed
+  `useExploration` nothing for *all* of them: the next tab ran nothing and said a set of filters had
+  failed that never had. Reset during render when the tab id changes.
+- **The last-good-execution fallback was not per tab.** A tab whose *first* execution failed drew
+  the other tab's rows and columns under its own error banner. It is now keyed by tab id — and the
+  test that catches it needed the failing tab to have **never succeeded**, because a tab with a good
+  execution of its own falls back correctly either way.
+- **The header menu's operator list was a hand-written array cast to `FilterOperator[]`**, so three
+  of the six comparisons could be deleted and still compile — and nothing exercised more than two of
+  them. It is derived from `FILTER_OPERATORS` now, with a test asserting the whole menu.
+- **`FilterValueDialog` was rendered inside a `<th>`.** `Modal` does not portal, so a dialog opened
+  from a non-pinned header would be confined to that cell's `z-20` stacking context and paint under
+  the `z-30` sticky headers, scrim and all — invisible to jsdom. The region raises it now; the menu
+  asks.
+- Two smaller ones: **"Running…" was announced while nothing was running** (the status line sat above
+  the panel saying nothing had been run), and **"Run it anyway" did not forget the failure**, so a
+  transient failure that then succeeded went on suspending that description all session.
+- **`apply` built its description outside its own state updater**, so two applies batched into one
+  commit would lose the first change and push a history entry equal to the description it replaced.
+  Not reachable from a single gesture today; reachable the moment any surface calls `apply` twice.
+
+Two weak proofs were tightened: the cache-hit assertion waited for cells that were already on screen
+(it waits for the sort to leave the menu's name now), and a comment claimed to seed one entry short
+of the history cap while seeding exactly the cap.
+
+## Accepted tension, and one limitation
+
+**FR-005 AC5 is literally unmet, knowingly.** It asks for "exactly one field submitting on Enter";
+the settings dialog designates **none**, because every field in it is a criteria row and a criteria
+row filing the whole dialog is what SPEC-155's suppression exists to prevent. The AC's other half —
+implicit submission suppressed, `<select>`s included — is met and tested by `defaultPrevented`
+(jsdom implements no implicit submission, so "the dialog stayed open" would prove nothing).
+
+**A column that is neither text nor a number has no working filter.** `FilterValueKind` has two
+arms, so a `timestamp`, `date` or `boolean` column filters as a quoted string and Trino — which does
+not coerce — rejects the comparison; the user gets SPEC-106's wording for a query error rather than
+anything actionable. Refusing the gesture up front would be worse (a `varchar` column holding dates
+filters fine), and a third kind means either a `CAST` in the renderer or a temporal input, both of
+which are model changes SPEC-178 owns. It is the first thing SPEC-184 should pick up if formatting
+brings types with it.
+
 ## Notes for the next spec, and for the Safari pass
 
 - `valueKind` now has its producer (`filterValueKind`, from the column's declared type, covering
-  both Athena's and Glue's spellings). **A boolean column is still `'string'`** and will fail at
-  Athena as a type error rendered through `toUserMessage`; the type offers two kinds and a third
-  would be SPEC-184's to add if it matters.
+  both Athena's and Glue's spellings) — see the limitation above for the types it cannot serve.
 - The header menu is **grid-only**, so below `tablet` (where Record is the default) filtering and
   sorting are reached through **Order and filter**. Worth confirming that path in SPEC-185's Safari
   pass, along with the two things no test can see: the menu popover inside the grid's scroll

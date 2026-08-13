@@ -187,6 +187,7 @@ export function DataExplorerWorkspace() {
           aria-label={tabs.activeTab?.label ?? 'Exploration'}
           className="flex min-h-0 flex-1 flex-col">
           <ExplorationResultsRegion
+            tabId={tabs.activeTabId}
             queryExecutionId={exploration.queryExecutionId}
             isPending={exploration.isPending}
             error={exploration.error}

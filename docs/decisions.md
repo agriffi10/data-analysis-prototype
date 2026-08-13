@@ -3181,7 +3181,22 @@ the execution and false about the gesture; it is decided by reading the tab's le
 render, before `recordScan` writes to it**, since after that write every execution looks known and
 every apply would report itself free.
 
-One implementation trap worth naming, because it looked correct and was silent: `moveSortPriority`
-stamps priorities from the **array position** after the swap. Re-stamping through the shared
-"sort by priority, then number them" helper put the two entries straight back where they were, so
-the ↑/↓ controls were a no-op that the dialog rendered as a success.
+**A cost is only reportable once the execution is TERMINAL, and the fixtures hid the opposite.** A
+`QUEUED`/`RUNNING` poll carries no `Statistics`, so `useExploration` reported a perfectly confident
+0 B — and because the per-apply figure is captured once per execution (it must be, to read the ledger
+before `recordScan` writes to it), that zero stuck for the life of the query while the running total
+beside it said something else. Every test fixture in the feature returned `SUCCEEDED` on the first
+call, so the AC's own test passed over a surface that was wrong for every real query. `cost` is now
+null until the state is terminal.
+
+Three implementation traps worth naming, because each looked correct and was silent.
+`moveSortPriority` stamps priorities from the **array position** after the swap — re-stamping
+through the shared "sort by priority, then number them" helper put the two entries straight back,
+so the ↑/↓ controls were a no-op the dialog rendered as a success. **State that belongs to a tab
+must be keyed by the tab**, and two pieces of it were not: `suspended` froze *every* tab, and the
+last-good-execution fallback drew one tab's rows under another's error banner (visible only when the
+failing tab had never succeeded — a tab with a good execution of its own falls back correctly either
+way, which is why the first version of that test could not fail). And a `Modal` **does not portal**:
+`FilterValueDialog` rendered inside a `<th>` would have been confined to that cell's stacking
+context and painted under the sticky headers, which nothing in jsdom can see — the region raises it
+and the header menu asks.

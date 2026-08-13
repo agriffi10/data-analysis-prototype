@@ -191,6 +191,37 @@ describe('the column header menu', () => {
     );
   });
 
+  it('offers all six comparisons, and each one composes its own operator', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+
+    await user.click(screen.getByRole('button', {name: 'Column options: note'}));
+    // The menu's list is derived from `FILTER_OPERATORS`, not re-written: a hand-written
+    // array cast to `FilterOperator[]` type-checks with three of the six missing, and
+    // nothing here exercised more than two of them.
+    const labels = screen.getAllByRole('menuitem').map((item) => item.textContent);
+    expect(labels).toEqual([
+      'Sort ascending',
+      'Sort descending',
+      'Clear sort',
+      'Filter: equals…',
+      'Filter: does not equal…',
+      'Filter: greater than…',
+      'Filter: greater than or equal to…',
+      'Filter: less than…',
+      'Filter: less than or equal to…',
+      'Filter: is null',
+      'Filter: is not null',
+      'Clear filter'
+    ]);
+
+    await user.click(screen.getByRole('menuitem', {name: 'Filter: does not equal…'}));
+    await user.type(screen.getByLabelText('Value'), 'third');
+    await user.click(screen.getByRole('button', {name: 'Apply filter'}));
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+    expect(lastSql()).toContain(`WHERE "note" <> 'third'`);
+  });
+
   it('leaves the open menu axe-clean', async () => {
     const {user} = render();
     await screen.findAllByRole('gridcell');

@@ -167,10 +167,13 @@ describe('multi-column ordering', () => {
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
 
     await chooseFromMenu(user, 'note', 'Clear sort');
+    // Waits for the SORT to be gone from the menu's name — the cells were already on
+    // screen, so waiting for them would pass on its first attempt and anchor the count
+    // assertion below to nothing.
+    await waitFor(() => expect(screen.getByRole('button', {name: 'Column options: note'})).toBeInTheDocument());
     // The unsorted statement is byte-identical to the one that has already run, and the
     // rendered SQL is the cache key — so this is a cache hit and not a second bill
     // (SPEC-178 FR-006).
-    await waitFor(() => expect(screen.getAllByRole('gridcell').length).toBeGreaterThan(0));
     expect(runQuery).toHaveBeenCalledTimes(2);
   });
 });

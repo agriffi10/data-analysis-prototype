@@ -1,8 +1,6 @@
-import {useState} from 'react';
 import {Menu, type MenuItem} from '../../components/Menu';
 import {cx} from '../../lib/cx';
-import {FilterValueDialog} from './FilterValueDialog';
-import {FILTER_OPERATOR_LABELS, operatorTakesValue} from './explorationQueryOps';
+import {FILTER_OPERATORS, FILTER_OPERATOR_LABELS, operatorTakesValue} from './explorationQueryOps';
 import type {ColumnFilter, FilterOperator, FilterValueKind} from './dataExplorer.types';
 
 /**
@@ -29,6 +27,8 @@ export type ColumnQueryActions = {
 export type ColumnFilterMenuProps = {
   column: string;
   actions: ColumnQueryActions;
+  /** Asks the REGION to open the value dialog — see below for why it is not opened here. */
+  onRequestValue: (column: string, operator: FilterOperator) => void;
 };
 
 /**
@@ -39,12 +39,16 @@ export type ColumnFilterMenuProps = {
  * columns' menus are otherwise indistinguishable to anything that queries by name, which
  * is every test and every screen reader.
  *
- * A comparison opens `FilterValueDialog`; the null tests apply straight away, because
+ * A comparison ASKS THE REGION for a value; the null tests apply straight away, because
  * there is nothing to ask for. Either way exactly one description change reaches the tab,
  * so exactly one execution is minted (AC5).
+ *
+ * The dialog is raised by the region rather than rendered here because `Modal` does not
+ * portal: opened from inside a header cell it would be confined to that cell's stacking
+ * context (`z-20`) and paint UNDER the sticky pinned headers (`z-30`), with the scrim
+ * punched through. Nothing in jsdom can see that.
  */
-export function ColumnFilterMenu({column, actions}: ColumnFilterMenuProps) {
-  const [pending, setPending] = useState<FilterOperator | null>(null);
+export function ColumnFilterMenu({column, actions, onRequestValue}: ColumnFilterMenuProps) {
   const sort = actions.sortOf(column);
   const filter = actions.filterOf(column);
 
@@ -53,11 +57,13 @@ export function ColumnFilterMenu({column, actions}: ColumnFilterMenuProps) {
     {kind: 'action', label: 'Sort descending', onSelect: () => actions.sort(column, 'desc')},
     {kind: 'action', label: 'Clear sort', disabled: !sort, onSelect: () => actions.clearSort(column)},
     {kind: 'separator'},
-    ...(['=', '<>', '>', '>=', '<', '<='] as FilterOperator[]).map(
+    // Derived from the operator list rather than re-listed: a hand-written array cast to
+    // `FilterOperator[]` type-checks with three of the six missing.
+    ...FILTER_OPERATORS.filter(operatorTakesValue).map(
       (operator): MenuItem => ({
         kind: 'action',
         label: `Filter: ${FILTER_OPERATOR_LABELS[operator]}…`,
-        onSelect: () => setPending(operator)
+        onSelect: () => onRequestValue(column, operator)
       })
     ),
     {kind: 'action', label: 'Filter: is null', onSelect: () => actions.filter(column, 'isNull')},
@@ -110,20 +116,6 @@ export function ColumnFilterMenu({column, actions}: ColumnFilterMenuProps) {
         )}
         items={items}
       />
-
-      {pending && (
-        <FilterValueDialog
-          column={column}
-          operator={pending}
-          valueKind={actions.valueKindOf(column)}
-          initialValue={filter && operatorTakesValue(filter.operator) ? (filter.value ?? '') : ''}
-          onApply={(value) => {
-            setPending(null);
-            actions.filter(column, pending, value);
-          }}
-          onCancel={() => setPending(null)}
-        />
-      )}
     </div>
   );
 }

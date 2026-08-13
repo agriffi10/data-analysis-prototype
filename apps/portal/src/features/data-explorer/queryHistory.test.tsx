@@ -134,7 +134,7 @@ describe('filter history', () => {
   });
 
   it('holds descriptions with the tab, capped, oldest first out', async () => {
-    // One entry short of the cap, each one distinguishable.
+    // Exactly the cap, each entry distinguishable, so one more must push one off.
     const past = Array.from({length: EXPLORER_FILTER_HISTORY_MAX}, (_, i) => ({
       ...emptyExplorationQuery(),
       expression: `seeded ${i}`
@@ -232,6 +232,26 @@ describe('cost reporting', () => {
     ).toBeInTheDocument();
   });
 
+  it('reports the FINAL figure, not the first poll’s absent statistics', async () => {
+    // A QUEUED/RUNNING poll carries no `Statistics` and so reports a perfectly confident
+    // 0 B. Every real query takes more than one poll, and the per-apply figure is captured
+    // ONCE per execution (deliberately — a cache hit has to be read before the ledger is
+    // written), so a fixture that succeeds on the first poll hid a surface permanently
+    // reading "This query scanned 0 B" beside a total that disagreed with it.
+    const polled = new Set<string>();
+    vi.mocked(getQueryStatus).mockImplementation((async (queryExecutionId: string) => {
+      if (!polled.has(queryExecutionId)) {
+        polled.add(queryExecutionId);
+        return ok({queryExecutionId, state: 'RUNNING'});
+      }
+      return ok({queryExecutionId, state: 'SUCCEEDED', dataScannedBytes: 2048});
+    }) as never);
+    render();
+
+    expect(await screen.findByText(/This query scanned 2.0 KB/, {}, {timeout: 10_000})).toBeInTheDocument();
+    expect(screen.queryByText(/scanned 0 B/)).not.toBeInTheDocument();
+  }, 15_000);
+
   it('says a cache hit is a cache hit, and adds nothing to the total', async () => {
     const {user} = render();
     await screen.findAllByRole('gridcell');
@@ -283,5 +303,90 @@ describe('the query operations', () => {
     expect(sortOf(moved, 'b')?.position).toBe(3);
     // Off the end is a no-op rather than a throw or a silent wrap.
     expect(moveSortPriority(query, 'a', -1)).toBe(query);
+  });
+});
+
+// Two tabs over DIFFERENT tables, so "whose rows are these?" is answerable. The failing
+// statement is the one carrying `bad`: its execution FAILS and its results cannot be read,
+// which is what a real Athena failure looks like from here.
+const SQL_BY_EXECUTION = new Map<string, string>();
+
+function seedTwoTabs() {
+  const orders = newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'}, 't1');
+  const invoices = newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table: 'invoices'}, 't2');
+  const state: ExplorationTabsState = {
+    version: 1,
+    tabs: [
+      {id: 't1', label: 'orders', exploration: orders, scannedByExecution: {}, history: {past: [], future: []}},
+      {id: 't2', label: 'invoices', exploration: invoices, scannedByExecution: {}, history: {past: [], future: []}}
+    ],
+    activeTabId: 't1'
+  };
+  sessionStorage.setItem(`${EXPLORATION_TABS_STORAGE_PREFIX}alice`, JSON.stringify(state));
+}
+
+function mockTwoTables() {
+  SQL_BY_EXECUTION.clear();
+  let seq = 0;
+  vi.mocked(runQuery).mockImplementation((async ({sql}: {sql: string}) => {
+    seq += 1;
+    const queryExecutionId = `exec-${seq}`;
+    SQL_BY_EXECUTION.set(queryExecutionId, sql);
+    return ok({queryExecutionId});
+  }) as never);
+  vi.mocked(getQueryStatus).mockImplementation((async (queryExecutionId: string) =>
+    (SQL_BY_EXECUTION.get(queryExecutionId) ?? '').includes('bad')
+      ? ok({queryExecutionId, state: 'FAILED', stateChangeReason: 'mismatched input'})
+      : ok({queryExecutionId, state: 'SUCCEEDED', dataScannedBytes: 2048})) as never);
+  vi.mocked(getQueryResults).mockImplementation((async ({queryExecutionId}: {queryExecutionId: string}) => {
+    const sql = SQL_BY_EXECUTION.get(queryExecutionId) ?? '';
+    if (sql.includes('bad')) return {success: false as const, error: {message: 'Query did not finish successfully'}};
+    return sql.includes('invoices')
+      ? ok({columns: COLUMNS, rows: [['9', 'paid']]})
+      : ok({columns: COLUMNS, rows: [['1', 'open']]});
+  }) as never);
+}
+
+describe('across tabs', () => {
+  it('does not suspend a tab that never failed', async () => {
+    seedTwoTabs();
+    mockTwoTables();
+    const user = userEvent.setup(USER_EVENT_OPTIONS);
+    renderWithProviders(<DataExplorerWorkspace />, {route: '/explore', auth: authenticated('alice')});
+    await screen.findByText('open');
+
+    await user.type(screen.getByLabelText('Filter expression'), 'bad{Enter}');
+    await screen.findByText(/syntax error in your query/i);
+    await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
+    await user.click(screen.getByRole('button', {name: 'Forward to next filters'}));
+    expect(await screen.findByText(SUSPENDED_TEXT)).toBeInTheDocument();
+
+    // The suspension belongs to the tab that was suspended. Held across the switch, this
+    // tab would run nothing and claim a set of filters had failed that never had.
+    await user.click(screen.getByRole('tab', {name: /invoices/}));
+    await waitFor(() => expect(screen.queryByText(SUSPENDED_TEXT)).not.toBeInTheDocument());
+    expect(await screen.findByText('paid')).toBeInTheDocument();
+  });
+
+  it('never falls back to ANOTHER tab’s rows', async () => {
+    seedTwoTabs();
+    mockTwoTables();
+    // The invoices tab's FIRST execution fails, so it has no good execution of its own —
+    // which is the only shape that exposes an unscoped fallback. A tab that has already
+    // succeeded falls back to its own execution whether the fallback is scoped or not.
+    vi.mocked(getQueryStatus).mockImplementation((async (queryExecutionId: string) =>
+      (SQL_BY_EXECUTION.get(queryExecutionId) ?? '').includes('invoices')
+        ? ok({queryExecutionId, state: 'FAILED', stateChangeReason: 'mismatched input'})
+        : ok({queryExecutionId, state: 'SUCCEEDED', dataScannedBytes: 2048})) as never);
+    const user = userEvent.setup(USER_EVENT_OPTIONS);
+    renderWithProviders(<DataExplorerWorkspace />, {route: '/explore', auth: authenticated('alice')});
+    await screen.findByText('open');
+
+    await user.click(screen.getByRole('tab', {name: /invoices/}));
+    await screen.findByText(/syntax error in your query/i);
+
+    // Unscoped, the invoices tab drew the ORDERS table's rows under its own error banner —
+    // a grid of another table's data, labelled with this tab's name.
+    expect(screen.queryByText('open')).not.toBeInTheDocument();
   });
 });

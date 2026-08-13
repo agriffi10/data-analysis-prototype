@@ -71,6 +71,17 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
   const failedSql = useRef(new Map<string, Set<string>>());
   const [suspended, setSuspended] = useState(false);
 
+  // Suspension belongs to the tab that was suspended, and the hook is shared by all of
+  // them — so switching tabs clears it. Left standing, a held-back history step in one tab
+  // handed `useExploration` nothing for EVERY tab: the next tab ran nothing and said a set
+  // of filters had failed that never had (found in review). Reset during render, the same
+  // pattern `useCellSelection` uses for a page change.
+  const [previousTabId, setPreviousTabId] = useState(tabId);
+  if (previousTabId !== tabId) {
+    setPreviousTabId(tabId);
+    setSuspended(false);
+  }
+
   const noteFailure = useCallback(
     (sql: string) => {
       const known = failedSql.current.get(tabId) ?? new Set<string>();
@@ -79,6 +90,15 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
     },
     [tabId]
   );
+
+  // "Run it anyway" also forgets what this tab has seen fail. Otherwise a transient
+  // failure — throttling, an expired credential — that succeeds on the retry goes on
+  // suspending every later history step onto that description for the rest of the session.
+  // A statement that fails again is re-recorded by `noteFailure` on the spot.
+  const retry = useCallback(() => {
+    failedSql.current.delete(tabId);
+    setSuspended(false);
+  }, [tabId]);
 
   // Whether restoring this description would re-run a statement that already failed. The
   // render is attempted rather than assumed: a description that cannot render at all is
@@ -97,21 +117,25 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
   const apply = useCallback(
     (next: Partial<ExplorationQuery>) => {
       if (!tab) return;
-      const proposed = {...tab.exploration.query, ...next};
-      // An apply that changes nothing is not history — it would fill Back with duplicates
-      // of one description, and it renders the same SQL either way.
-      if (sameQuery(proposed, tab.exploration.query)) {
-        setSuspended(false);
-        return;
-      }
       setSuspended(false);
-      updateTab(tab.id, (t) => ({
-        ...t,
-        exploration: {...t.exploration, query: proposed},
-        // A new branch discards the forward entries, as every undo stack does: they
-        // describe a future that no longer follows from where the user now is.
-        history: {past: cap([...t.history.past, t.exploration.query]), future: []}
-      }));
+      // The proposed description is built INSIDE the updater, from the tab as the updater
+      // finds it — not from this render's copy. Two applies batched into one commit would
+      // otherwise both merge onto the same stale description: the first change would be
+      // lost, and the history entry pushed by the second would equal the description it
+      // replaced, so Back would appear to do nothing once.
+      updateTab(tab.id, (t) => {
+        const proposed = {...t.exploration.query, ...next};
+        // An apply that changes nothing is not history — it would fill Back with duplicates
+        // of one description, and it renders the same SQL either way.
+        if (sameQuery(proposed, t.exploration.query)) return t;
+        return {
+          ...t,
+          exploration: {...t.exploration, query: proposed},
+          // A new branch discards the forward entries, as every undo stack does: they
+          // describe a future that no longer follows from where the user now is.
+          history: {past: cap([...t.history.past, t.exploration.query]), future: []}
+        };
+      });
     },
     [tab, updateTab]
   );
@@ -163,9 +187,9 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
       back,
       forward,
       suspended,
-      retry: () => setSuspended(false),
+      retry,
       noteFailure
     }),
-    [apply, back, clearAll, forward, history.future.length, history.past.length, noteFailure, query, suspended]
+    [apply, back, clearAll, forward, history.future.length, history.past.length, noteFailure, query, retry, suspended]
   );
 }
