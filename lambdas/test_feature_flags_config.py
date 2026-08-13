@@ -24,8 +24,9 @@ exercising a Lambda.
 
 Attributes:
   ROOT: The repository root.
-  FLAG_KEYS: The four flags, re-stated from the validator so a test cannot pass by agreeing
-    with a mistake it imported.
+  FLAG_KEYS: The five flags, re-stated from the validator so a test cannot pass by agreeing
+    with a mistake it imported. `dataExplorer` joined in SPEC-179 — a key is added in five
+    places and this is the one that fails if the validator was not one of them.
 """
 
 import json
@@ -39,7 +40,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import validate_feature_flags as validator
 
-FLAG_KEYS = ("files", "query", "sharedWorkspaces", "dataQuality")
+FLAG_KEYS = ("files", "query", "sharedWorkspaces", "dataQuality", "dataExplorer")
 
 DOCUMENT = ROOT / "config" / "feature-flags.json"
 PUBLISH_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-config.yml"
@@ -76,8 +77,8 @@ def test_the_repo_document_is_valid():
     assert validator.validate_document(json.loads(DOCUMENT.read_text()), targets) == []
 
 
-def test_the_document_names_exactly_the_four_flags():
-    """FR-001: four flags, named for the four primary features, each an explicit boolean."""
+def test_the_document_names_exactly_the_five_flags():
+    """FR-001: five flags, named for the five primary features, each an explicit boolean."""
     defaults = json.loads(DOCUMENT.read_text())["defaults"]
     assert sorted(defaults) == sorted(FLAG_KEYS)
     assert all(isinstance(value, bool) for value in defaults.values())
