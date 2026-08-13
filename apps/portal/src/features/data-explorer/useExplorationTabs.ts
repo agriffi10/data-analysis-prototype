@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {EXPLORATION_TABS_MAX} from './dataExplorer.constants';
-import {explorationSourceLabel, newExploration, newExplorationId} from './exploration';
+import {emptyQueryHistory, explorationSourceLabel, newExploration, newExplorationId} from './exploration';
 import {
   initialExplorationTabsState,
   readExplorationTabsState,
@@ -26,6 +26,14 @@ export type UseExplorationTabsResult = {
   setActiveTab: (id: string) => void;
   /** Replaces the active tab's exploration — how every query and presentation edit lands. */
   updateActiveExploration: (update: (exploration: Exploration) => Exploration) => void;
+  /**
+   * Replaces ONE tab, by id — how a query edit and its history entry land together.
+   *
+   * Named rather than active because a description and the history it pushes have to move
+   * in the same update: written through two calls, a tab switch between them would file
+   * the entry against whichever tab is active by then.
+   */
+  updateTab: (tabId: string, update: (tab: ExplorationTab) => ExplorationTab) => void;
   /** Records what one execution scanned, keyed by execution id so a repeat is free. */
   recordScan: (tabId: string, queryExecutionId: string, bytesScanned: number) => void;
   /** Bytes scanned by the active tab across its lifetime; 0 with no tabs. */
@@ -83,7 +91,8 @@ export function useExplorationTabs(username: string): UseExplorationTabsResult {
         id,
         label: named ? (opts.label as string) : explorationSourceLabel(source),
         exploration: newExploration(source),
-        scannedByExecution: {}
+        scannedByExecution: {},
+        history: emptyQueryHistory()
       };
       return {
         ...s,
@@ -120,6 +129,9 @@ export function useExplorationTabs(username: string): UseExplorationTabsResult {
       tabs: s.tabs.map((t) => (t.id === s.activeTabId ? {...t, exploration: update(t.exploration)} : t))
     }));
 
+  const updateTab = (tabId: string, update: (tab: ExplorationTab) => ExplorationTab) =>
+    setState((s) => ({...s, tabs: s.tabs.map((t) => (t.id === tabId ? update(t) : t))}));
+
   const recordScan = (tabId: string, queryExecutionId: string, bytesScanned: number) =>
     setState((s) => {
       const tab = s.tabs.find((t) => t.id === tabId);
@@ -142,6 +154,7 @@ export function useExplorationTabs(username: string): UseExplorationTabsResult {
     closeTab,
     setActiveTab,
     updateActiveExploration,
+    updateTab,
     recordScan,
     activeTabBytesScanned: activeTab ? tabBytesScanned(activeTab) : 0
   };

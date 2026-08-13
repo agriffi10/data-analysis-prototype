@@ -1,0 +1,171 @@
+import {useCallback, useMemo, useRef, useState} from 'react';
+import {EXPLORER_FILTER_HISTORY_MAX} from './dataExplorer.constants';
+import {emptyExplorationQuery} from './exploration';
+import {isEmptyQuery, sameQuery} from './explorationQueryOps';
+import {renderExplorationSql} from './renderExplorationSql';
+import type {ExplorationQuery, ExplorationTab} from './dataExplorer.types';
+import type {UseExplorationTabsResult} from './useExplorationTabs';
+
+export type UseExplorationQueryResult = {
+  /** The description that is running (or would run) — the tab's own. */
+  query: ExplorationQuery;
+  /** Applies changes to the description. THIS is what mints an execution. */
+  apply: (next: Partial<ExplorationQuery>) => void;
+  /** Clears every filter, the expression and every sort in ONE apply (FR-007). */
+  clearAll: () => void;
+  /** Null when there is something to clear, else why the control is unavailable. */
+  clearAllRefusal: string | null;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  back: () => void;
+  forward: () => void;
+  /**
+   * A restored description whose SQL has already failed, held back from running (FR-006 AC4).
+   *
+   * True only after a history step, never after an apply — an apply IS the user asking for
+   * it again.
+   */
+  suspended: boolean;
+  /** Runs the suspended description after all. */
+  retry: () => void;
+  /** Records that a statement failed, so history never walks back into it unasked. */
+  noteFailure: (sql: string) => void;
+};
+
+const NOTHING_TO_CLEAR = 'There are no filters, expressions or sorts to clear.';
+
+function cap(entries: ExplorationQuery[]): ExplorationQuery[] {
+  return entries.length > EXPLORER_FILTER_HISTORY_MAX
+    ? entries.slice(entries.length - EXPLORER_FILTER_HISTORY_MAX)
+    : entries;
+}
+
+/**
+ * The one door through which a tab's query description changes (SPEC-181).
+ *
+ * Every gesture that renders SQL — a header menu, a cell filter, the expression bar, the
+ * settings dialog, Remove all — lands here, which is what makes "one apply is one
+ * execution" a property of the feature rather than of each surface: the description is
+ * written once, `useExploration` re-renders one statement, and the cache decides whether
+ * that costs anything.
+ *
+ * **It takes the tabs result rather than reading one of its own** (a deviation from the
+ * spec's `useExplorationQuery(tabId)`). The tabs hook owns `sessionStorage`, and a second
+ * instance of it would be a second copy of that state — two writers to one key, diverging
+ * on the first edit. The tab id still names WHICH tab, because the history entry and the
+ * description it belongs to have to be written in one update.
+ *
+ * @param tabs - The tabs state, from `useExplorationTabs`.
+ * @param tabId - The tab whose description this edits; '' when there is no tab.
+ * @returns The description and every operation over it.
+ */
+export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: string): UseExplorationQueryResult {
+  const {updateTab} = tabs;
+  const tab = tabs.tabs.find((t) => t.id === tabId) ?? null;
+  const query = tab?.exploration.query ?? emptyExplorationQuery();
+  const history = tab?.history ?? {past: [], future: []};
+
+  // Statements this session has seen fail, per tab. In memory and never persisted: it is
+  // an aid to history navigation, and a failure that only ever happened in a previous
+  // session should not stop this one from trying.
+  const failedSql = useRef(new Map<string, Set<string>>());
+  const [suspended, setSuspended] = useState(false);
+
+  const noteFailure = useCallback(
+    (sql: string) => {
+      const known = failedSql.current.get(tabId) ?? new Set<string>();
+      known.add(sql);
+      failedSql.current.set(tabId, known);
+    },
+    [tabId]
+  );
+
+  // Whether restoring this description would re-run a statement that already failed. The
+  // render is attempted rather than assumed: a description that cannot render at all is
+  // not a known failure, and its refusal is the ordinary error path.
+  const wouldReplayFailure = useCallback((next: ExplorationQuery, source: ExplorationTab | null): boolean => {
+    if (!source) return false;
+    const known = failedSql.current.get(source.id);
+    if (!known || known.size === 0) return false;
+    try {
+      return known.has(renderExplorationSql(source.exploration.source, next));
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const apply = useCallback(
+    (next: Partial<ExplorationQuery>) => {
+      if (!tab) return;
+      const proposed = {...tab.exploration.query, ...next};
+      // An apply that changes nothing is not history — it would fill Back with duplicates
+      // of one description, and it renders the same SQL either way.
+      if (sameQuery(proposed, tab.exploration.query)) {
+        setSuspended(false);
+        return;
+      }
+      setSuspended(false);
+      updateTab(tab.id, (t) => ({
+        ...t,
+        exploration: {...t.exploration, query: proposed},
+        // A new branch discards the forward entries, as every undo stack does: they
+        // describe a future that no longer follows from where the user now is.
+        history: {past: cap([...t.history.past, t.exploration.query]), future: []}
+      }));
+    },
+    [tab, updateTab]
+  );
+
+  const clearAll = useCallback(() => {
+    if (isEmptyQuery(query)) return;
+    // Grouping is SPEC-182's and is deliberately preserved: "Remove all filters" beside a
+    // grouped view must not silently un-group it.
+    apply({...emptyExplorationQuery(), grouping: query.grouping});
+  }, [apply, query]);
+
+  const step = useCallback(
+    (direction: 'back' | 'forward') => {
+      if (!tab) return;
+      const from = direction === 'back' ? tab.history.past : tab.history.future;
+      const restored = from[from.length - 1];
+      if (!restored) return;
+      setSuspended(wouldReplayFailure(restored, tab));
+      updateTab(tab.id, (t) => {
+        const source = direction === 'back' ? t.history.past : t.history.future;
+        const target = source[source.length - 1];
+        if (!target) return t;
+        const rest = source.slice(0, -1);
+        const other = direction === 'back' ? t.history.future : t.history.past;
+        // The description being left becomes the other side's newest entry, so a Back
+        // followed by a Forward is a round trip rather than a loss.
+        const moved = cap([...other, t.exploration.query]);
+        return {
+          ...t,
+          exploration: {...t.exploration, query: target},
+          history: direction === 'back' ? {past: rest, future: moved} : {past: moved, future: rest}
+        };
+      });
+    },
+    [tab, updateTab, wouldReplayFailure]
+  );
+
+  const back = useCallback(() => step('back'), [step]);
+  const forward = useCallback(() => step('forward'), [step]);
+
+  return useMemo(
+    () => ({
+      query,
+      apply,
+      clearAll,
+      clearAllRefusal: isEmptyQuery(query) ? NOTHING_TO_CLEAR : null,
+      canGoBack: history.past.length > 0,
+      canGoForward: history.future.length > 0,
+      back,
+      forward,
+      suspended,
+      retry: () => setSuspended(false),
+      noteFailure
+    }),
+    [apply, back, clearAll, forward, history.future.length, history.past.length, noteFailure, query, suspended]
+  );
+}

@@ -2,6 +2,7 @@ import {useRef} from 'react';
 import {ColumnResizeHandle} from '../catalog/ColumnResizeHandle';
 import {cx} from '../../lib/cx';
 import {ROW_NUMBER_COLUMN_WIDTH} from './dataExplorer.constants';
+import {ColumnFilterMenu, type ColumnQueryActions} from './ColumnFilterMenu';
 import type {GridColumn} from './useColumnGeometry';
 
 export type ExplorationGridHeaderProps = {
@@ -15,6 +16,8 @@ export type ExplorationGridHeaderProps = {
   onDropColumn: (name: string, target: string) => void;
   /** Clicking the header selects the whole column (FR-002 AC3). */
   onSelectColumn: (name: string) => void;
+  /** Ordering and filtering, for each column's own menu (SPEC-181 FR-001). */
+  actions: ColumnQueryActions;
 };
 
 /**
@@ -26,7 +29,7 @@ export type ExplorationGridHeaderProps = {
  * payload it could be confused with. `dataTransfer` is still populated where it exists, so
  * the browser draws its own drag image.
  *
- * A column header is NOT a button here: SPEC-181 gives it a menu and SPEC-180's own
+ * A column header is NOT a button: it carries SPEC-181's menu and SPEC-180's own
  * selection model gives clicking it a meaning, so it stays a `columnheader` with controls
  * inside it rather than becoming one control.
  */
@@ -36,7 +39,8 @@ export function ExplorationGridHeader({
   onResize,
   onResetWidth,
   onDropColumn,
-  onSelectColumn
+  onSelectColumn,
+  actions
 }: ExplorationGridHeaderProps) {
   const dragging = useRef<string | null>(null);
 
@@ -56,13 +60,17 @@ export function ExplorationGridHeader({
             aria-label={column.name}
             style={column.pinned ? {left: offsets[position]} : undefined}
             className={cx(
-              'relative top-0 border-b border-border bg-surface-2 px-3 text-left text-xs font-semibold uppercase tracking-wide text-text-3',
+              'relative top-0 border-b border-border bg-surface-2 py-1 pl-3 pr-9 text-left text-xs font-semibold uppercase tracking-wide text-text-3',
               column.pinned ? 'sticky z-30' : 'z-20'
             )}
-            // The resize handle lives INSIDE the header, so a drag of its edge would
-            // otherwise finish as a click that selects the column the user was sizing.
+            // The resize handle and the menu live INSIDE the header, so a drag of the edge
+            // — or a click anywhere in the menu — would otherwise finish as a click that
+            // selects the column the user was sizing or filtering.
             onClick={(e) => {
-              if (!(e.target as HTMLElement).closest('[role="separator"]')) onSelectColumn(column.name);
+              const target = e.target as HTMLElement;
+              if (!target.closest('[role="separator"]') && !target.closest('[data-column-menu]')) {
+                onSelectColumn(column.name);
+              }
             }}
             onDragOver={(e) => {
               if (dragging.current && dragging.current !== column.name) e.preventDefault();
@@ -92,6 +100,10 @@ export function ExplorationGridHeader({
               title={column.type}>
               {column.type}
             </span>
+            <ColumnFilterMenu
+              column={column.name}
+              actions={actions}
+            />
             <ColumnResizeHandle
               column={column.name}
               columnName={column.name}

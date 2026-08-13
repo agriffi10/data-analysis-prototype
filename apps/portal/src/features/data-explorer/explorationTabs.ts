@@ -1,6 +1,12 @@
-import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
+import {EXPLORATION_TABS_STORAGE_PREFIX, EXPLORER_FILTER_HISTORY_MAX} from './dataExplorer.constants';
 import {emptyExplorationPresentation} from './exploration';
-import type {ExplorationPresentation, ExplorationTab, ExplorationTabsState} from './dataExplorer.types';
+import type {
+  ExplorationPresentation,
+  ExplorationQuery,
+  ExplorationTab,
+  ExplorationTabsState,
+  QueryHistoryCursor
+} from './dataExplorer.types';
 
 // Per-user, current-session persistence of the Data Explorer's tabs. All access goes
 // through this wrapper so a disabled or quota-exceeded sessionStorage degrades to "not
@@ -91,18 +97,41 @@ function isValidLedger(value: unknown): boolean {
   return Object.values(value).every((bytes) => typeof bytes === 'number' && Number.isFinite(bytes));
 }
 
+function isValidQuery(value: unknown): boolean {
+  const query = value as Record<string, unknown> | undefined;
+  if (typeof query !== 'object' || query === null) return false;
+  if (!Array.isArray(query.filters) || !query.filters.every(isValidFilter)) return false;
+  if (!Array.isArray(query.ordering) || !query.ordering.every(isValidSortEntry)) return false;
+  if (query.expression !== null && typeof query.expression !== 'string') return false;
+  return isValidGrouping(query.grouping);
+}
+
+/**
+ * Reads a stored history cursor, defaulting anything it cannot trust to no history.
+ *
+ * Unlike the presentation beside it, every entry here is a description that RENDERS SQL,
+ * so a malformed one cannot be normalised field by field — it is dropped whole. Dropping
+ * costs the user their Back button for this tab and nothing else, where restoring a
+ * half-valid description would put a query they never built one click away.
+ *
+ * @param value - The stored `history` object, or anything at all.
+ * @returns A usable cursor; empty wherever the document was silent or wrong.
+ */
+function normalizeHistory(value: unknown): QueryHistoryCursor {
+  const stored = (value ?? {}) as Record<string, unknown>;
+  const side = (entries: unknown): ExplorationQuery[] =>
+    Array.isArray(entries) && entries.every(isValidQuery)
+      ? (entries as ExplorationQuery[]).slice(-EXPLORER_FILTER_HISTORY_MAX)
+      : [];
+  return {past: side(stored.past), future: side(stored.future)};
+}
+
 function isValidExploration(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const exploration = value as Record<string, unknown>;
   if (typeof exploration.id !== 'string') return false;
   if (!isValidSource(exploration.source)) return false;
-
-  const query = exploration.query as Record<string, unknown> | undefined;
-  if (typeof query !== 'object' || query === null) return false;
-  if (!Array.isArray(query.filters) || !query.filters.every(isValidFilter)) return false;
-  if (!Array.isArray(query.ordering) || !query.ordering.every(isValidSortEntry)) return false;
-  if (query.expression !== null && typeof query.expression !== 'string') return false;
-  if (!isValidGrouping(query.grouping)) return false;
+  if (!isValidQuery(exploration.query)) return false;
 
   // Presentation is only required to BE an object here; every field is normalised on the
   // way out rather than gating the restore. It renders no SQL, so a bad value cannot
@@ -195,6 +224,9 @@ export function readExplorationTabsState(username: string): ExplorationTabsState
       ...parsed,
       tabs: parsed.tabs.map((tab) => ({
         ...tab,
+        // A document written before SPEC-181 carries no history at all, which is the
+        // ordinary case for the first session after a deploy — not a fault.
+        history: normalizeHistory(tab.history),
         exploration: {...tab.exploration, presentation: normalizePresentation(tab.exploration.presentation)}
       }))
     };

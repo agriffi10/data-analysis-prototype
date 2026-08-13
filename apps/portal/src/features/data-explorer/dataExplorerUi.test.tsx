@@ -67,7 +67,8 @@ function seedTabs(tabs: {id: string; table: string}[], activeTabId = tabs[0]?.id
         id,
         label: table,
         exploration: newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table}, id),
-        scannedByExecution: {}
+        scannedByExecution: {},
+        history: {past: [], future: []}
       })
     ),
     activeTabId

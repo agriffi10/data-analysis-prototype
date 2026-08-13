@@ -3,13 +3,14 @@ import {LoadingState} from '../../components/LoadingState';
 import {useAuth} from '../auth';
 import {useFeature} from '../feature-flags';
 import {useQuerySpaces} from '../catalog/useQuerySpaces';
-import {formatBytes} from '../../lib/format';
 import {EXPLORATION_TABPANEL_ID, EXPLORATION_TABS_MAX} from './dataExplorer.constants';
+import {CostIndicator} from './CostIndicator';
 import {ExplorationLimitDialog} from './ExplorationLimitDialog';
 import {ExplorationResultsRegion} from './ExplorationResultsRegion';
 import {ExplorationTabStrip} from './ExplorationTabStrip';
 import {SourcePicker} from './SourcePicker';
 import {useExploration} from './useExploration';
+import {useExplorationQuery} from './useExplorationQuery';
 import {useExplorationTabs} from './useExplorationTabs';
 import {useExploreDeepLink} from './useExploreDeepLink';
 import {useSourceColumns} from './useSourceColumns';
@@ -46,6 +47,7 @@ export function DataExplorerWorkspace() {
   const tabs = useExplorationTabs(username);
   const [picking, setPicking] = useState(false);
   const [limitReached, setLimitReached] = useState(false);
+  const queryControls = useExplorationQuery(tabs, tabs.activeTabId);
 
   const {resolution, clear} = useExploreDeepLink(spaces, username, sharedEnabled);
   const denied = resolution.status === 'denied';
@@ -54,8 +56,14 @@ export function DataExplorerWorkspace() {
   // `loading` window, so a restored tab started a real `StartQueryExecution` for a page that
   // then rendered nothing but a refusal. An unsettled link runs nothing at all — the same
   // rule the early return below applies to Glue, applied to the bill.
+  //
+  // A SUSPENDED description is held back for the same reason and by the same means: a
+  // history step onto a statement that already failed must not re-run it (FR-006 AC4),
+  // and "runs nothing" is expressed here, by passing nothing to run.
   const linkUnsettled = resolution.status === 'loading' || denied;
-  const exploration = useExploration(linkUnsettled ? null : (tabs.activeTab?.exploration ?? null));
+  const exploration = useExploration(
+    linkUnsettled || queryControls.suspended ? null : (tabs.activeTab?.exploration ?? null)
+  );
   // Gated by the same rule, for the same reason one layer down: a denied link must ask
   // Glue nothing at all, and this hook reads a database.
   const schemaColumns = useSourceColumns(linkUnsettled ? null : (tabs.activeTab?.exploration.source ?? null));
@@ -83,14 +91,38 @@ export function DataExplorerWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openSource/clear are re-created each render; the ref is the guard.
   }, [resolution]);
 
+  // What THIS apply cost, decided at the one moment the answer is knowable: an execution
+  // the tab's ledger already holds is one it has already run and already been billed for,
+  // so this gesture scanned nothing (FR-008 AC3).
+  //
+  // Read during render rather than in the effect below, and that ordering is the whole
+  // point — `recordScan` puts the id in the ledger, after which every execution looks
+  // known and every apply would report itself a cache hit.
+  const [lastApply, setLastApply] = useState<{key: string; bytesScanned: number; fromCache: boolean} | null>(null);
+  const costKey =
+    tabs.activeTab && exploration.queryExecutionId && exploration.cost
+      ? `${tabs.activeTab.id}:${exploration.queryExecutionId}`
+      : null;
+  if (costKey !== null && lastApply?.key !== costKey && tabs.activeTab && exploration.cost) {
+    const known = tabs.activeTab.scannedByExecution[exploration.queryExecutionId as string];
+    setLastApply({key: costKey, bytesScanned: known ?? exploration.cost.bytesScanned, fromCache: known !== undefined});
+  }
+
   // The tab's cost ledger, keyed by execution id upstream — recording the same execution
   // twice changes nothing, which is what makes a cache hit free by construction.
   useEffect(() => {
-    const tabId = tabs.activeTab?.id;
-    if (!tabId || !exploration.queryExecutionId || !exploration.cost) return;
-    tabs.recordScan(tabId, exploration.queryExecutionId, exploration.cost.bytesScanned);
+    const tab = tabs.activeTab;
+    if (!tab || !exploration.queryExecutionId || !exploration.cost) return;
+    tabs.recordScan(tab.id, exploration.queryExecutionId, exploration.cost.bytesScanned);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `tabs` is re-created each render; recordScan is idempotent per execution id.
   }, [tabs.activeTab?.id, exploration.queryExecutionId, exploration.cost]);
+
+  // A statement that failed is remembered so history never walks back into it unasked
+  // (FR-006 AC4). In memory and per tab — see `useExplorationQuery`.
+  useEffect(() => {
+    if (exploration.error != null && exploration.sql !== null) queryControls.noteFailure(exploration.sql);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `queryControls` is re-created each render; noteFailure is idempotent per statement.
+  }, [exploration.error, exploration.sql]);
 
   // THE PICKER MUST NOT MOUNT WHILE A LINK IS STILL RESOLVING. It reads a database on
   // mount, so an optimistic render would issue that read for the personal space and then
@@ -166,10 +198,13 @@ export function DataExplorerWorkspace() {
             onPresentationChange={(update) =>
               tabs.updateActiveExploration((e) => ({...e, presentation: update(e.presentation)}))
             }
+            queryControls={queryControls}
           />
-          <p className="flex-none border-t border-border px-3 py-1.5 text-xs text-text-3">
-            {formatBytes(tabs.activeTabBytesScanned)} scanned by this exploration
-          </p>
+          <CostIndicator
+            bytesScanned={lastApply?.bytesScanned ?? null}
+            fromCache={lastApply?.fromCache ?? false}
+            totalBytes={tabs.activeTabBytesScanned}
+          />
         </div>
       )}
 

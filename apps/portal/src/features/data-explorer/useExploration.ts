@@ -119,6 +119,17 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
     };
   }, [status]);
 
+  // A query Athena REFUSES is not an error anywhere in the plumbing: `getQueryStatus`
+  // resolves, and the reason arrives as a field on a successful poll. So the state has to
+  // be turned into one here, in the shape `toUserMessage` maps engine text from — a syntax
+  // error in the expression bar (SPEC-181 FR-003 AC4) is a `stateChangeReason` and nothing
+  // else. Without this the failure surfaced one layer later as "could not read results",
+  // which is a true sentence about the wrong thing.
+  const executionFailure = useMemo(() => {
+    if (!status || (status.state !== 'FAILED' && status.state !== 'CANCELLED')) return null;
+    return {code: status.state, message: status.stateChangeReason};
+  }, [status]);
+
   return {
     sql,
     queryExecutionId,
@@ -127,6 +138,6 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
     // A disabled query reports `isPending` forever in TanStack v5, so `enabled` gates it:
     // signed out with no username, nothing is in flight and a permanent spinner is a lie.
     isPending: enabled && (start.isPending || start.isFetching || (state !== null && !isTerminalState(state))),
-    error: rendered.error ?? start.error ?? poll.error ?? null
+    error: rendered.error ?? start.error ?? poll.error ?? executionFailure ?? null
   };
 }

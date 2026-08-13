@@ -62,7 +62,8 @@ function seedTab(presentation: Record<string, unknown> = {}) {
         id: 't1',
         label: 'orders',
         exploration: {...exploration, presentation: {...exploration.presentation, ...presentation}},
-        scannedByExecution: {}
+        scannedByExecution: {},
+        history: {past: [], future: []}
       }
     ],
     activeTabId: 't1'
