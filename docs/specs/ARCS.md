@@ -1277,7 +1277,7 @@ destroy it" are different guarantees, and only one of them survives a stale cach
 > drift apart. Choosing a different space **copies**; nothing in this arc ever moves or deletes a
 > colleague's file.
 
-## Data Explorer arc (SPEC-176 → 185 — filed 2026-08-13; 176 → 177 COMPLETE)
+## Data Explorer arc (SPEC-176 → 185 — filed 2026-08-13; 176 → 178 COMPLETE)
 
 The portal can already run SQL. What it cannot do is let someone **look at a table** without writing
 any — pick a database and a table, see its rows, page through them. That is the Data Explorer, and
@@ -1309,6 +1309,16 @@ That is the rule the whole decomposition follows: layer extractions, shared-mode
 injection surface go at the front; polish, formatting and help go at the back. The alternative
 ordering — shell first, so there is something to look at — buys a demo and pays for it by
 discovering structural problems after several specs have built on them.
+
+> **178 landed 2026-08-13.** Two things the spec did not anticipate. Its filter model — every
+> value through `sqlLiteral` — **would not have worked**: Trino does not coerce, so
+> `WHERE "qty" > '5'` against a bigint is a query-time error, invisible on the Table Builder's
+> all-string CSV tables and surfacing on the first Parquet one, after 180→182 had built on the
+> model. `ColumnFilter` gained a `valueKind`, and a `'number'` renders bare behind a charset gate
+> that is load-bearing rather than a fast path (`Number` alone accepts `0x1f`, `0b11` and
+> `Infinity`). And the **repo-wide** one-builder sweep FR-002 asked for is not achievable —
+> `useTableActions`, `useRunDdl` and `CreateViewDialog` build real DDL and `DEFAULT_SQL` is
+> `SELECT 1;` — so it is scoped to the feature, on SPEC-165's actual precedent.
 
 **178 is the engine, and it is where the arc's two hardest decisions live.** The first is that
 **filter, order and grouping render SQL, and everything else is presentation** — column visibility,
