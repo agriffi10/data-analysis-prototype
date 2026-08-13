@@ -17,8 +17,15 @@ export type QueryColumn = {name: string; type: string};
 
 export type QueryResultPage = {
   columns: QueryColumn[];
-  /** Each row aligned to columns; the Athena header row is stripped. */
-  rows: string[][];
+  /**
+   * Each row aligned to columns; the Athena header row is stripped.
+   *
+   * A cell is `null` where Athena reported **SQL NULL** and `''` where it reported an
+   * empty string — a distinction that used to be flattened here and cannot be recovered
+   * downstream (SPEC-180). Surfaces that have nothing to say about it render both as
+   * blank; the Data Explorer's Value panel is required to tell them apart.
+   */
+  rows: (string | null)[][];
   nextToken?: string;
 };
 

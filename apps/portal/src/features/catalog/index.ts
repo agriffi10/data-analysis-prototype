@@ -13,6 +13,7 @@ export {useQueryExecution} from './useQueryExecution';
 export {useQueryResults} from './useQueryResults';
 export type {UseQueryResultsResult} from './useQueryResults';
 export {useResultRowCount} from './useResultRowCount';
+export {ColumnResizeHandle} from './ColumnResizeHandle';
 export {useColumnWidths} from './useColumnWidths';
 export type {UseColumnWidthsResult} from './useColumnWidths';
 export {useSchema, useAllSchemas, invalidateSchema} from './useSchema';

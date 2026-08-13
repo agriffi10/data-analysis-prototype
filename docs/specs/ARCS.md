@@ -1310,7 +1310,17 @@ rather than by widening the Query workspace's.
 > database and `?db=` became a cross-check. And the fifth flag key's "five places" are not the ones
 > the spec listed: the publish workflow's matrix is per *environment* and needed no edit, while
 > `scripts/validate_feature_flags.py` refuses an unknown key and would have failed the publish.
-> Its results table is a **placeholder SPEC-180 replaces wholesale**.
+> Its results table was a **placeholder SPEC-180 has now replaced wholesale**.
+
+> **180 landed 2026-08-13, and three of its decisions reach outside the feature.** Column geometry is
+> keyed by column **name**, not position — which is why it reuses the catalog's sizing constants and
+> `ColumnResizeHandle` (moved into `features/catalog/`, generic over its key) rather than
+> `useColumnWidths`. `getQueryResults` stopped collapsing SQL NULL to `''`: FR-003's "an empty string
+> and a NULL are visibly different" was unbuildable at the layer asked to satisfy it, and SPEC-181's
+> `isNull` and SPEC-185's copy need the distinction too. And a bug the grid inherited rather than
+> introduced — a remembered page index outliving its cached pages — was drawing "No rows returned"
+> over a result that has rows. The column header **menu** is still SPEC-181's; 180 ships headers that
+> resize, drag and pin, with hide/pin/reorder in their own panel.
 
 **The arc is ordered by risk, descending, and its first three specs ship nothing a user can see.**
 That is the rule the whole decomposition follows: layer extractions, shared-model design and the

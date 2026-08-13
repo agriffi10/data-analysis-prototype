@@ -31,13 +31,24 @@ export function emptyExplorationQuery(): ExplorationQuery {
 }
 
 /**
- * The empty presentation state. Extended by SPEC-180 and SPEC-184; nothing here reaches
- * the renderer.
+ * The empty presentation state. Extended by SPEC-184; nothing here reaches the renderer.
+ *
+ * `presentation: null` means "unchosen", which is not the same as `'grid'` — it is what
+ * lets the viewport decide the opening view (FR-007) without a tab being born knowing how
+ * wide the window is.
  *
  * @returns Presentation state that changes no SQL.
  */
 export function emptyExplorationPresentation(): ExplorationPresentation {
-  return {hiddenColumns: [], columnOrder: [], pinnedColumns: [], columnWidths: {}};
+  return {
+    hiddenColumns: [],
+    columnOrder: [],
+    pinnedColumns: [],
+    columnWidths: {},
+    presentation: null,
+    valuePanelOpen: false,
+    recordRowIndex: 0
+  };
 }
 
 /**

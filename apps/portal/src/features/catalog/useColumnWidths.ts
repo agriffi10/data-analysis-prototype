@@ -1,5 +1,5 @@
 import {useCallback, useState} from 'react';
-import {DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH} from './catalog.constants';
+import {DEFAULT_COLUMN_WIDTH, MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH} from './catalog.constants';
 
 export type UseColumnWidthsResult = {
   /** Px per data column for the current execution; defaults to DEFAULT_COLUMN_WIDTH. */
@@ -47,7 +47,7 @@ export function useColumnWidths(executionId: string | null, columnCount: number)
         const cur = prev[executionId] ?? defaults(columnCount);
         if (index < 0 || index >= cur.length) return prev;
         const next = [...cur];
-        next[index] = Math.max(MIN_COLUMN_WIDTH, Math.round(px));
+        next[index] = Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, Math.round(px)));
         return {...prev, [executionId]: next};
       });
     },

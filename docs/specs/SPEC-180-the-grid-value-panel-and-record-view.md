@@ -1,7 +1,7 @@
 # Spec: The Grid, Cell Selection, the Value Panel and the Record View
 
 **ID:** SPEC-180
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-13
 **Depends On:** SPEC-178, SPEC-179
 

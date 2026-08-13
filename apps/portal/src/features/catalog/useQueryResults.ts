@@ -8,8 +8,11 @@ import type {QueryColumn, QueryResultPage} from './catalog.types';
 
 export type UseQueryResultsResult = {
   columns: QueryColumn[];
-  /** Current page only — never more than one page is exposed, so only one page is ever mounted in the DOM. */
-  rows: string[][];
+  /**
+   * Current page only — never more than one page is exposed, so only one page is ever
+   * mounted in the DOM. A `null` cell is SQL NULL, `''` an empty string (SPEC-180).
+   */
+  rows: (string | null)[][];
   /** 0-based. */
   pageIndex: number;
   /** 1-based inclusive start of the current page's row range; 0 when empty. */
@@ -65,7 +68,7 @@ export function useQueryResults(queryExecutionId: string | null, pageSize: numbe
     setPageIndexByExecution({});
   }
 
-  const pageIndex = (queryExecutionId !== null ? pageIndexByExecution[queryExecutionId] : undefined) ?? 0;
+  const rememberedPageIndex = (queryExecutionId !== null ? pageIndexByExecution[queryExecutionId] : undefined) ?? 0;
   const setPageIndex = useCallback(
     (index: number) => {
       if (queryExecutionId === null) return;
@@ -90,6 +93,14 @@ export function useQueryResults(queryExecutionId: string | null, pageSize: numbe
   });
 
   const pages = query.data?.pages ?? [];
+
+  // The remembered position can outlive the pages it pointed at: an execution nobody is
+  // looking at loses its cached pages once `gcTime` elapses (switch tabs, come back), and
+  // the refetch starts again from page 1. Read raw, that index selects a page that is no
+  // longer there — and an undefined page is indistinguishable from an empty one, so a
+  // result WITH rows renders as "No rows returned". Clamped only while pages exist; with
+  // none loaded yet the position is still the right one to restore to.
+  const pageIndex = pages.length === 0 ? rememberedPageIndex : Math.min(rememberedPageIndex, pages.length - 1);
   const current = pages[pageIndex];
   const lastLoaded = pages[pages.length - 1];
 

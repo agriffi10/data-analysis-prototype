@@ -199,6 +199,36 @@ describe('useQueryResults', () => {
     });
 
     it('remembers each execution’s page when switching back (SPEC-078 result tabs)', async () => {
+      // A second, permanent observer on q-1 keeps its pages in cache while the first hook
+      // looks elsewhere. Without it the test client's `gcTime: 0` collects them the moment
+      // nobody is watching, and this would be measuring the clamp below instead of the
+      // page memory it is named for.
+      const {result, rerender} = renderHookWithProviders(
+        ({id}) => ({active: useQueryResults(id, 2), warm: useQueryResults('q-1', 2)}),
+        {initialProps: {id: 'q-1' as string | null}}
+      );
+      await waitFor(() => expect(result.current.active.isPending).toBe(false));
+      await act(async () => {
+        result.current.active.goNext();
+      });
+      await waitFor(() => expect(result.current.active.pageIndex).toBe(1));
+
+      // Another result tab starts on ITS page 1…
+      rerender({id: 'q-2'});
+      await waitFor(() => expect(result.current.active.pageIndex).toBe(0));
+
+      // …and switching back restores q-1's page position.
+      rerender({id: 'q-1'});
+      await waitFor(() => expect(result.current.active.pageIndex).toBe(1));
+      expect(result.current.active.rows).toEqual([['3']]);
+    });
+
+    it('clamps a remembered page the cache no longer holds, rather than showing nothing', async () => {
+      // The pages of an execution nobody is observing are collected once `gcTime` elapses
+      // — switch tabs in the Data Explorer, come back later — and the refetch starts again
+      // from page 1. The remembered index then points past the end, and an absent page is
+      // indistinguishable from an empty one: the grid would render "No rows returned" over
+      // a result that has rows.
       const {result, rerender} = renderHookWithProviders(({id}) => useQueryResults(id, 2), {
         initialProps: {id: 'q-1' as string | null}
       });
@@ -208,13 +238,14 @@ describe('useQueryResults', () => {
       });
       await waitFor(() => expect(result.current.pageIndex).toBe(1));
 
-      // Another result tab starts on ITS page 1…
       rerender({id: 'q-2'});
       await waitFor(() => expect(result.current.pageIndex).toBe(0));
-
-      // …and switching back restores q-1's page position.
       rerender({id: 'q-1'});
-      await waitFor(() => expect(result.current.pageIndex).toBe(1));
+
+      await waitFor(() => expect(result.current.rows).toEqual([['1'], ['2']]));
+      expect(result.current.pageIndex).toBe(0);
+      expect(result.current.rangeStart).toBe(1);
+      expect(result.current.hasNext).toBe(true);
     });
   });
 });

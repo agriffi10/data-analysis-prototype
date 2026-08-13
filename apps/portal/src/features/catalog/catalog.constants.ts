@@ -33,4 +33,8 @@ export const ROW_COUNT_PAGE_SIZE = 1000;
 // resize increment.
 export const DEFAULT_COLUMN_WIDTH = 180; // px
 export const MIN_COLUMN_WIDTH = 72; // px
+// The drag CEILING. Not a layout constraint — a column wider than this has stopped being a
+// column — and the value a focusable `role="separator"` needs for `aria-valuemax`, whose
+// ARIA default of 100 would otherwise sit below every real width.
+export const MAX_COLUMN_WIDTH = 1200; // px
 export const COLUMN_RESIZE_STEP_PX = 16; // px per Arrow key press

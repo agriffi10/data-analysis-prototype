@@ -1,5 +1,5 @@
 import {Pager} from '../../components/Pager';
-import {ColumnResizeHandle} from './ColumnResizeHandle';
+import {ColumnResizeHandle} from '../catalog/ColumnResizeHandle';
 import type {QueryColumn} from '../catalog/catalog.types';
 
 // The leading row-number (`#`) column is a fixed, non-resizable width (FR-001).
@@ -7,7 +7,9 @@ const ROW_NUMBER_COLUMN_WIDTH = 56; // px (matches the old w-14)
 
 type QueryResultsTableProps = {
   columns: QueryColumn[];
-  rows: string[][]; // current page only (≤ page size)
+  // Current page only (≤ page size). A null cell is SQL NULL and renders blank here —
+  // this surface makes nothing of the distinction (SPEC-180 does, in the Data Explorer).
+  rows: (string | null)[][];
   pageIndex: number; // 0-based
   rangeStart: number; // 1-based row number of the first row on this page
   rangeEnd: number; // 1-based row number of the last row on this page
@@ -104,7 +106,7 @@ export function QueryResultsTable({
                         {column.type}
                       </span>
                       <ColumnResizeHandle
-                        columnIndex={index}
+                        column={index}
                         columnName={column.name}
                         width={widths[index] ?? 0}
                         onResize={onResize}
@@ -134,7 +136,7 @@ export function QueryResultsTable({
                       <td
                         key={cellIndex}
                         className="truncate border-b border-border-2 px-3 group-last:border-0"
-                        title={cell}>
+                        title={cell ?? ''}>
                         {cell}
                       </td>
                     ))}

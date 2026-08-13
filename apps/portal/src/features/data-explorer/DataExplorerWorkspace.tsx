@@ -6,13 +6,17 @@ import {useQuerySpaces} from '../catalog/useQuerySpaces';
 import {formatBytes} from '../../lib/format';
 import {EXPLORATION_TABPANEL_ID, EXPLORATION_TABS_MAX} from './dataExplorer.constants';
 import {ExplorationLimitDialog} from './ExplorationLimitDialog';
-import {ExplorationResultsTable} from './ExplorationResultsTable';
+import {ExplorationResultsRegion} from './ExplorationResultsRegion';
 import {ExplorationTabStrip} from './ExplorationTabStrip';
 import {SourcePicker} from './SourcePicker';
 import {useExploration} from './useExploration';
 import {useExplorationTabs} from './useExplorationTabs';
 import {useExploreDeepLink} from './useExploreDeepLink';
+import {useSourceColumns} from './useSourceColumns';
+import {emptyExplorationPresentation} from './exploration';
 import type {ExploreTarget} from './exploreSources';
+
+const EMPTY_PRESENTATION = emptyExplorationPresentation();
 
 /**
  * The Data Explorer's shell (SPEC-179): the source picker, the tab strip, and one
@@ -52,6 +56,9 @@ export function DataExplorerWorkspace() {
   // rule the early return below applies to Glue, applied to the bill.
   const linkUnsettled = resolution.status === 'loading' || denied;
   const exploration = useExploration(linkUnsettled ? null : (tabs.activeTab?.exploration ?? null));
+  // Gated by the same rule, for the same reason one layer down: a denied link must ask
+  // Glue nothing at all, and this hook reads a database.
+  const schemaColumns = useSourceColumns(linkUnsettled ? null : (tabs.activeTab?.exploration.source ?? null));
 
   const openSource = (target: ExploreTarget) => {
     const id = tabs.openTab({kind: 'table', spaceId: target.spaceId, database: target.database, table: target.table});
@@ -105,6 +112,9 @@ export function DataExplorerWorkspace() {
   }
 
   const showPicker = picking || tabs.tabs.length === 0;
+  // A stable object while there is no active tab: the geometry resolver memoises on it,
+  // and a fresh literal every render would recompute the whole column layout for nothing.
+  const presentation = tabs.activeTab?.exploration.presentation ?? EMPTY_PRESENTATION;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -144,10 +154,18 @@ export function DataExplorerWorkspace() {
           role="tabpanel"
           aria-label={tabs.activeTab?.label ?? 'Exploration'}
           className="flex min-h-0 flex-1 flex-col">
-          <ExplorationResultsTable
+          <ExplorationResultsRegion
             queryExecutionId={exploration.queryExecutionId}
             isPending={exploration.isPending}
             error={exploration.error}
+            schemaColumns={schemaColumns}
+            presentation={presentation}
+            // Presentation changes land the same way every other exploration edit does —
+            // through the tab — so geometry survives paging and tab switches, and is
+            // persisted with the tab it belongs to (FR-001 AC7).
+            onPresentationChange={(update) =>
+              tabs.updateActiveExploration((e) => ({...e, presentation: update(e.presentation)}))
+            }
           />
           <p className="flex-none border-t border-border px-3 py-1.5 text-xs text-text-3">
             {formatBytes(tabs.activeTabBytesScanned)} scanned by this exploration

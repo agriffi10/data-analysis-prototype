@@ -28,6 +28,22 @@ export const EXPLORATION_PAGE_SIZE = 100;
  */
 export const EXPLORATION_TABPANEL_ID = 'exploration-tabpanel';
 
+/**
+ * Width of the leading row-number column (px).
+ *
+ * Fixed and non-resizable — it is the grid's own furniture rather than one of the result's
+ * columns, and it is the first sticky offset every pinned column is measured from.
+ */
+export const ROW_NUMBER_COLUMN_WIDTH = 56;
+
+/**
+ * Widest column the Text presentation will pad to, in characters.
+ *
+ * A cap rather than a measurement: text alignment is only useful while a line still fits
+ * on a screen, and one 4 KB JSON cell would otherwise set the width for every row.
+ */
+export const TEXT_VIEW_MAX_COLUMN_CHARS = 48;
+
 /** sessionStorage key prefix for the per-user exploration tabs (full key: prefix + username). */
 export const EXPLORATION_TABS_STORAGE_PREFIX = 's3portal.dataExplorer.tabs.';
 
