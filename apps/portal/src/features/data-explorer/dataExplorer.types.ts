@@ -150,6 +150,21 @@ export type ExecutionCost = {
   engineMillis: number;
 };
 
+/**
+ * This tab's undo/redo over its own query DESCRIPTIONS (SPEC-181 FR-006).
+ *
+ * Descriptions, never result sets: a description is a few hundred bytes and re-renders to
+ * the same SQL, so stepping back resolves to the execution already cached (SPEC-178
+ * FR-006) rather than to rows this would otherwise have to hold. It rides in the tab, so
+ * it is per tab and lives exactly as long as the session does.
+ */
+export type QueryHistoryCursor = {
+  /** Previous descriptions, oldest first, capped at EXPLORER_FILTER_HISTORY_MAX. */
+  past: ExplorationQuery[];
+  /** Descriptions stepped back past, for forward navigation. */
+  future: ExplorationQuery[];
+};
+
 /** One Data Explorer tab: a label and the exploration it owns. */
 export type ExplorationTab = {
   /** Stable unique id (crypto.randomUUID()); not the label. */
@@ -165,6 +180,8 @@ export type ExplorationTab = {
    * detect a cache hit, and a detector can be wrong.
    */
   scannedByExecution: Record<string, number>;
+  /** Back/forward over this tab's previous query descriptions (SPEC-181 FR-006). */
+  history: QueryHistoryCursor;
 };
 
 export type ExplorationTabsState = {

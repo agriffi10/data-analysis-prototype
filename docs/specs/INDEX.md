@@ -186,7 +186,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 178 — The Exploration Model, the SQL Renderer & the Execution Cache | Completed |
 | 179 — Data Explorer: the Feature Flag, the `/explore` Route & the Shell | Completed |
 | 180 — The Grid, Cell Selection, the Value Panel & the Record View | Completed |
-| 181 — Filtering and Ordering | Draft |
+| 181 — Filtering and Ordering | Completed |
 | 182 — The Calc and Grouping Panels | Draft |
 | 183 — Saved Queries in the Data Explorer | Draft |
 | 184 — Presentation and Formatting | Draft |

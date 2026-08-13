@@ -63,7 +63,8 @@ function seedTabs(tables: {id: string; table: string}[], activeTabId = tables[0]
         id,
         label: table,
         exploration: newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table}, id),
-        scannedByExecution: {}
+        scannedByExecution: {},
+        history: {past: [], future: []}
       })
     ),
     activeTabId
@@ -317,7 +318,8 @@ describe('column geometry', () => {
               columnWidths: {total: 320}
             }
           },
-          scannedByExecution: {}
+          scannedByExecution: {},
+          history: {past: [], future: []}
         }
       ],
       activeTabId: 't1'
@@ -372,7 +374,7 @@ describe('columns before the first execution', () => {
     const exploration = newExploration({kind: 'sql', body: 'SELECT 1 AS n', label: 'saved.sql'}, 't1');
     const state: ExplorationTabsState = {
       version: 1,
-      tabs: [{id: 't1', label: 'saved.sql', exploration, scannedByExecution: {}}],
+      tabs: [{id: 't1', label: 'saved.sql', exploration, scannedByExecution: {}, history: {past: [], future: []}}],
       activeTabId: 't1'
     };
     sessionStorage.setItem(`${EXPLORATION_TABS_STORAGE_PREFIX}alice`, JSON.stringify(state));

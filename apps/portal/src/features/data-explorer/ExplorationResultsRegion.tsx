@@ -1,4 +1,4 @@
-import {useRef, useState} from 'react';
+import {useMemo, useRef, useState} from 'react';
 import {Button} from '../../components/Button';
 import {ErrorBanner} from '../../components/ErrorBanner';
 import {Pager} from '../../components/Pager';
@@ -9,18 +9,37 @@ import {ColumnsPanel} from './ColumnsPanel';
 import {ExplorationGrid} from './ExplorationGrid';
 import {ExplorationRecordView} from './ExplorationRecordView';
 import {ExplorationTextView} from './ExplorationTextView';
+import {ExpressionBar} from './ExpressionBar';
+import {FilterValueDialog} from './FilterValueDialog';
+import {FilterHistoryControls} from './FilterHistoryControls';
+import {OrderFilterDialog} from './OrderFilterDialog';
 import {PresentationSwitch} from './PresentationSwitch';
 import {ValuePanel} from './ValuePanel';
 import {useCellSelection} from './useCellSelection';
 import {useColumnGeometry} from './useColumnGeometry';
+import {isBareNumeric} from './renderExplorationSql';
+import {
+  clearFilter,
+  clearSort,
+  filterOf,
+  filterValueKind,
+  operatorTakesValue,
+  setFilter,
+  setSort,
+  sortOf
+} from './explorationQueryOps';
+import type {ColumnQueryActions} from './ColumnFilterMenu';
 import type {QueryColumn} from '../catalog/catalog.types';
-import type {ExplorationPresentation, GridPresentation} from './dataExplorer.types';
+import type {ExplorationPresentation, FilterOperator, GridPresentation} from './dataExplorer.types';
+import type {UseExplorationQueryResult} from './useExplorationQuery';
 
 export type ExplorationResultsRegionProps = {
+  /** The tab these rows belong to — what the fallback execution below is scoped by. */
+  tabId: string;
   queryExecutionId: string | null;
   /** The exploration is starting or still running. */
   isPending: boolean;
-  /** A render refusal, a failed start, or a failed poll. Rendered through `toUserMessage`. */
+  /** A render refusal, a failed start, a failed poll or a failed execution. */
   error: unknown;
   /**
    * Columns the SOURCE is known to have before any execution returns — Glue's, for a
@@ -31,31 +50,71 @@ export type ExplorationResultsRegionProps = {
   /** The active tab's presentation state — the grid's geometry lives here. */
   presentation: ExplorationPresentation;
   onPresentationChange: (update: (presentation: ExplorationPresentation) => ExplorationPresentation) => void;
+  /** The query description and every operation over it (SPEC-181). */
+  queryControls: UseExplorationQueryResult;
 };
 
+export const NO_CELL_TO_FILTER = 'Select a cell first.';
+export const UNFILTERABLE_VALUE = 'This cell’s value can’t be used as a filter on a numeric column.';
+export const SUSPENDED_TEXT = 'This set of filters failed last time it ran. Nothing has been run.';
+
 /**
- * One exploration's rows: the toolbar, the chosen presentation, the Value panel and the
- * pager (SPEC-180).
+ * One exploration's rows, and everything that changes which rows they are (SPEC-180,
+ * SPEC-181).
  *
- * Owns the page, the geometry and the selection so the three views below stay
- * presentational. Paging goes through SPEC-176's `useQueryResults`, whose `NextToken` walk
- * scans no additional bytes — and neither does anything in the toolbar, because none of it
- * renders SQL.
+ * The **query toolbar and the expression bar render whatever the results are doing** —
+ * loading, empty, or failed. That is not cosmetic: a failed apply has to leave the user
+ * somewhere they can correct it (FR-003 AC4/AC5), and a toolbar that disappears with the
+ * rows takes the correction with it.
+ *
+ * For the same reason a failure keeps the LAST GOOD execution's rows on screen beneath the
+ * banner rather than emptying the grid. `useQueryResults` is pointed at that execution
+ * while the current one is failed; paging it costs nothing, as paging never does.
  *
  * Errors go through `ErrorBanner` (SPEC-106): Athena's own text never reaches a user, and
  * neither does an `ExplorationRenderError`, whose message names a column for an operator.
  */
 export function ExplorationResultsRegion({
+  tabId,
   queryExecutionId,
   isPending,
   error,
   schemaColumns,
   presentation,
-  onPresentationChange
+  onPresentationChange,
+  queryControls
 }: ExplorationResultsRegionProps) {
-  const results = useQueryResults(queryExecutionId, EXPLORATION_PAGE_SIZE);
   const [columnsOpen, setColumnsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pendingFilter, setPendingFilter] = useState<{column: string; operator: FilterOperator} | null>(null);
   const gridRef = useRef<HTMLTableElement>(null);
+  const {query, apply} = queryControls;
+
+  // The last execution whose rows actually arrived. A failed apply falls back to it, so
+  // the grid keeps showing something true rather than going blank behind a banner.
+  //
+  // Scoped to the TAB, and this component is not remounted per tab: without the reset, a
+  // failed apply in one tab drew the OTHER tab's rows and columns under its own error
+  // banner (found in review).
+  const [lastGood, setLastGood] = useState<{tabId: string; executionId: string} | null>(null);
+  const lastGoodExecutionId = lastGood?.tabId === tabId ? lastGood.executionId : null;
+  const failed = Boolean(error);
+  const shownExecutionId = failed ? lastGoodExecutionId : queryExecutionId;
+
+  const results = useQueryResults(shownExecutionId, EXPLORATION_PAGE_SIZE);
+  // Recorded during render (React's "adjust state when a prop changes" pattern, as
+  // `useCellSelection` and `useQueryResults` do) rather than in an effect: an effect would
+  // paint one frame in which a failure had emptied the grid before the fallback arrived.
+  if (
+    !failed &&
+    queryExecutionId !== null &&
+    !results.isPending &&
+    !results.isError &&
+    lastGoodExecutionId !== queryExecutionId
+  ) {
+    setLastGood({tabId, executionId: queryExecutionId});
+  }
+
   // FR-006: a `table` source knows its columns from Glue before anything runs, a `sql`
   // source only from the execution. The execution's own metadata WINS once it lands —
   // grouping changes the column set entirely, and Glue would still be describing the
@@ -69,9 +128,39 @@ export function ExplorationResultsRegion({
   const selection = useCellSelection(
     results.rows.length,
     visibleNames,
-    `${queryExecutionId ?? ''}:${results.pageIndex}:${visibleNames.join(' ')}`,
+    `${shownExecutionId ?? ''}:${results.pageIndex}:${visibleNames.join(' ')}`,
     gridRef
   );
+
+  const typeOf = useMemo(() => new Map(geometry.all.map((column) => [column.name, column.type])), [geometry.all]);
+  const valueKindOf = (column: string) => filterValueKind(typeOf.get(column) ?? '');
+
+  // Every per-column gesture goes through ONE object, and every one of them is a single
+  // `apply` — so a menu choice is a description change, and a description change is at
+  // most one execution (FR-001 AC5).
+  const actions: ColumnQueryActions = {
+    sortOf: (column) => sortOf(query, column),
+    sortCount: query.ordering.length,
+    filterOf: (column) => filterOf(query, column),
+    valueKindOf,
+    sort: (column, direction) => apply({ordering: setSort(query, column, direction).ordering}),
+    clearSort: (column) => apply({ordering: clearSort(query, column).ordering}),
+    filter: (column, operator, value) =>
+      apply({
+        filters: setFilter(query, {
+          column,
+          operator,
+          value: operatorTakesValue(operator) ? (value ?? '') : undefined,
+          valueKind: valueKindOf(column)
+        }).filters
+      }),
+    clearFilter: (column) => apply({filters: clearFilter(query, column).filters})
+  };
+
+  // The value already on that column, so re-filtering it is an edit rather than a retype.
+  const pendingExisting = pendingFilter ? filterOf(query, pendingFilter.column) : null;
+  const pendingInitialValue =
+    pendingExisting && operatorTakesValue(pendingExisting.operator) ? (pendingExisting.value ?? '') : '';
 
   // FR-007: below `tablet` an UNCHOSEN tab opens in Record — a horizontally-scrolling grid
   // on a 400px screen is not a data explorer. `useIsMobile` decides which view MOUNTS,
@@ -100,50 +189,140 @@ export function ExplorationResultsRegion({
   };
 
   const cursorColumn = geometry.visible.find((column) => column.name === selection.selection.cursor.column) ?? null;
-  const cursorValue = cursorColumn
-    ? results.rows[view === 'record' ? recordRow : selection.selection.cursor.row]?.[cursorColumn.index]
-    : undefined;
+  const cursorRow = view === 'record' ? recordRow : selection.selection.cursor.row;
+  // THE RAW CELL VALUE, never `cellText` and never a formatted rendering (FR-002 AC2): a
+  // NULL reads as "NULL" on screen and a transformed URL will not look like its value at
+  // all (SPEC-184), and either one as a predicate matches nothing.
+  const cursorValue = cursorColumn ? results.rows[cursorRow]?.[cursorColumn.index] : undefined;
 
-  if (error) {
+  // Suspended is not loading: nothing is in flight, deliberately. Without this the status
+  // line announced "Running…" directly above the panel saying nothing had been run.
+  const loading = !queryControls.suspended && (isPending || !shownExecutionId || results.isPending);
+  const hasCell = cursorColumn !== null && cursorValue !== undefined;
+  const filterByCellRefusal = !hasCell
+    ? NO_CELL_TO_FILTER
+    : cursorValue !== null &&
+        valueKindOf(cursorColumn.name) === 'number' &&
+        !isBareNumeric(cursorValue) /* a numeric column's value is emitted BARE, so one
+        the renderer would refuse has to be refused at the gesture instead — the refusal
+        it throws is operator text (SPEC-106). */
+      ? UNFILTERABLE_VALUE
+      : null;
+
+  const filterByCell = () => {
+    if (!cursorColumn || cursorValue === undefined) return;
+    // A NULL cell is `IS NULL`, not `= ''` (FR-002 AC3). Athena hands every value back as
+    // a string, so nothing below this line could tell the two apart.
+    if (cursorValue === null) actions.filter(cursorColumn.name, 'isNull');
+    else actions.filter(cursorColumn.name, '=', cursorValue);
+  };
+
+  const body = () => {
+    if (queryControls.suspended) {
+      return (
+        <div className="flex flex-col items-start gap-2 p-4">
+          <p className="text-sm text-text-2">{SUSPENDED_TEXT}</p>
+          <Button onClick={queryControls.retry}>Run it anyway</Button>
+        </div>
+      );
+    }
+    // The banner above has already said this; an empty grid under it would be a second,
+    // less true account of the same failure.
+    if (shownExecutionId !== null && results.isError) return null;
+    // Nothing to draw a header from yet: the statement is running and the source could not
+    // say what its columns are. That is the `sql` arm's ordinary state (FR-006 AC2) — and
+    // the `table` arm's only while Glue is still being read.
+    if (loading && geometry.visible.length === 0) {
+      // No `role="status"` here: the toolbar's own status line says the same words at
+      // the same moment, and two live regions announcing one event read it out twice.
+      return <p className="p-4 text-sm text-text-3">{shownExecutionId ? 'Loading rows…' : 'Running…'}</p>;
+    }
+    // A query that succeeded over no matching rows is an ANSWER, not a fault — the
+    // friendly empty state, never the error banner.
+    if (!loading && results.rows.length === 0) return <p className="p-4 text-sm text-text-2">No rows returned.</p>;
+
     return (
-      <div className="p-4">
-        <ErrorBanner error={error} />
-      </div>
+      <>
+        <div className="flex min-h-0 flex-1 flex-col gap-2 tablet:flex-row">
+          {view === 'grid' && (
+            <ExplorationGrid
+              columns={geometry.visible}
+              rows={results.rows}
+              rangeStart={results.rangeStart}
+              geometry={geometry}
+              selection={selection}
+              actions={actions}
+              onRequestFilterValue={(column, operator) => setPendingFilter({column, operator})}
+              gridRef={gridRef}
+            />
+          )}
+          {view === 'record' && (
+            <ExplorationRecordView
+              columns={geometry.visible}
+              rows={results.rows}
+              rowIndex={recordRow}
+              rangeStart={results.rangeStart}
+              onRowIndexChange={(next) => onPresentationChange((p) => ({...p, recordRowIndex: next}))}
+              onFocusColumn={(column) => selection.selectCell({row: recordRow, column}, {})}
+            />
+          )}
+          {view === 'text' && (
+            <ExplorationTextView
+              columns={geometry.visible}
+              rows={results.rows}
+              rangeStart={results.rangeStart}
+              rangeEnd={results.rangeEnd}
+            />
+          )}
+
+          {presentation.valuePanelOpen && (
+            <ValuePanel
+              column={cursorColumn?.name ?? null}
+              value={cursorValue}
+              onClose={() => onPresentationChange((p) => ({...p, valuePanelOpen: false}))}
+            />
+          )}
+        </div>
+
+        <Pager
+          hasPrev={results.hasPrev}
+          hasNext={results.hasNext}
+          onPrev={results.goPrev}
+          onNext={results.goNext}
+          nextBusy={results.isFetchingNext}
+          label={`Rows ${results.rangeStart}–${results.rangeEnd}`}
+          className="flex-none px-1"
+        />
+      </>
     );
-  }
-
-  if (queryExecutionId && results.isError) {
-    return (
-      <div className="p-4">
-        <ErrorBanner error={results.error} />
-      </div>
-    );
-  }
-
-  const loading = isPending || !queryExecutionId || results.isPending;
-
-  // Nothing to draw a header from yet: the statement is running and the source could not
-  // say what its columns are. That is the `sql` arm's ordinary state (FR-006 AC2) — and
-  // the `table` arm's only while Glue is still being read.
-  if (loading && geometry.visible.length === 0) {
-    return (
-      <p
-        role="status"
-        className="p-4 text-sm text-text-3">
-        {queryExecutionId ? 'Loading rows…' : 'Running…'}
-      </p>
-    );
-  }
-
-  // A query that succeeded over no matching rows is an ANSWER, not a fault — the friendly
-  // empty state, never the error banner.
-  if (!loading && results.rows.length === 0) {
-    return <p className="p-4 text-sm text-text-2">No rows returned.</p>;
-  }
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 p-2">
       <div className="flex flex-none flex-wrap items-center gap-2">
+        <FilterHistoryControls
+          canGoBack={queryControls.canGoBack}
+          canGoForward={queryControls.canGoForward}
+          onBack={queryControls.back}
+          onForward={queryControls.forward}
+        />
+        <Button
+          size="sm"
+          onClick={() => setSettingsOpen(true)}>
+          Order and filter
+        </Button>
+        <Button
+          size="sm"
+          disabledReason={queryControls.clearAllRefusal ?? undefined}
+          onClick={queryControls.clearAll}>
+          Remove all filters
+        </Button>
+        <Button
+          size="sm"
+          disabledReason={filterByCellRefusal ?? undefined}
+          onClick={filterByCell}>
+          Filter by this value
+        </Button>
         <PresentationSwitch
           value={view}
           onChange={setView}
@@ -165,7 +344,7 @@ export function ExplorationResultsRegion({
           role="status"
           className="text-xs text-text-3">
           {loading
-            ? queryExecutionId
+            ? shownExecutionId
               ? 'Loading rows…'
               : 'Running…'
             : selection.selectedCount > 0
@@ -174,60 +353,57 @@ export function ExplorationResultsRegion({
         </p>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 tablet:flex-row">
-        {view === 'grid' && (
-          <ExplorationGrid
-            columns={geometry.visible}
-            rows={results.rows}
-            rangeStart={results.rangeStart}
-            geometry={geometry}
-            selection={selection}
-            gridRef={gridRef}
-          />
-        )}
-        {view === 'record' && (
-          <ExplorationRecordView
-            columns={geometry.visible}
-            rows={results.rows}
-            rowIndex={recordRow}
-            rangeStart={results.rangeStart}
-            onRowIndexChange={(next) => onPresentationChange((p) => ({...p, recordRowIndex: next}))}
-            onFocusColumn={(column) => selection.selectCell({row: recordRow, column}, {})}
-          />
-        )}
-        {view === 'text' && (
-          <ExplorationTextView
-            columns={geometry.visible}
-            rows={results.rows}
-            rangeStart={results.rangeStart}
-            rangeEnd={results.rangeEnd}
-          />
-        )}
-
-        {presentation.valuePanelOpen && (
-          <ValuePanel
-            column={cursorColumn?.name ?? null}
-            value={cursorValue}
-            onClose={() => onPresentationChange((p) => ({...p, valuePanelOpen: false}))}
-          />
-        )}
-      </div>
-
-      <Pager
-        hasPrev={results.hasPrev}
-        hasNext={results.hasNext}
-        onPrev={results.goPrev}
-        onNext={results.goNext}
-        nextBusy={results.isFetchingNext}
-        label={`Rows ${results.rangeStart}–${results.rangeEnd}`}
-        className="flex-none px-1"
+      <ExpressionBar
+        expression={query.expression}
+        onApply={(expression) => apply({expression})}
       />
+
+      {/* One banner at a time, and the exploration's own failure outranks the results
+          read: a statement that failed is WHY its rows could not be fetched, and saying
+          both names the symptom twice. */}
+      {error != null ? (
+        <ErrorBanner error={error} />
+      ) : (
+        shownExecutionId !== null && results.isError && <ErrorBanner error={results.error} />
+      )}
+
+      {body()}
 
       <ColumnsPanel
         open={columnsOpen}
         onClose={() => setColumnsOpen(false)}
         geometry={geometry}
       />
+
+      {pendingFilter && (
+        <FilterValueDialog
+          column={pendingFilter.column}
+          operator={pendingFilter.operator}
+          valueKind={valueKindOf(pendingFilter.column)}
+          initialValue={pendingInitialValue}
+          onApply={(value) => {
+            actions.filter(pendingFilter.column, pendingFilter.operator, value);
+            setPendingFilter(null);
+          }}
+          onCancel={() => setPendingFilter(null)}
+        />
+      )}
+
+      {settingsOpen && (
+        <OrderFilterDialog
+          columns={geometry.all}
+          query={query}
+          onCancel={() => setSettingsOpen(false)}
+          onApply={({query: staged, hiddenColumns, pinnedColumns}) => {
+            setSettingsOpen(false);
+            // Two writes in one handler, so React batches them into one render and one
+            // rendered statement — however many criteria changed, the dialog is one
+            // execution (AC2). The presentation half renders no SQL and so adds none (AC4).
+            onPresentationChange((p) => ({...p, hiddenColumns, pinnedColumns}));
+            apply(staged);
+          }}
+        />
+      )}
     </div>
   );
 }

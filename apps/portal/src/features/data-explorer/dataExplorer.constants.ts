@@ -48,6 +48,15 @@ export const TEXT_VIEW_MAX_COLUMN_CHARS = 48;
 export const EXPLORATION_TABS_STORAGE_PREFIX = 's3portal.dataExplorer.tabs.';
 
 /**
+ * How many previous query descriptions one tab remembers (SPEC-181 FR-006).
+ *
+ * A cap on a list of DESCRIPTIONS, not of result sets — each is a few hundred bytes and
+ * the whole cursor is persisted with the tab, so the cap is about keeping a session's
+ * `sessionStorage` document small rather than about memory. Oldest is dropped first.
+ */
+export const EXPLORER_FILTER_HISTORY_MAX = 25;
+
+/**
  * The alias a `sql` source's subquery is given: `FROM (<body>) AS t`.
  *
  * Trino requires a subquery in a FROM be aliased, and the alias is never shown — filters

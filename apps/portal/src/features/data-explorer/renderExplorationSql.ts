@@ -40,10 +40,16 @@ const NUMERIC_CHARS_RE = /^[-+0-9.eE]+$/;
  * exactly the kind of regex that is subtly wrong (and the one written first here tripped
  * `security/detect-unsafe-regex`), where the engine's own parser cannot be.
  *
+ * **Exported so the surfaces that build a numeric filter refuse exactly what the renderer
+ * refuses** (SPEC-181). The renderer throws an `ExplorationRenderError` whose message
+ * names a column and an operator — operator text SPEC-106 forbids rendering — so a value
+ * that would reach it has to be turned back at the input, and a second numeric rule at
+ * the input is a rule that can disagree with this one.
+ *
  * @param value - The raw filter value.
  * @returns True when the value is a plain decimal or exponent-form number.
  */
-function isBareNumeric(value: string): boolean {
+export function isBareNumeric(value: string): boolean {
   if (value === '') return false;
   if (!NUMERIC_CHARS_RE.test(value)) return false;
   return Number.isFinite(Number(value));

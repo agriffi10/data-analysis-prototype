@@ -1,4 +1,10 @@
-import type {Exploration, ExplorationPresentation, ExplorationQuery, ExplorationSource} from './dataExplorer.types';
+import type {
+  Exploration,
+  ExplorationPresentation,
+  ExplorationQuery,
+  ExplorationSource,
+  QueryHistoryCursor
+} from './dataExplorer.types';
 
 // Constructors for the model. Separate from the types so there is one definition of what
 // "empty" means — a description built field-by-field at a call site is how two surfaces
@@ -28,6 +34,15 @@ export function newExplorationId(): string {
  */
 export function emptyExplorationQuery(): ExplorationQuery {
   return {filters: [], expression: null, ordering: [], grouping: null};
+}
+
+/**
+ * A tab's empty history: nothing to go back to and nothing to go forward to.
+ *
+ * @returns A cursor a fresh tab starts with.
+ */
+export function emptyQueryHistory(): QueryHistoryCursor {
+  return {past: [], future: []};
 }
 
 /**

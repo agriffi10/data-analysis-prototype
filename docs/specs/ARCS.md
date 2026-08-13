@@ -1322,6 +1322,22 @@ rather than by widening the Query workspace's.
 > over a result that has rows. The column header **menu** is still SPEC-181's; 180 ships headers that
 > resize, drag and pin, with hide/pin/reorder in their own panel.
 
+> **181 landed 2026-08-13, and it is the spec the feature exists for.** Its two hardest problems
+> were not the ones the spec anticipated. **Athena's own refusal is not an error anywhere in the
+> plumbing** — `getQueryStatus` resolves and the reason arrives as `stateChangeReason` on a
+> successful poll — so FR-003's "render the syntax error through `toUserMessage`" first required
+> `useExploration` to MAKE an error out of a successful poll; and FR-006's "history never re-runs a
+> query that failed" cannot come from the cache, because SPEC-178 deliberately evicts a failed
+> execution, so a history step onto a known-failed statement now **suspends** with *Run it anyway*
+> as the retry. Three smaller corrections: `useExplorationQuery` takes the tabs result rather than a
+> tab id alone (the history lives in the tab's `sessionStorage` document, and a second instance of
+> that hook is a second writer); the spec's `stage` is gone, because staging the query in the hook
+> and the presentation in the dialog would let half a draft survive a Cancel; and no field in the
+> settings dialog submits on Enter, since every field in it is a criteria row — which is what
+> SPEC-155's suppression exists for. FR-008 also settled a question the arc kept asking: **a
+> pre-flight "this looks expensive" confirm is not buildable**, because Athena will not report what
+> a query will scan until it has run it.
+
 **The arc is ordered by risk, descending, and its first three specs ship nothing a user can see.**
 That is the rule the whole decomposition follows: layer extractions, shared-model design and the
 injection surface go at the front; polish, formatting and help go at the back. The alternative

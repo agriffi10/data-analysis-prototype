@@ -64,7 +64,8 @@ function seedTab() {
         id: 't1',
         label: 'orders',
         exploration: newExploration({kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'}, 't1'),
-        scannedByExecution: {}
+        scannedByExecution: {},
+        history: {past: [], future: []}
       } satisfies ExplorationTab
     ],
     activeTabId: 't1'

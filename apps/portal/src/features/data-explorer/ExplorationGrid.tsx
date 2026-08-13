@@ -4,6 +4,8 @@ import {CellValue} from './CellValue';
 import {cellText} from './cellText';
 import {ROW_NUMBER_COLUMN_WIDTH} from './dataExplorer.constants';
 import {ExplorationGridHeader} from './ExplorationGridHeader';
+import type {ColumnQueryActions} from './ColumnFilterMenu';
+import type {FilterOperator} from './dataExplorer.types';
 import type {GridColumn, UseColumnGeometryResult} from './useColumnGeometry';
 import {CURSOR_CELL_ATTRIBUTE} from './useCellSelection';
 import type {UseCellSelectionResult} from './useCellSelection';
@@ -17,6 +19,10 @@ export type ExplorationGridProps = {
   rangeStart: number;
   geometry: UseColumnGeometryResult;
   selection: UseCellSelectionResult;
+  /** Ordering and filtering, for each column header's menu (SPEC-181). */
+  actions: ColumnQueryActions;
+  /** A comparison was chosen and needs a value; the REGION raises the dialog, not the header. */
+  onRequestFilterValue: (column: string, operator: FilterOperator) => void;
   /** The grid element, shared with `useCellSelection` so focus can find the cursor cell. */
   gridRef: RefObject<HTMLTableElement | null>;
 };
@@ -32,7 +38,16 @@ export type ExplorationGridProps = {
  * composite widget rather than a static table, and the roles have to be in place before
  * the selection model lands on them.
  */
-export function ExplorationGrid({columns, rows, rangeStart, geometry, selection, gridRef}: ExplorationGridProps) {
+export function ExplorationGrid({
+  columns,
+  rows,
+  rangeStart,
+  geometry,
+  selection,
+  actions,
+  onRequestFilterValue,
+  gridRef
+}: ExplorationGridProps) {
   // Sticky offsets for the pinned block: each pinned column sits after the row-number
   // column and every pinned column before it. Computed from widths rather than measured,
   // because the widths ARE the layout here (`table-fixed` + an explicit `<colgroup>`).
@@ -73,6 +88,8 @@ export function ExplorationGrid({columns, rows, rangeStart, geometry, selection,
           onResetWidth={geometry.resetWidth}
           onDropColumn={geometry.moveTo}
           onSelectColumn={selection.selectColumn}
+          actions={actions}
+          onRequestFilterValue={onRequestFilterValue}
         />
         {/* Array-index keys: result rows are plain strings with no identity, and the whole
             body is replaced on every page and every execution. */}

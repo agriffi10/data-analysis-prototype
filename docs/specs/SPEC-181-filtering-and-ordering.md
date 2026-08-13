@@ -1,7 +1,7 @@
 # Spec: Filtering and Ordering
 
 **ID:** SPEC-181
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-13
 **Depends On:** SPEC-178, SPEC-180
 
