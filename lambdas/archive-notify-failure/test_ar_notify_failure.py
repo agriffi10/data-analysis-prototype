@@ -157,17 +157,18 @@ def test_a_non_dict_event_does_not_crash(sent):
 
 
 class _FakeSfn:
-    """Step Functions, for the input read-back the timeout door falls back to."""
+    """Step Functions, for the input read-back the timeout door falls back to.
 
-    def __init__(self, described=None, error=None):
+    Only the succeeding shape is needed here: the read-back's own failure modes are
+    ``cpcommon.events.timed_out_execution_input``'s and are tested there.
+    """
+
+    def __init__(self, described=None):
         self._described = described
-        self._error = error
         self.calls = []
 
     def describe_execution(self, executionArn):
         self.calls.append(executionArn)
-        if self._error:
-            raise self._error
         return self._described or {}
 
 
@@ -249,26 +250,18 @@ def test_the_input_is_read_back_when_eventbridge_dropped_it(monkeypatch, sent):
     EventBridge caps an event at 256 KB and Step Functions drops the input rather than exceed it;
     this plane's execution input is the Pipe's record, which ARCHIVE_MAX_ITEM_BYTES deliberately
     allows to approach 200 KB. So the biggest selections — the ones that run for three hours —
-    are exactly the ones the event alone cannot attribute."""
+    are exactly the ones the event alone cannot attribute.
+
+    The read-back ITSELF is cpcommon's and is tested there; what this asserts is that THIS door
+    is wired to it and attributes the actor it recovers."""
     monkeypatch.setattr(auth, "verified_username_ignoring_expiry", lambda token, **kw: "alice")
     fake = _FakeSfn(described={"input": json.dumps(_raw())})
-    monkeypatch.setattr(verb.clients, "sfn", lambda: fake)
+    monkeypatch.setattr(verb.events.clients, "sfn", lambda: fake)
 
     verb.handler(_timed_out(included=False), None)
 
     assert fake.calls == ["arn:aws:states:us-east-1:1:execution:m:e"]
     assert [user for user, _ in sent] == ["alice"]
-
-
-def test_a_failed_read_back_degrades_to_a_no_op_rather_than_raising(monkeypatch, sent):
-    """A raise here would be an async Lambda failure, and EventBridge retries those — turning one
-    unattributable event into three."""
-    monkeypatch.setattr(verb.clients, "sfn", lambda: _FakeSfn(error=RuntimeError("boom")))
-
-    outcome = verb.handler(_timed_out(included=False), None)
-
-    assert sent == []
-    assert outcome["actor"]["username"] == ""
 
 
 @pytest.mark.parametrize(

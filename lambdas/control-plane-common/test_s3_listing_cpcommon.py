@@ -2,7 +2,8 @@
 
 Pins the segment-level hidden-path rule, the user_settings/ exclusion, and the
 absolute-by-default / relative-opt-in yield semantics that the two prior copies
-disagreed on.
+disagreed on. ``object_size`` is here too: file-send and archive had it verbatim between
+them, and the transient/terminal split is the half worth asserting once.
 """
 
 import os
@@ -10,7 +11,21 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from cpcommon import clients, s3_listing
+import pytest
+from cpcommon import clients, messages, s3_listing
+from cpcommon.errors import TerminalError, TransientError
+
+#: Reason codes the tests pass in as a caller would. Registered so TerminalError accepts them
+#: without importing a domain layer — cpcommon owns the algorithm, not the wording.
+#: `archive_source_missing` is deliberately NOT a production code: the point of the test that
+#: uses it is that the reason travels from the caller, so it has to be one no plane registers.
+messages.register(
+    {
+        "source_missing": "a selected file could not be read.",
+        "archive_source_missing": "somebody else's sentence for the same fault.",
+    },
+    prefix="Test: ",
+)
 
 
 class _FakeS3:
@@ -126,14 +141,68 @@ def test_a_custom_rule_still_gets_the_shared_pagination():
 
 
 if __name__ == "__main__":
-    tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
-    failed = 0
-    for fn in tests:
-        try:
-            fn()
-            print(f"PASS {fn.__name__}")
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            print(f"FAIL {fn.__name__}: {exc}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)
+    sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── object_size — the per-file HeadObject a copy plan costs ──────────────────
+
+
+class _HeadS3:
+    """An S3 whose HeadObject answers from a dict, or raises a code."""
+
+    def __init__(self, sizes=None, error=None):
+        self._sizes = sizes or {}
+        self._error = error
+        self.calls = []
+
+    def head_object(self, Bucket, Key):
+        self.calls.append((Bucket, Key))
+        if self._error:
+            raise self._error
+        if Key not in self._sizes:
+            raise _S3Error("404")
+        return {"ContentLength": self._sizes[Key]}
+
+
+class _S3Error(Exception):
+    def __init__(self, code):
+        super().__init__(code)
+        self.response = {"Error": {"Code": code}}
+
+
+def test_the_size_comes_back_as_an_int():
+    clients._s3 = _HeadS3({"alice/notes.txt": 512})
+
+    assert s3_listing.object_size("user-bkt", "alice/notes.txt", missing_reason="source_missing") == 512
+
+
+def test_a_missing_object_is_terminal_and_names_the_key():
+    """The user picked it from their own browser moments ago, so the request no longer describes
+    reality — and the message has to say WHICH file for that to be actionable."""
+    clients._s3 = _HeadS3({"alice/other.txt": 1})
+
+    with pytest.raises(TerminalError) as caught:
+        s3_listing.object_size("user-bkt", "alice/gone.txt", missing_reason="source_missing")
+
+    assert caught.value.reason == "source_missing"
+    assert "alice/gone.txt" in caught.value.detail
+
+
+def test_a_throttle_is_transient_rather_than_a_missing_file():
+    """The direction that matters: classifying a throttle as a missing file tells the user their
+    file is permanently gone over a fault a Retry fixes."""
+    clients._s3 = _HeadS3(error=_S3Error("SlowDown"))
+
+    with pytest.raises(TransientError):
+        s3_listing.object_size("user-bkt", "alice/notes.txt", missing_reason="source_missing")
+
+
+def test_the_reason_code_is_the_callers_and_never_this_layers():
+    """cpcommon owns the algorithm, the domain layer owns the wording — which is why the reason
+    is a required keyword here rather than a default this layer picked."""
+    clients._s3 = _HeadS3({})
+
+    with pytest.raises(TerminalError) as caught:
+        s3_listing.object_size("user-bkt", "alice/gone.txt", missing_reason="archive_source_missing")
+
+    assert caught.value.reason == "archive_source_missing"

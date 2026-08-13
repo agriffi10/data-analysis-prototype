@@ -35,6 +35,31 @@ _SUCCEEDED = "SUCCEEDED"
 _INPUT_ATTRIBUTED = ("FAILED", "PENDING")
 
 
+def results_location(event, *, unreadable_reason: str) -> tuple:
+    """Reads where the Map Run exported its results, off the Map state's output.
+
+    Args:
+      event: The request, carrying the Map state's output under ``mapRun``.
+      unreadable_reason: The caller's registered terminal reason for an unreadable export.
+
+    Returns:
+      ``(bucket, key)`` of the run's manifest.
+
+    Raises:
+      TerminalError: ``unreadable_reason`` when the Map state reported no export. The run has
+        finished by the time a collector is invoked, so an absent pointer is a fault rather than
+        a race, and treating it as one would retry forever against a finished run.
+    """
+    details = (event.get("mapRun") or {}).get("ResultWriterDetails") or {}
+    bucket, key = details.get("Bucket"), details.get("Key")
+    if not bucket or not key:
+        raise TerminalError(
+            unreadable_reason,
+            "the transfer ran but its results export was not reported by the Map state",
+        )
+    return bucket, key
+
+
 def _read_json(bucket: str, key: str, unreadable_reason: str):
     """Reads one exported result object and parses it.
 

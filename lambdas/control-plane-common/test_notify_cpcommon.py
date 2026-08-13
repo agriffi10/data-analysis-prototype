@@ -1,7 +1,8 @@
 """Tests for the notification primitives cpcommon owns (SPEC-156 FR-002).
 
 The sender and the failure decorator are exercised through each plane's own notify tests;
-what is asserted here is the deduplication token, which two planes had copied verbatim.
+what is asserted here is the deduplication token, which two planes had copied verbatim, and
+``actor_of``, which file-send and archive had copied verbatim between them.
 
 Runnable under pytest or directly: python3 test_notify_cpcommon.py.
 """
@@ -12,7 +13,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import pytest
-from cpcommon.notify import dedup_id
+from cpcommon.notify import actor_of, dedup_id
 
 
 def test_the_token_is_the_request_id_and_the_outcome():
@@ -51,3 +52,46 @@ def test_the_four_planes_disagree_on_the_step_and_the_shared_builder_survives_it
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── actor_of — the flat SPEC-164 envelope file-send and archive share ────────
+
+
+def test_a_verified_username_is_read_straight_off_the_request():
+    assert actor_of({"actor": "alice"}) == "alice"
+
+
+def test_the_token_object_is_unwrapped_to_its_verified_username():
+    """After validate-authorize binds the identity, `actor` is the object it verified — the
+    username on it is the verified claim, never the body's own assertion."""
+    assert actor_of({"actor": {"username": "alice", "token": "tok"}}) == "alice"
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        [{"body": "{}"}],
+        "not-an-object",
+        None,
+        {},
+        {"actor": None},
+        {"actor": {}},
+        {"actor": {"username": None}},
+        {"actor": 42},
+    ],
+    ids=[
+        "the-raw-sqs-array",
+        "not-an-object",
+        "none",
+        "no-actor-field",
+        "null-actor",
+        "empty-token-object",
+        "token-object-with-no-username",
+        "actor-of-the-wrong-type",
+    ],
+)
+def test_a_pre_identity_event_yields_no_actor_rather_than_raising(event):
+    """That window is real and is not an error: validate-authorize's event is the raw SQS array
+    until the token is verified. An emit with no addressee is a logged no-op — never a message
+    sent to whoever the untrusted body named."""
+    assert actor_of(event) == ""

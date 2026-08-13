@@ -1,4 +1,9 @@
-"""Paginated S3 listing plus the shared rules for what counts as a data object.
+"""Paginated S3 listing, the size of one named object, and the shared rules for what counts
+as a data object.
+
+The two reads sit together because every plane that expands a selection into a copy plan needs
+both: ``list_data_objects`` for a folder item and ``object_size`` for a file item, which costs
+its own serial ``HeadObject``.
 
 The single source of the ignore rules for every control plane's source listing: the prefix
 marker, the results and settings sub-trees, zero-byte placeholders, and hidden or partial
@@ -19,7 +24,8 @@ Attributes:
 
 from collections.abc import Callable, Iterator
 
-from . import clients
+from . import clients, errors
+from .errors import TerminalError
 
 MARKER_BASENAME = "DO_NOT_DELETE.txt"
 
@@ -119,3 +125,31 @@ def list_data_objects(
             if ignore(key, size, prefix):
                 continue
             yield (key[len(prefix):] if relative else key), size
+
+
+def object_size(bucket: str, key: str, *, missing_reason: str) -> int:
+    """Reads one selected file's size, or fails the request naming it.
+
+    A file item costs its own serial ``HeadObject`` where a folder item costs one listing page
+    per thousand objects, which is why a plane's per-item timeout is sized against the number of
+    ITEMS rather than the number of objects.
+
+    Args:
+      bucket: The source bucket.
+      key: The selected file's key.
+      missing_reason: The caller's registered terminal reason for a source object that cannot be
+        read. Required rather than defaulted so the wording stays the domain layer's, as it is
+        for every other reason code this layer takes.
+
+    Returns:
+      The object's size in bytes.
+
+    Raises:
+      TransientError: On a retryable S3 fault, so the caller's Retry re-runs the verb.
+      TerminalError: ``missing_reason``, naming the key, when the object is absent or unreadable.
+    """
+    try:
+        return int(clients.s3().head_object(Bucket=bucket, Key=key)["ContentLength"])
+    except Exception as err:
+        errors.raise_if_transient(err, f"head {bucket}/{key}")
+        raise TerminalError(missing_reason, f"{key!r}: {err}") from err

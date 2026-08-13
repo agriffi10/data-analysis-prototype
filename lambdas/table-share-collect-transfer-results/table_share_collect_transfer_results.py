@@ -65,13 +65,7 @@ def _failed_item_counts(event) -> Counter:
     if not expected:
         return Counter()
 
-    details = (event.get("mapRun") or {}).get("ResultWriterDetails") or {}
-    bucket, key = details.get("Bucket"), details.get("Key")
-    if not bucket or not key:
-        raise TerminalError(
-            RESULTS_UNREADABLE,
-            "the transfer ran but its results export was not reported by the Map state",
-        )
+    bucket, key = results_mod.results_location(event, unreadable_reason=RESULTS_UNREADABLE)
 
     outcome = results_mod.read_failed_items(
         bucket,
