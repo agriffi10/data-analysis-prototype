@@ -59,10 +59,24 @@ export type GroupingPanelProps = {
  */
 export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClose}: GroupingPanelProps) {
   useEscapeKey(onClose, true);
-  const [draft, setDraft] = useState<Grouping>(query.grouping ?? emptyGrouping());
+  const applied = query.grouping;
+  const [draft, setDraft] = useState<Grouping>(applied ?? emptyGrouping());
   const [pendingFn, setPendingFn] = useState<AggregateFunction>('COUNT');
   const [pendingColumn, setPendingColumn] = useState<string>(ALL_ROWS);
   const [error, setError] = useState<string | null>(null);
+
+  // Re-seeded during render when the APPLIED grouping changes underneath the panel, the
+  // same way `ExpressionBar` re-seeds its text: a history step, Clear all or a second tab
+  // rewrites the grouping without going through this draft, and a panel still showing the
+  // grouping the user has just stepped away from would re-apply it on the next Apply.
+  // Compared on the applied value's identity — an apply from THIS panel replaces the object
+  // too, and re-seeding from it is a no-op because the two agree.
+  const [previousApplied, setPreviousApplied] = useState(applied);
+  if (previousApplied !== applied) {
+    setPreviousApplied(applied);
+    setDraft(applied ?? emptyGrouping());
+    setError(null);
+  }
 
   const names = columns.map((column) => column.name);
   const ungrouped = names.filter((name) => !draft.columns.includes(name));

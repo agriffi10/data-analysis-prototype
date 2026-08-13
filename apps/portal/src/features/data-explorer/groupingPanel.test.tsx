@@ -8,6 +8,7 @@ import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {CLEAR_ALL_LABEL, CLEAR_ALL_WITH_GROUPING_LABEL} from './useExplorationQuery';
 import {NO_GENERATED_SQL} from './GeneratedSqlDisclosure';
+import {GROUPING_NO_COLUMNS} from './GroupingPanel';
 import {newExploration} from './exploration';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
@@ -388,6 +389,24 @@ describe('the generated SQL, and what grouping composes with', () => {
     // (FR-006 AC4).
     await waitFor(() => expect(screen.getByRole('columnheader', {name: 'qty'})).toBeInTheDocument());
     expect(runQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-seeds the open panel when the applied grouping changes underneath it', async () => {
+    const {user} = render();
+    await screen.findAllByRole('gridcell');
+    const panel = await openGrouping(user);
+    await addColumn(user, panel, 'status');
+    await user.click(within(panel).getByRole('button', {name: 'Apply grouping'}));
+    await waitFor(() => expect(screen.getByRole('columnheader', {name: 'count_all'})).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
+
+    // History, Clear all and a tab switch all rewrite the grouping without going through
+    // this draft (`ExpressionBar` re-seeds its text for the same reason). Left standing,
+    // the panel would still show the grouping the user just stepped away from — and the
+    // next Apply would silently put it back.
+    await waitFor(() => expect(within(panel).getByText(GROUPING_NO_COLUMNS)).toBeInTheDocument());
+    expect(within(panel).queryByRole('button', {name: 'Remove status from grouping'})).not.toBeInTheDocument();
   });
 
   it('leaves the open panel axe-clean', async () => {
