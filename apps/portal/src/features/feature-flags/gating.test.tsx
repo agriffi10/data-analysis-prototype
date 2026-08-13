@@ -56,7 +56,7 @@ import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service'
 import {UploadQueueProvider} from '../file-browser';
 import FilesPage from '../../routes/FilesPage';
 
-const ALL_ON: FeatureFlags = {files: true, query: true, sharedWorkspaces: true, dataQuality: true};
+const ALL_ON: FeatureFlags = {files: true, query: true, sharedWorkspaces: true, dataQuality: true, dataExplorer: true};
 const opts = {auth: authenticated('alice'), seedFeatureFlags: false} as const;
 
 function withFlags(overrides: Partial<FeatureFlags>) {
@@ -117,8 +117,8 @@ afterEach(() => {
 });
 
 describe('FR-003 — the reduced navigation', () => {
-  it('renders a single tab correctly with three of four features off', async () => {
-    withFlags({query: false, sharedWorkspaces: false, dataQuality: false});
+  it('renders a single tab correctly with four of five features off', async () => {
+    withFlags({query: false, sharedWorkspaces: false, dataQuality: false, dataExplorer: false});
     renderWithProviders(<Header />, opts);
 
     const nav = await screen.findByRole('navigation', {name: 'Primary'});
@@ -127,7 +127,7 @@ describe('FR-003 — the reduced navigation', () => {
   });
 
   it('leaves the reduced nav axe-clean', async () => {
-    withFlags({query: false, sharedWorkspaces: false, dataQuality: false});
+    withFlags({query: false, sharedWorkspaces: false, dataQuality: false, dataExplorer: false});
     const {container} = renderWithProviders(<Header />, opts);
 
     await screen.findByRole('link', {name: 'Files'});
@@ -137,7 +137,7 @@ describe('FR-003 — the reduced navigation', () => {
   it('leaves no aria reference pointing at a tab it removed', async () => {
     // A dangling `aria-controls`/`aria-labelledby` is invisible on screen and breaks the
     // accessibility tree outright, so it cannot be caught by looking at the rendered page.
-    withFlags({query: false, sharedWorkspaces: false, dataQuality: false});
+    withFlags({query: false, sharedWorkspaces: false, dataQuality: false, dataExplorer: false});
     const {container} = renderWithProviders(<Header />, opts);
     await screen.findByRole('link', {name: 'Files'});
 
@@ -178,7 +178,7 @@ describe('FR-004 — the unavailable route', () => {
   });
 
   it('names nothing and offers nothing when every feature is off', async () => {
-    withFlags({files: false, query: false, sharedWorkspaces: false, dataQuality: false});
+    withFlags({files: false, query: false, sharedWorkspaces: false, dataQuality: false, dataExplorer: false});
     renderWithProviders(
       <FeatureRoute flag="query">
         <div>QUERY PAGE</div>
@@ -255,7 +255,7 @@ describe('FR-004 — the unavailable route', () => {
 
 describe('FR-006 — Help with features off', () => {
   it('renders with every feature off, listing only the ungated sections', async () => {
-    withFlags({files: false, query: false, sharedWorkspaces: false, dataQuality: false});
+    withFlags({files: false, query: false, sharedWorkspaces: false, dataQuality: false, dataExplorer: false});
     renderWithProviders(<HelpPage />, opts);
 
     const rail = await screen.findByRole('complementary', {name: 'Guides navigation'});
@@ -296,7 +296,7 @@ describe('FR-007 — the landing page', () => {
   });
 
   it('renders the unavailable state when a signed-in visitor has no feature at all', async () => {
-    withFlags({files: false, query: false, sharedWorkspaces: false, dataQuality: false});
+    withFlags({files: false, query: false, sharedWorkspaces: false, dataQuality: false, dataExplorer: false});
     renderWithProviders(<LandingPage />, opts);
 
     expect(await screen.findByRole('heading', {name: 'Nothing to show'})).toBeInTheDocument();
@@ -317,7 +317,7 @@ describe('FR-005/FR-007 — fallback is indistinguishable from all-on', () => {
     renderWithProviders(<Header />, opts);
 
     const nav = await screen.findByRole('navigation', {name: 'Primary'});
-    await waitFor(() => expect(within(nav).getAllByRole('link')).toHaveLength(4));
+    await waitFor(() => expect(within(nav).getAllByRole('link')).toHaveLength(5));
   });
 });
 

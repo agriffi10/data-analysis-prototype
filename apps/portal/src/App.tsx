@@ -20,6 +20,9 @@ const QueryPage = lazy(() => import('./routes/QueryPage'));
 // The Connections route pulls in the SQS client — lazy-load it too; most
 // sessions never open it.
 const ConnectionsPage = lazy(() => import('./routes/ConnectionsPage'));
+// The Data Explorer route pulls the Athena + Glue clients (SPEC-179) — same reasoning as
+// /query, minus Monaco.
+const ExplorePage = lazy(() => import('./routes/ExplorePage'));
 
 /**
  * Route definitions. RootLayout wraps every page with the shared Header;
@@ -61,6 +64,18 @@ export default function App() {
                 <ErrorBoundary>
                   <Suspense fallback={<LoadingState />}>
                     <QueryPage />
+                  </Suspense>
+                </ErrorBoundary>
+              </FeatureRoute>
+            }
+          />
+          <Route
+            path="/explore"
+            element={
+              <FeatureRoute flag="dataExplorer">
+                <ErrorBoundary>
+                  <Suspense fallback={<LoadingState />}>
+                    <ExplorePage />
                   </Suspense>
                 </ErrorBoundary>
               </FeatureRoute>

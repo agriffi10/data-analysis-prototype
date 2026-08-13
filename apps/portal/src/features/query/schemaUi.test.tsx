@@ -1,6 +1,8 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, screen, waitFor, within} from '@testing-library/react';
-import {TestProviders, renderWithProviders} from '../../test/renderWithProviders';
+import {TestProviders, createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
+import {FEATURE_FLAG_DEFAULTS, featureFlagKeys} from '../feature-flags';
+import {envVar} from '../../lib/env';
 import {DatabaseNode} from './DatabaseNode';
 import {COMPONENT_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
 import {SchemaBrowser} from './SchemaBrowser';
@@ -41,6 +43,7 @@ describe('DatabaseNode', () => {
       onViewSourceFiles: vi.fn(),
       onViewDdl: vi.fn(),
       onViewData: vi.fn(),
+      onExploreData: vi.fn(),
       onRefreshTable: vi.fn(),
       onShareTable: vi.fn(),
       onDropTable: vi.fn(),
@@ -51,14 +54,18 @@ describe('DatabaseNode', () => {
 
   const personal: Connection = {id: 'personal', label: 'My workspace', database: 'alice', kind: 'personal'};
 
-  function renderNode(props: Partial<React.ComponentProps<typeof DatabaseNode>> = {}) {
+  function renderNode(
+    props: Partial<React.ComponentProps<typeof DatabaseNode>> = {},
+    options: Parameters<typeof renderWithProviders>[1] = {}
+  ) {
     return renderWithProviders(
       <DatabaseNode
         connection={personal}
         defaultExpanded
         actions={makeActions()}
         {...props}
-      />
+      />,
+      options
     );
   }
 
@@ -169,6 +176,8 @@ describe('DatabaseNode', () => {
         'View source files',
         'View DDL',
         'View data',
+        // SPEC-179: beside View data, and before the two server-side actions.
+        'Explore data',
         'Refresh table',
         'Share table',
         'Drop table'
@@ -176,6 +185,35 @@ describe('DatabaseNode', () => {
 
       await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Refresh table'}));
       expect(onRefreshTable).toHaveBeenCalledWith('alice', expect.objectContaining({name: 'sales_2026'}));
+    });
+
+    // SPEC-179 FR-007 AC3. The walking test proves the item DISAPPEARS with the flag off;
+    // what only a menu-shaped assertion can prove is that nothing else went with it — a
+    // conditional written one bracket wide takes Refresh table and Share table too.
+    it('drops only Explore data with the dataExplorer flag off', async () => {
+      const client = createTestQueryClient();
+      // Seeded through the same key factory the hook reads, with defaults first: the test
+      // client runs `gcTime: 0`, so an observer-less seed is evicted before the menu mounts.
+      client.setQueryDefaults(featureFlagKeys.all, {gcTime: Infinity, staleTime: Infinity});
+      client.setQueryData(featureFlagKeys.resolved(envVar('VITE_ENVIRONMENT')), {
+        ...FEATURE_FLAG_DEFAULTS,
+        dataExplorer: false
+      });
+
+      const {user} = renderNode({}, {queryClient: client, seedFeatureFlags: false});
+      await user.click(await screen.findByRole('button', {name: 'Options for sales_2026'}));
+
+      const items = within(screen.getByRole('menu'))
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent);
+      expect(items).toEqual([
+        'View source files',
+        'View DDL',
+        'View data',
+        'Refresh table',
+        'Share table',
+        'Drop table'
+      ]);
     });
 
     it('disables Refresh table for a table with no location (no request can be built)', async () => {
@@ -264,6 +302,7 @@ describe('SchemaBrowser', () => {
       onViewSourceFiles: vi.fn(),
       onViewDdl: vi.fn(),
       onViewData: vi.fn(),
+      onExploreData: vi.fn(),
       onRefreshTable: vi.fn(),
       onShareTable: vi.fn(),
       onDropTable: vi.fn(),

@@ -75,11 +75,12 @@ import {SendFilesDialog} from '../file-send';
 import {HelpPage} from '../help/HelpPage';
 import {HELP_SECTIONS} from '../help/helpContent';
 import {FeatureRoute} from '../../routes/FeatureRoute';
+import {DataExplorerWorkspace} from '../data-explorer';
 import {listFiles} from '../file-browser/fileBrowser.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {Connection} from '../connections/connection.types';
 
-const ALL_ON: FeatureFlags = {files: true, query: true, sharedWorkspaces: true, dataQuality: true};
+const ALL_ON: FeatureFlags = {files: true, query: true, sharedWorkspaces: true, dataQuality: true, dataExplorer: true};
 
 /** Point the mocked service at one flag set, as the real reader would resolve it. */
 function withFlags(overrides: Partial<FeatureFlags>) {
@@ -215,6 +216,7 @@ const RECIPES: Record<string, Recipe> = {
   Query: {render: renderHeader, anchor: navReady, find: byRole('link', 'Query')},
   Connections: {render: renderHeader, anchor: navReady, find: byRole('link', 'Connections')},
   'Data quality': {render: renderHeader, anchor: navReady, find: byRole('link', 'Data quality')},
+  'Data Explorer': {render: renderHeader, anchor: navReady, find: byRole('link', 'Data Explorer')},
 
   // ── routes ──
   '/files': routeRecipe('files'),
@@ -222,6 +224,7 @@ const RECIPES: Record<string, Recipe> = {
   '/connections': routeRecipe('sharedWorkspaces'),
   '/data-quality': routeRecipe('dataQuality'),
   '/data-quality/:space/:requestId': routeRecipe('dataQuality'),
+  '/explore': routeRecipe('dataExplorer'),
 
   // ── controls ──
   'Go to Dashboard': {
@@ -296,6 +299,46 @@ const RECIPES: Record<string, Recipe> = {
       await openTableMenu();
     },
     find: byRole('menuitem', 'Refresh table')
+  },
+  // The same menu item, under each of the two flags that must be able to remove it on its
+  // own. One recipe shape, deliberately: what differs between the rows is which flag the walk
+  // turns off, and that is the whole point of registering it twice.
+  'Explore data': {
+    render: async () => {
+      renderWithProviders(
+        <DatabaseNode
+          connection={PERSONAL}
+          defaultExpanded
+          actions={tableActionsStub()}
+        />,
+        {auth: authenticated('alice'), seedFeatureFlags: false}
+      );
+      await openTableMenu();
+    },
+    find: byRole('menuitem', 'Explore data')
+  },
+  'Explore data on the Query schema rail': {
+    render: async () => {
+      renderWithProviders(
+        <DatabaseNode
+          connection={PERSONAL}
+          defaultExpanded
+          actions={tableActionsStub()}
+        />,
+        {auth: authenticated('alice'), seedFeatureFlags: false}
+      );
+      await openTableMenu();
+    },
+    find: byRole('menuitem', 'Explore data')
+  },
+  'Shared spaces in the Data Explorer source picker': {
+    render: () => {
+      renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
+    },
+    // The PERSONAL space — always offered, so it settles the picker without depending on the
+    // row under test.
+    anchor: async () => screen.findByRole('button', {name: /^My files/}),
+    find: async () => screen.queryByRole('button', {name: /^teamspace/})
   },
   'Share table': {
     render: async () => {
@@ -539,6 +582,7 @@ function tableActionsStub() {
     canViewSourceFiles: () => true,
     onViewDdl: vi.fn(),
     onViewData: vi.fn(),
+    onExploreData: vi.fn(),
     onRefreshTable: vi.fn(),
     onShareTable: vi.fn(),
     onDropTable: vi.fn()
@@ -653,6 +697,9 @@ describe('the registry itself', () => {
         'Create table',
         'Refresh table',
         'Share table',
+        // SPEC-179: the mirror image of "Create table" — a Data Explorer capability on a
+        // Query surface, registered under both flags.
+        'Explore data on the Query schema rail',
         // SPEC-173: added to the contract, like the two shared-workspace rows below —
         // a saved query is a FILE now, so the folder holding them is a Query surface
         // living on the file browser's screen.
@@ -677,7 +724,10 @@ describe('the registry itself', () => {
         'Shared spaces as a move destination',
         'Shared connections help section',
         'Received files link to a space on a notification',
-        'Shared spaces recipient kind in the send dialog'
+        'Shared spaces recipient kind in the send dialog',
+        // SPEC-179: the Data Explorer's own reader of `useQuerySpaces`, on SPEC-174's
+        // reasoning — the rows above render other surfaces entirely.
+        'Shared spaces in the Data Explorer source picker'
       ],
       dataQuality: [
         'Data quality',
@@ -687,7 +737,9 @@ describe('the registry itself', () => {
         'Data quality link on a notification',
         'Check data quality guide',
         'Past data quality checks guide'
-      ]
+      ],
+      // SPEC-179. No guide row: SPEC-185 writes the Help content and registers it there.
+      dataExplorer: ['Data Explorer', '/explore', 'Explore data']
     };
     for (const key of FEATURE_FLAG_KEYS) {
       expect(GATED_SURFACES[key].map((s) => s.name).sort(), key).toEqual([...contract[key]].sort());

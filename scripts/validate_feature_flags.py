@@ -18,7 +18,7 @@ single declaration; this reads it.
 
 Attributes:
   SUPPORTED_VERSIONS: The document versions this validator (and the browser reader) understand.
-  FLAG_KEYS: The four primary features. A key outside this set is a typo, never a new flag —
+  FLAG_KEYS: The five primary features. A key outside this set is a typo, never a new flag —
     adding one is a code change here, in the browser's key list, and in the document.
   DOCUMENT: The one file a flag value may be edited in.
   PUBLISH_WORKFLOW: The workflow whose matrix declares where the document is published.
@@ -38,7 +38,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 SUPPORTED_VERSIONS = frozenset({1})
-FLAG_KEYS = frozenset({"files", "query", "sharedWorkspaces", "dataQuality"})
+FLAG_KEYS = frozenset({"files", "query", "sharedWorkspaces", "dataQuality", "dataExplorer"})
 DOCUMENT = ROOT / "config" / "feature-flags.json"
 PUBLISH_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-config.yml"
 TARGET_RE = re.compile(r"^\s*-?\s*environment_name:\s*(\S+)\s*$", re.MULTILINE)
@@ -146,7 +146,7 @@ def _defaults_problems(defaults: object) -> list[str]:
       The problems found; empty when the block is complete and well-typed.
     """
     if not isinstance(defaults, dict):
-        return ["`defaults` must be an object naming all four flags"]
+        return ["`defaults` must be an object naming all five flags"]
 
     problems = [f"`defaults` is missing the {key!r} flag" for key in sorted(FLAG_KEYS - set(defaults))]
     problems.extend(_flag_problems(defaults, "defaults"))

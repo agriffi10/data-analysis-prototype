@@ -27,6 +27,22 @@ const TABS: Tab[] = [
     )
   },
   {
+    to: '/explore',
+    label: 'Data Explorer',
+    icon: (
+      <>
+        <rect
+          x="3"
+          y="4"
+          width="18"
+          height="16"
+          rx="2"
+        />
+        <path d="M3 9h18M9 9v11" />
+      </>
+    )
+  },
+  {
     to: '/connections',
     label: 'Connections',
     icon: (
@@ -67,7 +83,7 @@ export type PrimaryNavProps = {
 };
 
 /**
- * Primary tab navigation (Files | Query | Connections | Data quality) in the authenticated
+ * Primary tab navigation (Files | Query | Data Explorer | Connections | Data quality) in the authenticated
  * topbar. Underline tabs — deliberately distinct from the sidebar's filled
  * item so the two nav levels read differently. Route-driven via NavLink, so
  * deep links and back/forward set the active tab. The Header gates rendering

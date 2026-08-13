@@ -306,6 +306,9 @@ describe('PrimaryNav', () => {
       expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual([
         'Files',
         'Query',
+        // SPEC-179: beside Query, whose workspace it shares a catalog with — not appended
+        // last, which would put it after the two administrative destinations.
+        'Data Explorer',
         'Connections',
         'Data quality'
       ]);

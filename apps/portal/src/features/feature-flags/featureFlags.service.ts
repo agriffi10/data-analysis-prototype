@@ -90,7 +90,7 @@ function resolve(parsed: unknown, environment: string | undefined): ServiceResul
 
   const overrides = pickEnvironment(document.environments, environment);
   const flags = {} as FeatureFlags;
-  // Walks the KEY LIST, not the document — which is what guarantees all four keys are
+  // Walks the KEY LIST, not the document — which is what guarantees all five keys are
   // present and boolean whatever the document happened to name.
   for (const key of FEATURE_FLAG_KEYS) {
     flags[key] = firstBoolean(overrides[key], (document.defaults as Record<string, unknown>)[key], key);

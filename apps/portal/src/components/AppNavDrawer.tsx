@@ -66,6 +66,22 @@ const DESTS: NavDest[] = [
     )
   },
   {
+    to: '/explore',
+    label: 'Data Explorer',
+    icon: (
+      <GlyphSvg>
+        <rect
+          x="3"
+          y="4"
+          width="18"
+          height="16"
+          rx="2"
+        />
+        <path d="M3 9h18M9 9v11" />
+      </GlyphSvg>
+    )
+  },
+  {
     to: '/connections',
     label: 'Connections',
     icon: (
@@ -99,8 +115,8 @@ const DESTS: NavDest[] = [
 ];
 
 /**
- * Mobile off-canvas navigation: a 300px left sheet over a scrim listing the five
- * primary destinations (Files / Query / Connections / Notifications / Help) with
+ * Mobile off-canvas navigation: a 300px left sheet over a scrim listing the primary
+ * destinations (Files / Query / Data Explorer / Connections / Data quality / Notifications / Help) with
  * active state, then a divider and a page-supplied contextual rail. Reuses the
  * `Drawer` mechanics (focus trap + Escape/scrim dismiss) plus a background
  * scroll lock; activating a link navigates and closes. Header mounts this only

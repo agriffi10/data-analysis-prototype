@@ -1,7 +1,7 @@
 # Spec: Data Explorer — the Feature Flag, the `/explore` Route and the Shell
 
 **ID:** SPEC-179
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-13
 **Depends On:** SPEC-176, SPEC-178
 

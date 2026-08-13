@@ -6,9 +6,10 @@ Public surface only — the code is the source of truth; verify signatures befor
 Public barrel: `features/data-explorer/index.ts`. Look at a table without writing SQL: a user's
 grid gestures are a **description of a query**, and the app renders that description and runs it.
 
-**As of SPEC-178 this feature has no visible surface at all** — no route, no page, no grid. The
-engine ships first because it settles the exploration model and the app's only SQL-value
-interpolation point; SPEC-179 mounts the first component.
+**SPEC-179 mounted the first surfaces**: the `/explore` route, the source picker, the tab strip
+and a **placeholder results table SPEC-180 replaces with the real grid**. The engine shipped first
+(SPEC-178) because it settles the exploration model and the app's only SQL-value interpolation
+point.
 
 > Composes `features/catalog/` (the Glue reader, the Athena execution/results layer) and
 > `features/saved-queries/` (the `.sql` store, from SPEC-183). It may **not** import
@@ -48,6 +49,18 @@ builder in the feature.
 | `readExplorationTabsState` / `writeExplorationTabsState` / `initialExplorationTabsState` **(internal — not on the barrel)** | `explorationTabs.ts` | The degrade-safe persistence behind it; a corrupt, old or foreign document is discarded **whole**, never partially applied — a half-restored exploration renders SQL from a description the user never built. Validation goes past shape to the fields the renderer BRANCHES on (filter operators, `valueKind`, sort direction, aggregate functions, and that every ledger value is a finite number), because "restorable" is not "renderable": an unknown operator renders `"a" undefined 'x'` and reaches StartQueryExecution. |
 | `tabBytesScanned(tab)` | `explorationTabs.ts` | A tab's cumulative bytes, summed from a ledger keyed by **execution id**. That keying is what makes "a cache hit adds nothing" true by construction: a running total would have to *detect* a hit, and a detector can be wrong in the direction that overcharges. |
 
+### Surfaces (SPEC-179)
+
+| Symbol | File | Purpose |
+|---|---|---|
+| `DataExplorerWorkspace` | `DataExplorerWorkspace.tsx` | The page: picker, tab strip, one exploration's rows, the cap dialog, and the `sharedWorkspaces` filter applied **at the view**. Renders `LoadingState` while a `?space=` link resolves and the refusal ALONE when it is denied — the picker reads a database on mount, so an optimistic render would ask Glue about the wrong space (SPEC-113). |
+| `SourcePicker` | `SourcePicker.tsx` | Space on the left, that space's tables **and views** on the right. **No database step**: a space maps to exactly one database, so the control would have one option. Explains itself when there is no usable space. |
+| `ExplorationTabStrip` | `ExplorationTabStrip.tsx` | Tabs, `+` and close, with the WAI-ARIA roving-tabindex model. Mirrors the Query strip's shape rather than sharing it (sibling features), and never hides the close control — zero tabs is legal here. |
+| `ExplorationResultsTable` | `ExplorationResultsTable.tsx` | **A PLACEHOLDER SPEC-180 replaces.** Columns, rows and the shared `Pager` over `useQueryResults`; errors through `ErrorBanner`. No resize, reorder, pin, hide or selection — none of that is missing, it has not been built. |
+| `ExplorationLimitDialog` | `ExplorationLimitDialog.tsx` | The `openTab` → `null` refusal, said out loud. Dismiss-only; the `+` stays enabled so the reason is reachable. |
+| `useExploreDeepLink(spaces, username, sharedEnabled)` | `useExploreDeepLink.ts` | `?space=&db=&table=` → a resolution plus `clear()`. Waits for the connections list **only when a `?space=` is present**, and drops the parameters (replacing the history entry) once acted on, so a reload restores the session's tabs instead of stacking a duplicate. |
+| `resolveExploreParams(params, spaces, username, sharedEnabled)` / `spaceDatabase(space, username)` | `exploreSources.ts` | The precedence rules, pure: the actor's own username always resolves **personal** (SPEC-113), `?space=` is **not read at all** with `sharedWorkspaces` off, an unreachable NAMED space is `denied` while anything malformed is `none` (the picker). `spaceDatabase` is the one definition of the space↔database mapping. |
+
 ### Types & constants
 
 | Symbol | File | Purpose |
@@ -55,4 +68,4 @@ builder in the feature.
 | `Exploration`, `ExplorationSource`, `ExplorationQuery`, `ExplorationPresentation` | `dataExplorer.types.ts` | Source + query description + presentation, as **three separate fields** — never a flattened bag, so the renderer's parameter list can exclude one. `ExplorationSource` is a union (`table` \| `sql`) from the outset; only `table` is reachable until SPEC-183, because retrofitting it later would touch every spec in between. |
 | `ColumnFilter`, `FilterOperator`, `FilterValueKind`, `SortEntry`, `Grouping`, `GroupingAggregate`, `AggregateFunction` | `dataExplorer.types.ts` | The query dimensions. `valueKind` (`'string'` default \| `'number'`) exists because **Trino does not coerce** — `WHERE "qty" > '5'` against a bigint is a query-time error. SPEC-181 picks it from the column's Glue/Athena type. |
 | `ExplorationTab`, `ExplorationTabsState`, `ExecutionCost` | `dataExplorer.types.ts` | A tab and its cost ledger; what one execution scanned. |
-| `EXPLORATION_TABS_MAX`, `SQL_SOURCE_ALIAS`, `EXPLORATION_TABS_STORAGE_PREFIX` *(internal)* | `dataExplorer.constants.ts` | Ten tabs (mirrors `QUERY_TABS_MAX`); the per-user storage prefix; the `sql` arm's subquery alias. |
+| `EXPLORATION_TABS_MAX`, `EXPLORATION_PAGE_SIZE`, `SQL_SOURCE_ALIAS`, `EXPLORATION_TABS_STORAGE_PREFIX` *(internal)* | `dataExplorer.constants.ts` | Ten tabs (mirrors `QUERY_TABS_MAX`); 100 rows a page — FIXED, unlike the Query workspace's user-controlled size, because paging an execution scans no additional bytes and there is nothing to trade off; the per-user storage prefix; the `sql` arm's subquery alias. |

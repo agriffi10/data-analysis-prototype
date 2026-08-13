@@ -1277,7 +1277,7 @@ destroy it" are different guarantees, and only one of them survives a stale cach
 > drift apart. Choosing a different space **copies**; nothing in this arc ever moves or deletes a
 > colleague's file.
 
-## Data Explorer arc (SPEC-176 → 185 — filed 2026-08-13; 176 → 178 COMPLETE)
+## Data Explorer arc (SPEC-176 → 185 — filed 2026-08-13; 176 → 179 COMPLETE)
 
 The portal can already run SQL. What it cannot do is let someone **look at a table** without writing
 any — pick a database and a table, see its rows, page through them. That is the Data Explorer, and
@@ -1304,7 +1304,15 @@ SPEC-183 reuses SPEC-175's collision-and-confirm path instead of reimplementing 
 store. **179 onward** build the surface itself — the picker and the grid — as their own components
 rather than by widening the Query workspace's.
 
-**The arc is ordered by risk, descending, and its first four specs ship nothing a user can see.**
+> **179 landed 2026-08-13, and it is the arc's first visible surface.** Two corrections worth
+> carrying. FR-005's *space → database → table* picker has **no database step**: a space maps to
+> exactly one Glue database here, so the control would have had one option — the picker shows the
+> database and `?db=` became a cross-check. And the fifth flag key's "five places" are not the ones
+> the spec listed: the publish workflow's matrix is per *environment* and needed no edit, while
+> `scripts/validate_feature_flags.py` refuses an unknown key and would have failed the publish.
+> Its results table is a **placeholder SPEC-180 replaces wholesale**.
+
+**The arc is ordered by risk, descending, and its first three specs ship nothing a user can see.**
 That is the rule the whole decomposition follows: layer extractions, shared-model design and the
 injection surface go at the front; polish, formatting and help go at the back. The alternative
 ordering — shell first, so there is something to look at — buys a demo and pays for it by

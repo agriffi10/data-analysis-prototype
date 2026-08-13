@@ -50,6 +50,7 @@ function TableRow({
   // items live inside, so this can only matter if a later spec surfaces the table menu from
   // somewhere else — which is precisely the class of miss the registry exists to catch.
   const queryEnabled = useFeature('query');
+  const explorerEnabled = useFeature('dataExplorer');
   return (
     <div>
       <div className="group flex items-center gap-1 rounded-md pr-1 hover:bg-surface-2">
@@ -100,6 +101,19 @@ function TableRow({
                 label: 'View data',
                 onSelect: () => actions.onViewData(database, table)
               },
+              // SPEC-179: base tables AND views — a view is a perfectly good thing to
+              // explore. Gated by BOTH flags, which is what makes it the mirror image of
+              // "Create table": the capability is the Data Explorer's, the surface is the
+              // Query workspace's, and either flag being off must remove it.
+              ...(explorerEnabled && queryEnabled
+                ? [
+                    {
+                      key: 'explore-data',
+                      label: 'Explore data',
+                      onSelect: () => actions.onExploreData(database, table)
+                    }
+                  ]
+                : []),
               // SPEC-145: base tables only — a view has no folder to re-read. The
               // browser runs NO other eligibility check: SPEC-143's rules (a
               // reconstructable partition scheme, a location inside the space) are

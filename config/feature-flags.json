@@ -4,7 +4,8 @@
     "files": true,
     "query": true,
     "sharedWorkspaces": true,
-    "dataQuality": true
+    "dataQuality": true,
+    "dataExplorer": true
   },
   "environments": {
     "prod": {}

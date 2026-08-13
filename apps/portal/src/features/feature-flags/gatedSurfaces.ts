@@ -57,7 +57,7 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // unlike "Create table", which is a Query capability wearing a file-browser button.
     {name: 'Send selected items to someone', kind: 'control', path: '/files'},
     {name: 'Send files guide', kind: 'guide', path: '/help', helpId: 'send-files'},
-    // SPEC-172. Archive is a Files SUB-SURFACE, not one of the four primary features, so it
+    // SPEC-172. Archive is a Files SUB-SURFACE, not one of the five primary features, so it
     // inherits this flag rather than gaining one — and it needs THREE rows, because its two
     // entry points are in different places and the restore has no selection at all.
     //
@@ -87,6 +87,11 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // Belt to the route's braces: a later spec surfacing these elsewhere inherits the row.
     {name: 'Refresh table', kind: 'control', path: '/query'},
     {name: 'Share table', kind: 'control', path: '/query'},
+    // SPEC-179. The MIRROR IMAGE of "Create table": a Data Explorer capability living on a
+    // Query-workspace surface, so it is gated by both flags and registered under both. With
+    // `query` off the whole workspace is gone and the item is unreachable — this row asserts
+    // that rather than assuming it, on the same belt-and-braces reasoning as the two above.
+    {name: 'Explore data on the Query schema rail', kind: 'control', path: '/query'},
     {name: 'Create view', kind: 'control', path: '/query'},
     {name: 'Query help section', kind: 'guide', path: '/help', helpId: 'query'},
     // Building a table from a folder is a Query capability wearing a file-browser button, so
@@ -124,7 +129,12 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // SPEC-167. A SECOND instance of the recipient-kind choice, and it needs its own row: the
     // `Shared spaces` row above renders the share dialog, so nothing would notice if this one
     // stopped being gated. One surface per row is what makes the walking test mean anything.
-    {name: 'Shared spaces recipient kind in the send dialog', kind: 'control', path: '/files'}
+    {name: 'Shared spaces recipient kind in the send dialog', kind: 'control', path: '/files'},
+    // SPEC-179. The Data Explorer's source picker reads `useQuerySpaces` exactly as the
+    // saved-queries selector does, so it needs its own row for the same reason that one did:
+    // the rows above render other surfaces, and an ungated picker would go on naming a
+    // colleague's space after every other shared-workspace surface had gone.
+    {name: 'Shared spaces in the Data Explorer source picker', kind: 'control', path: '/explore'}
   ],
   dataQuality: [
     {name: 'Data quality', kind: 'nav', path: '/data-quality'},
@@ -138,6 +148,16 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // Inside the FILES section — which is why guides are gated individually, not by section.
     {name: 'Check data quality guide', kind: 'guide', path: '/help', helpId: 'check-data-quality'},
     {name: 'Past data quality checks guide', kind: 'guide', path: '/help', helpId: 'past-data-quality-checks'}
+  ],
+  // SPEC-179. No guide row yet: SPEC-185 writes the Help content, once there is a shipped
+  // end-to-end feature to document (SPEC-074 FR-005), and it gains its row there.
+  dataExplorer: [
+    {name: 'Data Explorer', kind: 'nav', path: '/explore'},
+    {name: '/explore', kind: 'route', path: '/explore'},
+    // The Query rail's menu item, under ITS OWN flag. The `query` list carries the same
+    // surface under the other one — one row per (surface, flag), because the two answer
+    // different questions and either gate can be deleted alone.
+    {name: 'Explore data', kind: 'control', path: '/query'}
   ]
 };
 
