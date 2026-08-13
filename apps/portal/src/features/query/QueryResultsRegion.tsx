@@ -4,11 +4,11 @@ import {ResultTabs} from './ResultTabs';
 import {ResultsPageSizeControl} from './ResultsPageSizeControl';
 import {QueryStatusBar} from './QueryStatusBar';
 import {QueryResultsTable} from './QueryResultsTable';
-import type {QueryStatus} from './query.types';
+import type {QueryStatus} from '../catalog/catalog.types';
 import type {TabRun} from './useTabRuns';
-import type {UseQueryResultsResult} from './useQueryResults';
+import type {UseQueryResultsResult} from '../catalog/useQueryResults';
 import type {UseResultsPageSizeResult} from './useResultsPageSize';
-import type {UseColumnWidthsResult} from './useColumnWidths';
+import type {UseColumnWidthsResult} from '../catalog/useColumnWidths';
 
 type Props = {
   /** The active tab's run, if it has one. */

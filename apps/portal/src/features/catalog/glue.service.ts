@@ -3,7 +3,7 @@ import {getGlueClient} from '../../lib/glueClient';
 import {withCredentialRetry} from '../../lib/credentialRetry';
 import {toServiceError} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
-import type {GlueTableSummary} from './query.types';
+import type {GlueTableSummary} from './catalog.types';
 
 /**
  * Confirms a database the user can access exists. A missing database is

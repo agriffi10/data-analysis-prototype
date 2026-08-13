@@ -1,4 +1,4 @@
-import type {GlueTableSummary} from './query.types';
+import type {GlueTableSummary} from '../catalog/catalog.types';
 
 export type PartitionedSchema = {
   /** Everything that is not a Glue `VIRTUAL_VIEW`. */

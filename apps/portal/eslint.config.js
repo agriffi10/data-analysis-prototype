@@ -99,5 +99,58 @@ export default defineConfig([
     rules: {
       'no-restricted-imports': 'off'
     }
+  },
+  {
+    // SPEC-176 FR-006 — the companion clause. The rule above governs the shared layers
+    // above `features/`; this one governs two SIBLINGS. The Query workspace and the Data
+    // Explorer both read the Glue catalog and run Athena queries, and the cheap way to
+    // build the second is to import the first — which is exactly the undeclared shared
+    // layer SPEC-155 spent a spec dismantling, one directory over. What they share is
+    // `features/catalog/`, which this rule deliberately does not restrict.
+    //
+    // `features/data-explorer/` does not exist yet. It is named anyway so the first file
+    // created there lands under a guard that is already working rather than one added
+    // afterwards.
+    //
+    // Tests are NOT exempt here, unlike the shared-layer rule above. That exemption
+    // exists because integration-style tests mount real features by design (react.md
+    // §21) — but a Query test reaching into the Data Explorer is the coupling itself,
+    // not a mount of the tree under test.
+    //
+    // The RELATIVE forms are the load-bearing ones and the `**/features/…` forms alone
+    // are inert: `no-restricted-imports` matches the literal import SOURCE, and one
+    // sibling feature reaches another as `../query/queryKeys`, which contains no
+    // `features/` segment at all. The rule above works only because `components/` and
+    // `lib/` sit above `features/` and must name it. Written with the `features/` globs
+    // alone this clause read correctly and caught nothing — which is why FR-006 requires
+    // it be verified by committing a violation in each direction, not by reading it.
+    files: ['src/features/query/**/*.{ts,tsx}', 'src/features/data-explorer/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '../query',
+                '../query/**',
+                '../../query',
+                '../../query/**',
+                '../data-explorer',
+                '../data-explorer/**',
+                '../../data-explorer',
+                '../../data-explorer/**',
+                '**/features/query',
+                '**/features/query/**',
+                '**/features/data-explorer',
+                '**/features/data-explorer/**'
+              ],
+              message:
+                'features/query/ and features/data-explorer/ are siblings and must not import from each other. Anything both need belongs in features/catalog/ (SPEC-176).'
+            }
+          ]
+        }
+      ]
+    }
   }
 ]);

@@ -1,6 +1,6 @@
 import {useCallback, useState} from 'react';
 import {readSavedQuerySpaceId, writeSavedQuerySpaceId} from './savedQuerySpace';
-import type {QuerySpace} from './query.types';
+import type {QuerySpace} from '../catalog/catalog.types';
 
 export type UseSavedQuerySpaceResult = {
   /** The resolved space — never null while at least one space exists. */

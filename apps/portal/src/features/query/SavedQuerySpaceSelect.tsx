@@ -1,6 +1,6 @@
 import {useId} from 'react';
 import {cx} from '../../lib/cx';
-import type {QuerySpace} from './query.types';
+import type {QuerySpace} from '../catalog/catalog.types';
 
 type Props = {
   spaces: QuerySpace[];

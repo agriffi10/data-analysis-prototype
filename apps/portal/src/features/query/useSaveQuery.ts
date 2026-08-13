@@ -8,7 +8,8 @@ import {
   writeSavedQuery
 } from './savedQueries.service';
 import type {ToastApi} from '../../components/toastContext';
-import type {QuerySpace, QueryTab, SavedQuery, SavedQueryLink} from './query.types';
+import type {QueryTab, SavedQuery, SavedQueryLink} from './query.types';
+import type {QuerySpace} from '../catalog/catalog.types';
 import type {SaveQueryRequest} from './SaveQueryDialog';
 
 /** The pending Replace confirm: the key that already exists, and where. */

@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, render} from '@testing-library/react';
-import type {GlueTableSummary} from './query.types';
+import type {GlueTableSummary} from '../catalog/catalog.types';
 
 // Exercise the editor's completion-provider wiring without the real Monaco
 // runtime (no worker, no DOM editor). The mocks below stand in for the three

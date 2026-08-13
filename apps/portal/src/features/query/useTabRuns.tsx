@@ -1,12 +1,13 @@
 import {useCallback, useRef, useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
-import {runQuery, stopQuery} from './query.service';
-import {invalidateSchema} from './useSchema';
+import {runQuery, stopQuery} from '../catalog/athena.service';
+import {invalidateSchema} from '../catalog/useSchema';
 import {TabExecutionPoller} from './TabExecutionPoller';
 import {isResultProducingSql, schemaChangingDatabase, statementHint} from './query.sql';
 import {logBackgroundFailure, toUserText} from '../../lib/errorMessages';
 import type {UseQueryHistoryResult} from './useQueryHistory';
-import type {ParsedStatement, QueryStatus, QueryTab, ResultTab, RunScope} from './query.types';
+import type {ParsedStatement, QueryTab, ResultTab, RunScope} from './query.types';
+import type {QueryStatus} from '../catalog/catalog.types';
 
 // SPEC-041: per-tab in-memory run state (not persisted — results re-fetch on a
 // fresh Run). SPEC-078 extends it to a sequential batch: the statements in

@@ -3,7 +3,7 @@
 // schema diff and the in-place rebuild are all server-side.
 
 import type {TableBuildSpace} from './tableBuild.types';
-import type {GlueTableSummary} from '../query/query.types';
+import type {GlueTableSummary} from '../catalog/catalog.types';
 
 export type TableRefreshRequest = {
   space: TableBuildSpace;

@@ -1,6 +1,6 @@
 import {Pager} from '../../components/Pager';
 import {ColumnResizeHandle} from './ColumnResizeHandle';
-import type {QueryColumn} from './query.types';
+import type {QueryColumn} from '../catalog/catalog.types';
 
 // The leading row-number (`#`) column is a fixed, non-resizable width (FR-001).
 const ROW_NUMBER_COLUMN_WIDTH = 56; // px (matches the old w-14)

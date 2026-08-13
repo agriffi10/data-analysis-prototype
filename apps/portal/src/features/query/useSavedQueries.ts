@@ -4,7 +4,8 @@ import {deleteSavedQuery, listSavedQueries} from './savedQueries.service';
 import {unwrap} from '../../lib/serviceResult';
 import {queryKeys} from './queryKeys';
 import {NO_KEY} from '../../lib/queryKeys';
-import type {QuerySpace, SavedQuery, SavedQueryPage} from './query.types';
+import type {SavedQuery, SavedQueryPage} from './query.types';
+import type {QuerySpace} from '../catalog/catalog.types';
 
 export type UseSavedQueriesResult = {
   queries: SavedQuery[];

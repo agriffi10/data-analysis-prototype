@@ -2,12 +2,14 @@ import {describe, expect, it, vi} from 'vitest';
 import {fireEvent, render, screen, within} from '@testing-library/react';
 import {COMPONENT_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
 import {QueryMobileView} from './QueryMobileView';
-import {COLUMN_RESIZE_STEP_PX, DEFAULT_COLUMN_WIDTH, QUERY_HISTORY_PAGE_SIZE} from './query.constants';
+import {QUERY_HISTORY_PAGE_SIZE} from './query.constants';
+import {COLUMN_RESIZE_STEP_PX, DEFAULT_COLUMN_WIDTH} from '../catalog/catalog.constants';
 import {QueryResultsMobile} from './QueryResultsMobile';
 import {QueryResultsTable} from './QueryResultsTable';
 import {QueryStatusBar} from './QueryStatusBar';
-import type {QueryHistoryEntry, QuerySpace, QueryStatus, SavedQuery} from './query.types';
-import type {UseQueryResultsResult} from './useQueryResults';
+import type {QueryHistoryEntry, SavedQuery} from './query.types';
+import type {QuerySpace, QueryStatus} from '../catalog/catalog.types';
+import type {UseQueryResultsResult} from '../catalog/useQueryResults';
 import userEvent from '@testing-library/user-event';
 
 // ─── from QueryMobileView.test.tsx ───

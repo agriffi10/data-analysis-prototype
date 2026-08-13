@@ -3,8 +3,8 @@ import {IconButton} from '../../components/IconButton';
 import {ChevronLeftIcon, PlayIcon} from '../../components/icons';
 import {Pager} from '../../components/Pager';
 import {QueryStatusBar} from './QueryStatusBar';
-import type {QueryStatus} from './query.types';
-import type {UseQueryResultsResult} from './useQueryResults';
+import type {QueryStatus} from '../catalog/catalog.types';
+import type {UseQueryResultsResult} from '../catalog/useQueryResults';
 
 type QueryResultsMobileProps = {
   /** Saved-query name (or a generic label for a history entry). */

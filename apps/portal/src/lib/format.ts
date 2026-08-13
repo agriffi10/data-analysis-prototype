@@ -1,6 +1,27 @@
-// Display formatters shared across features. Domain-specific ones (byte sizes with
-// feature-specific rules, CSV name normalisation, Athena type names) stay with their
-// feature — what lives here is what more than one feature renders the same way.
+// Display formatters shared across features. Domain-specific ones (CSV name
+// normalisation, Athena type names, and the file browser's own `formatSize`) stay with
+// their feature — what lives here is what more than one feature renders the same way.
+
+/**
+ * Human-readable byte size (e.g. 1234567 → "1.2 MB"). `undefined` → em dash.
+ *
+ * Kept separate from {@link formatSize} for that `undefined` handling (SPEC-155 FR-007),
+ * but sharing its TB ceiling, so one byte count never reads "3072.0 GB" on one screen
+ * and "3.0 TB" on another. Lives here rather than in a feature because the query status
+ * bar and the Data Explorer render the same scanned-bytes figure (SPEC-176 FR-004).
+ */
+export function formatBytes(bytes?: number): string {
+  if (bytes === undefined) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+}
 
 /** Integer with locale thousands separators (e.g. 1384 → "1,384"). */
 export function formatCount(n: number): string {

@@ -1,35 +1,7 @@
-// Shared types for the query-engine data layer.
+// Types for the query workspace. The execution, result-page, Glue and space types
+// it also uses live in `features/catalog/` (SPEC-176).
 
-export type QueryState = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
-
-export type QueryStatus = {
-  queryExecutionId: string;
-  state: QueryState;
-  stateChangeReason?: string;
-  dataScannedBytes?: number;
-  engineExecutionTimeMillis?: number;
-  /** s3://.../{username}/athenaresults/<id>.csv, present on SUCCEEDED. */
-  outputLocation?: string;
-};
-
-export type QueryColumn = {name: string; type: string};
-
-export type QueryResultPage = {
-  columns: QueryColumn[];
-  /** Each row aligned to columns; the Athena header row is stripped. */
-  rows: string[][];
-  nextToken?: string;
-};
-
-export type GlueColumn = {name: string; type: string};
-export type GlueTableSummary = {
-  name: string;
-  columns: GlueColumn[];
-  /** e.g. EXTERNAL_TABLE or VIRTUAL_VIEW. */
-  tableType?: string;
-  /** S3 location backing the table. */
-  location?: string;
-};
+import type {QueryState} from '../catalog/catalog.types';
 
 export type QueryHistoryEntry = {
   queryExecutionId: string;
@@ -108,23 +80,6 @@ export type QueryTabsState = {
   activeTabId: string;
   /** Monotonic per-session counter for blank "Query N" tabs only. */
   nextQueryNumber: number;
-};
-
-/**
- * A space a saved query (or a saved result) can live in: the user's own space, or a
- * shared space they are an active member of. Replaces SPEC-049's `DestinationSpace`,
- * so the query feature has ONE definition of what a space is.
- */
-export type QuerySpace = {
-  /** 'personal' for the user's own space; the shared-space name otherwise. */
-  id: string;
-  /** Display label: 'My files', or the space name. */
-  label: string;
-  bucket: string;
-  /** The space root, trailing slash: `alice/` or `project_alpha/`. */
-  rootPrefix: string;
-  /** Label for the root row in a folder picker. */
-  rootLabel: string;
 };
 
 /**

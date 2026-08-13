@@ -14,7 +14,8 @@ import {
   writeSavedQuery
 } from './savedQueries.service';
 import {LISTING_PAGE_SIZE, SAVED_QUERIES_MARKER_BODY} from '../file-browser';
-import type {QuerySpace, SavedQueryLink} from './query.types';
+import type {SavedQueryLink} from './query.types';
+import type {QuerySpace} from '../catalog/catalog.types';
 
 // The AWS boundary is the only seam (react.md §21): the service composes
 // `objectExists`/`deleteObject` from the file browser and `readJsonDocument` from `lib/`,

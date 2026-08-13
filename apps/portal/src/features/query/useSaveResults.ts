@@ -5,9 +5,9 @@ import {copyObject} from '../file-browser/fileBrowser.service';
 import {invalidateListing} from '../file-browser';
 import {parseS3Url} from '../../lib/s3Url';
 import {toUserText} from '../../lib/errorMessages';
-import {useQuerySpaces} from './useQuerySpaces';
+import {useQuerySpaces} from '../catalog/useQuerySpaces';
 import type {ToastApi} from '../../components/toastContext';
-import type {QuerySpace} from './query.types';
+import type {QuerySpace} from '../catalog/catalog.types';
 
 /**
  * A pending overwrite confirm when the chosen destination key already exists.

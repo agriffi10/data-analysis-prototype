@@ -7,11 +7,12 @@ import {toUserText} from '../../lib/errorMessages';
 import {QueryHistoryRow} from './QueryHistoryRow';
 import {QUERY_HISTORY_PAGE_SIZE} from './query.constants';
 import {formatRelativeTime} from '../../lib/format';
-import {formatBytes} from './query.format';
+import {formatBytes} from '../../lib/format';
 import {SavedQuerySpaceSelect} from './SavedQuerySpaceSelect';
 import {SavedQueryDeleteConfirm} from './SavedQueriesPanel';
 import {useSavedQueriesPager} from './useSavedQueriesPager';
-import type {MobileHomeTab, QueryHistoryEntry, QuerySpace, SavedQuery} from './query.types';
+import type {MobileHomeTab, QueryHistoryEntry, SavedQuery} from './query.types';
+import type {QuerySpace} from '../catalog/catalog.types';
 
 type QueryMobileViewProps = {
   /** Which list is showing; owned by the workspace so Back returns to it. */

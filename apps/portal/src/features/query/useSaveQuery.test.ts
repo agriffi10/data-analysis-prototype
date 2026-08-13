@@ -2,7 +2,8 @@ import {act, renderHook, waitFor} from '@testing-library/react';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {useSaveQuery} from './useSaveQuery';
 import {ensureSavedQueriesFolder, writeSavedQuery} from './savedQueries.service';
-import type {QuerySpace, QueryTab, SavedQuery} from './query.types';
+import type {QueryTab, SavedQuery} from './query.types';
+import type {QuerySpace} from '../catalog/catalog.types';
 
 vi.mock('./savedQueries.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./savedQueries.service')>()),
