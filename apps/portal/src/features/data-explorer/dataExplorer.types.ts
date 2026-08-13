@@ -83,17 +83,58 @@ export type ExplorationQuery = {
   grouping: Grouping | null;
 };
 
+/** How the current page's rows are drawn (SPEC-180). None of these render SQL. */
+export type GridPresentation = 'grid' | 'record' | 'text';
+
+/** One cell, addressed by its row's index within the CURRENT PAGE and its column's name. */
+export type CellRef = {row: number; column: string};
+
+/** An inclusive rectangle of cells; `from` is where the gesture started. */
+export type CellRange = {from: CellRef; to: CellRef};
+
+/**
+ * The grid's cursor and selection (SPEC-180 FR-002).
+ *
+ * Named `CellSelection` rather than the spec's `Selection`: that name is a DOM global
+ * (`window.getSelection()`), and a same-named export shadows it wherever both are in
+ * scope — in a file that also reads the real one to copy text, silently.
+ */
+export type CellSelection = {
+  /** The focused cell; always present when the grid has rows. */
+  cursor: CellRef;
+  /** Rectangles and discontiguous cells, in selection order. */
+  ranges: CellRange[];
+};
+
 /**
  * Everything that renders NOTHING. Extended by SPEC-180 and SPEC-184.
  *
  * Changing any field here must never mint an execution: these gestures cost nothing and
  * apply instantly, which is only true because the renderer cannot see this type.
+ *
+ * Column geometry is keyed by column NAME, not by position: it outlives the execution it
+ * was set on (a filter change is a new execution over the same columns), and a width that
+ * followed a POSITION would land on whatever column moved into it after a re-order or a
+ * grouping change (FR-006 AC3). That is also why it is not `features/catalog/`'s
+ * `useColumnWidths`, which is index-keyed, per-execution and in-memory.
  */
 export type ExplorationPresentation = {
   hiddenColumns: string[];
   columnOrder: string[];
   pinnedColumns: string[];
   columnWidths: Record<string, number>;
+  /**
+   * The chosen presentation, or **null for "the user has not chosen"**.
+   *
+   * Null is what makes FR-007's mobile default expressible: below `tablet` an unchosen
+   * tab opens in Record and above it in Grid, while a tab whose user HAS chosen keeps that
+   * choice at every width. A non-null default would have to be picked when the tab is
+   * created — by `useExplorationTabs`, which has no business reading the viewport.
+   */
+  presentation: GridPresentation | null;
+  valuePanelOpen: boolean;
+  /** The Record view's focused row index within the current page. */
+  recordRowIndex: number;
 };
 
 export type Exploration = {

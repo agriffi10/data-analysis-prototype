@@ -1,15 +1,16 @@
 import {useCallback} from 'react';
-import {COLUMN_RESIZE_STEP_PX} from '../catalog/catalog.constants';
+import {COLUMN_RESIZE_STEP_PX, MIN_COLUMN_WIDTH} from './catalog.constants';
 
-type ColumnResizeHandleProps = {
-  columnIndex: number;
+type ColumnResizeHandleProps<K extends string | number> = {
+  /** Whatever identifies the column to the caller — an index in one surface, a name in another. */
+  column: K;
   columnName: string;
   /** Current width of the column this handle resizes. */
   width: number;
   /** Sets the column width in px (caller clamps to the minimum). */
-  onResize: (index: number, px: number) => void;
+  onResize: (column: K, px: number) => void;
   /** Resets the column to the default width (double-click). */
-  onReset: (index: number) => void;
+  onReset: (column: K) => void;
 };
 
 /**
@@ -17,8 +18,20 @@ type ColumnResizeHandleProps = {
  * resizes live (clamping lives in the caller); double-click resets to the
  * default; Arrow Left/Right nudge by COLUMN_RESIZE_STEP_PX. role="separator" +
  * aria-orientation="vertical" + a column-naming aria-label keep it accessible.
+ *
+ * Lives in `features/catalog/` (SPEC-180) because two sibling features draw
+ * result grids and neither may import the other. The column identifier is
+ * generic for the same reason: the Query workspace keys widths by index (a
+ * SELECT may return duplicate names), the Data Explorer by name (its geometry
+ * persists across executions, so a position is not an identity).
  */
-export function ColumnResizeHandle({columnIndex, columnName, width, onResize, onReset}: ColumnResizeHandleProps) {
+export function ColumnResizeHandle<K extends string | number>({
+  column,
+  columnName,
+  width,
+  onResize,
+  onReset
+}: ColumnResizeHandleProps<K>) {
   // The drag's window listeners are self-contained in the closure below so the
   // move handler always sees the gesture origin (not a stale prop between
   // events) and the up handler can unbind both without a forward-reference.
@@ -29,7 +42,7 @@ export function ColumnResizeHandle({columnIndex, columnName, width, onResize, on
       const startWidth = width;
 
       const onMove = (move: PointerEvent) => {
-        onResize(columnIndex, startWidth + (move.clientX - startX));
+        onResize(column, startWidth + (move.clientX - startX));
       };
       const onUp = () => {
         window.removeEventListener('pointermove', onMove);
@@ -38,20 +51,20 @@ export function ColumnResizeHandle({columnIndex, columnName, width, onResize, on
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
     },
-    [columnIndex, width, onResize]
+    [column, width, onResize]
   );
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'ArrowRight') {
         e.preventDefault();
-        onResize(columnIndex, width + COLUMN_RESIZE_STEP_PX);
+        onResize(column, width + COLUMN_RESIZE_STEP_PX);
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        onResize(columnIndex, width - COLUMN_RESIZE_STEP_PX);
+        onResize(column, width - COLUMN_RESIZE_STEP_PX);
       }
     },
-    [columnIndex, width, onResize]
+    [column, width, onResize]
   );
 
   return (
@@ -60,8 +73,14 @@ export function ColumnResizeHandle({columnIndex, columnName, width, onResize, on
       tabIndex={0}
       aria-orientation="vertical"
       aria-label={`Resize column ${columnName}`}
+      // A FOCUSABLE separator is a widget, not a divider, so ARIA requires a value —
+      // caught by axe once a grid with these handles was driven into a live state
+      // (SPEC-180). The pixel width is the value the Arrow keys move.
+      aria-valuenow={Math.round(width)}
+      aria-valuemin={MIN_COLUMN_WIDTH}
+      aria-valuetext={`${Math.round(width)} pixels`}
       onPointerDown={onPointerDown}
-      onDoubleClick={() => onReset(columnIndex)}
+      onDoubleClick={() => onReset(column)}
       onKeyDown={onKeyDown}
       className="group/handle absolute right-0 top-0 z-10 flex h-full w-3 cursor-col-resize touch-none select-none items-stretch justify-end focus:outline-none">
       {/* A divider that's visible at rest (so users see the column edge is

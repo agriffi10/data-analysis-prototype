@@ -98,7 +98,15 @@ describe('useExploration — one execution per distinct rendered SQL (FR-006)', 
     const base = newExploration(TABLE);
     const dressed: Exploration = {
       ...base,
-      presentation: {hiddenColumns: ['qty'], columnOrder: ['status'], pinnedColumns: ['id'], columnWidths: {id: 240}}
+      presentation: {
+        hiddenColumns: ['qty'],
+        columnOrder: ['status'],
+        pinnedColumns: ['id'],
+        columnWidths: {id: 240},
+        presentation: 'record',
+        valuePanelOpen: true,
+        recordRowIndex: 3
+      }
     };
     const {result, rerender} = renderHookWithProviders(
       ({exploration}: {exploration: Exploration}) => useExploration(exploration),

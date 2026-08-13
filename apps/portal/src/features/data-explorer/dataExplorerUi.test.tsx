@@ -402,16 +402,19 @@ describe('accessibility', () => {
   });
 });
 
-// ─── FR-009: the placeholder results table ──────────────────────────────────
+// ─── FR-009: the results region ─────────────────────────────────────────────
 
-describe('the results table (a placeholder SPEC-180 replaces)', () => {
+// The grid itself is SPEC-180's (`gridGeometry.test.tsx` and friends); what stays here is
+// SPEC-179's own claim — that a succeeded execution renders, a zero-row one is an answer
+// rather than a fault, and a failed one is mapped before it reaches a user.
+describe('the results region', () => {
   it('renders the columns and rows of a succeeded execution', async () => {
     seedTabs([{id: 't1', table: 'orders'}]);
     render();
 
     expect(await screen.findByRole('columnheader', {name: 'id'})).toBeInTheDocument();
     expect(screen.getByRole('columnheader', {name: 'total'})).toBeInTheDocument();
-    expect(screen.getByRole('cell', {name: '9.99'})).toBeInTheDocument();
+    expect(screen.getByRole('gridcell', {name: '9.99'})).toBeInTheDocument();
     expect(screen.getByText(/Rows 1–2/)).toBeInTheDocument();
   });
 

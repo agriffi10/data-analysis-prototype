@@ -18,11 +18,31 @@ export {useExplorationTabs} from './useExplorationTabs';
 export type {UseExplorationTabsResult, OpenExplorationOpts} from './useExplorationTabs';
 export {tabBytesScanned} from './explorationTabs';
 export {explorerKeys} from './explorerKeys';
-export {EXPLORATION_PAGE_SIZE, EXPLORATION_TABS_MAX, SQL_SOURCE_ALIAS} from './dataExplorer.constants';
+export {
+  EXPLORATION_PAGE_SIZE,
+  EXPLORATION_TABS_MAX,
+  ROW_NUMBER_COLUMN_WIDTH,
+  SQL_SOURCE_ALIAS,
+  TEXT_VIEW_MAX_COLUMN_CHARS
+} from './dataExplorer.constants';
 export {DataExplorerWorkspace} from './DataExplorerWorkspace';
 export {SourcePicker} from './SourcePicker';
 export {ExplorationTabStrip} from './ExplorationTabStrip';
-export {ExplorationResultsTable} from './ExplorationResultsTable';
+export {ExplorationResultsRegion} from './ExplorationResultsRegion';
+export {ExplorationGrid} from './ExplorationGrid';
+export {ExplorationGridHeader} from './ExplorationGridHeader';
+export {ExplorationRecordView} from './ExplorationRecordView';
+export {ExplorationTextView} from './ExplorationTextView';
+export {PresentationSwitch} from './PresentationSwitch';
+export {ValuePanel} from './ValuePanel';
+export {ColumnsPanel} from './ColumnsPanel';
+export {CellValue} from './CellValue';
+export {cellText, EMPTY_DISPLAY, NULL_DISPLAY} from './cellText';
+export {useColumnGeometry, LAST_COLUMN_REFUSAL} from './useColumnGeometry';
+export type {GridColumn, UseColumnGeometryResult} from './useColumnGeometry';
+export {useCellSelection} from './useCellSelection';
+export type {UseCellSelectionResult} from './useCellSelection';
+export {useSourceColumns} from './useSourceColumns';
 export {useExploreDeepLink} from './useExploreDeepLink';
 export {resolveExploreParams, spaceDatabase} from './exploreSources';
 export type {ExploreParams, ExploreResolution, ExploreTarget} from './exploreSources';
@@ -31,6 +51,10 @@ export type {
   ExplorationSource,
   ExplorationQuery,
   ExplorationPresentation,
+  GridPresentation,
+  CellRef,
+  CellRange,
+  CellSelection,
   ExplorationTab,
   ExplorationTabsState,
   ColumnFilter,

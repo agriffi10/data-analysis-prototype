@@ -158,8 +158,11 @@ export async function getQueryResults(p: {
         name: c.Name ?? '',
         type: normalizeColumnType(c.Type ?? '')
       }));
-      let rows: string[][] = (response.ResultSet?.Rows ?? []).map((r) =>
-        (r.Data ?? []).map((d) => d.VarCharValue ?? '')
+      // An ABSENT `VarCharValue` is SQL NULL; an empty one is an empty string. Collapsing
+      // the two to `''` here destroyed the difference for every caller, and no consumer
+      // can reconstruct it — SPEC-180's Value panel has to show which one a cell holds.
+      let rows: (string | null)[][] = (response.ResultSet?.Rows ?? []).map((r) =>
+        (r.Data ?? []).map((d) => d.VarCharValue ?? null)
       );
 
       // Athena foot-gun: for `SELECT`, GetQueryResults repeats the column names as

@@ -1,5 +1,6 @@
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
-import type {ExplorationTab, ExplorationTabsState} from './dataExplorer.types';
+import {emptyExplorationPresentation} from './exploration';
+import type {ExplorationPresentation, ExplorationTab, ExplorationTabsState} from './dataExplorer.types';
 
 // Per-user, current-session persistence of the Data Explorer's tabs. All access goes
 // through this wrapper so a disabled or quota-exceeded sessionStorage degrades to "not
@@ -103,15 +104,53 @@ function isValidExploration(value: unknown): boolean {
   if (query.expression !== null && typeof query.expression !== 'string') return false;
   if (!isValidGrouping(query.grouping)) return false;
 
-  const presentation = exploration.presentation as Record<string, unknown> | undefined;
-  if (typeof presentation !== 'object' || presentation === null) return false;
-  return (
-    Array.isArray(presentation.hiddenColumns) &&
-    Array.isArray(presentation.columnOrder) &&
-    Array.isArray(presentation.pinnedColumns) &&
-    typeof presentation.columnWidths === 'object' &&
-    presentation.columnWidths !== null
-  );
+  // Presentation is only required to BE an object here; every field is normalised on the
+  // way out rather than gating the restore. It renders no SQL, so a bad value cannot
+  // produce a query the user never built — and discarding a whole session's explorations
+  // over a stale `valuePanelOpen` would cost far more than defaulting it.
+  return typeof exploration.presentation === 'object' && exploration.presentation !== null;
+}
+
+function stringArray(value: unknown): string[] | null {
+  return Array.isArray(value) && value.every((v) => typeof v === 'string') ? (value as string[]) : null;
+}
+
+function finiteWidths(value: unknown): Record<string, number> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const entries = Object.entries(value);
+  if (!entries.every(([, px]) => typeof px === 'number' && Number.isFinite(px))) return null;
+  return Object.fromEntries(entries) as Record<string, number>;
+}
+
+/**
+ * Reads a stored presentation, defaulting every field it cannot trust.
+ *
+ * A document written before SPEC-180 carries only the four geometry fields, and one
+ * written by a future version may carry fields this build has never heard of — both must
+ * restore rather than discard the tab, because presentation is cosmetic and the
+ * exploration beside it is not.
+ *
+ * @param value - The stored `presentation` object (already known to BE an object).
+ * @returns A complete presentation, with defaults wherever the document was silent or wrong.
+ */
+function normalizePresentation(value: unknown): ExplorationPresentation {
+  const stored = (value ?? {}) as Record<string, unknown>;
+  const empty = emptyExplorationPresentation();
+  const presentation = stored.presentation;
+  return {
+    hiddenColumns: stringArray(stored.hiddenColumns) ?? empty.hiddenColumns,
+    columnOrder: stringArray(stored.columnOrder) ?? empty.columnOrder,
+    pinnedColumns: stringArray(stored.pinnedColumns) ?? empty.pinnedColumns,
+    columnWidths: finiteWidths(stored.columnWidths) ?? empty.columnWidths,
+    presentation: presentation === 'grid' || presentation === 'record' || presentation === 'text' ? presentation : null,
+    valuePanelOpen: stored.valuePanelOpen === true,
+    // A non-integer or negative index would address a row that cannot exist; the views
+    // clamp to the loaded page anyway, so page one, row one is the honest default.
+    recordRowIndex:
+      typeof stored.recordRowIndex === 'number' && Number.isInteger(stored.recordRowIndex) && stored.recordRowIndex >= 0
+        ? stored.recordRowIndex
+        : empty.recordRowIndex
+  };
 }
 
 // Structural validation — a corrupt, old or foreign blob must never crash the page, and
@@ -151,7 +190,14 @@ export function readExplorationTabsState(username: string): ExplorationTabsState
     const raw = sessionStorage.getItem(key);
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
-    return isValidTabsState(parsed) ? parsed : null;
+    if (!isValidTabsState(parsed)) return null;
+    return {
+      ...parsed,
+      tabs: parsed.tabs.map((tab) => ({
+        ...tab,
+        exploration: {...tab.exploration, presentation: normalizePresentation(tab.exploration.presentation)}
+      }))
+    };
   } catch {
     return null;
   }
