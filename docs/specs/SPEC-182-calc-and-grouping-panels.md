@@ -1,7 +1,7 @@
 # Spec: The Calc and Grouping Panels
 
 **ID:** SPEC-182
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-13
 **Depends On:** SPEC-180, SPEC-181
 
