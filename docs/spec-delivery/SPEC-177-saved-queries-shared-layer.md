@@ -101,12 +101,34 @@ unchanged.
 changed, no wording in `lib/errorMessages.ts` changed, and no onboarding copy changed — there is no
 shipped behaviour to document, which is FR-005's point.
 
+## Review findings: both taken as notes, neither as a fix
+
+A fresh-context review confirmed every requirement independently — diffing each moved module against
+its `origin/main` self by content, re-running the consumer sweep, and re-verifying the lint rule by
+committing its own violations (including a **barrel-form import from a test file**, which this clause
+deliberately does not exempt). It found **no correctness defect** and two low findings, both
+deliberately left:
+
+- **The new barrel is unimported** — every consumer in `features/query/` reaches past
+  `features/saved-queries/index.ts` into individual modules, so an export could be dropped from it
+  without breaking anything. Real, but **arc-wide rather than this spec's**: measured, `features/catalog/`
+  and `features/query/` have **0** barrel importers each and `features/file-browser/` has **10**.
+  Repointing this feature's consumers would make it the only one of the three done that way, one spec
+  after SPEC-176 established the shape. FR-001 AC1 is met (the barrel exists and exports the moved
+  symbols); whether the arc's features should be *reached* through their barrels is a question for a
+  later pass across all three, not a divergence to introduce here.
+- **`SaveQueryDialog`'s JSDoc is still written in tab language** while `useSaveQuery`'s was
+  de-tabbed in the same commit. Left deliberately — see the first note below, which is the same
+  issue and should be swept in one pass when the string itself is decided.
+
 ## Notes for the next spec
 
 - **`SaveQueryDialog`'s copy still says "the file this tab was opened from"** (`SaveQueryDialog.tsx`,
   the FR-004 sentence). It is correct for its only current caller and FR-005 forbade touching it
   here. SPEC-183 mounts this dialog from a surface with no tabs and will have to decide whether that
-  sentence is still true — it is a wording decision, not a mechanical one.
+  sentence is still true — it is a wording decision, not a mechanical one. Sweep the component's
+  JSDoc (lines 20, 22, 33–39, 84) in the same pass, so the prop docs and the rendered sentence do
+  not disagree.
 - **`isLinkedSavedQuery` is now on the barrel**, which it was not on `features/query/`'s. It is the
   single predicate behind the dialog's promise, the host's `overwrite` and whether a Replace confirm
   is raised at all (SPEC-175 FR-004), so a second consumer must reach the same one.
