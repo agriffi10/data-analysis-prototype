@@ -739,6 +739,7 @@ jobs:
           - { name: archive-poll-restore, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
           - { name: archive-delete-archived, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
           - { name: archive-update-receipt, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
+          - { name: archive-notify, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
           - { name: archive-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
           # Data-quality verbs (SPEC-108). All nine attach cpcommon + dqcommon; only
           # inspect-source also attaches the data-quality polars layer (it must read

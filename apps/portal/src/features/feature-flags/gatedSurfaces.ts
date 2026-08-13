@@ -56,7 +56,22 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // SPEC-167. The entry point itself. In the FILE BROWSER, like "Check data quality" and
     // unlike "Create table", which is a Query capability wearing a file-browser button.
     {name: 'Send selected items to someone', kind: 'control', path: '/files'},
-    {name: 'Send files guide', kind: 'guide', path: '/help', helpId: 'send-files'}
+    {name: 'Send files guide', kind: 'guide', path: '/help', helpId: 'send-files'},
+    // SPEC-172. Archive is a Files SUB-SURFACE, not one of the four primary features, so it
+    // inherits this flag rather than gaining one — and it needs THREE rows, because its two
+    // entry points are in different places and the restore has no selection at all.
+    //
+    // Its notification link deliberately gets no row of its own: the `/files` link gate is a
+    // mechanism, already registered twice above, and a row per producer would grow one row per
+    // future plane for a clause nobody can change independently.
+    {name: 'Archive selected items', kind: 'control', path: '/files'},
+    // The DETAILS-PANEL entry point, and its own row for the reason SPEC-167 gave the send
+    // dialog's recipient kind one: the toolbar row renders the toolbar, so nothing would notice
+    // if this one stopped being gated. A single item that has not been selected is reachable
+    // only here — there is no context menu in this file browser.
+    {name: 'Archive this item', kind: 'control', path: '/files'},
+    {name: 'Restore Archived Data', kind: 'control', path: '/files'},
+    {name: 'Archive and restore guide', kind: 'guide', path: '/help', helpId: 'archive-files'}
   ],
   query: [
     {name: 'Query', kind: 'nav', path: '/query'},

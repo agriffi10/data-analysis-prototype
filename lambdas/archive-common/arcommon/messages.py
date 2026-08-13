@@ -62,7 +62,7 @@ Attributes:
 
 from cpcommon import messages as _cpmessages
 
-from . import config
+from . import config, receipt
 
 _BODIES = {
     "invalid_request": "that request was malformed and could not be run.",
@@ -210,6 +210,105 @@ restore_resolver = _cpmessages.register(
     fallback="something went wrong.",
     blank_unfilled=True,
 )
+
+
+def archived_message(request_id: str, object_count: int, total_bytes: int) -> str:
+    """Composes the text for a completed ARCHIVE.
+
+    **It names the archive id, and that is the whole reason this message cannot be generic.** The
+    archived objects live in a bucket the browser has no relationship with, so the id is the
+    user's only route back to them — the receipt carries it too, but the receipt is inside the
+    folder the id names, and a user who never opens it has nowhere else to read it.
+
+    The size renders through ``receipt.human_bytes``, so one archive reads the same in its receipt,
+    in this message and in the file browser (the shared TB ceiling, SPEC-155 FR-007).
+
+    Args:
+      request_id: The run's id, which IS the archive's permanent identity (SPEC-168 FR-004).
+      object_count: How many objects were archived.
+      total_bytes: Their total size.
+
+    Returns:
+      The sentence.
+
+    Raises:
+      None.
+    """
+    return (
+        f"Archived {_objects_phrase(object_count)} ({receipt.human_bytes(total_bytes)}). "
+        f"{'It has' if object_count == 1 else 'They have'} been removed from your space. "
+        f"Archive id: {request_id} - you'll need it to restore "
+        f"{'it' if object_count == 1 else 'them'}."
+    )
+
+
+def restore_started_message(object_count: int) -> str:
+    """Composes the text for a restore that has been REQUESTED and is now waiting.
+
+    **The only "started" notification in this application, and it exists because the user is about
+    to wait hours.** Every other plane finishes in seconds or minutes, so silence until the
+    outcome is honest there; here silence for three to five hours is indistinguishable from a
+    request that was dropped. It says the duration and that a second message will follow, so the
+    reasonable next action is to stop waiting.
+
+    Args:
+      object_count: How many objects are being retrieved.
+
+    Returns:
+      The sentence.
+
+    Raises:
+      None.
+    """
+    return (
+        f"Restoring {_objects_phrase(object_count)} from long-term storage. "
+        "This takes several hours - you'll get another notification when it finishes. "
+        "Nothing has changed in your space yet."
+    )
+
+
+def restored_message(object_count: int, total_bytes: int, *, archive_swept: bool = True) -> str:
+    """Composes the text for a completed RESTORE.
+
+    **The last sentence is CONDITIONAL, and that is not a nicety.** SPEC-171 made a failed vault
+    sweep a flag on a successful run rather than a failure of it — ``DeleteArchived``'s Catch
+    reaches the same success terminal through ``CleanupIncomplete``. Said unconditionally, "the
+    archive has been cleaned up" turns that flag into a positive claim about the one route where
+    it is false, and the flag reaches nothing else a user can see. The alternative wording says
+    only what is certainly true and does not invite the user to act, because there is nothing for
+    them to do: the residue is billed at the 90-day minimum and swept by the bucket's expiry.
+
+    Args:
+      object_count: How many objects were restored.
+      total_bytes: Their total size.
+      archive_swept: Whether the vault copy was actually removed.
+
+    Returns:
+      The sentence.
+
+    Raises:
+      None.
+    """
+    restored = (
+        f"Restored {_objects_phrase(object_count)} ({receipt.human_bytes(total_bytes)}) to your "
+        f"space, back where {'it came' if object_count == 1 else 'they came'} from."
+    )
+    return f"{restored} The archive has been cleaned up." if archive_swept else restored
+
+
+def _objects_phrase(count: int) -> str:
+    """Renders an object count as a phrase, singular or plural.
+
+    Args:
+      count: The number of objects.
+
+    Returns:
+      ``1 file`` or ``N files``.
+
+    Raises:
+      None.
+    """
+    return "1 file" if count == 1 else f"{count} files"
 
 
 def failure_message(reason: str, *, tokens: dict | None = None, mode: str | None = None) -> str:

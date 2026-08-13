@@ -28,9 +28,19 @@ import {SelectionProvider} from './SelectionProvider';
 import {CreateTableButton} from '../table-builder';
 import {useFeature} from '../feature-flags';
 import {SendFilesDialog, useFileSend} from '../file-send';
+import {
+  ArchiveDialog,
+  RestoreArchiveButton,
+  RestoreArchiveDialog,
+  archiveRefusal,
+  useArchive,
+  useRestoreArchive
+} from '../archive';
+import {writeLockRefusal} from './writeLockedPrefix';
 import {useToast} from '../../components/toastContext';
 import {useSelection, type SelectableItem} from './selectionContext';
 import type {FileSpaceTarget, FileSpaceKind} from './useFileSpace';
+import type {ArchiveItem} from '../../types/archive.types';
 import {toUserText} from '../../lib/errorMessages';
 import {useIsMobile} from '../../lib/useBreakpoint';
 
@@ -54,6 +64,15 @@ type Props = {
   // affordance when a listing is denied because the membership tag hasn't propagated
   // to this session's token yet (shared-spaces architecture §3).
 };
+
+/**
+ * One selected row as the archive plane's contract names it: a file's key, or a folder's prefix
+ * with its trailing slash intact. The plane expands a folder by LISTING that prefix, so the
+ * slash is not cosmetic — without it, `alice/archiv` would match `alice/archive/`.
+ */
+function toArchiveItem(item: SelectableItem): ArchiveItem {
+  return item.type === 'file' ? {kind: 'file', key: item.key} : {kind: 'folder', key: item.prefix};
+}
 
 // ─── Browser content (inside the SelectionProvider) ───────────────────────────
 
@@ -136,11 +155,14 @@ function FileBrowserContent({
   // The space NAME is the root prefix's own segment, in both kinds: `{username}/` for a
   // personal space and `{spaceName}/` for a shared one. Taken from there rather than from
   // `username` — which carries the same value but is named for the marker guard — because the
-  // control plane's question is "which space is this send FROM", and the prefix is that answer.
-  const send = useFileSend(
-    username ? {kind: spaceKind ?? 'personal', name: rootPrefix.replace(/\/$/, '')} : null,
-    (t) => toast.push(t)
-  );
+  // control plane's question is "which space is this FROM", and the prefix is that answer.
+  //
+  // SPEC-172's two flows take the same value: an archive reads from this space, and a restore
+  // writes back into it — the space the user is standing in, never one derived from an archive.
+  const space = username ? ({kind: spaceKind ?? 'personal', name: rootPrefix.replace(/\/$/, '')} as const) : null;
+  const send = useFileSend(space, (t) => toast.push(t));
+  const archive = useArchive(space, (t) => toast.push(t));
+  const restore = useRestoreArchive(space, (t) => toast.push(t));
   // `rootPrefix` is the space root, not the browsed folder: it is what tells the
   // delete/move services that a folder is the space's own `athenaresults/` rather
   // than a user folder that happens to share the name (SPEC-150 FR-007).
@@ -148,6 +170,15 @@ function FileBrowserContent({
   const move = useMove(bucket, currentPrefix, username, rootPrefix);
   const copy = useCopy(bucket, currentPrefix, username);
   const canModify = writable && !!username;
+  // SPEC-172 FR-004: the first prefix-based write gate. IAM denies writes beneath `archive/`, so
+  // every control that would attempt one says why instead of producing a bare AccessDenied.
+  const writeLockReason = writeLockRefusal(currentPrefix, rootPrefix, spaceKind ?? 'personal') ?? undefined;
+  // Archive is gated by the write lock because an archive DELETES from the current folder.
+  const archiveEnabled = !!username && filesEnabled && !writeLockReason;
+  // A RESTORE is not: it writes into the space root, never into the folder being browsed — and
+  // gating it on the write lock removed the button from `archive/`, which is the one place the
+  // dialog itself tells the user to go and look for an id (FR-003 AC1 says `writable`).
+  const restoreEnabled = !!username && filesEnabled;
 
   // Per-file download (SPEC-015 FR-003). Tracks the key being signed so its row
   // shows a busy state; surfaces a ServiceResult failure inline rather than
@@ -247,17 +278,22 @@ function FileBrowserContent({
                 prefix={currentPrefix}
               />
             )}
+            {/* SPEC-172 FR-003: a restore has no selection — it takes a pasted id — so it sits
+                with the primary actions rather than on the selection toolbar. */}
+            {restoreEnabled && <RestoreArchiveButton onClick={restore.openDialog} />}
             <Button
               variant="default"
               className="shrink-0"
               onClick={dialogs.toggleCreateFolder}
-              disabled={isBusy}>
+              disabled={isBusy}
+              disabledReason={writeLockReason}>
               New folder
             </Button>
             <Button
               variant="primary"
               className="shrink-0"
-              onClick={dialogs.openUpload}>
+              onClick={dialogs.openUpload}
+              disabledReason={writeLockReason}>
               Upload
             </Button>
           </div>
@@ -268,20 +304,42 @@ function FileBrowserContent({
           (SPEC-099 FR-005). Same handlers as the top-toolbar buttons. */}
       {writable && isMobile && (
         <MobileActionBar ariaLabel="File actions">
+          {/* Mount-gated into the bar rather than CSS-hidden (SPEC-099 FR-005), so exactly one
+              instance of each control exists in the DOM at any width. */}
+          {restoreEnabled && (
+            <RestoreArchiveButton
+              onClick={restore.openDialog}
+              fullWidth
+            />
+          )}
           <Button
             variant="default"
             className="!h-11 flex-1"
             onClick={dialogs.toggleCreateFolder}
-            disabled={isBusy}>
+            disabled={isBusy}
+            disabledReason={writeLockReason}>
             New folder
           </Button>
           <Button
             variant="primary"
             className="!h-11 flex-1"
-            onClick={dialogs.openUpload}>
+            onClick={dialogs.openUpload}
+            disabledReason={writeLockReason}>
             Upload
           </Button>
         </MobileActionBar>
+      )}
+
+      {/* SPEC-172 FR-004. The explanation, where a `title` cannot be one: a tooltip needs a
+          hover, so on touch — and at the 400px width this feature's own live check is run at —
+          the greyed controls above would say nothing at all. Rendered once for the folder rather
+          than per control, because it is a fact about where you are standing. */}
+      {writeLockReason && (
+        <div
+          role="note"
+          className="mb-4 rounded-lg border border-border bg-surface-2 p-3 text-sm text-text-2">
+          {writeLockReason}
+        </div>
       )}
 
       {/* Write controls — create folder (modal dialog, SPEC-016); file uploads go
@@ -395,6 +453,40 @@ function FileBrowserContent({
         />
       )}
 
+      {/* SPEC-172. Mounted here for the same reason the send dialog is: their state is this
+          component's — the selection being archived, and the space both modes resolve. */}
+      {archive.items && archive.items.length > 0 && (
+        <ArchiveDialog
+          items={archive.items}
+          rootPrefix={rootPrefix}
+          busy={archive.busy}
+          submitError={archive.error}
+          onConfirm={async () => {
+            // The selection clears and the listing is invalidated only on the way OUT of a
+            // SUCCESSFUL enqueue, and the answer comes from the call rather than from
+            // `archive.error`, which in this closure is the value from before the submit.
+            if (await archive.submit()) {
+              selection.clear();
+              // `refresh` IS `invalidateListing` for this prefix (FR-002). The archive has only
+              // been enqueued, so the listing will not have changed yet — invalidating anyway is
+              // the cheapest way to be right whenever the user comes back to the folder.
+              refreshListing();
+            }
+          }}
+          onCancel={archive.close}
+        />
+      )}
+
+      {restore.open && space && (
+        <RestoreArchiveDialog
+          spaceLabel={rootLabel ?? space.name}
+          busy={restore.busy}
+          submitError={restore.error}
+          onSubmit={(archiveId) => void restore.submit(archiveId)}
+          onCancel={restore.close}
+        />
+      )}
+
       {/* Selection toolbar (SPEC-018 + SPEC-019 + SPEC-039 + SPEC-113 + SPEC-167) — select all +
           bulk send/copy/move/delete + the single-item data-quality check */}
       {canModify && hasContent && (
@@ -416,6 +508,11 @@ function FileBrowserContent({
                   )
               : undefined
           }
+          onRequestArchive={
+            archiveEnabled ? () => archive.open([...selection.selected.values()].map(toArchiveItem)) : undefined
+          }
+          archiveDisabledReason={archiveRefusal(selectedItems.map(toArchiveItem), rootPrefix) ?? undefined}
+          writeLockReason={writeLockReason}
           isBusy={del.isBusy || move.isBusy || copy.isBusy || dl.downloadingKey !== null}
         />
       )}
@@ -512,6 +609,14 @@ function FileBrowserContent({
         spaceKind={spaceKind}
         destinations={destinations}
         canModify={canModify}
+        onRequestArchiveFile={archiveEnabled ? (file) => archive.open([{kind: 'file', key: file.key}]) : undefined}
+        onRequestArchiveFolder={
+          archiveEnabled ? (folder) => archive.open([{kind: 'folder', key: folder.prefix}]) : undefined
+        }
+        archiveRefusalFor={(key: string, kind: 'file' | 'folder') =>
+          archiveRefusal([{kind, key}], rootPrefix) ?? undefined
+        }
+        writeLockReason={writeLockReason}
         selectedItems={selectedItems}
         del={del}
         move={move}

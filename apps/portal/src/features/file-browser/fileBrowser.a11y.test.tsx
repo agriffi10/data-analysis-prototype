@@ -70,7 +70,7 @@ beforeEach(() => {
     success: true,
     data: {
       files: [],
-      folders: [{type: 'folder', prefix: 'alice/archive/', name: 'archive'}],
+      folders: [{type: 'folder', prefix: 'alice/backups/', name: 'backups'}],
       isTruncated: false
     }
   });
@@ -122,7 +122,7 @@ describe('DestinationPicker accessibility', () => {
       />
     );
 
-    await screen.findByText('archive');
+    await screen.findByText('backups');
 
     await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
     cleanup();

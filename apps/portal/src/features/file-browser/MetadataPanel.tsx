@@ -5,6 +5,7 @@ import {toUserText} from '../../lib/errorMessages';
 import {Button} from '../../components/Button';
 import {DownloadIcon, PencilIcon} from '../../components/icons';
 import {Drawer} from '../../components/Drawer';
+import {ArchiveButton} from '../archive';
 import {useFileDownload} from './useFileDownload';
 import {formatSize} from './fileBrowser.format';
 import {relativePath} from './fileBrowser.paths';
@@ -18,6 +19,21 @@ type Props = {
   canModify: boolean;
   /** Opens RenameDialog for this file (SPEC-097). */
   onRequestRename: (file: S3FileItem) => void;
+  /**
+   * SPEC-172: archives THIS file without selecting it first. Absent when the space can't be
+   * resolved, the `files` flag is off, or the user is inside the read-only `archive/` folder.
+   */
+  onRequestArchive?: (file: S3FileItem) => void;
+  /**
+   * Why THIS file can't be archived (it sits in a portal-managed root), if it can't. Needed here
+   * as much as in the folder panel: `athenaresults/` and `shared_tables/` are VISIBLE, so a file
+   * inside one is reachable, selectable and openable — and without this the panel offered an
+   * Archive the plane then refused as `reserved_folder`, which is the exact failure FR-001 AC5's
+   * list-equality test exists to prevent, arriving through the entry point it does not walk.
+   */
+  archiveDisabledReason?: string;
+  /** Why nothing here can be written (SPEC-172 FR-004) — Rename carries it. */
+  writeLockReason?: string;
   onClose: () => void;
 };
 
@@ -29,12 +45,18 @@ function PanelActions({
   bucket,
   file,
   canModify,
-  onRequestRename
+  onRequestRename,
+  onRequestArchive,
+  archiveDisabledReason,
+  writeLockReason
 }: {
   bucket: string;
   file: S3FileItem;
   canModify: boolean;
   onRequestRename: (file: S3FileItem) => void;
+  onRequestArchive?: (file: S3FileItem) => void;
+  archiveDisabledReason?: string;
+  writeLockReason?: string;
 }) {
   const dl = useFileDownload(bucket);
   const downloading = dl.downloadingKey === file.key;
@@ -57,12 +79,24 @@ function PanelActions({
             variant="default"
             className="!h-11 flex-1 gap-2 tablet:!h-[38px]"
             onClick={() => onRequestRename(file)}
+            disabledReason={writeLockReason}
             aria-label={`Rename ${file.name}`}>
             <PencilIcon />
             Rename
           </Button>
         )}
       </div>
+      {/* SPEC-172 FR-001: the second home a per-item action has. A single file can be archived
+          without selecting it first, which is what makes the toolbar's whole-selection rule
+          affordable. */}
+      {canModify && onRequestArchive && (
+        <ArchiveButton
+          placement="panel"
+          onClick={() => onRequestArchive(file)}
+          disabledReason={archiveDisabledReason}
+          label="Archive this item"
+        />
+      )}
       {dl.error && (
         <div
           role="alert"
@@ -152,7 +186,17 @@ function MetadataFields({
 // close). SPEC-097 adds a Download + Rename action pair at the top. The fetch
 // state (loading / inline error / data) comes from useObjectMetadata; reopening
 // after an error refetches because a fresh observer mounts on the same query key.
-export function MetadataPanel({bucket, file, rootPrefix, canModify, onRequestRename, onClose}: Props) {
+export function MetadataPanel({
+  bucket,
+  file,
+  rootPrefix,
+  canModify,
+  onRequestRename,
+  onRequestArchive,
+  archiveDisabledReason,
+  writeLockReason,
+  onClose
+}: Props) {
   const {metadata, isLoading, error} = useObjectMetadata(bucket, file.key);
 
   return (
@@ -167,6 +211,9 @@ export function MetadataPanel({bucket, file, rootPrefix, canModify, onRequestRen
         file={file}
         canModify={canModify}
         onRequestRename={onRequestRename}
+        onRequestArchive={onRequestArchive}
+        archiveDisabledReason={archiveDisabledReason}
+        writeLockReason={writeLockReason}
       />
 
       {isLoading && (

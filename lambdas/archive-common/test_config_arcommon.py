@@ -699,6 +699,70 @@ def test_the_restore_storage_class_is_stated_and_is_not_an_archival_one():
     assert config.RESTORE_STORAGE_CLASS not in config.GLACIER_CLASSES
 
 
+def test_the_browser_mirrors_the_request_shape_caps():
+    """Two homes for one number is how a bound quietly stops matching the thing it bounds.
+
+    The producer cannot import Python, so ``archive.service.ts`` restates both request-shape
+    caps — and a restatement nobody checks is worse than no guard at all, because the wrong
+    number reads as deliberate. Read as data from the TypeScript source, exactly as file-send
+    holds its own pair together.
+
+    Only these two are mirrored, and that is the line: they bound the REQUEST, which is what the
+    browser composes. Everything below them — the object count, the byte totals, the per-object
+    ceiling — is discovered by expanding a folder the browser never lists, so a browser-side copy
+    could only ever be a guess.
+    """
+    service = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "apps"
+        / "portal"
+        / "src"
+        / "features"
+        / "archive"
+        / "archive.service.ts"
+    ).read_text()
+
+    declared = dict(
+        re.findall(r"const (ARCHIVE_MAX_ITEMS|ARCHIVE_MAX_ITEM_BYTES) = ([^;]+);", service)
+    )
+
+    assert declared, "the producer no longer declares the caps under the expected names"
+    assert eval(declared["ARCHIVE_MAX_ITEMS"]) == config.ARCHIVE_MAX_ITEMS  # noqa: S307
+    assert eval(declared["ARCHIVE_MAX_ITEM_BYTES"]) == config.ARCHIVE_MAX_ITEM_BYTES  # noqa: S307
+
+
+def test_the_browser_builds_the_restore_group_id_without_the_archive_bucket():
+    """SPEC-172's one deviation from SPEC-170 FR-001's literal wording, pinned where it can be
+    read next to the reason.
+
+    That AC says the restore's ``MessageGroupId`` is the digest of ``{archiveBucket}/{archiveRoot}``.
+    The browser cannot produce it: the archive bucket's name is deliberately absent from the SPA's
+    build env, and ``test_archive_bucket_isolation.py`` enforces that absence. The archive ROOT
+    alone carries the ``personal/``/``shared/`` segment that makes it globally unique, which is the
+    property the group id actually needs, and the bucket is one constant across every restore this
+    app can make — so it adds no discrimination at all.
+
+    If this starts failing because the producer began hashing a bucket, the decision to re-open is
+    SPEC-168's browser isolation, not this test.
+    """
+    service = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "apps"
+        / "portal"
+        / "src"
+        / "features"
+        / "archive"
+        / "archive.service.ts"
+    ).read_text()
+
+    folder = re.search(r"const ARCHIVE_FOLDER = '([^']+)';", service)
+    canonical = re.search(r"return digest\(`([^`]*ARCHIVE_FOLDER[^`]*)`\);", service)
+
+    assert folder and folder.group(1) == config.ARCHIVE_FOLDER
+    assert canonical, "the restore group id is no longer built from a template literal"
+    assert canonical.group(1) == "${space.kind}/${space.name}/${ARCHIVE_FOLDER}/${archiveId}/"
+
+
 def test_the_archive_bucket_is_not_in_cpcommons_fleet_wide_required_set():
     """That set is a contract EVERY plane's Lambda environment must satisfy, asserted per
     plane by test_the_common_environment_satisfies_every_import_time_require. A variable only

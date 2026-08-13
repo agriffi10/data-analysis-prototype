@@ -1,5 +1,6 @@
 import {Button} from '../../components/Button';
 import {TrashIcon} from '../../components/icons';
+import {ArchiveButton} from '../archive';
 import {useSelection, itemId, type SelectableItem} from './selectionContext';
 
 // Bulk-action glyphs (icon-only on mobile, SPEC-099 FR-006).
@@ -89,6 +90,9 @@ export function SelectionToolbar({
   onRequestCopy,
   onRequestQualityCheck,
   onRequestSend,
+  onRequestArchive,
+  archiveDisabledReason,
+  writeLockReason,
   isBusy
 }: {
   allItems: SelectableItem[];
@@ -102,6 +106,23 @@ export function SelectionToolbar({
    * action is then omitted rather than disabled, which is SPEC-163's rule: hidden means removed.
    */
   onRequestSend?: () => void;
+  /**
+   * SPEC-172. Absent in the dev-unauth path, while the `files` flag is off, and inside the
+   * read-only `archive/` folder — removed rather than disabled, which is SPEC-163's rule.
+   */
+  onRequestArchive?: () => void;
+  /**
+   * Why the CURRENT SELECTION can't be archived (a portal-managed root). Disables Archive with
+   * the reason attached, rather than removing it: the action exists here, and this selection is
+   * what it refuses.
+   */
+  archiveDisabledReason?: string;
+  /**
+   * Why writes are unavailable in this folder at all (SPEC-172 FR-004). Move and Delete carry it
+   * too — IAM denies both beneath `archive/`, so offering either only ever produced an
+   * AccessDenied for a rule this app wrote.
+   */
+  writeLockReason?: string;
   isBusy: boolean;
 }) {
   const {count, isSelected, selectAll, clear} = useSelection();
@@ -173,6 +194,18 @@ export function SelectionToolbar({
         </Button>
       )}
 
+      {/* SPEC-172: archiving is a copy OUT of this space followed by a delete, so it sits
+          between Send and Delete — the last of the "this leaves here" actions. Unlike the
+          data-quality check it takes the WHOLE selection: archiving a set is the normal case. */}
+      {onRequestArchive && (
+        <ArchiveButton
+          onClick={onRequestArchive}
+          disabled={count === 0 || isBusy}
+          disabledReason={count > 0 ? archiveDisabledReason : undefined}
+          label="Archive selected items"
+        />
+      )}
+
       <Button
         variant="ghost"
         size="sm"
@@ -190,6 +223,7 @@ export function SelectionToolbar({
         className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
         onClick={onRequestMove}
         disabled={count === 0 || isBusy}
+        disabledReason={count > 0 ? writeLockReason : undefined}
         aria-label="Move selected items">
         <BulkMoveIcon />
         <span className="hidden tablet:inline">Move</span>
@@ -201,6 +235,7 @@ export function SelectionToolbar({
         className="gap-1.5 !h-9 !px-2.5 !text-danger hover:!bg-danger-soft hover:!text-danger tablet:!h-8 tablet:!px-3"
         onClick={onRequestDelete}
         disabled={count === 0 || isBusy}
+        disabledReason={count > 0 ? writeLockReason : undefined}
         aria-label="Delete selected items">
         <TrashIcon />
         <span className="hidden tablet:inline">Delete</span>

@@ -262,6 +262,27 @@ const RECIPES: Record<string, Recipe> = {
     anchor: fileBrowserReady,
     find: byRole('button', 'Send selected items to someone')
   },
+  'Archive selected items': {
+    render: renderFileBrowser,
+    anchor: fileBrowserReady,
+    find: byRole('button', 'Archive selected items')
+  },
+  'Restore Archived Data': {
+    render: renderFileBrowser,
+    anchor: fileBrowserReady,
+    find: byRole('button', 'Restore Archived Data')
+  },
+  // The DETAILS-PANEL entry point, reached the way a user reaches it: open a file's details
+  // drawer. There is no context menu in this file browser, so this is the ONLY route to
+  // archiving one item without selecting it, and it is a different component from the toolbar.
+  'Archive this item': {
+    render: async () => {
+      renderFileBrowser();
+      (await screen.findByRole('button', {name: 'Details for a.csv'})).click();
+    },
+    anchor: async () => screen.findByRole('dialog', {name: 'Details for a.csv'}),
+    find: byRole('button', 'Archive this item')
+  },
   'Refresh table': {
     render: async () => {
       renderWithProviders(
@@ -481,7 +502,8 @@ const RECIPES: Record<string, Recipe> = {
   'Shared connections help section': helpRecipe('shared-connections'),
   'Check data quality guide': helpRecipe('check-data-quality'),
   'Past data quality checks guide': helpRecipe('past-data-quality-checks'),
-  'Send files guide': helpRecipe('send-files')
+  'Send files guide': helpRecipe('send-files'),
+  'Archive and restore guide': helpRecipe('archive-files')
 };
 
 /**
@@ -617,7 +639,13 @@ describe('the registry itself', () => {
         // NOT in the spec's table — SPEC-167's link, recorded in its delivery doc.
         'Received files link on a notification',
         'Send selected items to someone',
-        'Send files guide'
+        'Send files guide',
+        // NOT in SPEC-163's table — SPEC-172's own, recorded in its delivery doc. Archive is a
+        // Files sub-surface and inherits this flag rather than gaining one.
+        'Archive selected items',
+        'Archive this item',
+        'Restore Archived Data',
+        'Archive and restore guide'
       ],
       query: [
         'Query',

@@ -7,6 +7,20 @@ export type ButtonSize = 'sm' | 'md' | 'lg';
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
   size?: ButtonSize;
+  /**
+   * Unavailable, and SAYING WHY (SPEC-172 FR-004). Renders `aria-disabled` rather than
+   * `disabled`, so the control keeps its place in the tab order and the reason is reachable —
+   * a `disabled` button is skipped entirely, which is how "it's greyed out and I can't find out
+   * why" happens. The click is swallowed here, so a caller cannot forget to guard its handler.
+   *
+   * The reason rides as `title`, which becomes the accessible DESCRIPTION. Deliberately not
+   * rendered inside the button: text in the content becomes part of the accessible NAME, and
+   * every registry row and test queries these controls by name.
+   *
+   * `disabled` still wins where it belongs — an in-flight operation is not a refusal, and
+   * nothing is gained by leaving a busy control focusable.
+   */
+  disabledReason?: string;
 };
 
 const BASE =
@@ -35,12 +49,15 @@ const SIZES: Record<ButtonSize, string> = {
  * <Button variant="danger" size="sm" onClick={handleDelete}>Delete</Button>
  */
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({variant = 'default', size = 'md', className, type, ...rest}, ref) => (
+  ({variant = 'default', size = 'md', className, type, disabledReason, onClick, title, ...rest}, ref) => (
     <button
       ref={ref}
-      type={type ?? 'button'}
-      className={cx(BASE, VARIANTS[variant], SIZES[size], className)}
       {...rest}
+      type={type ?? 'button'}
+      className={cx(BASE, VARIANTS[variant], SIZES[size], disabledReason && 'opacity-45 cursor-not-allowed', className)}
+      aria-disabled={disabledReason ? true : undefined}
+      title={disabledReason ?? title}
+      onClick={disabledReason ? undefined : onClick}
     />
   )
 );

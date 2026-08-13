@@ -24,6 +24,14 @@
 //    PASTEABLE — an ordinary folder in every respect a user can see — and only
 //    undestroyable: it appears in UNDELETABLE_ROOT_FOLDERS alone.
 //
+//  - `archive/` — the archive receipts, one folder per archive (SPEC-172). VISIBLE and
+//    deliberately so: the folder NAMES are the archive ids, and reading one is how a user
+//    finds the id a restore needs, so hiding it would remove the only surface that carries
+//    them. It joins PICKER_LOCKED_FOLDERS and UNDELETABLE_ROOT_FOLDERS and neither of the
+//    other two lists. What is new here is that the folder is also read-only INSIDE — see
+//    `writeLockedPrefix.ts`, which is a rule about the prefix the user is standing in rather
+//    than about a folder's name, and is therefore not one of these lists at all.
+//
 //  - `shared_tables/` — where the table-share pipeline copies tables it has
 //    shared with you (SPEC-088). VISIBLE, because seeing what has been shared
 //    with you is the point of it, but locked out of move/copy destinations:
@@ -63,7 +71,11 @@ export const PICKER_LOCKED_FOLDERS = [
   '_data-quality-reports',
   '_directory',
   '_config',
-  'shared_tables'
+  'shared_tables',
+  // SPEC-172. IAM denies `PutObject` beneath it, so offering it as a paste target only ever
+  // produced an AccessDenied — and a receipt acquiring neighbours is how an archive folder
+  // stops being a record of what this plane did.
+  'archive'
 ] as const;
 
 /**
@@ -83,8 +95,13 @@ export const PICKER_LOCKED_FOLDERS = [
  * may be uploaded, moved, copied and deleted, and subfolders created — because
  * what keeps the query editor's load list coherent is the store's `.sql` filter,
  * not a write lock.
+ *
+ * `archive/` (SPEC-172) is the third, and it is the inverse of `saved_queries/`: visible like
+ * it, but NOT a valid paste target and read-only inside as well. Deleting the folder would
+ * destroy the receipts that carry every archive id — and IAM denies the objects beneath it
+ * anyway, so the row here is the browser saying so before the user finds out from S3.
  */
-export const UNDELETABLE_ROOT_FOLDERS = ['athenaresults', 'saved_queries'] as const;
+export const UNDELETABLE_ROOT_FOLDERS = ['athenaresults', 'saved_queries', 'archive'] as const;
 
 type UndeletableFolder = (typeof UNDELETABLE_ROOT_FOLDERS)[number];
 
@@ -98,6 +115,10 @@ const UNDELETABLE_REFUSALS: Record<UndeletableFolder, {delete: string; move: str
   saved_queries: {
     delete: 'Saved queries live in this folder, so it can’t be deleted.',
     move: 'Saved queries live in this folder, so it can’t be moved or renamed.'
+  },
+  archive: {
+    delete: 'Your archive receipts live in this folder, so it can’t be deleted.',
+    move: 'Your archive receipts live in this folder, so it can’t be moved or renamed.'
   }
 };
 

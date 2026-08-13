@@ -115,47 +115,48 @@ allowlists the portal, deploy and execution roles), so every check touching a us
 assumed role or the portal UI. Three things nothing offline can prove: the cross-bucket
 `*/shared_files/*` write landing, the conflict refusing **that recipient** while a third still
 receives, and the notification LINK — minted in Python, honoured by a TypeScript route rule.
-**168→172** archive/restore is next.
 
-**The archive arc (168 → 172) is UNDERWAY (2026-08-12). 168 → 171 are COMPLETE; only 172 remains.**
-The plane archives end to end and **restores end to end**: expand → manifest → Distributed-Map copy
-at `GLACIER` → commit gate → record → source deletion → receipt on one arm; lookup → destination
-guard → **retrieval → the wait loop → the guard AGAIN → copy-back at `STANDARD` → vault sweep →
-receipt rewrite** on the other. **172 is the UI, the notifications and FR-001's producer half** (the FIFO
-`MessageGroupId` = SHA-256 of `{archiveBucket}/{archiveRoot}`, dedup id = `requestId`) — nothing
-enqueues yet, so 170 and 171 could not enforce it and did not pretend to. **The archive feature flag
-is 172's**, with the app's first prefix-based write gate; it is deliberately NOT added early,
-because `GATED_SURFACES` requires a flag to name real surfaces and one test walks each in both
-states.
+**The archive arc (168 → 172) is COMPLETE (2026-08-12).** The plane archives end to end, restores
+end to end, and now has a browser: **Archive** on the selection toolbar and in both details panels,
+**Restore Archived Data** on the files toolbar, a read-only `archive/` folder whose folder NAMES are
+the archive ids, and one notification per outcome. **Only three outcomes needed a producer** —
+`archived`, `restore_started`, `restored`; the other six FR-006 names were already reason codes the
+failure decorator emits, and a second producer would be SPEC-114's duplicate.
 
-**FOUR live checks are owed on this plane and they are ONE session, in order** — the script is one
-file: `docs/testing/archive-restore-e2e.md`. 168's proves the layer attaches at cold start; 169's
-third step is what that whole spec exists for (a Deny on ONE key: source intact, archive prefix
-empty, notification honest — and `StorageClass: GLACIER` by `head-object`, never by inference);
-170's restores the archive 169 just made, and **its load-bearing assertion is a NEGATIVE one** —
-after the `destination_occupied` refusal, `head-object` an archived object and confirm there is **no
-`Restore` header**, because a refusal that had already started retrieval looks identical from the UI
-and costs real hours and money. **171's is the one that cannot be compressed**: a real Glacier
-retrieval takes 3-5 BILLED hours, so start it and come back the same day. **Its second step is the
-one to stage deliberately** — re-create a file mid-wait and confirm `ReCheckDestinationClear`
+**FIVE live checks are owed on this plane and they are ONE session, in order** — the script is one
+file: `docs/testing/archive-restore-e2e.md`, and **172's section is the only one driven from the
+UI**, which is now the easiest way to run 169's and 170's too. 168's proves the layer attaches at
+cold start; 169's third step is what that whole spec exists for (a Deny on ONE key: source intact,
+archive prefix empty, notification honest — and `StorageClass: GLACIER` by `head-object`, never by
+inference); 170's restores the archive 169 just made, and **its load-bearing assertion is a NEGATIVE
+one** — after the `destination_occupied` refusal, `head-object` an archived object and confirm there
+is **no `Restore` header**, because a refusal that had already started retrieval looks identical
+from the UI and costs real hours and money. **171's is the one that cannot be compressed**: a real
+Glacier retrieval takes 3-5 BILLED hours, so start it and come back the same day. **Its second step
+is the one to stage deliberately** — re-create a file mid-wait and confirm `ReCheckDestinationClear`
 refuses with the "already been retrieved" wording while your new file survives untouched, then
-re-request and watch it finish in MINUTES. Confirm the loop actually
-LOOPS (`retrieval polled` events hours apart), that `StorageClass` stays `GLACIER` on the archived
-object throughout while the `Restore` header flips, that the restored object comes back at
-`STANDARD` **by `head-object`**, that content type and bytes survived, that the archive prefix is
-gone, and that the receipt's ARCHIVE lines are byte-identical to before the restore — a blanked
-`Requested` line is how you would know the rewrite broke. **171's IAM simulation is DISCHARGED against the
-DEPLOYED role** (2026-08-12): 13 rows, every denial paired with an `allowed` control, and the four
-that moved `implicitDeny` → **`explicitDeny`** are the load-bearing ones — after the widening
-`SpaceDataWrite` grants `PutObject` on `{bucket}/*`, so the ONLY thing refusing `user_settings/`,
-`athenaresults/`, `_config/` and `_directory/` is the new Deny; a mis-scoped one would read
-`allowed`, not `implicitDeny`.
+re-request and watch it finish in MINUTES. Confirm the loop actually LOOPS (`retrieval polled`
+events hours apart), that `StorageClass` stays `GLACIER` on the archived object throughout while the
+`Restore` header flips, that the restored object comes back at `STANDARD` **by `head-object`**, that
+content type and bytes survived, that the archive prefix is gone, and that the receipt's ARCHIVE
+lines are byte-identical to before the restore — a blanked `Requested` line is how you would know
+the rewrite broke. **172's is Safari at 400px and desktop**, and the three things nothing offline
+can prove are the notification LINKS (minted in Python, honoured by a TypeScript route rule), the
+`destination_occupied` wording reaching a user, and the shared-space pass as a **non-owner member**
+against real Cognito tags. **171's IAM simulation is DISCHARGED against the DEPLOYED role**
+(2026-08-12): 13 rows, every denial paired with an `allowed` control, and the four that moved
+`implicitDeny` → **`explicitDeny`** are the load-bearing ones — after the widening `SpaceDataWrite`
+grants `PutObject` on `{bucket}/*`, so the ONLY thing refusing `user_settings/`, `athenaresults/`,
+`_config/` and `_directory/` is the new Deny; a mis-scoped one would read `allowed`, not
+`implicitDeny`.
 
-**Two things 171 left that outlive it.** The machine's ceiling went 10,800 → **43,200** because the
-restore's long pole is a WAIT, not a copy — one top-level field on one machine, so a wedged
-*archive* is now reported after twelve hours rather than three. And **`cpcommon.transfer` gained the
-metadata round trip**, which closed a latent bug on all three planes: `CreateMultipartUpload` has no
-`MetadataDirective`, so every object over 5 GiB lost its content type on every copy this repo makes.
+**Three things this arc left that outlive it.** The machine's ceiling went 10,800 → **43,200**
+because the restore's long pole is a WAIT, not a copy — one top-level field on one machine, so a
+wedged *archive* is now reported after twelve hours rather than three. **`cpcommon.transfer` gained
+the metadata round trip**, which closed a latent bug on all three planes: `CreateMultipartUpload`
+has no `MetadataDirective`, so every object over 5 GiB lost its content type on every copy this repo
+makes. And **`Button.disabledReason`** is now the fleet-wide way to say "unavailable, and here is
+why" — `aria-disabled` rather than `disabled`, so the reason is in the tab order.
 
 **The saved-queries-in-spaces arc (173 → 175) is COMPLETE (2026-08-12).** The store is `.sql` files
 in `{root}saved_queries/`; 174 gave loading a space selector and **175 gave saving one**, so a
@@ -362,6 +363,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **The source is deleted only when EVERY object is confirmed copied, and the gate is a STATE (169):** `collect-transfer-results` returns one boolean and `CommitOrRollback` branches on it — the committing arm reaches `DeleteSource`, the rollback arm **cannot** (asserted by walking the ASL graph, because a `Catch` added anywhere would reconnect it), and the `Default` is the rollback so an unrecognisable verdict **fails closed**. Three shortfalls, one verdict: an item failure, an export short of the manifest, a manifest disagreeing with the plan (a check file-send cannot make — there the two counts differ by design). **Both halves of the export are read**, or a `FAILED`-only collector reports universal success and that success IS a deletion. The **rollback lists the archive prefix** rather than taking keys from the collector — keys are unbounded AND the listing catches objects a batch copied before it died; a partial rollback does **not** change the outcome (residue is billed at the 90-day minimum and swept by the 7-year expiry). Artifacts run **most durable to least** — `_manifest.json` → deletion → receipt — and the **receipt failing fails the run**, because a user with no receipt has no id and no route to a restore. The delete grant is the one this role could not inherit: `DeleteObject` on the space buckets **plus an explicit Deny** under `athenaresults/`, `user_settings/`, `archive/` and any `DO_NOT_DELETE.txt`, with `assert_deletable` refusing the whole list **before issuing anything**. Caps are computed, and **`ARCHIVE_MAX_OBJECT_BYTES` (10 GiB) is not in the spec** — one object is one worker, so a 5 TiB object is 240× the batch timeout and the makespan model is a half-truth without it. `TimeoutSeconds` 10,800 shipped **with** its `TIMED_OUT` rule, the second door and its 15s→60s raise. **Review closed two holes the id opens:** the request id is browser-supplied and keys the plan, the prefix, the record and the receipt, so `plan.load` now proves the plan describes THIS run (`plan_superseded` — otherwise a run could pass its own gate and delete another execution's selection) and inspect-source refuses a prefix that already holds anything (`request_id_reused` — otherwise a later run's ROLLBACK deletes an EARLIER completed archive, versioning off, unrecoverable). And an object under a folder named `archive`/`athenaresults`/`user_settings` **at any depth** is now refused up front: the IAM Deny cannot be anchored (`*` matches `/`) where the code's rule is, so it would have copied to Glacier and failed mid-delete.
 - **The destination guard runs TWICE, and the second pass is 171 correcting itself (171):** SPEC-170's "any occupied destination refuses the WHOLE restore" was true while the guard and the copy were seconds apart; 171 put **3-5 BILLED HOURS** between them and spends those hours telling the user a restore is in flight — so re-creating a file then is the ordinary case the guard was written for, arriving late, and the copy-back would have **overwritten it, reported success and swept the vault**, unrecoverably (versioning off). `ReCheckDestinationClear` is the same verb over the same plan immediately before the copy: one round of heads against a run that has waited hours. The two refusals are **worded apart** (after the retrieval the objects stay ready for `RESTORE_AVAILABILITY_DAYS`, so trying again soon is free — a fact nobody can infer) and the ASL **SEEDS** which pass it is, because "the retrieval has not run" and "the retrieval reported nothing" look identical inside a handler. It **narrows, not closes** — but seconds of overlap is a double-submit and hours is the user acting on a message this plane sent them.
 - **Retrieval is the point of no return and the restore's gate is the commit gate's MIRROR IMAGE (171):** `RestoreObject` is billed on request and uncancellable, so its Map tolerates **NO** failure (the copy's tolerates 100%) — a fault means nothing copied, archive untouched, re-submit — and the two TOLERATED codes are what make that free (`RestoreAlreadyInProgress`; `InvalidObjectState`, which keeps the path unconditional on `ARCHIVE_STORAGE_CLASS`). **Completion is the `Restore` HEADER and an ABSENT header is a FAILURE** — the object stays `GLACIER` forever, so "no header" means nobody asked, and reading it as "not yet" burns every iteration then names the wrong cause. The poll SAMPLES (progress is an S3 pointer; one invocation sweeps as far as complete pages allow, because one page per `Wait` adds 90 minutes after the retrieval finished) and the cap lives in **Python, not the ASL Choice**. Budget **7 h against a 5 h tier ON PURPOSE**: giving up early makes the user pay a SECOND bill. `TimeoutSeconds` 10,800 → **43,200** — the restore's long pole is a WAIT — and one field on one machine means the ARCHIVE arm's backstop rose too. **A partial restore cannot be rolled back**, so that arm deletes NOTHING and keeps the archive (then the only complete copy); `restore_incomplete` must say all three things, the third being that re-requesting hits the guard against the files that DID land. The vault sweep's failure is a FLAG on a successful run where the source deletion's is terminal. The receipt is **rewritten by LABEL, never re-rendered** (the archive's start time is unrecomputable; a proven 404 composes fresh, a 403 raises), the ASL SEEDS the stage while the RUN supplies the counts, and the marker runs BEFORE the bill. **`cpcommon.transfer` gained the metadata round trip and it was a latent bug on all three planes** — `CreateMultipartUpload` has no `MetadataDirective`, so every object over 5 GiB lost its content type; a test fixtured only below the threshold would have passed forever.
+- **Archive gets a surface, and its three hardest calls are a confirm that refuses to be one, a folder that IS the index, and a write gate per BUCKET (172):** `ArchiveDialog` is built on `ConfirmDialog` **because** `FormDialog` has the Enter-to-submit affordance it must not have (focus on Cancel, Enter cancels, by construction) — and it never says "This can't be undone", which would be its one false sentence. `archive/` is **visible, unpasteable and undestroyable**: the folder NAMES are the archive ids, so hiding it would remove the only durable surface carrying them, and that is why the arc ships **no archive index and no picker** (SPEC-158's declined disclosure, in miniature). `isWriteLockedPrefix` is the app's first PREFIX-based write gate and it **mirrors each bucket's own Deny rather than averaging them** — root-anchored in the personal bucket (the prefix IS the principal tag), any-depth in the shared one (the wildcard is the space slot and an S3 resource wildcard matches `/`); a test runs both rules over the same keys, and deleting either branch reddens it. Refusals render through **`Button.disabledReason`** — `aria-disabled`, not `disabled`, so the reason is reachable rather than hover-only, and never inside the button (content becomes the accessible NAME, which every registry row queries by). **Only three of FR-006's nine outcomes needed a producer**; `restore_started` is the app's ONLY "started" notification, emitted **after** `RetrieveObjects` because that Map is where the bill begins, and the producer **cannot fail the run** (`ResultPath: null`, a Catch leading onward, no `@notifies_on_failure` — on the archive arm the source is already deleted). The restore's FIFO group id hashes the **archive ROOT alone**, not `{archiveBucket}/{archiveRoot}`: the browser does not know that bucket's name by decision, a test enforces the absence, and the root's own `personal/`/`shared/` segment already makes it unique.
 - **Data-quality report view (113):** `/data-quality/:space/:requestId` — space is **in the route, not derived**; own username wins; unreachable space renders denied and issues **no S3 request** (no existence oracle).
 - **Data-quality runs index (123):** the `/data-quality` list is backed by a per-space `index.json` appended under **ETag CAS** (S3 lists lexicographically, so a UUID key gives no chronology); capped at 200, every failure swallowed — report → notification → index, most durable to least. No new IAM.
 - **Data-quality notifications (114):** the notification **is** the completion channel and must carry the report link (the reports folder is hidden); the link builder mirrors 113's precedence and mints **nothing** where the view would resolve wrong. One dedup token per *outcome*, not per verb. FR-005's alarms were **removed** → **SPEC-126**.

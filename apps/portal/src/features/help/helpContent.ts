@@ -102,6 +102,25 @@ export const HELP_SECTIONS: HelpSection[] = [
         }
       },
       {
+        id: 'archive-files',
+        title: 'Archive and restore files',
+        subtitle: 'Move files you rarely need into long-term storage, and bring them back later.',
+        intro:
+          'Archiving takes files or folders out of your space and stores them cheaply for the long term. It is the one action here that <b>removes your data from this space</b> — the copy is kept safely, but it is no longer in your file list, and getting it back is not instant. Use it for things you want to keep but do not expect to open again soon.',
+        steps: [
+          'In the <b>Files</b> tab, tick one or more items and click <b>Archive</b> — or open a single item’s <b>Details</b> and choose <b>Archive</b> there.',
+          'Read the confirmation. It names what will go, and says plainly that these files leave this space.',
+          'Click <b>Archive</b>. The work happens in the background, and a notification tells you when it has finished — including the <b>archive id</b> you will need to get it back.',
+          'Every archive also leaves a folder in your space’s <b>archive</b> folder, named after its id, holding a receipt you can download and read.',
+          'To bring an archive back, click <b>Restore Archived Data</b> in the <b>Files</b> tab, paste the archive id, and click <b>Restore</b>. Everything comes back where it was.',
+          'A restore takes <b>several hours</b> — the files have to be retrieved from long-term storage first. You get one notification when it starts and another when it is done.'
+        ],
+        callout: {
+          kind: 'warning',
+          text: 'A restore puts every file back where it came from, and it refuses to overwrite anything: if even one of those files exists again, <b>nothing</b> is restored and the notification names the files in the way. Move, rename or delete them and request the restore again. The <b>archive</b> folder itself is read-only — you can open and download receipts, but not upload into it, rename it or delete it.'
+        }
+      },
+      {
         id: 'file-details',
         title: 'View file details',
         subtitle: 'Inspect a file’s name, path, size, type, and metadata.',

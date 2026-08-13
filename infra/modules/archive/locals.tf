@@ -153,6 +153,11 @@ locals {
     # already on the state, exactly like write-receipt beside it — invoked from THREE states,
     # which changes nothing about its sizing.
     "update-receipt" = { handler = "archive_update_receipt.handler", timeout = 30, memory = 256 }
+    # SPEC-172 FR-006. The plane's only SUCCESS producer, invoked from THREE states — one per
+    # outcome a failure table cannot carry. One message composed from values already on the
+    # state and one SQS send, so it is the smallest verb here; the notify-failure row beside it
+    # is larger only because its second door verifies a JWT first, which this one never does.
+    "notify" = { handler = "archive_notify.handler", timeout = 30, memory = 256 }
     # SPEC-152's notification of last resort: one decode + one SQS send on the ASL door.
     #
     # SPEC-169 RAISED IT 15s -> 60s, WITH the second door that made 15s wrong. The
