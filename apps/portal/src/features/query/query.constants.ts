@@ -1,5 +1,6 @@
 // Named constants for the query workspace. The Athena polling cadence, the service-level
-// page sizes and the result-column sizing live in `features/catalog/` (SPEC-176).
+// page sizes and the result-column sizing live in `features/catalog/` (SPEC-176); the
+// saved-query page size and space memory in `features/saved-queries/` (SPEC-177).
 
 /**
  * Default data rows per query-results page when the user hasn't chosen a
@@ -29,17 +30,6 @@ export const QUERY_HISTORY_MAX = 100;
  * capped list is already in memory, so paging is a slice, not a fetch.
  */
 export const QUERY_HISTORY_PAGE_SIZE = 7;
-
-/**
- * Saved-queries rows per DISPLAY page. Unrelated to LISTING_PAGE_SIZE (25): an S3
- * listing page of 25 keys can yield 25 rows, three, or none at all, because the store
- * offers only the top-level `.sql` files of an otherwise ordinary folder (SPEC-173
- * FR-002). The pager counts filtered rows, never keys.
- */
-export const SAVED_QUERIES_PAGE_SIZE = 10;
-
-/** sessionStorage key prefix for the per-user saved-queries space (full key: prefix + username). */
-export const QUERY_SAVED_QUERY_SPACE_STORAGE_PREFIX = 's3portal.query.savedQuerySpace.';
 
 /**
  * sessionStorage key prefix for the legacy per-user editor draft (full key:

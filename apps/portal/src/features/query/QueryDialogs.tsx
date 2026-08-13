@@ -4,14 +4,14 @@ import {RefreshTableDialog, useTableRefresh} from '../table-builder';
 import {ClearQueryDialog} from './ClearQueryDialog';
 import {CloseTabDialog} from './CloseTabDialog';
 import {TabLimitDialog} from './TabLimitDialog';
-import {SaveQueryDialog} from './SaveQueryDialog';
+import {SaveQueryDialog} from '../saved-queries/SaveQueryDialog';
 import {CreateViewDialog} from './CreateViewDialog';
 import {DropTableDialog} from './DropTableDialog';
 import {SaveResultsDialog} from './SaveResultsDialog';
 import type {QueryTab} from './query.types';
 import type {GlueTableSummary} from '../catalog/catalog.types';
 import type {UseSaveResultsResult} from './useSaveResults';
-import type {UseSaveQueryResult} from './useSaveQuery';
+import type {UseSaveQueryResult} from '../saved-queries/useSaveQuery';
 
 type Props = {
   clear: {open: boolean; onConfirm: () => void; onCancel: () => void};

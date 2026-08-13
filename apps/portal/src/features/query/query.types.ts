@@ -1,7 +1,9 @@
 // Types for the query workspace. The execution, result-page, Glue and space types
-// it also uses live in `features/catalog/` (SPEC-176).
+// it also uses live in `features/catalog/` (SPEC-176), and the saved-query types in
+// `features/saved-queries/` (SPEC-177).
 
 import type {QueryState} from '../catalog/catalog.types';
+import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
 
 export type QueryHistoryEntry = {
   queryExecutionId: string;
@@ -80,39 +82,4 @@ export type QueryTabsState = {
   activeTabId: string;
   /** Monotonic per-session counter for blank "Query N" tabs only. */
   nextQueryNumber: number;
-};
-
-/**
- * One `.sql` object in a space's `saved_queries/` folder (SPEC-173).
- *
- * The key IS the identity and the filename IS the name — there is no id and no record,
- * because a `.sql` file cannot carry one without a sidecar this feature deliberately
- * does not have.
- */
-export type SavedQuery = {
-  spaceId: string;
-  bucket: string;
-  /** `{rootPrefix}saved_queries/{name}.sql` */
-  key: string;
-  /** The filename without its `.sql` suffix. */
-  name: string;
-  /** S3 LastModified, ISO 8601. */
-  updatedAt: string;
-  /** Object size in bytes. */
-  size: number;
-};
-
-/** One `ListObjectsV2` page of a space's saved queries, in S3's own (lexicographic) order. */
-export type SavedQueryPage = {
-  queries: SavedQuery[];
-  isTruncated: boolean;
-  nextContinuationToken?: string;
-};
-
-/** What a tab remembers about the saved query it was opened from. */
-export type SavedQueryLink = {
-  spaceId: string;
-  bucket: string;
-  key: string;
-  name: string;
 };

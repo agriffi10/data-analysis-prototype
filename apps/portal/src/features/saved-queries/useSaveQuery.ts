@@ -8,9 +8,23 @@ import {
   writeSavedQuery
 } from './savedQueries.service';
 import type {ToastApi} from '../../components/toastContext';
-import type {QueryTab, SavedQuery, SavedQueryLink} from './query.types';
+import type {SavedQuery, SavedQueryLink} from './savedQueries.types';
 import type {QuerySpace} from '../catalog/catalog.types';
 import type {SaveQueryRequest} from './SaveQueryDialog';
+
+/**
+ * What is being saved: the body, and the file it would replace in place.
+ *
+ * SPEC-177 FR-002 — this was the Query workspace's `QueryTab`, which is a shape no other
+ * caller can produce. Two fields is what the flow actually reads, so the collision-and-
+ * confirm path SPEC-175 spent a spec getting right is reusable rather than reimplemented.
+ */
+export type SaveQueryPayload = {
+  /** The buffer written to the `.sql` object. */
+  sql: string;
+  /** Set when the buffer came from a saved query — what an unchanged re-save replaces. */
+  link?: SavedQueryLink;
+};
 
 /** The pending Replace confirm: the key that already exists, and where. */
 export type SaveQueryCollision = {space: QuerySpace; name: string};
@@ -18,7 +32,7 @@ export type SaveQueryCollision = {space: QuerySpace; name: string};
 export type UseSaveQueryResult = {
   /** The destinations the dialog offers, personal first. Empty drives FR-007's banner. */
   spaces: QuerySpace[];
-  /** The active tab's link, if any — what an unchanged re-save replaces. */
+  /** The payload's link, if any — what an unchanged re-save replaces. */
   linked: SavedQueryLink | undefined;
   open: boolean;
   openDialog: () => void;
@@ -30,7 +44,7 @@ export type UseSaveQueryResult = {
   collision: SaveQueryCollision | null;
   /** What the dialog opens with: the last submitted name, else the linked query's. */
   initialName: string;
-  /** What the space control opens on: the tab's own space, else the remembered one. */
+  /** What the space control opens on: the link's own space, else the remembered one. */
   initialSpace: QuerySpace | null;
   save: (request: SaveQueryRequest) => void;
   confirmReplace: () => void;
@@ -40,10 +54,14 @@ export type UseSaveQueryResult = {
 type Params = {
   /** Every space the user may write into, personal first — already view-gated. */
   spaces: QuerySpace[];
-  /** The space remembered by `useSavedQuerySpace`, for an unlinked tab. */
+  /** The space remembered by `useSavedQuerySpace`, for an unlinked buffer. */
   defaultSpace: QuerySpace | null;
-  activeTab: QueryTab;
-  /** The write landed: link + relabel the tab, remember the body and the space, refresh. */
+  payload: SaveQueryPayload;
+  /**
+   * The write landed. The body is handed back beside the file because the caller's dirty
+   * marker is cleared against the bytes that were WRITTEN, not against whatever the buffer
+   * holds by the time the async write returns.
+   */
   onSaved: (query: SavedQuery, sql: string) => void;
   toast: ToastApi;
 };
@@ -52,20 +70,20 @@ type Params = {
  * The whole save path for a saved query: the prompt, the destination, the write, the
  * collision round-trip and the toast (SPEC-175).
  *
- * EVERY save prompts — a linked tab's included — so there is exactly one way a `.sql`
- * file is written and it always passes through the dialog. The one thing a linked tab's
+ * EVERY save prompts — a linked buffer's included — so there is exactly one way a `.sql`
+ * file is written and it always passes through the dialog. The one thing a linked
  * re-save skips is the SECOND confirm: when the chosen space and name resolve to the key
- * the tab is already linked to, the file being replaced is the one whose name the user is
- * looking at, and asking again would be asking about the thing just answered.
+ * the buffer is already linked to, the file being replaced is the one whose name the user
+ * is looking at, and asking again would be asking about the thing just answered.
  *
  * @param params.spaces - Writable destinations, personal first.
- * @param params.defaultSpace - The remembered space, for an unlinked tab.
- * @param params.activeTab - The tab whose buffer is saved, and whose link is re-saved.
+ * @param params.defaultSpace - The remembered space, for an unlinked buffer.
+ * @param params.payload - The body being saved, and the file it would replace in place.
  * @param params.onSaved - Called with the written file and the body that was written.
  * @param params.toast - Where the success message goes; failures render inline instead.
  * @returns The dialog's open state, its inputs, and the three submit paths.
  */
-export function useSaveQuery({spaces, defaultSpace, activeTab, onSaved, toast}: Params): UseSaveQueryResult {
+export function useSaveQuery({spaces, defaultSpace, payload, onSaved, toast}: Params): UseSaveQueryResult {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,8 +93,8 @@ export function useSaveQuery({spaces, defaultSpace, activeTab, onSaved, toast}: 
   // discarding both halves of what they just chose.
   const [pending, setPending] = useState<SaveQueryRequest | null>(null);
 
-  const linked = activeTab.savedQuery;
-  // FR-001: a linked tab opens on ITS OWN space, even when the remembered one differs;
+  const linked = payload.link;
+  // FR-001: a linked buffer opens on ITS OWN space, even when the remembered one differs;
   // a link whose space is no longer offered (membership revoked) falls back through the
   // remembered one to personal, exactly as `useSavedQuerySpace` does for a stored id.
   const linkedSpace = linked ? (spaces.find((s) => s.id === linked.spaceId) ?? null) : null;
@@ -95,7 +113,7 @@ export function useSaveQuery({spaces, defaultSpace, activeTab, onSaved, toast}: 
       return;
     }
 
-    const sql = activeTab.sql;
+    const sql = payload.sql;
     setBusy(true);
     setError(null);
     void (async () => {

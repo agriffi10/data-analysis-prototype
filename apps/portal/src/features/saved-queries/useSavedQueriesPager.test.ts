@@ -1,8 +1,8 @@
 import {act, renderHook} from '@testing-library/react';
 import {describe, expect, it, vi} from 'vitest';
 import {useSavedQueriesPager} from './useSavedQueriesPager';
-import {SAVED_QUERIES_PAGE_SIZE} from './query.constants';
-import type {SavedQuery} from './query.types';
+import {SAVED_QUERIES_PAGE_SIZE} from './savedQueries.constants';
+import type {SavedQuery} from './savedQueries.types';
 
 function sq(name: string, updatedAt = '2026-07-01T10:00:00.000Z'): SavedQuery {
   return {

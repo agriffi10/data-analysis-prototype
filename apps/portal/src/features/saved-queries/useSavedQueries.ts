@@ -2,9 +2,9 @@ import {useCallback, useMemo} from 'react';
 import {useInfiniteQuery, useQueryClient} from '@tanstack/react-query';
 import {deleteSavedQuery, listSavedQueries} from './savedQueries.service';
 import {unwrap} from '../../lib/serviceResult';
-import {queryKeys} from './queryKeys';
+import {savedQueryKeys} from './savedQueryKeys';
 import {NO_KEY} from '../../lib/queryKeys';
-import type {SavedQuery, SavedQueryPage} from './query.types';
+import type {SavedQuery, SavedQueryPage} from './savedQueries.types';
 import type {QuerySpace} from '../catalog/catalog.types';
 
 export type UseSavedQueriesResult = {
@@ -38,7 +38,7 @@ export type UseSavedQueriesResult = {
 export function useSavedQueries(space: QuerySpace | null): UseSavedQueriesResult {
   const queryClient = useQueryClient();
   const spaceId = space?.id ?? NO_KEY;
-  const key = useMemo(() => queryKeys.savedQueries(spaceId), [spaceId]);
+  const key = useMemo(() => savedQueryKeys.list(spaceId), [spaceId]);
 
   const query = useInfiniteQuery({
     queryKey: key,

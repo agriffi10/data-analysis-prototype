@@ -2,9 +2,9 @@ import {waitFor, act} from '@testing-library/react';
 import {renderHookWithProviders, createTestQueryClient} from '../../test/renderWithProviders';
 import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {useSavedQueries} from './useSavedQueries';
-import {queryKeys} from './queryKeys';
+import {savedQueryKeys} from './savedQueryKeys';
 import {deleteSavedQuery, listSavedQueries} from './savedQueries.service';
-import type {SavedQuery} from './query.types';
+import type {SavedQuery} from './savedQueries.types';
 import type {QuerySpace} from '../catalog/catalog.types';
 
 vi.mock('./savedQueries.service');
@@ -71,8 +71,8 @@ describe('useSavedQueries', () => {
     const other = renderHookWithProviders(() => useSavedQueries(shared), {queryClient: client});
     await waitFor(() => expect(other.result.current.queries.map((q) => q.name)).toEqual(['theirs']));
 
-    expect(client.getQueryData(queryKeys.savedQueries('personal'))).toBeDefined();
-    expect(client.getQueryData(queryKeys.savedQueries('project_alpha'))).toBeDefined();
+    expect(client.getQueryData(savedQueryKeys.list('personal'))).toBeDefined();
+    expect(client.getQueryData(savedQueryKeys.list('project_alpha'))).toBeDefined();
   });
 
   it('accumulates pages on loadMore and reports hasMore from the listing', async () => {
@@ -104,7 +104,7 @@ describe('useSavedQueries', () => {
       key: 'alice/saved_queries/a.sql',
       username: 'alice'
     });
-    expect(invalidate).toHaveBeenCalledWith({queryKey: queryKeys.savedQueries('personal')});
+    expect(invalidate).toHaveBeenCalledWith({queryKey: savedQueryKeys.list('personal')});
     await waitFor(() => expect(result.current.queries).toEqual([]));
   });
 

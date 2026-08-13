@@ -2,7 +2,8 @@ import {act, renderHook, waitFor} from '@testing-library/react';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {useSaveQuery} from './useSaveQuery';
 import {ensureSavedQueriesFolder, writeSavedQuery} from './savedQueries.service';
-import type {QueryTab, SavedQuery} from './query.types';
+import type {SavedQuery} from './savedQueries.types';
+import type {SaveQueryPayload} from './useSaveQuery';
 import type {QuerySpace} from '../catalog/catalog.types';
 
 vi.mock('./savedQueries.service', async (importOriginal) => ({
@@ -44,18 +45,18 @@ const written = (name: string): SavedQuery => ({
   size: 10
 });
 
-function tab(over: Partial<QueryTab> = {}): QueryTab {
-  return {id: 'a', label: 'Query 1', sql: 'SELECT 1;', ...over};
+function saving(over: Partial<SaveQueryPayload> = {}): SaveQueryPayload {
+  return {sql: 'SELECT 1;', ...over};
 }
 
-function setup(over: {activeTab?: QueryTab; spaces?: QuerySpace[]} = {}) {
+function setup(over: {payload?: SaveQueryPayload; spaces?: QuerySpace[]} = {}) {
   const onSaved = vi.fn();
   const toast = {push: vi.fn(), dismiss: vi.fn()};
   const view = renderHook(() =>
     useSaveQuery({
       spaces: over.spaces ?? [PERSONAL],
       defaultSpace: (over.spaces ?? [PERSONAL])[0] ?? null,
-      activeTab: over.activeTab ?? tab(),
+      payload: over.payload ?? saving(),
       onSaved,
       toast
     })
@@ -134,7 +135,7 @@ describe('useSaveQuery (SPEC-175)', () => {
       useSaveQuery({
         spaces: [PERSONAL, TEAM],
         defaultSpace: TEAM,
-        activeTab: tab({savedQuery: linked, label: 'Monthly'}),
+        payload: saving({link: linked}),
         onSaved: vi.fn(),
         toast: {push: vi.fn(), dismiss: vi.fn()}
       })
@@ -148,7 +149,7 @@ describe('useSaveQuery (SPEC-175)', () => {
       useSaveQuery({
         spaces: [PERSONAL, TEAM],
         defaultSpace: TEAM,
-        activeTab: tab(),
+        payload: saving(),
         onSaved: vi.fn(),
         toast: {push: vi.fn(), dismiss: vi.fn()}
       })
@@ -169,7 +170,7 @@ describe('useSaveQuery (SPEC-175)', () => {
       useSaveQuery({
         spaces: [PERSONAL],
         defaultSpace: PERSONAL,
-        activeTab: tab({savedQuery: linked, label: 'Monthly'}),
+        payload: saving({link: linked}),
         onSaved: vi.fn(),
         toast: {push: vi.fn(), dismiss: vi.fn()}
       })
@@ -180,7 +181,7 @@ describe('useSaveQuery (SPEC-175)', () => {
   it('opens on the LINKED tab’s name and space, and writes it through without a confirm', async () => {
     // FR-004: the file being replaced is the one whose name the user is looking at.
     const linked = {spaceId: 'personal', bucket: 'user-space', key: 'alice/saved_queries/Monthly.sql', name: 'Monthly'};
-    const {result} = setup({activeTab: tab({savedQuery: linked, label: 'Monthly'})});
+    const {result} = setup({payload: saving({link: linked})});
 
     expect(result.current.initialName).toBe('Monthly');
     expect(result.current.initialSpace).toEqual(PERSONAL);

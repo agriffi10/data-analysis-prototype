@@ -7,9 +7,9 @@ import {ConfirmDialog} from '../../components/ConfirmDialog';
 import {DocumentIcon} from '../../components/icons';
 import {formatRelativeTime} from '../../lib/format';
 import {formatBytes} from '../../lib/format';
-import {SavedQuerySpaceSelect} from './SavedQuerySpaceSelect';
-import {useSavedQueriesPager} from './useSavedQueriesPager';
-import type {SavedQuery} from './query.types';
+import {SavedQuerySpaceSelect} from '../saved-queries/SavedQuerySpaceSelect';
+import {useSavedQueriesPager} from '../saved-queries/useSavedQueriesPager';
+import type {SavedQuery} from '../saved-queries/savedQueries.types';
 import type {QuerySpace} from '../catalog/catalog.types';
 
 type Props = {

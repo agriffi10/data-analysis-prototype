@@ -130,10 +130,17 @@ export default defineConfig([
     // what keeps it true for SPEC-177 onward — a catalog module reaching back into
     // `features/query/` is the inversion the whole arc exists to prevent, and it was reached
     // on the very first file moved (`useSchema` -> `DatabaseSchema`).
+    //
+    // `features/saved-queries/` joins on the same footing (SPEC-177 FR-004): the `.sql`
+    // store is below the Query workspace and the Data Explorer, and both save and load
+    // through it. The direction that stays OPEN is the other one — `features/query/`
+    // importing the store is how the workspace keeps working, so `saved-queries` appears in
+    // no `group` pattern below.
     files: [
       'src/features/query/**/*.{ts,tsx}',
       'src/features/data-explorer/**/*.{ts,tsx}',
-      'src/features/catalog/**/*.{ts,tsx}'
+      'src/features/catalog/**/*.{ts,tsx}',
+      'src/features/saved-queries/**/*.{ts,tsx}'
     ],
     rules: {
       'no-restricted-imports': [
@@ -156,7 +163,7 @@ export default defineConfig([
                 '**/features/data-explorer/**'
               ],
               message:
-                'features/query/ and features/data-explorer/ are siblings and must not import from each other. Anything both need belongs in features/catalog/ (SPEC-176).'
+                'features/query/ and features/data-explorer/ are siblings and must not import from each other, and the layers below them (features/catalog/, features/saved-queries/) may import neither. Anything both need belongs in features/catalog/ (SPEC-176) or features/saved-queries/ (SPEC-177).'
             }
           ]
         }
