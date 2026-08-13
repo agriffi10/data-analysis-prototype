@@ -32,6 +32,7 @@ whole new area appears.
 |---|---|
 | File browser | `component-inventory/file-browser-feature.md` |
 | Catalog (shared by Query + Data Explorer) | `component-inventory/catalog-feature.md` |
+| Saved queries (shared `.sql` store) | `component-inventory/saved-queries-feature.md` |
 | Query | `component-inventory/query-feature.md` |
 | Connections | `component-inventory/connections-feature.md` |
 | Notifications | `component-inventory/notifications-feature.md` |

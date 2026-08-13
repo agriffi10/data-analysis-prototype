@@ -7,7 +7,8 @@ import {COLUMN_RESIZE_STEP_PX, DEFAULT_COLUMN_WIDTH} from '../catalog/catalog.co
 import {QueryResultsMobile} from './QueryResultsMobile';
 import {QueryResultsTable} from './QueryResultsTable';
 import {QueryStatusBar} from './QueryStatusBar';
-import type {QueryHistoryEntry, SavedQuery} from './query.types';
+import type {QueryHistoryEntry} from './query.types';
+import type {SavedQuery} from '../saved-queries/savedQueries.types';
 import type {QuerySpace, QueryStatus} from '../catalog/catalog.types';
 import type {UseQueryResultsResult} from '../catalog/useQueryResults';
 import userEvent from '@testing-library/user-event';

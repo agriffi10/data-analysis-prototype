@@ -1,6 +1,7 @@
 import {useEffect, useMemo, useState} from 'react';
 import {QUERY_TABS_MAX} from './query.constants';
-import type {QueryTab, QueryTabsState, SavedQueryLink} from './query.types';
+import type {QueryTab, QueryTabsState} from './query.types';
+import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
 import {readTabsState, writeTabsState, migrateDraftToTabs, initialTabsState} from './queryTabs';
 
 export type OpenTabOpts = {

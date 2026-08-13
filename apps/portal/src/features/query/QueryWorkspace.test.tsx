@@ -24,7 +24,7 @@ import {
   savedQueryKey,
   savedQueryName,
   writeSavedQuery
-} from './savedQueries.service';
+} from '../saved-queries/savedQueries.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import {copyObject, listFiles} from '../file-browser/fileBrowser.service';
 import {enqueueTableRefresh} from '../table-builder/tableBuild.service';
@@ -35,6 +35,7 @@ import {ROUTE_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
 import {ToastProvider} from '../../components/ToastProvider';
 import {AuthContext} from '../auth/authContext';
 import {queryKeys} from './queryKeys';
+import {savedQueryKeys} from '../saved-queries/savedQueryKeys';
 import {catalogKeys} from '../catalog/catalogKeys';
 import {connectionKeys} from '../connections/connectionKeys';
 import type {QueryTabsState} from './query.types';
@@ -109,8 +110,8 @@ vi.mock('./queryHistory.service', async (importOriginal) => ({
   updateQueryHistoryEntry: vi.fn()
 }));
 
-vi.mock('./savedQueries.service', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./savedQueries.service')>()),
+vi.mock('../saved-queries/savedQueries.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../saved-queries/savedQueries.service')>()),
   // The name/key helpers stay REAL — a tab label and a list row must not be able to
   // disagree about what a file is called, and a mocked `savedQueryName` would hide it.
   ensureSavedQueriesFolder: vi.fn(),
@@ -2407,7 +2408,7 @@ describe('QueryWorkspace.a11y', () => {
       tables: [{name: 'sales_2026', location: 's3://b/alice/sales/', columns: [{name: 'region', type: 'string'}]}]
     });
     client.setQueryData(queryKeys.history('alice'), {version: 1, entries: []});
-    client.setQueryData(queryKeys.savedQueries('personal'), {
+    client.setQueryData(savedQueryKeys.list('personal'), {
       pages: [{queries: [], isTruncated: false}],
       pageParams: [undefined]
     });

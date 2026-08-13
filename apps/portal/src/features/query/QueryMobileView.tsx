@@ -8,10 +8,11 @@ import {QueryHistoryRow} from './QueryHistoryRow';
 import {QUERY_HISTORY_PAGE_SIZE} from './query.constants';
 import {formatRelativeTime} from '../../lib/format';
 import {formatBytes} from '../../lib/format';
-import {SavedQuerySpaceSelect} from './SavedQuerySpaceSelect';
+import {SavedQuerySpaceSelect} from '../saved-queries/SavedQuerySpaceSelect';
 import {SavedQueryDeleteConfirm} from './SavedQueriesPanel';
-import {useSavedQueriesPager} from './useSavedQueriesPager';
-import type {MobileHomeTab, QueryHistoryEntry, SavedQuery} from './query.types';
+import {useSavedQueriesPager} from '../saved-queries/useSavedQueriesPager';
+import type {MobileHomeTab, QueryHistoryEntry} from './query.types';
+import type {SavedQuery} from '../saved-queries/savedQueries.types';
 import type {QuerySpace} from '../catalog/catalog.types';
 
 type QueryMobileViewProps = {

@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react';
-import {SAVED_QUERIES_PAGE_SIZE} from './query.constants';
-import type {SavedQuery} from './query.types';
+import {SAVED_QUERIES_PAGE_SIZE} from './savedQueries.constants';
+import type {SavedQuery} from './savedQueries.types';
 
 type Args = {
   queries: SavedQuery[];

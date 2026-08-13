@@ -1,4 +1,4 @@
-import {QUERY_SAVED_QUERY_SPACE_STORAGE_PREFIX} from './query.constants';
+import {QUERY_SAVED_QUERY_SPACE_STORAGE_PREFIX} from './savedQueries.constants';
 
 // The last space the user loaded saved queries from, remembered for the session only.
 // Degrade-safe on the same pattern as `useResultsPageSize` and `useEditorLayout`: a

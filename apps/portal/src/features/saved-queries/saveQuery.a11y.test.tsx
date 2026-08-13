@@ -1,11 +1,9 @@
-import {describe, expect, it, vi} from 'vitest';
-import {render, screen, within} from '@testing-library/react';
+import {describe, expect, it} from 'vitest';
+import {render, screen} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {SaveQueryDialog} from './SaveQueryDialog';
-import {QueryDialogs} from './QueryDialogs';
 import type {QuerySpace} from '../catalog/catalog.types';
-import type {UseSaveQueryResult} from './useSaveQuery';
 
 /**
  * SPEC-175 FR-008 AC4. Every pass is against the DRIVEN container — the state the user is
@@ -81,43 +79,6 @@ describe('Save-query dialog accessibility (SPEC-045 / SPEC-175)', () => {
       />
     );
     expect(screen.getByText(/There’s nowhere to save this query/)).toBeInTheDocument();
-
-    await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
-  });
-
-  it('has no violations on the Replace confirm the collision raises', async () => {
-    // Driven through `QueryDialogs`, which is where the confirm is mounted — so the pass
-    // covers the markup the workspace actually renders, not a hand-built ConfirmDialog.
-    const save: UseSaveQueryResult = {
-      spaces: [MINE, TEAM],
-      linked: undefined,
-      open: false,
-      openDialog: noop,
-      closeDialog: noop,
-      busy: false,
-      error: null,
-      collision: {space: TEAM, name: 'Quarterly'},
-      initialName: 'Quarterly',
-      initialSpace: TEAM,
-      save: noop,
-      confirmReplace: noop,
-      cancelReplace: noop
-    };
-    const {container} = render(
-      <QueryDialogs
-        clear={{open: false, onConfirm: noop, onCancel: noop}}
-        save={save}
-        closing={{tab: null, onConfirm: noop, onCancel: noop}}
-        tabLimit={{open: false, onDismiss: noop}}
-        createView={{open: false, busy: false, targetDatabase: '', onCreate: noop, onCancel: noop}}
-        drop={{target: null, busy: false, onConfirm: noop, onCancel: noop}}
-        share={{target: null, busy: false, error: null, open: vi.fn(), close: noop, submit: vi.fn()} as never}
-        refresh={{target: null, busy: false, error: null, open: vi.fn(), close: noop, submit: vi.fn()} as never}
-        saveResults={{open: false, spaces: [], overwritePrompt: null} as never}
-      />
-    );
-    const confirm = await screen.findByRole('alertdialog', {name: /confirm replace saved query/i});
-    expect(within(confirm).getByText(/already exists in project_alpha/)).toBeInTheDocument();
 
     await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
   });

@@ -1,7 +1,7 @@
 # Spec: Extracting `features/saved-queries/` — the Shared `.sql` Store
 
 **ID:** SPEC-177
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-13
 **Depends On:** SPEC-176
 
@@ -49,6 +49,25 @@ difficult move here cannot block the rest of the arc.
 - **Any behaviour change**, including the S3 calls, the folder marker, the ETag handling and
   the wording of every refusal.
 - Renaming anything except where a module's name would misdescribe its new home.
+
+### Corrections made during the build
+
+- **`onSaved` keeps its second argument.** The Data Model below sketches
+  `onSaved: (link: SavedQueryLink) => void`; it ships as `(query: SavedQuery, sql: string) => void`,
+  unchanged from before the move. `QueryWorkspace` clears its dirty marker with
+  `rememberSavedSql(query.key, sql)` — against the bytes that were *written*, not against whatever
+  the buffer holds when the async write returns — so narrowing it would have changed workspace
+  behaviour, which FR-002 AC2 forbids. Only the `activeTab` → `payload` change, which FR-002
+  actually pins, went in. A `SavedQuery` is structurally a `SavedQueryLink` plus two fields, so
+  SPEC-183 can ignore what it does not need.
+- **`saveQuery.a11y.test.tsx` split rather than moved.** Its fourth case drives the Replace confirm
+  through `QueryDialogs`, a Query workspace component that stays — so moving the file whole would
+  have made the new feature's own suite the FR-004 rule's first violation. The three dialog passes
+  moved with the dialog; the confirm pass is now `features/query/queryDialogs.a11y.test.tsx`, with
+  its assertions byte-identical.
+- **The rule's message was rewritten.** It named only `features/query/` and `features/data-explorer/`,
+  which is what a developer reads when the rule fires on a `saved-queries` import. It now names the
+  lower layers too.
 
 ---
 

@@ -14,7 +14,7 @@ import {
   validateLeafName
 } from '../file-browser';
 import type {ServiceResult} from '../../types/service.types';
-import type {SavedQuery, SavedQueryLink, SavedQueryPage} from './query.types';
+import type {SavedQuery, SavedQueryLink, SavedQueryPage} from './savedQueries.types';
 import type {QuerySpace} from '../catalog/catalog.types';
 
 // SPEC-173: a saved query is a `.sql` OBJECT in a space's `saved_queries/` folder,

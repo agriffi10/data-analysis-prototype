@@ -14,11 +14,11 @@ import {useMobileQuerySurface} from './useMobileQuerySurface';
 import {useSaveResults} from './useSaveResults';
 import {useTableActions} from './useTableActions';
 import {useEditorLayout} from './useEditorLayout';
-import {useSavedQueries} from './useSavedQueries';
-import {useSavedQuerySpace} from './useSavedQuerySpace';
+import {useSavedQueries} from '../saved-queries/useSavedQueries';
+import {useSavedQuerySpace} from '../saved-queries/useSavedQuerySpace';
 import {useQuerySpaces} from '../catalog/useQuerySpaces';
-import {ensureSavedQueriesFolder, readSavedQuery} from './savedQueries.service';
-import {useSaveQuery} from './useSaveQuery';
+import {ensureSavedQueriesFolder, readSavedQuery} from '../saved-queries/savedQueries.service';
+import {useSaveQuery} from '../saved-queries/useSaveQuery';
 import {useConnections} from '../connections/useConnections';
 import {useFeature} from '../feature-flags';
 import {useAllSchemas, useSchema} from '../catalog/useSchema';
@@ -46,7 +46,8 @@ import {QueryToolbar} from './QueryToolbar';
 import {QueryDialogs} from './QueryDialogs';
 import type {SqlEditorHandle} from './SqlEditor';
 import {isConnectionUsable} from '../connections/connection.types';
-import type {QueryHistoryEntry, QueryTab, SavedQuery} from './query.types';
+import type {QueryHistoryEntry, QueryTab} from './query.types';
+import type {SavedQuery} from '../saved-queries/savedQueries.types';
 import type {QuerySpace, GlueTableSummary} from '../catalog/catalog.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
@@ -448,7 +449,9 @@ export function QueryWorkspace() {
   const saveQuery = useSaveQuery({
     spaces: savedSpaces,
     defaultSpace: savedSpace.space,
-    activeTab,
+    // SPEC-177 FR-002: the hook takes the two fields it reads, not the tab that happens to
+    // carry them — the Data Explorer has no `QueryTab` to hand it.
+    payload: {sql: activeTab.sql, link: activeTab.savedQuery},
     toast,
     onSaved: (query, sql) => {
       // The buffer just written IS the file's content, so the dirty marker clears
