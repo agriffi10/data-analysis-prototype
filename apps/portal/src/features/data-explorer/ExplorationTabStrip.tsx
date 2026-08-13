@@ -1,5 +1,6 @@
 import {useRef} from 'react';
 import {cx} from '../../lib/cx';
+import {EXPLORATION_TABPANEL_ID} from './dataExplorer.constants';
 import type {ExplorationTab} from './dataExplorer.types';
 
 export type ExplorationTabStripProps = {
@@ -68,6 +69,10 @@ export function ExplorationTabStrip({tabs, activeTabId, onSelect, onClose, onNew
           <path d="M12 5v14M5 12h14" />
         </svg>
       </button>
+      {/* Only `role="tab"` elements may be tablist children (WCAG 4.1.2,
+          aria-required-children), so the `+` sits outside it — and the ✕ below is a
+          non-focusable span rather than a nested button, which would trip
+          nested-interactive INSIDE the tab. This is the only scrollable region. */}
       <div
         role="tablist"
         aria-label="Open explorations"
@@ -77,30 +82,38 @@ export function ExplorationTabStrip({tabs, activeTabId, onSelect, onClose, onNew
           return (
             <div
               key={tab.id}
+              ref={(node) => {
+                if (node) tabRefs.current.set(tab.id, node);
+                else tabRefs.current.delete(tab.id);
+              }}
+              id={`exploration-tab-${tab.id}`}
+              role="tab"
+              aria-selected={active}
+              aria-controls={EXPLORATION_TABPANEL_ID}
+              tabIndex={active ? 0 : -1}
+              onClick={() => onSelect(tab.id)}
+              onKeyDown={(e) => onTabKeyDown(e, index)}
               className={cx(
-                'flex h-7 flex-none items-center gap-1 rounded-md border px-2 text-sm',
+                'inline-flex h-7 flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-md border pl-3 pr-1 text-sm',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
                 active
                   ? 'border-border bg-surface font-semibold text-text shadow-sm'
-                  : 'border-transparent text-text-2 hover:bg-surface hover:text-text'
+                  : 'border-transparent font-medium text-text-2 hover:bg-surface hover:text-text'
               )}>
-              <div
-                role="tab"
-                ref={(node) => {
-                  if (node) tabRefs.current.set(tab.id, node);
-                  else tabRefs.current.delete(tab.id);
+              <span className="max-w-[16rem] truncate">{tab.label}</span>
+              {/* Decorative and non-focusable, exactly as the Query strip's is: keyboard
+                  and AT users close with Delete on the focused tab (`onTabKeyDown`), so
+                  the action stays fully operable without this control (WCAG 2.1.1).
+                  Unlike that strip, the LAST tab keeps its ✕ — zero explorations is a
+                  legal state here, and the picker is what takes its place. */}
+              <span
+                role="presentation"
+                title={`Close ${tab.label}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose(tab.id);
                 }}
-                tabIndex={active ? 0 : -1}
-                aria-selected={active}
-                onClick={() => onSelect(tab.id)}
-                onKeyDown={(e) => onTabKeyDown(e, index)}
-                className="max-w-[16rem] cursor-pointer truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-                {tab.label}
-              </div>
-              <button
-                type="button"
-                aria-label={`Close ${tab.label}`}
-                onClick={() => onClose(tab.id)}
-                className="grid h-5 w-5 flex-none place-items-center rounded text-text-3 hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+                className="grid h-6 w-6 flex-none cursor-pointer place-items-center rounded-sm text-text-3 hover:bg-danger-soft hover:text-danger">
                 <svg
                   viewBox="0 0 24 24"
                   fill="none"
@@ -108,9 +121,9 @@ export function ExplorationTabStrip({tabs, activeTabId, onSelect, onClose, onNew
                   strokeWidth="2"
                   className="h-3 w-3"
                   aria-hidden="true">
-                  <path d="M6 6l12 12M18 6 6 18" />
+                  <path d="M6 6l12 12M18 6L6 18" />
                 </svg>
-              </button>
+              </span>
             </div>
           );
         })}

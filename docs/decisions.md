@@ -3011,10 +3011,30 @@ reddened both the walking test and the menu-shape test that asserts the **rest o
 unchanged** with the flag off, which is the half the walking test cannot see: a conditional written
 one bracket wide takes Refresh table and Share table with it while "the item is gone" still passes.
 
-**Adding a flag key is a five-place change and the fifth place is Python.** The spec named the
-publish workflow's matrix; the matrix is per **environment**, not per flag, and needed no edit —
-while `scripts/validate_feature_flags.py` hard-codes `FLAG_KEYS` and refuses an unknown key, so
-without it the publish job would have failed on the very document the key was added to.
+**Adding a flag key lands in SIX places and two of them are Python.** The spec named the publish
+workflow's matrix; the matrix is per **environment**, not per flag, and needed no edit. The two that
+matter are `scripts/validate_feature_flags.py`, which refuses an unknown key — without it the publish
+job would have failed on the very document the key was added to — and
+`lambdas/test_feature_flags_config.py`, which **re-states the same tuple on purpose** so a test
+cannot pass by agreeing with a mistake it imported. That second one went red on CI: this repo's four
+named local gates (`format:check`, `lint`, `build`, vitest) run no pytest, so **a change touching
+`scripts/` or `lambdas/` needs `pytest lambdas/` before the push**, not just `ruff`.
 `FEATURE_FLAG_KEYS` **order** is load-bearing beyond iteration: `FeatureRoute` offers the first
 ENABLED feature as its fallback link, so a new key goes **last** or an existing unavailable page
 silently changes where it points.
+
+**An unsettled link must run NOTHING, and "denied" is not the same condition.** Review measured a
+real `StartQueryExecution` behind the refusal: the guard read `denied ? null : …`, and `denied` is
+false during the resolution window, so a tab restored from `sessionStorage` started a billed query
+for a page that then rendered only the refusal. FR-006 AC2's letter survived — the execution is
+against the user's *own* table and no Glue call is made — but cost is this feature's declared
+through-line, so the guard is now "the link is not settled". The connections read that resolution is
+*made of* stays: it is the user's own cache of their own memberships, the same document
+`useDataQualityReport` reads on the same path, and no request touches the space named in the link.
+
+**A tab's close control may not be a `<button>`, because it lives inside `role="tab"`.**
+`ExplorationTabStrip` shipped one and tripped axe's `nested-interactive` — the exact arrangement
+`QueryTabStrip`'s comments forbid, in a component whose own docstring claimed to mirror it. The ✕ is
+a non-focusable `role="presentation"` span and **Delete on the focused tab** is the operable path
+(WCAG 2.1.1). The feature had **no axe assertion at all** while 19 other feature suites have one;
+that absence is what let a violation ship past a review of the markup.

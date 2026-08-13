@@ -4,7 +4,7 @@ import {useAuth} from '../auth';
 import {useFeature} from '../feature-flags';
 import {useQuerySpaces} from '../catalog/useQuerySpaces';
 import {formatBytes} from '../../lib/format';
-import {EXPLORATION_TABS_MAX} from './dataExplorer.constants';
+import {EXPLORATION_TABPANEL_ID, EXPLORATION_TABS_MAX} from './dataExplorer.constants';
 import {ExplorationLimitDialog} from './ExplorationLimitDialog';
 import {ExplorationResultsTable} from './ExplorationResultsTable';
 import {ExplorationTabStrip} from './ExplorationTabStrip';
@@ -46,7 +46,12 @@ export function DataExplorerWorkspace() {
   const {resolution, clear} = useExploreDeepLink(spaces, username, sharedEnabled);
   const denied = resolution.status === 'denied';
 
-  const exploration = useExploration(denied ? null : (tabs.activeTab?.exploration ?? null));
+  // NOT `denied ? null : …`, which was measured wrong: `denied` is false during the
+  // `loading` window, so a restored tab started a real `StartQueryExecution` for a page that
+  // then rendered nothing but a refusal. An unsettled link runs nothing at all — the same
+  // rule the early return below applies to Glue, applied to the bill.
+  const linkUnsettled = resolution.status === 'loading' || denied;
+  const exploration = useExploration(linkUnsettled ? null : (tabs.activeTab?.exploration ?? null));
 
   const openSource = (target: ExploreTarget) => {
     const id = tabs.openTab({kind: 'table', spaceId: target.spaceId, database: target.database, table: target.table});
@@ -111,9 +116,15 @@ export function DataExplorerWorkspace() {
             setPicking(false);
             tabs.setActiveTab(id);
           }}
-          // Closing runs NOTHING: it drops a tab, and the exploration that replaces it in
-          // view has either already run or resolves to a cached execution.
+          // Closing is not itself an execution. What CAN follow one is the neighbour that
+          // slides into view: if it has run this session its statement is cached, but a tab
+          // restored from `sessionStorage` and never opened has not, and showing an
+          // exploration is running it.
           onClose={tabs.closeTab}
+          // A state read is honest for ONE human click — the picker's choice still goes
+          // through `openTab`, which is the authority and refuses on its own synchronous
+          // count (SPEC-178). What this buys is the refusal arriving at the gesture that
+          // asked for it, rather than one table-click later.
           onNew={() => (tabs.tabs.length >= EXPLORATION_TABS_MAX ? setLimitReached(true) : setPicking(true))}
         />
       )}
@@ -126,7 +137,13 @@ export function DataExplorerWorkspace() {
           onCancel={tabs.tabs.length > 0 ? () => setPicking(false) : undefined}
         />
       ) : (
-        <>
+        // The region each tab controls. `aria-controls` on a tab has to name something, or
+        // the relationship the tablist announces does not exist.
+        <div
+          id={EXPLORATION_TABPANEL_ID}
+          role="tabpanel"
+          aria-label={tabs.activeTab?.label ?? 'Exploration'}
+          className="flex min-h-0 flex-1 flex-col">
           <ExplorationResultsTable
             queryExecutionId={exploration.queryExecutionId}
             isPending={exploration.isPending}
@@ -135,7 +152,7 @@ export function DataExplorerWorkspace() {
           <p className="flex-none border-t border-border px-3 py-1.5 text-xs text-text-3">
             {formatBytes(tabs.activeTabBytesScanned)} scanned by this exploration
           </p>
-        </>
+        </div>
       )}
 
       {limitReached && <ExplorationLimitDialog onDismiss={() => setLimitReached(false)} />}

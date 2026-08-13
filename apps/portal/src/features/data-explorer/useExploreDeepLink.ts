@@ -47,7 +47,12 @@ export function useExploreDeepLink(
     // `loading` only while a `?space=` is actually waiting on something. Without one there
     // is nothing to wait for — the personal space is built from the username alone — and
     // reporting `loading` anyway would put a spinner in front of every visit to `/explore`.
-    if (isLoading && space !== null) return {status: 'loading'};
+    //
+    // `sharedEnabled` belongs in this condition, not only in the resolver: with the flag off
+    // the parameter is discarded unread, so waiting on connections for it would be waiting
+    // on a value that cannot change the answer — and FR-006 AC5's "not read at all" would be
+    // true of the resolution while visibly false of the page.
+    if (isLoading && sharedEnabled && space !== null) return {status: 'loading'};
     return resolveExploreParams({space, db, table}, spaces, username, sharedEnabled);
   }, [isLoading, space, db, table, spaces, username, sharedEnabled]);
 

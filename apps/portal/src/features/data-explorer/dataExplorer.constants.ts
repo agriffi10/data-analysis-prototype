@@ -18,6 +18,16 @@ export const EXPLORATION_TABS_MAX = 10;
  */
 export const EXPLORATION_PAGE_SIZE = 100;
 
+/**
+ * The id of the region each tab controls, shared by the strip's `aria-controls` and the
+ * panel's own `id`.
+ *
+ * One constant rather than two literals: a `tab` whose `aria-controls` names nothing is a
+ * broken relationship no visual check catches, and the Query workspace pins the same pairing
+ * with a test.
+ */
+export const EXPLORATION_TABPANEL_ID = 'exploration-tabpanel';
+
 /** sessionStorage key prefix for the per-user exploration tabs (full key: prefix + username). */
 export const EXPLORATION_TABS_STORAGE_PREFIX = 's3portal.dataExplorer.tabs.';
 

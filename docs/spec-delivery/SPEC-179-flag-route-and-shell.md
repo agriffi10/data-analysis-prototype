@@ -21,12 +21,20 @@ resize, reorder, pin or hide; no cell selection, Value panel, Record or Text pre
 replaces it wholesale.** Nothing about its markup is a contract, and a reviewer who finds it thin has
 found the thing the spec said it was building.
 
-## The flag is a FIVE-place change, and the fifth place was not the one the spec named
+## The flag is a SIX-place change, and TWO of them are Python
 
 FR-001 listed the workflow matrix as the fifth site. The matrix is per **environment**, not per flag,
-and needed no edit — but `scripts/validate_feature_flags.py` hard-codes `FLAG_KEYS` and refuses an
-unknown key, so the real fifth site is the validator. Left unchanged, the publish job would have
-failed on the very document this spec added a key to. The compiler found the rest of the fan-out on
+and needed no edit. The real sites are `scripts/validate_feature_flags.py`, which hard-codes
+`FLAG_KEYS` and refuses an unknown key — left unchanged, the publish job would have failed on the
+very document this spec added a key to — and `lambdas/test_feature_flags_config.py`, which
+**re-states the same tuple on purpose** so a test cannot pass by agreeing with a mistake it imported.
+
+**That second one went red in CI, and the reason is worth recording.** The four local gates this
+repo names are `format:check`, `lint`, `build` and vitest; none of them run pytest, and the Python
+half of a flag key lives entirely outside them. The test did exactly its job — it is the guard that
+fails when a key is added in five places instead of six — but it failed on the PR rather than on the
+laptop, because the change touched Python and the pre-push routine did not. **A change touching
+`scripts/` or `lambdas/` needs `pytest lambdas/` before the push**, not just `ruff`. The compiler found the rest of the fan-out on
 its own: `HelpPage`'s flag map is total over `FeatureFlagKey`, so a partial one type-errors rather
 than silently answering `undefined` — falsy, therefore "hide every guide" — the day SPEC-185
 registers the first Data Explorer guide.
@@ -56,8 +64,9 @@ the shared spaces arrive, and the workspace rendered the picker in the meantime 
 *personal* space's database. So the denied case issued a Glue call and then swapped to the refusal a
 tick later: still an answer about a catalog, just about the wrong space. The workspace now renders
 `LoadingState` while a resolution is pending, and the hook reports `loading` **only when a `?space=`
-is actually present** — without one there is nothing to wait for, and reporting it anyway would put a
-spinner in front of every visit to `/explore`. This is `FeatureRoute`'s own rule, one layer down.
+is actually present and `sharedWorkspaces` is on** — without one there is nothing to wait for, and
+with the flag off the parameter is discarded unread, so either way the wait would be for a value that
+cannot change the answer. This is `FeatureRoute`'s own rule, one layer down.
 
 **The deep link had to stop re-opening.** Tab state survives a reload through `sessionStorage`
 (FR-008 AC4), so a link left in the URL bar would stack a duplicate of the linked table on every
@@ -81,11 +90,13 @@ Share table with it, and "the item is gone" would still pass.
 
 ## Verification
 
-All four gates green locally **by exit code**: `format:check`, `lint`, `build` (`tsc -b` + vite), and
-vitest `0` at **2263 tests / 100 files** (2238 / 99 on `origin/main`). `npx vitest run --coverage`
-exits `0` at **92.86 / 88.70 / 92.46 / 94.60** against the SPEC-150 floors of 91/86/89/93 — no floor
-lowered. `ruff check lambdas/ scripts/` passes and `python3 scripts/validate_feature_flags.py` exits
-`0` against the updated document.
+Every gate green locally **by exit code**, and these are the POST-REVIEW numbers — the run after the
+findings below were applied: `format:check`, `lint`, `build` (`tsc -b` + vite), and vitest `0` at
+**2270 tests / 100 files** (2238 / 99 on `origin/main`). `npx vitest run --coverage` exits `0` at
+**93.04 / 88.92 / 92.57 / 94.81** against the SPEC-150 floors of 91/86/89/93 — no floor lowered.
+`ruff check lambdas/ scripts/` passes, `python3 scripts/validate_feature_flags.py` exits `0` against
+the updated document, and `pytest lambdas/` exits `0` at **3650 passed** — the gate that caught the
+sixth flag site, and the one this change had to learn to run.
 
 **One flake seen once and not reproduced**: `archiveJourney.test.tsx > takes the WHOLE selection`
 failed in a single full run and passed on re-run, in isolation, and in every run since. Recorded
@@ -105,6 +116,42 @@ git↔bucket drift, so the first publish after this merge is also the reconcilia
 wired-end-to-end behaviour, and the feature ships here with a placeholder grid; the spec puts Help
 guides in SPEC-185, which is also where the `dataExplorer` guide row joins `GATED_SURFACES`. Nothing
 in `helpContent.ts` or `lib/errorMessages.ts` changed.
+
+## What the fresh-context review changed
+
+Seven findings, all applied. Three were real defects:
+
+- **A denied deep link started an Athena execution.** The guard read `denied ? null : …`, and
+  `denied` is false during the resolution window — so a tab restored from `sessionStorage` minted a
+  real `StartQueryExecution` for a page that then rendered nothing but the refusal. FR-006 AC2's
+  letter survived (the execution is against the user's *own* table, and no Glue call was made), but
+  cost is this feature's declared through-line and a billed query behind a refusal is the wrong kind
+  of correct. The guard is now "the link is not settled", and the test that missed it seeded no tabs
+  — the new one does. **Verified by reverting the fix**: the test reddens.
+- **The tab strip shipped a WCAG violation the Query strip was written to avoid.** A focusable
+  `<button>` close control inside `role="tab"` trips `aria-required-children` and
+  `nested-interactive`; `QueryTabStrip` carries comments saying precisely this must not happen. The
+  ✕ is now a non-focusable `role="presentation"` span with Delete on the focused tab as the
+  operable path (WCAG 2.1.1), the tab carries `aria-controls`, and the results region is a real
+  `tabpanel`. **There was no axe assertion anywhere in this feature** — there are two now, and
+  restoring the button reddens them.
+- **FR-003 AC1 was not asserted against the real route.** The structural test captured wrapper
+  element names only, so changing `App.tsx`'s gate to `flag="query"` left the entire suite green —
+  a flag bypass, because the walking test builds its own `<FeatureRoute>` around a stub and never
+  reads App's. The test now pins the exact opening tag; the mutation reddens it.
+
+The rest were accuracy: two comments that overstated what the code guarantees (closing the active
+tab *can* run the neighbour that slides into view, if it was restored and never opened; the `+`'s
+cap check reads state, which is honest for one human click but is not `openTab`'s authority), the
+`?space=` loading gate now also checking `sharedWorkspaces` so FR-006 AC5's "not read at all" is
+literally true of the page and not just the resolver, and a test for `SourcePicker`'s
+database-unavailable branch.
+
+**One finding was recorded rather than changed.** FR-006 AC2 says "zero Glue **and S3** calls", and
+the denied path does make one S3 read: `readSharedConnectionsCache`. That document is the user's own
+cache of their own memberships, it is what resolution is *made of*, and `useDataQualityReport` reads
+it on the same path for the same reason — no request touches the space named in the link. Noted here
+because the AC's wording and the build differ, and the difference should be visible.
 
 ## Notes for the next spec
 

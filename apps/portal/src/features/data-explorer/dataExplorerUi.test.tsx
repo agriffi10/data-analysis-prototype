@@ -2,6 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {screen, waitFor, within} from '@testing-library/react';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
+import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import userEvent from '@testing-library/user-event';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {resolveExploreParams, spaceDatabase} from './exploreSources';
@@ -148,6 +149,19 @@ describe('the source picker', () => {
     expect(await screen.findByRole('tab', {name: 'orders'})).toBeInTheDocument();
   });
 
+  it('explains an unreadable database rather than listing tables that fail', async () => {
+    // FR-005 AC3, as this build honours it: the space list comes from MEMBERSHIPS, so a
+    // database that cannot be read is explained where its tables would have been. Nothing
+    // offers a table that cannot be opened.
+    vi.mocked(getDatabase).mockResolvedValue({success: false, error: {message: 'EntityNotFoundException'}} as never);
+    render();
+
+    expect(await screen.findByText(/tables aren’t available right now/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'orders'})).not.toBeInTheDocument();
+    // …and the space itself is still selectable, so another one is one click away.
+    expect(screen.getByRole('button', {name: /^My files/})).toBeInTheDocument();
+  });
+
   it('explains itself rather than rendering empty when there is no usable space', async () => {
     vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', '');
     render();
@@ -187,6 +201,20 @@ describe('the deep link', () => {
     expect(runQuery).not.toHaveBeenCalled();
     // …and no picker either, so nothing else can start a request behind the refusal.
     expect(screen.queryByRole('button', {name: 'orders'})).not.toBeInTheDocument();
+  });
+
+  it('starts NO execution for a denied link, even with a tab restored from the session', async () => {
+    // The bug this pins: `denied` is false during the resolution window, so a guard written
+    // as `denied ? null : …` let the restored tab mint a real StartQueryExecution for a page
+    // that then rendered nothing but the refusal. FR-006 AC2's letter survived that — the
+    // execution is against the user's OWN table — but cost is this feature's through-line,
+    // and a billed query behind a refusal is the wrong kind of correct.
+    seedTabs([{id: 't1', table: 'orders'}]);
+    render('/explore?space=someone_elses&db=someone_elses&table=orders');
+
+    expect(await screen.findByRole('heading', {name: 'You don’t have access to that space'})).toBeInTheDocument();
+    expect(runQuery).not.toHaveBeenCalled();
+    expect(getDatabase).not.toHaveBeenCalled();
   });
 
   it('falls through to the picker on a malformed link, never an error', async () => {
@@ -288,11 +316,47 @@ describe('the exploration tabs', () => {
     const {user} = render();
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
 
-    await user.click(screen.getByRole('button', {name: 'Close refunds'}));
+    // The ACTIVE tab, which is the case that can actually run something: closing it
+    // promotes a neighbour into view. Both have run here (the switch below), so the
+    // promoted one resolves to its cached execution and closing costs nothing.
+    await user.click(screen.getByRole('tab', {name: 'refunds'}));
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+    await user.click(screen.getByTitle('Close refunds'));
 
     expect(screen.getAllByRole('tab')).toHaveLength(1);
-    // The remaining tab's statement has already run; closing is not an execution.
+    expect(screen.getByRole('tab', {name: 'orders'})).toHaveAttribute('aria-selected', 'true');
+    expect(runQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('closing the last tab leaves the picker, and still runs nothing', async () => {
+    // Zero tabs is a legal state here, unlike the Query workspace's — so the last tab keeps
+    // its close control and what replaces it is the picker, not an empty frame.
+    seedTabs([{id: 't1', table: 'orders'}]);
+    const {user} = render();
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByTitle('Close orders'));
+
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    expect(await screen.findByRole('region', {name: 'Choose a table to explore'})).toBeInTheDocument();
     expect(runQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the focused tab with Delete, so the ✕ never has to be reachable', async () => {
+    // The ✕ is a non-focusable span (it sits INSIDE `role="tab"`, where a nested button
+    // trips axe), so this key is what keeps the action operable — WCAG 2.1.1, and the
+    // Query strip's own arrangement.
+    seedTabs([
+      {id: 't1', table: 'orders'},
+      {id: 't2', table: 'refunds'}
+    ]);
+    const {user} = render();
+    const tab = await screen.findByRole('tab', {name: 'orders'});
+
+    tab.focus();
+    await user.keyboard('{Delete}');
+
+    expect(screen.queryByRole('tab', {name: 'orders'})).not.toBeInTheDocument();
   });
 
   it('survives a reload through sessionStorage', async () => {
@@ -308,6 +372,33 @@ describe('the exploration tabs', () => {
 
     render();
     expect(await screen.findByRole('tab', {name: 'orders'})).toBeInTheDocument();
+  });
+});
+
+// ─── Accessibility ──────────────────────────────────────────────────────────
+
+describe('accessibility', () => {
+  it('leaves the picker axe-clean', async () => {
+    render();
+    await screen.findByRole('button', {name: 'orders'});
+
+    await expectContainerHasNoA11yViolations(document.body, COMPONENT_AXE_OPTIONS);
+  });
+
+  it('leaves the tab strip and results axe-clean', async () => {
+    // The check that caught a real violation: a `<button>` close control inside
+    // `role="tab"` trips `aria-required-children`, which is exactly why the Query strip
+    // uses a non-focusable span. Driven into the state that has tabs, then asserted on the
+    // rendered container — axe snapshots the tree when it starts, so a state the caller has
+    // to wait for must be waited for first.
+    seedTabs([
+      {id: 't1', table: 'orders'},
+      {id: 't2', table: 'refunds'}
+    ]);
+    render();
+    await screen.findByRole('columnheader', {name: 'id'});
+
+    await expectContainerHasNoA11yViolations(document.body, COMPONENT_AXE_OPTIONS);
   });
 });
 

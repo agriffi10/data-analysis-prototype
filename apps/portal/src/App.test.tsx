@@ -48,5 +48,9 @@ describe('App routing', () => {
       (m) => m[1]
     );
     expect(wrappers).toEqual(['FeatureRoute', 'ErrorBoundary', 'Suspense']);
+    // And the gate is the RIGHT flag. Without this line, changing it to `flag="query"` left
+    // the whole suite green — a flag bypass no test could see, because the walking test
+    // builds its own `<FeatureRoute>` around a stub and never reads App's.
+    expect(block?.[0]).toContain('<FeatureRoute flag="dataExplorer">');
   });
 });
