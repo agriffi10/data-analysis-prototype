@@ -1,8 +1,9 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {UsernameCombobox} from './UsernameCombobox';
 import type {UsernameComboboxHandle} from './UsernameCombobox';
-import {cx} from '../../lib/cx';
+import {Chip, ChipList} from '../../components/Chip';
 import type {SuggestionSource} from './userDirectory.types';
+import {FIELD_HINT} from '../../components/fieldStyles';
 
 export type UsernameChipsFieldProps = SuggestionSource & {
   label: string;
@@ -143,42 +144,23 @@ export function UsernameChipsField({
         // member, and `bob, cara` adds two names rather than the one named. It is also NOT a
         // live region — the combobox already owns one for the match count, and a second
         // announcing "b / bo / bob" on every keystroke would talk over it.
-        <p className="mt-1.5 text-xs text-text-3">Press Enter to add the name you typed.</p>
+        <p className={FIELD_HINT}>Press Enter to add the name you typed.</p>
       )}
 
       {renderChips && value.length > 0 && (
-        <ul
-          aria-label={listLabel}
-          className="mt-2 flex flex-wrap gap-1.5">
+        <ChipList
+          ariaLabel={listLabel}
+          className="mt-2">
           {value.map((name) => (
-            <li
+            <Chip
               key={name}
-              className="flex items-center gap-1 rounded-full border border-border bg-surface-2 py-0.5 pl-2.5 pr-1 text-sm text-text">
-              <span className="font-mono">{name}</span>
-              <button
-                type="button"
-                aria-label={chipRemoveLabel(name)}
-                disabled={disabled}
-                onClick={() => remove(name)}
-                className={cx(
-                  'grid h-6 w-6 place-items-center rounded-full text-text-3',
-                  'hover:bg-surface hover:text-text focus-visible:outline-none focus-visible:ring-2',
-                  'focus-visible:ring-accent disabled:opacity-45'
-                )}>
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  className="h-3 w-3"
-                  aria-hidden="true">
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              </button>
-            </li>
+              name={name}
+              removeLabel={chipRemoveLabel(name)}
+              disabled={disabled}
+              onRemove={() => remove(name)}
+            />
           ))}
-        </ul>
+        </ChipList>
       )}
     </div>
   );

@@ -2,6 +2,7 @@ import {useRef, useState} from 'react';
 import {validateFolderName} from './fileBrowser.service';
 import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
+import {FIELD_HINT} from '../../components/fieldStyles';
 
 type Props = {
   kind: 'file' | 'folder';
@@ -69,7 +70,7 @@ export function RenameDialog({kind, currentName, isBusy = false, onRename, onCan
           disabled={isBusy}
         />
         {ext && (
-          <p className="mt-1.5 text-xs text-text-3">
+          <p className={FIELD_HINT}>
             The <span className="font-mono text-text-2">{ext}</span> extension can’t be changed.
           </p>
         )}

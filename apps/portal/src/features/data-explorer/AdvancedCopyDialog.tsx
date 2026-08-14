@@ -4,6 +4,7 @@ import {FormDialog} from '../../components/FormDialog';
 import {ADVANCED_COPY_DEFAULTS, COPY_FORMAT_LABELS, SELECT_CLASS} from './dataExplorer.constants';
 import {formatUsesQuoting} from './renderCopy';
 import type {CopyFormat, CopyOptions} from './dataExplorer.types';
+import {FIELD_LABEL} from '../../components/fieldStyles';
 
 export type AdvancedCopyDialogProps = {
   /** Cells currently selected on this page — what the copy will be taken from. */
@@ -80,7 +81,7 @@ export function AdvancedCopyDialog({selectedCount, onCopy, onCancel}: AdvancedCo
       <div className="mt-4">
         <label
           htmlFor="advanced-copy-format"
-          className="mb-1.5 block text-sm font-medium text-text">
+          className={FIELD_LABEL}>
           Format
         </label>
         <select

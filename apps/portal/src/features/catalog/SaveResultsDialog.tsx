@@ -4,6 +4,8 @@ import {Modal} from '../../components/Modal';
 import {DestinationPicker, validateFolderName} from '../file-browser';
 import {normalizeCsvName} from './catalog.format';
 import type {QuerySpace} from './catalog.types';
+import {FIELD_LABEL, SECTION_CAPTION} from '../../components/fieldStyles';
+import {DIALOG_PANEL, DIALOG_TITLE} from '../../components/dialogChrome';
 
 type Props = {
   /** The destination spaces the user can save into (personal first, then shared). */
@@ -46,8 +48,8 @@ export function SaveResultsDialog({spaces, defaultName, isBusy = false, onSave, 
       ariaLabel="Save results to my files"
       dismissible={!isBusy}
       onDismiss={onCancel}
-      className="flex max-w-lg flex-col px-5 pb-4 pt-5">
-      <h2 className="text-md font-semibold text-text">Save results</h2>
+      className={DIALOG_PANEL}>
+      <h2 className={DIALOG_TITLE}>Save results</h2>
       <p className="mt-1 text-sm text-text-2">
         Saves the full result set as a CSV. A <code>.csv</code> extension is added automatically.
       </p>
@@ -70,7 +72,7 @@ export function SaveResultsDialog({spaces, defaultName, isBusy = false, onSave, 
         <div className="mt-3">
           <label
             htmlFor="save-results-space"
-            className="mb-1.5 block text-sm font-medium text-text">
+            className={FIELD_LABEL}>
             Save to
           </label>
           <select
@@ -90,7 +92,7 @@ export function SaveResultsDialog({spaces, defaultName, isBusy = false, onSave, 
         </div>
       )}
 
-      <p className="mt-4 mb-1 text-xs font-semibold uppercase tracking-wide text-text-3">Destination folder</p>
+      <p className={`mt-4 mb-1 ${SECTION_CAPTION}`}>Destination folder</p>
       <DestinationPicker
         key={space.id}
         bucket={space.bucket}

@@ -2,6 +2,7 @@ import {useEffect, useRef} from 'react';
 import {Input} from '../../components/Input';
 import {Button} from '../../components/Button';
 import {emptyDraftKey, type DraftPartitionKey, type PartitionKeyErrors, type PartitionType} from './partitionKeys';
+import {FIELD_HINT, FIELD_LABEL} from '../../components/fieldStyles';
 
 // SPEC-071 FR-002: the optional, ordered partition-keys editor. Controlled — the
 // dialog owns the draft rows (so it can compute validity + the wire keys) and the
@@ -73,7 +74,7 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
           onClick={addKey}>
           Add partition keys
         </Button>
-        <p className="mt-1.5 text-xs text-text-3">
+        <p className={FIELD_HINT}>
           Optional — only if your files are organized in <code>key=value/</code> folders (e.g.{' '}
           <code>year=2026/month=01/</code>).
         </p>
@@ -149,7 +150,7 @@ export function PartitionKeysField({value, errors, disabled = false, onChange}: 
                   <div>
                     <label
                       htmlFor={`${row.id}-type`}
-                      className="mb-1.5 block text-sm font-medium text-text">
+                      className={FIELD_LABEL}>
                       Type
                     </label>
                     <select

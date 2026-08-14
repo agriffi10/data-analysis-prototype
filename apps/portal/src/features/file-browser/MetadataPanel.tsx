@@ -10,6 +10,7 @@ import {useFileDownload} from './useFileDownload';
 import {formatSize} from './fileBrowser.format';
 import {relativePath} from './fileBrowser.paths';
 import {DetailField} from './DetailField';
+import {SECTION_CAPTION} from '../../components/fieldStyles';
 
 type Props = {
   bucket: string;
@@ -161,7 +162,7 @@ function MetadataFields({
       </dl>
 
       <div className="mt-6">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-3">Custom metadata</h3>
+        <h3 className={SECTION_CAPTION}>Custom metadata</h3>
         {customEntries.length === 0 ? (
           <p className="mt-2 text-sm text-text-3">No custom metadata</p>
         ) : (

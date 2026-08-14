@@ -1,6 +1,7 @@
 import {Pager} from '../../components/Pager';
 import {ColumnResizeHandle} from '../catalog/ColumnResizeHandle';
 import type {QueryColumn} from '../catalog/catalog.types';
+import {SECTION_CAPTION} from '../../components/fieldStyles';
 
 // The leading row-number (`#`) column is a fixed, non-resizable width (FR-001).
 const ROW_NUMBER_COLUMN_WIDTH = 56; // px (matches the old w-14)
@@ -87,14 +88,14 @@ export function QueryResultsTable({
                 <tr className="h-10">
                   <th
                     scope="col"
-                    className="sticky left-0 top-0 z-30 border-b border-border bg-surface-2 px-3 text-xs font-semibold uppercase tracking-wide text-text-3">
+                    className={`sticky left-0 top-0 z-30 border-b border-border bg-surface-2 px-3 ${SECTION_CAPTION}`}>
                     #
                   </th>
                   {columns.map((column, index) => (
                     <th
                       key={index}
                       scope="col"
-                      className="sticky top-0 z-20 border-b border-border bg-surface-2 px-3 text-xs font-semibold uppercase tracking-wide text-text-3">
+                      className={`sticky top-0 z-20 border-b border-border bg-surface-2 px-3 ${SECTION_CAPTION}`}>
                       <span
                         className="block truncate"
                         title={column.name}>

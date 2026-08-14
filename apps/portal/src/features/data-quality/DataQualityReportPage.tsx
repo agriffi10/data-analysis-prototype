@@ -2,6 +2,7 @@ import {useParams, useNavigate} from 'react-router';
 import {PageLayout} from '../../components/PageLayout';
 import {Banner} from '../../components/Banner';
 import {Button} from '../../components/Button';
+import {StatusPill} from '../../components/StatusPill';
 import {WarningIcon, InfoIcon} from '../../components/icons';
 import {usePageTitle} from '../../hooks/usePageTitle';
 import {useIsMobile} from '../../lib/useBreakpoint';
@@ -31,31 +32,13 @@ import type {
 type ChipTone = 'danger' | 'warning' | 'success';
 type ChipLabel = 'Exact' | 'Approximate' | 'Sampled' | 'Skipped' | 'Not computed';
 
-const CHIP_TONES: Record<ChipTone, string> = {
-  danger: 'bg-danger-soft text-danger',
-  warning: 'bg-warning-soft text-warning',
-  success: 'bg-success-soft text-success'
-};
-
 /**
- * The `ConnectionsPage` StatusBadge shape, reused rather than reinvented: a dot PLUS a
- * text label, never colour alone. The label is what carries the meaning — the tone is
- * decoration, and a user who cannot distinguish the tones loses nothing.
+ * The shared `StatusPill` (SPEC-186 FR-010), which now owns the shape this file used to
+ * reproduce: a dot PLUS a text label, never colour alone. The label is what carries the
+ * meaning — the tone is decoration, and a user who cannot distinguish the tones loses nothing.
  */
 function StatusChip({label, tone}: {label: ChipLabel; tone: ChipTone}) {
-  return (
-    <span
-      className={cx(
-        'inline-flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold',
-        CHIP_TONES[tone]
-      )}>
-      <span
-        aria-hidden="true"
-        className="h-[7px] w-[7px] rounded-full bg-current"
-      />
-      {label}
-    </span>
-  );
+  return <StatusPill tone={tone}>{label}</StatusPill>;
 }
 
 // ── Callout (the HelpGuideCard shape) ───────────────────────────────────────

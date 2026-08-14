@@ -5,6 +5,7 @@ import {cx} from '../lib/cx';
 import {IconButton} from './IconButton';
 import {BellIcon, HelpCircleIcon} from './icons';
 import {useEscapeKey} from '../hooks/useEscapeKey';
+import {SECTION_CAPTION} from './fieldStyles';
 
 export type AppNavDrawerProps = {
   open: boolean;
@@ -168,7 +169,7 @@ export function AppNavDrawer({open, onClose, id, contextualRail, isPathEnabled}:
           className="flex h-full w-[300px] max-w-[85vw] flex-col bg-surface shadow-lg"
           onClick={(e) => e.stopPropagation()}>
           <div className="flex min-h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2">
-            <span className="text-xs font-semibold uppercase tracking-[.04em] text-text-3">Menu</span>
+            <span className={SECTION_CAPTION}>Menu</span>
             <IconButton
               label="Close navigation"
               onClick={onClose}>

@@ -5,6 +5,7 @@ import {ROW_NUMBER_COLUMN_WIDTH} from './dataExplorer.constants';
 import {ColumnFilterMenu, type ColumnQueryActions} from './ColumnFilterMenu';
 import type {FilterOperator} from './dataExplorer.types';
 import type {GridColumn} from './useColumnGeometry';
+import {SECTION_CAPTION} from '../../components/fieldStyles';
 
 export type ExplorationGridHeaderProps = {
   /** Visible columns in display order — the pinned block first. */
@@ -64,7 +65,7 @@ export function ExplorationGridHeader({
         <th
           scope="col"
           style={{width: ROW_NUMBER_COLUMN_WIDTH}}
-          className="sticky left-0 top-0 z-30 border-b border-border bg-surface-2 px-3 text-xs font-semibold uppercase tracking-wide text-text-3">
+          className={`sticky left-0 top-0 z-30 border-b border-border bg-surface-2 px-3 ${SECTION_CAPTION}`}>
           #
         </th>
         {columns.map((column, position) => (
@@ -74,7 +75,7 @@ export function ExplorationGridHeader({
             aria-label={column.name}
             style={column.pinned ? {left: offsets[position]} : undefined}
             className={cx(
-              'relative top-0 border-b border-border bg-surface-2 py-1 pl-3 pr-9 text-left text-xs font-semibold uppercase tracking-wide text-text-3',
+              `relative top-0 border-b border-border bg-surface-2 py-1 pl-3 pr-9 text-left ${SECTION_CAPTION}`,
               column.pinned ? 'sticky z-30' : 'z-20'
             )}
             // The resize handle and the menu live INSIDE the header, so a drag of the edge

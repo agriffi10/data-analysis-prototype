@@ -1,10 +1,12 @@
 import {IconButton} from '../../components/IconButton';
+import {StatusPill, type StatusTone} from '../../components/StatusPill';
 import {CollisionPrompt} from './CollisionPrompt';
 import {useUploadQueue} from './uploadQueueContext';
 import {uploadPercent} from './fileBrowser.service';
 import {formatSize} from './fileBrowser.format';
 import {leafName, fileExtension} from './fileBrowser.paths';
 import {TERMINAL_STATUSES, type UploadItem, type UploadStatus} from './upload.types';
+import {SECTION_CAPTION} from '../../components/fieldStyles';
 
 function CloseIcon() {
   return (
@@ -27,22 +29,22 @@ function CloseIcon() {
 // (feedback 2026-06-30): Uploading (amber, pulsing — in-progress, like
 // "Provisioning…"), Uploaded (green), Failed (red), Queued/Cancelled (neutral).
 // The label always carries the meaning, so color/dot is never the only signal (a11y).
-const CHIP: Record<Exclude<UploadStatus, 'collision'>, {label: string; tone: string; pulse?: boolean}> = {
-  queued: {label: 'Queued', tone: 'bg-surface-2 text-text-2'},
-  uploading: {label: 'Uploading', tone: 'bg-warning-soft text-warning', pulse: true},
-  done: {label: 'Uploaded', tone: 'bg-success-soft text-success'},
-  failed: {label: 'Failed', tone: 'bg-danger-soft text-danger'},
-  cancelled: {label: 'Cancelled', tone: 'bg-surface-2 text-text-2'}
+const CHIP: Record<Exclude<UploadStatus, 'collision'>, {label: string; tone: StatusTone; pulse?: boolean}> = {
+  queued: {label: 'Queued', tone: 'neutral'},
+  uploading: {label: 'Uploading', tone: 'warning', pulse: true},
+  done: {label: 'Uploaded', tone: 'success'},
+  failed: {label: 'Failed', tone: 'danger'},
+  cancelled: {label: 'Cancelled', tone: 'neutral'}
 };
 
 function StatusChip({status}: {status: Exclude<UploadStatus, 'collision'>}) {
   const {label, tone, pulse} = CHIP[status];
   return (
-    <span
-      className={`inline-flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${tone}`}>
-      <span className={`h-[7px] w-[7px] rounded-full bg-current ${pulse ? 'animate-pulse' : ''}`} />
+    <StatusPill
+      tone={tone}
+      pulse={pulse}>
       {label}
-    </span>
+    </StatusPill>
   );
 }
 
@@ -187,7 +189,7 @@ export function UploadList() {
       aria-label="Uploads"
       className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-surface">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-3">Uploads</h3>
+        <h3 className={SECTION_CAPTION}>Uploads</h3>
         <span
           className="text-sm text-text-2"
           aria-live="polite">

@@ -19,6 +19,7 @@ import type {Connection} from '../features/connections/connection.types';
 import {usePageTitle} from '../hooks/usePageTitle';
 import {spaceBuckets} from '../lib/userSpace';
 import {logBackgroundFailure} from '../lib/errorMessages';
+import {SECTION_CAPTION} from '../components/fieldStyles';
 
 // Dev-only fallback: browse a static/public test bucket without auth for local
 // work without AWS. Honoured ONLY in a dev build (matches the service +
@@ -133,7 +134,7 @@ export default function FilesPage() {
   const spacesRail = useMemo(
     () => (
       <div className="p-3">
-        <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Spaces</p>
+        <p className={`px-3 pb-1 pt-1 ${SECTION_CAPTION}`}>Spaces</p>
         <SpacesList
           connections={sidebarConnections}
           activeSpaceId={sidebarActiveId}

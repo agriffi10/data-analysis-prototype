@@ -15,6 +15,7 @@ import {parseMemberInputDetailed} from '../shared-spaces/memberInput';
 import {CATALOG_IDENTIFIER_RULE} from '../../lib/catalogIdentifier';
 import {MAX_LIST_HEIGHT, listPlacement} from './comboboxPlacement';
 import type {SuggestionSource} from './userDirectory.types';
+import {FIELD_HINT} from '../../components/fieldStyles';
 
 export type UsernameComboboxProps = SuggestionSource & {
   label: string;
@@ -500,7 +501,7 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
       {note && (
         <p
           id={noteId}
-          className="mt-1.5 text-xs text-text-3">
+          className={FIELD_HINT}>
           {note}
         </p>
       )}

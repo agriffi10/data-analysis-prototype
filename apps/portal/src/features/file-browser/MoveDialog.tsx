@@ -2,6 +2,7 @@ import {DestinationPicker} from './DestinationPicker';
 import {Modal} from '../../components/Modal';
 import type {SelectableItem} from './selectionContext';
 import type {FileSpaceTarget} from './useFileSpace';
+import {DIALOG_PANEL, DIALOG_TITLE} from '../../components/dialogChrome';
 
 type Props = {
   bucket: string;
@@ -35,8 +36,8 @@ export function MoveDialog({
       ariaLabel="Move to folder"
       dismissible={!isBusy}
       onDismiss={onCancel}
-      className="flex max-w-lg flex-col px-5 pb-4 pt-5">
-      <h2 className="text-md font-semibold text-text">
+      className={DIALOG_PANEL}>
+      <h2 className={DIALOG_TITLE}>
         Move {items.length} {items.length === 1 ? 'item' : 'items'}
       </h2>
 

@@ -1,4 +1,6 @@
 import {Link} from 'react-router';
+import {Badge} from '../../components/Badge';
+import {StatusPill} from '../../components/StatusPill';
 import {formatRelativeTime} from '../../lib/format';
 import {cx} from '../../lib/cx';
 import {splitLocation} from './dataQuality.format';
@@ -55,28 +57,14 @@ export function DataQualityRunRow({run}: {run: DataQualityRunSummary}) {
               impression, so a run whose figures are estimates must never read as an
               unqualified "Clean" here any more than it may in the report or the
               notification (SPEC-112/114, same rule applied at list level). */}
-          {hasApproximateFigures && (
-            <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs font-medium text-text-2">Sampled</span>
-          )}
+          {hasApproximateFigures && <Badge>Sampled</Badge>}
         </div>
       </Link>
     </li>
   );
 }
 
-/** Dot PLUS text label — never colour-only (`ConnectionsPage` StatusBadge pattern). */
+/** Dot PLUS text label — never colour-only (`StatusPill`'s whole reason for existing). */
 function VerdictChip({clean}: {clean: boolean}) {
-  return (
-    <span
-      className={cx(
-        'inline-flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold',
-        clean ? 'bg-success-soft text-success' : 'bg-warning-soft text-warning'
-      )}>
-      <span
-        aria-hidden="true"
-        className="h-[7px] w-[7px] rounded-full bg-current"
-      />
-      {clean ? 'Clean' : 'Issues found'}
-    </span>
-  );
+  return <StatusPill tone={clean ? 'success' : 'warning'}>{clean ? 'Clean' : 'Issues found'}</StatusPill>;
 }

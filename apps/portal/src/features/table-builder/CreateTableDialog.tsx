@@ -7,6 +7,7 @@ import {buildPartitionKeys, type DraftPartitionKey} from './partitionKeys';
 import {isValidTableName, suggestTableName} from './tableBuild.service';
 import {CATALOG_IDENTIFIER_RULE} from '../../lib/catalogIdentifier';
 import type {PartitionKey} from './tableBuild.types';
+import {SECTION_CAPTION} from '../../components/fieldStyles';
 
 type Props = {
   // The folder being turned into a table — drives the suggested name + the copy.
@@ -66,7 +67,7 @@ export function CreateTableDialog({folderName, folderPath, busy = false, submitE
 
       {folderPath !== undefined && (
         <div className="mb-4">
-          <span className="text-xs font-medium uppercase tracking-wide text-text-2">Folder</span>
+          <span className={SECTION_CAPTION}>Folder</span>
           <p
             className="mt-0.5 break-all rounded-md border border-border bg-surface-2 px-2.5 py-1.5 font-mono text-sm text-text"
             title={folderPath || '/'}>
