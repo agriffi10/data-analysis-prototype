@@ -128,6 +128,17 @@ locals {
   # archive host.
   archive_bucket_name = var.archive_bucket_name != "" ? var.archive_bucket_name : "${var.project_name}-prod-archive"
 
+  # SPEC-186 FR-004: the archive plane's audit trail bucket, and the read-only verification
+  # role's ARN. Both computed the same cycle-free way as the archive bucket above — base's
+  # deploy policy is scoped to the bucket NAME, and modules/analytics needs the role ARN at
+  # PLAN time for its compact() LF-Tag grant, so neither can come from module.verification's
+  # own outputs without a cycle.
+  #
+  # The trail bucket is NOT in modules/app's CSP inputs, for the archive bucket's reason: the
+  # browser has no relationship with either.
+  verification_trail_bucket_name = "${var.project_name}-${var.environment}-archive-audit"
+  verification_role_arn          = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-verification"
+
   # Archive SHARED execution role ARN (SPEC-168; one role for every verb, like every plane
   # since SPEC-062), constructed cycle-free like the role ARNs above (module.archive creates
   # it as "${project}-${env}-archive-execution-role").
@@ -283,6 +294,9 @@ module "base" {
   # deploy grants are scoped by {project_name}-*-archive-* name patterns in the policy
   # template; the bucket needs an exact-name statement because it has no trailing segment.
   archive_bucket_name = local.archive_bucket_name
+
+  # SPEC-186 FR-004: the archive-audit trail bucket, by NAME and for the same reason.
+  verification_trail_bucket_name = local.verification_trail_bucket_name
 }
 
 module "auth" {
@@ -448,6 +462,12 @@ module "analytics" {
   # throwaway dq_tmp_* external tables in the dynamic target database (the actor's own,
   # or the shared space's). Constructed string (locals above).
   data_quality_execution_role_arn = local.data_quality_execution_role_arn
+
+  # SPEC-186 FR-004: the read-only verification role, granted DESCRIBE on the portal-managed
+  # LF-Tag so an owed catalog read-back can be made at all. DESCRIBE only — it is NOT on the
+  # Lake Formation admins list and gets no DATA_LOCATION_ACCESS, so it reads definitions and
+  # never data. Constructed string (locals above), known at plan time so it is compact()-safe.
+  verification_role_arn = local.verification_role_arn
 
   # Ordering: base grants the deploy role its Athena/Glue/LF/admin-bucket perms;
   # data creates the user-space bucket + portal role that analytics registers in LF
@@ -985,4 +1005,45 @@ module "user_directory" {
   # base grants the deploy role its user-directory perms (SPEC-146 PR1, already applied);
   # data owns the bucket this writes into.
   depends_on = [module.base, module.data]
+}
+
+# ── Verification access (SPEC-186 FR-004) ─────────────────────────────────────
+# NOT A CONTROL PLANE. Two owed live assertions could not be made by ANY principal, and a
+# check nobody can run is indistinguishable from one that passes — SPEC-138's "did not run is
+# never clean" and SPEC-137's blind gates, in a third place.
+#
+#  1. SPEC-170's negative assertion — that a `destination_occupied` refusal did not already
+#     initiate retrieval. `dat-prod-archive` explicit-denies the laptop IAM user, its
+#     execution role trusts lambda.amazonaws.com only, the deploy role is GitHub-OIDC-only,
+#     and NO TRAILS EXIST, so there was no independent record of whether RestoreObject was
+#     ever called. A UI observation does not substitute: the script itself records that a
+#     refusal which had already started retrieval looks identical from there, and the cost of
+#     being wrong is 3-5 billed, uncancellable hours.
+#  2. Catalog read-backs — SPEC-149's Description/comment preservation and SPEC-153's owed
+#     foreign projection fixture — which fail with `Insufficient Lake Formation permission(s):
+#     Required Describe`.
+#
+# Both answers are READ-ONLY and neither widens the data path, which FR-004 puts out of scope
+# explicitly: the trail records calls it does not authorize, and the role reads table
+# DEFINITIONS with no SELECT and no DATA_LOCATION_ACCESS anywhere in its grants.
+module "verification" {
+  source = "./modules/verification"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  account_id   = data.aws_caller_identity.current.account_id
+
+  trail_bucket_name = local.verification_trail_bucket_name
+
+  # The bucket whose OBJECT-LEVEL calls are recorded, by name: the advanced event selector
+  # matches `arn:aws:s3:::{bucket}/` as an ARN prefix. Constructed local, so this module never
+  # depends on module.archive and no cycle is possible.
+  archive_bucket_name = local.archive_bucket_name
+
+  glue_catalog_arn = "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog"
+
+  # base grants the deploy role the trail, bucket and role perms (and holds the 30s
+  # propagation floor) BEFORE anything here lands.
+  depends_on = [module.base]
 }

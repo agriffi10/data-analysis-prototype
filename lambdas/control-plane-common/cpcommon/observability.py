@@ -42,8 +42,9 @@ reach ``config`` for nothing. So ``LOGS_QUEUE_URL`` is read with ``os.environ.ge
 Attributes:
   LOGS_QUEUE_URL: Optional and never required, for the cold-start reason above. Unset means
     stdout, not a crash.
-  _VERSION: A build stamp when one is set. The library needs a version, and "0.0.0" reads as
-    unstamped rather than as a real release.
+  UNSTAMPED_VERSION: What ``version`` reads when no build stamp can be found at all. It is a
+    sentinel, not a release, and a test forbids a deployed record carrying it.
+  _VERSION: The commit this function's code was built from, resolved once per container.
 """
 
 import functools
@@ -59,7 +60,55 @@ logger = logging.getLogger(__name__)
 
 LOGS_QUEUE_URL = os.environ.get("LOGS_QUEUE_URL", "")
 
-_VERSION = os.environ.get("BUILD_VERSION", "0.0.0")
+UNSTAMPED_VERSION = "0.0.0"
+
+
+def _build_version():
+    """Resolves the commit this function's code was built from.
+
+    SPEC-186 FR-005. Every record shipped ``"0.0.0"`` because nothing ever set
+    ``BUILD_VERSION``, and the field exists to correlate a record with a deploy.
+
+    The stamp travels IN THE PACKAGE (``BUILD_VERSION`` beside the handler, written by
+    ``Deploy Lambdas``) rather than in the function's environment, because Tofu owns the
+    environment map: ``update-function-configuration --environment`` replaces it whole, so an
+    env-borne version would either race an apply or be reverted by the next one — and Deploy
+    Infrastructure is path-filtered to ``infra/**``, so a Tofu-set value would name the last
+    infra commit rather than the running code. The environment variable is still honoured
+    first, so a test or a future release tag can override without a rebuild.
+
+    Read at import and never again: the answer cannot change within a container, and a
+    per-record file read would pay for that on every event.
+
+    Args:
+      None.
+
+    Returns:
+      The commit sha, or ``UNSTAMPED_VERSION`` when no stamp is present — which now means
+      genuinely unstamped rather than "nobody wired this up".
+
+    Raises:
+      None.
+    """
+    stamped = os.environ.get("BUILD_VERSION", "").strip()
+    if stamped:
+        return stamped
+    # LAMBDA_TASK_ROOT is set by the runtime; its absence means this is not a Lambda (a unit
+    # test, or the local CLI), where there is no artefact to identify.
+    root = os.environ.get("LAMBDA_TASK_ROOT", "")
+    if not root:
+        return UNSTAMPED_VERSION
+    try:
+        with open(os.path.join(root, "BUILD_VERSION"), encoding="utf-8") as handle:
+            return handle.read().strip() or UNSTAMPED_VERSION
+    except OSError:
+        # A missing or unreadable stamp must never keep a function from starting: this module
+        # is on the layer that attaches to every control-plane verb, and PR #196 is what an
+        # import-time failure there costs.
+        return UNSTAMPED_VERSION
+
+
+_VERSION = _build_version()
 
 _initialized = False
 
@@ -122,6 +171,8 @@ def init(service: str, **defaults: object) -> None:
     lf.configure(
         service=service,
         version=_VERSION,
+        # Read here rather than at import: unlike the build stamp this is a plain variable
+        # with no file behind it, and reading it at configure time keeps it overridable.
         env=os.environ.get("ENV_NAME", ""),
         sink=sink,  # type: ignore[arg-type]
         defaults=dict(defaults),

@@ -792,6 +792,14 @@ jobs:
           cp lambdas/${{ matrix.lambda.name }}/*.py "$BUILD_DIR"/
           # Never ship tests.
           rm -f "$BUILD_DIR"/test_*.py
+          # SPEC-186 FR-005: the build stamp travels IN THE PACKAGE, not in the function's
+          # environment. Tofu owns the environment map and `update-function-configuration
+          # --environment` REPLACES it whole, so writing a version there would either race
+          # Tofu or be reverted by the next apply; and Deploy Infrastructure is path-filtered
+          # to infra/**, so a Tofu-set sha would name the last INFRA commit rather than the
+          # code that is running. A file beside the handler is the artefact's own identity.
+          # `cpcommon.observability` reads it at import (see BUILD_VERSION there).
+          echo "${GITHUB_SHA}" > "$BUILD_DIR/BUILD_VERSION"
           (cd "$BUILD_DIR" && zip --quiet --recurse-paths "../${{ matrix.lambda.name }}.zip" .)
 
       # ── Combined per-function size guard (SPEC-107 FR-004) ────────────────────

@@ -65,6 +65,9 @@ resource "aws_lambda_function" "functions" {
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
         # SPEC-136 parity. Deliberately NOT mirrored by a config._require — see variables.tf.
         LOGS_QUEUE_URL = var.logs_queue_url
+        # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+        # feature-flag document's `environments` keys (`var.environment`, default "prod").
+        ENV_NAME = var.environment
       },
       lookup(local.archive_verb_env, each.key, {}),
     )

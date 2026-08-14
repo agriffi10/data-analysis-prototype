@@ -173,6 +173,73 @@ def test_init_stamps_service_env_and_version(sink, monkeypatch):
     assert captured["env"] == "prod"
 
 
+def test_build_version_prefers_an_explicit_stamp(monkeypatch):
+    """SPEC-186 FR-005: the environment variable still wins, for a release tag or a test."""
+    monkeypatch.setenv("BUILD_VERSION", "v2.1.0")
+    assert observability._build_version() == "v2.1.0"
+
+
+def test_build_version_reads_the_stamp_shipped_IN_THE_PACKAGE(monkeypatch, tmp_path):
+    """SPEC-186 FR-005: every record shipped "0.0.0" because nothing ever set BUILD_VERSION.
+
+    The stamp travels with the code rather than in the function's environment: Tofu owns the
+    environment map and `--environment` replaces it whole, and Deploy Infrastructure is
+    path-filtered to infra/**, so an env-borne version would name the last INFRA commit rather
+    than the code that is running. `Deploy Lambdas` writes this file into every zip.
+    """
+    monkeypatch.delenv("BUILD_VERSION", raising=False)
+    (tmp_path / "BUILD_VERSION").write_text("64ca7a4f0c1e\n", encoding="utf-8")
+    monkeypatch.setenv("LAMBDA_TASK_ROOT", str(tmp_path))
+
+    version = observability._build_version()
+
+    assert version == "64ca7a4f0c1e"
+    assert version != observability.UNSTAMPED_VERSION
+
+
+def test_build_version_never_fails_a_cold_start_over_a_missing_stamp(monkeypatch, tmp_path):
+    """SPEC-186 FR-005: this module is on the layer every control-plane verb attaches.
+
+    PR #196 is what an import-time failure there costs — three planes down at cold start. An
+    absent or unreadable stamp therefore degrades to the sentinel and never raises.
+    """
+    monkeypatch.delenv("BUILD_VERSION", raising=False)
+    monkeypatch.setenv("LAMBDA_TASK_ROOT", str(tmp_path))  # no BUILD_VERSION file in it
+    assert observability._build_version() == observability.UNSTAMPED_VERSION
+
+    # An empty file is unstamped too, not a version of "".
+    (tmp_path / "BUILD_VERSION").write_text("  \n", encoding="utf-8")
+    assert observability._build_version() == observability.UNSTAMPED_VERSION
+
+    # Off Lambda entirely (a unit test, the local CLI): nothing to identify.
+    monkeypatch.delenv("LAMBDA_TASK_ROOT", raising=False)
+    assert observability._build_version() == observability.UNSTAMPED_VERSION
+
+
+def test_a_deployed_record_carries_a_real_env_and_a_real_version(sink, monkeypatch, tmp_path):
+    """SPEC-186 FR-005 AC4, over the two fields TOGETHER as a deploy would set them.
+
+    Both were inert in production — `env` empty and `version` "0.0.0" on every record in
+    `logs/service=auth/` and `logs/service=shared-space/`. Fields that exist to filter by
+    environment and correlate to a deploy, and neither could do either.
+    """
+    monkeypatch.delenv("BUILD_VERSION", raising=False)
+    (tmp_path / "BUILD_VERSION").write_text("abc1234", encoding="utf-8")
+    monkeypatch.setenv("LAMBDA_TASK_ROOT", str(tmp_path))
+    monkeypatch.setenv("ENV_NAME", "prod")
+    captured = {}
+    monkeypatch.setattr(lf, "configure", lambda **kw: captured.update(kw))
+    monkeypatch.setattr(observability, "_VERSION", observability._build_version())
+    observability._initialized = False
+
+    observability.init(service="auth")
+
+    assert captured["env"] == "prod"
+    assert captured["env"] != ""
+    assert captured["version"] == "abc1234"
+    assert captured["version"] != observability.UNSTAMPED_VERSION
+
+
 def test_init_is_idempotent_within_a_process(monkeypatch):
     """FR-003: module-level init() plus a re-import under test is the ordinary case."""
     monkeypatch.delenv("LOGS_QUEUE_URL", raising=False)

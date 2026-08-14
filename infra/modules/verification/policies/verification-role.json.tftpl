@@ -1,0 +1,46 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CatalogReadBack",
+      "Effect": "Allow",
+      "Action": [
+        "glue:GetDatabase",
+        "glue:GetDatabases",
+        "glue:GetTable",
+        "glue:GetTables",
+        "glue:GetTableVersion",
+        "glue:GetTableVersions",
+        "glue:GetPartition",
+        "glue:GetPartitions"
+      ],
+      "Resource": [
+        "${glue_catalog_arn}",
+        "${glue_catalog_arn}/*"
+      ],
+      "//": "NO lakeformation:GetDataAccess anywhere in this policy, and its absence is the point: GetDataAccess is the credential vend for READING A TABLE'S DATA, and this role reads definitions. Lake Formation gates the calls above through the DESCRIBE grant in modules/analytics instead — which is also what keeps every statement here resource-scoped, so the isolation policies' zero-`Resource: \"*\"` property (SPEC-139) holds for this role too."
+    },
+    {
+      "Sid": "ArchiveAuditRead",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "${trail_bucket_arn}",
+        "${trail_bucket_arn}/*"
+      ]
+    },
+    {
+      "Sid": "TrailStatusRead",
+      "Effect": "Allow",
+      "Action": [
+        "cloudtrail:DescribeTrails",
+        "cloudtrail:GetTrailStatus",
+        "cloudtrail:GetEventSelectors"
+      ],
+      "Resource": "${trail_arn}"
+    }
+  ]
+}

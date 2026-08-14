@@ -115,3 +115,23 @@ output "notifications_writer_role_arn" {
   description = "ARN of the privileged notifications-writer role (SPEC-058) — the single writer of every user's notifications.json."
   value       = module.notifications.notifications_writer_role_arn
 }
+
+# ── Verification access (SPEC-186 FR-004) ────────────────────────────────────
+# The three values a live check needs by name. `trail_name` is here for a reason worth
+# stating: a trail that is not logging returns an EMPTY result, which reads exactly like a
+# `RestoreObject` that never happened — so the negative assertion has to confirm the trail is
+# on before it trusts the absence (SPEC-138's "did not run is never clean").
+output "verification_role_arn" {
+  description = "SPEC-186 FR-004: the read-only role a live check assumes for catalog read-backs and the archive audit record."
+  value       = module.verification.verification_role_arn
+}
+
+output "verification_trail_bucket" {
+  description = "SPEC-186 FR-004: where the archive vault's object-level CloudTrail events land."
+  value       = module.verification.trail_bucket_name
+}
+
+output "verification_trail_name" {
+  description = "SPEC-186 FR-004: the trail itself, so a check can prove it is logging before reading an absence as evidence."
+  value       = module.verification.trail_name
+}

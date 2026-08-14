@@ -63,6 +63,9 @@ resource "aws_lambda_function" "functions" {
       # SPEC-134. Deliberately NOT mirrored by a config._require: a verb that loses this must
       # log to stdout and keep working, never crash the plane at cold start (PR #196).
       LOGS_QUEUE_URL = var.logs_queue_url
+      # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+      # feature-flag document's `environments` keys (`var.environment`, default "prod").
+      ENV_NAME = var.environment
       # SPEC-125: NOT used by any shared-space verb — set because the cpcommon layer's
       # config requires it, and any code path may read it. (SPEC-156 FR-004 moved that from
       # import to first read, so this is no longer a cold-start crash — PR #196 — but it is

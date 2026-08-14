@@ -58,3 +58,9 @@ variable "archive_bucket_name" {
   type        = string
   default     = ""
 }
+
+variable "verification_trail_bucket_name" {
+  description = "NAME (not ARN) of the archive-audit trail bucket the deploy role manages (SPEC-186 FR-004). A constructed string from the root module, for the same reason archive_bucket_name is one: it avoids a dependency cycle with the module that creates the bucket, and the bucket's own name has no trailing segment a pattern could match."
+  type        = string
+  default     = ""
+}
