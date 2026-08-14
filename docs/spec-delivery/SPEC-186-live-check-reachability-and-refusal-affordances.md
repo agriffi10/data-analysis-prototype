@@ -124,12 +124,35 @@ sufficient for `GetTableVersions`, and that the first apply of the new module su
 eventual consistency — the archive plane's own first apply did not, which is why the 30s propagation
 floor is here too. **A red first apply of new infra is expected rather than a defect.**
 
-## Follow-ups
+## The plan scan rejected the verification role's trust, and rejecting it was right
 
-- **The plan scan's accept list is deliberately unchanged.** A line matching no finding is a hard
-  error, and the two new policies' `Resource: "*"` rows (`cloudtrail:DescribeTrails`/`ListTrails`,
-  which take no ARN) may or may not fire CKV_AWS_355 — the PR's plan job is what says. That is the
-  two-step edit `.github/checkov-plan-accepted.txt` predicts in its own closing note.
+The first version trusted `arn:aws:iam::{account}:root` — the standard AWS delegation idiom, which
+grants nothing by itself because an account principal still needs its own `sts:AssumeRole`. The
+rendered-plan scan failed it with **`CKV_AWS_61` on `module.verification.aws_iam_role.verification`**
+(1 unaccepted IAM finding; the `Resource: "*"` rows I had expected to fire did not).
+
+**It was not accepted, and the accept list is unchanged.** SPEC-139's rule is that the list holds
+findings with *no scopable alternative* — CloudFront and Cognito creation have no ARN before the
+resource exists and no applicable condition key. Naming the principal **is** a scopable alternative
+here, so accepting would have been suppressing a fixable finding, which is the thing that list's own
+header warns against.
+
+`verification_principal_arns` is now a root variable, **empty by default**, and the role is not
+created when it is empty. Two consequences worth knowing:
+
+- **The trail ships unconditionally** — it needs no principal, and it is the half that unblocks
+  SPEC-170's negative assertion. That check is runnable the moment this applies.
+- **The catalog read-backs need one line of config first.** Add to `infra/terraform.tfvars`
+  (gitignored — these are operator identities and do not belong in the repo):
+
+  ```hcl
+  verification_principal_arns = ["arn:aws:iam::<account>:user/<your-iam-user>"]
+  ```
+
+  then apply. `terraform.tfvars.example` carries the commented line. Until then SPEC-149's
+  preservation check and SPEC-153's fixture stay blocked on the same Lake Formation wall.
+
+## Follow-ups
 - **SPEC-183's LOADING half stays descoped** and is untouched here.
 
 ## User-facing docs sweep

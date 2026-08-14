@@ -137,7 +137,12 @@ locals {
   # The trail bucket is NOT in modules/app's CSP inputs, for the archive bucket's reason: the
   # browser has no relationship with either.
   verification_trail_bucket_name = "${var.project_name}-${var.environment}-archive-audit"
-  verification_role_arn          = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-verification"
+  # EMPTY when no principal has been named, because the role is then not created — and
+  # analytics' compact() must drop it rather than granting Lake Formation DESCRIBE to a role
+  # that does not exist. A constructed string rather than module.verification's output for the
+  # usual reason: analytics needs it at PLAN time, and an unknown value inside a list silently
+  # drops the change (the same trap the file-send allowlist records above).
+  verification_role_arn = length(var.verification_principal_arns) > 0 ? "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-verification" : ""
 
   # Archive SHARED execution role ARN (SPEC-168; one role for every verb, like every plane
   # since SPEC-062), constructed cycle-free like the role ARNs above (module.archive creates
@@ -1042,6 +1047,10 @@ module "verification" {
   archive_bucket_name = local.archive_bucket_name
 
   glue_catalog_arn = "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog"
+
+  # Operator identities, from terraform.tfvars (gitignored). Empty ⇒ no role, and the TRAIL —
+  # the half that unblocks SPEC-170 — ships regardless.
+  verification_principal_arns = var.verification_principal_arns
 
   # base grants the deploy role the trail, bucket and role perms (and holds the 30s
   # propagation floor) BEFORE anything here lands.

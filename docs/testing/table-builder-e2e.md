@@ -463,5 +463,15 @@ read, so until this is run the serialization is asserted, not demonstrated.
 - **SPEC-149's preservation check** — refresh a table carrying a `Description` and a column comment,
   then `GetTable`: both survive, the columns changed, and `get-table-versions` shows a previous
   version. This needs the SPEC-186 FR-004 verification role (`dat-prod-verification`); from any
-  other principal it returns `Insufficient Lake Formation permission(s): Required Describe`. While
-  you have that response, **paste it verbatim** as SPEC-153's owed foreign projection fixture.
+  other principal it returns `Insufficient Lake Formation permission(s): Required Describe`.
+
+  > **The role is one config line away, not available today.** It is created only once
+  > `verification_principal_arns` names a principal in `infra/terraform.tfvars` (gitignored —
+  > operator identities do not belong in the repo), because delegating to the account root
+  > instead was rejected by the plan scan (`CKV_AWS_61`) for the right reason. Add
+  > `verification_principal_arns = ["arn:aws:iam::<account>:user/<you>"]` and apply, then
+  > `aws sts assume-role --role-arn "$(tofu -chdir=infra output -raw verification_role_arn)"
+  > --role-session-name livecheck`.
+
+  While you have that response, **paste it verbatim** as SPEC-153's owed foreign projection
+  fixture.

@@ -95,3 +95,9 @@ variable "principal_tag_key" {
 # (see main.tf), so the former root `lambda_provisioner_role_arn` variable was
 # removed. The analytics module keeps its own optional variable (default "") so it
 # still plans standalone before auth exists.
+
+variable "verification_principal_arns" {
+  description = "SPEC-186 FR-004: IAM principals allowed to assume the read-only verification role (catalog read-backs + the archive audit record). Set in terraform.tfvars, which is gitignored — these are operator identities and do not belong in the repo. Empty (the default) means the role is not created at all; the CloudTrail trail ships either way, since it needs no principal."
+  type        = list(string)
+  default     = []
+}

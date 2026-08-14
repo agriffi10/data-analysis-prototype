@@ -3720,6 +3720,14 @@ make `GetTable` work", which it is not needed for), no data-bucket ARN, no `Reso
 `iam:PassRole` on the deploy side — nothing but a human may assume it. A test asserts each, and
 asserts the role appears nowhere in `portal-role-permissions`.
 
+**The role is trusted to NAMED principals and does not exist until one is named**, which the
+plan scan is what forced. The first version delegated to the account root; `CKV_AWS_61` rejected it,
+and accepting the finding would have violated the accept list's own rule — that list is for findings
+with **no scopable alternative**, and naming the principal is one. `verification_principal_arns`
+lives in `terraform.tfvars` (gitignored; operator identities do not belong in the repo) and is empty
+by default. **The trail is unconditional**, because it needs no principal and is the half that
+unblocks SPEC-170.
+
 **The trail's own status is part of the assertion.** A trail that is off returns an empty result,
 which reads exactly like a `RestoreObject` that never happened — so the script confirms
 `IsLogging: true` before reading an absence as evidence.

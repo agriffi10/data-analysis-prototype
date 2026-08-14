@@ -129,8 +129,15 @@ Expect:
   Expect `true`. If it is `false`, this assertion cannot be made and nothing below counts.
 
   **Then read the record.** Data events are delivered in batches, so **wait ~10 minutes** after
-  the refusal before concluding anything. Assume the read-only verification role
-  (`dat-prod-verification`, SPEC-186 FR-004) and sweep the trail objects for this archive id:
+  the refusal before concluding anything.
+
+  > The read-only verification role (`dat-prod-verification`, SPEC-186 FR-004) exists only once
+  > `verification_principal_arns` names a principal in `infra/terraform.tfvars` — it is empty by
+  > default, because those are operator identities and do not belong in the repo. The trail
+  > itself ships regardless, so if you have ordinary read access to
+  > `s3://dat-prod-archive-audit/` you can run the query below without the role at all.
+
+  Sweep the trail objects for this archive id:
 
   ```bash
   aws s3 ls "s3://dat-prod-archive-audit/AWSLogs/" --recursive \

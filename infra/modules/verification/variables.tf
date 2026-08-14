@@ -38,3 +38,9 @@ variable "trail_retention_days" {
   type        = number
   default     = 400
 }
+
+variable "verification_principal_arns" {
+  description = "SPEC-186 FR-004: the IAM principals allowed to assume the read-only verification role — operator identities, so they belong in terraform.tfvars (gitignored) and not in the repo. EMPTY BY DEFAULT, and the role is then not created at all: a role nobody has named is a role nobody needs, and delegating to the account root instead was rejected by the plan scan (CKV_AWS_61) for the right reason — naming the principal is a scopable alternative, which is exactly what the accept list is NOT for. The trail is unconditional and needs no principal."
+  type        = list(string)
+  default     = []
+}
