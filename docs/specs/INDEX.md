@@ -191,7 +191,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 183 — Saving an Exploration as a Saved Query | Completed |
 | 184 — Presentation and Formatting | Completed |
 | 185 — Copy, Export, Help & the Arc's Live Checks | Completed |
-| 186 — Live-Check Reachability, Refusal Affordances & Observability Fields | Draft |
+| 186 — Live-Check Reachability, Refusal Affordances & Observability Fields | Completed |
 
 ## Arcs
 

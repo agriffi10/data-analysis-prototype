@@ -359,6 +359,94 @@ describe('FileBrowser — selection + delete', () => {
     expect(await screen.findByText(/report\.csv — You don't have permission/)).toBeInTheDocument();
     expect(screen.queryByText(/report\.csv — Access Denied/)).not.toBeInTheDocument();
   });
+
+  // ── SPEC-186 FR-002 ────────────────────────────────────────────────────────
+  // The service has always refused these, but only AFTER the user read "Delete the folder
+  // … and everything inside it? This can't be undone." and pressed Delete. Removing
+  // `deleteDisabledReason`/`moveDisabledReason` from SelectionToolbar, or dropping
+  // `undeletableSelectionRefusal`, reddens all three of these.
+  describe('an undeletable root folder refuses BEFORE the confirm', () => {
+    const withSavedQueries = {
+      files: [file('report.csv')],
+      folders: [folder('saved_queries'), folder('docs')],
+      isTruncated: false
+    };
+
+    it('states the reason on Delete and opens no confirm dialog at all', async () => {
+      mock.listFiles.mockResolvedValue(ok(page(withSavedQueries)));
+      const {user} = renderBrowser();
+      await user.click(await screen.findByRole('checkbox', {name: 'Select folder saved_queries'}));
+
+      const del = screen.getByRole('button', {name: 'Delete selected items'});
+      expect(del).toHaveAttribute('aria-disabled', 'true');
+      expect(del).toHaveAttribute('title', 'Saved queries live in this folder, so it can’t be deleted.');
+      // aria-disabled, NOT disabled: the reason has to stay reachable in the tab order.
+      expect(del).not.toBeDisabled();
+      // …and the reason is a DESCRIPTION, never the accessible name (SPEC-172's registry rule).
+      expect(del).toHaveAccessibleName('Delete selected items');
+
+      await user.click(del);
+      // `alertdialog` is the role the delete confirm actually carries — querying only for
+      // `dialog` would pass whatever happened, which is the whole point of this assertion.
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(mock.deleteFolder).not.toHaveBeenCalled();
+    });
+
+    it('states the MOVE reason on Move, which is worded for a rename too', async () => {
+      mock.listFiles.mockResolvedValue(ok(page(withSavedQueries)));
+      const {user} = renderBrowser();
+      await user.click(await screen.findByRole('checkbox', {name: 'Select folder saved_queries'}));
+
+      const move = screen.getByRole('button', {name: 'Move selected items'});
+      expect(move).toHaveAttribute('title', 'Saved queries live in this folder, so it can’t be moved or renamed.');
+      await user.click(move);
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(mock.moveFolder).not.toHaveBeenCalled();
+    });
+
+    // Found in review: refusing on the FIRST protected item killed Delete for a selection the
+    // service would have carried out per item — and at a space root, select-all takes in
+    // `athenaresults/`, `saved_queries/` and `archive/` together, so select-all → Delete went
+    // dead with a reason about saved queries. Restoring the first-match version reddens this.
+    it('does NOT refuse a mixed selection — the service is per item, and it does something', async () => {
+      mock.listFiles.mockResolvedValue(ok(page(withSavedQueries)));
+      const {user} = renderBrowser();
+      await user.click(await screen.findByRole('checkbox', {name: 'Select folder saved_queries'}));
+      await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
+
+      const del = screen.getByRole('button', {name: 'Delete selected items'});
+      expect(del).not.toHaveAttribute('aria-disabled');
+      await user.click(del);
+      expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    });
+
+    it('refuses when EVERY selected folder is protected, and names one of them', async () => {
+      mock.listFiles.mockResolvedValue(
+        ok(page({files: [], folders: [folder('saved_queries'), folder('athenaresults')], isTruncated: false}))
+      );
+      const {user} = renderBrowser();
+      await user.click(await screen.findByRole('checkbox', {name: 'Select folder saved_queries'}));
+      await user.click(screen.getByRole('checkbox', {name: 'Select folder athenaresults'}));
+
+      const del = screen.getByRole('button', {name: 'Delete selected items'});
+      expect(del).toHaveAttribute('aria-disabled', 'true');
+      expect(del).toHaveAttribute('title', 'Saved queries live in this folder, so it can’t be deleted.');
+    });
+
+    it('leaves an ordinary folder alone — the control is the guard, not the folder count', async () => {
+      mock.listFiles.mockResolvedValue(ok(page(withSavedQueries)));
+      const {user} = renderBrowser();
+      await user.click(await screen.findByRole('checkbox', {name: 'Select folder docs'}));
+
+      const del = screen.getByRole('button', {name: 'Delete selected items'});
+      expect(del).not.toHaveAttribute('aria-disabled');
+      await user.click(del);
+      // The confirm is an `alertdialog` — this is the control that the two cases above
+      // must NOT reach.
+      expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    });
+  });
 });
 
 describe('FileBrowser — move / copy / rename', () => {

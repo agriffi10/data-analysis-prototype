@@ -54,6 +54,9 @@ resource "aws_lambda_function" "build" {
       # cpcommon.observability reads it with os.environ.get, so a builder that somehow loses
       # this variable logs to stdout and still publishes rather than crashing at cold start.
       LOGS_QUEUE_URL = var.logs_queue_url
+      # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+      # feature-flag document's `environments` keys (`var.environment`, default "prod").
+      ENV_NAME = var.environment
     }
   }
 

@@ -10,6 +10,7 @@ import type {GlueTableSummary} from '../catalog/catalog.types';
 import type {Connection} from '../connections/connection.types';
 import type {TableActions} from './SchemaBrowser';
 import {useFeature} from '../feature-flags';
+import {SECTION_CAPTION} from '../../components/fieldStyles';
 
 // SPEC-063: a single database in the schema rail — a disclosure node that, when
 // expanded, loads its own schema (`useSchema`, decoupled from the active target)
@@ -201,7 +202,7 @@ function ObjectGroup({
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs font-semibold uppercase tracking-[.04em] text-text-3 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+        className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left ${SECTION_CAPTION} hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent`}>
         <Chevron open={open} />
         <span>
           {title} ({objects.length})

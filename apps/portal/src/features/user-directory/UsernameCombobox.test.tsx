@@ -88,6 +88,19 @@ describe('UsernameCombobox', () => {
       ).toEqual(['alice', 'alicia']);
     });
 
+    // SPEC-186 FR-003. jsdom has no layout, so the arithmetic lives in
+    // `comboboxPlacement.test.ts`; what this asserts is that the list is bounded by a MEASURED
+    // value at all, rather than by the fixed `max-h-60` class that overhung the dialog by 97px.
+    // Restoring the class reddens it.
+    it('bounds the list by a measurement, not by a fixed class', async () => {
+      const {user} = renderWithProviders(<Harness />);
+      await typeReady(user, 'ali');
+
+      const listbox = screen.getByRole('listbox');
+      expect(listbox.style.maxHeight).not.toBe('');
+      expect(listbox.className).not.toMatch(/\bmax-h-/);
+    });
+
     it('keeps DOM focus in the input and moves a virtual cursor instead', async () => {
       // The property that makes this a combobox rather than a menu. If focus moved to the
       // option, a screen reader would lose the text the user is typing.

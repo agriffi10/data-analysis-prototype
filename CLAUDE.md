@@ -125,18 +125,19 @@ failure decorator emits, and a second producer would be SPEC-114's duplicate.
 
 **FIVE live checks are owed on this plane and they are ONE session, in order** — the script is one
 file: `docs/testing/archive-restore-e2e.md`, and **172's section is the only one driven from the
-UI**, which is now the easiest way to run 169's and 170's too. **BLOCKED, measured 2026-08-14:
-every `head-object` assertion below is unmakeable by ANY principal** — nothing human can reach
-`dat-prod-archive` and there are no CloudTrail trails, so 170's negative assertion, 169's
-`StorageClass: GLACIER` read-back and its empty-prefix check all fall. **Do not proxy them from the
-UI** — a refusal that had already started retrieval looks identical there. → SPEC-186 FR-004;
-evidence: `@docs/testing/2026-08-14-live-check-session.md`. 168's proves the layer attaches at
+UI**, which is now the easiest way to run 169's and 170's too. **UNBLOCKED by SPEC-186 FR-004: the
+negative assertion is read from `dat-prod-archive-audit`, NOT by `head-object`** — nothing human can
+reach `dat-prod-archive`, so the trail is the record, and **confirm `get-trail-status` reports
+`IsLogging: true` first** (an empty result from a trail that is off reads exactly like a
+`RestoreObject` that never happened). Data events arrive in batches — wait ~10 min. **Do not proxy
+from the UI** — a refusal that had already started retrieval looks identical there. Still NOT
+observable: the `Restore` header's format and the `GLACIER`-stays-`GLACIER` property, which the
+trail does not report — record those as owed, not discharged. 168's proves the layer attaches at
 cold start; 169's third step is what that whole spec exists for (a Deny on ONE key: source intact,
-archive prefix empty, notification honest — and `StorageClass: GLACIER` by `head-object`, never by
-inference); 170's restores the archive 169 just made, and **its load-bearing assertion is a NEGATIVE
-one** — after the `destination_occupied` refusal, `head-object` an archived object and confirm there
-is **no `Restore` header**, because a refusal that had already started retrieval looks identical
-from the UI and costs real hours and money. **171's is the one that cannot be compressed**: a real
+archive prefix empty, notification honest); 170's restores the archive 169 just made, and **its
+load-bearing assertion is the NEGATIVE one** — after the `destination_occupied` refusal, the trail
+query for that archive id must return NOTHING, because a refusal that had already started retrieval
+looks identical from the UI and costs real hours and money. **171's is the one that cannot be compressed**: a real
 Glacier retrieval takes 3-5 BILLED hours, so start it and come back the same day. **Its second step
 is the one to stage deliberately** — re-create a file mid-wait and confirm `ReCheckDestinationClear`
 refuses with the "already been retrieved" wording while your new file survives untouched, then
@@ -167,10 +168,12 @@ why" — `aria-disabled` rather than `disabled`, so the reason is in the tab ord
 in `{root}saved_queries/`; 174 gave loading a space selector and **175 gave saving one**, so a
 shared space's folder can finally hold something. **175's cross-bucket `PutObject` is DISCHARGED
 (2026-08-14)**, and **the arc's load-bearing check is UNRUNNABLE AS WRITTEN — that is the finding.**
-It asks you to delete `{root}saved_queries/DO_NOT_DELETE.txt` through the portal and confirm
+It asked you to delete `{root}saved_queries/DO_NOT_DELETE.txt` through the portal and confirm
 `AccessDenied`, but the portal issues **zero** `DeleteObject` against the marker: it is hidden by
-basename, and the folder delete is refused **client-side** first. The client-side layer IS verified,
-personal and shared; the **bucket-policy Deny — the second layer — is not** → SPEC-186 FR-001.
+basename, and the folder delete is refused **client-side** first. **SPEC-186 FR-001 split it in
+two** — `docs/testing/saved-queries-e2e.md`, check 1 (client-side, browser, DISCHARGED personal and
+shared) and check 2 (the bucket-policy Deny, which needs portal-role credentials via the CLI and is
+**STILL OWED**). Neither result says anything about the other's layer.
 **Open-a-colleague's-query is DISCHARGED (2026-08-14)** — a member opened the owner's `.sql` from
 the shared space's selector, body fetched 200. Evidence:
 `@docs/testing/2026-08-14-live-check-session.md`. Narrative: `ARCS.md` → *Saved-queries-in-spaces arc*.
@@ -197,6 +200,20 @@ section the Help page opens on, so a row anywhere else read as correctly hidden 
 **183's LOADING half stays descoped** (user decision) — the `sql` arm of `ExplorationSource` is
 unreachable and is owed a later spec, which must first move `splitSqlStatements` from
 `features/query/` down to `lib/sql.ts`. Narrative: `ARCS.md` → *Data Explorer arc*.
+
+**SPEC-186 is COMPLETE (2026-08-14) and it is the reason several lines below now read
+"unblocked" rather than "blocked".** All ten FRs on one branch (user decision, no 187 split): the
+`Modal`/`cx` width sentinel, two refusal affordances, the suggestion listbox's containment, the
+roster/connections agreement, `env`+`version` on every log record, the verification access, the
+chip/status-pill/caption/dialog-chrome consolidation behind a `?raw` glob guard, and the three
+corrected live-check scripts. **What SPEC-186 itself leaves owed is small and all of it is
+browser-or-AWS work:** the nine dialogs re-measured at desktop and 400px in **Safari**; FR-003's
+listbox containment in **both** dialogs under **both** share kinds; one log record read back for
+FR-005; `docs/testing/saved-queries-e2e.md` **check 2** (the bucket-policy Deny, CLI-only); and the
+first apply of `modules/verification` — **a red FIRST apply of new infra is expected**, IAM being
+eventually consistent, and the 30s propagation floor is there for the reason the archive plane's
+own first apply went red. Narrative + the two deliberate visual changes:
+`@docs/spec-delivery/SPEC-186-live-check-reachability-and-refusal-affordances.md`.
 
 The observability arc (127→137) is COMPLETE, and so are SPEC-140, 141, 142
 and the **whole refresh arc (143, 144, 149, 145)** — the pipeline classifies the change, refuses an
@@ -227,9 +244,11 @@ its own source — the user's own shared spaces, from the connections cache the 
 
 **SPEC-146's last owed check is DISCHARGED (2026-08-14)** — 8 suggestions rendered, which only
 happens if the directory `GetObject` succeeded. **158's pass is part-done and one half FAILED:**
-chips are fine, but the list does **not** position inside the panel (97px overhang, 3 of 8 visible)
-→ SPEC-186 FR-003. **Still owed:** **Share table** under **both share kinds**, the **400px** pass,
-and the whole thing in **Safari** — a Chromium run corroborates but cannot discharge it. Evidence:
+chips are fine, but the list did **not** position inside the panel (97px overhang, 3 of 8 visible)
+— **FIXED in SPEC-186 FR-003**, which also bounded the dialogs themselves (FR-007), so the numbers
+move and the pass must be re-run. **Still owed:** **Add members** and **Share table** under **both
+share kinds**, the **400px** pass, and the whole thing in **Safari** — a Chromium run corroborates
+but cannot discharge it. Evidence:
 `@docs/testing/2026-08-14-live-check-session.md`. (158 itself owes nothing live: it makes no AWS
 call.)
 
@@ -295,8 +314,12 @@ What remains below is the live checks that are owed.
   instrumentation harness was *satisfied by* the unresolvable import. `lambdas/test_deploy_matrix.py`
   now joins the deploy matrix against what each function imports — **the check that the code/infra
   split needs and had nowhere else.** Full account: the Correction section of 137's delivery doc.
-  **DISCHARGED (2026-08-14): 137's Phase 4** — both auth spans at `status: ok`; `version`/`env` ship
-  inert (→ SPEC-186 FR-005). Evidence: `@docs/testing/2026-08-14-live-check-session.md`.
+  **DISCHARGED (2026-08-14): 137's Phase 4** — both auth spans at `status: ok`. `version`/`env` shipped
+  inert and **SPEC-186 FR-005 filled them**: `ENV_NAME` from `var.environment` on every Lambda, and
+  the build sha from a `BUILD_VERSION` file **in the package** (Tofu owns the env map and Deploy
+  Infrastructure is path-filtered, so an env-borne sha would name the wrong commit). **Owed: read one
+  record back** and confirm neither is empty or `0.0.0`. Evidence:
+  `@docs/testing/2026-08-14-live-check-session.md`.
 - **DISCHARGED (2026-08-03): the data-quality live run.** A real check was run end to end from the
   UI, clearing what **114** (`reportKey` seeding), **123** (the index CAS), **128** (`request_id` as
   the join key), **129** (the append at real volume) and **132's Phase 4** all owed.
@@ -305,8 +328,11 @@ What remains below is the live checks that are owed.
   the member's first sign-in (073); after leaving, `?space=` fell back with **zero S3 requests
   naming the space** (no existence oracle); and after the type-to-confirm delete the Glue database
   was gone from the rail, so the teardown was **not** the partial kind SPEC-151 guards against. **A
-  defect fell out of it: the roster says `Pending` for a member the same page shows `Active`** (the
-  acknowledge flip never fans out) → SPEC-186 FR-008. Evidence:
+  defect fell out of it: the roster said `Pending` for a member the same page showed `Active`** (the
+  acknowledge flip never fanned out) — **FIXED in SPEC-186 FR-008**: acknowledge now runs
+  `write_roster_to_all` (best-effort, never failing an already-committed registry write), and the
+  reader's own row never reads `Pending`. **Owed: re-run add → acknowledge → read roster live.**
+  Evidence:
   `@docs/testing/2026-08-14-live-check-session.md`. **Still owed live:** **133's Phase 5**: a
   malformed message on one request DLQ, confirming the user is notified, the message is gone, and
   the redacted body is in `logs/service=dlq-drain/`. That discharges **126**'s owed malformed-body
@@ -327,14 +353,17 @@ What remains below is the live checks that are owed.
   `@docs/testing/2026-08-14-live-check-session.md`. **The trap worth carrying: inference samples
   exactly ONE object — the first key in listing order** (`sample_by_format.setdefault`), so a column
   added in a file that sorts *later* is invisible **by design** and the refresh correctly says
-  `already up to date`; the added column must be in a file that **sorts first** → SPEC-186 FR-006.
+  `already up to date`; the added column must be in a file that **sorts first**. **SPEC-186 FR-006
+  wrote that into the script** — `docs/testing/table-builder-e2e.md`, with a fixture that names the
+  file (`part0.csv`).
   **Still owed:** the **partitioned**-table variant, and **149's preservation check:** refresh a table carrying a
   `Description` and a column comment, then `GetTable` — both survive, the columns changed, and
   `get-table-versions` shows a previous version. **While you have
   that response, paste it verbatim** as SPEC-153's owed foreign projection fixture (FR-006 AC2 shipped
   a docs-transcribed stand-in because LF filters the local CLI principal's catalog to empty).
-  **BLOCKED, measured 2026-08-14: no principal can make this read-back** (`Insufficient Lake
-  Formation permission(s): Required Describe`) → SPEC-186 FR-004. SPEC-137 is the
+  **UNBLOCKED by SPEC-186 FR-004:** assume `dat-prod-verification`, which holds `glue:GetTable`/
+  `GetTableVersions` plus a DESCRIBE grant on the `portal-managed` LF-Tag. From any other principal
+  it still returns `Insufficient Lake Formation permission(s): Required Describe`. SPEC-137 is the
   precedent for why these matter: instrumented code shipped whose layer attachment was missing, and
   every gate was blind to it. **149's policy simulation is DISCHARGED against the DEPLOYED role**
   (2026-08-04, post-apply): `glue:UpdateTable` allowed, `glue:DeleteTable` **implicitDeny**,
@@ -345,8 +374,10 @@ What remains below is the live checks that are owed.
   > it with the `GetTable` read-back"*. Settled instead by a live refresh; see the bullet above.
 - **SPEC-157's live check is STILL OWED and is NOT performable from the UI (measured 2026-08-14):**
   two submits **2 s apart** both returned independently — a small table's refresh finishes inside
-  that window, so the lock is never contended. Needs an SQS double-send or a much larger folder →
-  SPEC-186 FR-006; evidence: `@docs/testing/2026-08-14-live-check-session.md`.
+  that window, so the lock is never contended. **SPEC-186 FR-006 replaced the procedure**: an SQS
+  double-send, or a several-hundred-object folder that makes the first refresh slow enough to
+  overlap — both written out in `docs/testing/table-builder-e2e.md`. Evidence:
+  `@docs/testing/2026-08-14-live-check-session.md`.
   **Nothing that runs today proves two real executions serialize** — the unit tests simulate
   contention with a pinned read. Its **IAM simulation is DISCHARGED against the DEPLOYED role**
   (2026-08-09): `PutObject`/`GetObject` allowed under `locks/table-builder/`, `DeleteObject`
@@ -459,6 +490,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **Calc computes what only the browser has, grouping computes what only Athena can, and the percentage names its PAGE (182):** a selection is client state, so aggregating it server-side is a billed execution **per selection change** — Calc therefore issues **zero** (asserted by count) and says `N selected cells on this page` every time it says anything, where grouping in the browser would aggregate whichever rows happened to be fetched. The percentage is computed client-side from the loaded page and its header **says `(this page)`**, because only one page is ever in memory and `% of count_all` beside a paged result reads as a share of the table; it renders **no SQL** (a windowed total would re-scan for a column asked for by eye) yet rides on `Grouping`, which must restore whole. **Grouping mode is exactly ≥1 grouping column** (AC6), and leaving it **drops sorts on aggregate aliases** — `count_all` exists only while the grouping does, so carrying that ORDER BY onto the raw table is a query Athena rejects AND misses the cached ungrouped execution. `groupingOrderingViolation` is **exported from the renderer** on the `isBareNumeric` precedent, returning the offending COLUMN so the renderer can word it as operator text and the panel as a sentence (SPEC-106); it drives `disabledReason` on the panel's **Apply**, where the conflict is built. **That is not the only guard the rule needs, and review found the spec falsifying its own premise in the same commit**: the percentage column is a real `GridColumn`, so it got a header menu, a settings-dialog row (the only sort/filter path below `tablet`) and *Filter by this value* — and sorting a column that is in no statement is a description the RENDERER refuses, i.e. the whole exploration behind an error banner. `ColumnQueryActions.queryRefusalOf` is now asked by every per-column surface; geometry still applies. **Appending anything to `columns` before `useColumnGeometry` hands it every affordance a real column has.** `groupingNameCollision` closed the twin hole (a grouping column named `count_all` beside `COUNT(*)` — two result columns of one name), and **Calc opens MIXED**, because numbers-only answers `Count 0` under "3 selected cells". Both panels are `<aside>`s, **not `Drawer`s** — a focus trap would put the grid out of reach of a panel that recomputes on selection, and of the header DRAG the grouping panel is a drop target for (carried by an `onColumnDrag` callback, never `dataTransfer`); the panel is offered the **source's** columns while grouped, or a user could group by `count_all`. The disclosure shows **`useExploration.sql`**, never a second rendering — one call away and believed. `canonical()` folds the two new flags and the read path normalises them (absent ⇒ false), or a pre-182 document pushes a history entry for an apply that changed nothing.
 - **Column geometry is keyed by NAME, a NULL is not an empty string, and an unwatched page is not "no rows" (180):** the grid keys width/pin/hide by column **name**, which makes "geometry for a column this result no longer has is discarded" true by construction — so it reuses `features/catalog/`'s sizing constants and `ColumnResizeHandle` (moved there, generic over its key, and now carrying the `aria-valuenow` a **focusable** separator requires) but **not** `useColumnWidths`, which is index-keyed and per-execution. `getQueryResults` stopped collapsing SQL NULL to `''` — rows are `(string | null)[][]`, because FR-003's "visibly different" was otherwise unbuildable and 181's `isNull` and 185's copy need it. `useQueryResults` now **clamps a remembered page index the cache no longer holds**: pages of an unobserved execution are collected at `gcTime` and an absent page is indistinguishable from an empty one, so a result WITH rows drew the empty state. `presentation: null` means **unchosen** (that, and only that, is FR-007's below-`tablet` Record default); the selection's `ranges` are rectangles whose **last one is live**, reset **during render** rather than in an effect, with an explicit `role="gridcell"` because a bare `td` resolves statically as `cell`. Hide/pin/reorder live in a **panel**, not the header — 181 owns that menu — and a cross-block drag is **refused, never coerced into a pin**.
 - **The second extraction's point is the SIGNATURE, and one moved constant must not be renamed (177):** `features/saved-queries/` takes the `.sql` store out of `features/query/` on 176's pattern, and `useSaveQuery` takes **`{sql, link}`** instead of a `QueryTab` — a shape the Data Explorer cannot produce, so moving the module unchanged would leave SPEC-183 reimplementing SPEC-175's collision-and-confirm path. **`onSaved` keeps its `(query, sql)` second argument** against the spec's own Data Model: the dirty marker clears against the bytes that were WRITTEN, not the live buffer, and narrowing it would change workspace behaviour. `QUERY_SAVED_QUERY_SPACE_STORAGE_PREFIX` moved with its **value untouched** — `s3portal.query.savedQuerySpace.` is a live sessionStorage key, and tidying the `query.` segment silently discards every user's remembered space. The layering rule gained the feature and was verified by violation in **four** directions; **one a11y test had to SPLIT** rather than move, because its Replace-confirm case drives `QueryDialogs` and moving it whole would have made the new feature's own suite the rule's first violation. `SavedQueriesPanel` stayed — it is a workspace surface, not part of the store.
+- **A default an empty string can defeat is not a default, a refusal must arrive BEFORE the confirm, and a check nobody can run reads as a pass (186):** `cx()` returns **`undefined`, not `''`** (and `Modal` uses `||`) — `??` does not fall back on the empty string, which cost **nine dialogs** their `max-w-md` to `w-full`; the *bypassing* dialogs were unaffected, which is the argument for fixing the shared layer. An undeletable folder now refuses through `Button.disabledReason`, so **no confirm is reachable** by construction (asserted on `alertdialog`, never `dialog` — the wrong role passes whatever happens). The suggestion list measures the box that **CLIPS** it, not the viewport, with the geometry in a pure `listPlacement()` because **jsdom reports every rect as zero**. `acknowledge-membership` fans the roster out (best-effort — the registry write already committed, and a raise would make a stale roster permanent), closing an app that asserted `Active` and `Pending` about one member at once. The build stamp travels **in the package** and `ENV_NAME` in Tofu's env map — an env-borne sha would name the last *infra* commit, since Deploy Infrastructure is path-filtered. FR-004's verification access is **audit-shaped, not a data grant**: a CloudTrail trail (RestoreObject is a **data** event, invisible in Event history) plus a role with no `SELECT`, no `DATA_LOCATION_ACCESS`, no `lakeformation:GetDataAccess`, no `Resource: "*"` and no `iam:PassRole` — and **a trail that is off returns the same empty result as a call that never happened**, so `IsLogging` is part of the assertion. The role is trusted to **NAMED principals** (`verification_principal_arns`, in gitignored `terraform.tfvars`) and is **not created until one is named**: the plan scan rejected account-root delegation with `CKV_AWS_61`, and accepting it would have broken the accept list's own rule — that list is for findings with **no scopable alternative**. The **trail is unconditional**. The reuse pass ran as a **sweep, not a list**: seven status-pill sites where the spec named six, 22 caption files where it named 11.
 - **Deploy-role refresh deadlock (lever):** the deploy role can lock itself out — tighten or widen one of its own grants and plan, apply **and revert** all fail alike. `Deploy Infrastructure` takes an off-by-default `skip_refresh` dispatch input to break it; **always follow with a normal run**. A green `plan` is not proof — IAM is eventually consistent.
 
 ## Out of Scope (don't build)

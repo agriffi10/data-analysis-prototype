@@ -1,5 +1,6 @@
 import {ConfirmDialog} from '../../components/ConfirmDialog';
 import {useDataQualityCheck, type DataQualityTarget} from './useDataQualityCheck';
+import {SECTION_CAPTION} from '../../components/fieldStyles';
 
 type DataQualityDialogProps = {
   /** What to check, and the space that holds it — passed straight to the enqueue. */
@@ -48,9 +49,7 @@ export function DataQualityDialog({target, kind, displayPath, onClose, onStarted
       onConfirm={handleConfirm}
       onCancel={onClose}>
       <div className="mt-3">
-        <span className="text-xs font-medium uppercase tracking-wide text-text-2">
-          {kind === 'folder' ? 'Folder' : 'File'}
-        </span>
+        <span className={SECTION_CAPTION}>{kind === 'folder' ? 'Folder' : 'File'}</span>
         <p className="mt-0.5 break-all rounded-md border border-border bg-surface-2 px-2.5 py-1.5 font-mono text-sm text-text">
           {displayPath}
         </p>

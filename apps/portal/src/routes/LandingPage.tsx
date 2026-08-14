@@ -6,11 +6,13 @@ import {takeReturnPath} from '../lib/returnPath';
 import {BrandMark} from '../components/BrandMark';
 import {Badge} from '../components/Badge';
 import {Button} from '../components/Button';
+import {StatusPill} from '../components/StatusPill';
 import {LandingNavMenu, type LandingNavLink} from './LandingNavMenu';
 import {FeatureUnavailablePage} from './FeatureUnavailablePage';
 import {cx} from '../lib/cx';
 import {CheckIcon, FolderIcon, DatabaseIcon, ConnectionsIcon, PlayIcon} from '../components/icons';
 import {usePageTitle} from '../hooks/usePageTitle';
+import {SECTION_CAPTION} from '../components/fieldStyles';
 
 // ─── Inline icons ──────────────────────────────────────────────────────────────
 
@@ -90,7 +92,7 @@ function AppPreview() {
       <div className="grid min-h-[320px] grid-cols-1 tablet:grid-cols-[210px_1fr]">
         {/* Spaces rail */}
         <div className="hidden border-r border-border-2 bg-surface p-3 tablet:block">
-          <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Spaces</p>
+          <p className={`px-3 pb-1 pt-1 ${SECTION_CAPTION}`}>Spaces</p>
           {PREVIEW_SPACES.map((space) => (
             <div
               key={space.name}
@@ -129,7 +131,7 @@ function AppPreview() {
 
           {/* File table */}
           <div className="overflow-hidden rounded-lg border border-border">
-            <div className="flex h-9 items-center border-b border-border bg-surface-2 text-xs font-semibold uppercase tracking-wide text-text-3">
+            <div className={`flex h-9 items-center border-b border-border bg-surface-2 ${SECTION_CAPTION}`}>
               <span className="w-9 flex-none" />
               <span className="min-w-0 flex-1 px-2">Name</span>
               <span className="hidden w-20 flex-none pr-3 text-right tablet:block">Size</span>
@@ -191,19 +193,13 @@ const UPLOAD_ROWS: UploadShowcaseRow[] = [
 
 // Mirrors UploadList's StatusChip: amber pulsing while uploading, green when done.
 function UploadShowcaseChip({status}: {status: 'uploading' | 'done'}) {
-  const cfg =
-    status === 'uploading'
-      ? {label: 'Uploading', tone: 'bg-warning-soft text-warning', pulse: true}
-      : {label: 'Uploaded', tone: 'bg-success-soft text-success', pulse: false};
+  const uploading = status === 'uploading';
   return (
-    <span
-      className={cx(
-        'inline-flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold',
-        cfg.tone
-      )}>
-      <span className={cx('h-[7px] w-[7px] rounded-full bg-current', cfg.pulse && 'animate-pulse')} />
-      {cfg.label}
-    </span>
+    <StatusPill
+      tone={uploading ? 'warning' : 'success'}
+      pulse={uploading}>
+      {uploading ? 'Uploading' : 'Uploaded'}
+    </StatusPill>
   );
 }
 
@@ -213,7 +209,7 @@ function UploadShowcase() {
     <ShowcaseFrame title="Uploads">
       <div className="p-4">
         <div className="mb-3 flex items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-text-3">Uploads</span>
+          <span className={SECTION_CAPTION}>Uploads</span>
           <span className="text-sm text-text-2">2 in progress</span>
         </div>
         <ul className="space-y-3.5">

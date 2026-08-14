@@ -1,4 +1,5 @@
 import {CopyButton} from '../../components/CopyButton';
+import {SECTION_CAPTION} from '../../components/fieldStyles';
 
 type Props = {
   label: string;
@@ -13,7 +14,7 @@ type Props = {
 export function DetailField({label, value, copyLabel}: Props) {
   return (
     <div className="border-b border-border-2 py-3 last:border-0">
-      <dt className="text-xs font-semibold uppercase tracking-wide text-text-3">{label}</dt>
+      <dt className={SECTION_CAPTION}>{label}</dt>
       <dd className="mt-1 flex items-start gap-2">
         <span className="min-w-0 flex-1 break-all text-sm text-text">{value}</span>
         {copyLabel && (

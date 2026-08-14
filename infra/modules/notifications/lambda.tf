@@ -52,6 +52,9 @@ resource "aws_lambda_function" "writer" {
       # (ADMIN_BUCKET, SHARED_SPACE_BUCKET, ATHENA_WORKGROUP) are absent on purpose; a probe
       # imports this module without them (test_layer_import_safety.py).
       LOGS_QUEUE_URL = var.logs_queue_url
+      # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+      # feature-flag document's `environments` keys (`var.environment`, default "prod").
+      ENV_NAME = var.environment
     }
   }
 

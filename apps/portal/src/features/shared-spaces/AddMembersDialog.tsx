@@ -2,6 +2,7 @@ import {useId, useMemo, useState} from 'react';
 import {FormDialog} from '../../components/FormDialog';
 import {UsernameChipsField} from '../user-directory/UsernameChipsField';
 import {useUsernameSuggestions} from '../user-directory/useUsernameSuggestions';
+import {FIELD_HINT} from '../../components/fieldStyles';
 
 type Props = {
   /** In-flight while the add request is being enqueued — locks Add + dismiss. */
@@ -73,7 +74,7 @@ export function AddMembersDialog({busy = false, existing, onAdd, onCancel}: Prop
       />
       <p
         id={helpId}
-        className="mt-1.5 text-xs text-text-3">
+        className={FIELD_HINT}>
         {members.length === 0
           ? // This exact sentence is what tells a user their input did not take. Pinned by a
             // test; do not reword it.

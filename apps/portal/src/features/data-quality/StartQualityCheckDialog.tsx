@@ -4,6 +4,8 @@ import {DestinationPicker, type FileSpaceTarget} from '../file-browser';
 import {splitLocation} from './dataQuality.format';
 import type {DataQualitySpace} from './dataQuality.types';
 import type {DataQualityTarget} from './useDataQualityCheck';
+import {FIELD_LABEL, SECTION_CAPTION} from '../../components/fieldStyles';
+import {DIALOG_PANEL, DIALOG_TITLE} from '../../components/dialogChrome';
 
 type Props = {
   /**
@@ -76,8 +78,8 @@ export function StartQualityCheckDialog({spaces, isPending = false, onStart, onC
       ariaLabel="Start a quality check"
       dismissible={!isPending}
       onDismiss={onCancel}
-      className="flex max-w-lg flex-col px-5 pb-4 pt-5">
-      <h2 className="text-md font-semibold text-text">New quality check</h2>
+      className={DIALOG_PANEL}>
+      <h2 className={DIALOG_TITLE}>New quality check</h2>
       <p className="mt-1 text-sm text-text-2">
         Choose a folder to check, or a single file. This <strong className="font-semibold text-text">only reads</strong>{' '}
         your data — nothing is modified, moved, or deleted. The check runs in the background and can take a few minutes;
@@ -88,7 +90,7 @@ export function StartQualityCheckDialog({spaces, isPending = false, onStart, onC
         <div className="mt-3">
           <label
             htmlFor="dq-start-space"
-            className="mb-1.5 block text-sm font-medium text-text">
+            className={FIELD_LABEL}>
             Space
           </label>
           <select
@@ -111,7 +113,7 @@ export function StartQualityCheckDialog({spaces, isPending = false, onStart, onC
       )}
 
       <div className="mt-4 flex items-baseline justify-between gap-3">
-        <p className="flex-none text-xs font-semibold uppercase tracking-wide text-text-3">Data to check</p>
+        <p className={`flex-none ${SECTION_CAPTION}`}>Data to check</p>
         {/* The head is what gets truncated, because the END of a location is what identifies
             it. Same split-span construction as `DataQualityRunRow` (and the same reason for
             NOT using `direction: rtl`: under bidi a trailing "/" in an S3 key is neutral

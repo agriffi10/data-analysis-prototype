@@ -13,3 +13,9 @@ state_lock_table  = "your-tofu-lock-table-name"
 # Optional — Hosted UI domain prefix (must be globally unique across all AWS).
 # Defaults to {project_name}-{environment}-portal when unset.
 # cognito_domain_prefix = ""
+
+# SPEC-186 FR-004 — who may assume the read-only verification role for live checks
+# (catalog GetTable/GetTableVersions and the archive audit record). Operator identities,
+# so they live here and not in the repo. Leave it out and the role is not created; the
+# CloudTrail trail over the archive vault ships regardless.
+# verification_principal_arns = ["arn:aws:iam::123456789012:user/your-iam-user"]

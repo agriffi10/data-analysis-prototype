@@ -2,6 +2,7 @@ import {useId, useState} from 'react';
 import {Banner} from '../../components/Banner';
 import {ConfirmDialog} from '../../components/ConfirmDialog';
 import type {TableRefreshTarget} from './tableRefresh.types';
+import {SECTION_CAPTION} from '../../components/fieldStyles';
 
 type Props = {
   target: TableRefreshTarget;
@@ -40,6 +41,9 @@ export function RefreshTableDialog({target, busy = false, submitError, onConfirm
       busyLabel="Starting…"
       busy={busy}
       confirmDisabled={!!pending && !allowRemovals}
+      // SPEC-186 FR-002. The banner above already explains the situation, but the CONTROL said
+      // nothing — a natively-disabled button with no title, skipped by the tab order.
+      confirmDisabledReason="Tick “Allow columns to be removed” to refresh this table."
       onConfirm={() => onConfirm(allowRemovals)}
       onCancel={onCancel}>
       <p className="mt-3 text-sm leading-relaxed text-text-2">
@@ -48,15 +52,11 @@ export function RefreshTableDialog({target, busy = false, submitError, onConfirm
 
       <dl className="mt-3 space-y-1.5 rounded-md border border-border bg-surface-2 px-2.5 py-2 text-sm">
         <div className="flex flex-col gap-0.5 tablet:flex-row tablet:gap-2">
-          <dt className="flex-none text-xs font-medium uppercase tracking-wide text-text-3 tablet:w-16 tablet:pt-0.5">
-            Table
-          </dt>
+          <dt className={`flex-none ${SECTION_CAPTION} tablet:w-16 tablet:pt-0.5`}>Table</dt>
           <dd className="min-w-0 break-all font-mono text-text">{qualified}</dd>
         </div>
         <div className="flex flex-col gap-0.5 tablet:flex-row tablet:gap-2">
-          <dt className="flex-none text-xs font-medium uppercase tracking-wide text-text-3 tablet:w-16 tablet:pt-0.5">
-            Folder
-          </dt>
+          <dt className={`flex-none ${SECTION_CAPTION} tablet:w-16 tablet:pt-0.5`}>Folder</dt>
           <dd className="min-w-0 break-all font-mono text-text-2">{table.location}</dd>
         </div>
       </dl>

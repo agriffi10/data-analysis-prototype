@@ -92,6 +92,9 @@ resource "aws_lambda_function" "pre_signup" {
   environment {
     variables = {
       LOGS_QUEUE_URL = var.logs_queue_url
+      # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+      # feature-flag document's `environments` keys (`var.environment`, default "prod").
+      ENV_NAME = var.environment
     }
   }
 
@@ -190,6 +193,9 @@ resource "aws_lambda_function" "post_confirmation" {
     variables = {
       PORTAL_ROLE_ARN = var.portal_role_arn
       LOGS_QUEUE_URL  = var.logs_queue_url
+      # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+      # feature-flag document's `environments` keys (`var.environment`, default "prod").
+      ENV_NAME = var.environment
     }
   }
 

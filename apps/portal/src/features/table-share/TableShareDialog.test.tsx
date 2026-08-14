@@ -239,6 +239,24 @@ describe('TableShareDialog', () => {
       );
     });
 
+    // SPEC-186 FR-003 AC4. Both kinds mount `UsernameCombobox` — but `key={kind}` remounts it,
+    // so "the user kind is bounded" says nothing about the space one. The arithmetic is proved
+    // in `comboboxPlacement.test.ts`; this is the reachability half, under both kinds.
+    it.each([
+      ['Users', 'bob'],
+      ['Shared spaces', 'sales']
+    ])('bounds the suggestion list inside the dialog under the %s kind', async (kind, typed) => {
+      const {user} = renderDialog();
+      if (kind !== 'Users') await user.click(screen.getByRole('radio', {name: kind}));
+      await user.click(entryInput());
+      await user.keyboard(typed);
+
+      await waitFor(() => expect(screen.getAllByRole('option').length).toBeGreaterThan(0));
+      const listbox = screen.getByRole('listbox');
+      expect(listbox.style.maxHeight).not.toBe('');
+      expect(listbox.className).not.toMatch(/\bmax-h-/);
+    });
+
     it('never offers USERNAMES under the Shared spaces kind', async () => {
       // The two sources must not bleed: a username is not a share target under this kind.
       const {user} = renderDialog();

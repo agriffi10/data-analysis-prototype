@@ -1,6 +1,7 @@
 import {Banner} from '../../components/Banner';
 import {Drawer} from '../../components/Drawer';
 import {MembersList} from './MembersList';
+import {displayedMemberStatus} from './memberStatus';
 import {RefreshConnectionsButton} from './RefreshConnectionsButton';
 import type {Member} from './sharedSpaces.types';
 
@@ -13,6 +14,8 @@ type Props = {
   members: Member[];
   /** True when the member's cache predates SPEC-075 and has no roster yet. */
   unavailable?: boolean;
+  /** The signed-in reader, so their own row can't read `Pending` at them (SPEC-186 FR-008). */
+  viewer?: string;
   /** Re-read connection state on demand (the roster is eventually consistent). */
   onRefresh: () => void;
   refreshing?: boolean;
@@ -34,9 +37,15 @@ export function MemberRosterDrawer({
   owner,
   members,
   unavailable = false,
+  viewer,
   onRefresh,
   refreshing = false
 }: Props) {
+  // SPEC-186 FR-008. The sentence explains a chip; rendering it where no such chip exists is
+  // how it came to be read by the one person for whom it was false — a member who HAD signed in,
+  // told that Pending means they had not.
+  const anyPending = members.some((m) => m.username !== owner && displayedMemberStatus(m, viewer) === 'pending');
+
   return (
     <Drawer
       open={open}
@@ -65,11 +74,14 @@ export function MemberRosterDrawer({
           <MembersList
             owner={owner}
             members={members}
+            viewer={viewer}
           />
-          <p className="text-xs text-text-3">
-            A <span className="font-medium text-text-2">Pending</span> member has been invited but hasn&apos;t signed in
-            yet; they become <span className="font-medium text-text-2">Active</span> once they do.
-          </p>
+          {anyPending && (
+            <p className="text-xs text-text-3">
+              A <span className="font-medium text-text-2">Pending</span> member has been invited but hasn&apos;t signed
+              in yet; they become <span className="font-medium text-text-2">Active</span> once they do.
+            </p>
+          )}
         </>
       )}
     </Drawer>

@@ -1,7 +1,9 @@
 import {useMemo, useState, type ReactNode} from 'react';
+import {Badge} from '../../components/Badge';
 import {Button} from '../../components/Button';
 import {Banner} from '../../components/Banner';
 import {PageLayout} from '../../components/PageLayout';
+import {StatusPill} from '../../components/StatusPill';
 import {cx} from '../../lib/cx';
 import {formatAbsoluteDate} from '../../lib/format';
 import {useAuth} from '../auth';
@@ -321,6 +323,7 @@ export function ConnectionsPage() {
           owner={viewing.owner ?? ''}
           members={viewing.members ?? []}
           unavailable={viewing.members === undefined}
+          viewer={username}
           onRefresh={handleRefresh}
           refreshing={isRefreshing}
         />
@@ -493,28 +496,19 @@ function ConnectionRowItem({
 }
 
 function RolePill({role}: {role: SharedConnectionRole}) {
-  return (
-    <span className="flex-none rounded-full border border-border bg-surface-2 px-2 py-0.5 text-xs font-semibold capitalize text-text-2">
-      {role}
-    </span>
-  );
+  return <Badge className="flex-none capitalize">{role}</Badge>;
 }
 
 // Status as a colored dot + text label; the label always carries the meaning, so
 // the color/dot is never the only signal. The dot pulses for transient states.
 function StatusBadge({status}: {status: SharedConnectionStatus}) {
   const transient = status === 'provisioning' || status === 'leaving' || status === 'deleting';
-  const tone =
-    status === 'active'
-      ? 'bg-success-soft text-success'
-      : status === 'failed'
-        ? 'bg-danger-soft text-danger'
-        : 'bg-warning-soft text-warning';
+  const tone = status === 'active' ? 'success' : status === 'failed' ? 'danger' : 'warning';
   return (
-    <span
-      className={`inline-flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${tone}`}>
-      <span className={`h-[7px] w-[7px] rounded-full bg-current ${transient ? 'animate-pulse' : ''}`} />
+    <StatusPill
+      tone={tone}
+      pulse={transient}>
       {connectionStatusLabel(status)}
-    </span>
+    </StatusPill>
   );
 }

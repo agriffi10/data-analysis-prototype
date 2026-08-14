@@ -1,5 +1,5 @@
-import {cx} from '../../lib/cx';
 import {DocumentIcon} from '../../components/icons';
+import {StatusPill, type StatusTone} from '../../components/StatusPill';
 import {formatBytes} from '../../lib/format';
 import {formatDurationMs, formatRelativeTime} from '../../lib/format';
 import type {QueryHistoryEntry} from './query.types';
@@ -8,36 +8,16 @@ import type {QueryState} from '../catalog/catalog.types';
 // Status → badge presentation. A prior-session entry left non-terminal (tab
 // closed mid-run) has a non-terminal/absent status — shown as a neutral
 // "Unknown", never a false "Running".
-function badgeFor(status?: QueryState): {
-  label: string;
-  className: string;
-  dotClassName: string;
-} {
+function badgeFor(status?: QueryState): {label: string; tone: StatusTone} {
   switch (status) {
     case 'SUCCEEDED':
-      return {
-        label: 'Succeeded',
-        className: 'bg-success-soft text-success',
-        dotClassName: 'bg-success'
-      };
+      return {label: 'Succeeded', tone: 'success'};
     case 'FAILED':
-      return {
-        label: 'Failed',
-        className: 'bg-danger-soft text-danger',
-        dotClassName: 'bg-danger'
-      };
+      return {label: 'Failed', tone: 'danger'};
     case 'CANCELLED':
-      return {
-        label: 'Cancelled',
-        className: 'border border-border bg-surface-2 text-text-2',
-        dotClassName: 'bg-text-3'
-      };
+      return {label: 'Cancelled', tone: 'neutral'};
     default:
-      return {
-        label: 'Unknown',
-        className: 'border border-border bg-surface-2 text-text-2',
-        dotClassName: 'bg-text-3'
-      };
+      return {label: 'Unknown', tone: 'neutral'};
   }
 }
 
@@ -77,17 +57,7 @@ export function QueryHistoryRow({
   return (
     <div className="rounded-md border border-border p-3">
       <div className="mb-2 flex items-center gap-2">
-        <span
-          className={cx(
-            'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold',
-            badge.className
-          )}>
-          <span
-            className={cx('h-[7px] w-[7px] rounded-full', badge.dotClassName)}
-            aria-hidden="true"
-          />
-          {badge.label}
-        </span>
+        <StatusPill tone={badge.tone}>{badge.label}</StatusPill>
         <span
           className="ml-auto text-xs text-text-3"
           title={new Date(entry.submittedAt).toLocaleString()}>

@@ -3,6 +3,7 @@ import {cx} from '../lib/cx';
 import {IconButton} from './IconButton';
 import {ChevronLeftIcon, ChevronRightIcon} from './icons';
 import {useRailCollapsed} from './useRailCollapsed';
+import {SECTION_CAPTION} from './fieldStyles';
 
 type CollapsibleRailProps = {
   /** Accessible name for the rail region (e.g. "Your spaces navigation", "Schema browser"). */
@@ -53,11 +54,7 @@ export function CollapsibleRail({ariaLabel, title, widthClass = 'w-[248px]', chi
             collapsed ? 'invisible' : 'visible'
           )}>
           <div className="flex items-center justify-between gap-2 px-3 pb-1 pt-3">
-            {title ? (
-              <span className="text-xs font-semibold uppercase tracking-[.04em] text-text-3">{title}</span>
-            ) : (
-              <span aria-hidden="true" />
-            )}
+            {title ? <span className={SECTION_CAPTION}>{title}</span> : <span aria-hidden="true" />}
             <IconButton
               label="Collapse sidebar"
               size="sm"

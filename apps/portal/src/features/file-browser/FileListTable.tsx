@@ -5,6 +5,7 @@ import {formatSize, formatDate} from './fileBrowser.format';
 import {fileExtension} from './fileBrowser.paths';
 import type {SelectableItem} from './selectionContext';
 import type {S3FileItem, S3FolderItem} from '../../types/s3.types';
+import {SECTION_CAPTION} from '../../components/fieldStyles';
 
 /**
  * The data every file-list surface needs. Shared by the ≥ tablet table and the
@@ -217,7 +218,7 @@ export function FileListTable({
           (each row already exposes its own values as text). */}
       <div
         aria-hidden="true"
-        className="flex h-10 items-center border-b border-border bg-surface-2 text-xs font-semibold uppercase tracking-wide text-text-3">
+        className={`flex h-10 items-center border-b border-border bg-surface-2 ${SECTION_CAPTION}`}>
         {selectable && <span className="w-10 shrink-0" />}
         <span className="min-w-0 flex-1 px-4">Name</span>
         <span className={`${COL_SIZE} pr-4 text-right`}>Size</span>

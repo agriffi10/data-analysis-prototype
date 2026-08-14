@@ -237,3 +237,52 @@ resource "aws_lakeformation_permissions" "control_plane_user_data_location" {
     aws_lakeformation_resource.user_space,
   ]
 }
+
+# ── SPEC-186 FR-004: the read-only verification principal ────────────────────
+# The catalog half of that role's access. DESCRIBE alone, on the same `portal-managed` tag
+# the control-plane roles hang off — because the databases are created at runtime, one per
+# username and one per shared space, so nothing static can enumerate them.
+#
+# The IAM grants (glue:GetTable / GetTableVersions, the trail objects) live in
+# modules/verification; this is the half Lake Formation gates INDEPENDENTLY, and its refusal
+# — `Insufficient Lake Formation permission(s): Required Describe` — is the exact error the
+# owed read-backs hit from every principal a human has.
+#
+# WHAT IS DELIBERATELY ABSENT: `SELECT` and `DATA_LOCATION_ACCESS`. This role reads a table's
+# DEFINITION and cannot read a byte of what the table points at, which is what makes it a
+# verification principal rather than a widening of the data path (FR-004's own Out of Scope).
+locals {
+  verification_role_arns = toset(compact([var.verification_role_arn]))
+}
+
+resource "aws_lakeformation_permissions" "verification_tag_database" {
+  for_each    = local.verification_role_arns
+  principal   = each.value
+  permissions = ["DESCRIBE"]
+
+  lf_tag_policy {
+    resource_type = "DATABASE"
+    expression {
+      key    = aws_lakeformation_lf_tag.portal_managed.key
+      values = ["true"]
+    }
+  }
+
+  depends_on = [aws_lakeformation_lf_tag.portal_managed]
+}
+
+resource "aws_lakeformation_permissions" "verification_tag_table" {
+  for_each    = local.verification_role_arns
+  principal   = each.value
+  permissions = ["DESCRIBE"]
+
+  lf_tag_policy {
+    resource_type = "TABLE"
+    expression {
+      key    = aws_lakeformation_lf_tag.portal_managed.key
+      values = ["true"]
+    }
+  }
+
+  depends_on = [aws_lakeformation_lf_tag.portal_managed]
+}

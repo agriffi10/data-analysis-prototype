@@ -6,6 +6,7 @@ import {useSchema} from '../catalog/useSchema';
 import {spaceDatabase} from './exploreSources';
 import type {ExploreTarget} from './exploreSources';
 import type {QuerySpace} from '../catalog/catalog.types';
+import {SECTION_CAPTION} from '../../components/fieldStyles';
 
 export type SourcePickerProps = {
   /** Spaces to offer, ALREADY filtered by the caller's `sharedWorkspaces` gate. */
@@ -57,7 +58,7 @@ export function SourcePicker({spaces, username, onChoose, onCancel}: SourcePicke
       aria-label="Choose a table to explore"
       className="flex min-h-0 flex-1 flex-col tablet:flex-row">
       <div className="flex flex-none flex-col gap-1 border-b border-border p-3 tablet:w-64 tablet:border-b-0 tablet:border-r">
-        <h2 className="px-2 pb-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Space</h2>
+        <h2 className={`px-2 pb-1 ${SECTION_CAPTION}`}>Space</h2>
         {spaces.map((space) => (
           <button
             key={space.id}
@@ -77,7 +78,7 @@ export function SourcePicker({spaces, username, onChoose, onCancel}: SourcePicke
 
       <div className="flex min-h-0 flex-1 flex-col p-3">
         <div className="flex items-center gap-3 px-2 pb-2">
-          <h2 className="text-xs font-semibold uppercase tracking-[.04em] text-text-3">Tables and views</h2>
+          <h2 className={SECTION_CAPTION}>Tables and views</h2>
           {onCancel && (
             <Button
               variant="ghost"

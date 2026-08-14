@@ -463,3 +463,38 @@ resource "time_sleep" "wait_for_self_grant" {
 
   depends_on = [aws_iam_role_policy.github_actions_deploy]
 }
+
+# ── SPEC-186 FR-004: the archive-audit trail + the verification role ──────────
+# Its own managed policy on the archive's precedent, kept off the role's inline-policy
+# aggregate limit. Two resource kinds are new to the deploy role — a CloudTrail trail and a
+# role nothing assumes but a human — and the grants below are the whole of what either needs.
+#
+# NO iam:PassRole in the role statement, unlike every other plane's: a service assumes those,
+# and nothing must be able to hand this one to a service.
+#
+# Granted FIRST and guarded by the same 30s propagation floor the archive grants needed
+# (SPEC-168's apply went red on exactly this and succeeded unchanged on a re-run): IAM is
+# eventually consistent, and this PR creates the bucket, trail and role in the SAME apply that
+# authorizes them. A red FIRST apply of a new plane is expected rather than a defect.
+resource "aws_iam_policy" "deploy_verification" {
+  name        = "${var.project_name}-deploy-verification"
+  description = "Deploy-role grants for the SPEC-186 FR-004 verification access: the archive-audit trail bucket, the CloudTrail trail over the archive vault's object-level events, and the read-only verification role."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-verification.json.tftpl", {
+    project_name      = var.project_name
+    aws_region        = var.aws_region
+    trail_bucket_name = var.verification_trail_bucket_name
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_verification" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_verification.arn
+}
+
+resource "time_sleep" "wait_for_verification_grant" {
+  depends_on      = [aws_iam_role_policy_attachment.deploy_verification]
+  create_duration = "30s"
+}

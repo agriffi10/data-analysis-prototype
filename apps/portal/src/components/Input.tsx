@@ -1,5 +1,6 @@
 import {forwardRef, useId} from 'react';
 import {cx} from '../lib/cx';
+import {FIELD_LABEL} from './fieldStyles';
 
 type InputProps = React.InputHTMLAttributes<HTMLInputElement> & {
   /** When set: shows the message below the input + the invalid ring. */
@@ -33,7 +34,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className="mb-1.5 block text-sm font-medium text-text">
+            className={FIELD_LABEL}>
             {label}
           </label>
         )}

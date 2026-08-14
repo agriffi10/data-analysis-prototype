@@ -1,5 +1,7 @@
+import {Badge} from '../../components/Badge';
 import {Button} from '../../components/Button';
-import {cx} from '../../lib/cx';
+import {StatusPill} from '../../components/StatusPill';
+import {displayedMemberStatus} from './memberStatus';
 import type {Member} from './sharedSpaces.types';
 
 type MembersListProps = {
@@ -13,6 +15,16 @@ type MembersListProps = {
    */
   onRemove?: (username: string) => void;
   busy?: boolean;
+  /**
+   * The signed-in user reading this list, when known (SPEC-186 FR-008).
+   *
+   * Their own row renders `Active` whatever the projection says, because `Pending` means
+   * "invited but hasn't signed in yet" and this reader demonstrably has — they are looking at
+   * the page. SPEC-073's acknowledge now fans the roster out (`cache.write_roster_to_all`), so
+   * every copy converges; this closes the window between that sign-in and the fan-out landing,
+   * which is exactly the moment a member is most likely to open the roster.
+   */
+  viewer?: string;
 };
 
 /**
@@ -25,7 +37,7 @@ type MembersListProps = {
  * <MembersList owner="alice" members={members} />                 // read-only
  * <MembersList owner="alice" members={members} onRemove={remove} /> // owner: read-write
  */
-export function MembersList({owner, members, onRemove, busy = false}: MembersListProps) {
+export function MembersList({owner, members, onRemove, busy = false, viewer}: MembersListProps) {
   const others = members.filter((m) => m.username !== owner).sort((a, b) => a.username.localeCompare(b.username));
 
   return (
@@ -35,9 +47,7 @@ export function MembersList({owner, members, onRemove, busy = false}: MembersLis
       <li className="flex items-center gap-3 px-4 py-2.5">
         <Avatar name={owner} />
         <span className="min-w-0 truncate font-medium text-text">{owner}</span>
-        <span className="flex-none rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-medium text-text-2">
-          Owner
-        </span>
+        <Badge className="flex-none">Owner</Badge>
         <div className="flex-1" />
       </li>
       {others.map((member) => (
@@ -46,7 +56,7 @@ export function MembersList({owner, members, onRemove, busy = false}: MembersLis
           className="flex items-center gap-3 px-4 py-2.5">
           <Avatar name={member.username} />
           <span className="min-w-0 truncate font-medium text-text">{member.username}</span>
-          <MemberStatusBadge status={member.status} />
+          <MemberStatusBadge status={displayedMemberStatus(member, viewer)} />
           <div className="flex-1" />
           {onRemove && (
             <Button
@@ -71,20 +81,11 @@ export function MembersList({owner, members, onRemove, busy = false}: MembersLis
   );
 }
 
-// Per-member join status as a colored dot + text label (SPEC-073). The text label
-// always carries the meaning, so the color/dot is never the only signal (WCAG AA).
+// Per-member join status (SPEC-073), through the shared pill (SPEC-186 FR-010): the text label
+// always carries the meaning, so the colour and dot are never the only signal (WCAG AA).
 function MemberStatusBadge({status}: {status: Member['status']}) {
   const active = status === 'active';
-  return (
-    <span
-      className={cx(
-        'inline-flex flex-none items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold',
-        active ? 'bg-success-soft text-success' : 'bg-warning-soft text-warning'
-      )}>
-      <span className="h-[7px] w-[7px] rounded-full bg-current" />
-      {active ? 'Active' : 'Pending'}
-    </span>
-  );
+  return <StatusPill tone={active ? 'success' : 'warning'}>{active ? 'Active' : 'Pending'}</StatusPill>;
 }
 
 // Circular avatar showing the first two letters of the username. Decorative — the

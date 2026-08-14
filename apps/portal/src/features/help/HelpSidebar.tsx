@@ -2,6 +2,7 @@ import {cx} from '../../lib/cx';
 import {useBreakpoint} from '../../lib/useBreakpoint';
 import {helpIcons} from './helpIcons';
 import type {HelpSection, HelpSectionId} from './help.types';
+import {SECTION_CAPTION} from '../../components/fieldStyles';
 
 type HelpSidebarProps = {
   sections: HelpSection[];
@@ -33,7 +34,7 @@ export function HelpSidebar({sections, activeId, onSelect}: HelpSidebarProps) {
     <aside
       aria-label="Guides navigation"
       className="hidden w-[220px] shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-surface px-3 py-4 tablet:flex desktop:w-[248px]">
-      <p className="px-3 pb-2 pt-3 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Guides</p>
+      <p className={`px-3 pb-2 pt-3 ${SECTION_CAPTION}`}>Guides</p>
       <ul
         role="list"
         className="flex flex-col gap-0.5">

@@ -15,7 +15,7 @@ import {useUploadQueue} from './uploadQueueContext';
 import {CreateFolderDialog} from './CreateFolderDialog';
 import {CollisionPrompt} from './CollisionPrompt';
 import {MobileActionBar} from '../../components/MobileActionBar';
-import {HIDDEN_BROWSER_FOLDERS, isRootFolderNamed} from './protectedFolders';
+import {HIDDEN_BROWSER_FOLDERS, isRootFolderNamed, undeletableSelectionRefusal} from './protectedFolders';
 import {SAVED_QUERIES_FOLDER} from './fileBrowser.constants';
 import {OperationFeedback} from './OperationFeedback';
 import {SelectionToolbar} from './SelectionToolbar';
@@ -513,6 +513,10 @@ function FileBrowserContent({
           }
           archiveDisabledReason={archiveRefusal(selectedItems.map(toArchiveItem), rootPrefix) ?? undefined}
           writeLockReason={writeLockReason}
+          // SPEC-186 FR-002. The service refuses these too, but only after the user has read the
+          // "everything inside it … can't be undone" confirm and pressed Delete.
+          deleteDisabledReason={undeletableSelectionRefusal(selectedItems, rootPrefix, 'delete') ?? undefined}
+          moveDisabledReason={undeletableSelectionRefusal(selectedItems, rootPrefix, 'move') ?? undefined}
           isBusy={del.isBusy || move.isBusy || copy.isBusy || dl.downloadingKey !== null}
         />
       )}

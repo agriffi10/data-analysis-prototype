@@ -1,5 +1,6 @@
 import {useEffect, useId, useMemo, useRef, useState} from 'react';
 import {Button} from '../../components/Button';
+import {Chip, ChipList} from '../../components/Chip';
 import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {UsernameCombobox} from '../user-directory/UsernameCombobox';
@@ -11,6 +12,7 @@ import {useSpaceSuggestions} from '../shared-spaces/useSpaceSuggestions';
 import {useFeature} from '../feature-flags';
 import type {ShareRecipient} from './tableShare.types';
 import type {ShareTarget} from './useTableShare';
+import {FIELD_LABEL, SECTION_CAPTION} from '../../components/fieldStyles';
 
 type Props = {
   /** The table being shared (read-only in the dialog). */
@@ -143,7 +145,7 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
       </p>
 
       <div className="mb-4">
-        <span className="text-xs font-medium uppercase tracking-wide text-text-2">Table</span>
+        <span className={SECTION_CAPTION}>Table</span>
         <p
           className="mt-0.5 break-all rounded-md border border-border bg-surface-2 px-2.5 py-1.5 font-mono text-sm text-text"
           title={`${source.database}.${source.table}`}>
@@ -158,7 +160,7 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
           which `kind` already does, because `kind` is pinned to 'user' at that point. */}
       {sharedSpacesEnabled && (
         <fieldset className="mb-3">
-          <legend className="mb-1.5 block text-sm font-medium text-text">Share with</legend>
+          <legend className={FIELD_LABEL}>Share with</legend>
           <div className="flex gap-4">
             {(
               [
@@ -235,35 +237,20 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
       </p>
 
       {recipients.length > 0 && (
-        <ul
-          aria-label="Recipients"
-          className="mb-2 flex flex-wrap gap-1.5">
+        <ChipList
+          ariaLabel="Recipients"
+          className="mb-2">
           {recipients.map((r) => (
-            <li
+            <Chip
               key={`${r.kind}:${r.name}`}
-              className="flex items-center gap-1 rounded-full border border-border bg-surface-2 py-0.5 pl-2.5 pr-1 text-sm text-text">
-              <span className="text-xs uppercase tracking-wide text-text-3">{KIND_LABEL[r.kind]}</span>
-              <span className="font-mono">{r.name}</span>
-              <button
-                type="button"
-                aria-label={`Remove ${KIND_LABEL[r.kind]} ${r.name}`}
-                disabled={busy}
-                onClick={() => remove(r)}
-                className="grid h-5 w-5 place-items-center rounded-full text-text-3 hover:bg-surface hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-45">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  className="h-3 w-3"
-                  aria-hidden="true">
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              </button>
-            </li>
+              name={r.name}
+              tag={KIND_LABEL[r.kind]}
+              removeLabel={`Remove ${KIND_LABEL[r.kind]} ${r.name}`}
+              disabled={busy}
+              onRemove={() => remove(r)}
+            />
           ))}
-        </ul>
+        </ChipList>
       )}
 
       <div className="mt-4">

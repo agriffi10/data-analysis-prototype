@@ -602,3 +602,43 @@ its last component — `python.flask.security.audit.directly-returned-format-str
 the guard test all inherited. The guard test passed (it asserts the string is present, not that
 Semgrep matches it); the CI run failed. Worth noting as the general case: **a test that a scanner is
 configured is not a test that the configuration works.** Only the blocking run is.
+
+---
+
+# SPEC-186 FR-004 — the archive-audit trail (2026-08-14)
+
+`modules/verification` introduces two resource kinds the `.tf` scan has never seen — an
+`aws_cloudtrail` and its delivery bucket. Neither reddens anything: none of the checks below is on
+`.github/checkov-enforced.txt`, so they are report-only rows. They are dispositioned here because
+this file, not the enforce list, is where the project has decided dispositions live — and a
+report-only row with no written reason is the thing that later reads as an oversight.
+
+| Check | Resource | Disposition |
+|---|---|---|
+| `CKV_AWS_67` — multi-region trail | `module.verification.aws_cloudtrail.archive_audit` | **Accept.** Single-region ON PURPOSE. The archive plane lives in one region; a multi-region trail would record calls this trail exists to have no opinion about, and would widen a targeted audit record into a general-purpose one. Reasoning is in `cloudtrail.tf`. |
+| `CKV_AWS_35` — trail encrypted with a CMK | same | **Accept.** The bucket is SSE-S3 (`AES256`, `s3.tf`), matching every other bucket in this account. A CMK adds key management and cost to a record whose contents are already only "which object key was called, by whom, when" — no user data, no file contents. Revisit if the account ever adopts CMKs generally. |
+| `CKV_AWS_252` — trail notifies an SNS topic | same | **Accept.** Nothing consumes this record continuously; it is read by a human running a live check, days or hours after the fact. An SNS topic would be a subscriber-less notification path. |
+| `CKV_AWS_18` — access logging on the trail bucket | `module.verification.aws_s3_bucket.trail` | **Accept**, on the same grounds the other buckets in this account take it: access logs on an audit bucket need their own bucket, and the regress is unbounded. The bucket is private, PAB-blocked, and its policy grants only CloudTrail. |
+| `CKV_AWS_144` — cross-region replication | same | **Accept.** A verification aid, not a compliance vault. The 400-day expiry (`trail_retention_days`) already says how long this record is meant to matter. |
+
+**Log-file validation IS on** (`enable_log_file_validation = true`), which is the property that
+matters most for a record whose whole job is to be believed.
+
+**What is deliberately NOT here: a bucket-policy Deny on writes.** The obvious one — deny
+`s3:PutObject` where `aws:PrincipalServiceName != cloudtrail.amazonaws.com` — rests on a condition
+key CloudTrail's own delivery must populate for its Allow to survive it. If it does not, delivery
+fails and the trail is **silently empty**, which is this spec's own "did not run is never clean"
+failure with the evidence rather than with a scanner. The residual is that an account principal with
+identity-based S3 write could tamper with the record; that is acceptable for an operator's
+verification aid and would not be for a compliance vault.
+
+## The plan scan rejected the role's trust, and the accept list did not grow
+
+`CKV_AWS_61` fired on `module.verification.aws_iam_role.verification` for a trust policy delegating
+to `arn:aws:iam::{account}:root`. **Not accepted.** The rule for
+`.github/checkov-plan-accepted.txt` is that it holds findings with **no scopable alternative** —
+CloudFront and Cognito creation have no ARN before the resource exists and no applicable condition
+key. Naming the principal IS a scopable alternative, so accepting would have been suppressing a
+fixable finding, which that file's own header warns against. `verification_principal_arns` is now a
+root variable, empty by default, and the role is not created until it is set. IAM findings on the
+rendered plan stay at **2 accepted, 0 unaccepted**.

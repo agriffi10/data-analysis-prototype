@@ -5,6 +5,7 @@ import type {FileSpaceTarget} from './useFileSpace';
 import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {Modal} from '../../components/Modal';
+import {DIALOG_PANEL, DIALOG_TITLE} from '../../components/dialogChrome';
 
 // The same-folder editable-name prompt shape, surfaced by useCopy (FR-003).
 type SameFolderPrompt = {
@@ -106,8 +107,8 @@ export function CopyDialog({
       ariaLabel="Copy to folder"
       dismissible={!isBusy}
       onDismiss={onCancel}
-      className="flex max-w-lg flex-col px-5 pb-4 pt-5">
-      <h2 className="text-md font-semibold text-text">
+      className={DIALOG_PANEL}>
+      <h2 className={DIALOG_TITLE}>
         Copy {items.length} {items.length === 1 ? 'item' : 'items'}
       </h2>
 

@@ -12,6 +12,7 @@ import type {GlueTableSummary} from '../catalog/catalog.types';
 import type {UseMobileQuerySurfaceResult} from './useMobileQuerySurface';
 import type {UseTabRunsResult} from './useTabRuns';
 import type {UseQueryTabsResult} from './useQueryTabs';
+import {SECTION_CAPTION} from '../../components/fieldStyles';
 
 type Params = {
   username: string;
@@ -167,7 +168,7 @@ export function useTableActions({
     () =>
       isMobile ? (
         <div className="p-3">
-          <p className="px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-[.04em] text-text-3">Databases</p>
+          <p className={`px-3 pb-1 pt-1 ${SECTION_CAPTION}`}>Databases</p>
           <SchemaTree
             connections={connections}
             actions={railActions}
