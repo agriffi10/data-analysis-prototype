@@ -268,13 +268,22 @@ describe('RefreshTableDialog', () => {
       expect(within(list).getByText('Order ID')).toBeInTheDocument();
     });
 
-    it('gates confirm on the opt-in in the link-borne state', async () => {
+    // SPEC-186 FR-002 changed HOW this refuses, not whether: `aria-disabled` with a reason
+    // rather than a bare `disabled`, so the control keeps its place in the tab order and
+    // says what it is waiting for. Dropping `confirmDisabledReason` reddens this.
+    it('gates confirm on the opt-in in the link-borne state, and says what it wants', async () => {
       const {onConfirm, user} = render(LINKED);
       expect(optIn()).not.toBeChecked();
-      expect(confirmButton()).toBeDisabled();
+      expect(confirmButton()).toHaveAttribute('aria-disabled', 'true');
+      expect(confirmButton()).toHaveAttribute('title', 'Tick “Allow columns to be removed” to refresh this table.');
+      expect(confirmButton()).not.toBeDisabled();
+      // The reason is a description, never the name (SPEC-172's registry rule).
+      expect(confirmButton()).toHaveAccessibleName('Refresh table');
+      await user.click(confirmButton());
+      expect(onConfirm).not.toHaveBeenCalled();
 
       await user.click(optIn());
-      expect(confirmButton()).toBeEnabled();
+      expect(confirmButton()).not.toHaveAttribute('aria-disabled');
       await user.click(confirmButton());
       expect(onConfirm).toHaveBeenCalledWith(true);
     });

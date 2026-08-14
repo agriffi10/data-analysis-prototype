@@ -3,9 +3,9 @@
 The owner's projection lists each member as pending — invited by the owner but not yet signed
 in — or active. A member's browser enqueues this request the first time it resolves a shared
 space they belong to, and the verb flips them to active by recording the actor in the registry's
-acknowledged set and rewriting the owner's projection. Idempotent: an already-active member is a
-clean no-op with no registry or projection write. The validator has already verified the token
-and authorized membership, so the guards here are defence in depth.
+acknowledged set and fanning the promoted roster out to the owner and every member. Idempotent:
+an already-active member is a clean no-op with no registry or cache write. The validator has
+already verified the token and authorized membership, so the guards here are defence in depth.
 
 The service name is the control plane, not the function: one shared-space request is up to eight
 invocations, and they are only one queryable set if they share it. The per-verb identity rides
@@ -24,6 +24,45 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 observability.init(service="shared-space")
+
+
+def _fan_out_roster(space, owner, committed):
+    """Publishes the promoted roster to the owner and to every member's own cache.
+
+    SPEC-186 FR-008. This used to write the owner's projection alone, which left every member's
+    copy — including the acknowledging member's own — frozen at the status it held when they were
+    added. The roster is the only member-facing view of who is in a space, so one member could
+    read ``Pending`` about themselves on the same page whose connections row said ``Active``, and
+    Refresh could not reconcile it because no writer ever ran.
+
+    The registry write is the consistency point and it has already committed, so nothing here may
+    fail the run: the retry would find the member already acknowledged, no-op, and never write
+    the caches at all. A failure therefore costs a stale roster, which is what the fan-out's own
+    per-member best-effort handling already accepts.
+
+    Args:
+      space: The space name.
+      owner: The space's owner.
+      committed: The registry record as saved, carrying the members, acknowledged set and
+        creation date.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    try:
+        cache.write_roster_to_all(
+            committed["members"],
+            space,
+            owner,
+            committed.get("acknowledged", []),
+            committed.get("createdAt"),
+        )
+    except Exception:
+        logger.exception("roster fan-out after acknowledge for %s failed (best-effort)", space)
+        observability.warning("roster fan-out failed after acknowledge", space=space, store="cache")
 
 
 def acknowledge_membership(space, actor, request_id, registry):
@@ -59,13 +98,7 @@ def acknowledge_membership(space, actor, request_id, registry):
         return {"status": "ok", "action": "acknowledge_membership", "space": space, "activated": False}
 
     committed = reg.save_members(registry, request_id, acknowledge=[actor])
-    cache.write_owner_projection(
-        owner,
-        space,
-        committed["members"],
-        committed.get("acknowledged", []),
-        committed.get("createdAt"),
-    )
+    _fan_out_roster(space, owner, committed)
     logger.info("acknowledge_membership %s: %s now active", space, actor)
     observability.info(
         "membership acknowledged",

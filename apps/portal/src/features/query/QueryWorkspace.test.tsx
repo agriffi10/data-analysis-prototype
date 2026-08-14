@@ -1670,9 +1670,10 @@ describe('QueryWorkspace', () => {
       expect(within(named).getByText('legacy_id')).toBeInTheDocument();
       expect(within(named).getByText('Order ID')).toBeInTheDocument();
 
-      // FR-003: confirm is gated on the opt-in in this state.
+      // FR-003: confirm is gated on the opt-in in this state — since SPEC-186 FR-002 as an
+      // `aria-disabled` refusal that says what it is waiting for, not a bare `disabled`.
       const confirm = within(dialog).getByRole('button', {name: 'Refresh table'});
-      expect(confirm).toBeDisabled();
+      expect(confirm).toHaveAttribute('aria-disabled', 'true');
       await user.click(within(dialog).getByRole('checkbox', {name: /allow columns to be removed/i}));
       await user.click(confirm);
 

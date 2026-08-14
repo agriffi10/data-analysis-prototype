@@ -241,6 +241,30 @@ describe('MemberRosterDrawer', () => {
       expect(screen.queryByRole('list')).not.toBeInTheDocument();
     });
 
+    // ── SPEC-186 FR-008 ────────────────────────────────────────────────────
+    // The app asserted both things at once: this drawer said `bob | Pending` under a sentence
+    // saying a Pending member "hasn't signed in yet", while the connections row one click away
+    // said Active — read by bob, who plainly had. The acknowledge verb now fans the roster out
+    // (`cache.write_roster_to_all`); this closes the window before that lands.
+    it('never tells the reader they have not signed in', () => {
+      setup({viewer: 'bob'});
+      expect(within(screen.getByText('bob').closest('li')!).getByText('Active')).toBeInTheDocument();
+      expect(screen.queryByText(/hasn.t signed in yet/i)).not.toBeInTheDocument();
+    });
+
+    it('still reports OTHER members as pending, and explains the chip where one exists', () => {
+      setup({
+        viewer: 'bob',
+        members: [
+          {username: 'alice', status: 'active' as const},
+          {username: 'bob', status: 'pending' as const},
+          {username: 'cara', status: 'pending' as const}
+        ]
+      });
+      expect(within(screen.getByText('cara').closest('li')!).getByText('Pending')).toBeInTheDocument();
+      expect(screen.getByText(/hasn.t signed in yet/i)).toBeInTheDocument();
+    });
+
     it('has no axe violations', async () => {
       await expectNoA11yViolations(
         <MemberRosterDrawer

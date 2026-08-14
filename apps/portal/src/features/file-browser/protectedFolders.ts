@@ -61,6 +61,8 @@
 // dqcommon-only: the SPEC-116 arc was cancelled with nothing built, so nothing
 // ever creates that folder; it is defensive there and would be dead config here.
 
+import type {SelectableItem} from './selectionContext';
+
 /** Hidden from the main file-browser listing. */
 export const HIDDEN_BROWSER_FOLDERS = ['user_settings', '_data-quality-reports', '_directory', '_config'] as const;
 
@@ -137,6 +139,39 @@ export function undeletableRootFolderRefusal(
 ): string | null {
   const name = UNDELETABLE_ROOT_FOLDERS.find((folder) => folderPrefix === `${rootPrefix}${folder}/`);
   return name ? UNDELETABLE_REFUSALS[name][action] : null;
+}
+
+/**
+ * The refusal for destroying anything in this SELECTION, or null when all of it is ordinary.
+ *
+ * SPEC-186 FR-002. The service already refuses (`fileBrowser.service.ts` calls
+ * `undeletableRootFolderRefusal` before issuing anything), but it refuses AFTER the user has
+ * read *"Delete the folder … and everything inside it? This can't be undone."* and pressed
+ * Delete — the most alarming confirm in the app, shown for an action that was never possible.
+ * Feeding this to `Button.disabledReason` states the refusal before the confirm instead, and
+ * swallows the click that would have opened it.
+ *
+ * Only the folder ITSELF matches, exactly as the service's rule does: a file inside
+ * `saved_queries/` is ordinary and deletes normally, so this must not walk ancestors the way
+ * `archiveRefusal` does — that plane carries a whole prefix out and deletes it, where a
+ * selection deletes only what is named.
+ *
+ * @param items - The current selection.
+ * @param rootPrefix - The space root, trailing slash, so the rule holds in a shared space.
+ * @param action - `delete` or `move` (rename is a move).
+ * @returns The user-facing refusal, or null when the operation may proceed.
+ */
+export function undeletableSelectionRefusal(
+  items: readonly SelectableItem[],
+  rootPrefix: string,
+  action: 'delete' | 'move'
+): string | null {
+  for (const item of items) {
+    if (item.type !== 'folder') continue;
+    const refusal = undeletableRootFolderRefusal(item.prefix, rootPrefix, action);
+    if (refusal) return refusal;
+  }
+  return null;
 }
 
 /**

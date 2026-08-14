@@ -321,6 +321,7 @@ export function ConnectionsPage() {
           owner={viewing.owner ?? ''}
           members={viewing.members ?? []}
           unavailable={viewing.members === undefined}
+          viewer={username}
           onRefresh={handleRefresh}
           refreshing={isRefreshing}
         />

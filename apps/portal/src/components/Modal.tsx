@@ -17,6 +17,11 @@ type ModalProps = {
    * Panel width/shape classes. Omit for the standard `max-w-md` card; pass your
    * own (e.g. `max-w-lg` + padding) to replace it — no tailwind-merge, so don't
    * expect a passed `max-w-*` to layer on top of a default.
+   *
+   * An EMPTY STRING counts as omitted (SPEC-186 FR-007). `cx()` no longer returns one,
+   * but a caller composing its own class string can still produce it, and `??` would
+   * take it as a deliberate choice to have no width at all — leaving the panel's
+   * `w-full` to fill the viewport.
    */
   className?: string;
   children: ReactNode;
@@ -69,7 +74,9 @@ export function Modal({onDismiss, ariaLabel, role = 'dialog', dismissible = true
           // passed class).
           className={cx(
             'max-h-[calc(100dvh-2rem)] w-full overflow-y-auto rounded-lg bg-surface shadow-lg',
-            className ?? 'max-w-md'
+            // `||`, not `??`: an empty class string means "I passed nothing", and the
+            // default has to survive it. See the prop's doc comment.
+            className || 'max-w-md'
           )}
           onClick={(e) => e.stopPropagation()}>
           {/* Anything opened from inside this modal is one layer deeper, so it wins

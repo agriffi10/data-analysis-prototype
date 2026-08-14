@@ -93,6 +93,8 @@ export function SelectionToolbar({
   onRequestArchive,
   archiveDisabledReason,
   writeLockReason,
+  deleteDisabledReason,
+  moveDisabledReason,
   isBusy
 }: {
   allItems: SelectableItem[];
@@ -123,6 +125,13 @@ export function SelectionToolbar({
    * AccessDenied for a rule this app wrote.
    */
   writeLockReason?: string;
+  /**
+   * Why THIS SELECTION can't be deleted — a portal-managed root folder (SPEC-186 FR-002).
+   * Distinct from `writeLockReason`, which is about the folder the user is standing IN.
+   */
+  deleteDisabledReason?: string;
+  /** The same, for a move. A move is a rename here, so the wording differs from delete's. */
+  moveDisabledReason?: string;
   isBusy: boolean;
 }) {
   const {count, isSelected, selectAll, clear} = useSelection();
@@ -223,7 +232,7 @@ export function SelectionToolbar({
         className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
         onClick={onRequestMove}
         disabled={count === 0 || isBusy}
-        disabledReason={count > 0 ? writeLockReason : undefined}
+        disabledReason={count > 0 ? (writeLockReason ?? moveDisabledReason) : undefined}
         aria-label="Move selected items">
         <BulkMoveIcon />
         <span className="hidden tablet:inline">Move</span>
@@ -235,7 +244,7 @@ export function SelectionToolbar({
         className="gap-1.5 !h-9 !px-2.5 !text-danger hover:!bg-danger-soft hover:!text-danger tablet:!h-8 tablet:!px-3"
         onClick={onRequestDelete}
         disabled={count === 0 || isBusy}
-        disabledReason={count > 0 ? writeLockReason : undefined}
+        disabledReason={count > 0 ? (writeLockReason ?? deleteDisabledReason) : undefined}
         aria-label="Delete selected items">
         <TrashIcon />
         <span className="hidden tablet:inline">Delete</span>

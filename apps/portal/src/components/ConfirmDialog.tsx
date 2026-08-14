@@ -21,6 +21,14 @@ type ConfirmDialogProps = {
    * keeping Cancel + dismissal live. `busy` still disables both.
    */
   confirmDisabled?: boolean;
+  /**
+   * WHY confirm is unavailable (SPEC-186 FR-002, on SPEC-172's `Button.disabledReason`).
+   * Supplied alongside `confirmDisabled`, it swaps the native `disabled` for `aria-disabled`
+   * so the reason keeps its place in the tab order — a `disabled` button with no title is
+   * "greyed out and I can't find out why". `busy` still wins and stays natively disabled:
+   * an operation in flight is not a refusal.
+   */
+  confirmDisabledReason?: string;
   /** Informational single-button mode (no Cancel) — e.g. a limit notice. */
   dismissOnly?: boolean;
   /**
@@ -64,6 +72,7 @@ export function ConfirmDialog({
   busy = false,
   busyLabel,
   confirmDisabled = false,
+  confirmDisabledReason,
   dismissOnly = false,
   focusConfirm,
   onConfirm,
@@ -132,7 +141,10 @@ export function ConfirmDialog({
           ref={confirmRef}
           variant={confirmVariant}
           onClick={onConfirm}
-          disabled={busy || confirmDisabled}>
+          // A reason turns the refusal into an `aria-disabled` one; without it the control is
+          // natively disabled as before. `busy` is never a refusal, so it keeps `disabled`.
+          disabled={busy || (confirmDisabled && !confirmDisabledReason)}
+          disabledReason={!busy && confirmDisabled ? confirmDisabledReason : undefined}>
           {busy && busyLabel ? busyLabel : confirmLabel}
         </Button>
       </div>

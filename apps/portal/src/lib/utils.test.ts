@@ -20,8 +20,13 @@ describe('cx', () => {
       expect(cx('a', false, null, undefined, 'b')).toBe('a b');
     });
 
-    it('returns an empty string for all-falsy input', () => {
-      expect(cx(false, null, undefined)).toBe('');
+    // SPEC-186 FR-007: `undefined`, not `''`. A `className ?? default` consumer falls
+    // back on the former and not on the latter, and nine dialogs lost their width to
+    // exactly that. Returning '' here again reddens the Modal default test too.
+    it('returns undefined for all-falsy input, so `??` consumers get their default', () => {
+      expect(cx(false, null, undefined)).toBeUndefined();
+      expect(cx()).toBeUndefined();
+      expect(cx(false, null, undefined) ?? 'max-w-md').toBe('max-w-md');
     });
   });
 });

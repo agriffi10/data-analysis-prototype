@@ -5,6 +5,7 @@ import {RenameDialog} from './RenameDialog';
 import {MoveDialog} from './MoveDialog';
 import {CopyDialog} from './CopyDialog';
 import {DataQualityDialog} from '../data-quality';
+import {undeletableRootFolderRefusal} from './protectedFolders';
 import type {UseFileBrowserDialogsResult} from './useFileBrowserDialogs';
 import type {useCopy} from './useCopy';
 import type {useDelete} from './useDelete';
@@ -93,7 +94,14 @@ export function FileBrowserDialogs({
           onRequestRename={dialogs.openRenameFolder}
           onRequestArchive={onRequestArchiveFolder}
           archiveDisabledReason={archiveRefusalFor(dialogs.detailsFolder.prefix, 'folder')}
-          writeLockReason={writeLockReason}
+          writeLockReason={
+            // SPEC-186 FR-002: a portal-managed root refuses a rename for its OWN reason, which
+            // is not the current folder's write lock — but Rename carries one reason, and the
+            // folder-specific one is the more useful of the two where both apply.
+            writeLockReason ??
+            undeletableRootFolderRefusal(dialogs.detailsFolder.prefix, rootPrefix, 'move') ??
+            undefined
+          }
           onClose={dialogs.closeFolderDetails}
         />
       )}
