@@ -3464,6 +3464,33 @@ are absences the grid already names in words.
 **The Text view stays raw** — no colours, no transformers. It is the drag-select-and-copy surface,
 and its whole promise is that what is on screen is what is copied.
 
+### A link in a grid is not a tab stop, and the app must not manufacture backtracking
+
+Two review findings that generalise beyond this spec.
+
+**`role="grid"` promises ONE tab stop**, which is why every cell but the cursor carries
+`tabIndex={-1}` — so a URL transformer's anchor is `tabIndex={-1}` too, or a hundred rows put a
+hundred stops inside the grid and Tab walks the column instead of leaving. The **Value panel
+carries a focusable copy of the link**, which is what makes that cost a keyboard user nothing, and
+the Record view — which already wraps every value in a button — renders the text without an anchor
+at all, because an anchor inside a button is nested interactive content. No axe case had rendered a
+transformed cell, which is how a `nested-interactive` violation reached review; the file now walks
+both views, and the fix was verified by reverting it.
+
+**A wildcard translated one for one manufactures catastrophic backtracking.** Mapping each `%` in a
+`LIKE` pattern to its own `[\s\S]*` makes adjacent wildcards nested unbounded quantifiers:
+`%%%%%%%%x` against a 60-character value measured at **31.7 s**, in a `useMemo` that runs once per
+cell. A length cap bounds the input, not the runtime — and `%%%` is not a hostile regex, it is what
+a user types believing it is a wildcard. Runs of `%` collapse to one: identical matches, 0 ms.
+
+### A hidden column is still part of the row
+
+Formatting is evaluated over EVERY column, not the visible ones. A rule reading `status` must keep
+painting its row after `status` is hidden, and the dialogs are handed the same list, so what they
+report as applicable is what the evaluator can actually see — judged over the visible columns, the
+dialog called a rule fine while it silently did nothing, and striping turned itself off when every
+chosen column was hidden. Formats for hidden columns are simply never looked up.
+
 ### A stored formatting block is discarded WHOLE
 
 Unlike the field-by-field normalisation beside it, `formatting` is validated as a unit and replaced

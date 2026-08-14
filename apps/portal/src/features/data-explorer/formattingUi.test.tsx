@@ -143,8 +143,31 @@ describe('nothing in the formatting surfaces runs a query (FR-001)', () => {
     await user.click(within(dialog).getByRole('checkbox', {name: /data type/i}));
     await user.click(within(dialog).getByRole('checkbox', {name: 'id'}));
     await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
-
     await waitFor(() => expect(cell(0, 'status')).toHaveStyle({color: 'var(--color-danger)'}));
+
+    // A GRADIENT rule, which renders a different set of controls and a different code path.
+    const withGradient = await openColours(user);
+    await user.click(within(withGradient).getByRole('button', {name: 'Add rule'}));
+    await user.selectOptions(within(withGradient).getByRole('combobox', {name: 'Rule 2 column'}), 'qty');
+    await user.click(within(withGradient).getByRole('checkbox', {name: 'Rule 2 shades a number range'}));
+    await user.click(within(withGradient).getByRole('button', {name: 'Apply'}));
+    await waitFor(() => expect(storedFormatting().rules).toHaveLength(2));
+
+    // Every TRANSFORMER kind, all in one Apply.
+    await user.click(screen.getByRole('button', {name: 'Transformers'}));
+    const transformers = screen.getByRole('dialog', {name: 'Transformers'});
+    await user.selectOptions(within(transformers).getByRole('combobox', {name: 'Show qty as'}), 'numeric');
+    await user.selectOptions(within(transformers).getByRole('combobox', {name: 'Show id as'}), 'binary');
+    await user.selectOptions(within(transformers).getByRole('combobox', {name: 'Show status as'}), 'url');
+    await user.click(within(transformers).getByRole('button', {name: 'Apply'}));
+    await waitFor(() => expect(cell(0, 'qty')).toHaveTextContent('10.00'));
+
+    // And REMOVING a rule, which is the gesture a count test is likeliest to skip.
+    const toRemove = await openColours(user);
+    await user.click(within(toRemove).getByRole('button', {name: 'Remove rule 1'}));
+    await user.click(within(toRemove).getByRole('button', {name: 'Apply'}));
+    await waitFor(() => expect(storedFormatting().rules).toHaveLength(1));
+
     expect(runQuery).toHaveBeenCalledTimes(1);
     // …and the rows on screen are the ones already fetched (AC3): no refetch either.
     expect(vi.mocked(getQueryResults).mock.calls.length).toBe(resultReads);
@@ -402,5 +425,90 @@ describe('transformers (FR-005, FR-006)', () => {
     expect(link).toHaveAttribute('target', '_blank');
     // Every refused scheme is still SHOWN — as text, with its reason available.
     expect(cell(0, 'link')).toHaveTextContent('javascript:alert(1)');
+  });
+});
+
+describe('the fixes review found', () => {
+  it('accepts a negative and a decimal gradient bound', async () => {
+    // A number-only round trip cannot be typed into: `Number('-')` is NaN and renders as
+    // empty, so the minus is erased, and `1.` renders as `1`, so the point is. Both make a
+    // range like `-10..1.5` unreachable, which is most of what a gradient is for.
+    const {user} = render();
+    await screen.findByRole('columnheader', {name: 'qty'});
+
+    const dialog = await openColours(user);
+    await user.click(within(dialog).getByRole('button', {name: 'Add rule'}));
+    await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Rule 1 column'}), 'qty');
+    await user.click(within(dialog).getByRole('checkbox', {name: 'Rule 1 shades a number range'}));
+
+    const start = within(dialog).getByRole('textbox', {name: 'Rule 1 range start'});
+    const end = within(dialog).getByRole('textbox', {name: 'Rule 1 range end'});
+    await user.clear(start);
+    await user.type(start, '-10');
+    await user.clear(end);
+    await user.type(end, '1.5');
+    expect(start).toHaveValue('-10');
+    expect(end).toHaveValue('1.5');
+
+    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
+    await waitFor(() =>
+      expect(storedFormatting().rules[0].gradient).toEqual({
+        min: -10,
+        max: 1.5,
+        from: 'accent-soft',
+        to: 'danger-soft'
+      })
+    );
+  });
+
+  it('keeps a rule working when its column is hidden, since the row still holds the value', async () => {
+    const {user} = render();
+    await screen.findByRole('columnheader', {name: 'status'});
+
+    const dialog = await openColours(user);
+    await addRule(user, dialog, {column: 'status', value: 'failed', colour: 'Red', paints: 'row'});
+    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
+    await waitFor(() => expect(cell(1, 'id')).toHaveStyle({color: 'var(--color-danger)'}));
+
+    // Hiding the column the rule READS must not stop it painting the row — the value is
+    // still in the row. Judged over the visible columns, the rule silently stopped working
+    // while the dialog went on calling it applicable.
+    await user.click(screen.getByRole('button', {name: 'Columns'}));
+    await user.click(await screen.findByRole('button', {name: 'Hide status'}));
+    await waitFor(() => expect(screen.queryByRole('columnheader', {name: 'status'})).not.toBeInTheDocument());
+    expect(cell(1, 'id')).toHaveStyle({color: 'var(--color-danger)'});
+  });
+
+  it('keeps the grid a single tab stop when a column renders links', async () => {
+    // `role="grid"` promises one tab stop with the arrows moving within it. A focusable
+    // anchor per row would put a hundred stops inside the grid, and Tab from the cursor
+    // would walk the column instead of leaving.
+    vi.mocked(getQueryResults).mockResolvedValue(
+      ok({
+        columns: [{name: 'link', type: 'varchar'}],
+        rows: [['https://example.com/a'], ['https://example.com/b']]
+      }) as never
+    );
+    const {user} = render();
+    await screen.findByRole('columnheader', {name: 'link'});
+
+    await user.click(screen.getByRole('button', {name: 'Transformers'}));
+    const dialog = screen.getByRole('dialog', {name: 'Transformers'});
+    await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Show link as'}), 'url');
+    await user.clear(within(dialog).getByRole('textbox', {name: 'Link for link'}));
+    await user.type(within(dialog).getByRole('textbox', {name: 'Link for link'}), '${{value}');
+    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
+
+    await waitFor(() => expect(screen.getAllByRole('link')).toHaveLength(2));
+    for (const link of screen.getAllByRole('link')) expect(link).toHaveAttribute('tabindex', '-1');
+
+    // …and the keyboard route to the link is the Value panel, which is what makes that
+    // decision cost a keyboard user nothing.
+    await user.click(cell(0, 'link'));
+    await user.click(screen.getByRole('button', {name: 'Value'}));
+    const panel = await screen.findByRole('complementary', {name: 'Value'});
+    const panelLink = within(panel).getByRole('link');
+    expect(panelLink).toHaveAttribute('href', 'https://example.com/a');
+    expect(panelLink).not.toHaveAttribute('tabindex');
   });
 });

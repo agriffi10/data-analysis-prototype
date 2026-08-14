@@ -77,6 +77,51 @@ the selection SPEC-182's Calc panel aggregates. The cell drops its formatting fi
 `aria-selected` says so either way, and the selection's own fill is one of the surfaces the
 palette is measured against.
 
+## What review found
+
+Six defects, all fixed on the branch, all now covered by a test that was verified to fail without
+the fix.
+
+**A URL transformer broke the grid's single-tab-stop invariant, and nested an anchor inside a
+button.** `role="grid"` promises one tab stop with the arrows moving within it — which is why every
+cell but the cursor carries `tabIndex={-1}` — and a focusable anchor per row would have put a
+hundred stops inside the grid, so Tab from the cursor walked the column instead of leaving. Worse,
+the Record view puts every value inside a button, so a transformed cell there was **nested
+interactive content**, the exact axe failure SPEC-179 had to correct once already. The anchor is
+now `tabIndex={-1}`, the Record view renders the text without one, and **the Value panel carries a
+focusable link** — which is what makes that decision cost a keyboard user nothing. The axe file had
+no case that rendered a transformed cell at all; it now walks both views, and reverting the fix
+reddens it with `nested-interactive`.
+
+**A `LIKE` pattern could freeze the tab, and the app was manufacturing the pathology itself.**
+Translating each `%` to its own `[\s\S]*` makes adjacent wildcards nested unbounded quantifiers:
+`%%%%%%%%x` against a 60-character value measured at **31.7 s** here, inside a `useMemo` that runs
+once per cell. `FORMATTING_PATTERN_MAX` bounds the input, not the runtime, and its docstring accepts
+that residual risk for a user-authored *regex* — but `%%%` is something a user types believing it is
+a wildcard. Runs of `%` now collapse to one: same matches, 0 ms.
+
+**A gradient could not be given a negative or a decimal bound.** The inputs round-tripped through
+`Number()`, so `-` became `NaN` and rendered as empty (the minus erased as you typed it) and `1.`
+rendered as `1`. `-10..40` and `0..1.5` were unreachable — most of what a gradient is for. The
+bounds are now held as typed, parsed alongside, and an emptied field is `NaN` rather than a silent
+zero.
+
+**A rule on a hidden column silently stopped working while the dialog called it applicable.**
+Formatting was evaluated over the visible columns, so hiding `status` stopped a row rule reading
+`status` — and `isRuleApplicable`, asked over all columns in the dialog, disagreed. Evaluation now
+runs over every column: **a hidden column is still part of the row**. Same fix covers striping,
+which silently turned off when every chosen column was hidden.
+
+**Two smaller ones.** `encodeURIComponent` throws `URIError` on a lone surrogate, and the
+substitution sat outside the `try` — a cell holding one would have thrown through the grid's render.
+And a column named `__proto__` set an object's prototype instead of storing its format or its
+transformer, which is not prototype pollution but does silently drop that column's formatting;
+both writes now define the property.
+
+**FR-007 AC2 had no test at all** — ~90 lines of validation whose stated job is the whole-block
+discard and the palette check. It now has one, including the case that matters most: a stored
+`warning` foreground, the token measured out of the palette, is refused.
+
 ## Deviations from the spec, taken in build
 
 - **The Text view stays raw** — no colours, no transformers. It is the drag-select-and-copy

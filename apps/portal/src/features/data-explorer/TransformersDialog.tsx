@@ -63,9 +63,12 @@ export function TransformersDialog({columns, transformers, onApply, onCancel}: T
   const set = (column: string, transformer: Transformer | null) => {
     setErrors((e) => ({...e, [column]: ''}));
     setDraft((d) => {
+      // A computed key in an object literal DEFINES a property; `next[column] = …` would
+      // invoke the inherited setter for a column named `__proto__` and set the object's
+      // prototype instead, silently storing nothing.
+      if (transformer) return {...d, [column]: transformer};
       const next = {...d};
-      if (transformer) next[column] = transformer;
-      else delete next[column];
+      delete next[column];
       return next;
     });
   };

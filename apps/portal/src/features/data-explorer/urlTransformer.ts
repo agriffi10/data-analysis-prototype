@@ -62,20 +62,22 @@ export function resolveUrl(template: string, value: string): ResolvedUrl {
   const refusal = templateRefusal(template);
   if (refusal) return {reason: refusal};
 
-  // Assembled part by part rather than with `String.replace`: the replacement string in
-  // `replace` reads `$&`, `$'` and `` $` `` as substitution patterns, so a cell value
-  // containing one would be expanded into something other than itself before it was ever
-  // parsed. It also lets the leading position — where the value supplies the URL — be
-  // substituted raw while every later one is encoded.
-  const parts = template.split(URL_PLACEHOLDER);
-  let resolved = parts[0];
-  for (let at = 1; at < parts.length; at += 1) {
-    const suppliesTheUrl = at === 1 && parts[0] === '';
-    resolved += (suppliesTheUrl ? value : encodeURIComponent(value)) + parts[at];
-  }
-
   let url: URL;
   try {
+    // Assembled part by part rather than with `String.replace`: the replacement string in
+    // `replace` reads `$&`, `$'` and `` $` `` as substitution patterns, so a cell value
+    // containing one would be expanded into something other than itself before it was ever
+    // parsed. It also lets the leading position — where the value supplies the URL — be
+    // substituted raw while every later one is encoded.
+    //
+    // Inside the `try`, because `encodeURIComponent` throws `URIError` on a lone surrogate
+    // and a cell holding one would otherwise throw straight through the grid's render.
+    const parts = template.split(URL_PLACEHOLDER);
+    let resolved = parts[0];
+    for (let at = 1; at < parts.length; at += 1) {
+      const suppliesTheUrl = at === 1 && parts[0] === '';
+      resolved += (suppliesTheUrl ? value : encodeURIComponent(value)) + parts[at];
+    }
     url = new URL(resolved);
   } catch {
     // A relative or malformed template — `/reports/${value}`, say. Not a link, and not

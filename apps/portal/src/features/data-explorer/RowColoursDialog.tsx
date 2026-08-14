@@ -57,10 +57,25 @@ export function RowColoursDialog({columns, formatting, onApply, onCancel}: RowCo
     stripeColumns: formatting.stripeColumns
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // The gradient bounds AS TYPED, keyed `${rule.id}:min|max`. A number-only round trip
+  // through `Number()` cannot be typed into: `-` is NaN and renders as empty, so the minus
+  // is erased, and `1.` renders as `1`, so the point is. Both make a range like `-10..40`
+  // or `0..1.5` unreachable — FR-002 AC4 asks for a numeric range, not a whole positive one.
+  // The parsed value still rides on the rule, so a half-typed bound is refused at Apply.
+  const [bounds, setBounds] = useState<Record<string, string>>({});
 
   const editRule = (id: string, update: Partial<ColourRule>) => {
     setErrors((e) => ({...e, [id]: ''}));
     setDraft((d) => ({...d, rules: d.rules.map((rule) => (rule.id === id ? {...rule, ...update} : rule))}));
+  };
+
+  const boundText = (id: string, end: 'min' | 'max', value: number): string =>
+    bounds[`${id}:${end}`] ?? (Number.isFinite(value) ? String(value) : '');
+
+  const editBound = (id: string, end: 'min' | 'max', text: string, gradient: NonNullable<ColourRule['gradient']>) => {
+    setBounds((b) => ({...b, [`${id}:${end}`]: text}));
+    // `Number('')` is 0, which would silently accept an emptied field as a bound of zero.
+    editRule(id, {gradient: {...gradient, [end]: text.trim() === '' ? NaN : Number(text)}});
   };
 
   const move = (index: number, direction: -1 | 1) =>
@@ -184,16 +199,16 @@ export function RowColoursDialog({columns, formatting, onApply, onCancel}: RowCo
                     aria-label={`Rule ${position} range start`}
                     className="w-24"
                     inputMode="decimal"
-                    value={Number.isFinite(gradient.min) ? String(gradient.min) : ''}
+                    value={boundText(rule.id, 'min', gradient.min)}
                     error={errors[rule.id] || null}
-                    onChange={(e) => editRule(rule.id, {gradient: {...gradient, min: Number(e.target.value)}})}
+                    onChange={(e) => editBound(rule.id, 'min', e.target.value, gradient)}
                   />
                   <Input
                     aria-label={`Rule ${position} range end`}
                     className="w-24"
                     inputMode="decimal"
-                    value={Number.isFinite(gradient.max) ? String(gradient.max) : ''}
-                    onChange={(e) => editRule(rule.id, {gradient: {...gradient, max: Number(e.target.value)}})}
+                    value={boundText(rule.id, 'max', gradient.max)}
+                    onChange={(e) => editBound(rule.id, 'max', e.target.value, gradient)}
                   />
                   <ColourSelect
                     label={`Rule ${position} range start colour`}

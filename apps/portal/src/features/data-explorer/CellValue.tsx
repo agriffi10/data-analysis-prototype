@@ -6,6 +6,15 @@ export type CellValueProps = {
   className?: string;
   /** How a transformer renders this cell (SPEC-184 FR-005); absent renders the value itself. */
   transformed?: TransformedValue | null;
+  /**
+   * Whether a resolved URL may render as an anchor here.
+   *
+   * False wherever the cell is ALREADY inside something interactive — the Record view puts
+   * every value in a button — because an anchor inside a button is nested interactive
+   * content, which is invalid and which SPEC-179 already had to correct once in the tab
+   * strip. There the transformed text renders as text and the Value panel carries the link.
+   */
+  linkable?: boolean;
 };
 
 /**
@@ -18,10 +27,16 @@ export type CellValueProps = {
  * a value to render in hex or link to somewhere.
  *
  * A URL transformer's anchor carries `rel="noopener noreferrer"` and `target="_blank"`
- * (SPEC-184 FR-006), and it is only ever built from a resolved `https:` URL — a refused
- * one renders as plain text, with the reason reachable rather than swallowed.
+ * (SPEC-184 FR-006), and it is only ever built from a resolved `https:` URL — a refused one
+ * renders as plain text with its reason on the cell and in the Value panel.
+ *
+ * **The anchor is not a tab stop**, and that is not an oversight. `role="grid"` promises a
+ * SINGLE tab stop with the arrow keys moving within it, which is why every cell but the
+ * cursor carries `tabIndex={-1}`; a focusable anchor per row would put a hundred stops
+ * inside the grid and Tab would walk the column instead of leaving. The keyboard route to
+ * the link is the Value panel, which is already the keyboard route to a cell's full value.
  */
-export function CellValue({value, className, transformed}: CellValueProps) {
+export function CellValue({value, className, transformed, linkable = true}: CellValueProps) {
   if (value === null || value === '') {
     return (
       <span className={className}>
@@ -29,12 +44,13 @@ export function CellValue({value, className, transformed}: CellValueProps) {
       </span>
     );
   }
-  if (transformed?.href) {
+  if (transformed?.href && linkable) {
     return (
       <a
         href={transformed.href}
         target="_blank"
         rel="noopener noreferrer"
+        tabIndex={-1}
         className={className}>
         {transformed.text}
       </a>

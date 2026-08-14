@@ -93,9 +93,13 @@ export function ExplorationRecordView({
                   onClick={() => onFocusColumn(column.name)}
                   style={formats[at]?.[column.name]}
                   className="w-full break-words text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+                  {/* Not linkable: this value is already inside a button, and an anchor
+                      in a button is nested interactive content. The Value panel — which
+                      this button is what opens — carries the link instead. */}
                   <CellValue
                     value={row[column.index] ?? null}
                     transformed={transformed[at]?.[column.name]}
+                    linkable={false}
                   />
                 </button>
               </dd>

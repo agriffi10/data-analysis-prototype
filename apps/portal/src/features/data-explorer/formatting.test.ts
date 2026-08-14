@@ -514,3 +514,64 @@ describe('transformers change the rendering and nothing else', () => {
     expect(transformed.every((row) => Object.keys(row).length === 0)).toBe(true);
   });
 });
+
+describe('a LIKE pattern cannot be made to backtrack catastrophically', () => {
+  // Found in review. Translated one wildcard at a time, `%%%%` becomes four NESTED
+  // unbounded quantifiers: `%%%%%%%%x` against a 60-character value measured at **32
+  // seconds** before the fix, inside a `useMemo` that runs once per cell. Runs of `%` now
+  // collapse to one, which removes the pathology rather than bounding it.
+  const value = 'a'.repeat(60);
+
+  it('finishes promptly on a pattern of repeated wildcards', () => {
+    const started = Date.now();
+    const {formats} = computePageFormatting(
+      state({rules: [rule({column: 'id', operator: 'like', value: '%%%%%%%%x'})]}),
+      COLUMNS,
+      [[value, '1', 'ok']]
+    );
+    expect(formats[0].id).toBeUndefined();
+    // Three orders of magnitude below the pre-fix measurement — a bound this loose cannot
+    // be flaky and still catches a return to nested quantifiers.
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('means exactly what a single wildcard means', () => {
+    // The collapse must not change WHICH values match, only how long deciding takes.
+    const rows: (string | null)[][] = [
+      ['abc', '1', 'ok'],
+      ['xbc', '1', 'ok']
+    ];
+    const many = computePageFormatting(
+      state({rules: [rule({column: 'id', operator: 'like', value: '%%%bc'})]}),
+      COLUMNS,
+      rows
+    );
+    const one = computePageFormatting(
+      state({rules: [rule({column: 'id', operator: 'like', value: '%bc'})]}),
+      COLUMNS,
+      rows
+    );
+    expect(many.formats.map((f) => Boolean(f.id))).toEqual(one.formats.map((f) => Boolean(f.id)));
+    expect(many.formats[0].id).toBeDefined();
+  });
+});
+
+describe('hostile column names and values do not escape', () => {
+  it('stores a format for a column named __proto__ rather than setting a prototype', () => {
+    // Column names come from Athena and are not catalog-safe. Assignment would invoke the
+    // inherited setter and silently drop every format for that column.
+    const columns: FormattingColumn[] = [{name: '__proto__', index: 0, type: 'varchar'}];
+    const {formats} = computePageFormatting(state({rules: [rule({column: '__proto__', value: 'a'})]}), columns, [
+      ['a']
+    ]);
+    expect(Object.hasOwn(formats[0], '__proto__')).toBe(true);
+    expect(formats[0]['__proto__']).toEqual({color: colourValue('danger')});
+  });
+
+  it('does not throw on a lone surrogate reaching the url transformer', () => {
+    // `encodeURIComponent('\uD800')` throws `URIError`, which would come straight out of
+    // the grid's render rather than out of a refusal.
+    expect(() => transformCell('\uD800', {kind: 'url', template: 'https://example.com/${value}'})).not.toThrow();
+    expect(transformCell('\uD800', {kind: 'url', template: 'https://example.com/${value}'})?.href).toBeUndefined();
+  });
+});

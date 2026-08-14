@@ -122,4 +122,55 @@ describe('the formatting surfaces are accessible', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', {name: 'Colours'})).not.toBeInTheDocument());
     await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
   });
+
+  it('the Transformers dialog, with all three kinds on screen at once', async () => {
+    const user = userEvent.setup(USER_EVENT_OPTIONS);
+    const {container} = renderWithProviders(<DataExplorerWorkspace />, {
+      route: '/explore',
+      auth: authenticated('alice')
+    });
+    await screen.findByRole('columnheader', {name: 'status'});
+
+    await user.click(screen.getByRole('button', {name: 'Transformers'}));
+    const dialog = screen.getByRole('dialog', {name: 'Transformers'});
+    // Each kind renders its own controls, so one of each is what it takes to have every
+    // control in this dialog on screen.
+    await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Show qty as'}), 'numeric');
+    await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Show id as'}), 'binary');
+    await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Show status as'}), 'url');
+
+    await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
+  });
+
+  it('a grid and a Record view rendering links', async () => {
+    // The gap that hid a real defect: an anchor inside the Record view's per-value BUTTON
+    // is nested interactive content, and no earlier check rendered a transformed cell at
+    // all. Both views are walked here, in one pass each.
+    vi.mocked(getQueryResults).mockResolvedValue(
+      ok({
+        columns: [{name: 'link', type: 'varchar'}],
+        rows: [['https://example.com/a'], ['javascript:alert(1)']]
+      }) as never
+    );
+    const user = userEvent.setup(USER_EVENT_OPTIONS);
+    const {container} = renderWithProviders(<DataExplorerWorkspace />, {
+      route: '/explore',
+      auth: authenticated('alice')
+    });
+    await screen.findByRole('columnheader', {name: 'link'});
+
+    await user.click(screen.getByRole('button', {name: 'Transformers'}));
+    const dialog = screen.getByRole('dialog', {name: 'Transformers'});
+    await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Show link as'}), 'url');
+    await user.clear(within(dialog).getByRole('textbox', {name: 'Link for link'}));
+    await user.type(within(dialog).getByRole('textbox', {name: 'Link for link'}), '${{value}');
+    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
+    await waitFor(() => expect(screen.getAllByRole('link')).toHaveLength(1));
+
+    await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
+
+    await user.click(screen.getByRole('button', {name: 'Record'}));
+    await screen.findByRole('button', {name: 'Show the full value of link'});
+    await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
+  });
 });

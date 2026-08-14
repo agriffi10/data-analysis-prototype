@@ -243,9 +243,15 @@ export function ExplorationResultsRegion({
   // gesture behind this is a state write, so the grid repaints and NOTHING is fetched. It is
   // memoised because it is recomputed on every render of a region that re-renders on every
   // cursor move.
+  // Evaluated over `geometry.all`, HIDDEN COLUMNS INCLUDED, and that is deliberate: a
+  // hidden column is still part of the row, so a rule reading `status` must keep painting
+  // the row after `status` is hidden — and the two dialogs are handed `all` too, so what
+  // they call applicable is what the evaluator can actually see. Judged over `visible`,
+  // the dialog reported a rule as fine while it silently did nothing (found in review).
+  // Formats for hidden columns are simply never looked up.
   const pageFormatting = useMemo(
-    () => computePageFormatting(presentation.formatting, geometry.visible, rows),
-    [presentation.formatting, geometry.visible, rows]
+    () => computePageFormatting(presentation.formatting, geometry.all, rows),
+    [presentation.formatting, geometry.all, rows]
   );
 
   const setFormatting = (update: Partial<FormattingState>) =>

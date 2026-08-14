@@ -83,9 +83,22 @@ export function ValuePanel({column, value, type, transformed, onClose}: ValuePan
       {focused && transformed && (
         <div className="flex-none">
           <h4 className="text-xs font-medium text-text-2">Shown as</h4>
-          <p className="mt-1 truncate rounded-md border border-border bg-surface-2 p-2 font-mono text-sm text-text">
-            {transformed.text}
-          </p>
+          {/* THE KEYBOARD ROUTE TO A LINK. The grid's own anchor is deliberately not a tab
+              stop — `role="grid"` promises one — so this is the only focusable copy of it,
+              and it is the reason that decision costs a keyboard user nothing. */}
+          {transformed.href ? (
+            <a
+              href={transformed.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 block truncate rounded-md border border-border bg-surface-2 p-2 font-mono text-sm text-accent-text underline">
+              {transformed.text}
+            </a>
+          ) : (
+            <p className="mt-1 truncate rounded-md border border-border bg-surface-2 p-2 font-mono text-sm text-text">
+              {transformed.text}
+            </p>
+          )}
           {transformed.reason && <p className="mt-1 text-xs text-text-2">{transformed.reason}</p>}
         </div>
       )}

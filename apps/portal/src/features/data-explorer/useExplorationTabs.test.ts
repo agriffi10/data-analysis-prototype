@@ -540,3 +540,85 @@ describe('useExplorationTabs — editing the active exploration', () => {
     expect(result.current.tabs).toEqual([]);
   });
 });
+
+describe('useExplorationTabs — a stored formatting block (SPEC-184 FR-007 AC2)', () => {
+  /** Seeds one tab whose presentation carries `formatting` verbatim. */
+  const seedFormatting = (formatting: unknown) =>
+    sessionStorage.setItem(
+      KEY,
+      JSON.stringify({
+        version: 1,
+        tabs: [
+          {
+            id: 'a',
+            label: 'orders',
+            exploration: {
+              id: 'e',
+              source: TABLE,
+              query: {filters: [], expression: null, ordering: [], grouping: null},
+              presentation: {formatting}
+            },
+            scannedByExecution: {},
+            history: {past: [], future: []}
+          }
+        ],
+        activeTabId: 'a'
+      })
+    );
+
+  const EMPTY = {rules: [], colourByType: false, stripeColumns: [], transformers: {}};
+
+  const good = {
+    rules: [{id: 'r', column: 'status', operator: '=', value: 'ok', foreground: 'danger'}],
+    colourByType: true,
+    stripeColumns: ['id'],
+    transformers: {id: {kind: 'numeric', precision: 2, lenient: true}}
+  };
+
+  it('restores a whole, valid block', () => {
+    seedFormatting(good);
+    expect(setup().result.current.tabs[0].exploration.presentation.formatting).toEqual(good);
+  });
+
+  it('discards the block WHOLE when any part of it is wrong, and keeps the tab', () => {
+    // Never partially: a rule that survived while the one meant to override it was dropped
+    // paints the opposite of what was intended, and the user has no way to tell.
+    for (const broken of [
+      {...good, rules: [{...good.rules[0], operator: 'sounds-like'}]},
+      {...good, rules: 'not an array'},
+      {...good, colourByType: 'yes'},
+      {...good, stripeColumns: [1, 2]},
+      {...good, transformers: {id: {kind: 'unknown'}}},
+      {...good, transformers: [{kind: 'numeric', precision: 2, lenient: true}]},
+      {...good, transformers: {id: {kind: 'numeric', precision: 99, lenient: true}}},
+      {...good, transformers: {id: {kind: 'binary', encoding: 'rot13', maxLength: 8}}},
+      'not an object'
+    ]) {
+      sessionStorage.clear();
+      seedFormatting(broken);
+      const {tabs} = setup().result.current;
+      expect(tabs, JSON.stringify(broken)).toHaveLength(1);
+      expect(tabs[0].exploration.presentation.formatting, JSON.stringify(broken)).toEqual(EMPTY);
+    }
+  });
+
+  it('refuses a colour that is not in the palette', () => {
+    // The palette is bounded so its contrast can be MEASURED; a stored `#ff0000` would be
+    // rendered verbatim as an inline style, and nothing downstream would question it.
+    for (const rule of [
+      {id: 'r', operator: '=', value: 'ok', foreground: '#ff0000'},
+      {id: 'r', operator: '=', value: 'ok', background: 'rebeccapurple'},
+      {id: 'r', operator: '=', value: 'ok', foreground: 'warning'},
+      {id: 'r', operator: '=', value: 'ok', gradient: {min: 0, max: 1, from: '#fff', to: 'danger-soft'}}
+    ]) {
+      sessionStorage.clear();
+      seedFormatting({...good, rules: [rule]});
+      expect(setup().result.current.tabs[0].exploration.presentation.formatting, JSON.stringify(rule)).toEqual(EMPTY);
+    }
+  });
+
+  it('defaults a document written before SPEC-184, which carries no block at all', () => {
+    seedFormatting(undefined);
+    expect(setup().result.current.tabs[0].exploration.presentation.formatting).toEqual(EMPTY);
+  });
+});

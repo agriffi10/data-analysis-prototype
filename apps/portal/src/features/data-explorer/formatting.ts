@@ -59,6 +59,11 @@ export type PageFormatting = {
   transformed: Record<string, TransformedValue>[];
 };
 
+/** Adds an own property under a key that may be `__proto__`, which assignment would not. */
+function define<T>(target: Record<string, T>, key: string, value: T): void {
+  Object.defineProperty(target, key, {value, enumerable: true, writable: true, configurable: true});
+}
+
 /** One column, as the evaluator needs it: its name, where its values sit, and its type. */
 export type FormattingColumn = {name: string; index: number; type: string};
 
@@ -152,7 +157,14 @@ const LIKE_META_RE = /[.*+?^${}()|[\]\\]/g;
  * @returns The compiled expression.
  */
 function likeExpression(pattern: string, caseInsensitive: boolean): RegExp {
+  // Runs of `%` COLLAPSE TO ONE. `%%` means exactly what `%` means, but translated one for
+  // one it becomes two nested unbounded quantifiers — and three or four of them, which a
+  // user types without a second thought, backtrack catastrophically: `%%%%%%%%x` against a
+  // 60-character value measured at 32 SECONDS, inside a `useMemo` that runs per cell. The
+  // pattern-length cap bounds the input, not the runtime; this removes the pathology
+  // instead of bounding it.
   const body = pattern
+    .replace(/%+/g, '%')
     .split('')
     .map((character) => {
       if (character === '%') return '[\\s\\S]*';
@@ -352,8 +364,12 @@ export function computePageFormatting(
 
   const formats = rows.map((row, rowIndex): Record<string, CellFormat> => {
     const cells: Record<string, CellFormat> = {};
+    // `defineProperty` rather than assignment: a column named `__proto__` would otherwise
+    // invoke the inherited setter and set this object's PROTOTYPE instead of adding a key,
+    // silently dropping every format for that column. Column names come from Athena and
+    // are not catalog-safe.
     const set = (column: string, format: CellFormat) => {
-      cells[column] = {...cells[column], ...format};
+      define(cells, column, {...cells[column], ...format});
     };
 
     if (formatting.colourByType) {
@@ -403,7 +419,7 @@ export function computePageFormatting(
     if (!anyTransformer) return cells;
     for (const column of columns) {
       const rendering = transformCell(row[column.index] ?? null, formatting.transformers[column.name]);
-      if (rendering) cells[column.name] = rendering;
+      if (rendering) define(cells, column.name, rendering);
     }
     return cells;
   });
