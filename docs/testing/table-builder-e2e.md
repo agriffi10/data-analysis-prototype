@@ -363,3 +363,105 @@ aws iam simulate-custom-policy --policy-input-list "$POLICY" \
 > execution before the recorded-failure state. The terminal states now carry the RAW
 > `error` object (`{Error, Cause}`) instead of a decoded `reason`; decode it with
 > `cpcommon.errors.failure_reason`.
+
+---
+
+## The refresh arc (SPEC-143 → 145, 149, 157) — the two procedures that were wrong
+
+Corrected 2026-08-14 (SPEC-186 FR-006). Both of the checks below **described procedures that
+cannot produce the outcome they claimed**, and a careful tester following them files a defect
+against working code. One of us already did.
+
+### Adding a column: the sample is ONE OBJECT, and it is the FIRST KEY IN LISTING ORDER
+
+The old wording was *"add a file with a new column, refresh and confirm it appears."* Schema
+inference probes **exactly one** sample object per format — `sample_by_format.setdefault(fmt, key)`
+in `inspect-source`, and `setdefault` keeps the **first** key the listing yields, which S3 returns
+in lexicographic order. **A column added in a file that sorts later is invisible by design**, and
+the refresh correctly reports `already up to date - no schema changes were found`. That is not a
+bug and it must not be filed as one.
+
+**Fixture, and the name matters.** Build the table from a folder holding:
+
+| File | Header | Why |
+|---|---|---|
+| `part1.csv` | `id,region,amount` | the original schema |
+| `part2.csv` | `id,region,amount` | a sibling, so the table is genuinely multi-file |
+
+Then to add a column, upload:
+
+| File | Header | Why |
+|---|---|---|
+| `part0.csv` | `id,region,amount,channel` | **sorts before `part1.csv`**, so it becomes the sample |
+
+`part0` is the load-bearing detail. `part3.csv` would sort **last**, be ignored, and the refresh
+would honestly report no change.
+
+**Steps:**
+
+1. Upload `part0.csv`, then **Refresh table** from the Query rail.
+2. Expect `1 column added`; the rail reads `id, region, amount, channel`.
+3. Delete `part0.csv` and refresh **without** ticking the opt-in. Expect a refusal naming
+   **`channel`** — nothing changed.
+4. Follow the notification link. The dialog opens pre-armed with `channel` named, the opt-in
+   **unchecked**, and submit carrying an `aria-disabled` reason (SPEC-186 FR-002) rather than
+   being silently dead.
+5. Tick the opt-in and submit. Expect `1 column removed`.
+
+**The casing control, in the same fixture:** upload `part00.csv` with headers `ID,Region,Amount`
+(it sorts first, so it becomes the sample) against a stored schema of `id,region,amount`. Expect
+`already up to date` and the rail **unchanged** — `diff-schema` folds case rather than seeing 3
+added and 3 removed, and nothing is silently re-cased.
+
+### SPEC-157's lock: two UI submits CANNOT contend, and that is measured
+
+The old wording was *"submit two refreshes in quick succession from the UI."* **This cannot pass or
+fail.** Two submits **2 seconds apart** — the floor two pre-armed browser tabs allow, using the
+`/query?refreshTable=` deep link — **both returned independently** with no `refresh_already_running`
+(measured 2026-08-14; a pair 9 s apart behaved the same). A small table's refresh completes inside
+that window, so the lock is never contended.
+
+**Use one of these instead.**
+
+**A. Send two messages to the queue directly** (the reliable one). The lock is claimed by the
+*execution*, so two messages are two executions:
+
+```bash
+QUEUE=$(aws sqs get-queue-url --queue-name dat-prod-table-builder-requests.fifo --query QueueUrl --output text)
+BODY='{"action":"refresh_table","idToken":"<see the token note below>","space":{...},"tableName":"sales_livecheck","requestId":"contend-a"}'
+for id in contend-a contend-b; do
+  aws sqs send-message --queue-url "$QUEUE" \
+    --message-body "$(printf '%s' "$BODY" | sed "s/contend-a/$id/")" \
+    --message-group-id "refresh-contention" \
+    --message-deduplication-id "$id" &
+done
+wait
+```
+
+The FIFO group serializes *delivery*, so use **the same group** and rely on the Pipe starting the
+second execution while the first still holds the lock — or use **different groups** to remove even
+that serialization. Either way the second execution must end with `refresh_already_running` and its
+actor must get the refusal notification.
+
+**B. Make the first refresh slow enough to overlap.** Point the table at a folder with **several
+hundred objects** so `inspect-source`'s listing takes tens of seconds, then the two-tab UI method
+works after all. Slower to set up, but it needs no raw token.
+
+> **The raw ID token.** Procedure A needs one in the request envelope. Read it from devtools
+> (Application → Local Storage, `idToken`) and **do not paste it into a shell command** — it is a
+> live credential and it lands in shell history. Write it to a `600` file (`umask 077 && cat >
+> /tmp/idtoken`), interpolate from `$(cat /tmp/idtoken)`, and `rm -f /tmp/idtoken` afterwards.
+
+**Pass:** one execution succeeds, the other ends `refresh_already_running`, the loser is
+**notified** rather than queued, and `logs/service=table-builder/` shows one lock claim and one
+refusal. **Nothing that runs today proves this** — the unit tests simulate contention with a pinned
+read, so until this is run the serialization is asserted, not demonstrated.
+
+### Still owed here beyond the two above
+
+- The **partitioned**-table variant of the add/remove sequence.
+- **SPEC-149's preservation check** — refresh a table carrying a `Description` and a column comment,
+  then `GetTable`: both survive, the columns changed, and `get-table-versions` shows a previous
+  version. This needs the SPEC-186 FR-004 verification role (`dat-prod-verification`); from any
+  other principal it returns `Insufficient Lake Formation permission(s): Required Describe`. While
+  you have that response, **paste it verbatim** as SPEC-153's owed foreign projection fixture.

@@ -108,16 +108,49 @@ Expect:
 - The notification in your inbox starts **"Couldn't restore that:"** — not "Couldn't archive
   that" — **names that file's path relative to your space root** (`reports/q1.csv`, not
   `alice/reports/q1.csv` and not an `s3://` URI), and says **there may be more**.
-- **THE ASSERTION THIS STEP EXISTS FOR — a negative one.** `head-object` an archived object and
-  confirm there is **no `Restore` header** on it:
+- **THE ASSERTION THIS STEP EXISTS FOR — a negative one, and it is read from the AUDIT RECORD.**
+
+  > **Read this before running it.** `head-object` on `dat-prod-archive` was the original
+  > instruction and **no principal can make that call** (measured 2026-08-14): the bucket policy
+  > allowlists the execution and deploy roles only, the execution role trusts
+  > `lambda.amazonaws.com`, and the deploy role is GitHub-OIDC-only. **Do not proxy it from the
+  > UI** — a refusal that had already initiated retrieval looks *identical* there, and being
+  > wrong costs the user 3–5 billed, uncancellable hours. SPEC-186 FR-004 added the record this
+  > step now reads instead.
+
+  **First, prove the trail is logging.** A trail that is off returns an empty result, which reads
+  exactly like a `RestoreObject` that never happened — the mirror of SPEC-138's "did not run is
+  never clean", and here the absence *is* the evidence:
 
   ```bash
-  aws s3api head-object --bucket dat-prod-archive \
-    --key "personal/$USERNAME/archive/$ARCHIVE_ID/<some/archived/key>"
+  aws cloudtrail get-trail-status --name dat-prod-archive-audit --query 'IsLogging'
   ```
 
-  A refusal that had already initiated retrieval looks **identical** from the UI, and costs the user
-  3–5 hours and a real bill. `StorageClass: GLACIER` and no `Restore` key is the pass.
+  Expect `true`. If it is `false`, this assertion cannot be made and nothing below counts.
+
+  **Then read the record.** Data events are delivered in batches, so **wait ~10 minutes** after
+  the refusal before concluding anything. Assume the read-only verification role
+  (`dat-prod-verification`, SPEC-186 FR-004) and sweep the trail objects for this archive id:
+
+  ```bash
+  aws s3 ls "s3://dat-prod-archive-audit/AWSLogs/" --recursive \
+    | awk '{print $4}' | while read -r key; do
+        aws s3 cp "s3://dat-prod-archive-audit/$key" - | gunzip
+      done \
+    | jq -r --arg id "$ARCHIVE_ID" '
+        .Records[]
+        | select(.eventName == "RestoreObject")
+        | select(.requestParameters.key // "" | contains($id))
+        | "\(.eventTime)  \(.requestParameters.key)"'
+  ```
+
+  **Expect NO OUTPUT.** The archive key layout is `{personal|shared}/{space}/{archiveId}/…`, so
+  the id is in every key this run would have touched — a single `RestoreObject` against this
+  archive prints a line, and the refusal has to happen before any of them.
+
+  **A UI observation does not substitute for this**, and neither does a successful restore later:
+  the question is whether retrieval was initiated *by the refused run*, and only the record
+  answers it.
 
 ### 3. Not found, and not an oracle
 
@@ -217,16 +250,30 @@ way. Note the **archive id** and the **start time**.
 - **The loop must actually loop.** `logs/service=archive/` carries multiple `retrieval polled`
   events, **hours apart**, with `poll_count` climbing and `complete: false`. One poll and done means
   the `Wait` is not doing what it says.
-- While it is running, confirm the retrieval is real rather than inferred:
+- While it is running, confirm the retrieval is real rather than inferred.
+
+  > **This `head-object` is not makeable either** — nothing human can read `dat-prod-archive`
+  > (see the note in SPEC-170's step 2). What SPEC-186 FR-004's trail gives you here is the
+  > POSITIVE half: that `RestoreObject` was called, and for how many keys. It does not report
+  > the `Restore` header, so the header's exact format and the `GLACIER`-stays-`GLACIER`
+  > property remain **corroborated by the plane's own polling, not directly observed** — record
+  > them as owed rather than discharging them.
 
   ```bash
-  aws s3api head-object --bucket dat-prod-archive \
-    --key "personal/$USERNAME/archive/$ARCHIVE_ID/reports/q1.csv"
+  aws s3 ls "s3://dat-prod-archive-audit/AWSLogs/" --recursive \
+    | awk '{print $4}' | while read -r key; do
+        aws s3 cp "s3://dat-prod-archive-audit/$key" - | gunzip
+      done \
+    | jq -r --arg id "$ARCHIVE_ID" '
+        .Records[]
+        | select(.eventName == "RestoreObject")
+        | select(.requestParameters.key // "" | contains($id))
+        | .requestParameters.key' | sort -u | wc -l
   ```
 
-  Expect `Restore: ongoing-request="true"` while it works, and `ongoing-request="false", expiry-date=…`
-  once it finishes. **`StorageClass` stays `GLACIER` throughout** — that is the whole reason the poll
-  reads the header and not the class, and seeing it not move is the confirmation.
+  Expect **exactly the archive's object count**, and the mirror of SPEC-170's step 2: there, the
+  same query must return nothing. `logs/service=archive/` carrying `complete: false` then
+  `complete: true` is what stands in for the header transition.
 
 **When it completes:**
 

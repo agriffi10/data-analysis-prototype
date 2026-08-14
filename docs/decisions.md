@@ -3603,3 +3603,171 @@ things plainly that the UI cannot: that **every filter and sort runs a real quer
 scans data**, with the figures at the bottom as the cost signal; and that a saved exploration
 **reopens in the Query workspace as SQL**, not back here as an exploration — SPEC-183 descoped the
 loading half, so a guide promising otherwise would document a spec that has not been written.
+
+---
+
+## A default that an empty string can defeat is not a default (SPEC-186)
+
+**Context.** A live-check session on 2026-08-14 discharged several long-owed checks and, in doing
+so, found that a number of *other* owed checks could not be performed at all — not because the
+behaviour was broken, but because the assertion they named was unreachable from any principal or
+surface a human has. A check nobody can run is indistinguishable from a check that passes, which is
+SPEC-138's "did not run is never clean" and SPEC-137's blind gates in a third place. The same
+session found, by eye, that nine dialogs rendered at full viewport width.
+
+### `??` does not fall back on `''`, and a helper returning `''` is a trap for every consumer
+
+`cx()` returned `string` — never `undefined` — so `FormDialog`'s
+`cx(scrollBody && '…', className)` handed `Modal` an **empty string** whenever its caller passed
+neither prop, and `Modal`'s `className ?? 'max-w-md'` took that as a deliberate choice to have no
+width. The panel's `w-full` then filled the viewport. **Nine dialogs**, one line: `New folder` and
+`New shared connection` measured 1372px in a 1400px viewport with `max-width: none`, against
+`Create table`'s correct 448px.
+
+Fixed in the shared layer **twice**, deliberately: `cx` returns `undefined` when nothing is truthy
+(so the trap is gone for the next `??` consumer anywhere in the app), and `Modal` uses `||` (so a
+caller composing its own class string is still safe, which is what the AC's `className=""` test
+requires). Widening `cx`'s return type to `string | undefined` type-checked at every call site with
+no change — the two that wanted a string for `aria-describedby` already coerced with
+`|| undefined`.
+
+**Note the direction of the bypass.** The four dialogs that hand-roll their chrome pass an explicit
+`max-w-lg` and were therefore *unaffected*; the nine that correctly used the abstraction were the
+broken ones. That is an argument for fixing the shared layer, not for copying more.
+
+### A refusal announced after the confirm is worse than no affordance at all
+
+`fileBrowser.service.ts` always refused deleting `saved_queries/` — but only after the user read
+*"Delete the folder "saved_queries" and everything inside it? … This can't be undone."* and pressed
+Delete. The most alarming confirm in the app, shown for an action that was never possible.
+
+`undeletableSelectionRefusal` feeds `Button.disabledReason` (SPEC-172's `aria-disabled` affordance),
+and because `Button` swallows the click, **"no confirm is reachable" falls out of the mechanism**
+rather than needing a second guard. `ConfirmDialog` gained `confirmDisabledReason` on the same
+pattern for the refresh dialog's opt-in — `busy` still wins and stays natively `disabled`, because
+an operation in flight is not a refusal.
+
+The test asserts **`alertdialog`**, not `dialog`: the confirm carries the former, so querying for
+the latter would have passed whatever happened. A negative assertion has to name the thing it is
+denying.
+
+### jsdom has no layout, so a containment property must be arithmetic
+
+The suggestion listbox overhung the Add-members dialog by **97px** (3 of 8 options visible) because
+its flip logic measured `window.innerHeight` — right for a combobox on a page, wrong for one inside
+a dialog, where `Modal`'s panel is `overflow-y-auto` and is what actually clips it. The component
+now walks to its nearest scrollable ancestor and caps the list to the room there is.
+
+The AC asked for a numeric assertion (`listbox.bottom <= dialog.bottom`), and **jsdom reports every
+rect as zero**, so the geometry moved into a pure `listPlacement()` and the test derives the list's
+far edge from the returned placement — over the measured case and over a sweep of every field
+position in a 600px dialog. The DOM test asserts only what the DOM can see: that the bound is a
+*measurement* rather than the old fixed `max-h-60`.
+
+The flip is deliberately **conservative** — it goes up only when below is cramped AND above is
+roomier — because below is where the reading order expects the list.
+
+### The roster contradicted the connections list because a fan-out list was missing one verb
+
+For one membership, at one moment, the app stated two things: the connections row read
+`livecheck_0814a | Member | Active`, and the roster one click away read `agriffith | Pending` under
+*"A Pending member has been invited but hasn't signed in yet."* The reader of that sentence **was**
+the member, and they **had** signed in.
+
+Neither settled decision is wrong. SPEC-073's `acknowledge-membership` flips pending→active and
+writes the **owner's** projection; SPEC-075's `cache.write_roster_to_all` fans out on
+**add/remove/leave** — a list that does not include acknowledge. So every member's copy, including
+the acknowledging member's own, stayed frozen at add time, and the roster is the **only**
+member-facing view of who is in a space.
+
+Closed on both sides. The verb now fans out, and **the fan-out cannot fail the run**: the registry
+write is the consistency point and has already committed, so a raise would fail the execution, and
+the retry would find the member already acknowledged, no-op, and never write the caches at all —
+turning a recoverable stale roster into a permanent one. In the browser, `displayedMemberStatus`
+renders the reader's own row `Active` regardless, and the explanatory sentence renders **only when a
+row it describes is on screen**, which closes the window before the fan-out lands.
+
+### A build stamp belongs to the artefact; an environment name belongs to the environment
+
+Every structured log record shipped `"version": "0.0.0"` and `"env": ""` — fields that exist to
+correlate a record to a deploy and filter by environment, both inert.
+
+`ENV_NAME` is Tofu's to set and now ships on **every** Lambda from `var.environment`, the same
+source of truth as the feature-flag document's `environments` keys. `BUILD_VERSION` is **not**:
+Tofu owns the environment map, `update-function-configuration --environment` REPLACES it whole (so
+a workflow write would race an apply or be reverted by the next one), and Deploy Infrastructure is
+path-filtered to `infra/**` — so a Tofu-set sha would name the last *infra* commit rather than the
+code that is running. The stamp travels **in the package** instead, written into every zip by
+Deploy Lambdas and read once at import. A missing or unreadable stamp degrades to the sentinel and
+**never raises**: this module is on the layer every control-plane verb attaches, and PR #196 is what
+an import-time failure there costs.
+
+### A verification principal is read-only, or it is a back door
+
+Two owed assertions were unmakeable by anyone. SPEC-170's is the load-bearing one — that a
+`destination_occupied` refusal did **not** already initiate retrieval — and `dat-prod-archive`
+explicit-denies the laptop IAM user, its execution role trusts `lambda.amazonaws.com` only, the
+deploy role is GitHub-OIDC-only, and **no CloudTrail trails existed**. The script itself records
+that a refusal which had already started retrieval "looks identical from the UI", so there was no
+proxy, and being wrong costs 3–5 billed, uncancellable hours.
+
+The answer is **audit-shaped, not a grant on the data path**: a trail recording the archive
+bucket's object-level events (`RestoreObject` is a CloudTrail **data** event, which is why it never
+appears in the console's Event history), and a role that reads the catalog back. What is
+deliberately absent is the whole of its safety: no `SELECT`, no `DATA_LOCATION_ACCESS`, no
+`lakeformation:GetDataAccess` (the credential vend for reading a table's *data*, easy to add "to
+make `GetTable` work", which it is not needed for), no data-bucket ARN, no `Resource: "*"`, and no
+`iam:PassRole` on the deploy side — nothing but a human may assume it. A test asserts each, and
+asserts the role appears nowhere in `portal-role-permissions`.
+
+**The trail's own status is part of the assertion.** A trail that is off returns an empty result,
+which reads exactly like a `RestoreObject` that never happened — so the script confirms
+`IsLogging: true` before reading an absence as evidence.
+
+**No blanket write-Deny on the trail bucket**, and the omission is deliberate: the obvious one rests
+on a condition key CloudTrail's own delivery must populate for its Allow to survive, and if it does
+not, delivery fails and the record is silently empty. That is this spec's own failure mode with the
+evidence rather than a scanner.
+
+### Consolidation is worth doing against a SWEEP, not against a list
+
+The reuse pass found that the problem is not missing components — it is existing components being
+bypassed and then drifting. Three chip lists were byte-identical until one grew a 24x24 remove
+target and the other two stayed at **20x20**, under WCAG 2.2 SC 2.5.8's minimum; `Badge` shipped and
+was used by two files while three others hand-rolled it, each differing by a token or two.
+
+The spec enumerated six status-pill sites; the sweep found **seven** (`LandingPage`, whose own
+comment said "Mirrors UploadList's StatusChip"). It counted eleven caption sites; the sweep found
+**22 files** across three spellings. A `?raw` glob guard now holds each shape to one home, with a
+guard-the-guard asserting every needle still matches its owner — because "found nowhere" reads
+exactly like "consolidated".
+
+Two deliberate visual changes, on SPEC-155 FR-007's precedent: neutral pills gain a border, and
+`QueryHistoryRow`'s neutral dot brightens from `text-text-3` to `text-text-2` now that every dot is
+`bg-current`. **Chip width is bounded** for the first time — a 63-character username
+(`^[a-z][a-z0-9_]{2,62}$`) extrapolated to a ~610px chip inside a 448px dialog.
+
+**`components/` may export only components** (react-refresh), which is why the shared class strings
+live in `fieldStyles.ts` / `dialogChrome.ts` and `displayedMemberStatus` in `memberStatus.ts`.
+
+### A procedure that cannot produce its claimed outcome invites a false bug report
+
+Two live-check scripts described impossible procedures, and one of them was followed and read as a
+defect until the code was checked.
+
+**Schema inference samples exactly ONE object — the first key in listing order**
+(`sample_by_format.setdefault(fmt, key)`, and S3 lists lexicographically). A column added in a file
+that sorts *later* is invisible **by design** and the refresh correctly says `already up to date`.
+The fixture must name a file that **sorts first**.
+
+**Two UI submits cannot contend for SPEC-157's lock.** Two submits 2 s apart — the floor two
+pre-armed tabs allow — both returned independently, because a small table's refresh completes inside
+that window. The check needs an SQS double-send or a several-hundred-object folder.
+
+**And SPEC-173's marker check was unrunnable as written**, which is the third instance: the portal
+issues **zero** `DeleteObject` against the marker (hidden by basename, folder refused client-side),
+so the bucket-policy Deny — the layer the check exists to prove — was never exercised. Split into
+two separately-numbered checks, because neither layer's result says anything about the other's.
+
+**Any procedure needing a raw ID token says so up front**, says where it is read from, and says it
+must not be pasted into a shell command — it is a live credential and it lands in history.

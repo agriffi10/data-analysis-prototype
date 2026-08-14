@@ -1,7 +1,7 @@
 # Spec: Live-Check Reachability, Refusal Affordances & Observability Fields
 
 **ID:** SPEC-186
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-14
 **Depends On:** SPEC-144, SPEC-145, SPEC-157, SPEC-158, SPEC-170, SPEC-172, SPEC-173
 
@@ -395,6 +395,11 @@ an argument for fixing the shared layer, not for copying more.
 > and this is a second one. Landing it inside SPEC-186 — whose theme is live-check reachability and
 > refusal affordances — widens that spec considerably. If FR-009 and FR-010 are built together they
 > may deserve their own spec, with SPEC-186 keeping only the verification and refusal work.
+>
+> **RESOLVED (2026-08-14, user decision): all ten FRs are built here.** No SPEC-187 split. The
+> sweep found more than the spec enumerated — a seventh status-pill site the list of six missed,
+> and 22 files carrying a section caption where the spec counted 11 — which is the argument for
+> having done it in one pass with one guard rather than against a list.
 
 ---
 
