@@ -40,6 +40,22 @@ resource "aws_iam_role" "verification" {
   })
 }
 
+// THREE GLUE ARNs, NOT `catalog` + `catalog/*`. Glue has no `catalog/*` hierarchy: `GetTable`
+// and `GetTableVersions` each need the DATABASE ARN and the TABLE ARN alongside the catalog,
+// which is the shape `portal-role-analytics` and the table-builder execution role already use.
+// The first version scoped to `catalog/*`, which applies cleanly and then denies at runtime —
+// the read-back this role exists for stays blocked with no gate having failed, which is the
+// exact class of defect this spec was written to close. A test asserts the resource set.
+//
+// The `database/*` + `table/*/*` breadth is not a widening: Lake Formation gates every one of
+// these calls INDEPENDENTLY, and this role holds only the DESCRIBE tag grant from
+// modules/analytics. There is deliberately NO `lakeformation:GetDataAccess` — that is the
+// credential vend for reading a table's DATA, it is easy to add "to make GetTable work", and it
+// is not needed for it.
+//
+// The reasoning is HERE and not in the `.tftpl`. An IAM policy document must be printable
+// ASCII, and a first version carrying `"//"` comment keys with em dashes was rejected at
+// CreatePolicy — invisible to `tofu validate` and to the plan.
 resource "aws_iam_role_policy" "verification" {
   count = length(aws_iam_role.verification)
 

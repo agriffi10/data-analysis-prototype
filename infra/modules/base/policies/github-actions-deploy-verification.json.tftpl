@@ -37,8 +37,7 @@
         "cloudtrail:DescribeTrails",
         "cloudtrail:ListTrails"
       ],
-      "Resource": "*",
-      "//": "DescribeTrails/ListTrails take no resource — the API is account-wide and there is no ARN to scope to, which is the same shape as the two permanent rows already on the plan-scan accept list (SPEC-139). Both are read-only."
+      "Resource": "*"
     },
     {
       "Sid": "VerificationRoleManage",
@@ -58,8 +57,7 @@
         "iam:UntagRole",
         "iam:UpdateAssumeRolePolicy"
       ],
-      "Resource": "arn:aws:iam::*:role/${project_name}-*-verification",
-      "//": "NO iam:PassRole. Every other plane's role grant carries it because a service assumes that role; nothing assumes this one but a human, so passing it to a service is exactly what must not be possible."
+      "Resource": "arn:aws:iam::*:role/${project_name}-*-verification"
     }
   ]
 }
