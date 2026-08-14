@@ -121,6 +121,61 @@ and `parent_span_id` is always null at a handler's root span. Correlate on
 traceparent through the Step Functions state payload on every state, exactly as `reportKey`
 is threaded today. Deliberately sequenced after the pipe is proven live.
 
+## `log-sweep` — why a sweep is a loop of waves
+
+The sweep drained the queue at a fixed **20 messages per invocation** for weeks, reported itself
+finished every time, and put the log store six days behind on a fourteen-day retention. Found
+2026-08-14 while trying to read back a record for SPEC-186 FR-005; the queue held 15,164 messages
+and `logs/service=observability/` was still writing the `day=08` partition on the 14th.
+
+**The mechanism is FIFO ordering, not polling luck.** On a FIFO queue a message group stops
+yielding once one of its messages is in flight, until that message is deleted or its visibility
+lapses ([FIFO delivery logic][fifo]). The receive loop held everything it took for the duration
+of the loop, so after one round per group every group it had touched was blocked *by the loop
+itself*; the next round came back empty and the loop returned. The backlog sat in exactly two
+groups (`observability`, `dlq-drain`), which is why the number was always exactly 20 — 10 per
+group, never varying, which is the signature of a structural limit rather than a sampling one.
+
+**Why `WaitTimeSeconds` was not the bug, and long-polling is not the fix.** A short poll does
+return spurious empties, and that was the first theory. It does not survive the evidence: a
+sampling artifact produces a varying count, and twelve consecutive sweeps returned exactly 20.
+Long-polling would also have reversed a recorded decision (`decisions.md` → *structured logging*,
+#270/#271) while fixing nothing — a blocked group does not become unblocked by waiting for it.
+
+**Why the receive, the write and the delete have to repeat together.** Deleting is what unblocks
+a group, and a message may only be deleted once its events are durable in S3 (put-then-delete;
+losing logs is worse than duplicating them). So the unit that can repeat is the whole cycle, not
+the receive. That is the wave.
+
+**Sizing.** `MAX_WAVES = 50`. The bound that matters is the **arrival rate**, not the backlog
+depth — a backlog is drained over several sweeps, and only the rate has to be beaten. Measured
+arrival is ~3,300 records/day (~1.5 MB/day at a measured 454 bytes/record), or ~23 per
+ten-minute tick. A wave yields at most `10 x unblocked groups`, so the worst case that still has
+to converge is a single backlogged group: 10 per wave, 500 per sweep, 72,000/day — 22x arrival.
+`SWEEP_RESERVE_MS = 60_000` exists because `MAX_WAVES` bounds the wave count and not the
+duration: a wave rewrites each day object in full, that object grows all day, and the 300s
+timeout is the real ceiling. Peak memory is one wave (`MAX_MESSAGES`), not the sweep.
+
+**The emitter question, and why the answer is "no change".** This function logs into the queue it
+drains, so its own telemetry is a real cost — the `observability` group is itself one of the two
+that had backlogged. The receive span and the per-destination `appending`/`appended` events now
+fire once per wave rather than once per sweep, and the first instinct was to aggregate them.
+That is wrong: emitters and drained messages **both** scale with `waves x groups`, so the ratio
+is unchanged and convergence depends only on the ratio. Aggregating would have cost the FR-002
+entry-and-outcome-per-destination property for nothing. Only the sweep summary is aggregated,
+because it is genuinely per sweep.
+
+**The test that could not fail.** `FakeSQS` served rounds and then emptied — which quietly
+asserts that an empty receive means an empty queue, the exact premise that is false. It ran out
+of rounds at precisely the moment a real queue would have blocked, so every test agreed with the
+bug. `FifoSQS` models the ordering rule (a group with an in-flight message yields nothing until
+a delete), and `test_a_backlog_across_groups_drains_in_one_sweep` fails against the old shape at
+**30 of 75** — 10 per group, three groups.
+
+[fifo]: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/FIFO-queues-understanding-logic.html
+
+---
+
 ## `cpcommon/config.py` — sizing `REFRESH_MAX_DEFINITION_BYTES`
 
 The refresh path's definition cap is **40 KiB**, and it is deliberately not tscommon's

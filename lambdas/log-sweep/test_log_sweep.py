@@ -100,6 +100,53 @@ def _event(service="data-quality", ts="2026-07-22T14:03:11.482Z", **extra):
     return {"timestamp": ts, "service": service, "log_id": "abc", **extra}
 
 
+class FifoSQS:
+    """Implements the FIFO ordering rule the plain fake cannot express: a message group stops
+    yielding once one of its messages is in flight, and only a delete unblocks it.
+
+    ``FakeSQS`` serves rounds and then empties, which quietly asserts that an empty receive
+    means an empty queue. On a real FIFO queue it usually means the opposite — every group the
+    caller is holding is blocked behind the caller. A sweep built against the simpler fake took
+    ten messages per backlogged group per invocation and reported itself drained, and no test
+    could see it, because the fake ran out of rounds at exactly the moment the real queue would
+    have blocked.
+    """
+
+    def __init__(self, per_group):
+        self.pending = {g: list(ms) for g, ms in per_group.items()}
+        self.inflight = {}
+        self.deleted = []
+        self.receives = 0
+
+    def receive_message(self, **kwargs):
+        assert kwargs["WaitTimeSeconds"] == 0, (
+            "the sweep must SHORT poll, never long poll"
+        )
+        self.receives += 1
+        limit = kwargs["MaxNumberOfMessages"]
+        blocked = set(self.inflight.values())
+        taken = []
+        for group, queued in self.pending.items():
+            room = limit - len(taken)
+            if room <= 0:
+                break
+            if not queued or group in blocked:
+                continue
+            batch = queued[:room]
+            for message in batch:
+                self.inflight[message["ReceiptHandle"]] = group
+            self.pending[group] = queued[len(batch) :]
+            taken.extend(batch)
+        return {"Messages": taken} if taken else {}
+
+    def delete_message_batch(self, QueueUrl, Entries):
+        for entry in Entries:
+            handle = entry["ReceiptHandle"]
+            self.inflight.pop(handle, None)
+            self.deleted.append(handle)
+        return {}
+
+
 @pytest.fixture
 def wired(monkeypatch):
     """Wire fake SQS + S3 into the sweep and hand both back."""
@@ -228,7 +275,12 @@ def test_the_receive_loop_gets_its_own_child_span(wired, captured):
     assert receive[0]["parent_span_id"] == sweep[0]["span_id"]
 
 
-def test_a_truncated_round_says_so_with_the_cap_and_the_count(wired, captured, monkeypatch):
+def test_a_truncated_round_says_so_with_the_cap_and_the_count(
+    wired, captured, monkeypatch
+):
+    """The cap bounds a WAVE, not the sweep — the sweep goes back for the remainder, so the
+    count reported is the sweep's and the wave count is what makes it readable.
+    """
     monkeypatch.setattr(log_sweep, "MAX_MESSAGES", 20)
     wired([[_message(_event(), f"r{i}-{n}") for n in range(10)] for i in range(5)])
 
@@ -238,7 +290,8 @@ def test_a_truncated_round_says_so_with_the_cap_and_the_count(wired, captured, m
     assert capped and capped[0]["fields"] == {
         **capped[0]["fields"],
         "limit": 20,
-        "taken": 20,
+        "taken": 50,
+        "waves": 3,
     }
     assert capped[0]["level"] == "WARNING"
 
@@ -447,7 +500,7 @@ def test_the_handler_is_total_when_every_emit_raises(wired, _quiet_sink):
 
     result = log_sweep.handler({}, None)
 
-    assert result == {"swept": 2, "written": 2, "groups": 2}
+    assert result == {"swept": 2, "written": 2, "groups": 2, "waves": 1}
     assert sorted(sqs.deleted) == ["a", "b"]
 
 
@@ -515,12 +568,13 @@ def test_every_existing_cloudwatch_message_is_still_in_the_source():
         "log-sweep: failed to write %s",
         "log-sweep: gave up on %s",
         "log-sweep: failed to delete %d messages",
-        "log-sweep: hit the %d-message cap",
+        "log-sweep: a wave hit the %d-message cap",
+        "log-sweep: stopped with the queue still yielding",
         "log-sweep: %d event(s) had no usable timestamp",
         "log-sweep %s: %d message(s)",
     ):
         assert message in source, f"a CloudWatch account was removed: {message!r}"
-    assert source.count("logger.") >= 11, "a logger call was removed without its message"
+    assert source.count("logger.") >= 12, "a logger call was removed without its message"
 
 
 def test_a_failure_is_written_to_BOTH_accounts(wired, captured, caplog):
@@ -789,6 +843,95 @@ def test_sweep_short_polls_and_loops_until_a_round_is_empty(wired):
     assert sorted(sqs.deleted) == ["a", "b"]
 
 
+def test_a_backlog_across_groups_drains_in_one_sweep(monkeypatch):
+    """The regression this whole wave loop exists for.
+
+    Three backlogged services, twenty-five messages each. A sweep that receives until a round
+    comes back empty takes ten per group and stops — thirty of seventy-five — because it is
+    still holding the messages that block the groups. It then reports itself drained, so
+    nothing anywhere says the queue is behind. Run against the real queue that arithmetic put
+    the store six days behind on a fourteen-day retention.
+    """
+    per_group = {
+        service: [
+            _message(
+                _event(service=service, ts=f"2026-07-22T10:{n:02d}:00Z"),
+                f"{service}-{n}",
+            )
+            for n in range(25)
+        ]
+        for service in ("data-quality", "observability", "table-builder")
+    }
+    sqs, s3 = FifoSQS(per_group), FakeS3()
+    monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
+    monkeypatch.setattr(log_sweep.clients, "s3", lambda: s3)
+
+    result = log_sweep.handler({}, None)
+
+    assert result["swept"] == 75, "the sweep stopped while the queue was still yielding"
+    assert result["written"] == 75
+    assert len(sqs.deleted) == 75
+    assert all(not queued for queued in sqs.pending.values())
+    assert result["waves"] > 1, "one wave cannot drain a blocked group"
+
+
+def test_a_wave_only_ends_the_sweep_when_the_queue_is_really_empty(monkeypatch):
+    """The empty receive that ends a sweep has to be one taken with nothing in flight — the
+    property the wave loop turns on, asserted separately from the drain count so that a fake
+    that simply never blocks cannot carry it.
+    """
+    sqs, s3 = FifoSQS({"data-quality": [_message(_event(), "only")]}), FakeS3()
+    monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
+    monkeypatch.setattr(log_sweep.clients, "s3", lambda: s3)
+
+    log_sweep.handler({}, None)
+
+    assert sqs.inflight == {}, "the sweep finished still holding messages"
+    assert sqs.receives > 1, "the sweep never went back after deleting"
+
+
+def test_the_wave_cap_bounds_a_sweep_and_says_so(monkeypatch, captured):
+    """A backlog deeper than the cap is left for the next tick rather than taken in one
+    invocation, and it is reported — a bounded sweep that read as a drained queue is the exact
+    shape of the defect this replaced.
+    """
+    monkeypatch.setattr(log_sweep, "MAX_WAVES", 2)
+    per_group = {
+        "data-quality": [_message(_event(), f"m-{n}") for n in range(50)],
+    }
+    sqs, s3 = FifoSQS(per_group), FakeS3()
+    monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
+    monkeypatch.setattr(log_sweep.clients, "s3", lambda: s3)
+
+    result = log_sweep.handler({}, None)
+
+    assert result["swept"] == 20
+    assert result["waves"] == 2
+    stopped = _by_message(captured, "stopped before the queue ran dry")
+    assert stopped and stopped[0]["level"] == "WARNING"
+    assert stopped[0]["fields"]["limit"] == 2
+
+
+def test_a_sweep_stops_early_when_the_invocation_is_nearly_over(monkeypatch):
+    """MAX_WAVES bounds the wave count, not the duration — a wave's cost tracks the day
+    object's size, which grows all day.
+    """
+
+    class _Context:
+        def get_remaining_time_in_millis(self):
+            return log_sweep.SWEEP_RESERVE_MS - 1
+
+    per_group = {"data-quality": [_message(_event(), f"m-{n}") for n in range(50)]}
+    sqs, s3 = FifoSQS(per_group), FakeS3()
+    monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
+    monkeypatch.setattr(log_sweep.clients, "s3", lambda: s3)
+
+    result = log_sweep.handler({}, _Context())
+
+    assert result["waves"] == 1, "the reserve did not stop the sweep"
+    assert result["swept"] == 10
+
+
 def test_empty_queue_completes_without_writing(wired):
     _sqs, s3 = wired([])
 
@@ -797,7 +940,9 @@ def test_empty_queue_completes_without_writing(wired):
 
 
 def test_round_cap_truncates_and_says_so(wired, monkeypatch, caplog):
-    """A silent cap reads as 'swept everything' when it didn't."""
+    """A silent cap reads as 'swept everything' when it didn't. The cap now bounds one wave, so
+    the remainder is taken by the next wave rather than the next sweep.
+    """
     monkeypatch.setattr(log_sweep, "MAX_MESSAGES", 20)
     rounds = [[_message(_event(), f"r{i}-{n}") for n in range(10)] for i in range(5)]
     _sqs, _s3 = wired(rounds)
@@ -805,7 +950,7 @@ def test_round_cap_truncates_and_says_so(wired, monkeypatch, caplog):
     with caplog.at_level("WARNING"):
         result = log_sweep.handler({}, None)
 
-    assert result["swept"] == 20
+    assert result["swept"] == 50
     assert any("cap" in r.message for r in caplog.records)
 
 

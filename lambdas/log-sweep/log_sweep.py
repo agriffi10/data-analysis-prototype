@@ -20,6 +20,23 @@ would lose updates, so every write is conditional and a precondition failure re-
 re-applies; and a day's file is rewritten in full on every sweep, so the bytes moved per day
 scale with the square of the day's volume.
 
+A sweep is a loop of waves, and the queue's own ordering is why. On a FIFO queue a message group
+stops yielding once one of its messages is in flight, until that message is deleted or its
+visibility lapses — so a receive loop that holds everything it has taken can only ever collect
+one round per group, however many rounds it is allowed. Deleting is what unblocks the group, and
+a message may only be deleted once its events are durable in S3, so the receive, the write and
+the delete have to repeat together rather than run once each. Before this was understood the
+sweep took exactly ``10 x backlogged groups`` messages per invocation and reported itself
+drained, and the queue fell six days behind on a fourteen-day retention.
+
+The emitters that ride the receive and the write now run once per wave rather than once per
+sweep, which for a function that logs into the queue it drains is a volume decision rather than
+a detail. It was taken deliberately: both the emitters and the messages drained scale with waves
+x groups, so the ratio of telemetry to work is what it always was, and the ratio is the only
+thing convergence depends on. The counters the handler keeps — waves, messages, day-groups — are
+summed across the sweep and reported once, so the summary stays one event however deep the
+backlog.
+
 Attributes:
   _sweep_id: Set once per invocation and prepended to every CloudWatch line by the filter below.
   ADMIN_BUCKET: Destination bucket, set by Terraform.
@@ -31,9 +48,16 @@ Attributes:
     validate-authorize verb exists to police.
   UNROUTED: Where a body goes when it cannot be routed. Not a valid service name, since the
     pattern forbids a leading underscore, so a real service can never collide with it.
-  MAX_ROUNDS: Receive rounds per sweep.
-  MAX_MESSAGES: Message cap per sweep. The next schedule tick picks up any remainder, so the cap
-    costs latency on a backlog, never data.
+  MAX_ROUNDS: Receive rounds per wave.
+  MAX_MESSAGES: Message cap per wave. The next wave, or the next schedule tick, picks up any
+    remainder, so the cap costs latency on a backlog, never data.
+  MAX_WAVES: Receive-write-delete cycles per sweep. A wave yields at most ten messages per
+    unblocked message group, so this is the multiplier that separates the sweep's ceiling from
+    one group-round; sized against the queue's arrival rate rather than its depth, since a
+    backlog is drained over several sweeps and only the rate has to be beaten.
+  SWEEP_RESERVE_MS: Invocation time held back for the final wave's write and delete. The wave
+    cost is a function of the day object's size, which grows all day, so the wave count alone
+    cannot bound the sweep's duration.
   MAX_CAS_ATTEMPTS: Conditional-write attempts per day object before giving up and leaving the
     messages queued. ``cpcommon.cas.MAX_ATTEMPTS`` since SPEC-156 FR-001 — this was one of three
     copies of the loop, and the caps had drifted.
@@ -100,6 +124,9 @@ UNROUTED = "_unrouted"
 
 MAX_ROUNDS = 100
 MAX_MESSAGES = 1000
+
+MAX_WAVES = 50
+SWEEP_RESERVE_MS = 60_000
 
 MAX_CAS_ATTEMPTS = cas.MAX_ATTEMPTS
 
@@ -361,8 +388,16 @@ def _append_day(key, new_lines):
 def _receive_all():
     """Short-polls the queue until a round comes back empty or the cap is hit.
 
+    One wave's receive, not the sweep's. An empty round here does not mean the queue is empty:
+    on a FIFO queue it usually means every group this wave has touched is blocked behind the
+    messages the wave is still holding, which is why the caller writes and deletes and comes
+    back rather than treating the empty round as the end of the sweep.
+
     Its own child span because the poll loop and the writes have completely different failure
-    modes, and this is the half that is billed per round.
+    modes, and this is the half that is billed per round. That the span now opens once per wave
+    rather than once per sweep is a volume decision taken deliberately: this function emits into
+    the queue it drains, but its emitters and its throughput both scale with waves x groups, so
+    the ratio of telemetry to drained messages is what it always was.
 
     Args:
       None.
@@ -389,6 +424,26 @@ def _receive_all():
             return messages, False
         messages.extend(batch)
     return messages, True
+
+
+def _time_is_short(context):
+    """Reports whether too little of the invocation is left to risk another wave.
+
+    A wave's cost tracks the day object's size, which grows all day, so ``MAX_WAVES`` bounds the
+    wave count but not the duration. Falls back to False when there is no context, which is the
+    local and test case: the wave cap still bounds those.
+
+    Args:
+      context: The Lambda context, or None.
+
+    Returns:
+      True when the remaining time is under the reserve.
+
+    Raises:
+      None.
+    """
+    remaining = getattr(context, "get_remaining_time_in_millis", None)
+    return bool(remaining) and remaining() < SWEEP_RESERVE_MS
 
 
 def _delete(receipts):
@@ -467,9 +522,9 @@ def handler(event, context):
       context: The Lambda context, unused.
 
     Returns:
-      A dict of the messages swept and events written, plus the day-groups touched when there
-      was anything to sweep. The two early returns — not configured, and nothing on the queue —
-      report zeroes and omit the group count.
+      A dict of the messages swept and events written, plus the day-groups touched and the waves
+      run when there was anything to sweep. The two early returns — not configured, and nothing
+      on the queue — report zeroes and omit the group and wave counts.
 
     Raises:
       None. Total by design: no message can make this raise.
@@ -487,40 +542,78 @@ def handler(event, context):
         )
         return {"swept": 0, "written": 0}
 
-    messages, truncated = _receive_all()
-    if not messages:
-        return {"swept": 0, "written": 0}
-
-    groups = defaultdict(list)
-    undated = 0
-    unrouted = 0
-    for message in messages:
-        body = message.get("Body", "")
-        service, parsed = _route(body)
-        year, month, day, fell_back = _partition(parsed)
-        undated += 1 if fell_back else 0
-        unrouted += 1 if service == UNROUTED else 0
-        groups[(service, year, month, day)].append((body, message.get("ReceiptHandle", "")))
-
-    observability.info("received", messages=len(messages), groups=len(groups))
-
+    swept = 0
     written = 0
     failed = 0
-    for (service, year, month, day), items in sorted(groups.items()):
-        key = _day_key(service, year, month, day)
-        if _append_day(key, [b for b, _ in items]):
-            written += len(items)
-            _delete([r for _, r in items if r])
-        else:
-            failed += len(items)
+    undated = 0
+    unrouted = 0
+    waves = 0
+    capped = False
+    wave_limited = False
+    touched = set()
 
-    if truncated:
+    while waves < MAX_WAVES:
+        messages, truncated = _receive_all()
+        if not messages:
+            break
+        waves += 1
+        swept += len(messages)
+        capped = capped or truncated
+
+        groups = defaultdict(list)
+        for message in messages:
+            body = message.get("Body", "")
+            service, parsed = _route(body)
+            year, month, day, fell_back = _partition(parsed)
+            undated += 1 if fell_back else 0
+            unrouted += 1 if service == UNROUTED else 0
+            groups[(service, year, month, day)].append(
+                (body, message.get("ReceiptHandle", ""))
+            )
+
+        observability.info("received", messages=len(messages), groups=len(groups))
+
+        for (service, year, month, day), items in sorted(groups.items()):
+            key = _day_key(service, year, month, day)
+            touched.add(key)
+            if _append_day(key, [b for b, _ in items]):
+                written += len(items)
+                _delete([r for _, r in items if r])
+            else:
+                failed += len(items)
+
+        if _time_is_short(context):
+            wave_limited = True
+            break
+        if waves >= MAX_WAVES:
+            wave_limited = True
+
+    if not swept:
+        return {"swept": 0, "written": 0}
+
+    if capped:
         logger.warning(
-            "log-sweep: hit the %d-message cap; %d messages taken this round, remainder next sweep",
+            "log-sweep: a wave hit the %d-message cap; %d message(s) over %d wave(s)",
             MAX_MESSAGES,
-            len(messages),
+            swept,
+            waves,
         )
-        observability.warning("hit the message cap", limit=MAX_MESSAGES, taken=len(messages))
+        observability.warning(
+            "hit the message cap", limit=MAX_MESSAGES, taken=swept, waves=waves
+        )
+    if wave_limited:
+        logger.warning(
+            "log-sweep: stopped with the queue still yielding; %d message(s) over %d wave(s), "
+            "remainder next sweep",
+            swept,
+            waves,
+        )
+        observability.warning(
+            "stopped before the queue ran dry",
+            taken=swept,
+            waves=waves,
+            limit=MAX_WAVES,
+        )
     if undated:
         logger.warning("log-sweep: %d event(s) had no usable timestamp; used the sweep clock", undated)
         observability.warning("events had no usable timestamp", undated=undated)
@@ -528,18 +621,20 @@ def handler(event, context):
         observability.warning("bodies could not be routed", unrouted=unrouted)
 
     logger.info(
-        "log-sweep %s: %d message(s) in %d day-group(s), %d written",
+        "log-sweep %s: %d message(s) in %d day-group(s) over %d wave(s), %d written",
         sweep_id,
-        len(messages),
-        len(groups),
+        swept,
+        len(touched),
+        waves,
         written,
     )
     outcome = observability.error if failed else observability.info
     outcome(
         "swept",
-        messages=len(messages),
-        groups=len(groups),
+        messages=swept,
+        groups=len(touched),
+        waves=waves,
         written=written,
         failed=failed,
     )
-    return {"swept": len(messages), "written": written, "groups": len(groups)}
+    return {"swept": swept, "written": written, "groups": len(touched), "waves": waves}
