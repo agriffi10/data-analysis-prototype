@@ -1,7 +1,7 @@
 // Named constants for the Data Explorer. The Athena polling cadence and the result page
 // sizing are `features/catalog/` (SPEC-176) — this feature adds no second pager.
 
-import type {CalcFunction, ColourOperator, ColourToken, SurfaceToken} from './dataExplorer.types';
+import type {CalcFunction, ColourOperator, ColourToken, CopyOptions, SurfaceToken} from './dataExplorer.types';
 
 /**
  * Soft cap on open exploration tabs, enforced by refusal: `openTab` returns null and the
@@ -252,3 +252,48 @@ export const SELECT_CLASS =
  * and ordering reference columns unqualified, so nothing composed around it names this.
  */
 export const SQL_SOURCE_ALIAS = 't';
+
+/**
+ * What a SQL NULL becomes in a clipboard format that has no null of its own.
+ *
+ * The same word the grid shows, so a paste reads the way the screen did. It is a token and
+ * not a convention the format enforces, which is why `quoteValues` matters: with quoting on,
+ * a value whose text is literally `NULL` arrives quoted and the two stop being confusable.
+ */
+export const COPY_NULL_TOKEN = 'NULL';
+
+/** The header the row-number column carries in every copied format. */
+export const ROW_NUMBER_HEADER = '#';
+
+/**
+ * The table a copied `INSERT` names.
+ *
+ * A PLACEHOLDER, on purpose. These rows are what a filter, an ordering and possibly a
+ * `GROUP BY` produced, so naming the source table would render a statement that is valid,
+ * runnable and wrong.
+ */
+export const COPY_SQL_TABLE = 'results';
+
+/** Marks a NULL cell in the XML rendering, where an empty element already means `''`. */
+export const COPY_XML_NULL_ATTRIBUTE = 'null';
+
+/** The copy options Ctrl/Cmd+C uses: the plain paste a spreadsheet wants (FR-001 AC1). */
+export const PLAIN_COPY_OPTIONS: CopyOptions = {
+  format: 'tsv',
+  includeHeaders: false,
+  includeRowNumbers: false,
+  quoteValues: false
+};
+
+/** What the advanced dialog opens on: the plain copy, plus the headers a document wants. */
+export const ADVANCED_COPY_DEFAULTS: CopyOptions = {...PLAIN_COPY_OPTIONS, includeHeaders: true};
+
+/** The copy formats in the order the dialog offers them, with what each is for. */
+export const COPY_FORMAT_LABELS: Record<CopyOptions['format'], string> = {
+  tsv: 'Tab-separated (for spreadsheets)',
+  csv: 'CSV',
+  json: 'JSON',
+  markdown: 'Markdown table',
+  sql: 'SQL INSERT',
+  xml: 'XML'
+};

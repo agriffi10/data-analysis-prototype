@@ -37,6 +37,28 @@ vi.mock('../file-browser/fileBrowser.service', async (importActual) => ({
   createFolder: vi.fn()
 }));
 vi.mock('../file-browser/fileBrowser.download', () => ({triggerBrowserDownload: vi.fn()}));
+// The sanctioned heavy-child exception (react.md §21): Monaco needs a real DOM editor and
+// workers, and jsdom has neither — it throws on `ResizeObserver` the moment the lazy chunk
+// resolves. Every Query recipe here mounts the workspace, and until SPEC-185 none of them
+// lived long enough for that import to land; the save-results recipe below does, because it
+// runs a statement. A textarea keeps the workspace's own contract honest.
+vi.mock('../query/SqlEditor', async () => {
+  const {forwardRef} = await import('react');
+  return {
+    SqlEditor: forwardRef<unknown, {value: string; onChange: (v: string) => void}>(function MockSqlEditor({
+      value,
+      onChange
+    }) {
+      return (
+        <textarea
+          aria-label="SQL editor"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      );
+    })
+  };
+});
 vi.mock('../shared-spaces/sharedSpaces.service', () => ({
   readSharedConnectionsCache: vi.fn(),
   enqueueSharedSpaceRequest: vi.fn().mockResolvedValue({success: true, data: {requestId: 'r1'}})
@@ -53,9 +75,21 @@ vi.mock('../catalog/athena.service', async (importActual) => ({
   runQuery: vi.fn().mockResolvedValue({success: true, data: {queryExecutionId: 'e1'}}),
   getQueryStatus: vi.fn().mockResolvedValue({
     success: true,
-    data: {state: 'SUCCEEDED', dataScannedBytes: 1, engineExecutionTimeMillis: 1}
+    data: {
+      state: 'SUCCEEDED',
+      dataScannedBytes: 1,
+      engineExecutionTimeMillis: 1,
+      // SPEC-185: the results location is what makes Export and Save-results reachable at
+      // all — both copy THAT object, and both refuse without it.
+      outputLocation: 's3://user-space/alice/athenaresults/e1.csv'
+    }
   }),
-  getQueryResults: vi.fn().mockResolvedValue({success: true, data: {columns: [], rows: [], nextToken: undefined}})
+  // One column and one row, not an empty page: the Query workspace offers Save-results only
+  // for a result that HAS columns, so an empty page hid the surface SPEC-185 registers.
+  getQueryResults: vi.fn().mockResolvedValue({
+    success: true,
+    data: {columns: [{name: 'region', type: 'varchar'}], rows: [['north']], nextToken: undefined}
+  })
 }));
 vi.mock('../catalog/glue.service', () => ({
   getDatabase: vi.fn().mockResolvedValue({success: true, data: {name: 'alice'}}),
@@ -247,10 +281,26 @@ const helpRecipe = (helpId: string): Recipe => ({
       const compact = section.label.split(' ')[0];
       return within(rail).queryByRole('button', {name: new RegExp(`^${compact}`, 'i')});
     }
-    // A guide INSIDE a section: select its owning section first, then look for its card.
+    // A guide INSIDE a section: SELECT ITS OWNING SECTION FIRST, then look for its card.
+    //
+    // The selection is load-bearing and was missing until SPEC-185 (every guide row until
+    // then happened to live in `files`, the section the page opens on). Without it, a row
+    // for a guide in any other section queries a card the page has not rendered and comes
+    // back null in BOTH flag states — which reads as "correctly hidden" rather than as a
+    // recipe that cannot see its own surface.
     const owner = HELP_SECTIONS.find((s) => s.guides.some((g) => g.id === helpId));
     if (!owner) throw new Error(`no help section or guide with id ${helpId}`);
     const guide = owner.guides.find((g) => g.id === helpId)!;
+    const rail = screen.getByRole('complementary', {name: 'Guides navigation'});
+    const sectionButton = within(rail).queryByRole('button', {
+      name: new RegExp(`^${owner.label.split(' ')[0]}`, 'i')
+    });
+    // The owning SECTION may itself be gated by the same flag — that is the `files` shape,
+    // where a guide row and a section row share one flag. With it gone the guide is gone
+    // too, which is the answer this recipe is being asked for.
+    if (!sectionButton) return null;
+    const {default: userEvent} = await import('@testing-library/user-event');
+    await userEvent.setup({delay: null}).click(sectionButton);
     return screen.queryByRole('button', {name: new RegExp(guide.title, 'i')});
   }
 });
@@ -396,6 +446,51 @@ const RECIPES: Record<string, Recipe> = {
     // (SPEC-172), so from here the flag is the only thing that can remove it.
     anchor: async () => screen.findByRole('button', {name: 'Grouping'}),
     find: byRole('button', 'Save as query')
+  },
+  // SPEC-185. Export's own destination selector, reached through the real toolbar button —
+  // which is itself refused until an execution has SUCCEEDED, so the recipe exercises that
+  // gate on the way past.
+  'Shared spaces in the Data Explorer export dialog': {
+    render: async () => {
+      seedExplorationTab();
+      renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
+      const {default: userEvent} = await import('@testing-library/user-event');
+      const user = userEvent.setup({delay: null});
+      // The button is REFUSED until an execution has succeeded (FR-002 AC3), and a refused
+      // `Button` drops its `onClick` — so clicking early would silently do nothing and the
+      // row would read as correctly hidden in both states.
+      const button = await screen.findByRole('button', {name: 'Export'});
+      await waitFor(() => expect(button).not.toHaveAttribute('aria-disabled', 'true'));
+      await user.click(button);
+    },
+    anchor: async () =>
+      within(await screen.findByRole('dialog', {name: 'Save results to my files'})).findByLabelText('File name'),
+    find: async () => screen.queryByRole('option', {name: 'teamspace'})
+  },
+  // SPEC-185. The TWIN, in the Query workspace — ungated since SPEC-055 because
+  // `useSaveResults` built its own destination list from an unfiltered `useQuerySpaces()`.
+  'Shared spaces in the save-results dialog': {
+    render: async () => {
+      sessionStorage.setItem(
+        's3portal.query.tabs.alice',
+        JSON.stringify({
+          version: 1,
+          tabs: [{id: 'a', label: 'Query 1', sql: 'SELECT 1;'}],
+          activeTabId: 'a',
+          nextQueryNumber: 2
+        })
+      );
+      renderQueryWorkspace();
+      const {default: userEvent} = await import('@testing-library/user-event');
+      const user = userEvent.setup({delay: null});
+      // The button is offered only for a SUCCEEDED execution with a results location, so
+      // the run is part of reaching it rather than scaffolding around it.
+      await user.click(await screen.findByRole('button', {name: 'Run statement'}));
+      await user.click(await screen.findByRole('button', {name: 'Save results to my files'}));
+    },
+    anchor: async () =>
+      within(await screen.findByRole('dialog', {name: 'Save results to my files'})).findByLabelText('File name'),
+    find: async () => screen.queryByRole('option', {name: 'teamspace'})
   },
   'Shared spaces in the Data Explorer save dialog': {
     render: async () => {
@@ -614,7 +709,15 @@ const RECIPES: Record<string, Recipe> = {
   'Check data quality guide': helpRecipe('check-data-quality'),
   'Past data quality checks guide': helpRecipe('past-data-quality-checks'),
   'Send files guide': helpRecipe('send-files'),
-  'Archive and restore guide': helpRecipe('archive-files')
+  'Archive and restore guide': helpRecipe('archive-files'),
+  // SPEC-185. The first guide rows outside the section the Help page opens on — see
+  // `helpRecipe`, which had to learn to select the owning section for them.
+  'Data Explorer help section': helpRecipe('data-explorer'),
+  'Start exploring guide': helpRecipe('start-exploring'),
+  'Filter and sort guide': helpRecipe('explore-filter-sort'),
+  'Grouping and Calc guide': helpRecipe('explore-group-and-calc'),
+  'Copy and export guide': helpRecipe('explore-copy-and-export'),
+  'Save an exploration guide': helpRecipe('explore-save-as-query')
 };
 
 /**
@@ -800,7 +903,11 @@ describe('the registry itself', () => {
         // reasoning — the rows above render other surfaces entirely.
         'Shared spaces in the Data Explorer source picker',
         // SPEC-183: the third instance of the same choice, and the second WRITE target.
-        'Shared spaces in the Data Explorer save dialog'
+        'Shared spaces in the Data Explorer save dialog',
+        // SPEC-185: the export destination, and the Query workspace's Save-results twin,
+        // which had been ungated since SPEC-055 because the hook built its own list.
+        'Shared spaces in the Data Explorer export dialog',
+        'Shared spaces in the save-results dialog'
       ],
       dataQuality: [
         'Data quality',
@@ -811,8 +918,18 @@ describe('the registry itself', () => {
         'Check data quality guide',
         'Past data quality checks guide'
       ],
-      // SPEC-179. No guide row: SPEC-185 writes the Help content and registers it there.
-      dataExplorer: ['Data Explorer', '/explore', 'Explore data']
+      dataExplorer: [
+        'Data Explorer',
+        '/explore',
+        'Explore data',
+        // SPEC-185's guides: the section and every guide in it, on the `files` precedent.
+        'Data Explorer help section',
+        'Start exploring guide',
+        'Filter and sort guide',
+        'Grouping and Calc guide',
+        'Copy and export guide',
+        'Save an exploration guide'
+      ]
     };
     for (const key of FEATURE_FLAG_KEYS) {
       expect(GATED_SURFACES[key].map((s) => s.name).sort(), key).toEqual([...contract[key]].sort());

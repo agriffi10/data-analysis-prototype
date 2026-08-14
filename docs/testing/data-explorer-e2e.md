@@ -1,0 +1,228 @@
+# Data Explorer — live check
+
+Manual verification for the Data Explorer arc (SPEC-176 → 185). One session; the sections are in
+the order they are cheapest to run, and every one of them starts from a real table.
+
+**Browser: Safari**, at desktop width and again at **400px**. This is not a formality — the arc was
+built and tested against Chromium, so a Chromium pass corroborates and cannot discharge. Everything
+below that says "observe in the network panel" means Safari's Web Inspector → Network.
+
+**The one thing that cannot be proved offline is the bill.** Ten specs' worth of unit tests assert
+that a description renders to a statement; none of them can prove that applying a filter starts a
+NEW execution against Athena and that paging starts none. That is what most of this file is.
+
+| What | Where |
+|---|---|
+| Route | `/explore` (nav tab **Data Explorer**) |
+| Flag | `dataExplorer` in `config/feature-flags.json` |
+| Second entry point | **Query** → schema rail → table **⋮** → **Explore data** |
+| Athena requests to watch | `StartQueryExecution`, `GetQueryExecution`, `GetQueryResults` |
+
+## Fixture
+
+You need **one table with more than one page of rows** (>25) and, for the quoting check, **a text
+column holding a value with an apostrophe in it**. The Table Builder is the quickest way there:
+upload a CSV to your own space and build a table from the folder.
+
+Suggested `explorer-fixture.csv` — 30 rows, three of them carrying the apostrophe:
+
+```csv
+id,region,owner,qty
+1,north,O'Brien,10
+2,south,Smith,20
+3,north,O'Brien,
+...
+```
+
+Leave at least one `qty` cell **empty** in the CSV. The Table Builder makes CSV columns all-string,
+so that arrives as an empty string, not a NULL — which is the pair SPEC-180 FR-003 is about, and
+worth seeing on screen once.
+
+> **Andrew has to do the upload.** A laptop IAM user cannot write `dat-prod-user-space` (the bucket
+> policy allowlists the portal, deploy and execution roles only), so the fixture goes in through the
+> portal's own Files tab.
+
+---
+
+## SPEC-179 — the route, the picker and the deep link
+
+1. Open **Data Explorer**. The picker lists **Space** and, under it, tables and views.
+2. Pick your own space and the fixture table. A tab opens named for the table.
+3. Go to **Query**, open the schema rail, and use a table's **⋮** → **Explore data**. It lands on
+   `/explore` with that table open.
+4. Note the URL while it does: it carries `?space=&db=&table=`, and after the tab opens the
+   parameters are **dropped**. Reload the page — you get the tabs you had, **not** a second copy of
+   the linked table.
+5. Paste a link naming a shared space you are **not** a member of:
+   `/explore?space=<some-other-space>&db=<x>&table=<y>`. Expect the refusal page ("You don't have
+   access to that space") **and no Glue or Athena request at all** in the network panel. That
+   negative is the check — SPEC-113's rule is that the page must not become an existence oracle.
+
+**Shared-space pass.** Repeat steps 1–2 choosing a shared space you belong to, as a **non-owner
+member**. The database is the space's own name; the rows come back. This is the half no unit test
+reaches, because it runs against real Cognito tags and real Lake Formation.
+
+---
+
+## SPEC-178 / SPEC-181 — the bill, and the thing only Athena can settle
+
+**This is the load-bearing section.** Keep the network panel open and filtered on `athena`
+throughout, and count requests rather than trusting the grid.
+
+### 1. An apply is a NEW execution, with a NEW bytes-scanned figure
+
+1. With the table open, note the line at the bottom: `This query scanned N` and
+   `M scanned by this exploration`.
+2. Apply a filter that removes most rows — column **⌄** → **is** → a common value.
+3. Expect in the panel: **one** `StartQueryExecution`, then `GetQueryExecution` polls, then
+   `GetQueryResults`.
+4. Expect the bottom line to show a **different** scanned figure.
+
+**Record the two figures.** "The grid changed" is not the assertion — a client-side filter would
+also change the grid. The assertions are the request and the changed number.
+
+### 2. Paging produces NONE
+
+1. Click **Next** on the pager, then **Prev**, then **Next** again.
+2. Expect **zero** `StartQueryExecution`. `GetQueryResults` calls are expected and are free — the
+   `NextToken` walk scans no additional bytes.
+3. The bottom line's total must not move.
+
+### 3. Changing a filter back is a CACHE HIT
+
+1. Clear the filter you applied, then apply the **same** filter again.
+2. Expect **no** new `StartQueryExecution` for the repeat, and the bottom line to read
+   **"Loaded from an earlier run in this tab — nothing more scanned"**.
+3. The running total must be **unchanged**.
+
+This is SPEC-178's `staleTime`/`gcTime: Infinity` working. If a new execution appears, the cache
+entry was collected and the decision's own reasoning has been broken.
+
+### 4. A value containing a single quote filters CORRECTLY against the real engine
+
+**No unit test can settle this**, and it is the one place a wrong escaper fails *silently*: the
+TypeScript DML escaper doubles the quote (`O''Brien`), the DDL escaper backslashes it, and the wrong
+one produces a predicate Athena accepts and that matches **nothing**.
+
+1. Click a cell holding `O'Brien` and use **Filter by this value**.
+2. Expect rows back — every `O'Brien` row, not an empty grid.
+3. Open **Generated SQL** and confirm the predicate reads `WHERE "owner" = 'O''Brien'`.
+4. An empty result here is a **FAILURE**, not an empty table. Cross-check by counting the
+   `O'Brien` rows in the unfiltered grid first.
+
+### 5. A failed apply keeps the rows and the toolbar
+
+1. Type nonsense into **Filter expression** (e.g. `qty >>> 5`) and click **Apply expression**.
+2. Expect an error banner, the **previous** rows still on screen beneath it, and the toolbar and
+   expression bar still there to correct it with.
+3. Step **back** with the history arrow. Expect the good rows, and **no** re-run of the failed
+   statement. Then step forward onto the failed one: expect "This set of filters failed last time
+   it ran. Nothing has been run." and a **Run it anyway** button — and confirm in the panel that
+   arriving there started **no** execution.
+
+---
+
+## SPEC-182 — grouping runs, Calc does not
+
+1. Open **Grouping**, group by `region`, aggregate `COUNT(*)`, tick **Show percentage**, **Apply**.
+2. Expect **one** `StartQueryExecution` and a changed scanned figure.
+3. Open **Generated SQL**. Confirm it is a real `GROUP BY` over the source table and that
+   **the percentage column is not in it** — it is computed in the browser, and its header says
+   `(this page)`.
+4. **Confirm the disclosed SQL is what Athena ran**: copy the statement out of the disclosure and
+   compare it to the `QueryString` on the `StartQueryExecution` request in the network panel. They
+   must be byte-identical. (SPEC-182 passes the executed string down rather than re-rendering, and
+   this is the only check that proves the two have not drifted.)
+5. Drag across a dozen cells in a numeric column and open **Calc**. Expect the aggregates, the line
+   `N selected cells on this page`, and — the assertion — **zero** Athena requests while selecting,
+   re-selecting and changing which functions are shown.
+6. Leave grouping (clear it) and confirm any sort you had on `count_all` is dropped rather than
+   carried onto the raw table.
+
+---
+
+## SPEC-183 / SPEC-185 — the round trip through `saved_queries/`
+
+1. With a filtered, ordered exploration on screen, click **Save as query**, name it
+   `explorer-roundtrip`, choose **My files**, save.
+2. In **Files**, browse to `saved_queries/`. Expect `explorer-roundtrip.sql`, and expect the folder
+   itself to refuse **Delete** and **Rename**.
+3. Go to **Query** → **Saved queries** → open `explorer-roundtrip`. Expect the editor to hold the
+   **rendered** statement — the filters and the ORDER BY, not a bare `SELECT *`. Run it; expect the
+   same rows the Explorer showed.
+4. **And the other direction**: save a query from the Query workspace into the same folder, then
+   confirm it is loadable there. (It does **not** open in the Explorer — a saved exploration is its
+   SQL, and loading a `.sql` file as an exploration source is descoped. Confirming the Explorer
+   offers no such affordance IS the check.)
+5. Repeat step 1 choosing a **shared space** as the destination. Expect the write to succeed
+   cross-bucket and the file to appear in that space's `saved_queries/`.
+
+---
+
+## SPEC-185 — copy and export
+
+1. Select a rectangle, press **⌘C**, paste into a spreadsheet. Expect the cells in grid order, and
+   a `NULL` where the grid showed NULL.
+2. **⌘-click** two non-adjacent cells, copy, paste. Expect the **bounding rectangle** with the cells
+   in between blank — the behaviour the dialog states.
+3. Click a **column header**, copy, paste. Expect the loaded page's rows only.
+4. Open **Copy…**, choose **JSON**, copy, paste into a text editor. Expect `null` for the NULL and
+   `""` for the empty cell — distinguishable, which is the point.
+5. Click **Export** before anything has finished running (open a fresh tab on a large table and be
+   quick): expect it refused, with the reason on hover **and reachable by keyboard** — it is
+   `aria-disabled`, so Tab reaches it.
+6. Once rows are on screen, **Export** → name it `explorer-export` → **My files** → **Save here**.
+   Expect a success toast and, in **Files**, `explorer-export.csv`.
+7. **Open the exported CSV and count its rows.** It must hold the **whole** result — every row the
+   filtered query returned, not the 25 on the page. That is what makes export the result-shaped
+   tool and copy the selection-shaped one.
+8. Confirm in the network panel that steps 1–7 started **zero** `StartQueryExecution`.
+9. Export again with the same name. Expect the **Overwrite** confirm before anything is replaced.
+10. Export into a **shared space**. Expect the cross-bucket copy to succeed.
+
+---
+
+## SPEC-185 — Help
+
+1. Open **Help & guides**. Expect a **Data Explorer** section with five guides.
+2. Read the filtering guide's callout and confirm it says plainly that each apply runs against
+   Athena and scans data. This is the one thing a user cannot infer from the UI.
+3. Confirm nothing there promises a chart, cell editing, named filters, a References panel, or
+   loading a `.sql` file back into the Explorer.
+
+---
+
+## The 400px and Safari pass (SPEC-185 FR-004, and every spec's CSS)
+
+Run the whole of the above at **400px in Safari**. What only a real browser can show:
+
+- The **sticky pinned column block** — pin a column, scroll right, confirm it stays put and that its
+  background is opaque over the scrolling cells.
+- The **header menu inside the grid's scroll container** — at desktop, open a column **⌄** near the
+  right edge and confirm the menu is not clipped.
+- **Below `tablet` the header menu is unreachable**, by design. **Order and filter** is the way in;
+  confirm every sort and filter can be set from that dialog alone, and that it fits at 400px.
+- The **Value panel** renders as a sheet rather than a side panel.
+- **Calc and Grouping stack below the grid** rather than beside it.
+- The **toolbar's fourteen controls** wrap rather than overflow.
+- The **Colours** rules dialog's rows wrap, and a gradient's shades are readable against real
+  rendered text (the contrast maths is asserted in tests; how it *looks* is not).
+- A **band boundary** rule is visible where two striping groups meet.
+- An **anchor in a truncating cell** (URL transformer) does not push the cell's layout around.
+- The **header-drag-onto-the-Grouping-panel** gesture, which no test performs.
+- **Record view is the default** on an unchosen tab at this width.
+
+---
+
+## Owed, and why
+
+| Check | Status |
+|---|---|
+| Everything above | **OWED** — nothing in this file has been run |
+| SPEC-180 → 184 infra/IAM | **N/A** — those specs add no AWS call the app did not already make |
+| FR-005 AC4's COPY assertion (SPEC-184) | **DISCHARGED offline** by `copyExport.test.tsx` — copy reads the raw row |
+| The `sqlLiteral` path | **PROXIED ONLY** by unit tests until §4 above is run against the real engine |
+| The disclosed SQL matching what ran | **PROXIED ONLY** — one call away in code; §SPEC-182 step 4 settles it |
+
+Record outcomes in a dated session file under `docs/testing/`, as
+`2026-08-14-live-check-session.md` does, and discharge only what was actually **run**.

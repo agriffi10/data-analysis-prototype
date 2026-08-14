@@ -2,10 +2,14 @@ import {useMemo, useRef, useState} from 'react';
 import {Button} from '../../components/Button';
 import {ErrorBanner} from '../../components/ErrorBanner';
 import {Pager} from '../../components/Pager';
+import {useToast} from '../../components/toastContext';
+import {useCopyToClipboard} from '../../lib/useCopyToClipboard';
 import {useIsMobile} from '../../lib/useBreakpoint';
 import {useFeature} from '../feature-flags';
 import {useQueryResults} from '../catalog/useQueryResults';
-import {CALC_DEFAULT_FUNCTIONS, EXPLORATION_PAGE_SIZE} from './dataExplorer.constants';
+import {CALC_DEFAULT_FUNCTIONS, EXPLORATION_PAGE_SIZE, PLAIN_COPY_OPTIONS} from './dataExplorer.constants';
+import {AdvancedCopyDialog} from './AdvancedCopyDialog';
+import {renderCopy} from './renderCopy';
 import {CalcPanel} from './CalcPanel';
 import {percentageColumnName, percentageOfTotal, selectedCellValues} from './calc';
 import {ColumnsPanel} from './ColumnsPanel';
@@ -41,6 +45,7 @@ import type {ColumnQueryActions} from './ColumnFilterMenu';
 import type {QueryColumn} from '../catalog/catalog.types';
 import type {
   CalcPanelState,
+  CopyOptions,
   ExplorationPresentation,
   FilterOperator,
   FormattingState,
@@ -76,6 +81,16 @@ export type ExplorationResultsRegionProps = {
   queryControls: UseExplorationQueryResult;
   /** Raises the save dialog (SPEC-183). The host owns the write; this owns the gesture. */
   onSaveQuery: () => void;
+  /** Raises the export dialog (SPEC-185 FR-002). The host owns the copy; this owns the gesture. */
+  onExport: () => void;
+  /**
+   * Why export is unavailable, or null when it is.
+   *
+   * Decided by the HOST, because export copies the execution's own results object and only
+   * the host knows whether that object exists yet — this surface knows the rows, not where
+   * Athena put them.
+   */
+  exportRefusal: string | null;
 };
 
 export const NO_CELL_TO_FILTER = 'Select a cell first.';
@@ -103,6 +118,16 @@ export const NOTHING_TO_SAVE = 'There’s no query to save yet — nothing has r
  * the Query workspace, which is the surface FR-005 promises it opens in.
  */
 export const FAILED_NOT_SAVEABLE = 'This query didn’t run, so there’s nothing to save. Fix it and try again.';
+/** Copy takes a SELECTION, and an empty one has no rectangle to take (FR-001 AC5). */
+export const NOTHING_SELECTED_TO_COPY = 'Select some cells first.';
+/**
+ * Why export is unavailable (FR-002 AC3).
+ *
+ * Export copies the object Athena wrote, which exists only once an execution has SUCCEEDED
+ * — so this covers a first run still in flight, a failed one, and a suspended description
+ * alike. Copy is offered throughout, because the rows on screen are real either way.
+ */
+export const NOTHING_TO_EXPORT = 'Run a query first — export saves the results Athena returned.';
 
 /**
  * One exploration's rows, and everything that changes which rows they are (SPEC-180,
@@ -130,9 +155,12 @@ export function ExplorationResultsRegion({
   presentation,
   onPresentationChange,
   queryControls,
-  onSaveQuery
+  onSaveQuery,
+  onExport,
+  exportRefusal
 }: ExplorationResultsRegionProps) {
   const [columnsOpen, setColumnsOpen] = useState(false);
+  const [copyOpen, setCopyOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [calcOpen, setCalcOpen] = useState(false);
   const [groupingOpen, setGroupingOpen] = useState(false);
@@ -156,6 +184,8 @@ export function ExplorationResultsRegion({
   const gridRef = useRef<HTMLTableElement>(null);
   const {query, apply} = queryControls;
   const savedQueriesEnabled = useFeature('query');
+  const toast = useToast();
+  const {copy} = useCopyToClipboard();
 
   // The last execution whose rows actually arrived. A failed apply falls back to it, so
   // the grid keeps showing something true rather than going blank behind a banner.
@@ -349,6 +379,24 @@ export function ExplorationResultsRegion({
         ? UNFILTERABLE_VALUE
         : null));
 
+  // THE ROWS, not the rendering. `renderCopy` is handed `rows` — the raw page, transformed
+  // values and all left behind — because a URL column pasted into a spreadsheet has to carry
+  // its value, not its link text (FR-001 AC3). Every argument here is already in memory, so
+  // a copy issues nothing however often it is used (AC7).
+  const copySelection = (options: CopyOptions) => {
+    const text = renderCopy(selection.selection, geometry.visible, rows, options, results.rangeStart);
+    if (text === '') return;
+    void copy(text);
+  };
+
+  const advancedCopy = (options: CopyOptions) => {
+    setCopyOpen(false);
+    copySelection(options);
+    // The dialog closes on copy, so the confirmation has to outlive it — the `copied` flag
+    // `useCopyToClipboard` sets has nothing left on screen to render into.
+    toast.push({variant: 'success', message: 'Copied to the clipboard.'});
+  };
+
   const filterByCell = () => {
     if (!cursorColumn || cursorValue === undefined) return;
     // A NULL cell is `IS NULL`, not `= ''` (FR-002 AC3). Athena hands every value back as
@@ -397,6 +445,7 @@ export function ExplorationResultsRegion({
               onColumnDrag={(name) => {
                 draggedColumn.current = name;
               }}
+              onCopy={() => copySelection(PLAIN_COPY_OPTIONS)}
               gridRef={gridRef}
             />
           )}
@@ -538,6 +587,25 @@ export function ExplorationResultsRegion({
           onClick={() => setGroupingOpen((open) => !open)}>
           Grouping
         </Button>
+        {/* Copy issues nothing and never has — see `renderCopy`. The plain Ctrl/Cmd+C is on
+            the grid; this is the same copy with the formats and toggles a destination other
+            than a spreadsheet wants (FR-001 AC2). */}
+        <Button
+          size="sm"
+          disabledReason={selection.selectedCount === 0 ? NOTHING_SELECTED_TO_COPY : undefined}
+          onClick={() => setCopyOpen(true)}>
+          Copy…
+        </Button>
+        {/* Export writes the EXECUTION's own results object, so a filtered, ordered or
+            grouped exploration exports exactly what is on screen without a second query and
+            without a second bill (FR-002 AC1). The refusal comes from the host, which is
+            what knows whether that object exists yet. */}
+        <Button
+          size="sm"
+          disabledReason={exportRefusal ?? undefined}
+          onClick={onExport}>
+          Export
+        </Button>
         {/* Gated by `query`, not `dataExplorer`: the store is the Query workspace's, and
             REMOVED rather than refused, because a reason cannot explain a state the user has
             no way to change. See `gatedSurfaces.ts`. */}
@@ -583,6 +651,14 @@ export function ExplorationResultsRegion({
       )}
 
       {body()}
+
+      {copyOpen && (
+        <AdvancedCopyDialog
+          selectedCount={selection.selectedCount}
+          onCopy={advancedCopy}
+          onCancel={() => setCopyOpen(false)}
+        />
+      )}
 
       <ColumnsPanel
         open={columnsOpen}

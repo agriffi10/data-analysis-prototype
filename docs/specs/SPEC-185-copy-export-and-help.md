@@ -1,8 +1,8 @@
 # Spec: Copy, Export, Help and the Arc's Live Checks
 
 **ID:** SPEC-185
-**Status:** Draft
-**Last Updated:** 2026-08-13
+**Status:** Completed
+**Last Updated:** 2026-08-14
 **Depends On:** SPEC-180, SPEC-182, SPEC-184
 
 ## Overview
@@ -37,6 +37,13 @@ what is shipped and wired end to end, and until this spec the feature was still 
   conversion pipeline. Copy's formats are clipboard-only.
 - **Scheduled or repeated exports.**
 - Any change to `useSaveResults` beyond its call site.
+  > **Amended in build (2026-08-14).** `useSaveResults` lives in `features/query/`, which
+  > `features/data-explorer/` may not import (SPEC-176's sibling clause) — so "reuse it unchanged"
+  > was unreachable from where it sat. It **moved** to `features/catalog/`, body untouched, with
+  > `SaveResultsDialog` and `normalizeCsvName`; the exclusion above is read as "no behavioural
+  > change", which the move meets. One field did change and it closed a live defect: the
+  > destinations are now a **parameter**, because the hook's own unfiltered list had been offering
+  > a colleague's space as a write target with `sharedWorkspaces` off. See `decisions.md`.
 
 ---
 

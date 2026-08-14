@@ -3501,3 +3501,105 @@ against `string` — a stored `#ff0000` would render verbatim as an inline style
 the palette is measured for would no longer hold for it. A rule naming a column the current result
 lacks is **kept and shown as inapplicable**: a grouping change replaces the column set wholesale, so
 that is the ordinary case, and un-grouping brings the column back.
+
+## Copy is the selection-shaped tool and export is the result-shaped one, and reusing the save path meant moving it (SPEC-185)
+
+### The two ways out divide on the line the whole arc divides on
+
+Copy takes the **cell selection**, which exists only in the browser: `renderCopy` is a pure function
+over the rows already fetched, so copying — in any of six formats, with any options, however many
+times — starts no execution and scans no bytes. Export copies the **execution's own results object**
+with a server-side `CopyObject`, so what leaves is every row the statement returned rather than the
+25 in the grid, again with no second query and no second bill.
+
+That is why **exporting a selection is out of scope** rather than merely unbuilt. A partial export
+would need either a second query — the one thing this feature spends ten specs avoiding — or a
+client-side re-serialization of rows that are not all loaded, which is the scale lie the whole arc
+was designed around. And it is why copy's formats are clipboard-only: the results object is Athena's
+CSV, and converting it would mean reading it back through the browser.
+
+Both surfaces say the asymmetry out loud, because it is not inferable. The advanced copy dialog
+states that only the loaded page is copied and points at Export for the rest; the grid's status line
+says `N cells selected on this page` every time it says anything, which is SPEC-182's rule for Calc
+applied to the same fact.
+
+### A NULL and an empty string stay apart in all six formats, and quoting is what disambiguates the WORD
+
+FR-001 AC4 costs nothing in the three formats that have a null of their own — JSON emits `null`, SQL
+emits the keyword, XML gets an explicit `null="true"` attribute rather than an empty element. The
+delimited formats and Markdown have no such thing, so a NULL renders as the token `NULL` and an
+empty string renders as nothing at all. Those two are always distinguishable.
+
+What is **not** distinguishable in a delimited format is a NULL from a cell whose text is literally
+`NULL`, and that is the honest limit rather than a defect: `quoteValues` is the answer, since a
+quoted `"NULL"` is a value and a bare `NULL` is an absence. The dialog says so beside the control.
+
+`quoteValues` is **inert** in JSON, SQL and XML, whose values are already delimited by the format —
+so the checkbox is disabled there with its reason next to it, rather than offered as a control that
+silently changes nothing. Two smaller rules fall out of the same reasoning: CSV still quotes what
+the *format* requires (an unescaped comma is not ambiguous CSV, it is CSV with an extra column),
+and a Markdown table keeps its header row with column names off, because a table without one renders
+as a paragraph of pipes in every dialect.
+
+### A discontiguous selection copies as a rectangle, and a SQL INSERT names a placeholder
+
+A selection with gaps copies as its **bounding rectangle**, with the unselected cells blank. Packing
+the selected cells together would silently move values into columns they were never in — a paste
+that is wrong in a way nobody can see, where a hole is wrong in a way anybody can. It is stated in
+the dialog rather than left to be discovered.
+
+The `INSERT` names `"results"`, deliberately not the source table. These rows are what a filter, an
+ordering and possibly a `GROUP BY` produced, so an INSERT naming the source would be valid, runnable
+and wrong. Values go through `lib/sql.ts`'s `sqlLiteral` — the **Trino/DML** escaper that doubles
+the quote, never `cpcommon.ddl.literal`'s backslash form (SPEC-178's rule; the wrong one fails
+silently). XML puts the column name in an **attribute**: an Athena column name is not required to be
+a valid XML name, and deriving element names from one produces documents that do not parse.
+
+The copy reads the **raw row**, never `cellText` and never SPEC-184's `transformCell` — a
+URL-transformed column pasted into a spreadsheet has to carry its value, not its link text. The test
+that proves it uses a **hex** transformer on SPEC-182's precedent, because a URL transformer keeps
+the raw value as its link text and the assertion could not have failed.
+
+### Reuse required a MOVE, and the move closed a live flag defect
+
+`useSaveResults` lived in `features/query/`, which `features/data-explorer/` may not import
+(SPEC-176's sibling clause). "Reuse it unchanged" was therefore unreachable from where it sat, and
+the two alternatives were a second implementation of a path with a collision round-trip in it, or the
+move SPEC-176 and SPEC-177 already established. It went to `features/catalog/` — which owns the
+Athena execution and results layer, and the results object is exactly that — with its body untouched,
+`SaveResultsDialog` and `normalizeCsvName` with it, and `features/query/query.format.ts` deleted
+because nothing else was in it.
+
+**One thing about the hook did change, and it is why the move was worth more than the reuse.** It
+built its own destination list from an unfiltered `useQuerySpaces()`, while every saved-query surface
+beside it used a view-gated list — so with `sharedWorkspaces` off, the Query workspace's Save-results
+dialog had been offering a colleague's space as a **write target**, unregistered and unnoticed since
+SPEC-055. The destinations are now a **parameter** (SPEC-174's shape, and SPEC-177's), both views
+hand it a gated list, and both instances have their own `GATED_SURFACES` row — SPEC-175's finding
+that each selector instance needs one, applied to the instance that had been missing.
+
+Export's refusal is judged on the **results location**, not on the grid: Athena reports it only for a
+SUCCEEDED execution, so "nothing has finished running" and "there is nothing to export" are one fact
+rather than two that can drift. A failed apply leaves the last good execution's rows on screen while
+that field has already moved on, which is the case a rows-based test would get wrong.
+
+### Every guide row before this spec lived in the section the Help page opens on
+
+The walking test's guide recipe queried a guide card without selecting its owning section. That
+worked for four rows by coincidence — all of them were in `files`, the default section — and would
+have returned `null` in **both** flag states for a row anywhere else, which reads as "correctly
+hidden" rather than as a recipe that cannot see its surface. The recipe now selects the section
+first, and returns null only when the section itself is gone (the `files` shape, where a section row
+and a guide row share one flag).
+
+The Data Explorer gets **its own Help section** rather than guides folded into Query: it is a
+primary nav destination with its own flag, and a user looking for it in Help should find it by name.
+The section and each of its five guides get a registry row, on the `files` precedent — the section
+row alone would suffice today and would go on passing if a later spec moved one guide into the Query
+section, where it would then be visible with `dataExplorer` off.
+
+The guides document only what is shipped and wired (SPEC-074 FR-005), which here means saying two
+things plainly that the UI cannot: that **every filter and sort runs a real query against Athena and
+scans data**, with the figures at the bottom as the cost signal; and that a saved exploration
+**reopens in the Query workspace as SQL**, not back here as an exploration — SPEC-183 descoped the
+loading half, so a guide promising otherwise would document a spec that has not been written.

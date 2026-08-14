@@ -146,7 +146,14 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // reason the save-query one did: the rows above render other surfaces, so nothing would
     // notice if this one stopped being gated — and this is the WRITE-target variant, which
     // offers a colleague's space as somewhere to put a file.
-    {name: 'Shared spaces in the Data Explorer save dialog', kind: 'control', path: '/explore'}
+    {name: 'Shared spaces in the Data Explorer save dialog', kind: 'control', path: '/explore'},
+    // SPEC-185. The export destination, on the same footing again — and its TWIN below is
+    // the point: `useSaveResults` built its own list from an unfiltered `useQuerySpaces()`,
+    // so the Query workspace's Save-results dialog had been offering a colleague's space as
+    // a write target with this flag off, unregistered and unnoticed since SPEC-055. The hook
+    // now takes its destinations as a parameter and both views gate them.
+    {name: 'Shared spaces in the Data Explorer export dialog', kind: 'control', path: '/explore'},
+    {name: 'Shared spaces in the save-results dialog', kind: 'control', path: '/query'}
   ],
   dataQuality: [
     {name: 'Data quality', kind: 'nav', path: '/data-quality'},
@@ -161,15 +168,24 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: 'Check data quality guide', kind: 'guide', path: '/help', helpId: 'check-data-quality'},
     {name: 'Past data quality checks guide', kind: 'guide', path: '/help', helpId: 'past-data-quality-checks'}
   ],
-  // SPEC-179. No guide row yet: SPEC-185 writes the Help content, once there is a shipped
-  // end-to-end feature to document (SPEC-074 FR-005), and it gains its row there.
   dataExplorer: [
     {name: 'Data Explorer', kind: 'nav', path: '/explore'},
     {name: '/explore', kind: 'route', path: '/explore'},
     // The Query rail's menu item, under ITS OWN flag. The `query` list carries the same
     // surface under the other one — one row per (surface, flag), because the two answer
     // different questions and either gate can be deleted alone.
-    {name: 'Explore data', kind: 'control', path: '/query'}
+    {name: 'Explore data', kind: 'control', path: '/query'},
+    // SPEC-185. The section AND each of its guides, on the `files` precedent: the section
+    // row alone would be enough to hide them today, and it would go on passing if a later
+    // spec moved one of these guides into the Query section — where it would then be
+    // visible with `dataExplorer` off. The registry is the only home of the guide→flag
+    // mapping, so a row per guide is what keeps that mapping true after a move.
+    {name: 'Data Explorer help section', kind: 'guide', path: '/help', helpId: 'data-explorer'},
+    {name: 'Start exploring guide', kind: 'guide', path: '/help', helpId: 'start-exploring'},
+    {name: 'Filter and sort guide', kind: 'guide', path: '/help', helpId: 'explore-filter-sort'},
+    {name: 'Grouping and Calc guide', kind: 'guide', path: '/help', helpId: 'explore-group-and-calc'},
+    {name: 'Copy and export guide', kind: 'guide', path: '/help', helpId: 'explore-copy-and-export'},
+    {name: 'Save an exploration guide', kind: 'guide', path: '/help', helpId: 'explore-save-as-query'}
   ]
 };
 

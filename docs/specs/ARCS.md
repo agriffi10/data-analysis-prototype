@@ -1277,7 +1277,7 @@ destroy it" are different guarantees, and only one of them survives a stale cach
 > drift apart. Choosing a different space **copies**; nothing in this arc ever moves or deletes a
 > colleague's file.
 
-## Data Explorer arc (SPEC-176 → 185 — filed 2026-08-13; 176 → 184 COMPLETE)
+## Data Explorer arc (SPEC-176 → 185 — filed 2026-08-13; **COMPLETE 2026-08-14**)
 
 The portal can already run SQL. What it cannot do is let someone **look at a table** without writing
 any — pick a database and a table, see its rows, page through them. That is the Data Explorer, and
@@ -1484,6 +1484,31 @@ the JSON/XML presentations have no column types here to render, and the **Refere
 impossible**: Glue has no foreign keys, so "related rows via FK" has nothing to read. The whole
 write half of DBeaver's Data Editor — inline edit, row add/duplicate/delete, save, generated DML,
 virtual keys — is out for the same kind of reason: an Athena result is not an editable table.
+
+> **185 landed 2026-08-14 and closed the arc.** Its two ways out of the feature divide on the same
+> line the whole arc does: **copy** takes the cell selection, which exists only in the browser, and
+> **export** copies the execution's own results object, which is the only thing that holds every row.
+> Neither issues a query — export's server-side `CopyObject` is what makes "the whole result, no
+> second bill" true, and it is also why exporting a *selection* is out of scope: a partial export
+> would need either a second query or a re-serialization of rows that are not all loaded.
+>
+> **Reusing `useSaveResults` turned out to require moving it**, which the spec had listed as out of
+> scope on a reading of "change" that a relocation does not meet. It sat in `features/query/`, which
+> this feature may not import — the same wall SPEC-176 and SPEC-177 were built to take modules
+> through, so it went down to `features/catalog/` with its body untouched, and `normalizeCsvName`
+> with it. **One thing about it did change, and it closed a live defect:** the hook built its own
+> destination list from an unfiltered `useQuerySpaces()`, so the Query workspace's Save-results
+> dialog had been offering a colleague's space as a **write target** with `sharedWorkspaces` off,
+> unregistered and unnoticed since SPEC-055. The destinations are now a parameter — SPEC-174's shape,
+> and SPEC-177's — both views gate them, and both have a registry row.
+>
+> **The Help guides are the arc's last piece and the registry found a hole in the test that walks
+> them.** Every guide row before this spec happened to live in the `files` section, which is the one
+> the Help page opens on — so the recipe queried a card without selecting its section, and a row for
+> a guide anywhere else would have come back absent in **both** flag states and read as correctly
+> hidden. The recipe now selects the owning section first. The guides themselves say the one thing a
+> user cannot infer from the UI: every filter and sort is a real query against Athena that scans
+> data, and the figures at the bottom of the screen are the cost signal.
 
 **The arc needs no IaC and no IAM.** The Athena and Glue grants exist, results land in the
 already-granted `{username}/athenaresults/` prefix, and the only non-app change in ten specs is

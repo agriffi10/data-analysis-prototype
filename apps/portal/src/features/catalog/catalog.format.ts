@@ -17,3 +17,16 @@ const ATHENA_TO_GLUE_TYPE: Record<string, string> = {
 export function normalizeColumnType(type: string): string {
   return ATHENA_TO_GLUE_TYPE[type.trim().toLowerCase()] ?? type;
 }
+
+/**
+ * Normalizes a Save-results file name — appends ".csv" unless the user already
+ * typed it (case-insensitive), never doubling it.
+ *
+ * Moved here from `features/query/` with SPEC-185's export: the results object is Athena's
+ * CSV whichever surface saves it, so the naming rule belongs beside the save rather than in
+ * one of the two workspaces that use it.
+ */
+export function normalizeCsvName(name: string): string {
+  const trimmed = name.trim();
+  return /\.csv$/i.test(trimmed) ? trimmed : `${trimmed}.csv`;
+}
