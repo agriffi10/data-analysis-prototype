@@ -62,6 +62,26 @@ describe('the verification role (SPEC-186 FR-004)', () => {
     expect(policy.Statement.map((s) => s.Sid)).toContain('ArchiveAuditRead');
   });
 
+  it('scopes the catalog reads to the DATABASE and TABLE ARNs, not to `catalog/*`', () => {
+    // THE ONE THAT WOULD HAVE SHIPPED BROKEN. Glue has no `catalog/*` hierarchy: `GetTable`
+    // and `GetTableVersions` each need the database ARN and the table ARN alongside the
+    // catalog, which is the shape `portal-role-analytics` and the table-builder execution role
+    // already use. The first version scoped to `catalog` + `catalog/*`, which APPLIES CLEANLY
+    // and then denies at runtime — the read-back stays blocked with no gate having failed,
+    // which is the exact class of defect this spec exists to close.
+    //
+    // Asserting the ACTIONS alone (the test above) could not catch it. This one asks what the
+    // actions are allowed ON.
+    const catalogStatement = policy.Statement.find((s) => s.Sid === 'CatalogReadBack')!;
+    const scoped = Array.isArray(catalogStatement.Resource) ? catalogStatement.Resource : [catalogStatement.Resource];
+
+    expect(scoped.some((r) => /:catalog$/.test(r))).toBe(true);
+    expect(scoped.some((r) => /:database\/\*$/.test(r))).toBe(true);
+    expect(scoped.some((r) => /:table\/\*\/\*$/.test(r))).toBe(true);
+    // The shape that does not exist, and that a reviewer reading only the action list misses.
+    expect(scoped.some((r) => /:catalog\/\*$/.test(r))).toBe(false);
+  });
+
   it('does not appear in portal-role-permissions', () => {
     // FR-004 AC4. The isolation policy is the browser's grants; verification access is a
     // separate principal a human assumes, and the two must never meet.

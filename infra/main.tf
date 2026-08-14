@@ -480,7 +480,12 @@ module "analytics" {
   # data_quality create the orchestrator/execution roles added to the LF admins list
   # (they must exist before data_lake_settings references them — LF rejects an unknown
   # admin principal). Force all to settle first.
-  depends_on = [module.base, module.data, module.shared_spaces, module.table_builder, module.table_share, module.data_quality]
+  # module.verification joins the list for the reason the orchestrator role is on it (see the
+  # comment above): its role ARN reaches here as a CONSTRUCTED string, so Tofu has no edge to
+  # the resource that creates it — and Lake Formation rejects a grant to a principal that does
+  # not exist. Latent while `verification_principal_arns` is empty (the ARN is then "" and
+  # compact() drops the grant), and hit on exactly the apply that sets it.
+  depends_on = [module.base, module.data, module.shared_spaces, module.table_builder, module.table_share, module.data_quality, module.verification]
 }
 
 # Shared-space foundation (SPEC-050): Bucket 2 + the async provisioning control
@@ -1045,8 +1050,6 @@ module "verification" {
   # matches `arn:aws:s3:::{bucket}/` as an ARN prefix. Constructed local, so this module never
   # depends on module.archive and no cycle is possible.
   archive_bucket_name = local.archive_bucket_name
-
-  glue_catalog_arn = "arn:aws:glue:${var.aws_region}:${data.aws_caller_identity.current.account_id}:catalog"
 
   # Operator identities, from terraform.tfvars (gitignored). Empty ⇒ no role, and the TRAIL —
   # the half that unblocks SPEC-170 — ships regardless.

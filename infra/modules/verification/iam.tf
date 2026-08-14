@@ -47,7 +47,8 @@ resource "aws_iam_role_policy" "verification" {
   role = aws_iam_role.verification[0].id
 
   policy = templatefile("${path.module}/policies/verification-role.json.tftpl", {
-    glue_catalog_arn = var.glue_catalog_arn
+    aws_region       = var.aws_region
+    account_id       = var.account_id
     trail_bucket_arn = aws_s3_bucket.trail.arn
     trail_arn        = aws_cloudtrail.archive_audit.arn
   })

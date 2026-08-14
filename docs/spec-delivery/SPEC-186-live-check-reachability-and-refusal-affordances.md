@@ -82,9 +82,18 @@ Tofu: it is the deployment's identity, from the same `var.environment` the featu
 - **Seven status-pill sites, not six** — `routes/LandingPage.tsx` carried a copy whose own comment
   said "Mirrors UploadList's StatusChip".
 - **22 files carrying a section caption, not 11**, across three spellings.
-- Two deliberate visual changes, called out on SPEC-155 FR-007's precedent: neutral pills gain a
-  border (`UploadList`'s Queued/Cancelled), and `QueryHistoryRow`'s neutral dot brightens from
-  `text-text-3` to `text-text-2` now that every dot is `bg-current`.
+- **Five deliberate visual changes**, called out on SPEC-155 FR-007's precedent (the first draft
+  of this doc listed two and review caught the other three — under-reporting them is exactly the
+  drift the consolidation exists to stop):
+  1. neutral pills gain a border (`UploadList`'s Queued/Cancelled);
+  2. `QueryHistoryRow`'s neutral dot brightens `text-text-3` → `text-text-2`, now every dot is
+     `bg-current`;
+  3. `ConnectionsPage`'s `RolePill` goes `font-semibold` → `font-medium`;
+  4. the roster's Owner tag goes `bg-surface px-2.5` → `bg-surface-2 px-2`;
+  5. the data-quality `Sampled` tag gains a border.
+
+  Seven captions also take the majority spelling (slightly bolder, dimmer or more tightly
+  tracked, depending on which of the three variants they had).
 - **`components/` may export only components** (react-refresh), which is why
   `displayedMemberStatus` lives in `memberStatus.ts` and the class-string constants live in
   `fieldStyles.ts` / `dialogChrome.ts` rather than beside the components that use them.
@@ -151,6 +160,32 @@ created when it is empty. Two consequences worth knowing:
 
   then apply. `terraform.tfvars.example` carries the commented line. Until then SPEC-149's
   preservation check and SPEC-153's fixture stay blocked on the same Lake Formation wall.
+
+## What the fresh-context review caught
+
+Four defects, all fixed on the branch before merge. Worth recording because three of them are the
+same failure class this spec is about — **a gate that could not fail**.
+
+- **The verification role could not read the catalog.** Its Glue statement was scoped to
+  `catalog` + `catalog/*`, and **Glue has no `catalog/*` hierarchy** — `GetTable` and
+  `GetTableVersions` each need the database and table ARNs alongside it, which is the shape
+  `portal-role-analytics` and the table-builder execution role already use. It would have applied
+  cleanly and denied at runtime, leaving the read-back blocked with nothing red. The test asserted
+  the *actions* and never the resources, so it passed over it; it now asserts the resource set,
+  including that `catalog/*` is absent.
+- **FR-007's fix closed half the trap.** `FormDialog` with `scrollBody` and no `className` hands
+  `Modal` a **truthy** string, so `className || 'max-w-md'` never fires — the identical failure one
+  branch over, and the exact call shape the component's own doc comment advertises. Nothing was
+  broken only because all six current `scrollBody` callers happen to pass a width. `FormDialog` now
+  supplies the width itself.
+- **FR-002 refused mixed selections the service would have honoured.** `undeletableSelectionRefusal`
+  returned on the *first* protected item and the reason disables the whole button — so
+  `saved_queries` + an ordinary file killed Delete entirely, and at a space root select-all takes in
+  all three protected folders at once. It now refuses only when **every** item is refused; a
+  selection that genuinely does something keeps the confirm and the per-item report.
+- **`modules/analytics` had no `depends_on` edge to `module.verification`**, while granting Lake
+  Formation to its constructed ARN — latent until `verification_principal_arns` is set, which is
+  precisely the apply that would hit it.
 
 ## Follow-ups
 - **SPEC-183's LOADING half stays descoped** and is untouched here.

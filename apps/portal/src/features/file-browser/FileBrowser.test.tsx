@@ -405,6 +405,35 @@ describe('FileBrowser — selection + delete', () => {
       expect(mock.moveFolder).not.toHaveBeenCalled();
     });
 
+    // Found in review: refusing on the FIRST protected item killed Delete for a selection the
+    // service would have carried out per item — and at a space root, select-all takes in
+    // `athenaresults/`, `saved_queries/` and `archive/` together, so select-all → Delete went
+    // dead with a reason about saved queries. Restoring the first-match version reddens this.
+    it('does NOT refuse a mixed selection — the service is per item, and it does something', async () => {
+      mock.listFiles.mockResolvedValue(ok(page(withSavedQueries)));
+      const {user} = renderBrowser();
+      await user.click(await screen.findByRole('checkbox', {name: 'Select folder saved_queries'}));
+      await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
+
+      const del = screen.getByRole('button', {name: 'Delete selected items'});
+      expect(del).not.toHaveAttribute('aria-disabled');
+      await user.click(del);
+      expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    });
+
+    it('refuses when EVERY selected folder is protected, and names one of them', async () => {
+      mock.listFiles.mockResolvedValue(
+        ok(page({files: [], folders: [folder('saved_queries'), folder('athenaresults')], isTruncated: false}))
+      );
+      const {user} = renderBrowser();
+      await user.click(await screen.findByRole('checkbox', {name: 'Select folder saved_queries'}));
+      await user.click(screen.getByRole('checkbox', {name: 'Select folder athenaresults'}));
+
+      const del = screen.getByRole('button', {name: 'Delete selected items'});
+      expect(del).toHaveAttribute('aria-disabled', 'true');
+      expect(del).toHaveAttribute('title', 'Saved queries live in this folder, so it can’t be deleted.');
+    });
+
     it('leaves an ordinary folder alone — the control is the guard, not the folder count', async () => {
       mock.listFiles.mockResolvedValue(ok(page(withSavedQueries)));
       const {user} = renderBrowser();

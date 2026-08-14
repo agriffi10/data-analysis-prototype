@@ -138,7 +138,14 @@ export function FormDialog({
     <Modal
       ariaLabel={ariaLabel}
       dismissible={!busy}
-      className={cx(scrollBody && 'flex max-h-[85vh] flex-col', className)}
+      // THE WIDTH IS SUPPLIED HERE, not left to `Modal`'s default (SPEC-186 FR-007). Fixing
+      // only `Modal`'s empty-string fallback closed half the trap: with `scrollBody` and no
+      // `className` this `cx` returns a TRUTHY string, `Modal`'s `className || 'max-w-md'`
+      // never fires, and the panel takes `w-full` — the identical failure one branch over, and
+      // exactly the call shape this component's own doc comment advertises. Every current
+      // `scrollBody` caller happens to pass a width, so nothing was broken; that is luck, and
+      // the next one to omit it would have fallen in.
+      className={cx(scrollBody && 'flex max-h-[85vh] flex-col', className || 'max-w-md')}
       onDismiss={onCancel}>
       <form
         ref={formRef}

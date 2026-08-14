@@ -142,7 +142,7 @@ export function undeletableRootFolderRefusal(
 }
 
 /**
- * The refusal for destroying anything in this SELECTION, or null when all of it is ordinary.
+ * The refusal for a selection in which NOTHING can be destroyed, or null when any of it can.
  *
  * SPEC-186 FR-002. The service already refuses (`fileBrowser.service.ts` calls
  * `undeletableRootFolderRefusal` before issuing anything), but it refuses AFTER the user has
@@ -151,27 +151,42 @@ export function undeletableRootFolderRefusal(
  * Feeding this to `Button.disabledReason` states the refusal before the confirm instead, and
  * swallows the click that would have opened it.
  *
+ * **ONLY WHEN EVERY ITEM IS REFUSED, and that condition is the whole subtlety.** The service is
+ * PER ITEM: `useDelete` loops the selection and records a failure against one protected folder
+ * without abandoning the rest. Refusing on the FIRST protected item — which this did until
+ * review caught it — killed Delete for a mixed selection the app would previously have carried
+ * out, and at a space root the header's select-all takes in `athenaresults/`, `saved_queries/`
+ * and `archive/` at once, so "select all → Delete" became dead with a reason about saved
+ * queries. The confirm is only misleading when it is offering something wholly impossible; a
+ * partial selection genuinely does something, and the per-item report is how that has always
+ * been told.
+ *
  * Only the folder ITSELF matches, exactly as the service's rule does: a file inside
  * `saved_queries/` is ordinary and deletes normally, so this must not walk ancestors the way
  * `archiveRefusal` does — that plane carries a whole prefix out and deletes it, where a
- * selection deletes only what is named.
+ * selection deletes only what is named. A file in the selection therefore always makes the
+ * selection actionable.
  *
  * @param items - The current selection.
  * @param rootPrefix - The space root, trailing slash, so the rule holds in a shared space.
  * @param action - `delete` or `move` (rename is a move).
- * @returns The user-facing refusal, or null when the operation may proceed.
+ * @returns The first refusal when every item carries one, else null.
  */
 export function undeletableSelectionRefusal(
   items: readonly SelectableItem[],
   rootPrefix: string,
   action: 'delete' | 'move'
 ): string | null {
+  if (items.length === 0) return null;
+  let first: string | null = null;
   for (const item of items) {
-    if (item.type !== 'folder') continue;
-    const refusal = undeletableRootFolderRefusal(item.prefix, rootPrefix, action);
-    if (refusal) return refusal;
+    const refusal = item.type === 'folder' ? undeletableRootFolderRefusal(item.prefix, rootPrefix, action) : null;
+    // One actionable item is enough: the operation is not impossible, so the confirm is not a
+    // lie and the service's per-item report is the right channel for the rest.
+    if (!refusal) return null;
+    first ??= refusal;
   }
-  return null;
+  return first;
 }
 
 /**

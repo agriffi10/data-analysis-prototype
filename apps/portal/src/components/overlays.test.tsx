@@ -360,6 +360,59 @@ describe('Modal', () => {
       expect(screen.getByRole('dialog')).toHaveClass('max-w-md');
     });
 
+    // The OTHER half of the trap, found in review. `scrollBody` alone makes `cx` return a
+    // TRUTHY string, so `Modal`'s empty-string fallback never fires and the panel would take
+    // `w-full`. Reverting FormDialog to `cx(scrollBody && '…', className)` reddens this and NOT
+    // the case above — which is why both are here.
+    it('bounds a FormDialog that passes scrollBody but no className', () => {
+      render(
+        <FormDialog
+          title="Share table"
+          ariaLabel="Share table"
+          submitLabel="Share"
+          scrollBody
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}>
+          <input aria-label="Recipient" />
+        </FormDialog>
+      );
+      const panel = screen.getByRole('dialog');
+      expect(panel).toHaveClass('max-w-md');
+      // …and the scroll shape still applies: the width is additive, not a replacement.
+      expect(panel).toHaveClass('flex', 'max-h-[85vh]', 'flex-col');
+    });
+
+    it('still lets a caller replace the width, with or without scrollBody', () => {
+      const {rerender} = render(
+        <FormDialog
+          title="T"
+          ariaLabel="T"
+          submitLabel="S"
+          className="max-w-lg"
+          scrollBody
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}>
+          <input aria-label="F" />
+        </FormDialog>
+      );
+      expect(screen.getByRole('dialog')).toHaveClass('max-w-lg');
+      expect(screen.getByRole('dialog')).not.toHaveClass('max-w-md');
+
+      rerender(
+        <FormDialog
+          title="T"
+          ariaLabel="T"
+          submitLabel="S"
+          className="max-w-3xl"
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}>
+          <input aria-label="F" />
+        </FormDialog>
+      );
+      expect(screen.getByRole('dialog')).toHaveClass('max-w-3xl');
+      expect(screen.getByRole('dialog')).not.toHaveClass('max-w-md');
+    });
+
     it('blurs the content behind via the scrim', () => {
       render(
         <Modal

@@ -28,10 +28,6 @@ variable "archive_bucket_name" {
   type        = string
 }
 
-variable "glue_catalog_arn" {
-  description = "SPEC-186 FR-004: the account's Glue catalog ARN, so the verification role's read grants are scoped to it rather than to `*`."
-  type        = string
-}
 
 variable "trail_retention_days" {
   description = "How long trail objects live. 400 days: long enough that a live check run months after a deploy still has its record, short enough that this never becomes a storage line item."

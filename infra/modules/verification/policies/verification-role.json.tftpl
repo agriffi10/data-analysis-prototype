@@ -15,10 +15,12 @@
         "glue:GetPartitions"
       ],
       "Resource": [
-        "${glue_catalog_arn}",
-        "${glue_catalog_arn}/*"
+        "arn:aws:glue:${aws_region}:${account_id}:catalog",
+        "arn:aws:glue:${aws_region}:${account_id}:database/*",
+        "arn:aws:glue:${aws_region}:${account_id}:table/*/*"
       ],
-      "//": "NO lakeformation:GetDataAccess anywhere in this policy, and its absence is the point: GetDataAccess is the credential vend for READING A TABLE'S DATA, and this role reads definitions. Lake Formation gates the calls above through the DESCRIBE grant in modules/analytics instead — which is also what keeps every statement here resource-scoped, so the isolation policies' zero-`Resource: \"*\"` property (SPEC-139) holds for this role too."
+      "//": "THREE ARNs, NOT `catalog` + `catalog/*`. Glue has no `catalog/*` hierarchy — every call above needs the DATABASE ARN and the TABLE ARN alongside the catalog, which is the shape `portal-role-analytics` and the table-builder execution role already use. The first version scoped to `catalog/*` and would have applied cleanly and then denied `GetTable` at runtime, leaving the read-back this role exists for blocked with no gate having failed.",
+      "///": "NO lakeformation:GetDataAccess anywhere in this policy, and its absence is the point: GetDataAccess is the credential vend for READING A TABLE'S DATA, and this role reads definitions. The `database/*` + `table/*/*` breadth is not a widening — Lake Formation gates every one of these calls INDEPENDENTLY, and this role holds only the DESCRIBE tag grant from modules/analytics."
     },
     {
       "Sid": "ArchiveAuditRead",
