@@ -28,6 +28,15 @@ export type ExplorationGridProps = {
   onRequestFilterValue: (column: string, operator: FilterOperator) => void;
   /** A header drag started (the column) or ended (null) — for drop targets outside the grid. */
   onColumnDrag?: (name: string | null) => void;
+  /**
+   * Ctrl/Cmd+C over the grid (SPEC-185 FR-001 AC1).
+   *
+   * Handled here rather than inside `useCellSelection` because copying is not a selection
+   * gesture: the hook answers what is selected, and the region owns what a selection is
+   * worth doing with. The grid intercepts the chord before the hook sees it — Ctrl/Cmd+A is
+   * the hook's, and the two must not fall through to each other.
+   */
+  onCopy?: () => void;
   /** The grid element, shared with `useCellSelection` so focus can find the cursor cell. */
   gridRef: RefObject<HTMLTableElement | null>;
 };
@@ -53,6 +62,7 @@ export function ExplorationGrid({
   formatting,
   onRequestFilterValue,
   onColumnDrag,
+  onCopy,
   gridRef
 }: ExplorationGridProps) {
   // Sticky offsets for the pinned block: each pinned column sits after the row-number
@@ -77,7 +87,28 @@ export function ExplorationGrid({
         role="grid"
         aria-label="Results"
         aria-multiselectable="true"
-        onKeyDown={selection.onKeyDown}
+        onKeyDown={(event) => {
+          // The browser's own copy would take the DOM selection, which in a grid of
+          // truncated cells is whatever text happens to be highlighted — not the cells the
+          // user selected. `preventDefault` is what makes the rendered copy the one that
+          // reaches the clipboard.
+          // `toLowerCase`, as `useCellSelection`'s own Ctrl/Cmd+A does: with Caps Lock on the
+          // key is `'C'`, the branch would miss, and the browser's copy would take whatever
+          // DOM text happened to be highlighted in the truncated cells — the exact outcome
+          // this intercept exists to prevent.
+          if (
+            onCopy &&
+            (event.metaKey || event.ctrlKey) &&
+            !event.shiftKey &&
+            !event.altKey &&
+            event.key.toLowerCase() === 'c'
+          ) {
+            event.preventDefault();
+            onCopy();
+            return;
+          }
+          selection.onKeyDown(event);
+        }}
         className="w-full table-fixed border-separate border-spacing-0 text-left">
         <colgroup>
           <col style={{width: ROW_NUMBER_COLUMN_WIDTH}} />

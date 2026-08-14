@@ -15,6 +15,15 @@ export type UseExplorationResult = {
   sql: string | null;
   queryExecutionId: string | null;
   state: QueryState | null;
+  /**
+   * Where Athena wrote this execution's CSV, once it has SUCCEEDED (SPEC-185 FR-002).
+   *
+   * The whole of export: a server-side `CopyObject` of that object captures every row the
+   * statement returned, filters, ordering and grouping included, without a second query and
+   * without a second bill. Present only on a succeeded execution, which is what makes the
+   * export refusal a question about this field rather than about the grid.
+   */
+  outputLocation: string | undefined;
   /** What this execution scanned. Null until the execution reports it. */
   cost: ExecutionCost | null;
   /** The statement is starting or still running. */
@@ -140,6 +149,10 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
     sql,
     queryExecutionId,
     state,
+    // Taken from the poll rather than rebuilt from the execution id: the results location
+    // is the workgroup's business, and a second builder here would be a second thing to be
+    // wrong about a bucket this feature never names.
+    outputLocation: status?.state === 'SUCCEEDED' ? status.outputLocation : undefined,
     cost,
     // A disabled query reports `isPending` forever in TanStack v5, so `enabled` gates it:
     // signed out with no username, nothing is in flight and a permanent spinner is a lie.

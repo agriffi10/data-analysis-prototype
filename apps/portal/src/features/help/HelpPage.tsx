@@ -43,10 +43,10 @@ export function HelpPage() {
   const query = useFeature('query');
   const sharedWorkspaces = useFeature('sharedWorkspaces');
   const dataQuality = useFeature('dataQuality');
-  // SPEC-179's flag hides no guide YET — SPEC-185 writes the Data Explorer's, once there is a
-  // shipped end-to-end feature to document. It is read anyway, so the map stays TOTAL over
-  // `FeatureFlagKey`: a partial one type-errors here rather than silently answering
-  // `undefined` (falsy, so every guide) the day the first row is registered.
+  // SPEC-185 registered the Data Explorer's section and its five guides, so this flag now
+  // hides content like the other four. The map below stays TOTAL over `FeatureFlagKey`
+  // regardless: a partial one type-errors here rather than silently answering `undefined`
+  // (falsy, so every guide) the day a new flag's first guide row is registered.
   const dataExplorer = useFeature('dataExplorer');
   const sections = useMemo(() => {
     const hidden = hiddenHelpIds((key) => ({files, query, sharedWorkspaces, dataQuality, dataExplorer})[key]);

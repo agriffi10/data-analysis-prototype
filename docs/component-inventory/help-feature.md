@@ -20,3 +20,9 @@ Public surface only — the code is the source of truth; verify signatures befor
 > inside the Files section. The guide→flag mapping lives ONLY in `features/feature-flags/
 > gatedSurfaces.ts`; `helpContent.ts` knows nothing about flags, so a guide cannot end up gated
 > in the list and reachable by its anchor.
+
+> **SPEC-185 adds the `data-explorer` section** — five guides, a new `HelpSectionId` and a new
+> `HelpIconName` (`explore` → `EyeIcon`). It is the first section whose guides are gated
+> individually AND collectively (the `files` shape), and the first whose guide rows sit outside the
+> section the page opens on — which is what made `gatedSurfaces.test.tsx`'s guide recipe select the
+> owning section before querying the card. Until then the recipe worked by coincidence.

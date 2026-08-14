@@ -5,9 +5,8 @@ import {copyObject} from '../file-browser/fileBrowser.service';
 import {invalidateListing} from '../file-browser';
 import {parseS3Url} from '../../lib/s3Url';
 import {toUserText} from '../../lib/errorMessages';
-import {useQuerySpaces} from '../catalog/useQuerySpaces';
 import type {ToastApi} from '../../components/toastContext';
-import type {QuerySpace} from '../catalog/catalog.types';
+import type {QuerySpace} from './catalog.types';
 
 /**
  * A pending overwrite confirm when the chosen destination key already exists.
@@ -40,6 +39,18 @@ export type UseSaveResultsResult = {
 };
 
 type Params = {
+  /**
+   * The destinations to offer, already gated (SPEC-185).
+   *
+   * A PARAMETER rather than a `useQuerySpaces()` call inside the hook, on SPEC-174's
+   * precedent and for the reason SPEC-177 gave `useSaveQuery` the same shape. The hook read
+   * the unfiltered list, so with `sharedWorkspaces` off this dialog went on offering a
+   * colleague's space as a WRITE target after every other shared-workspace surface had gone
+   * — and a flag may not be applied inside a hook that answers a question about access
+   * (SPEC-162 FR-006), so the filter belongs at the view either way. Both call sites now
+   * hand it a list they have gated.
+   */
+  spaces: QuerySpace[];
   username: string;
   /** The S3 URL of the result being displayed, or undefined when there is none. */
   outputLocation: string | undefined;
@@ -57,7 +68,13 @@ type Params = {
  * (SPEC-039) rather than overwriting, and the destination listing is invalidated
  * so the new file appears if the user browses there.
  */
-export function useSaveResults({username, outputLocation, linkedSavedName, toast}: Params): UseSaveResultsResult {
+export function useSaveResults({
+  spaces,
+  username,
+  outputLocation,
+  linkedSavedName,
+  toast
+}: Params): UseSaveResultsResult {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -67,8 +84,8 @@ export function useSaveResults({username, outputLocation, linkedSavedName, toast
   // SPEC-055 FR-003: the spaces a result can be saved into — the user's own space
   // first, then every shared space they currently belong to (usable). The picker
   // excludes each space's protected `athenaresults/` folder. SPEC-173 FR-005: the list
-  // is `useQuerySpaces`, shared with the saved-queries surfaces rather than rebuilt.
-  const spaces = useQuerySpaces();
+  // is `useQuerySpaces`, shared with the saved-queries surfaces rather than rebuilt —
+  // and SPEC-185 moved the CALL to the two views, which gate it (see `Params`).
   const personalBucket = spaces[0]?.bucket;
 
   // SPEC-049: default file name — the saved query's name when the tab is linked,

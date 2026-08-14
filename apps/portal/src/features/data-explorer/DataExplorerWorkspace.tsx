@@ -1,13 +1,16 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {LoadingState} from '../../components/LoadingState';
+import {useToast} from '../../components/toastContext';
 import {useAuth} from '../auth';
 import {useFeature} from '../feature-flags';
 import {useQuerySpaces} from '../catalog/useQuerySpaces';
+import {useSaveResults} from '../catalog/useSaveResults';
 import {useSavedQuerySpace} from '../saved-queries/useSavedQuerySpace';
 import {EXPLORATION_TABPANEL_ID, EXPLORATION_TABS_MAX} from './dataExplorer.constants';
 import {CostIndicator} from './CostIndicator';
 import {ExplorationLimitDialog} from './ExplorationLimitDialog';
-import {ExplorationResultsRegion} from './ExplorationResultsRegion';
+import {ExplorationResultsRegion, NOTHING_TO_EXPORT} from './ExplorationResultsRegion';
+import {ExportExplorationDialog} from './ExportExplorationDialog';
 import {ExplorationTabStrip} from './ExplorationTabStrip';
 import {SaveExplorationDialog} from './SaveExplorationDialog';
 import {SourcePicker} from './SourcePicker';
@@ -77,6 +80,26 @@ export function DataExplorerWorkspace() {
   // Gated by the same rule, for the same reason one layer down: a denied link must ask
   // Glue nothing at all, and this hook reads a database.
   const schemaColumns = useSourceColumns(linkUnsettled ? null : (tabs.activeTab?.exploration.source ?? null));
+
+  // SPEC-185 FR-002: export. The Query workspace's own save path, mounted here — it copies
+  // the EXECUTION's results object, so what leaves is every row the statement returned
+  // rather than the page in the grid, and the copy is server-side (zero executions).
+  //
+  // The destinations are the view-gated `spaces`, not an unfiltered list: this control is a
+  // WRITE target, so a colleague's space must leave it with `sharedWorkspaces` off.
+  const toast = useToast();
+  const saveResults = useSaveResults({
+    spaces,
+    username,
+    // The one thing that decides whether export is available at all: Athena reports it only
+    // on a SUCCEEDED execution, so "nothing has finished running" and "there is nothing to
+    // export" are the same fact rather than two that could drift apart.
+    outputLocation: exploration.outputLocation,
+    // The linked saved query's name when the tab has one — the same default the Query
+    // workspace uses, and the closest thing an exploration has to a name the user chose.
+    linkedSavedName: tabs.activeTab?.savedQuery?.name,
+    toast
+  });
 
   const openSource = (target: ExploreTarget) => {
     const id = tabs.openTab({kind: 'table', spaceId: target.spaceId, database: target.database, table: target.table});
@@ -218,6 +241,12 @@ export function DataExplorerWorkspace() {
                 setSaving({tabId: tabs.activeTab.id, sql: exploration.sql});
               }
             }}
+            onExport={saveResults.openDialog}
+            // Judged HERE, on the results location, because that object is what export
+            // copies — a grid full of rows says nothing about whether Athena has finished
+            // writing the CSV, and a failed apply leaves the LAST GOOD execution's rows on
+            // screen while this field has already moved on.
+            exportRefusal={exploration.outputLocation ? null : NOTHING_TO_EXPORT}
           />
           <CostIndicator
             bytesScanned={lastApply?.bytesScanned ?? null}
@@ -249,6 +278,8 @@ export function DataExplorerWorkspace() {
           onClose={() => setSaving(null)}
         />
       )}
+
+      <ExportExplorationDialog saveResults={saveResults} />
 
       {limitReached && <ExplorationLimitDialog onDismiss={() => setLimitReached(false)} />}
     </div>

@@ -312,3 +312,26 @@ export type ExplorationTabsState = {
   /** Must reference an existing tab, or `''` when there are none. */
   activeTabId: string;
 };
+
+/**
+ * A clipboard shape (SPEC-185 FR-001).
+ *
+ * `tsv` is what Ctrl/Cmd+C uses and what a spreadsheet expects from a paste; the other five
+ * exist because a selection's next destination is as often a document, a script or an API
+ * fixture as it is a sheet.
+ */
+export type CopyFormat = 'tsv' | 'csv' | 'json' | 'markdown' | 'sql' | 'xml';
+
+export type CopyOptions = {
+  format: CopyFormat;
+  includeHeaders: boolean;
+  /** Prepends the grid's own absolute row numbers, which are the PAGE's, not the result's. */
+  includeRowNumbers: boolean;
+  /**
+   * Quote every value in the formats that have no other way to say it.
+   *
+   * Inert in JSON, SQL and XML, whose values are already delimited by the format — the
+   * dialog disables the control there rather than offering one that does nothing.
+   */
+  quoteValues: boolean;
+};

@@ -11,7 +11,7 @@ import {useQueryTabs} from './useQueryTabs';
 import {useTabRuns} from './useTabRuns';
 import {useRunDdl} from './useRunDdl';
 import {useMobileQuerySurface} from './useMobileQuerySurface';
-import {useSaveResults} from './useSaveResults';
+import {useSaveResults} from '../catalog/useSaveResults';
 import {useTableActions} from './useTableActions';
 import {useEditorLayout} from './useEditorLayout';
 import {useSavedQueries} from '../saved-queries/useSavedQueries';
@@ -337,7 +337,13 @@ export function QueryWorkspace() {
 
   // SPEC-049/055: the Save-results dialog, its destination list, the overwrite
   // warn-and-confirm and the default file name.
+  //
+  // SPEC-185: the destinations are `savedSpaces` — the SAME view-gated list every other
+  // space selector on this page uses. The hook used to build its own from an unfiltered
+  // `useQuerySpaces()`, which left this one dialog offering a colleague's space as a write
+  // target with `sharedWorkspaces` off; it now has a registry row of its own.
   const saveResults = useSaveResults({
+    spaces: savedSpaces,
     username,
     outputLocation: displayOutputLocation,
     linkedSavedName: activeLinkedSaved?.name,

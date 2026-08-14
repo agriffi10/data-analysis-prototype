@@ -2,7 +2,7 @@ import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
 import {screen} from '@testing-library/react';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {SaveResultsDialog} from './SaveResultsDialog';
-import {normalizeCsvName} from './query.format';
+import {normalizeCsvName} from './catalog.format';
 import * as fileService from '../file-browser/fileBrowser.service';
 import type {FileListPage, S3FolderItem} from '../../types/s3.types';
 

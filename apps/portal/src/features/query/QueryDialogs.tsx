@@ -7,10 +7,10 @@ import {TabLimitDialog} from './TabLimitDialog';
 import {SaveQueryDialog} from '../saved-queries/SaveQueryDialog';
 import {CreateViewDialog} from './CreateViewDialog';
 import {DropTableDialog} from './DropTableDialog';
-import {SaveResultsDialog} from './SaveResultsDialog';
+import {SaveResultsDialog} from '../catalog/SaveResultsDialog';
 import type {QueryTab} from './query.types';
 import type {GlueTableSummary} from '../catalog/catalog.types';
-import type {UseSaveResultsResult} from './useSaveResults';
+import type {UseSaveResultsResult} from '../catalog/useSaveResults';
 import type {UseSaveQueryResult} from '../saved-queries/useSaveQuery';
 
 type Props = {
