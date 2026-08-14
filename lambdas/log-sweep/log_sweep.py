@@ -482,7 +482,8 @@ def _delete(receipts):
       receipts: The receipt handles to delete.
 
     Returns:
-      The number of messages still on the queue, and so still blocking their group.
+      The number of messages still in flight, and so still blocking their group — a message
+      genuinely back on the queue blocks nothing.
 
     Raises:
       None.
@@ -534,8 +535,8 @@ def handler(event, context):
     Any ratio below one converges, because each sweep puts back strictly less than it takes;
     what keeps this one constant rather than growing with the backlog is that the emitters and
     the drain scale together, per wave and per (wave, day-group). The summary below is the only
-    part aggregated to one event per sweep, because it is the only part genuinely per sweep. The property to preserve
-    when adding an emitter here is the ratio, not a count.
+    part aggregated to one event per sweep, because it is the only part genuinely per sweep.
+    The property to preserve when adding an emitter here is the ratio, not a count.
 
     The plain logging calls stay alongside the structured events deliberately, and this is the
     one function where that is not duplication to copy into a verb. The sink is the queue only,

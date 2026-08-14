@@ -178,8 +178,8 @@ That is the shape SPEC-151 closed on `delete_objects`; this had it too. The reas
 deliberately avoids `write-failed`, which `_append_day` already emits on its own event for a
 different thing.
 
-
-Messages that were not deleted — because the append failed, or because the delete did — stay
+**A message not deleted is a message still in flight.** Messages that were not deleted —
+because the append failed, or because the delete did — stay
 *in flight*, so they block their own group for the rest of the sweep. Once the healthy groups
 drain, the next receive returns empty, which is precisely the reading this design removes. Found
 in review with a per-key S3 fault: 30 `data-quality` messages behind a failing key, 10
@@ -217,7 +217,7 @@ single-wave code** — the inner round loop receives a second time to get the em
 ends it, and one wave still deletes what it wrote. It now records the receive/delete order and
 asserts a receive after a delete, which is the only thing that can unblock a group. Each guard
 here was checked against its own mutation (`MAX_WAVES = 1`; the reserve forced to `False`; the
-`write-failed` reason removed), and each fails alone.
+`group-blocked` reason removed), and each fails alone.
 
 [fifo]: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/FIFO-queues-understanding-logic.html
 

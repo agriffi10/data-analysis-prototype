@@ -993,7 +993,9 @@ def test_a_REJECTED_delete_does_not_read_as_a_drained_queue(monkeypatch, capture
 
     class _RejectingSQS(FifoSQS):
         def delete_message_batch(self, QueueUrl, Entries):
-            return {"Failed": [{"Id": e["Id"], "SenderFault": False} for e in Entries]}
+            rejected, accepted = Entries[:3], Entries[3:]
+            super().delete_message_batch(QueueUrl, accepted)
+            return {"Failed": [{"Id": e["Id"], "SenderFault": False} for e in rejected]}
 
     per_group = {
         "data-quality": [
@@ -1011,6 +1013,45 @@ def test_a_REJECTED_delete_does_not_read_as_a_drained_queue(monkeypatch, capture
     stopped = _by_message(captured, "stopped with the queue possibly still yielding")
     assert stopped, "an undeleted message read as a drained queue"
     assert stopped[0]["fields"]["reason"] == log_sweep.STOP_GROUP_BLOCKED
+
+    rejected = _by_message(captured, "delete failed; events will be appended again next sweep")
+    assert rejected[0]["fields"]["events"] == 3, (
+        "the count came from the chunk rather than the Failed array — the whole reason for "
+        "reading it is that a batch fails in part"
+    )
+
+
+def test_the_CLOCK_wins_when_the_clock_and_the_wave_cap_both_bind(monkeypatch, captured):
+    """The reorder, which nothing else reaches.
+
+    Every other test has one of the two constraints disabled — the cap tests pass no context,
+    so the clock never fires, and the reserve test leaves MAX_WAVES at 50, so the cap never
+    binds. Both therefore pass under either ordering. The clock has to win: a sweep that ran out
+    of time wants a longer timeout or a look at how the day objects grew, and reporting the cap
+    sends the reader to raise MAX_WAVES, which would not have helped.
+    """
+
+    class _ContextGoingShort:
+        def __init__(self):
+            self.calls = 0
+
+        def get_remaining_time_in_millis(self):
+            self.calls += 1
+            return 0 if self.calls > 1 else log_sweep.SWEEP_RESERVE_MS * 10
+
+    monkeypatch.setattr(log_sweep, "MAX_WAVES", 2)
+    per_group = {"data-quality": [_message(_event(), f"m-{n}") for n in range(50)]}
+    sqs = FifoSQS(per_group)
+    monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
+    monkeypatch.setattr(log_sweep.clients, "s3", lambda: FakeS3())
+
+    result = log_sweep.handler({}, _ContextGoingShort())
+
+    assert result["waves"] == 2, "the fixture did not make both constraints bind at once"
+    stopped = _by_message(captured, "stopped with the queue possibly still yielding")
+    assert stopped[0]["fields"]["reason"] == log_sweep.STOP_TIME_RESERVE, (
+        "the wave cap masked the clock"
+    )
 
 
 def test_the_wave_cap_bounds_a_sweep_and_says_so(monkeypatch, captured):
