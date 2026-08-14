@@ -125,7 +125,12 @@ failure decorator emits, and a second producer would be SPEC-114's duplicate.
 
 **FIVE live checks are owed on this plane and they are ONE session, in order** — the script is one
 file: `docs/testing/archive-restore-e2e.md`, and **172's section is the only one driven from the
-UI**, which is now the easiest way to run 169's and 170's too. 168's proves the layer attaches at
+UI**, which is now the easiest way to run 169's and 170's too. **BLOCKED, measured 2026-08-14:
+every `head-object` assertion below is unmakeable by ANY principal** — nothing human can reach
+`dat-prod-archive` and there are no CloudTrail trails, so 170's negative assertion, 169's
+`StorageClass: GLACIER` read-back and its empty-prefix check all fall. **Do not proxy them from the
+UI** — a refusal that had already started retrieval looks identical there. → SPEC-186 FR-004;
+evidence: `@docs/testing/2026-08-14-live-check-session.md`. 168's proves the layer attaches at
 cold start; 169's third step is what that whole spec exists for (a Deny on ONE key: source intact,
 archive prefix empty, notification honest — and `StorageClass: GLACIER` by `head-object`, never by
 inference); 170's restores the archive 169 just made, and **its load-bearing assertion is a NEGATIVE
@@ -160,11 +165,15 @@ why" — `aria-disabled` rather than `disabled`, so the reason is in the tab ord
 
 **The saved-queries-in-spaces arc (173 → 175) is COMPLETE (2026-08-12).** The store is `.sql` files
 in `{root}saved_queries/`; 174 gave loading a space selector and **175 gave saving one**, so a
-shared space's folder can finally hold something. **One live check is owed for the whole arc and it
-is its load-bearing premise:** delete `{username}/saved_queries/DO_NOT_DELETE.txt` through the
-portal and confirm `AccessDenied`, then repeat in a shared space. **Do the shared half as a SAVE
-into that space** — that discharges 175's cross-bucket `PutObject` in the same pass — and fold in an
-**open-a-colleague's-query**. Narrative: `ARCS.md` → *Saved-queries-in-spaces arc*.
+shared space's folder can finally hold something. **175's cross-bucket `PutObject` is DISCHARGED
+(2026-08-14)**, and **the arc's load-bearing check is UNRUNNABLE AS WRITTEN — that is the finding.**
+It asks you to delete `{root}saved_queries/DO_NOT_DELETE.txt` through the portal and confirm
+`AccessDenied`, but the portal issues **zero** `DeleteObject` against the marker: it is hidden by
+basename, and the folder delete is refused **client-side** first. The client-side layer IS verified,
+personal and shared; the **bucket-policy Deny — the second layer — is not** → SPEC-186 FR-001.
+**Open-a-colleague's-query is DISCHARGED (2026-08-14)** — a member opened the owner's `.sql` from
+the shared space's selector, body fetched 200. Evidence:
+`@docs/testing/2026-08-14-live-check-session.md`. Narrative: `ARCS.md` → *Saved-queries-in-spaces arc*.
 
 **The Data Explorer arc is OPEN and 176 → 184 have landed (2026-08-14).**
 `features/catalog/` owns the Glue reader, the Athena execution/results layer, `useQuerySpaces`,
@@ -225,12 +234,13 @@ top of it.** The daily builder publishes `_directory/usernames.json`; both `AddM
 does not know. **158 made the suggestion source a prop** and gave the share dialog's *space* entry
 its own source — the user's own shared spaces, from the connections cache the app already fetches.
 
-**One live check is owed, and it is a single browser pass** (Safari): open **Add members** and
-**Share table** signed in, at 400px and desktop. Confirm suggestions appear **under both share
-kinds**, the list positions inside the panel, and several chips still leave the confirm control
-reachable. **That one pass also discharges SPEC-146's last owed check** — suggestions only appear if
-the portal role's SigV4 `GetObject` on the directory actually succeeds, so seeing one IS the
-end-to-end read confirmation. (158 itself owes nothing live: it makes no AWS call.)
+**SPEC-146's last owed check is DISCHARGED (2026-08-14)** — 8 suggestions rendered, which only
+happens if the directory `GetObject` succeeded. **158's pass is part-done and one half FAILED:**
+chips are fine, but the list does **not** position inside the panel (97px overhang, 3 of 8 visible)
+→ SPEC-186 FR-003. **Still owed:** **Share table** under **both share kinds**, the **400px** pass,
+and the whole thing in **Safari** — a Chromium run corroborates but cannot discharge it. Evidence:
+`@docs/testing/2026-08-14-live-check-session.md`. (158 itself owes nothing live: it makes no AWS
+call.)
 
 Three things the arc left worth carrying:
 - **A `rate()` EventBridge rule fires on creation**, so a new singleton's first scheduled invocation
@@ -294,14 +304,19 @@ What remains below is the live checks that are owed.
   instrumentation harness was *satisfied by* the unresolvable import. `lambdas/test_deploy_matrix.py`
   now joins the deploy matrix against what each function imports — **the check that the code/infra
   split needs and had nowhere else.** Full account: the Correction section of 137's delivery doc.
-  **Still owed live: 137's Phase 4** — sign up one test user, confirm the trigger succeeds and
-  `logs/service=auth/` carries both spans.
+  **DISCHARGED (2026-08-14): 137's Phase 4** — both auth spans at `status: ok`; `version`/`env` ship
+  inert (→ SPEC-186 FR-005). Evidence: `@docs/testing/2026-08-14-live-check-session.md`.
 - **DISCHARGED (2026-08-03): the data-quality live run.** A real check was run end to end from the
   UI, clearing what **114** (`reportKey` seeding), **123** (the index CAS), **128** (`request_id` as
   the join key), **129** (the append at real volume) and **132's Phase 4** all owed.
-- **Still owed live:** **125**'s shared-space smoke run (create → add-member → leave → delete; a
-  shared layer's import-time `_require` fails at **cold start**, PR #196 — **134's narrative makes
-  that run far more legible**, and the two should be done together), and **133's Phase 5**: a
+- **125's smoke run is FULLY DISCHARGED (2026-08-14)** — create → add-member → leave → delete, all
+  four. The cold-start import path PR #196 broke is clean; membership flipped Pending → Active on
+  the member's first sign-in (073); after leaving, `?space=` fell back with **zero S3 requests
+  naming the space** (no existence oracle); and after the type-to-confirm delete the Glue database
+  was gone from the rail, so the teardown was **not** the partial kind SPEC-151 guards against. **A
+  defect fell out of it: the roster says `Pending` for a member the same page shows `Active`** (the
+  acknowledge flip never fans out) → SPEC-186 FR-008. Evidence:
+  `@docs/testing/2026-08-14-live-check-session.md`. **Still owed live:** **133's Phase 5**: a
   malformed message on one request DLQ, confirming the user is notified, the message is gone, and
   the redacted body is in `logs/service=dlq-drain/`. That discharges **126**'s owed malformed-body
   check too.
@@ -315,45 +330,43 @@ What remains below is the live checks that are owed.
   `test_ACCEPTED_the_span_error_stack_may_carry_file_contents` (data-quality inspect-source): if it
   starts *failing*, `log-foundry` began stripping stacks and this decision should be revisited, not
   the test deleted. Full reasoning: `decisions.md`.
-- **The refresh arc owes TWO live checks — run them from the UI now (145 shipped), not by hand-crafted SQS.**
-  (1) **FR-010's sequence:** build a table from a CSV folder, add a file with a new column, refresh
-  and confirm it appears; remove a column, refresh and confirm the block, its **named columns** and
-  the notification link; then refresh with the opt-in and confirm the column is gone. Run it against
-  a **partitioned** table too — FR-005's reconstruction is unit-tested against fixtures built from
-  the same renderer it re-renders through, so only a table the pipeline did not write tests the
-  assumption rather than the arithmetic. (2) **149's preservation check:** refresh a table carrying a
+- **The refresh arc's FR-010 sequence is DISCHARGED and the casing premise is DEMONSTRATED
+  (2026-08-14)** — add / refuse-with-named-column / link / opt-in all behaved, and a mixed-case
+  sample produced no schema change and no re-casing. Evidence:
+  `@docs/testing/2026-08-14-live-check-session.md`. **The trap worth carrying: inference samples
+  exactly ONE object — the first key in listing order** (`sample_by_format.setdefault`), so a column
+  added in a file that sorts *later* is invisible **by design** and the refresh correctly says
+  `already up to date`; the added column must be in a file that **sorts first** → SPEC-186 FR-006.
+  **Still owed:** the **partitioned**-table variant, and **149's preservation check:** refresh a table carrying a
   `Description` and a column comment, then `GetTable` — both survive, the columns changed, and
-  `get-table-versions` shows a previous version. Fold the casing read-back into it. **While you have
+  `get-table-versions` shows a previous version. **While you have
   that response, paste it verbatim** as SPEC-153's owed foreign projection fixture (FR-006 AC2 shipped
-  a docs-transcribed stand-in because LF filters the local CLI principal's catalog to empty). SPEC-137 is the
+  a docs-transcribed stand-in because LF filters the local CLI principal's catalog to empty).
+  **BLOCKED, measured 2026-08-14: no principal can make this read-back** (`Insufficient Lake
+  Formation permission(s): Required Describe`) → SPEC-186 FR-004. SPEC-137 is the
   precedent for why these matter: instrumented code shipped whose layer attachment was missing, and
   every gate was blind to it. **149's policy simulation is DISCHARGED against the DEPLOYED role**
   (2026-08-04, post-apply): `glue:UpdateTable` allowed, `glue:DeleteTable` **implicitDeny**,
   `s3:DeleteObject` explicitDeny in all three buckets. Note the admin bucket is
   `dat-prod-athena-admin` — a wrong resource ARN returns **implicitDeny**, which reads like a pass
-  and is really "your ARN matched no statement". **The casing premise is CORROBORATED, NOT
-  DISCHARGED** — AWS documents that Athena
-  lowercases every column name it creates through DDL, which is strong and is why 149 hard-codes the
-  fold, but documentation is the same class of evidence that had SPEC-144 FR-001 reversed mid-build,
-  and 149 raised the stakes: the fold is now OURS. If the premise is wrong, the first refresh of an
-  existing table silently re-cases its columns while `diff-schema` calls them unchanged — a mutation
-  no test and no notification would report. Settle it with the `GetTable` read-back in check (2).
-- **SPEC-157 closed the concurrent-refresh race and owes ONE live check.** Submit two refreshes of
-  one table in quick succession from the UI: one succeeds, the other produces the
-  `refresh_already_running` notification, and both runs appear in `logs/service=table-builder/`.
+  and is really "your ARN matched no statement".
+  > **SUPERSEDED (2026-08-14):** read *"the casing premise is CORROBORATED, NOT DISCHARGED — settle
+  > it with the `GetTable` read-back"*. Settled instead by a live refresh; see the bullet above.
+- **SPEC-157's live check is STILL OWED and is NOT performable from the UI (measured 2026-08-14):**
+  two submits **2 s apart** both returned independently — a small table's refresh finishes inside
+  that window, so the lock is never contended. Needs an SQS double-send or a much larger folder →
+  SPEC-186 FR-006; evidence: `@docs/testing/2026-08-14-live-check-session.md`.
   **Nothing that runs today proves two real executions serialize** — the unit tests simulate
   contention with a pinned read. Its **IAM simulation is DISCHARGED against the DEPLOYED role**
   (2026-08-09): `PutObject`/`GetObject` allowed under `locks/table-builder/`, `DeleteObject`
   **explicitDeny** there, `PutObject` **implicitDeny** elsewhere in the admin bucket — each with an
   `allowed` control beside it, because an `implicitDeny` alone cannot tell an ungranted action from
   a wrong ARN.
-- **SPEC-142's `"$path"` premise is CONFIRMED; its disagreeing-files check is still owed.**
-  SPEC-151's Phase 5 (2026-08-05) settled the assumption underneath the fix — a single-file check's
-  `"$path"` predicate demonstrably matched, so Athena's pseudo-column does return the
-  `s3://bucket/key` form the manifest is keyed to. What was **never run** is 142's own scenario: a
-  check over a folder whose files deliberately **disagree** (expect the cross-file finding and **no**
-  ragged count), and one whose files agree (expect the same numbers as before). Do not read the
-  premise being settled as the check being done.
+- **SPEC-142 is FULLY DISCHARGED (2026-08-14):** disagreeing files produced the cross-file finding
+  marked **Exact** and naming the column, while **"rows with the wrong number of fields" stayed 0** —
+  the negative the spec exists for; the agreeing control was clean with the section absent. Evidence:
+  `@docs/testing/2026-08-14-live-check-session.md`. Its `"$path"` premise stays CONFIRMED from
+  SPEC-151's Phase 5.
 - **SPEC-151 left two things owed, and neither is a blocker.** (1) **FR-006's escaping is asserted at
   RENDER time only** — a data-quality check over a folder whose partition segment contains `'` was
   not run, so Athena's acceptance of the backslash-escaped form is corroborated, not demonstrated;
