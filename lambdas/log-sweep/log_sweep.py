@@ -17,8 +17,11 @@ deleted.
 Appending costs a read, and S3 has no append, so one object per day per service means
 read-modify-write. Two consequences are designed for rather than discovered: overlapping sweeps
 would lose updates, so every write is conditional and a precondition failure re-reads and
-re-applies; and a day's file is rewritten in full on every sweep, so the bytes moved per day
-scale with the square of the day's volume.
+re-applies; and a day's file is rewritten in full on every write, so the bytes moved per day
+scale with the square of the day's volume. A sweep writes once per wave in which that day-group
+appears, not once per invocation — draining a deep backlog is hundreds of read-modify-writes
+over an already-large object, which is what ``LARGE_OBJECT_WARN_BYTES`` and the reserve below
+exist to keep visible.
 
 A sweep is a loop of waves, and the queue's own ordering is why. On a FIFO queue a message group
 stops yielding once one of its messages is in flight, until that message is deleted or its
@@ -58,6 +61,10 @@ Attributes:
   SWEEP_RESERVE_MS: Invocation time held back for the final wave's write and delete. The wave
     cost is a function of the day object's size, which grows all day, so the wave count alone
     cannot bound the sweep's duration.
+  STOP_WAVE_CAP, STOP_TIME_RESERVE, STOP_WRITE_FAILED: Why a sweep stopped with the queue
+    possibly still yielding. Separate values rather than one flag because the three want
+    opposite responses — more waves, a longer timeout, and a look at the write fault — and a
+    reason you can filter on is worth more than a message you can read once.
   MAX_CAS_ATTEMPTS: Conditional-write attempts per day object before giving up and leaving the
     messages queued. ``cpcommon.cas.MAX_ATTEMPTS`` since SPEC-156 FR-001 — this was one of three
     copies of the loop, and the caps had drifted.
@@ -127,6 +134,10 @@ MAX_MESSAGES = 1000
 
 MAX_WAVES = 50
 SWEEP_RESERVE_MS = 60_000
+
+STOP_WAVE_CAP = "wave-cap"
+STOP_TIME_RESERVE = "time-reserve"
+STOP_WRITE_FAILED = "write-failed"
 
 MAX_CAS_ATTEMPTS = cas.MAX_ATTEMPTS
 
@@ -493,12 +504,19 @@ def handler(event, context):
     through the same queue and are collected by the next scheduled sweep, never recursively
     within this one.
 
-    That self-reference is also why the event count here is bounded. Every emitter is per sweep
-    or per day-group, never per message: this function emits into the queue it drains, so an
-    event per message consumed would mean draining a batch produced about as many more, and the
-    queue would have a floor it could never get below — permanently busy carrying its own
-    telemetry, with the day objects growing to match. Day-groups are bounded by the number of
-    control planes; messages are bounded by nothing.
+    That self-reference is also why the emitters are placed the way they are. No emitter is per
+    message: this function emits into the queue it drains, so an event per message consumed
+    would mean draining a batch produced about as many more, and the queue would have a floor it
+    could never get below — permanently busy carrying its own telemetry, with the day objects
+    growing to match.
+
+    What bounds it is a ratio rather than a constant, and the wave loop is why. The receive and
+    the per-destination events fire once per wave and once per (wave, day-group), so a sweep's
+    events grow with the work it does — measured at roughly 0.58 events per message drained.
+    That converges, and would at any figure below one, because a wave that emits E events drains
+    ten messages per unblocked group; the summary below is the only part aggregated to one event
+    per sweep, because it is the only part that is genuinely per sweep. The property to preserve
+    when adding an emitter here is the ratio, not a count.
 
     The plain logging calls stay alongside the structured events deliberately, and this is the
     one function where that is not duplication to copy into a verb. The sink is the queue only,
@@ -549,12 +567,20 @@ def handler(event, context):
     unrouted = 0
     waves = 0
     capped = False
-    wave_limited = False
+    stop_reason = ""
     touched = set()
 
-    while waves < MAX_WAVES:
+    while True:
+        if waves >= MAX_WAVES:
+            stop_reason = STOP_WAVE_CAP
+            break
+        if waves and _time_is_short(context):
+            stop_reason = STOP_TIME_RESERVE
+            break
         messages, truncated = _receive_all()
         if not messages:
+            if failed:
+                stop_reason = STOP_WRITE_FAILED
             break
         waves += 1
         swept += len(messages)
@@ -582,34 +608,30 @@ def handler(event, context):
             else:
                 failed += len(items)
 
-        if _time_is_short(context):
-            wave_limited = True
-            break
-        if waves >= MAX_WAVES:
-            wave_limited = True
-
     if not swept:
         return {"swept": 0, "written": 0}
 
     if capped:
         logger.warning(
-            "log-sweep: a wave hit the %d-message cap; %d message(s) over %d wave(s)",
+            "log-sweep: a wave filled its %d-message cap; %d message(s) over %d wave(s)",
             MAX_MESSAGES,
             swept,
             waves,
         )
         observability.warning(
-            "hit the message cap", limit=MAX_MESSAGES, taken=swept, waves=waves
+            "a wave filled the message cap", limit=MAX_MESSAGES, taken=swept, waves=waves
         )
-    if wave_limited:
+    if stop_reason:
         logger.warning(
-            "log-sweep: stopped with the queue still yielding; %d message(s) over %d wave(s), "
-            "remainder next sweep",
+            "log-sweep: stopped on %s; %d message(s) over %d wave(s), the queue may still be "
+            "yielding",
+            stop_reason,
             swept,
             waves,
         )
         observability.warning(
             "stopped before the queue ran dry",
+            reason=stop_reason,
             taken=swept,
             waves=waves,
             limit=MAX_WAVES,

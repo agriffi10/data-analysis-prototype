@@ -286,7 +286,7 @@ def test_a_truncated_round_says_so_with_the_cap_and_the_count(
 
     log_sweep.handler({}, None)
 
-    capped = _by_message(captured, "hit the message cap")
+    capped = _by_message(captured, "a wave filled the message cap")
     assert capped and capped[0]["fields"] == {
         **capped[0]["fields"],
         "limit": 20,
@@ -504,7 +504,7 @@ def test_the_handler_is_total_when_every_emit_raises(wired, _quiet_sink):
     assert sorted(sqs.deleted) == ["a", "b"]
 
 
-# -- FR-005: one sweep's events are O(1) in the messages it consumes --------------------
+# -- FR-005: a sweep's events stay below the messages it drains -------------------------
 
 
 def _sweep_event_count(wired_factory, message_count, captured):
@@ -523,14 +523,51 @@ def test_the_event_count_depends_on_day_groups_not_on_messages(wired, captured):
     message consumed would mean draining M messages produced ~M more — a floor the queue could
     never get below, permanently busy carrying its own telemetry.
 
-    Two sweeps over the SAME two day-groups, one with ten times the messages. Any per-message
-    emitter added later makes these two numbers differ.
+    Two sweeps over the SAME two day-groups, one with ten times the messages, both forced
+    through ONE wave. Any per-message emitter added later makes these two numbers differ.
+
+    One wave is the whole scope of this assertion, and saying so is the point: the sweep's
+    events are constant in the messages of a wave and grow with the waves it runs. The
+    convergence property across waves is a ratio, and it is the next test that carries it —
+    this one was written against a fake that cannot produce a second wave, so left unqualified
+    it would report a bound it never measured.
     """
     small = _sweep_event_count(wired, 20, captured)
     large = _sweep_event_count(wired, 200, captured)
 
     assert small == large, (
         f"{small} events for 20 messages but {large} for 200 — an emitter is per-message"
+    )
+
+
+def test_the_events_a_sweep_emits_stay_below_the_messages_it_drains(monkeypatch, captured):
+    """The bound that actually holds once a sweep runs many waves, measured against the fake
+    that models FIFO blocking rather than the one that cannot.
+
+    Convergence needs the ratio under 1.0, not a constant: this function's own events are
+    themselves messages on the queue, so a sweep emitting more than it drains gives the queue a
+    floor it can never reach. Emitters here are per wave and per (wave, day-group) — deliberate,
+    since the drain scales the same way — and that is exactly the claim this pins.
+    """
+    per_group = {
+        service: [
+            _message(_event(service=service, ts=f"2026-07-22T10:{n // 60:02d}:{n % 60:02d}Z"), f"{service}-{n}")
+            for n in range(100)
+        ]
+        for service in ("data-quality", "observability")
+    }
+    sqs = FifoSQS(per_group)
+    monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
+    monkeypatch.setattr(log_sweep.clients, "s3", lambda: FakeS3())
+    captured.events.clear()
+
+    result = log_sweep.handler({}, None)
+
+    assert result["waves"] > 5, "the fixture did not exercise the multi-wave path"
+    ratio = len(captured.events) / result["swept"]
+    assert ratio < 1.0, (
+        f"{len(captured.events)} events for {result['swept']} messages drained (ratio {ratio:.2f}) "
+        "— the sweep emits more than it consumes and the queue has a floor"
     )
 
 
@@ -568,8 +605,8 @@ def test_every_existing_cloudwatch_message_is_still_in_the_source():
         "log-sweep: failed to write %s",
         "log-sweep: gave up on %s",
         "log-sweep: failed to delete %d messages",
-        "log-sweep: a wave hit the %d-message cap",
-        "log-sweep: stopped with the queue still yielding",
+        "log-sweep: a wave filled its %d-message cap",
+        "log-sweep: stopped on %s",
         "log-sweep: %d event(s) had no usable timestamp",
         "log-sweep %s: %d message(s)",
     ):
@@ -875,19 +912,68 @@ def test_a_backlog_across_groups_drains_in_one_sweep(monkeypatch):
     assert result["waves"] > 1, "one wave cannot drain a blocked group"
 
 
-def test_a_wave_only_ends_the_sweep_when_the_queue_is_really_empty(monkeypatch):
-    """The empty receive that ends a sweep has to be one taken with nothing in flight — the
-    property the wave loop turns on, asserted separately from the drain count so that a fake
-    that simply never blocks cannot carry it.
+def test_the_sweep_receives_again_AFTER_deleting(monkeypatch):
+    """The ordering the wave loop exists to create, asserted as an ordering.
+
+    An earlier version of this test asserted ``receives > 1`` and that nothing was left in
+    flight. Both are satisfied by the single-wave code this replaced — its inner round loop
+    receives a second time and gets the empty round that ends it, and one wave still deletes
+    what it wrote — so the test passed against the bug. What has to be true is that a receive
+    happened after a delete, which is the only way a blocked group can yield again.
     """
-    sqs, s3 = FifoSQS({"data-quality": [_message(_event(), "only")]}), FakeS3()
+    order = []
+    sqs = FifoSQS({"data-quality": [_message(_event(), f"a{n}") for n in range(15)]})
+    real_receive, real_delete = sqs.receive_message, sqs.delete_message_batch
+    sqs.receive_message = lambda **kw: (order.append("receive"), real_receive(**kw))[1]
+    sqs.delete_message_batch = lambda **kw: (order.append("delete"), real_delete(**kw))[1]
     monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
-    monkeypatch.setattr(log_sweep.clients, "s3", lambda: s3)
+    monkeypatch.setattr(log_sweep.clients, "s3", lambda: FakeS3())
 
     log_sweep.handler({}, None)
 
+    assert "delete" in order, "nothing was deleted"
+    assert "receive" in order[order.index("delete") :][1:], (
+        "the sweep never received again after a delete"
+    )
     assert sqs.inflight == {}, "the sweep finished still holding messages"
-    assert sqs.receives > 1, "the sweep never went back after deleting"
+
+
+def test_a_write_failure_does_not_read_as_a_drained_queue(monkeypatch, captured):
+    """The false-empty inference, arriving by a different door.
+
+    Messages whose append failed are correctly NOT deleted — but they stay in flight, so they
+    block their own group for the rest of the sweep. Once every other group is drained the next
+    receive comes back empty, which is exactly the reading this whole wave loop exists to
+    remove. Here twenty data-quality messages are never even looked at, and without the reason
+    below nothing anywhere says the queue is behind: the only other signal is ``failed`` on the
+    summary, which reports a write fault, not a backlog.
+    """
+
+    class _PickyS3(FakeS3):
+        def put_object(self, Bucket, Key, **kwargs):
+            if "service=data-quality" in Key:
+                raise RuntimeError("s3 is down for this key")
+            return super().put_object(Bucket, Key, **kwargs)
+
+    per_group = {
+        "data-quality": [
+            _message(_event(service="data-quality"), f"dq-{n}") for n in range(30)
+        ],
+        "observability": [
+            _message(_event(service="observability"), f"ob-{n}") for n in range(10)
+        ],
+    }
+    sqs = FifoSQS(per_group)
+    monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
+    monkeypatch.setattr(log_sweep.clients, "s3", lambda: _PickyS3())
+
+    result = log_sweep.handler({}, None)
+
+    assert sqs.pending["data-quality"], "the fixture did not leave a blocked backlog"
+    assert result["written"] == 10, "the healthy group did not drain"
+    stopped = _by_message(captured, "stopped before the queue ran dry")
+    assert stopped, "a blocked group read as a drained queue"
+    assert stopped[0]["fields"]["reason"] == log_sweep.STOP_WRITE_FAILED
 
 
 def test_the_wave_cap_bounds_a_sweep_and_says_so(monkeypatch, captured):
@@ -910,9 +996,10 @@ def test_the_wave_cap_bounds_a_sweep_and_says_so(monkeypatch, captured):
     stopped = _by_message(captured, "stopped before the queue ran dry")
     assert stopped and stopped[0]["level"] == "WARNING"
     assert stopped[0]["fields"]["limit"] == 2
+    assert stopped[0]["fields"]["reason"] == log_sweep.STOP_WAVE_CAP
 
 
-def test_a_sweep_stops_early_when_the_invocation_is_nearly_over(monkeypatch):
+def test_a_sweep_stops_early_when_the_invocation_is_nearly_over(monkeypatch, captured):
     """MAX_WAVES bounds the wave count, not the duration — a wave's cost tracks the day
     object's size, which grows all day.
     """
@@ -930,6 +1017,10 @@ def test_a_sweep_stops_early_when_the_invocation_is_nearly_over(monkeypatch):
 
     assert result["waves"] == 1, "the reserve did not stop the sweep"
     assert result["swept"] == 10
+    stopped = _by_message(captured, "stopped before the queue ran dry")
+    assert stopped[0]["fields"]["reason"] == log_sweep.STOP_TIME_RESERVE, (
+        "the time reserve and the wave cap are reported as the same thing"
+    )
 
 
 def test_empty_queue_completes_without_writing(wired):

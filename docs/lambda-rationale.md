@@ -156,14 +156,38 @@ to converge is a single backlogged group: 10 per wave, 500 per sweep, 72,000/day
 duration: a wave rewrites each day object in full, that object grows all day, and the 300s
 timeout is the real ceiling. Peak memory is one wave (`MAX_MESSAGES`), not the sweep.
 
+**Stopping is three different things and they want opposite responses.** A sweep that stops with
+the queue possibly still yielding reports *why*: `wave-cap` (raise `MAX_WAVES`), `time-reserve`
+(the day objects have grown enough that a wave no longer fits — raise the timeout, or look at
+the growth), `write-failed` (see below). One flag reporting `limit=MAX_WAVES` for all three
+reads as "plenty of budget, the queue just kept yielding" when the cause was the clock. Note the
+`wave-cap` reason cannot distinguish "the cap bound me" from "I drained the queue on exactly the
+last allowed wave" — only one more receive could, and the wording says *may* still be yielding
+rather than buying certainty with an API call on every capped sweep.
+
+**A failed append re-creates the false-empty inference, and that is why `write-failed` exists.**
+Messages whose append failed are correctly not deleted — but they stay *in flight*, so they
+block their own group for the rest of the sweep. Once the healthy groups drain, the next receive
+returns empty, which is precisely the reading this design removes. Found in review with a
+per-key S3 fault: 30 `data-quality` messages behind a failing key, 10 `observability` messages
+healthy — 20 of the 30 were never looked at, and the only signal was `failed` on the summary,
+which reports a write fault rather than a backlog. Under a persistent per-key fault that drains
+the group at ten messages per tick, which is the arithmetic this entry opens with.
+
 **The emitter question, and why the answer is "no change".** This function logs into the queue it
 drains, so its own telemetry is a real cost — the `observability` group is itself one of the two
 that had backlogged. The receive span and the per-destination `appending`/`appended` events now
 fire once per wave rather than once per sweep, and the first instinct was to aggregate them.
-That is wrong: emitters and drained messages **both** scale with `waves x groups`, so the ratio
-is unchanged and convergence depends only on the ratio. Aggregating would have cost the FR-002
+That is wrong: emitters and drained messages **both** scale with `waves x groups`, so what has to
+hold is a **ratio below one**, not a constant — measured at **0.58 events per message drained**
+(115 events for 200 messages over two groups). Aggregating would have cost the FR-002
 entry-and-outcome-per-destination property for nothing. Only the sweep summary is aggregated,
 because it is genuinely per sweep.
+
+The old guard asserted the strict `O(1)` form and stayed green through all of this, because it
+ran on `FakeSQS` — which never blocks, so it never produced a second wave and would have passed
+at any wave count. It is now scoped to the single wave it actually measures, and the ratio is
+pinned separately on `FifoSQS`.
 
 **The test that could not fail.** `FakeSQS` served rounds and then emptied — which quietly
 asserts that an empty receive means an empty queue, the exact premise that is false. It ran out
@@ -171,6 +195,14 @@ of rounds at precisely the moment a real queue would have blocked, so every test
 bug. `FifoSQS` models the ordering rule (a group with an in-flight message yields nothing until
 a delete), and `test_a_backlog_across_groups_drains_in_one_sweep` fails against the old shape at
 **30 of 75** — 10 per group, three groups.
+
+Review caught a second one of the same kind in the fix's own tests: an "it went back after
+deleting" test asserted `receives > 1` and an empty in-flight set, and **both hold for the
+single-wave code** — the inner round loop receives a second time to get the empty round that
+ends it, and one wave still deletes what it wrote. It now records the receive/delete order and
+asserts a receive after a delete, which is the only thing that can unblock a group. Each guard
+here was checked against its own mutation (`MAX_WAVES = 1`; the reserve forced to `False`; the
+`write-failed` reason removed), and each fails alone.
 
 [fifo]: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/FIFO-queues-understanding-logic.html
 
