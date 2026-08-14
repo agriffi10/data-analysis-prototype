@@ -472,6 +472,16 @@ resource "time_sleep" "wait_for_self_grant" {
 # NO iam:PassRole in the role statement, unlike every other plane's: a service assumes those,
 # and nothing must be able to hand this one to a service.
 #
+# `TrailGlobalReads` is the one `Resource: "*"` here. `cloudtrail:DescribeTrails` and
+# `ListTrails` are account-wide APIs with no ARN to scope to — the same shape as the two
+# permanent rows on the plan-scan accept list (SPEC-139) — and both are read-only.
+#
+# THE REASONING LIVES HERE, NOT IN THE JSON. The first version carried `"//"` keys inside the
+# policy document, which no other policy in this repo does, and the apply rejected it:
+# **an IAM policy document must be printable ASCII**, and the comments contained em dashes.
+# The failure is worth keeping in mind for any future template — it is a validation error at
+# CreatePolicy, not something `tofu validate` or the plan can see.
+#
 # Granted FIRST and guarded by the same 30s propagation floor the archive grants needed
 # (SPEC-168's apply went red on exactly this and succeeded unchanged on a re-run): IAM is
 # eventually consistent, and this PR creates the bucket, trail and role in the SAME apply that
