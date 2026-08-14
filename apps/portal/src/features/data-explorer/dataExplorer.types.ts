@@ -1,3 +1,5 @@
+import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
+
 // The exploration model (SPEC-178 FR-001). An exploration is a SOURCE plus a QUERY
 // DESCRIPTION plus PRESENTATION STATE, and the split is the feature's central rule: the
 // first two determine the SQL, the third never does. They are three separate fields
@@ -205,6 +207,18 @@ export type ExplorationTab = {
   id: string;
   label: string;
   exploration: Exploration;
+  /**
+   * The `.sql` file this tab was last saved to (SPEC-183 FR-003).
+   *
+   * What a re-save replaces, and the only reason `isLinkedSavedQuery` can ever be true
+   * here — nothing else in this feature mints a link, because loading a `.sql` file as a
+   * source is deferred. Optional because a tab that has never been saved has none, and
+   * because a document written before SPEC-183 carries none either.
+   *
+   * It does NOT rename the tab. A Query workspace tab IS its buffer, so a save renames it;
+   * an exploration tab is named for the source it is exploring, which a save does not change.
+   */
+  savedQuery?: SavedQueryLink;
   /**
    * Bytes scanned per DISTINCT execution this tab has run, keyed by execution id.
    *

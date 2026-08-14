@@ -1277,7 +1277,7 @@ destroy it" are different guarantees, and only one of them survives a stale cach
 > drift apart. Choosing a different space **copies**; nothing in this arc ever moves or deletes a
 > colleague's file.
 
-## Data Explorer arc (SPEC-176 → 185 — filed 2026-08-13; 176 → 179 COMPLETE)
+## Data Explorer arc (SPEC-176 → 185 — filed 2026-08-13; 176 → 183 COMPLETE)
 
 The portal can already run SQL. What it cannot do is let someone **look at a table** without writing
 any — pick a database and a table, see its rows, page through them. That is the Data Explorer, and
@@ -1432,6 +1432,26 @@ alternative is a sidecar JSON carrying the view state, rejected because SPEC-173
 saved query is a `.sql` **file** in an ordinary folder — a sidecar reintroduces exactly the JSON
 store that spec deleted, plus a second artifact to keep in sync with a file users can freely rename,
 edit or delete from the file browser.
+
+> **183 landed 2026-08-13, and it shipped HALF of the above.** The loading half was descoped during
+> build at the user's direction and deferred to a later spec, so the paragraph above now describes
+> that spec rather than this one — the `sql` arm of `ExplorationSource` stays exactly as 178 left
+> it, unreachable, and nothing was half-built for it. What shipped is the save: an exploration's
+> **rendered** SQL written as a `.sql` file through SPEC-177's flow, with the collision-and-confirm
+> path, the destination selector and the in-place re-save all SPEC-175's. The sidecar stays
+> rejected, and the guard is a count — one `PutObject` per save.
+>
+> Its one decision that reaches outside the feature is a **flag** one, and the registry found it
+> rather than review. Registering *Save as query* under `dataExplorer` reads naturally and asserts
+> nothing: `/explore` already hides the whole workspace, so there is no gate for the walking test to
+> remove. It belongs to **`query`** — the exact mirror of *Explore data* on the Query rail — because
+> with the SQL workspace hidden there is no editor to open the file in and `saved_queries` has
+> already left the file browser, so the file would land somewhere its author cannot see. The
+> question a registry row answers is which FEATURE a control belongs to, not which screen it is on.
+>
+> One thing the deferred load spec has to face first: `splitSqlStatements` lives in
+> `features/query/`, which this feature may not import, and the wrapped-subquery refusals are built
+> on it. It moves down to `lib/sql.ts` — the same move 176 and 177 made, one layer lower.
 
 **The flag is independent, and the expression bar is not gated on `query`.** `dataExplorer` stands
 alone, so an environment can ship the grid while keeping the SQL editor hidden — arguably the main

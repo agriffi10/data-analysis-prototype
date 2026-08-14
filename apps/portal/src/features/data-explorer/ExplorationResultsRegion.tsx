@@ -3,6 +3,7 @@ import {Button} from '../../components/Button';
 import {ErrorBanner} from '../../components/ErrorBanner';
 import {Pager} from '../../components/Pager';
 import {useIsMobile} from '../../lib/useBreakpoint';
+import {useFeature} from '../feature-flags';
 import {useQueryResults} from '../catalog/useQueryResults';
 import {CALC_DEFAULT_FUNCTIONS, EXPLORATION_PAGE_SIZE} from './dataExplorer.constants';
 import {CalcPanel} from './CalcPanel';
@@ -64,6 +65,8 @@ export type ExplorationResultsRegionProps = {
   onPresentationChange: (update: (presentation: ExplorationPresentation) => ExplorationPresentation) => void;
   /** The query description and every operation over it (SPEC-181). */
   queryControls: UseExplorationQueryResult;
+  /** Raises the save dialog (SPEC-183). The host owns the write; this owns the gesture. */
+  onSaveQuery: () => void;
 };
 
 export const NO_CELL_TO_FILTER = 'Select a cell first.';
@@ -80,6 +83,17 @@ export const CALCULATED_COLUMN_REFUSAL =
   'This column is worked out in your browser, so it can’t be sorted or filtered.';
 export const UNFILTERABLE_VALUE = 'This cell’s value can’t be used as a filter on a numeric column.';
 export const SUSPENDED_TEXT = 'This set of filters failed last time it ran. Nothing has been run.';
+/** No statement exists yet: nothing rendered, or a suspended description was held back. */
+export const NOTHING_TO_SAVE = 'There’s no query to save yet — nothing has run.';
+/**
+ * Why a FAILED exploration cannot be saved (SPEC-183 FR-002).
+ *
+ * Its own wording because its own state: there IS a statement here, and it is the one
+ * Athena rejected. The rows under the banner are the LAST GOOD execution's, so saving would
+ * write one query while the grid showed another's rows — and the file would fail to open in
+ * the Query workspace, which is the surface FR-005 promises it opens in.
+ */
+export const FAILED_NOT_SAVEABLE = 'This query didn’t run, so there’s nothing to save. Fix it and try again.';
 
 /**
  * One exploration's rows, and everything that changes which rows they are (SPEC-180,
@@ -106,7 +120,8 @@ export function ExplorationResultsRegion({
   schemaColumns,
   presentation,
   onPresentationChange,
-  queryControls
+  queryControls,
+  onSaveQuery
 }: ExplorationResultsRegionProps) {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -129,6 +144,7 @@ export function ExplorationResultsRegion({
   const [pendingFilter, setPendingFilter] = useState<{column: string; operator: FilterOperator} | null>(null);
   const gridRef = useRef<HTMLTableElement>(null);
   const {query, apply} = queryControls;
+  const savedQueriesEnabled = useFeature('query');
 
   // The last execution whose rows actually arrived. A failed apply falls back to it, so
   // the grid keeps showing something true rather than going blank behind a banner.
@@ -282,6 +298,14 @@ export function ExplorationResultsRegion({
   // Suspended is not loading: nothing is in flight, deliberately. Without this the status
   // line announced "Running…" directly above the panel saying nothing had been run.
   const loading = !queryControls.suspended && (isPending || !shownExecutionId || results.isPending);
+
+  // SPEC-183 FR-002. `failed` is checked FIRST and is the one that is easy to miss: a failed
+  // apply still has a rendered `sql` — the statement Athena rejected — while `shownExecutionId`
+  // has fallen back to the last good one, so the grid is showing a DIFFERENT query's rows. A
+  // save there writes a file that fails to open in the workspace FR-005 promises it opens in.
+  // A suspended description needs no clause of its own: the workspace passes `useExploration`
+  // nothing while suspended, so `sql` is already null.
+  const saveRefusal = failed ? FAILED_NOT_SAVEABLE : sql === null ? NOTHING_TO_SAVE : null;
   const hasCell = cursorColumn !== null && cursorValue !== undefined;
   const filterByCellRefusal = !hasCell
     ? NO_CELL_TO_FILTER
@@ -467,6 +491,17 @@ export function ExplorationResultsRegion({
           onClick={() => setGroupingOpen((open) => !open)}>
           Grouping
         </Button>
+        {/* Gated by `query`, not `dataExplorer`: the store is the Query workspace's, and
+            REMOVED rather than refused, because a reason cannot explain a state the user has
+            no way to change. See `gatedSurfaces.ts`. */}
+        {savedQueriesEnabled && (
+          <Button
+            size="sm"
+            disabledReason={saveRefusal ?? undefined}
+            onClick={onSaveQuery}>
+            Save as query
+          </Button>
+        )}
         {/* The count says "on this page" every time it is said, because that is the only
             thing a selection here can ever mean — Ctrl/Cmd+A included (FR-002 AC4). */}
         <p

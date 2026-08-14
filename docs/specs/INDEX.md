@@ -188,7 +188,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 180 — The Grid, Cell Selection, the Value Panel & the Record View | Completed |
 | 181 — Filtering and Ordering | Completed |
 | 182 — The Calc and Grouping Panels | Completed |
-| 183 — Saved Queries in the Data Explorer | Draft |
+| 183 — Saving an Exploration as a Saved Query | Completed |
 | 184 — Presentation and Formatting | Draft |
 | 185 — Copy, Export, Help & the Arc's Live Checks | Draft |
 
