@@ -1,6 +1,7 @@
 import {Button} from '../../components/Button';
 import {CellValue} from './CellValue';
 import type {GridColumn} from './useColumnGeometry';
+import type {CellFormat, TransformedValue} from './formatting';
 
 export type ExplorationRecordViewProps = {
   /** Visible columns in display order — hidden ones are absent, as in the grid. */
@@ -11,6 +12,10 @@ export type ExplorationRecordViewProps = {
   rowIndex: number;
   /** 1-based row number of the first row on this page, for the label. */
   rangeStart: number;
+  /** Resolved colours per row, per column name (SPEC-184). Banding is a grid affordance. */
+  formats: Record<string, CellFormat>[];
+  /** Transformed renderings per row, per column name — the same ones the grid shows. */
+  transformed: Record<string, TransformedValue>[];
   onRowIndexChange: (next: number) => void;
   /** Focuses a column, so the Value panel follows the record too. */
   onFocusColumn: (column: string) => void;
@@ -29,6 +34,8 @@ export function ExplorationRecordView({
   rows,
   rowIndex,
   rangeStart,
+  formats,
+  transformed,
   onRowIndexChange,
   onFocusColumn
 }: ExplorationRecordViewProps) {
@@ -84,8 +91,12 @@ export function ExplorationRecordView({
                   type="button"
                   aria-label={`Show the full value of ${column.name}`}
                   onClick={() => onFocusColumn(column.name)}
+                  style={formats[at]?.[column.name]}
                   className="w-full break-words text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-                  <CellValue value={row[column.index] ?? null} />
+                  <CellValue
+                    value={row[column.index] ?? null}
+                    transformed={transformed[at]?.[column.name]}
+                  />
                 </button>
               </dd>
             </div>

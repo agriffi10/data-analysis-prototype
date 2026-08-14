@@ -3369,3 +3369,108 @@ unreachable; nothing was half-built for it. One thing that arc will have to face
 import (SPEC-176's sibling rule), and the refusals a wrapped subquery needs are built on it. The
 answer is to move the lexer down into `lib/sql.ts`, whose own docstring already claims language
 rules rather than feature domain — not to write a second one.
+
+---
+
+## A palette is measured, not chosen; a link's encoding depends on where the value lands (SPEC-184)
+
+Everything this spec adds changes how a value *looks* and nothing about what is *fetched*. That is
+SPEC-178's rule seen from the other side, and it is now asserted twice rather than promised: a
+scripted UI sequence touching every rule and transformer leaves `runQuery` on the tab's opening
+execution, and a transitive **import-closure walk** from `renderExplorationSql.ts` proves no module
+this spec added is reachable from the renderer at all. The renderer's signature is a promise about
+one function; the closure is a property of the whole graph.
+
+### The palette is a bounded token set, because the contrast criterion is otherwise unassertable
+
+FR-002 AC8 asks that every colour pairing meet contrast requirements. Nothing can promise that
+about a colour picker, so the model narrows the spec's `foreground?: string` to a five-token union
+(`text`, `text-2`, `accent-text`, `success`, `danger`) and its backgrounds to the four `*-soft`
+tints, all of them tokens `index.css` already declares — this spec adds none.
+
+**`warning` was measured out of the foreground set.** It clears 4.5:1 on white (5.02) and fails on
+the soft backgrounds this spec introduces: **4.49 on `accent-soft`, 4.39 on `danger-soft`**. A
+colour that is legible only sometimes is worse than one fewer colour, because nothing at the point
+of choosing tells the user which case they are in. The test recomputes the full cross product, the
+**sampled gradient** at every step it can quantise to — including the mixed shades between two
+tints of different hues, where a "both ends are pale" argument breaks — and the exclusion itself,
+so a token that moves reddens CI rather than quietly failing WCAG.
+
+**The surfaces measured against include the SELECTION.** A formatted cell is still selectable, and
+an inline background beats the class that paints a selected one — so the cell drops its formatting
+fill while selected (`aria-selected` says so either way), and `accent-soft` is one of the three
+base surfaces every foreground has to clear.
+
+**Axe cannot carry this criterion.** `color-contrast` is disabled in `test/axe.ts` because jsdom
+has no layout engine, so the axe pass over a coloured grid proves its markup and the computation
+proves its contrast. Reporting "the axe pass is green" as evidence of contrast would be a claim
+that tool never makes.
+
+`FORMATTING_TOKEN_HEX` exists only because a gradient must interpolate values and contrast must be
+computed from them; a second test pins every entry against `src/index.css` itself, since a copy
+needs a guard. Vitest resolves a stylesheet `?raw` import **and** a raw `import.meta.glob` to an
+empty string (measured), which would have made that guard pass by finding nothing — so it reads the
+file, through a one-function ambient declaration rather than by adding `"node"` to the app's
+`types` and handing every module in `src/` the Node surface.
+
+### The URL transformer's encoding is position-dependent, and both simple rules are wrong
+
+Encoding the value **unconditionally** is right inside a path or a query — a value must not climb
+out of its segment, add a parameter or graft a fragment on — and wrong at the **start** of the
+template, where `${value}` is the natural template for a column that already holds links: encoding
+turns every legitimate `https://…` into `https%3A%2F%2F…`, so that column can never link at all. It
+also makes FR-006 AC2's own worked example unreachable, since a `javascript:` cell would then fail
+as "not a URL" rather than at the scheme check. Not encoding at all is the other wrong rule.
+
+So the **leading** position substitutes raw and every later one is encoded, and the `https:`
+allowlist — judged on the **resolved** URL, never the template — is what guards the leading case.
+An allowlist rather than a blocklist, because the blocklist is the one that has to be complete.
+
+The substitution is assembled part by part rather than with `String.replace`, whose replacement
+string reads `$&`, `$'` and `` $` `` as patterns: a cell holding one would be expanded into
+something other than itself *before* anything parsed it. Anchors carry `rel="noopener noreferrer"`
+and `target="_blank"`; a refused scheme renders as plain text with its reason reachable.
+
+**`isSafeInAppPath` is deliberately not used, and the call site records why.** That rule
+(SPEC-061/167) governs IN-APP paths — it asks whether a link is a route inside this application and
+answers by refusing anything not root-relative. Every URL here is external and absolute, so it
+would reject all of them, and loosening it would have it answering a question it was never written
+for. Reaching for a rule that sounds adjacent is how a confident category error ships.
+
+### A rule's `scope` is a field the spec's model did not have
+
+`ColourRule` carries `column?` — the spec read an absent column as "apply across the row", which
+conflates what a rule TESTS with what it PAINTS and leaves the most ordinary rule inexpressible:
+colour the whole row wherever `status` is `failed`. One optional `scope: 'cell' | 'row'` separates
+them (SPEC-181's `valueKind` is the precedent), and an absent `column` keeps its own meaning — test
+every cell in the row.
+
+Precedence runs weakest to strongest — type tint, then band, then rules in order — and each layer
+overrides only the **property** it sets. That is what makes "a later rule overrides an earlier one
+on the same property" and "conditional rules win over both the type tint and the band" true without
+a special case for either. **A NULL matches nothing, including `<>`**: NULL is the one value Athena
+does not hand back as a string, and "is not 5" over a value that was never there would paint every
+empty cell in the column.
+
+### The raw value drives everything, and the transform lives at the cell
+
+`transformCell` is called at the cell and nowhere upstream, so a filter, a colour rule, Calc and
+copy all read the raw row — a transformed value reaching any of them is a silent wrong answer
+rather than a visible one. The Calc assertion uses a **hex** transformer deliberately: `10` renders
+as `3130`, which is itself a plain number, so a Calc reading the rendering would answer a wrong
+number rather than fail visibly. NULL and the empty string are returned untransformed, because both
+are absences the grid already names in words.
+
+**The Text view stays raw** — no colours, no transformers. It is the drag-select-and-copy surface,
+and its whole promise is that what is on screen is what is copied.
+
+### A stored formatting block is discarded WHOLE
+
+Unlike the field-by-field normalisation beside it, `formatting` is validated as a unit and replaced
+with defaults if any part of it is wrong: a partially-applied colour set is a rule list the user
+never built, and a rule that survived while the one meant to override it was dropped paints the
+opposite of what was intended. The colours are validated against the **palette**, not merely
+against `string` — a stored `#ff0000` would render verbatim as an inline style, and the contrast
+the palette is measured for would no longer hold for it. A rule naming a column the current result
+lacks is **kept and shown as inapplicable**: a grouping change replaces the column set wholesale, so
+that is the ordinary case, and un-grouping brings the column back.

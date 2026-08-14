@@ -73,3 +73,87 @@ describe('renderExplorationSql is the only SQL builder in the feature (FR-002 AC
     expect(SQL_FRAGMENT_RE.test(stripComments(commentOnly))).toBe(false);
   });
 });
+
+// Every relative specifier a module imports from, `import type` included — a type-only
+// import is still an import edge, and a renderer that took a `FormattingState` parameter
+// would be reachable by presentation whatever the emitted JS looked like.
+const IMPORT_RE = /(?:from|import)\s*\(?\s*'(\.[^']*)'/g;
+
+/**
+ * Resolves a relative specifier against a glob record's keys, trying the extensions Vite
+ * would. Returns null for anything outside the record — a `../../lib/` import, say.
+ */
+function resolveSpecifier(from: string, specifier: string, files: Record<string, string>): string | null {
+  const segments = from.split('/').slice(0, -1).concat(specifier.split('/'));
+  const resolved: string[] = [];
+  for (const segment of segments) {
+    if (segment === '.' && resolved.length > 0) continue;
+    if (segment === '..') resolved.pop();
+    else resolved.push(segment);
+  }
+  const base = resolved.join('/');
+  return ['.ts', '.tsx', '/index.ts'].map((suffix) => `${base}${suffix}`).find((path) => path in files) ?? null;
+}
+
+/** Every module reachable from `entry` by relative imports, `entry` included. */
+function importClosure(entry: string, files: Record<string, string>): Set<string> {
+  const seen = new Set<string>();
+  const pending = [entry];
+  while (pending.length > 0) {
+    const path = pending.pop() as string;
+    if (seen.has(path)) continue;
+    seen.add(path);
+    for (const [, specifier] of files[path].matchAll(IMPORT_RE)) {
+      const target = resolveSpecifier(path, specifier, files);
+      if (target !== null) pending.push(target);
+    }
+  }
+  return seen;
+}
+
+describe('presentation cannot reach the renderer (SPEC-184 FR-001 AC2)', () => {
+  // The far side of SPEC-178's central rule. The renderer's SIGNATURE already excludes
+  // presentation state, but a signature is a promise about ONE function — this asserts the
+  // property the spec actually needs, which is that no module SPEC-184 added is reachable
+  // from the renderer at all. A rule evaluator the renderer cannot see is a rule evaluator
+  // that cannot cost anyone a query.
+  const FORMATTING_MODULES = ['./formatting.ts', './urlTransformer.ts'];
+
+  const files = import.meta.glob('./**/*.{ts,tsx}', {query: '?raw', import: 'default', eager: true}) as Record<
+    string,
+    string
+  >;
+
+  it('no SPEC-184 module is in renderExplorationSql.ts’s import closure', () => {
+    const closure = importClosure('./renderExplorationSql.ts', files);
+
+    // Guards against a resolver that resolves nothing: the renderer really does import
+    // this one, so a closure of size 1 is a broken walk rather than a clean result.
+    expect(closure).toContain('./dataExplorer.constants.ts');
+
+    for (const module of FORMATTING_MODULES) {
+      // The module must EXIST for its absence from the closure to mean anything.
+      expect(Object.keys(files)).toContain(module);
+      expect([...closure]).not.toContain(module);
+    }
+  });
+
+  it('the closure walk can fail — it finds a formatting import one hop away', () => {
+    // A guard-the-guard over a synthetic graph shaped like the violation: the renderer
+    // importing a helper that imports the evaluator. Both hops matter, because the
+    // realistic mistake is indirect.
+    const synthetic = {
+      './renderExplorationSql.ts': "import {helper} from './helper';",
+      './helper.ts': "import {computePageFormatting} from './formatting';",
+      './formatting.ts': 'export const x = 1;'
+    };
+    expect([...importClosure('./renderExplorationSql.ts', synthetic)]).toContain('./formatting.ts');
+
+    // And a type-only edge, which is the one an `import type` would quietly slip through.
+    const typeOnly = {
+      './renderExplorationSql.ts': "import type {FormattingState} from './formatting';",
+      './formatting.ts': 'export type FormattingState = {a: 1};'
+    };
+    expect([...importClosure('./renderExplorationSql.ts', typeOnly)]).toContain('./formatting.ts');
+  });
+});

@@ -15,6 +15,7 @@ export {
   newExploration,
   newExplorationId,
   emptyExplorationQuery,
+  emptyFormattingState,
   emptyExplorationPresentation,
   emptyGrouping,
   emptyQueryHistory,
@@ -39,6 +40,23 @@ export {
   sortOf
 } from './explorationQueryOps';
 export {calcResults, calcScopeText, percentageColumnName, percentageOfTotal, selectedCellValues} from './calc';
+export {
+  bandsOf,
+  colourValue,
+  computePageFormatting,
+  gradientShade,
+  isRuleApplicable,
+  ruleRefusal,
+  transformCell,
+  typeColour,
+  GRADIENT_COLUMN_REFUSAL,
+  GRADIENT_RANGE_REFUSAL,
+  NO_COLOUR_REFUSAL,
+  PATTERN_REFUSAL,
+  PATTERN_TOO_LONG_REFUSAL,
+  STRIPE_BACKGROUND
+} from './formatting';
+export type {CellFormat, FormattingColumn, PageFormatting, TransformedValue} from './formatting';
 export {useExploration} from './useExploration';
 export type {UseExplorationResult} from './useExploration';
 export {useExplorationQuery} from './useExplorationQuery';
@@ -50,6 +68,12 @@ export {explorerKeys} from './explorerKeys';
 export {
   CALC_DEFAULT_FUNCTIONS,
   CALC_FUNCTIONS,
+  COLOUR_OPERATORS,
+  COLOUR_OPERATOR_LABELS,
+  FORMATTING_BACKGROUNDS,
+  FORMATTING_COLOUR_LABELS,
+  FORMATTING_FOREGROUNDS,
+  FORMATTING_TOKEN_HEX,
   CALC_FUNCTION_LABELS,
   CALC_NO_VALUE,
   EXPLORATION_PAGE_SIZE,
@@ -72,6 +96,11 @@ export {ExplorationTextView} from './ExplorationTextView';
 export {PresentationSwitch} from './PresentationSwitch';
 export {ValuePanel} from './ValuePanel';
 export {ColumnsPanel} from './ColumnsPanel';
+export {RowColoursDialog} from './RowColoursDialog';
+export type {RowColoursDialogProps, RowColoursSettings} from './RowColoursDialog';
+export {StripingControl} from './StripingControl';
+export {TransformersDialog} from './TransformersDialog';
+export type {TransformersDialogProps} from './TransformersDialog';
 export {CalcPanel} from './CalcPanel';
 export {GroupingPanel} from './GroupingPanel';
 export {GeneratedSqlDisclosure} from './GeneratedSqlDisclosure';
@@ -105,6 +134,13 @@ export type {
   ExplorationTab,
   ExplorationTabsState,
   ColumnFilter,
+  ColourOperator,
+  ColourRule,
+  ColourScope,
+  ColourToken,
+  FormattingState,
+  SurfaceToken,
+  Transformer,
   FilterOperator,
   FilterValueKind,
   SortEntry,

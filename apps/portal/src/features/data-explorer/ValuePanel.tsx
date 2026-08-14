@@ -1,6 +1,7 @@
 import {IconButton} from '../../components/IconButton';
 import {useEscapeKey} from '../../hooks/useEscapeKey';
 import {EMPTY_DISPLAY, NULL_DISPLAY} from './cellText';
+import type {TransformedValue} from './formatting';
 
 export type ValuePanelProps = {
   /** The focused cell's column, or null when nothing is focused. */
@@ -11,6 +12,15 @@ export type ValuePanelProps = {
    * announced as NULL: telling those two apart is the panel's whole job.
    */
   value: string | null | undefined;
+  /**
+   * The column's Athena type (SPEC-184 FR-003 AC3).
+   *
+   * Here because the type tint must never be the only thing carrying a value's type: this
+   * panel and the column header are the two places it is written in words.
+   */
+  type?: string | null;
+  /** How the grid is rendering this cell, when a transformer changes it (FR-005 AC6). */
+  transformed?: TransformedValue | null;
   onClose: () => void;
 };
 
@@ -30,7 +40,7 @@ export type ValuePanelProps = {
  * bottom, at `tablet` and up a column beside the grid. Escape closes it through the
  * depth-ordered registry (SPEC-155), so a dialog opened above it still outranks it.
  */
-export function ValuePanel({column, value, onClose}: ValuePanelProps) {
+export function ValuePanel({column, value, type, transformed, onClose}: ValuePanelProps) {
   useEscapeKey(onClose, true);
   const focused = column !== null && value !== undefined;
   const marker = !focused
@@ -46,7 +56,10 @@ export function ValuePanel({column, value, onClose}: ValuePanelProps) {
       aria-label="Value"
       className="fixed inset-x-0 bottom-0 z-30 flex max-h-[50dvh] flex-col gap-2 border-t border-border bg-surface p-3 shadow-lg tablet:static tablet:z-auto tablet:max-h-none tablet:w-80 tablet:flex-none tablet:rounded-lg tablet:border tablet:shadow-none">
       <div className="flex flex-none items-center gap-2">
-        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-text">{column ?? 'Value'}</h3>
+        <span className="min-w-0 flex-1">
+          <h3 className="truncate text-sm font-semibold text-text">{column ?? 'Value'}</h3>
+          {type && <span className="block truncate font-mono text-[10px] text-text-3">{type}</span>}
+        </span>
         <IconButton
           label="Close value panel"
           onClick={onClose}>
@@ -64,6 +77,20 @@ export function ValuePanel({column, value, onClose}: ValuePanelProps) {
           </svg>
         </IconButton>
       </div>
+      {/* The RAW value and the rendering, both, and labelled apart. A panel that showed
+          only the transformed form would leave a user with no way to see what they are
+          actually filtering, colouring and copying (FR-005 AC6). */}
+      {focused && transformed && (
+        <div className="flex-none">
+          <h4 className="text-xs font-medium text-text-2">Shown as</h4>
+          <p className="mt-1 truncate rounded-md border border-border bg-surface-2 p-2 font-mono text-sm text-text">
+            {transformed.text}
+          </p>
+          {transformed.reason && <p className="mt-1 text-xs text-text-2">{transformed.reason}</p>}
+        </div>
+      )}
+      {focused && transformed && <h4 className="flex-none text-xs font-medium text-text-2">The value itself</h4>}
+
       {marker !== null ? (
         <p className="min-h-0 flex-1 overflow-auto rounded-md border border-border bg-surface-2 p-2 font-mono text-sm italic text-text-3">
           {marker}

@@ -4,6 +4,7 @@ import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {LAST_COLUMN_REFUSAL} from './useColumnGeometry';
 import {NUMERIC_VALUE_REFUSAL} from './FilterValueDialog';
+import {SELECT_CLASS} from './dataExplorer.constants';
 import {
   FILTER_OPERATORS,
   FILTER_OPERATOR_LABELS,
@@ -45,9 +46,6 @@ export type OrderFilterDialogProps = {
   onApply: (settings: OrderFilterSettings) => void;
   onCancel: () => void;
 };
-
-const SELECT_CLASS =
-  'h-9 rounded-md border border-border bg-surface px-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
 /**
  * Every column's visibility, pinning, sort and criteria in one staged form (SPEC-181 FR-005).

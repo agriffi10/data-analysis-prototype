@@ -1,7 +1,7 @@
 // Named constants for the Data Explorer. The Athena polling cadence and the result page
 // sizing are `features/catalog/` (SPEC-176) — this feature adds no second pager.
 
-import type {CalcFunction} from './dataExplorer.types';
+import type {CalcFunction, ColourOperator, ColourToken, SurfaceToken} from './dataExplorer.types';
 
 /**
  * Soft cap on open exploration tabs, enforced by refusal: `openTab` returns null and the
@@ -110,6 +110,140 @@ export const CALC_NO_VALUE = '—';
  * meaningfully and short of the artefacts.
  */
 export const CALC_PRECISION = 12;
+
+// ---------------------------------------------------------------------------------------
+// SPEC-184's palette. Nothing here is a NEW design token: these are the tokens `index.css`
+// already defines, and this map exists because two of the spec's requirements need their
+// VALUES rather than their names — a gradient has to interpolate between two of them, and
+// FR-002 AC8's contrast has to be computed from them. `formatting.test.ts` pins every entry
+// against `index.css` itself, so the copy cannot drift from the source.
+// ---------------------------------------------------------------------------------------
+
+/** The token values, exactly as `src/index.css` declares them. */
+export const FORMATTING_TOKEN_HEX: Record<ColourToken | SurfaceToken, string> = {
+  text: '#15191e',
+  'text-2': '#5b6573',
+  'accent-text': '#4338ca',
+  success: '#047857',
+  danger: '#b91c1c',
+  'accent-soft': '#eef2ff',
+  'success-soft': '#e7f7f0',
+  'warning-soft': '#fdf4e3',
+  'danger-soft': '#fdeceb'
+};
+
+/**
+ * The surfaces a formatted cell can land on, which is what its colours are measured against.
+ *
+ * `surface` and `surface-2` are the grid's own backgrounds (the second is the hover and
+ * zebra shade), and `accent-soft` is the SELECTION — a coloured cell is still selectable,
+ * so the selection's fill is one of the backgrounds every foreground has to clear.
+ */
+export const FORMATTING_BASE_SURFACES: Record<string, string> = {
+  surface: '#ffffff',
+  'surface-2': '#fafbfc',
+  'accent-soft': '#eef2ff'
+};
+
+/**
+ * The foregrounds a rule may choose, in the one order they are ever listed.
+ *
+ * **`warning` is deliberately absent.** It clears 4.5:1 on white (5.02) and fails on the
+ * soft backgrounds this spec also introduces (4.49 on `accent-soft`, 4.39 on
+ * `danger-soft`) — computed, not judged, and the test recomputes it. A palette entry that
+ * is only sometimes legible is worse than one fewer colour, because nothing at the point
+ * of choosing would tell the user which case they are in.
+ */
+export const FORMATTING_FOREGROUNDS: ColourToken[] = ['text', 'text-2', 'accent-text', 'success', 'danger'];
+
+/** The backgrounds a rule may choose, and the endpoints a gradient may interpolate between. */
+export const FORMATTING_BACKGROUNDS: SurfaceToken[] = ['accent-soft', 'success-soft', 'warning-soft', 'danger-soft'];
+
+/** The one wording for each colour, so a swatch and its label never disagree. */
+export const FORMATTING_COLOUR_LABELS: Record<ColourToken | SurfaceToken, string> = {
+  text: 'Default',
+  'text-2': 'Muted',
+  'accent-text': 'Indigo',
+  success: 'Green',
+  danger: 'Red',
+  'accent-soft': 'Indigo tint',
+  'success-soft': 'Green tint',
+  'warning-soft': 'Amber tint',
+  'danger-soft': 'Red tint'
+};
+
+/** The colour rule operators, in the one order they are ever offered. */
+export const COLOUR_OPERATORS: ColourOperator[] = ['=', '<>', '>', '>=', '<', '<=', 'like', 'ilike', 'regex'];
+
+/**
+ * The one wording for each colour operator.
+ *
+ * The first six deliberately match `FILTER_OPERATOR_LABELS` word for word: they are the
+ * same comparisons, and a user who has just filtered on "greater than" should not have to
+ * work out whether "is above" means the same thing. The last three are this spec's own.
+ */
+export const COLOUR_OPERATOR_LABELS: Record<ColourOperator, string> = {
+  '=': 'equals',
+  '<>': 'does not equal',
+  '>': 'greater than',
+  '>=': 'greater than or equal to',
+  '<': 'less than',
+  '<=': 'less than or equal to',
+  like: 'matches (% and _)',
+  ilike: 'matches, ignoring case',
+  regex: 'matches a pattern'
+};
+
+/**
+ * How many shades a gradient is quantised to.
+ *
+ * A gradient over a continuous range would emit a distinct colour per cell, which is a
+ * distinct inline style per cell and a scale nobody can read anyway. Eleven steps is a
+ * decile scale plus both ends.
+ */
+export const FORMATTING_GRADIENT_STEPS = 11;
+
+/**
+ * Longest pattern a `LIKE` / `ILIKE` / `REGEX` rule may carry.
+ *
+ * A user-authored pattern is compiled and run over every loaded cell, so a catastrophically
+ * backtracking one would hang the tab. The cap bounds the input rather than the runtime —
+ * it cannot make backtracking impossible, and the residual exposure is accepted: the
+ * pattern is the user's own, it runs in their own browser over one page of rows, and a
+ * reload clears it.
+ */
+export const FORMATTING_PATTERN_MAX = 200;
+
+/** The most decimal places a numeric transformer will render (`toFixed`'s own ceiling is 100). */
+export const NUMERIC_TRANSFORMER_MAX_PRECISION = 12;
+
+/** Characters a binary transformer renders before it truncates. */
+export const BINARY_TRANSFORMER_DEFAULT_MAX_LENGTH = 64;
+
+/** The most a binary transformer will render, however high the cap is set. */
+export const BINARY_TRANSFORMER_MAX_LENGTH = 512;
+
+/**
+ * What a strict numeric transformer shows for a value that is not a number.
+ *
+ * Deliberately not blank and deliberately not `0`: the cell HAS a value, and a transformer
+ * that silently erased it would be indistinguishable from an empty column. Lenient mode
+ * shows the value itself instead, which is the other honest answer.
+ */
+export const NUMERIC_TRANSFORMER_ERROR = '#ERR';
+
+/** Appended to a binary rendering the cap cut short. */
+export const TRUNCATION_INDICATOR = '…';
+
+/**
+ * The chrome for a bare `<select>` in this feature's dialogs and panels.
+ *
+ * There is no `Select` primitive in `components/` yet, and four surfaces having their own
+ * copy of the same twelve classes is how two of them come to disagree about a focus ring.
+ * One string until a primitive exists to replace it.
+ */
+export const SELECT_CLASS =
+  'h-9 rounded-md border border-border bg-surface px-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
 /**
  * The alias a `sql` source's subquery is given: `FROM (<body>) AS t`.
