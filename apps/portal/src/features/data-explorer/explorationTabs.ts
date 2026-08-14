@@ -1,10 +1,18 @@
-import {EXPLORATION_TABS_STORAGE_PREFIX, EXPLORER_FILTER_HISTORY_MAX} from './dataExplorer.constants';
-import {emptyExplorationPresentation} from './exploration';
+import {
+  BINARY_TRANSFORMER_MAX_LENGTH,
+  EXPLORATION_TABS_STORAGE_PREFIX,
+  EXPLORER_FILTER_HISTORY_MAX,
+  FORMATTING_BACKGROUNDS,
+  FORMATTING_FOREGROUNDS,
+  NUMERIC_TRANSFORMER_MAX_PRECISION
+} from './dataExplorer.constants';
+import {emptyExplorationPresentation, emptyFormattingState} from './exploration';
 import type {
   ExplorationPresentation,
   ExplorationQuery,
   ExplorationTab,
   ExplorationTabsState,
+  FormattingState,
   QueryHistoryCursor
 } from './dataExplorer.types';
 import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
@@ -205,6 +213,96 @@ function finiteWidths(value: unknown): Record<string, number> | null {
   return Object.fromEntries(entries) as Record<string, number>;
 }
 
+const COLOUR_OPERATORS = new Set(['=', '<>', '>', '>=', '<', '<=', 'like', 'ilike', 'regex']);
+
+function isValidColourRule(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const rule = value as Record<string, unknown>;
+  if (typeof rule.id !== 'string' || rule.id === '') return false;
+  if (rule.column !== undefined && typeof rule.column !== 'string') return false;
+  if (rule.scope !== undefined && rule.scope !== 'cell' && rule.scope !== 'row') return false;
+  if (typeof rule.operator !== 'string' || !COLOUR_OPERATORS.has(rule.operator)) return false;
+  if (typeof rule.value !== 'string') return false;
+  // The colours are checked against the PALETTE, not merely against `string`: a stored
+  // `#ff0000` would be rendered verbatim as an inline style, and the contrast the palette
+  // is measured for would no longer hold for it (FR-002 AC8).
+  if (rule.foreground !== undefined && !FORMATTING_FOREGROUNDS.includes(rule.foreground as never)) return false;
+  if (rule.background !== undefined && !FORMATTING_BACKGROUNDS.includes(rule.background as never)) return false;
+  if (rule.gradient === undefined) return true;
+  if (typeof rule.gradient !== 'object' || rule.gradient === null) return false;
+  const gradient = rule.gradient as Record<string, unknown>;
+  return (
+    typeof gradient.min === 'number' &&
+    Number.isFinite(gradient.min) &&
+    typeof gradient.max === 'number' &&
+    Number.isFinite(gradient.max) &&
+    FORMATTING_BACKGROUNDS.includes(gradient.from as never) &&
+    FORMATTING_BACKGROUNDS.includes(gradient.to as never)
+  );
+}
+
+function isValidTransformer(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const transformer = value as Record<string, unknown>;
+  if (transformer.kind === 'numeric') {
+    return (
+      typeof transformer.precision === 'number' &&
+      Number.isInteger(transformer.precision) &&
+      transformer.precision >= 0 &&
+      transformer.precision <= NUMERIC_TRANSFORMER_MAX_PRECISION &&
+      typeof transformer.lenient === 'boolean'
+    );
+  }
+  if (transformer.kind === 'binary') {
+    return (
+      (transformer.encoding === 'hex' || transformer.encoding === 'base64') &&
+      typeof transformer.maxLength === 'number' &&
+      Number.isInteger(transformer.maxLength) &&
+      transformer.maxLength > 0 &&
+      transformer.maxLength <= BINARY_TRANSFORMER_MAX_LENGTH
+    );
+  }
+  if (transformer.kind === 'url') return typeof transformer.template === 'string';
+  return false;
+}
+
+/**
+ * Reads a stored formatting block, discarding it WHOLE if any part of it is wrong
+ * (FR-007 AC2).
+ *
+ * Deliberately unlike the field-by-field normalisation around it, and the difference is
+ * what the requirement asks for: a partially-applied colour set is a rule list the user
+ * never built, and a rule that survived while the one meant to override it was dropped
+ * paints the opposite of what was intended. Losing the block costs a tab its colours;
+ * keeping half of it costs the user their trust in what they are looking at.
+ *
+ * A document written before SPEC-184 carries no block at all, which is the ordinary case
+ * for the first session after a deploy and reaches the same default.
+ *
+ * @param value - The stored `formatting` object, or anything at all.
+ * @returns The block, or the empty state.
+ */
+function normalizeFormatting(value: unknown): FormattingState {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return emptyFormattingState();
+  const stored = value as Record<string, unknown>;
+  if (!Array.isArray(stored.rules) || !stored.rules.every(isValidColourRule)) return emptyFormattingState();
+  if (typeof stored.colourByType !== 'boolean') return emptyFormattingState();
+  if (!Array.isArray(stored.stripeColumns) || !stored.stripeColumns.every((c) => typeof c === 'string')) {
+    return emptyFormattingState();
+  }
+  const transformers = stored.transformers;
+  if (typeof transformers !== 'object' || transformers === null || Array.isArray(transformers)) {
+    return emptyFormattingState();
+  }
+  if (!Object.values(transformers).every(isValidTransformer)) return emptyFormattingState();
+  return {
+    rules: stored.rules as FormattingState['rules'],
+    colourByType: stored.colourByType,
+    stripeColumns: stored.stripeColumns as string[],
+    transformers: transformers as FormattingState['transformers']
+  };
+}
+
 /**
  * Reads a stored presentation, defaulting every field it cannot trust.
  *
@@ -232,7 +330,8 @@ function normalizePresentation(value: unknown): ExplorationPresentation {
     recordRowIndex:
       typeof stored.recordRowIndex === 'number' && Number.isInteger(stored.recordRowIndex) && stored.recordRowIndex >= 0
         ? stored.recordRowIndex
-        : empty.recordRowIndex
+        : empty.recordRowIndex,
+    formatting: normalizeFormatting(stored.formatting)
   };
 }
 

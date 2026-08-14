@@ -9,6 +9,9 @@ import {CALC_DEFAULT_FUNCTIONS, EXPLORATION_PAGE_SIZE} from './dataExplorer.cons
 import {CalcPanel} from './CalcPanel';
 import {percentageColumnName, percentageOfTotal, selectedCellValues} from './calc';
 import {ColumnsPanel} from './ColumnsPanel';
+import {RowColoursDialog} from './RowColoursDialog';
+import {TransformersDialog} from './TransformersDialog';
+import {computePageFormatting} from './formatting';
 import {GeneratedSqlDisclosure} from './GeneratedSqlDisclosure';
 import {GroupingPanel} from './GroupingPanel';
 import {ExplorationGrid} from './ExplorationGrid';
@@ -36,7 +39,13 @@ import {
 } from './explorationQueryOps';
 import type {ColumnQueryActions} from './ColumnFilterMenu';
 import type {QueryColumn} from '../catalog/catalog.types';
-import type {CalcPanelState, ExplorationPresentation, FilterOperator, GridPresentation} from './dataExplorer.types';
+import type {
+  CalcPanelState,
+  ExplorationPresentation,
+  FilterOperator,
+  FormattingState,
+  GridPresentation
+} from './dataExplorer.types';
 import type {UseExplorationQueryResult} from './useExplorationQuery';
 
 export type ExplorationResultsRegionProps = {
@@ -127,6 +136,8 @@ export function ExplorationResultsRegion({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [calcOpen, setCalcOpen] = useState(false);
   const [groupingOpen, setGroupingOpen] = useState(false);
+  const [coloursOpen, setColoursOpen] = useState(false);
+  const [transformersOpen, setTransformersOpen] = useState(false);
   // What a header drag is carrying, so the Grouping panel can be a drop target for it. A
   // ref rather than state: the drop handler reads it at event time and nothing renders
   // from it, so a drag would otherwise re-render the whole grid on every start and end.
@@ -227,6 +238,24 @@ export function ExplorationResultsRegion({
     () => selectedCellValues(selection.selection.ranges, geometry.visible, rows),
     [selection.selection.ranges, geometry.visible, rows]
   );
+
+  // SPEC-184. Resolved from the rows already on screen, which is the whole spec: every
+  // gesture behind this is a state write, so the grid repaints and NOTHING is fetched. It is
+  // memoised because it is recomputed on every render of a region that re-renders on every
+  // cursor move.
+  // Evaluated over `geometry.all`, HIDDEN COLUMNS INCLUDED, and that is deliberate: a
+  // hidden column is still part of the row, so a rule reading `status` must keep painting
+  // the row after `status` is hidden — and the two dialogs are handed `all` too, so what
+  // they call applicable is what the evaluator can actually see. Judged over `visible`,
+  // the dialog reported a rule as fine while it silently did nothing (found in review).
+  // Formats for hidden columns are simply never looked up.
+  const pageFormatting = useMemo(
+    () => computePageFormatting(presentation.formatting, geometry.all, rows),
+    [presentation.formatting, geometry.all, rows]
+  );
+
+  const setFormatting = (update: Partial<FormattingState>) =>
+    onPresentationChange((p) => ({...p, formatting: {...p.formatting, ...update}}));
 
   const typeOf = useMemo(() => new Map(geometry.all.map((column) => [column.name, column.type])), [geometry.all]);
   const valueKindOf = (column: string) => filterValueKind(typeOf.get(column) ?? '');
@@ -363,6 +392,7 @@ export function ExplorationResultsRegion({
               geometry={geometry}
               selection={selection}
               actions={actions}
+              formatting={pageFormatting}
               onRequestFilterValue={(column, operator) => setPendingFilter({column, operator})}
               onColumnDrag={(name) => {
                 draggedColumn.current = name;
@@ -376,6 +406,8 @@ export function ExplorationResultsRegion({
               rows={rows}
               rowIndex={recordRow}
               rangeStart={results.rangeStart}
+              formats={pageFormatting.formats}
+              transformed={pageFormatting.transformed}
               onRowIndexChange={(next) => onPresentationChange((p) => ({...p, recordRowIndex: next}))}
               onFocusColumn={(column) => selection.selectCell({row: recordRow, column}, {})}
             />
@@ -415,6 +447,8 @@ export function ExplorationResultsRegion({
             <ValuePanel
               column={cursorColumn?.name ?? null}
               value={cursorValue}
+              type={cursorColumn?.type ?? null}
+              transformed={cursorColumn ? pageFormatting.transformed[cursorRow]?.[cursorColumn.name] : null}
               onClose={() => onPresentationChange((p) => ({...p, valuePanelOpen: false}))}
             />
           )}
@@ -467,6 +501,19 @@ export function ExplorationResultsRegion({
           size="sm"
           onClick={() => setColumnsOpen(true)}>
           Columns
+        </Button>
+        {/* Colours, striping and the type tint change how the rows on screen LOOK and
+            nothing about which rows they are — so unlike Grouping beside it, opening this
+            and applying what it stages are both free (FR-001). */}
+        <Button
+          size="sm"
+          onClick={() => setColoursOpen(true)}>
+          Colours
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => setTransformersOpen(true)}>
+          Transformers
         </Button>
         <Button
           size="sm"
@@ -554,6 +601,30 @@ export function ExplorationResultsRegion({
             setPendingFilter(null);
           }}
           onCancel={() => setPendingFilter(null)}
+        />
+      )}
+
+      {coloursOpen && (
+        <RowColoursDialog
+          columns={geometry.all.map((column) => column.name)}
+          formatting={presentation.formatting}
+          onCancel={() => setColoursOpen(false)}
+          onApply={(settings) => {
+            setColoursOpen(false);
+            setFormatting(settings);
+          }}
+        />
+      )}
+
+      {transformersOpen && (
+        <TransformersDialog
+          columns={geometry.all.map((column) => column.name)}
+          transformers={presentation.formatting.transformers}
+          onCancel={() => setTransformersOpen(false)}
+          onApply={(transformers) => {
+            setTransformersOpen(false);
+            setFormatting({transformers});
+          }}
         />
       )}
 

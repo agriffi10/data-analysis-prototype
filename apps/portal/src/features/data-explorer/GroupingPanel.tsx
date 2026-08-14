@@ -2,6 +2,7 @@ import {useState, type RefObject} from 'react';
 import {Button} from '../../components/Button';
 import {IconButton} from '../../components/IconButton';
 import {useEscapeKey} from '../../hooks/useEscapeKey';
+import {SELECT_CLASS} from './dataExplorer.constants';
 import {emptyGrouping} from './exploration';
 import {groupingApplyRefusal} from './explorationQueryOps';
 import {aggregateAlias, groupingNameCollision} from './renderExplorationSql';
@@ -12,9 +13,6 @@ const AGGREGATE_FUNCTIONS: AggregateFunction[] = ['COUNT', 'SUM', 'AVG', 'MIN', 
 
 /** `*` is the COUNT-only column, and the picker is where that rule is enforced for the user. */
 const ALL_ROWS = '*';
-
-const SELECT_CLASS =
-  'h-9 rounded-md border border-border bg-surface px-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
 export const GROUPING_NO_COLUMNS = 'Drag a column header here, or add one below, to group by it.';
 

@@ -3,6 +3,7 @@ import type {
   ExplorationPresentation,
   ExplorationQuery,
   ExplorationSource,
+  FormattingState,
   Grouping,
   QueryHistoryCursor
 } from './dataExplorer.types';
@@ -60,6 +61,20 @@ export function emptyQueryHistory(): QueryHistoryCursor {
 }
 
 /**
+ * Formatting as a tab starts: no rules, no type tint, no striping, no transformers
+ * (SPEC-184).
+ *
+ * Every default is "off" rather than a sensible-looking preset, because each one changes
+ * how a value READS — a number rendered to two decimals is a different number to anyone
+ * reading it, and nobody asked for it.
+ *
+ * @returns Formatting state that changes nothing on screen.
+ */
+export function emptyFormattingState(): FormattingState {
+  return {rules: [], colourByType: false, stripeColumns: [], transformers: {}};
+}
+
+/**
  * The empty presentation state. Extended by SPEC-184; nothing here reaches the renderer.
  *
  * `presentation: null` means "unchosen", which is not the same as `'grid'` — it is what
@@ -76,7 +91,8 @@ export function emptyExplorationPresentation(): ExplorationPresentation {
     columnWidths: {},
     presentation: null,
     valuePanelOpen: false,
-    recordRowIndex: 0
+    recordRowIndex: 0,
+    formatting: emptyFormattingState()
   };
 }
 

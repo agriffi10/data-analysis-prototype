@@ -1277,7 +1277,7 @@ destroy it" are different guarantees, and only one of them survives a stale cach
 > drift apart. Choosing a different space **copies**; nothing in this arc ever moves or deletes a
 > colleague's file.
 
-## Data Explorer arc (SPEC-176 → 185 — filed 2026-08-13; 176 → 183 COMPLETE)
+## Data Explorer arc (SPEC-176 → 185 — filed 2026-08-13; 176 → 184 COMPLETE)
 
 The portal can already run SQL. What it cannot do is let someone **look at a table** without writing
 any — pick a database and a table, see its rows, page through them. That is the Data Explorer, and
@@ -1357,6 +1357,22 @@ rather than by widening the Query workspace's.
 > ordering refusal belongs on the **Grouping panel's Apply** rather than on a sort control — while a
 > grouping is in force every column a user can see is orderable, so the only reachable way to build
 > the conflict is to sort a column and then group it away.
+
+> **184 landed 2026-08-14, and its two hard problems were both about measurement.** The spec's
+> `foreground?: string` became a five-token union, because "every colour pairing meets contrast
+> requirements" is not a claim anyone can make about a colour picker — and the narrowing turned the
+> criterion into an arithmetic one, computed over the cross product, the sampled gradient and the
+> selection's own fill rather than judged. **`warning` was measured out of the palette**: 5.02:1 on
+> white and 4.49 on `accent-soft`, so a colour that is legible only sometimes was dropped in favour
+> of one fewer. Axe carries the other half of that criterion and cannot carry this one — jsdom has
+> no layout engine, so `color-contrast` is off — which is worth remembering the next time an axe
+> pass is offered as evidence about colour. The second problem was the URL transformer, where both
+> simple encoding rules are wrong: unconditional encoding makes `${value}` over a column of links
+> produce `https%3A%2F%2F…` and never link at all, while no encoding lets a value climb out of its
+> path segment. The leading position substitutes raw and the `https:` allowlist guards it; every
+> later position is encoded. Two smaller notes: `ColourRule` needed a `scope` the spec's model did
+> not have, because one field cannot carry both what a rule tests and what it paints; and the Text
+> view deliberately stays raw, since it is the copy surface SPEC-185 is about to build on.
 
 **The arc is ordered by risk, descending, and its first three specs ship nothing a user can see.**
 That is the rule the whole decomposition follows: layer extractions, shared-model design and the

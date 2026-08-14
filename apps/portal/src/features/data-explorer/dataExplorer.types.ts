@@ -122,6 +122,77 @@ export type CalcResult = {
 /** How the current page's rows are drawn (SPEC-180). None of these render SQL. */
 export type GridPresentation = 'grid' | 'record' | 'text';
 
+/**
+ * A colour a rule may paint text in (SPEC-184 FR-002).
+ *
+ * A bounded set of design tokens rather than the spec's free-form `string`, and the
+ * narrowing is what makes FR-002 AC8 assertable at all: "every pairing meets contrast
+ * requirements" is not a claim anyone can make about a colour picker. Every token here
+ * clears 4.5:1 against every surface it can land on — `formatting.test.ts` recomputes that
+ * from the token values rather than restating it, and `warning` is absent because it does
+ * NOT (4.49:1 on `accent-soft`).
+ */
+export type ColourToken = 'text' | 'text-2' | 'accent-text' | 'success' | 'danger';
+
+/** A colour a rule may paint a cell's background in — the soft tints, for the same reason. */
+export type SurfaceToken = 'accent-soft' | 'success-soft' | 'warning-soft' | 'danger-soft';
+
+export type ColourOperator = '=' | '<>' | '>' | '>=' | '<' | '<=' | 'like' | 'ilike' | 'regex';
+
+/**
+ * What a matching rule paints (SPEC-184 FR-002 AC3).
+ *
+ * Beyond the spec's Data Model, which carries only `column?` and reads an absent column as
+ * "across the row". That conflates two independent choices — what a rule TESTS and what it
+ * PAINTS — and leaves the most ordinary rule of all inexpressible: colour the whole row
+ * wherever `status` is `failed`. One optional field separates them, on SPEC-181's
+ * precedent for `valueKind`.
+ */
+export type ColourScope = 'cell' | 'row';
+
+export type ColourRule = {
+  id: string;
+  /** The column the condition is tested against; **undefined tests every cell in the row**. */
+  column?: string;
+  /** Whether a match paints the matching cell or the whole row. Defaults to `'cell'`. */
+  scope?: ColourScope;
+  operator: ColourOperator;
+  value: string;
+  foreground?: ColourToken;
+  background?: SurfaceToken;
+  /**
+   * Numeric gradient across [min, max] instead of a binary match.
+   *
+   * Present means the operator and value are unused: the cell's own number decides the
+   * shade. A non-numeric cell is left UNSTYLED rather than clamped (FR-002 AC4) — clamping
+   * would paint a text cell the colour of the minimum, which reads as a measurement.
+   */
+  gradient?: {min: number; max: number; from: SurfaceToken; to: SurfaceToken};
+};
+
+/**
+ * A per-column rendering change (SPEC-184 FR-005).
+ *
+ * **Rendering only.** The raw value continues to drive filtering, colouring, Calc and copy
+ * — a transformed value reaching any of those is a silent wrong answer, which is why the
+ * transform happens at the cell and nowhere upstream of it.
+ */
+export type Transformer =
+  | {kind: 'numeric'; precision: number; lenient: boolean}
+  | {kind: 'binary'; encoding: 'hex' | 'base64'; maxLength: number}
+  | {kind: 'url'; template: string};
+
+/** Everything SPEC-184 adds, and none of it renders SQL. */
+export type FormattingState = {
+  /** Evaluated in order; a later match overrides an earlier one **per property**. */
+  rules: ColourRule[];
+  colourByType: boolean;
+  /** Consecutive rows equal in ALL of these form one band. Empty means striping is off. */
+  stripeColumns: string[];
+  /** Keyed by column name, like the geometry beside it. */
+  transformers: Record<string, Transformer>;
+};
+
 /** One cell, addressed by its row's index within the CURRENT PAGE and its column's name. */
 export type CellRef = {row: number; column: string};
 
@@ -171,6 +242,8 @@ export type ExplorationPresentation = {
   valuePanelOpen: boolean;
   /** The Record view's focused row index within the current page. */
   recordRowIndex: number;
+  /** Colours, striping and transformers (SPEC-184). Restored whole or not at all. */
+  formatting: FormattingState;
 };
 
 export type Exploration = {

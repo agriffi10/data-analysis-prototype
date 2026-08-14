@@ -105,7 +105,15 @@ describe('useExploration — one execution per distinct rendered SQL (FR-006)', 
         columnWidths: {id: 240},
         presentation: 'record',
         valuePanelOpen: true,
-        recordRowIndex: 3
+        recordRowIndex: 3,
+        // SPEC-184's half of the same claim: colours, striping, the type tint and a
+        // transformer are presentation too, so none of them may reach the renderer.
+        formatting: {
+          rules: [{id: 'r1', column: 'status', operator: '=', value: 'ok', background: 'danger-soft'}],
+          colourByType: true,
+          stripeColumns: ['id'],
+          transformers: {id: {kind: 'url', template: 'https://example.com/${value}'}}
+        }
       }
     };
     const {result, rerender} = renderHookWithProviders(

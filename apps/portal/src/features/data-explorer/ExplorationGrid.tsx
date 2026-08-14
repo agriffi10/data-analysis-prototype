@@ -7,6 +7,7 @@ import {ExplorationGridHeader} from './ExplorationGridHeader';
 import type {ColumnQueryActions} from './ColumnFilterMenu';
 import type {FilterOperator} from './dataExplorer.types';
 import type {GridColumn, UseColumnGeometryResult} from './useColumnGeometry';
+import type {PageFormatting} from './formatting';
 import {CURSOR_CELL_ATTRIBUTE} from './useCellSelection';
 import type {UseCellSelectionResult} from './useCellSelection';
 
@@ -21,6 +22,8 @@ export type ExplorationGridProps = {
   selection: UseCellSelectionResult;
   /** Ordering and filtering, for each column header's menu (SPEC-181). */
   actions: ColumnQueryActions;
+  /** Resolved colours and bands for this page (SPEC-184). Costs nothing and changes no rows. */
+  formatting: PageFormatting;
   /** A comparison was chosen and needs a value; the REGION raises the dialog, not the header. */
   onRequestFilterValue: (column: string, operator: FilterOperator) => void;
   /** A header drag started (the column) or ended (null) — for drop targets outside the grid. */
@@ -47,6 +50,7 @@ export function ExplorationGrid({
   geometry,
   selection,
   actions,
+  formatting,
   onRequestFilterValue,
   onColumnDrag,
   gridRef
@@ -105,12 +109,20 @@ export function ExplorationGrid({
               <th
                 scope="row"
                 onClick={() => selection.selectRow(rowIndex)}
-                className="sticky left-0 z-10 cursor-pointer truncate border-b border-border-2 bg-surface px-3 text-left text-xs font-normal text-text-3 group-last:border-0 group-hover:bg-surface-2">
+                className={cx(
+                  'sticky left-0 z-10 cursor-pointer truncate border-b border-border-2 bg-surface px-3 text-left text-xs font-normal text-text-3 group-last:border-0 group-hover:bg-surface-2',
+                  // The band's own tint is faint by design (it is the hover shade), so the
+                  // BOUNDARY carries a rule as well — colour is never the only thing marking
+                  // it. Suppressed on the first row, where it would only double the header's
+                  // own border.
+                  rowIndex > 0 && formatting.bandStarts[rowIndex] && 'border-t-2 border-t-border'
+                )}>
                 {rangeStart + rowIndex}
               </th>
               {columns.map((column, position) => {
                 const selected = selection.isSelected(rowIndex, column.name);
                 const cursor = selection.isCursor(rowIndex, column.name);
+                const format = formatting.formats[rowIndex]?.[column.name];
                 return (
                   <td
                     key={column.name}
@@ -131,15 +143,27 @@ export function ExplorationGrid({
                         {shiftKey: e.shiftKey, metaKey: e.metaKey, ctrlKey: e.ctrlKey}
                       )
                     }
-                    style={column.pinned ? {left: offsets[position]} : undefined}
+                    style={{
+                      ...(column.pinned ? {left: offsets[position]} : {}),
+                      color: format?.color,
+                      // THE SELECTION WINS. An inline background beats the class that
+                      // paints a selected cell, so a formatted grid would be one a user
+                      // cannot see their own selection in — and the selection is what the
+                      // Calc panel aggregates. `aria-selected` says so either way.
+                      backgroundColor: selected ? undefined : format?.backgroundColor
+                    }}
                     className={cx(
                       'truncate border-b border-border-2 px-3 group-last:border-0 focus:outline-none',
+                      rowIndex > 0 && formatting.bandStarts[rowIndex] && 'border-t-2 border-t-border',
                       column.pinned && 'sticky z-10 bg-surface group-hover:bg-surface-2',
                       selected && 'bg-accent-soft',
                       cursor && 'ring-2 ring-inset ring-accent'
                     )}
                     title={cellText(row[column.index] ?? null)}>
-                    <CellValue value={row[column.index] ?? null} />
+                    <CellValue
+                      value={row[column.index] ?? null}
+                      transformed={formatting.transformed[rowIndex]?.[column.name]}
+                    />
                   </td>
                 );
               })}

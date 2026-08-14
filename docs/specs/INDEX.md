@@ -189,7 +189,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 181 — Filtering and Ordering | Completed |
 | 182 — The Calc and Grouping Panels | Completed |
 | 183 — Saving an Exploration as a Saved Query | Completed |
-| 184 — Presentation and Formatting | Draft |
+| 184 — Presentation and Formatting | Completed |
 | 185 — Copy, Export, Help & the Arc's Live Checks | Draft |
 
 ## Arcs
