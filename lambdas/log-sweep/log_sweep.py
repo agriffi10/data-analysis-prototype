@@ -61,10 +61,13 @@ Attributes:
   SWEEP_RESERVE_MS: Invocation time held back for the final wave's write and delete. The wave
     cost is a function of the day object's size, which grows all day, so the wave count alone
     cannot bound the sweep's duration.
-  STOP_WAVE_CAP, STOP_TIME_RESERVE, STOP_WRITE_FAILED: Why a sweep stopped with the queue
+  STOP_WAVE_CAP, STOP_TIME_RESERVE, STOP_GROUP_BLOCKED: Why a sweep stopped with the queue
     possibly still yielding. Separate values rather than one flag because the three want
-    opposite responses — more waves, a longer timeout, and a look at the write fault — and a
-    reason you can filter on is worth more than a message you can read once.
+    opposite responses — more waves, a longer timeout, and a look at whatever is leaving
+    messages in flight — and a reason you can filter on is worth more than a message you can
+    read once. ``group-blocked`` names the condition rather than either cause, because an
+    undeleted message blocks its group exactly as an unwritten one does, and because
+    ``_append_day`` already emits ``reason="write-failed"`` for a different thing entirely.
   MAX_CAS_ATTEMPTS: Conditional-write attempts per day object before giving up and leaving the
     messages queued. ``cpcommon.cas.MAX_ATTEMPTS`` since SPEC-156 FR-001 — this was one of three
     copies of the loop, and the caps had drifted.
@@ -137,7 +140,7 @@ SWEEP_RESERVE_MS = 60_000
 
 STOP_WAVE_CAP = "wave-cap"
 STOP_TIME_RESERVE = "time-reserve"
-STOP_WRITE_FAILED = "write-failed"
+STOP_GROUP_BLOCKED = "group-blocked"
 
 MAX_CAS_ATTEMPTS = cas.MAX_ATTEMPTS
 
@@ -466,11 +469,20 @@ def _delete(receipts):
     per-chunk emitter would scale with the message count on exactly the path where the queue is
     already unhappy.
 
+    It is the count that matters to the caller, not just the log line. An undeleted message stays
+    in flight and its group stays blocked, so the sweep's next receive can come back empty with
+    the queue nowhere near drained — the same false reading a failed append produces, through the
+    door that is more likely to open.
+
+    Both halves of the response are read. ``DeleteMessageBatch`` reports a partial failure as
+    **HTTP 200 with a ``Failed`` array**, so a try/except sees nothing at all on the most likely
+    real fault; SPEC-151 closed the same shape on ``delete_objects``, and this had it too.
+
     Args:
       receipts: The receipt handles to delete.
 
     Returns:
-      None.
+      The number of messages still on the queue, and so still blocking their group.
 
     Raises:
       None.
@@ -480,19 +492,25 @@ def _delete(receipts):
     for i in range(0, len(receipts), 10):
         chunk = receipts[i : i + 10]
         try:
-            sqs.delete_message_batch(
+            response = sqs.delete_message_batch(
                 QueueUrl=LOGS_QUEUE_URL,
                 Entries=[{"Id": str(n), "ReceiptHandle": r} for n, r in enumerate(chunk)],
             )
         except Exception:
             logger.exception("log-sweep: failed to delete %d messages", len(chunk))
             undeleted += len(chunk)
+            continue
+        rejected = len(response.get("Failed") or [])
+        if rejected:
+            logger.warning("log-sweep: the queue rejected %d delete(s)", rejected)
+            undeleted += rejected
     if undeleted:
         observability.warning(
             "delete failed; events will be appended again next sweep",
             events=undeleted,
             lost=False,
         )
+    return undeleted
 
 
 @observability.traced("sweep")
@@ -513,9 +531,10 @@ def handler(event, context):
     What bounds it is a ratio rather than a constant, and the wave loop is why. The receive and
     the per-destination events fire once per wave and once per (wave, day-group), so a sweep's
     events grow with the work it does — measured at roughly 0.58 events per message drained.
-    That converges, and would at any figure below one, because a wave that emits E events drains
-    ten messages per unblocked group; the summary below is the only part aggregated to one event
-    per sweep, because it is the only part that is genuinely per sweep. The property to preserve
+    Any ratio below one converges, because each sweep puts back strictly less than it takes;
+    what keeps this one constant rather than growing with the backlog is that the emitters and
+    the drain scale together, per wave and per (wave, day-group). The summary below is the only
+    part aggregated to one event per sweep, because it is the only part genuinely per sweep. The property to preserve
     when adding an emitter here is the ratio, not a count.
 
     The plain logging calls stay alongside the structured events deliberately, and this is the
@@ -567,20 +586,21 @@ def handler(event, context):
     unrouted = 0
     waves = 0
     capped = False
+    stuck = 0
     stop_reason = ""
     touched = set()
 
     while True:
-        if waves >= MAX_WAVES:
-            stop_reason = STOP_WAVE_CAP
-            break
         if waves and _time_is_short(context):
             stop_reason = STOP_TIME_RESERVE
             break
+        if waves >= MAX_WAVES:
+            stop_reason = STOP_WAVE_CAP
+            break
         messages, truncated = _receive_all()
         if not messages:
-            if failed:
-                stop_reason = STOP_WRITE_FAILED
+            if failed or stuck:
+                stop_reason = STOP_GROUP_BLOCKED
             break
         waves += 1
         swept += len(messages)
@@ -604,7 +624,7 @@ def handler(event, context):
             touched.add(key)
             if _append_day(key, [b for b, _ in items]):
                 written += len(items)
-                _delete([r for _, r in items if r])
+                stuck += _delete([r for _, r in items if r])
             else:
                 failed += len(items)
 
@@ -630,7 +650,7 @@ def handler(event, context):
             waves,
         )
         observability.warning(
-            "stopped before the queue ran dry",
+            "stopped with the queue possibly still yielding",
             reason=stop_reason,
             taken=swept,
             waves=waves,

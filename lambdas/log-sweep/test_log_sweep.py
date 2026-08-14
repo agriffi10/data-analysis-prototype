@@ -514,7 +514,11 @@ def _sweep_event_count(wired_factory, message_count, captured):
     ]
     wired_factory([receipts[i : i + 10] for i in range(0, len(receipts), 10)])
     captured.events.clear()
-    log_sweep.handler({}, None)
+    result = log_sweep.handler({}, None)
+    assert result["waves"] == 1, (
+        "this helper's whole scope is a single wave; a second one makes the count differ for a "
+        "reason that is not a per-message emitter"
+    )
     return len(captured.events)
 
 
@@ -607,11 +611,12 @@ def test_every_existing_cloudwatch_message_is_still_in_the_source():
         "log-sweep: failed to delete %d messages",
         "log-sweep: a wave filled its %d-message cap",
         "log-sweep: stopped on %s",
+        "log-sweep: the queue rejected %d delete(s)",
         "log-sweep: %d event(s) had no usable timestamp",
         "log-sweep %s: %d message(s)",
     ):
         assert message in source, f"a CloudWatch account was removed: {message!r}"
-    assert source.count("logger.") >= 12, "a logger call was removed without its message"
+    assert source.count("logger.") >= 13, "a logger call was removed without its message"
 
 
 def test_a_failure_is_written_to_BOTH_accounts(wired, captured, caplog):
@@ -971,9 +976,41 @@ def test_a_write_failure_does_not_read_as_a_drained_queue(monkeypatch, captured)
 
     assert sqs.pending["data-quality"], "the fixture did not leave a blocked backlog"
     assert result["written"] == 10, "the healthy group did not drain"
-    stopped = _by_message(captured, "stopped before the queue ran dry")
+    stopped = _by_message(captured, "stopped with the queue possibly still yielding")
     assert stopped, "a blocked group read as a drained queue"
-    assert stopped[0]["fields"]["reason"] == log_sweep.STOP_WRITE_FAILED
+    assert stopped[0]["fields"]["reason"] == log_sweep.STOP_GROUP_BLOCKED
+
+
+def test_a_REJECTED_delete_does_not_read_as_a_drained_queue(monkeypatch, captured):
+    """The same blind spot as the write failure, through the door that opens more often.
+
+    ``DeleteMessageBatch`` reports a partial failure as HTTP 200 with a ``Failed`` array, so a
+    try/except sees nothing — the shape SPEC-151 closed on ``delete_objects``. The message stays
+    in flight either way, its group stays blocked, and the sweep's next receive comes back empty
+    with the queue nowhere near drained. Nothing here raises and nothing appends badly, so the
+    write-failure guard cannot cover it: ``failed`` is 0 for the whole sweep.
+    """
+
+    class _RejectingSQS(FifoSQS):
+        def delete_message_batch(self, QueueUrl, Entries):
+            return {"Failed": [{"Id": e["Id"], "SenderFault": False} for e in Entries]}
+
+    per_group = {
+        "data-quality": [
+            _message(_event(service="data-quality"), f"dq-{n}") for n in range(30)
+        ],
+    }
+    sqs = _RejectingSQS(per_group)
+    monkeypatch.setattr(log_sweep.clients, "sqs", lambda: sqs)
+    monkeypatch.setattr(log_sweep.clients, "s3", lambda: FakeS3())
+
+    result = log_sweep.handler({}, None)
+
+    assert result["written"] == 10, "the append itself should have succeeded"
+    assert sqs.pending["data-quality"], "the fixture did not leave a blocked backlog"
+    stopped = _by_message(captured, "stopped with the queue possibly still yielding")
+    assert stopped, "an undeleted message read as a drained queue"
+    assert stopped[0]["fields"]["reason"] == log_sweep.STOP_GROUP_BLOCKED
 
 
 def test_the_wave_cap_bounds_a_sweep_and_says_so(monkeypatch, captured):
@@ -993,7 +1030,7 @@ def test_the_wave_cap_bounds_a_sweep_and_says_so(monkeypatch, captured):
 
     assert result["swept"] == 20
     assert result["waves"] == 2
-    stopped = _by_message(captured, "stopped before the queue ran dry")
+    stopped = _by_message(captured, "stopped with the queue possibly still yielding")
     assert stopped and stopped[0]["level"] == "WARNING"
     assert stopped[0]["fields"]["limit"] == 2
     assert stopped[0]["fields"]["reason"] == log_sweep.STOP_WAVE_CAP
@@ -1017,7 +1054,7 @@ def test_a_sweep_stops_early_when_the_invocation_is_nearly_over(monkeypatch, cap
 
     assert result["waves"] == 1, "the reserve did not stop the sweep"
     assert result["swept"] == 10
-    stopped = _by_message(captured, "stopped before the queue ran dry")
+    stopped = _by_message(captured, "stopped with the queue possibly still yielding")
     assert stopped[0]["fields"]["reason"] == log_sweep.STOP_TIME_RESERVE, (
         "the time reserve and the wave cap are reported as the same thing"
     )

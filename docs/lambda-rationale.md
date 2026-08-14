@@ -159,20 +159,35 @@ timeout is the real ceiling. Peak memory is one wave (`MAX_MESSAGES`), not the s
 **Stopping is three different things and they want opposite responses.** A sweep that stops with
 the queue possibly still yielding reports *why*: `wave-cap` (raise `MAX_WAVES`), `time-reserve`
 (the day objects have grown enough that a wave no longer fits — raise the timeout, or look at
-the growth), `write-failed` (see below). One flag reporting `limit=MAX_WAVES` for all three
+the growth), `group-blocked` (see below). The clock is checked before the wave cap, so when both
+hold the harder constraint is the one reported. One flag reporting `limit=MAX_WAVES` for all three
 reads as "plenty of budget, the queue just kept yielding" when the cause was the clock. Note the
 `wave-cap` reason cannot distinguish "the cap bound me" from "I drained the queue on exactly the
-last allowed wave" — only one more receive could, and the wording says *may* still be yielding
-rather than buying certainty with an API call on every capped sweep.
+last allowed wave" — only one more receive could, and the event says the queue *may* still be
+yielding rather than buying certainty with an API call on every capped sweep. Review caught that
+the first version of that hedge reached only the CloudWatch line while the structured event —
+the account that carries `reason` and gets filtered on — still asserted the claim it softened.
 
-**A failed append re-creates the false-empty inference, and that is why `write-failed` exists.**
-Messages whose append failed are correctly not deleted — but they stay *in flight*, so they
-block their own group for the rest of the sweep. Once the healthy groups drain, the next receive
-returns empty, which is precisely the reading this design removes. Found in review with a
-per-key S3 fault: 30 `data-quality` messages behind a failing key, 10 `observability` messages
-healthy — 20 of the 30 were never looked at, and the only signal was `failed` on the summary,
-which reports a write fault rather than a backlog. Under a persistent per-key fault that drains
-the group at ten messages per tick, which is the arithmetic this entry opens with.
+**A message left in flight re-creates the false-empty inference, and that is why `group-blocked`
+exists.** It is the *condition* that is named, not either cause, because the two doors are
+symmetric and the second is the more likely one. A failed append leaves its messages queued; a
+failed **delete** does the same, and `DeleteMessageBatch` reports a partial failure as **HTTP 200
+with a `Failed` array** — so the try/except around it saw nothing at all on the most realistic
+fault, and the append-side guard could not cover it because `failed` was 0 for the whole sweep.
+That is the shape SPEC-151 closed on `delete_objects`; this had it too. The reason token also
+deliberately avoids `write-failed`, which `_append_day` already emits on its own event for a
+different thing.
+
+
+Messages that were not deleted — because the append failed, or because the delete did — stay
+*in flight*, so they block their own group for the rest of the sweep. Once the healthy groups
+drain, the next receive returns empty, which is precisely the reading this design removes. Found
+in review with a per-key S3 fault: 30 `data-quality` messages behind a failing key, 10
+`observability` messages healthy — 20 of the 30 were never looked at, and the only signal was
+`failed` on the summary, which reports a write fault rather than a backlog. Under a persistent
+per-key fault that drains the group at ten messages per tick, which is the arithmetic this entry
+opens with. A fault-specific event cannot stand in for the stop reason here: it reports its own
+cause, not that the queue is behind.
 
 **The emitter question, and why the answer is "no change".** This function logs into the queue it
 drains, so its own telemetry is a real cost — the `observability` group is itself one of the two
