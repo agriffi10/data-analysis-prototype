@@ -92,7 +92,17 @@ export function ExplorationGrid({
           // truncated cells is whatever text happens to be highlighted — not the cells the
           // user selected. `preventDefault` is what makes the rendered copy the one that
           // reaches the clipboard.
-          if (onCopy && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === 'c') {
+          // `toLowerCase`, as `useCellSelection`'s own Ctrl/Cmd+A does: with Caps Lock on the
+          // key is `'C'`, the branch would miss, and the browser's copy would take whatever
+          // DOM text happened to be highlighted in the truncated cells — the exact outcome
+          // this intercept exists to prevent.
+          if (
+            onCopy &&
+            (event.metaKey || event.ctrlKey) &&
+            !event.shiftKey &&
+            !event.altKey &&
+            event.key.toLowerCase() === 'c'
+          ) {
             event.preventDefault();
             onCopy();
             return;

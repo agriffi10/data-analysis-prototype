@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {cx} from '../../lib/cx';
 import {FormDialog} from '../../components/FormDialog';
 import {ADVANCED_COPY_DEFAULTS, COPY_FORMAT_LABELS, SELECT_CLASS} from './dataExplorer.constants';
 import {formatUsesQuoting} from './renderCopy';
@@ -44,6 +45,9 @@ export const COPY_QUOTING_NOTE = 'Quoting also keeps a value whose text is “NU
  * look like the unusual one.
  */
 const FORMATS = Object.keys(COPY_FORMAT_LABELS) as CopyFormat[];
+
+/** Ties the quoting note to the checkbox, so the refusal is announced with the control. */
+const QUOTING_NOTE_ID = 'advanced-copy-quoting-note';
 
 /**
  * Copy, in the shape the destination wants (SPEC-185 FR-001).
@@ -112,19 +116,31 @@ export function AdvancedCopyDialog({selectedCount, onCopy, onCancel}: AdvancedCo
         Include row numbers
       </label>
 
-      {/* Disabled rather than silently inert: in JSON, SQL and XML every value is already
-          delimited by the format, so a quoting toggle would be a control that changes
-          nothing about the output. The reason sits beside it, visible to everyone. */}
+      {/* Refused rather than silently inert: in JSON, SQL and XML every value is already
+          delimited by the format, so a quoting toggle would change nothing about the output.
+          **`aria-disabled`, not `disabled`** — SPEC-172's fleet-wide rule, so the control
+          stays in the tab order and the reason beside it is reachable rather than something
+          a keyboard user tabs straight past. The handler ignores the change, since
+          `aria-disabled` alone does not stop a checkbox toggling. */}
       <label className="mt-2 flex items-center gap-2 text-sm text-text-2">
         <input
           type="checkbox"
           checked={quotingApplies && draft.quoteValues}
-          disabled={!quotingApplies}
-          onChange={(e) => setDraft((d) => ({...d, quoteValues: e.target.checked}))}
+          aria-disabled={!quotingApplies}
+          aria-describedby={QUOTING_NOTE_ID}
+          className={cx(!quotingApplies && 'opacity-45')}
+          onChange={(e) => {
+            if (!quotingApplies) return;
+            setDraft((d) => ({...d, quoteValues: e.target.checked}));
+          }}
         />
         Quote values
       </label>
-      <p className="mt-1 text-xs text-text-3">{quotingApplies ? COPY_QUOTING_NOTE : COPY_QUOTING_INERT}</p>
+      <p
+        id={QUOTING_NOTE_ID}
+        className="mt-1 text-xs text-text-3">
+        {quotingApplies ? COPY_QUOTING_NOTE : COPY_QUOTING_INERT}
+      </p>
 
       <p className="mt-4 text-xs text-text-3">{COPY_RECTANGLE_NOTE}</p>
       <p className="mt-1 text-xs text-text-3">{COPY_LOADED_ROWS_NOTE}</p>

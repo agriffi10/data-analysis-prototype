@@ -442,7 +442,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'These two panels look alike and work very differently, and it is worth knowing which is which. <b>Grouping</b> asks the database a new question. <b>Calc</b> adds up the cells you have highlighted, right here in your browser.',
         steps: [
           'Click <b>Grouping</b>, choose the columns to group by and what to work out for each group — a count, a sum, an average, a minimum or a maximum. You can also drag a column header onto the panel.',
-          'Tick <b>Show percentage</b> to add a share-of-total column beside the first figure. It is worked out from the rows on the page, and the column header says so.',
+          'Tick <b>Show percentage of the rows on this page</b> to add a share-of-total column beside the first figure. It is worked out from the rows on the page, and the column header says so.',
           'Click <b>Apply</b>. Grouping is a query like any other — it runs, and it scans.',
           'For a quick total instead, drag across some cells and click <b>Calc</b>. It shows the count, sum, average, minimum, maximum and more for exactly what you selected.',
           'Click <b>Value</b> to open a panel showing the full contents of the cell you are on — useful when a value is too long for its column.'

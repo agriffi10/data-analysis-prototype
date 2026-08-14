@@ -1,5 +1,5 @@
 import {COPY_NULL_TOKEN, COPY_SQL_TABLE, COPY_XML_NULL_ATTRIBUTE, ROW_NUMBER_HEADER} from './dataExplorer.constants';
-import {sqlLiteral} from '../../lib/sql';
+import {sqlIdentifier, sqlLiteral} from '../../lib/sql';
 import type {CellRange, CellSelection, CopyFormat, CopyOptions} from './dataExplorer.types';
 import type {GridColumn} from './useColumnGeometry';
 
@@ -43,8 +43,14 @@ function boundingRectangle(
     // exactly as `selectedCellValues` skips it: the selection resets on a column-set change,
     // so this is reachable only mid-transition.
     if (from === undefined || to === undefined) continue;
-    firstRow = Math.min(firstRow, Math.max(Math.min(range.from.row, range.to.row), 0));
-    lastRow = Math.max(lastRow, Math.min(Math.max(range.from.row, range.to.row), rowCount - 1));
+    const top = Math.max(Math.min(range.from.row, range.to.row), 0);
+    const bottom = Math.min(Math.max(range.from.row, range.to.row), rowCount - 1);
+    // A range lying entirely off the loaded page contributes NOTHING rather than stretching
+    // the rectangle to meet it: `selectedCells` already fills none of those rows, so keeping
+    // it would pad the copy with blank rows nobody selected.
+    if (top > bottom) continue;
+    firstRow = Math.min(firstRow, top);
+    lastRow = Math.max(lastRow, bottom);
     firstColumn = Math.min(firstColumn, Math.min(from, to));
     lastColumn = Math.max(lastColumn, Math.max(from, to));
   }
@@ -200,11 +206,13 @@ function markdownValue(value: string | null | undefined, options: CopyOptions): 
  *
  * A Markdown table cannot exist without a header row, so `includeHeaders: false` renders an
  * EMPTY header rather than dropping it — the alternative is output that renders as a
- * paragraph of pipes wherever it is pasted.
+ * paragraph of pipes wherever it is pasted. **Empty means empty, the row-number column
+ * included**: leaking a `#` into a header the user turned off is the one cell that would then
+ * be labelled, and the delimited formats drop it in exactly this case.
  */
 function markdown(block: CopyBlock, options: CopyOptions): string {
   const headers = [
-    ...(options.includeRowNumbers ? [ROW_NUMBER_HEADER] : []),
+    ...(options.includeRowNumbers ? [options.includeHeaders ? ROW_NUMBER_HEADER : ''] : []),
     ...block.columns.map((column) => (options.includeHeaders ? column.name : ''))
   ];
   const lines = [`| ${headers.join(' | ')} |`, `| ${headers.map(() => '---').join(' | ')} |`];
@@ -237,9 +245,9 @@ function sqlInsert(block: CopyBlock, options: CopyOptions): string {
     ...(options.includeRowNumbers ? [ROW_NUMBER_HEADER] : []),
     ...block.columns.map((column) => column.name)
   ];
-  const columnList = options.includeHeaders
-    ? ` (${columns.map((name) => `"${name.replace(/"/g, '""')}"`).join(', ')})`
-    : '';
+  // `sqlIdentifier`, not a second quoter written out here: the feature already has ONE, and
+  // two that agree today are a divergence waiting rather than a duplication that shows.
+  const columnList = options.includeHeaders ? ` (${columns.map(sqlIdentifier).join(', ')})` : '';
   const values = block.rows.map((row, index) => {
     const cells = [
       ...(options.includeRowNumbers ? [String(block.rowNumbers[index])] : []),
@@ -247,7 +255,7 @@ function sqlInsert(block: CopyBlock, options: CopyOptions): string {
     ];
     return `  (${cells.join(', ')})`;
   });
-  return `INSERT INTO "${COPY_SQL_TABLE}"${columnList} VALUES\n${values.join(',\n')};`;
+  return `INSERT INTO ${sqlIdentifier(COPY_SQL_TABLE)}${columnList} VALUES\n${values.join(',\n')};`;
 }
 
 /** The five characters that cannot appear raw in XML text. */
@@ -268,6 +276,12 @@ function xmlText(value: string): string {
  * names from it produces documents that do not parse. The attribute form has no such
  * constraint, and a NULL gets an explicit `null="true"` rather than an empty element,
  * which is what keeps it distinguishable from `''` (FR-001 AC4).
+ *
+ * **A hole is NOT distinguishable from an empty string here**, and the self-closing tag does
+ * not make it one — `<cell/>` and `<cell></cell>` are the same element to every parser, so
+ * only the serialization differs. That is the same ambiguity `json` has and it is stated for
+ * the same reason: the surfaces say the copy is a rectangle with the gaps blank, which is the
+ * fact a reader needs to interpret either rendering.
  */
 function xml(block: CopyBlock, options: CopyOptions): string {
   const lines = ['<rows>'];
@@ -275,7 +289,8 @@ function xml(block: CopyBlock, options: CopyOptions): string {
     lines.push(options.includeRowNumbers ? `  <row number="${block.rowNumbers[index]}">` : '  <row>');
     row.forEach((value, position) => {
       const name = options.includeHeaders ? ` name="${xmlText(block.columns[position].name)}"` : '';
-      // A hole is an ABSENT cell here, which is the one format that can say so exactly.
+      // Blank, exactly as an empty string is — see the note above; nothing here can tell a
+      // reader which of the two it was.
       if (value === undefined) lines.push(`    <cell${name} />`);
       else if (value === null) lines.push(`    <cell${name} ${COPY_XML_NULL_ATTRIBUTE}="true" />`);
       else lines.push(`    <cell${name}>${xmlText(value)}</cell>`);

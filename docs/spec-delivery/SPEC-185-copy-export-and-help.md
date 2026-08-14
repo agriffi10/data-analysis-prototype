@@ -59,6 +59,45 @@ out of scope rather than unbuilt — it would need a second query or a re-serial
 are not all loaded — and why the copy dialog states that only the loaded page travels and points at
 Export for the rest.
 
+## What review changed
+
+A fresh-context review found nine things; six were fixed and three accepted with reasons.
+
+- **The advanced-copy success toast could lie.** `useCopyToClipboard` swallows a refused write,
+  which is safe for a caller whose confirmation is its `copied` flag and false for one that closes
+  its dialog and announces success separately. `copy` now **returns the outcome**, and both copy
+  paths report a refusal — the plain Ctrl/Cmd+C included, because the grid suppresses the browser's
+  own copy and a silent failure leaves the previous clipboard contents in place.
+- **`renderCopy` had a second identifier quoter** written out inline while importing `sqlLiteral`
+  from the same module — the duplication SPEC-178's one-builder rule exists to prevent, agreeing
+  byte-for-byte today. It uses `sqlIdentifier` now.
+- **The XML JSDoc claimed something false**: `<cell/>` and `<cell></cell>` are the same element to
+  every parser, so a hole is *not* distinguishable from an empty string there — the same ambiguity
+  JSON has, and now stated as such. The test that pinned the serialization is replaced by one that
+  parses the output and asserts what a consumer can observe (the NULL marker, which is what AC4
+  actually asks for).
+- **Markdown leaked the row-number header** with column names off, where every other format drops
+  it.
+- **The Ctrl/Cmd+C intercept was case-sensitive**, so Caps Lock fell through to the browser's own
+  copy — the exact outcome the intercept exists to prevent. It folds case, as the sibling
+  Ctrl/Cmd+A handler already did.
+- **A range lying entirely off the loaded page stretched the rectangle** to meet it, padding the
+  copy with blank rows nobody selected. It now contributes nothing on either axis.
+- **The inert quoting checkbox used `disabled`**, against SPEC-172's fleet-wide rule — it is
+  `aria-disabled` with `aria-describedby` now, so the control keeps its place in the tab order and
+  the reason is announced with it. Both new dialogs gained axe assertions, driven into the open
+  state.
+
+Accepted rather than fixed: JSON's duplicate-column collapse (guarded upstream by
+`groupingNameCollision`), `ExportExplorationDialog` inheriting the Query workspace's
+`spaces.length > 0` guard (unreachable, and FR-002 AC2 asks for that path unchanged), and the five
+guide rows not failing independently of their section row — the `files` precedent, recorded in the
+registry's own comment.
+
+**One acceptance criterion is unverifiable as written.** FR-003 AC3 says a gated guide "leaves both
+the Help list and the search index"; there is no help search in the app, and `HELP_SECTIONS` has no
+consumer beyond `HelpPage` and its tests. The list half is asserted.
+
 ## What is owed
 
 **Everything in `docs/testing/data-explorer-e2e.md`**, and none of it has been run. The three

@@ -61,6 +61,22 @@ describe('renderCopy — a discontiguous selection (FR-001 AC5)', () => {
     expect(renderCopy(selection, COLUMNS, ROWS, options())).toBe('north\t\t\n\t\t\n\t\ta,b');
   });
 
+  it('drops a range lying entirely off the loaded page rather than padding the copy', () => {
+    // Reachable only mid-transition (the selection resets on a page or column-set change),
+    // but the wrong answer is a copy with blank rows nobody selected — the rectangle must
+    // not stretch to meet coordinates that contribute no cells.
+    const selection: CellSelection = {
+      cursor: {row: 0, column: 'region'},
+      ranges: [
+        {from: {row: 0, column: 'region'}, to: {row: 0, column: 'region'}},
+        {from: {row: 7, column: 'note'}, to: {row: 9, column: 'note'}}
+      ]
+    };
+    // Not `north\t\t` — a range that contributes no cells widens neither axis, so the copy
+    // is the one cell that was actually selected.
+    expect(renderCopy(selection, COLUMNS, ROWS, options())).toBe('north');
+  });
+
   it('counts a cell once when two ranges overlap', () => {
     const selection: CellSelection = {
       cursor: {row: 0, column: 'region'},
@@ -156,6 +172,19 @@ describe('renderCopy — the structured formats', () => {
     ]);
   });
 
+  it('a Markdown header row with column names off is EMPTY, row numbers included', () => {
+    // The row-number column follows `includeHeaders` like every other format's does — the
+    // delimited formats emit no header line at all here, and leaking a `#` into a header the
+    // user turned off would label the one column they did not ask to have labelled.
+    const text = renderCopy(
+      rect(0, 'region', 0, 'qty'),
+      COLUMNS,
+      ROWS,
+      options({format: 'markdown', includeRowNumbers: true})
+    );
+    expect(text.split('\n')[0]).toBe('|  |  |  |');
+  });
+
   it('a Markdown table keeps its header row even with column names off', () => {
     // A table without a header row is not a table in any Markdown dialect — it renders as
     // a paragraph of pipes. So the row stays and its cells go empty.
@@ -198,6 +227,39 @@ describe('renderCopy — the structured formats', () => {
       options({format: 'xml', includeHeaders: true})
     );
     expect(text).toContain('<cell name="2024 total">a&lt;b&amp;c</cell>');
+  });
+
+  it('a hole and an empty string are the SAME element in XML, and only NULL is marked', () => {
+    // The self-closing tag is not a distinction: `<cell/>` and `<cell></cell>` parse
+    // identically, so this asserts what a CONSUMER can actually observe — the NULL marker —
+    // rather than a serialization difference nothing downstream can read. FR-001 AC4 asks
+    // that NULL and the empty string be distinguishable, and that is what holds.
+    const selection: CellSelection = {
+      cursor: {row: 1, column: 'region'},
+      ranges: [
+        {from: {row: 1, column: 'region'}, to: {row: 1, column: 'region'}},
+        {from: {row: 1, column: 'note'}, to: {row: 1, column: 'note'}}
+      ]
+    };
+    const parsed = new DOMParser().parseFromString(
+      renderCopy(selection, COLUMNS, ROWS, options({format: 'xml'})),
+      'application/xml'
+    );
+    const cells = [...parsed.querySelectorAll('cell')];
+    // The hole (`qty`, unselected) and the empty string (`note`) — indistinguishable.
+    expect(cells[1].getAttribute('null')).toBeNull();
+    expect(cells[2].getAttribute('null')).toBeNull();
+    expect(cells[1].textContent).toBe(cells[2].textContent);
+  });
+
+  it('a NULL is marked in XML where an empty string is not', () => {
+    const parsed = new DOMParser().parseFromString(
+      renderCopy(rect(1, 'qty', 1, 'note'), COLUMNS, ROWS, options({format: 'xml'})),
+      'application/xml'
+    );
+    const cells = [...parsed.querySelectorAll('cell')];
+    expect(cells[0].getAttribute('null')).toBe('true');
+    expect(cells[1].getAttribute('null')).toBeNull();
   });
 
   it('an unselected cell inside the rectangle is an ABSENT cell in XML', () => {

@@ -121,6 +121,15 @@ export const FAILED_NOT_SAVEABLE = 'This query didn’t run, so there’s nothin
 /** Copy takes a SELECTION, and an empty one has no rectangle to take (FR-001 AC5). */
 export const NOTHING_SELECTED_TO_COPY = 'Select some cells first.';
 /**
+ * A clipboard write the browser refused.
+ *
+ * Reachable rather than theoretical: Safari denies `writeText` outside a user gesture it
+ * recognises, and an insecure context has no Clipboard API at all. The grid suppresses the
+ * browser's own copy to make room for this one, so a silent failure leaves the previous
+ * clipboard contents in place under the impression they are the new ones.
+ */
+export const COPY_FAILED = 'Your browser wouldn’t let the app write to the clipboard.';
+/**
  * Why export is unavailable (FR-002 AC3).
  *
  * Export copies the object Athena wrote, which exists only once an execution has SUCCEEDED
@@ -383,18 +392,37 @@ export function ExplorationResultsRegion({
   // values and all left behind — because a URL column pasted into a spreadsheet has to carry
   // its value, not its link text (FR-001 AC3). Every argument here is already in memory, so
   // a copy issues nothing however often it is used (AC7).
-  const copySelection = (options: CopyOptions) => {
+  const copySelection = async (options: CopyOptions): Promise<boolean> => {
     const text = renderCopy(selection.selection, geometry.visible, rows, options, results.rangeStart);
-    if (text === '') return;
-    void copy(text);
+    // Nothing selected, or every range names a column this result no longer has. Not a
+    // failure and not a success — there was nothing to put on the clipboard.
+    if (text === '') return false;
+    return copy(text);
+  };
+
+  /**
+   * The plain Ctrl/Cmd+C. Silent on success — the paste IS the confirmation — but never
+   * silent on failure, because the browser's own copy was suppressed to make room for this
+   * one and the user would otherwise paste whatever was on the clipboard before.
+   */
+  const plainCopy = () => {
+    void copySelection(PLAIN_COPY_OPTIONS).then((copied) => {
+      if (!copied && selection.selectedCount > 0) toast.push({variant: 'danger', message: COPY_FAILED});
+    });
   };
 
   const advancedCopy = (options: CopyOptions) => {
     setCopyOpen(false);
-    copySelection(options);
-    // The dialog closes on copy, so the confirmation has to outlive it — the `copied` flag
-    // `useCopyToClipboard` sets has nothing left on screen to render into.
-    toast.push({variant: 'success', message: 'Copied to the clipboard.'});
+    // AWAITED, and the message follows the outcome. `useCopyToClipboard` swallows a refused
+    // write — which is safe for a caller that renders its `copied` flag and a lie for this
+    // one, which has just closed the dialog and has to say what happened. A denied clipboard
+    // permission would otherwise be reported as a successful copy, and the user would paste
+    // whatever was there before.
+    void copySelection(options).then((copied) =>
+      toast.push(
+        copied ? {variant: 'success', message: 'Copied to the clipboard.'} : {variant: 'danger', message: COPY_FAILED}
+      )
+    );
   };
 
   const filterByCell = () => {
@@ -445,7 +473,7 @@ export function ExplorationResultsRegion({
               onColumnDrag={(name) => {
                 draggedColumn.current = name;
               }}
-              onCopy={() => copySelection(PLAIN_COPY_OPTIONS)}
+              onCopy={plainCopy}
               gridRef={gridRef}
             />
           )}

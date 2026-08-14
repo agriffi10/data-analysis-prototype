@@ -3,11 +3,12 @@ import {screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
+import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {newExploration} from './exploration';
-import {NOTHING_TO_EXPORT} from './ExplorationResultsRegion';
-import {COPY_LOADED_ROWS_NOTE, COPY_RECTANGLE_NOTE} from './AdvancedCopyDialog';
+import {COPY_FAILED, NOTHING_TO_EXPORT} from './ExplorationResultsRegion';
+import {COPY_LOADED_ROWS_NOTE, COPY_QUOTING_INERT, COPY_RECTANGLE_NOTE} from './AdvancedCopyDialog';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
 import {copyObject, listFiles} from '../file-browser/fileBrowser.service';
@@ -59,7 +60,10 @@ function seedTab(over: Partial<ExplorationTab> = {}) {
 
 function render() {
   const user = userEvent.setup(USER_EVENT_OPTIONS);
-  renderWithProviders(<DataExplorerWorkspace />, {route: '/explore', auth: authenticated('alice')});
+  const {container} = renderWithProviders(<DataExplorerWorkspace />, {
+    route: '/explore',
+    auth: authenticated('alice')
+  });
   // AFTER `setup()`, deliberately: user-event installs its own `navigator.clipboard` stub,
   // so a spy defined before it is silently replaced and every copy assertion then reads an
   // empty array — a failure that looks like "copy does nothing" rather than like a harness
@@ -72,7 +76,15 @@ function render() {
       })
     }
   });
-  return {user};
+  return {user, container};
+}
+
+/** Make the next clipboard write fail, as a denied permission or an insecure context does. */
+function refuseClipboard() {
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: {writeText: vi.fn().mockRejectedValue(new Error('NotAllowedError'))}
+  });
 }
 
 /** The grid, once the seeded tab's first execution has landed. */
@@ -223,8 +235,10 @@ describe('copy (FR-001)', () => {
     ]);
   });
 
-  it('disables quoting for a format that already delimits its values', async () => {
+  it('refuses quoting for a format that already delimits its values', async () => {
     // A control that changed nothing would be worse than an absent one — see the dialog.
+    // The refusal is `aria-disabled` rather than `disabled` (SPEC-172); the accessibility
+    // half of that is asserted in the axe block below.
     seedTab();
     const {user} = render();
     await grid();
@@ -232,9 +246,54 @@ describe('copy (FR-001)', () => {
     await user.click(screen.getByRole('button', {name: 'Copy…'}));
     const dialog = await screen.findByRole('dialog', {name: 'Copy selection'});
 
-    expect(within(dialog).getByLabelText('Quote values')).toBeEnabled();
+    expect(within(dialog).getByLabelText('Quote values')).not.toHaveAttribute('aria-disabled', 'true');
     await user.selectOptions(within(dialog).getByLabelText('Format'), 'sql');
-    expect(within(dialog).getByLabelText('Quote values')).toBeDisabled();
+    expect(within(dialog).getByLabelText('Quote values')).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('a REFUSED clipboard write is reported, never announced as a success', async () => {
+    // `useCopyToClipboard` swallows the rejection — safe for a caller that renders its
+    // `copied` flag, a lie for this one, which closes the dialog and has to say what
+    // happened. Reachable: Safari denies `writeText` outside a gesture it recognises.
+    seedTab();
+    const {user} = render();
+    await grid();
+    await clickCell(user, 0, 'region');
+    refuseClipboard();
+    await user.click(screen.getByRole('button', {name: 'Copy…'}));
+    const dialog = await screen.findByRole('dialog', {name: 'Copy selection'});
+    await user.click(within(dialog).getByRole('button', {name: 'Copy'}));
+
+    expect(await screen.findByText(COPY_FAILED)).toBeInTheDocument();
+    expect(screen.queryByText('Copied to the clipboard.')).not.toBeInTheDocument();
+  });
+
+  it('the plain Ctrl/Cmd+C reports a refused write too', async () => {
+    // Silent on success — the paste is the confirmation — but the grid suppressed the
+    // browser's own copy, so a silent failure leaves the PREVIOUS clipboard contents in
+    // place under the impression they are the new ones.
+    seedTab();
+    const {user} = render();
+    await grid();
+    await clickCell(user, 0, 'region');
+    refuseClipboard();
+    await user.keyboard('{Control>}c{/Control}');
+
+    expect(await screen.findByText(COPY_FAILED)).toBeInTheDocument();
+  });
+
+  it('the shortcut survives Caps Lock', async () => {
+    // With Caps Lock on, `event.key` is `'C'`. A case-sensitive match misses, the browser's
+    // own copy is not suppressed, and it takes whatever DOM text is highlighted — the exact
+    // outcome the intercept exists to prevent.
+    seedTab();
+    const {user} = render();
+    await grid();
+    await clickCell(user, 0, 'region');
+    await user.keyboard('{Control>}C{/Control}');
+
+    await waitFor(() => expect(clipboardWrites).toHaveLength(1));
+    expect(clipboardWrites[0]).toBe('north');
   });
 
   it('issues NO query, however it is used', async () => {
@@ -255,6 +314,43 @@ describe('copy (FR-001)', () => {
 
     await waitFor(() => expect(clipboardWrites).toHaveLength(2));
     expect(runQuery).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('accessibility', () => {
+  it('the copy dialog has no axe violations, with the quoting refusal REACHABLE', async () => {
+    seedTab();
+    const {user, container} = render();
+    await grid();
+    await clickCell(user, 0, 'region');
+    await user.click(screen.getByRole('button', {name: 'Copy…'}));
+    const dialog = await screen.findByRole('dialog', {name: 'Copy selection'});
+
+    // SPEC-172's rule: the refusal is `aria-disabled`, so the control stays in the tab order
+    // and its reason is announced with it rather than being something a keyboard user tabs
+    // straight past.
+    await user.selectOptions(within(dialog).getByLabelText('Format'), 'json');
+    const quoting = within(dialog).getByLabelText('Quote values');
+    expect(quoting).toHaveAttribute('aria-disabled', 'true');
+    expect(quoting).toBeEnabled();
+    expect(quoting).toHaveAccessibleDescription(COPY_QUOTING_INERT);
+    // And it does not toggle, which `aria-disabled` alone would not prevent.
+    await user.click(quoting);
+    expect(quoting).not.toBeChecked();
+
+    await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
+  });
+
+  it('the export dialog has no axe violations', async () => {
+    seedTab();
+    const {user, container} = render();
+    await grid();
+    const button = await screen.findByRole('button', {name: 'Export'});
+    await waitFor(() => expect(button).not.toHaveAttribute('aria-disabled', 'true'));
+    await user.click(button);
+    await screen.findByRole('dialog', {name: 'Save results to my files'});
+
+    await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
   });
 });
 
