@@ -7,6 +7,7 @@ import type {
   ExplorationTabsState,
   QueryHistoryCursor
 } from './dataExplorer.types';
+import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
 
 // Per-user, current-session persistence of the Data Explorer's tabs. All access goes
 // through this wrapper so a disabled or quota-exceeded sessionStorage degrades to "not
@@ -92,6 +93,31 @@ function isValidGrouping(value: unknown): boolean {
       typeof aggregate.fn === 'string' && AGGREGATE_FUNCTIONS.has(aggregate.fn) && typeof aggregate.column === 'string'
     );
   });
+}
+
+/**
+ * Reads a stored saved-query link, dropping anything it cannot trust (SPEC-183 FR-003).
+ *
+ * Absent is the ordinary case — every document written before SPEC-183, and every tab that
+ * has never been saved — so a missing or malformed link restores the tab WITHOUT one rather
+ * than discarding the session, on SPEC-182's precedent for an added field. All four fields
+ * are required together: a half link would name a bucket with no key, and the write path
+ * would resolve `overwrite` from it.
+ *
+ * @param value - The stored `savedQuery` object, or anything at all.
+ * @returns The link, or undefined wherever the document was silent or wrong.
+ */
+function normalizeSavedQueryLink(value: unknown): SavedQueryLink | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const link = value as Record<string, unknown>;
+  const fields = [link.spaceId, link.bucket, link.key, link.name];
+  if (!fields.every((field) => typeof field === 'string' && field.length > 0)) return undefined;
+  return {
+    spaceId: link.spaceId as string,
+    bucket: link.bucket as string,
+    key: link.key as string,
+    name: link.name as string
+  };
 }
 
 function isValidLedger(value: unknown): boolean {
@@ -255,6 +281,7 @@ export function readExplorationTabsState(username: string): ExplorationTabsState
         // A document written before SPEC-181 carries no history at all, which is the
         // ordinary case for the first session after a deploy — not a fault.
         history: normalizeHistory(tab.history),
+        savedQuery: normalizeSavedQueryLink(tab.savedQuery),
         exploration: {
           ...tab.exploration,
           query: normalizeQuery(tab.exploration.query),

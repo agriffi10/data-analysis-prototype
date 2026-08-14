@@ -45,6 +45,18 @@ vi.mock('../notifications/notifications.service', () => ({
   getNotifications: vi.fn().mockResolvedValue({success: true, data: []}),
   enqueueNotificationAction: vi.fn().mockResolvedValue({success: true, data: undefined})
 }));
+// SPEC-183's two recipes seed an exploration tab, which runs SPEC-178's engine for real —
+// so the Athena boundary is mocked here as the Glue one already is. `isTerminalState` stays
+// real: it decides when polling stops.
+vi.mock('../catalog/athena.service', async (importActual) => ({
+  ...(await importActual<typeof import('../catalog/athena.service')>()),
+  runQuery: vi.fn().mockResolvedValue({success: true, data: {queryExecutionId: 'e1'}}),
+  getQueryStatus: vi.fn().mockResolvedValue({
+    success: true,
+    data: {state: 'SUCCEEDED', dataScannedBytes: 1, engineExecutionTimeMillis: 1}
+  }),
+  getQueryResults: vi.fn().mockResolvedValue({success: true, data: {columns: [], rows: [], nextToken: undefined}})
+}));
 vi.mock('../catalog/glue.service', () => ({
   getDatabase: vi.fn().mockResolvedValue({success: true, data: {name: 'alice'}}),
   listTables: vi.fn().mockResolvedValue({
@@ -164,6 +176,39 @@ const renderFileBrowser = () => {
     {auth: authenticated('alice'), seedFeatureFlags: false}
   );
 };
+
+/**
+ * Leave the Data Explorer with one open tab, the way a previous visit would have.
+ *
+ * The save surfaces live on the RESULTS region, which only renders once a tab exists — with
+ * none, the workspace shows the source picker and both rows would be absent for a reason
+ * that has nothing to do with a flag, so their "on" halves would fail and their "off" halves
+ * would pass vacuously. The key is spelled out for the same reason the query-tabs one above
+ * is: a recipe reaching into the feature's constants is a step away from re-implementing it.
+ */
+function seedExplorationTab() {
+  sessionStorage.setItem(
+    's3portal.dataExplorer.tabs.alice',
+    JSON.stringify({
+      version: 1,
+      tabs: [
+        {
+          id: 'x',
+          label: 'sales',
+          exploration: {
+            id: 'x',
+            source: {kind: 'table', spaceId: 'personal', database: 'alice', table: 'sales'},
+            query: {filters: [], expression: null, ordering: [], grouping: null},
+            presentation: {}
+          },
+          scannedByExecution: {},
+          history: {past: [], future: []}
+        }
+      ],
+      activeTabId: 'x'
+    })
+  );
+}
 
 const byRole = (role: string, name: string | RegExp) => async () => {
   const found = screen.queryAllByRole(role, {name});
@@ -339,6 +384,27 @@ const RECIPES: Record<string, Recipe> = {
     // row under test.
     anchor: async () => screen.findByRole('button', {name: /^My files/}),
     find: async () => screen.queryByRole('button', {name: /^teamspace/})
+  },
+  'Save as query': {
+    render: () => {
+      seedExplorationTab();
+      renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
+    },
+    // The control is `aria-disabled` rather than absent while nothing has run (SPEC-172), so
+    // it is in the DOM either way and the flag is the only thing that can remove it.
+    anchor: async () => screen.findByRole('button', {name: 'Grouping'}),
+    find: byRole('button', 'Save as query')
+  },
+  'Shared spaces in the Data Explorer save dialog': {
+    render: async () => {
+      seedExplorationTab();
+      renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
+      const {default: userEvent} = await import('@testing-library/user-event');
+      const user = userEvent.setup({delay: null});
+      await user.click(await screen.findByRole('button', {name: 'Save as query'}));
+    },
+    anchor: async () => within(await screen.findByRole('dialog', {name: 'Save query'})).findByLabelText('Space'),
+    find: async () => screen.queryByRole('option', {name: 'teamspace'})
   },
   'Share table': {
     render: async () => {
@@ -704,6 +770,9 @@ describe('the registry itself', () => {
         // a saved query is a FILE now, so the folder holding them is a Query surface
         // living on the file browser's screen.
         'saved_queries folder',
+        // SPEC-183: the mirror of 'Explore data on the Query schema rail' — a saved-queries
+        // capability on a Data Explorer surface, so it follows the store's flag.
+        'Save as query',
         'Create view',
         'Query help section',
         'Tables help section'
@@ -727,7 +796,9 @@ describe('the registry itself', () => {
         'Shared spaces recipient kind in the send dialog',
         // SPEC-179: the Data Explorer's own reader of `useQuerySpaces`, on SPEC-174's
         // reasoning — the rows above render other surfaces entirely.
-        'Shared spaces in the Data Explorer source picker'
+        'Shared spaces in the Data Explorer source picker',
+        // SPEC-183: the third instance of the same choice, and the second WRITE target.
+        'Shared spaces in the Data Explorer save dialog'
       ],
       dataQuality: [
         'Data quality',

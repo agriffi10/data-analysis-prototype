@@ -63,6 +63,8 @@ export {DataExplorerWorkspace} from './DataExplorerWorkspace';
 export {SourcePicker} from './SourcePicker';
 export {ExplorationTabStrip} from './ExplorationTabStrip';
 export {ExplorationResultsRegion} from './ExplorationResultsRegion';
+export {SaveExplorationDialog} from './SaveExplorationDialog';
+export type {SaveExplorationDialogProps} from './SaveExplorationDialog';
 export {ExplorationGrid} from './ExplorationGrid';
 export {ExplorationGridHeader} from './ExplorationGridHeader';
 export {ExplorationRecordView} from './ExplorationRecordView';

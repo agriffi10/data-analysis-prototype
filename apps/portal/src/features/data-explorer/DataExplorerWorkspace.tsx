@@ -3,11 +3,13 @@ import {LoadingState} from '../../components/LoadingState';
 import {useAuth} from '../auth';
 import {useFeature} from '../feature-flags';
 import {useQuerySpaces} from '../catalog/useQuerySpaces';
+import {useSavedQuerySpace} from '../saved-queries/useSavedQuerySpace';
 import {EXPLORATION_TABPANEL_ID, EXPLORATION_TABS_MAX} from './dataExplorer.constants';
 import {CostIndicator} from './CostIndicator';
 import {ExplorationLimitDialog} from './ExplorationLimitDialog';
 import {ExplorationResultsRegion} from './ExplorationResultsRegion';
 import {ExplorationTabStrip} from './ExplorationTabStrip';
+import {SaveExplorationDialog} from './SaveExplorationDialog';
 import {SourcePicker} from './SourcePicker';
 import {useExploration} from './useExploration';
 import {useExplorationQuery} from './useExplorationQuery';
@@ -47,7 +49,18 @@ export function DataExplorerWorkspace() {
   const tabs = useExplorationTabs(username);
   const [picking, setPicking] = useState(false);
   const [limitReached, setLimitReached] = useState(false);
+  // What a save is saving, captured at the gesture: WHICH tab, and the statement that was
+  // on screen when the user pressed the button. Neither is re-read while the dialog is up —
+  // the write is async, and a tab switch behind it would otherwise write one exploration's
+  // SQL and link it to another's tab.
+  const [saving, setSaving] = useState<{tabId: string; sql: string} | null>(null);
   const queryControls = useExplorationQuery(tabs, tabs.activeTabId);
+
+  // SPEC-183: the destination a save opens on, and the ONE memory of "the space I am
+  // working in" — the same hook, the same sessionStorage key and the same fallback the
+  // Query workspace's save and load surfaces share, so the two features cannot come to
+  // disagree about where the user last was. The list is the view-gated one above.
+  const savedSpace = useSavedQuerySpace(username || null, spaces);
 
   const {resolution, clear} = useExploreDeepLink(spaces, username, sharedEnabled);
   const denied = resolution.status === 'denied';
@@ -203,6 +216,11 @@ export function DataExplorerWorkspace() {
               tabs.updateActiveExploration((e) => ({...e, presentation: update(e.presentation)}))
             }
             queryControls={queryControls}
+            onSaveQuery={() => {
+              if (tabs.activeTab && exploration.sql !== null) {
+                setSaving({tabId: tabs.activeTab.id, sql: exploration.sql});
+              }
+            }}
           />
           <CostIndicator
             bytesScanned={lastApply?.bytesScanned ?? null}
@@ -210,6 +228,29 @@ export function DataExplorerWorkspace() {
             totalBytes={tabs.activeTabBytesScanned}
           />
         </div>
+      )}
+
+      {/* Mounting IS the open state (SPEC-183) — see the dialog's own note. */}
+      {saving && (
+        <SaveExplorationDialog
+          sql={saving.sql}
+          spaces={spaces}
+          defaultSpace={savedSpace.space}
+          link={tabs.tabs.find((tab) => tab.id === saving.tabId)?.savedQuery}
+          onSaved={(query) => {
+            tabs.setTabSavedQuery(saving.tabId, {
+              spaceId: query.spaceId,
+              bucket: query.bucket,
+              key: query.key,
+              name: query.name
+            });
+            // ONE memory of "the space I am working in", written on every success — the
+            // same rule SPEC-175 settled for the Query workspace, and the same storage key.
+            savedSpace.selectSpace(query.spaceId);
+            setSaving(null);
+          }}
+          onClose={() => setSaving(null)}
+        />
       )}
 
       {limitReached && <ExplorationLimitDialog onDismiss={() => setLimitReached(false)} />}

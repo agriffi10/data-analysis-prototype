@@ -92,6 +92,13 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // `query` off the whole workspace is gone and the item is unreachable — this row asserts
     // that rather than assuming it, on the same belt-and-braces reasoning as the two above.
     {name: 'Explore data on the Query schema rail', kind: 'control', path: '/query'},
+    // SPEC-183. The EXACT MIRROR of "Explore data" above: a saved-queries capability living
+    // on a Data Explorer surface, so it follows the flag that owns the store rather than the
+    // one that owns the screen. With `query` off there is no editor to open a `.sql` file in
+    // and the `saved_queries` folder has left both the file browser and the destination
+    // picker — writing into it would be a dead end the user cannot see, which is precisely
+    // the failure "Create table" is on this list for.
+    {name: 'Save as query', kind: 'control', path: '/explore'},
     {name: 'Create view', kind: 'control', path: '/query'},
     {name: 'Query help section', kind: 'guide', path: '/help', helpId: 'query'},
     // Building a table from a folder is a Query capability wearing a file-browser button, so
@@ -134,7 +141,12 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // saved-queries selector does, so it needs its own row for the same reason that one did:
     // the rows above render other surfaces, and an ungated picker would go on naming a
     // colleague's space after every other shared-workspace surface had gone.
-    {name: 'Shared spaces in the Data Explorer source picker', kind: 'control', path: '/explore'}
+    {name: 'Shared spaces in the Data Explorer source picker', kind: 'control', path: '/explore'},
+    // SPEC-183. A THIRD instance of the destination choice, and it needs its own row for the
+    // reason the save-query one did: the rows above render other surfaces, so nothing would
+    // notice if this one stopped being gated — and this is the WRITE-target variant, which
+    // offers a colleague's space as somewhere to put a file.
+    {name: 'Shared spaces in the Data Explorer save dialog', kind: 'control', path: '/explore'}
   ],
   dataQuality: [
     {name: 'Data quality', kind: 'nav', path: '/data-quality'},

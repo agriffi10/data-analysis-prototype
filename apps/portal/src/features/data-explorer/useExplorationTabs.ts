@@ -8,6 +8,7 @@ import {
   writeExplorationTabsState
 } from './explorationTabs';
 import type {Exploration, ExplorationSource, ExplorationTab, ExplorationTabsState} from './dataExplorer.types';
+import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
 
 export type OpenExplorationOpts = {
   /** Verbatim label; omit to take the source's own name. */
@@ -36,6 +37,14 @@ export type UseExplorationTabsResult = {
   updateTab: (tabId: string, update: (tab: ExplorationTab) => ExplorationTab) => void;
   /** Records what one execution scanned, keyed by execution id so a repeat is free. */
   recordScan: (tabId: string, queryExecutionId: string, bytesScanned: number) => void;
+  /**
+   * Links a tab to the `.sql` file a save just wrote (SPEC-183 FR-003).
+   *
+   * By id rather than "the active tab", for the reason `updateTab` is: the write is async
+   * and the user may have switched tabs while it was in flight, and linking the wrong tab
+   * would make its next re-save replace a file it has nothing to do with.
+   */
+  setTabSavedQuery: (tabId: string, link: SavedQueryLink) => void;
   /** Bytes scanned by the active tab across its lifetime; 0 with no tabs. */
   activeTabBytesScanned: number;
 };
@@ -146,6 +155,9 @@ export function useExplorationTabs(username: string): UseExplorationTabsResult {
       };
     });
 
+  const setTabSavedQuery = (tabId: string, link: SavedQueryLink) =>
+    setState((s) => ({...s, tabs: s.tabs.map((t) => (t.id === tabId ? {...t, savedQuery: link} : t))}));
+
   return {
     tabs: state.tabs,
     activeTabId: state.activeTabId,
@@ -156,6 +168,7 @@ export function useExplorationTabs(username: string): UseExplorationTabsResult {
     updateActiveExploration,
     updateTab,
     recordScan,
+    setTabSavedQuery,
     activeTabBytesScanned: activeTab ? tabBytesScanned(activeTab) : 0
   };
 }

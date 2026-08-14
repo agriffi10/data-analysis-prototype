@@ -3,6 +3,7 @@ import {Button} from '../../components/Button';
 import {ErrorBanner} from '../../components/ErrorBanner';
 import {Pager} from '../../components/Pager';
 import {useIsMobile} from '../../lib/useBreakpoint';
+import {useFeature} from '../feature-flags';
 import {useQueryResults} from '../catalog/useQueryResults';
 import {CALC_DEFAULT_FUNCTIONS, EXPLORATION_PAGE_SIZE} from './dataExplorer.constants';
 import {CalcPanel} from './CalcPanel';
@@ -64,6 +65,8 @@ export type ExplorationResultsRegionProps = {
   onPresentationChange: (update: (presentation: ExplorationPresentation) => ExplorationPresentation) => void;
   /** The query description and every operation over it (SPEC-181). */
   queryControls: UseExplorationQueryResult;
+  /** Raises the save dialog (SPEC-183). The host owns the write; this owns the gesture. */
+  onSaveQuery: () => void;
 };
 
 export const NO_CELL_TO_FILTER = 'Select a cell first.';
@@ -80,6 +83,16 @@ export const CALCULATED_COLUMN_REFUSAL =
   'This column is worked out in your browser, so it can’t be sorted or filtered.';
 export const UNFILTERABLE_VALUE = 'This cell’s value can’t be used as a filter on a numeric column.';
 export const SUSPENDED_TEXT = 'This set of filters failed last time it ran. Nothing has been run.';
+/**
+ * Why there is nothing to save (SPEC-183 FR-002).
+ *
+ * ONE sentence for both reasons, and deliberately so: a description that could not be
+ * rendered and one that has been held back after failing are the same fact to a user —
+ * there is no statement — and the difference between them is already on screen, in the
+ * error banner or in the suspended panel. The renderer's own account of a refusal names a
+ * column for an operator, which SPEC-106 forbids showing anyone.
+ */
+export const NOTHING_TO_SAVE = 'There’s no query to save yet — nothing has run.';
 
 /**
  * One exploration's rows, and everything that changes which rows they are (SPEC-180,
@@ -106,7 +119,8 @@ export function ExplorationResultsRegion({
   schemaColumns,
   presentation,
   onPresentationChange,
-  queryControls
+  queryControls,
+  onSaveQuery
 }: ExplorationResultsRegionProps) {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -129,6 +143,7 @@ export function ExplorationResultsRegion({
   const [pendingFilter, setPendingFilter] = useState<{column: string; operator: FilterOperator} | null>(null);
   const gridRef = useRef<HTMLTableElement>(null);
   const {query, apply} = queryControls;
+  const savedQueriesEnabled = useFeature('query');
 
   // The last execution whose rows actually arrived. A failed apply falls back to it, so
   // the grid keeps showing something true rather than going blank behind a banner.
@@ -467,6 +482,22 @@ export function ExplorationResultsRegion({
           onClick={() => setGroupingOpen((open) => !open)}>
           Grouping
         </Button>
+        {/* Under `query`, not `dataExplorer` — the mirror of the rail's "Explore data" item.
+            With the SQL workspace hidden there is nothing to open a `.sql` file in and the
+            folder holding them has left the file browser, so the control is REMOVED rather
+            than refused: a `disabledReason` would explain a state the user cannot change.
+
+            What is written is the statement that RAN, which is why the refusal below is keyed
+            off that string rather than off the description — a description exists long before,
+            and sometimes without, a statement it can render to. */}
+        {savedQueriesEnabled && (
+          <Button
+            size="sm"
+            disabledReason={sql === null || queryControls.suspended ? NOTHING_TO_SAVE : undefined}
+            onClick={onSaveQuery}>
+            Save as query
+          </Button>
+        )}
         {/* The count says "on this page" every time it is said, because that is the only
             thing a selection here can ever mean — Ctrl/Cmd+A included (FR-002 AC4). */}
         <p

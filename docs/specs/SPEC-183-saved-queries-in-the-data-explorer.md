@@ -1,44 +1,52 @@
-# Spec: Saved Queries in the Data Explorer
+# Spec: Saving an Exploration as a Saved Query
 
 **ID:** SPEC-183
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-13
 **Depends On:** SPEC-177, SPEC-178, SPEC-181
 
 ## Overview
 
-The `sql` arm of SPEC-178's source union finally gets a surface. A user can open a `.sql` file
-from a space's `saved_queries/` folder as an exploration source — filtering, sorting and
-grouping it exactly as they would a table — and can save an exploration back out as a `.sql`
-file into a space of their choosing.
+An exploration can be saved as a `.sql` file, into a space of the user's choosing, through the
+same flow the Query workspace uses — SPEC-177's generalized save. What is written is the
+exploration's **rendered** SQL: the filters, the expression, the ordering and the grouping, as
+the statement that produced the rows on screen.
 
-The asymmetry at the centre of this spec is deliberate and needs stating up front, because it is
-the arc's most user-visible loss. **A saved exploration reloads as a query, not as an
-exploration.** Its filters come back baked into the SQL rather than as editable chips. The
-alternative — a sidecar JSON carrying the view state — is rejected: SPEC-173 settled that a
-saved query is a `.sql` **file** in an ordinary folder, and a sidecar would reintroduce exactly
-the JSON store that spec deleted, plus a second artifact to keep in sync with a file users can
-freely rename, edit or delete from the file browser.
+There is one store, so the file lands in the same `saved_queries/` folder the Query workspace
+reads, appears in its saved-queries panel, and opens there into an editor tab.
+
+**Loading a `.sql` file as an exploration source is deferred.** The `sql` arm of SPEC-178's
+source union stays unreachable, and with it the wrapped-subquery refusals a loaded file would
+need. That is a scope decision taken during build (2026-08-13), not a rejection: the arc's
+argument for the union — that a saved file is a SOURCE rather than a view state, because it
+cannot be reverse-engineered into a table plus filters without a SQL parser — is unchanged, and
+a later spec can deliver the load surface without touching anything here.
+
+The asymmetry that motivated the deferral is still worth stating, because it is what a load
+surface would have to own: **a saved exploration would reload as a query, not as an
+exploration**, its filters baked into the SQL rather than returning as editable chips. The
+alternative — a sidecar JSON carrying the view state — is rejected outright and stays rejected:
+SPEC-173 settled that a saved query is a `.sql` **file** in an ordinary folder, and a sidecar
+would reintroduce exactly the JSON store that spec deleted, plus a second artifact to keep in
+sync with a file users can freely rename, edit or delete from the file browser.
 
 ## Scope
 
 ### In Scope
 
-- Loading a `.sql` file as a `{kind: 'sql'}` exploration source.
 - Saving an exploration's **rendered** SQL as a `.sql` file, into a chosen space.
-- The two refusals a wrapped subquery requires: multi-statement files, and statements that are
-  not `SELECT` or `WITH … SELECT`.
-- The load surface — a space selector and the paged list, over SPEC-177's shared store.
-- Registry rows for both space selectors under `sharedWorkspaces`, and for the load and save
-  surfaces under `dataExplorer`.
+- A registry row for the save control under **`query`** — the flag that owns the store, not
+  the one that owns the screen — and one for its destination selector under
+  `sharedWorkspaces`.
+- The link a successful save leaves on the tab, so a re-save replaces in place exactly as the
+  Query workspace's does.
 
 ### Out of Scope
 
+- **Loading a `.sql` file as an exploration source** — deferred to a later spec, along with the
+  multi-statement and non-`SELECT` refusals a wrapped subquery requires.
 - **Any new store, format, sidecar or metadata.** Nothing is written but a `.sql` file.
-- **Migrating or rewriting existing saved queries.** A file written by the Query workspace opens
-  here and vice versa; neither is converted.
-- **Reconstructing an exploration's view state from SQL.** Explicitly rejected — it needs a SQL
-  parser and would be wrong in ways a user could not see.
+- **Migrating or rewriting existing saved queries.**
 - **Editing the loaded SQL.** The Data Explorer has no SQL editor; a file that needs editing
   belongs in the Query workspace, which is one click away.
 - **`SavedQueriesPanel`** — the Query workspace's own rail panel, untouched.
@@ -48,51 +56,7 @@ freely rename, edit or delete from the file browser.
 
 ## Functional Requirements
 
-### FR-001: Loading a `.sql` file as a source
-
-#### Description:
-
-A load surface lists a space's saved queries and opens the chosen one as a `sql` source in a new
-exploration tab.
-
-#### Acceptance Criteria:
-
-- [ ] The list is SPEC-174's: paged over filtered `.sql` rows, in S3's own order, with the
-      keep-fetching fill and its error stop.
-- [ ] Opening a file creates a tab whose source is `{kind: 'sql', body, label}`, where `label`
-      is the file's name without its extension.
-- [ ] The first execution runs the wrapped SQL and the grid adopts the columns the execution
-      reports (SPEC-180 FR-006).
-- [ ] Filters, ordering and grouping then apply over the wrapped source exactly as over a table
-      — asserted by rendering the same query description against both source arms.
-- [ ] A file that cannot be read leaves the tab unopened and shows the mapped message; it does
-      not open an empty exploration.
-- [ ] The space selector offers My files plus active shared spaces, and with `sharedWorkspaces`
-      off offers My files alone, filtered at the **view** (SPEC-174's deviation, repeated here
-      deliberately) — under its own registry row.
-
-### FR-002: The two refusals
-
-#### Description:
-
-The `sql` arm wraps the file's body in a subquery. Two shapes cannot be wrapped, and both are
-refused by the app with its own wording rather than being sent to Athena to fail.
-
-#### Acceptance Criteria:
-
-- [ ] A file whose body yields more than one statement through `splitSqlStatements` is refused,
-      and the message says the Data Explorer opens a single statement.
-- [ ] A body whose first keyword is neither `SELECT` nor `WITH` is refused. `WITH … SELECT` is
-      **allowed** — a CTE is an ordinary way to write a query, and excluding it would refuse
-      files the Query workspace happily runs.
-- [ ] The keyword check ignores leading comments and whitespace.
-- [ ] A trailing semicolon is stripped rather than refused, since `splitSqlStatements` already
-      normalises it.
-- [ ] Refusals render through `lib/errorMessages.ts` (SPEC-106); no Athena text is involved,
-      because no query was sent.
-- [ ] A refused file leaves no tab open and no execution issued.
-
-### FR-003: Saving an exploration
+### FR-001: Saving an exploration
 
 #### Description:
 
@@ -100,8 +64,8 @@ Saving writes the exploration's **rendered** SQL — filters, expression, orderi
 included — through SPEC-177's generalized save flow.
 
 Rendered rather than source, because what the user is looking at is what the file should
-reproduce. Saving the bare source would produce a file that reopens as something the user did
-not save.
+reproduce. Saving the bare `SELECT *` would produce a file that reopens as something the user
+did not save.
 
 #### Acceptance Criteria:
 
@@ -119,54 +83,85 @@ not save.
       space as a write target.
 - [ ] Saving issues no Athena execution.
 
-### FR-004: A saved exploration reloads as a query
+### FR-002: There is nothing to save until something has run
 
 #### Description:
 
-The accepted loss, asserted rather than left to be discovered.
+The control is available exactly when there is a statement to write, and says why when there
+is not.
 
 #### Acceptance Criteria:
 
-- [ ] Saving an exploration with filters and a sort, then loading that file, produces a `sql`
-      source whose body contains those clauses and whose query description is **empty**.
-- [ ] The load surface says the file opens as a query, so the absence of chips is expected
-      rather than a bug.
+- [ ] With no exploration open, or with a description that could not be rendered, the control is
+      unavailable and carries a `disabledReason` (SPEC-172's `Button.disabledReason`:
+      `aria-disabled`, so the reason is in the tab order rather than hover-only).
+- [ ] A suspended description (SPEC-181 FR-006) has run nothing, so there is nothing to save and
+      the same refusal applies.
+- [ ] The refusal is user text (SPEC-106): it never quotes an `ExplorationRenderError`, whose
+      message names a column for an operator.
+
+### FR-003: The tab remembers what it was saved as
+
+#### Description:
+
+A successful save links the tab to the file it wrote, so the next save behaves as the Query
+workspace's does.
+
+#### Acceptance Criteria:
+
+- [ ] After a save, the tab carries the written file's `{spaceId, bucket, key, name}`.
+- [ ] Re-saving under the same name into the same space writes through with no second confirm
+      (SPEC-175 FR-004); any other key takes the HEAD-and-confirm path.
+- [ ] The link survives a session restore, and a stored document that predates it — or carries a
+      malformed one — restores the tab without it rather than being discarded (SPEC-182's
+      precedent for an added field).
+- [ ] The tab's LABEL is not changed by a save. It names the source being explored; the file it
+      was written to is a different fact, and the Query workspace's rename-on-save is a
+      behaviour of a tab whose whole identity is its buffer.
+
+### FR-004: Nothing but the file is written
+
+#### Acceptance Criteria:
+
 - [ ] No sidecar, manifest or metadata object is written — asserted by counting `PutObject`
-      calls on a save: exactly one.
+      calls on a save: exactly one, over a space whose folder marker already exists.
 - [ ] The delivery doc records the rejected sidecar alternative and why.
 
-### FR-005: The two features' files are interchangeable
+### FR-005: A file saved here opens in the Query workspace
 
 #### Description:
 
-There is one store, so a file saved in either surface opens in the other.
+There is one store, so a file written from the Data Explorer is an ordinary saved query.
 
 #### Acceptance Criteria:
 
-- [ ] A file saved from the Query workspace appears in the Data Explorer's load list and opens.
 - [ ] A file saved from the Data Explorer appears in the Query workspace's saved-queries panel
       and opens into an editor tab.
-- [ ] Neither surface writes anything the other cannot read.
-- [ ] The Data Explorer's load list applies the same top-level `.sql` filter with
-      `Delimiter: '/'` — it does not list subfolders' files (SPEC-173).
+- [ ] It is written at the key SPEC-173's `savedQueryKey` produces, with the same content type,
+      through the same `writeSavedQuery` — the Data Explorer adds no writer of its own.
+- [ ] The Query workspace's panel is untouched by this spec.
+- [ ] **The control follows the `query` flag**, and is REMOVED with it rather than refused.
+      It is the exact mirror of SPEC-179's *Explore data* on the Query rail: a saved-queries
+      capability living on a Data Explorer surface. With `query` off there is no editor to
+      open a `.sql` file in and the `saved_queries` folder has already left both the file
+      browser and the destination picker (SPEC-173), so a file written there would be a dead
+      end the user cannot see — the failure "Create table" is on that list for.
 
 ---
 
 ## Data Model
 
-No new persisted types. The source arm from SPEC-178, now reachable:
+No new persisted types in S3. One optional field on the session's tab document:
 
 ```ts
-export type ExplorationSource =
-  | {kind: 'table'; spaceId: string; database: string; table: string}
-  | {kind: 'sql'; body: string; label: string};
+export type ExplorationTab = {
+  // …
+  /** The `.sql` file this tab was last saved to, if any. What a re-save replaces. */
+  savedQuery?: SavedQueryLink;
+};
 ```
 
-The refusal codes:
-
-```ts
-export type SqlSourceRefusal = 'multipleStatements' | 'notASelect';
-```
+`SavedQueryLink` is `features/saved-queries/`'s own type — the lower layer both features import.
 
 ---
 
@@ -174,13 +169,18 @@ export type SqlSourceRefusal = 'multipleStatements' | 'notASelect';
 
 ```ts
 /**
- * Validates a saved file's body as an exploration source.
- * Returns the normalized single statement, or the reason it cannot be one.
+ * Hosts the save flow for the active exploration: SPEC-177's dialog, its collision
+ * confirm, and the write.
  */
-export function toSqlSource(
-  body: string,
-  label: string
-): {ok: true; source: ExplorationSource} | {ok: false; reason: SqlSourceRefusal};
+export function SaveExplorationDialog(props: {
+  /** The statement that produced the rows on screen; the body written. */
+  sql: string;
+  spaces: QuerySpace[];
+  defaultSpace: QuerySpace | null;
+  link: SavedQueryLink | undefined;
+  onSaved: (query: SavedQuery) => void;
+  onClose: () => void;
+}): JSX.Element;
 ```
 
 ---
@@ -189,33 +189,26 @@ export function toSqlSource(
 
 ```
 apps/portal/src/features/data-explorer/
-├── LoadQueryDialog.tsx
 ├── SaveExplorationDialog.tsx      # thin host over SPEC-177's SaveQueryDialog
-├── toSqlSource.ts
-├── toSqlSource.test.ts
-└── savedQueriesInExplorer.test.tsx
+└── saveExploration.test.tsx
 ```
 
 ---
 
 ## Implementation Phases
 
-### Phase 1: The source validator
+### Phase 1: The link on the tab
 
-- `toSqlSource` with both refusals, the comment-tolerant keyword check and the `WITH` allowance.
+- `ExplorationTab.savedQuery`, its validation and its normalisation in `explorationTabs.ts`,
+  and the tabs action that writes it.
 
-### Phase 2: Loading
+### Phase 2: The save
 
-- The load dialog over SPEC-177's pager and space selector, with the view-level
-  `sharedWorkspaces` filter and its registry row.
-- Opening a `sql`-source tab and running its first execution.
+- `SaveExplorationDialog` over SPEC-177's flow, mounted by the workspace; the toolbar control
+  and its refusal.
+- The registry rows for the surface and its destination selector.
 
-### Phase 3: Saving
+### Phase 3: The assertions
 
-- The rendered-SQL save through SPEC-177's generalized flow, with the destination selector's own
-  registry row.
-- The single-`PutObject` assertion and the reload-as-a-query test.
-
-### Phase 4: Interchange
-
-- The both-directions tests between the two features' surfaces.
+- The rendered-SQL body, the single-`PutObject` count, the no-execution count, the SPEC-175
+  rules at this second caller, and the Query-workspace interchange.
