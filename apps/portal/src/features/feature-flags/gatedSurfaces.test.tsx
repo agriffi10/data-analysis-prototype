@@ -390,8 +390,10 @@ const RECIPES: Record<string, Recipe> = {
       seedExplorationTab();
       renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
     },
-    // The control is `aria-disabled` rather than absent while nothing has run (SPEC-172), so
-    // it is in the DOM either way and the flag is the only thing that can remove it.
+    // A tab is seeded because the control lives on the RESULTS region, which does not mount
+    // at all with no tabs — absent for a reason that has nothing to do with a flag. Given one,
+    // an unrunnable exploration leaves the control `aria-disabled` rather than absent
+    // (SPEC-172), so from here the flag is the only thing that can remove it.
     anchor: async () => screen.findByRole('button', {name: 'Grouping'}),
     find: byRole('button', 'Save as query')
   },

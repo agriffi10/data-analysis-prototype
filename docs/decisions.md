@@ -3345,6 +3345,16 @@ renames it; an exploration tab is named for the source it is exploring, which a 
 change. Restored all-four-fields-or-none, so a document written before this spec restores the tab
 without a link rather than being discarded (SPEC-182's precedent).
 
+**A FAILED exploration is refused, and it is the case that has teeth.** The obvious refusal —
+"there is no statement" — is keyed on a null `sql`, and a failed apply has a perfectly good one: the
+statement Athena rejected. Meanwhile `ExplorationResultsRegion` has deliberately fallen back to the
+LAST GOOD execution's rows (SPEC-181), so the grid on screen belongs to a different query. Saving
+there writes the rejected statement under a name whose rows the user was reading from somewhere
+else, and the file then fails to open in the Query workspace this decision promises it opens in. It
+is **not** the suspended state and cannot be folded into it: SPEC-181 suspends only on a *history
+step* onto a known-bad statement, so the FIRST failure is exactly the window in which Save is
+offered. It is checked first, and worded apart, because something did run.
+
 **The sidecar stays rejected.** A JSON document beside the `.sql` file, carrying the exploration's
 view state so a saved exploration could reload as an exploration, would reintroduce exactly the JSON
 store SPEC-173 deleted — plus a second artifact to keep in sync with a file users can freely rename,

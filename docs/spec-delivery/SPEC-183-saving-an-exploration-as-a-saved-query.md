@@ -63,9 +63,11 @@ a state the user has no way to change.
   long as its workspace; here the workspace mounts the dialog when the user asks and unmounts it
   when they are done, so the form shows while no collision is pending and the confirm shows when
   one is. Reading the hook's flag as well would give one dialog two sources of truth.
-- **The tab id and the SQL are captured at the gesture**, not read live while the dialog is up. The
-  write is async; a tab switch behind it would otherwise write one exploration's SQL and link it to
-  another's tab.
+- **The tab id and the SQL are captured at the gesture**, not read live while the dialog is up.
+  This is structural rather than a fix for a reachable bug: the dialog is modal and focus-trapped,
+  so nothing can change the active tab behind it today. Capturing is what keeps that a property of
+  *this* code rather than of `Modal` — and it is deliberately **not** claimed as a tested guard,
+  because no test in this suite can reach the state it defends against.
 - **The `sharedWorkspaces` gate is applied at the view**, reusing the list the workspace already
   filters for the source picker (SPEC-174's precedent, repeated) — the hook and the service never
   learn about flags.
@@ -81,14 +83,46 @@ back baked into the SQL rather than as editable chips. FR-004's assertion is the
 issues **exactly one `PutObject`**, counted over a space whose folder marker already exists — so
 the count is a statement about sidecars rather than about folder creation.
 
+## What review changed
+
+A fresh-context review found one user-reachable defect and several claims stronger than their
+proofs.
+
+- **`Save as query` stayed live after a FAILED execution, and wrote the statement Athena had just
+  rejected.** The refusal was keyed on `sql === null`, but a failed apply still *has* a rendered
+  statement — while `ExplorationResultsRegion` has deliberately fallen back to the LAST GOOD
+  execution's rows (SPEC-181). So the user saved one query under a name whose grid was showing
+  another's rows, and the file then failed to open in the Query workspace this spec promises it
+  opens in. It is not the same state as `suspended`: SPEC-181 suspends only on a *history step*
+  onto a known-bad statement, so the first failure was exactly the window in which Save was
+  offered. `failed` is now checked first, with its own wording, and the test drives the real
+  expression bar to a real failure.
+- **Two claims were softened to what is actually proved.** The gesture-time capture of
+  `{tabId, sql}` is structural, not a tested guard — the modal makes the state it defends against
+  unreachable, and the review confirmed reverting both halves left the suite green. And FR-001
+  AC1's "never re-derived" is guaranteed by `SaveExplorationDialogProps.sql: string`, not by the
+  test that reads as its assertion: a second `renderExplorationSql` call over the same description
+  is byte-identical, so no equality check could ever catch it. The prop is the guard; the test
+  still catches the *stated* risk (saving the bare `SELECT *`).
+- **`queryControls.suspended` in the refusal was dead code.** The workspace already passes
+  `useExploration` nothing while suspended, so `sql` is null for that reason too — deleting the
+  clause changed no test. Removed, with the upstream invariant named where the refusal is built.
+- **Axe assertions were missing** for both new surfaces; the dialog and the Replace confirm are
+  now asserted over `document.body`, the driven tree, so axe sees them open.
+- Three doc corrections: FR-002 AC1 said the control is "unavailable with a `disabledReason`" when
+  no exploration is open, where it is in fact **absent** (the region does not mount); the registry
+  recipe's comment overstated the same thing; and the spec file is renamed to match its title, so
+  one spec no longer goes by three names.
+
 ## Verification
 
 `npm run format`, `npm run lint`, `npm run build` and the full Vitest suite green locally —
-**2420 tests, 112 files, exit 0**. One new test file, `saveExploration.test.tsx` (13 cases): the
+**2423 tests, 112 files, exit 0**. One new test file, `saveExploration.test.tsx` (16 cases): the
 rendered-SQL body compared against the string `runQuery` was actually given, the one-`PutObject`
-count, the zero-additional-execution count, the extension-lowercasing at this second caller, the
-Replace confirm and the in-place re-save, the mapped inline write failure, the link's round trip
-through `sessionStorage`, and both refusal states.
+count (mutation-checked by the reviewer: a fire-and-forget sidecar write reddens 7 of them), the
+zero-additional-execution count, the extension-lowercasing at this second caller, the Replace
+confirm and the in-place re-save, the mapped inline write failure, the link's round trip through
+`sessionStorage`, all three refusal states, and the two axe passes.
 
 **FR-005's interchange is asserted at the STORE, not by mounting the Query workspace.** SPEC-176's
 sibling rule forbids one feature's test importing the other, tests included — so the assertion

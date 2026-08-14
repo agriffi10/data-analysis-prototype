@@ -83,16 +83,17 @@ export const CALCULATED_COLUMN_REFUSAL =
   'This column is worked out in your browser, so it can’t be sorted or filtered.';
 export const UNFILTERABLE_VALUE = 'This cell’s value can’t be used as a filter on a numeric column.';
 export const SUSPENDED_TEXT = 'This set of filters failed last time it ran. Nothing has been run.';
-/**
- * Why there is nothing to save (SPEC-183 FR-002).
- *
- * ONE sentence for both reasons, and deliberately so: a description that could not be
- * rendered and one that has been held back after failing are the same fact to a user —
- * there is no statement — and the difference between them is already on screen, in the
- * error banner or in the suspended panel. The renderer's own account of a refusal names a
- * column for an operator, which SPEC-106 forbids showing anyone.
- */
+/** No statement exists yet: nothing rendered, or a suspended description was held back. */
 export const NOTHING_TO_SAVE = 'There’s no query to save yet — nothing has run.';
+/**
+ * Why a FAILED exploration cannot be saved (SPEC-183 FR-002).
+ *
+ * Its own wording because its own state: there IS a statement here, and it is the one
+ * Athena rejected. The rows under the banner are the LAST GOOD execution's, so saving would
+ * write one query while the grid showed another's rows — and the file would fail to open in
+ * the Query workspace, which is the surface FR-005 promises it opens in.
+ */
+export const FAILED_NOT_SAVEABLE = 'This query didn’t run, so there’s nothing to save. Fix it and try again.';
 
 /**
  * One exploration's rows, and everything that changes which rows they are (SPEC-180,
@@ -297,6 +298,14 @@ export function ExplorationResultsRegion({
   // Suspended is not loading: nothing is in flight, deliberately. Without this the status
   // line announced "Running…" directly above the panel saying nothing had been run.
   const loading = !queryControls.suspended && (isPending || !shownExecutionId || results.isPending);
+
+  // SPEC-183 FR-002. `failed` is checked FIRST and is the one that is easy to miss: a failed
+  // apply still has a rendered `sql` — the statement Athena rejected — while `shownExecutionId`
+  // has fallen back to the last good one, so the grid is showing a DIFFERENT query's rows. A
+  // save there writes a file that fails to open in the workspace FR-005 promises it opens in.
+  // A suspended description needs no clause of its own: the workspace passes `useExploration`
+  // nothing while suspended, so `sql` is already null.
+  const saveRefusal = failed ? FAILED_NOT_SAVEABLE : sql === null ? NOTHING_TO_SAVE : null;
   const hasCell = cursorColumn !== null && cursorValue !== undefined;
   const filterByCellRefusal = !hasCell
     ? NO_CELL_TO_FILTER
@@ -482,18 +491,13 @@ export function ExplorationResultsRegion({
           onClick={() => setGroupingOpen((open) => !open)}>
           Grouping
         </Button>
-        {/* Under `query`, not `dataExplorer` — the mirror of the rail's "Explore data" item.
-            With the SQL workspace hidden there is nothing to open a `.sql` file in and the
-            folder holding them has left the file browser, so the control is REMOVED rather
-            than refused: a `disabledReason` would explain a state the user cannot change.
-
-            What is written is the statement that RAN, which is why the refusal below is keyed
-            off that string rather than off the description — a description exists long before,
-            and sometimes without, a statement it can render to. */}
+        {/* Gated by `query`, not `dataExplorer`: the store is the Query workspace's, and
+            REMOVED rather than refused, because a reason cannot explain a state the user has
+            no way to change. See `gatedSurfaces.ts`. */}
         {savedQueriesEnabled && (
           <Button
             size="sm"
-            disabledReason={sql === null || queryControls.suspended ? NOTHING_TO_SAVE : undefined}
+            disabledReason={saveRefusal ?? undefined}
             onClick={onSaveQuery}>
             Save as query
           </Button>

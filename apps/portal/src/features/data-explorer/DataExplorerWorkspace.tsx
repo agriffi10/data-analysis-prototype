@@ -49,17 +49,14 @@ export function DataExplorerWorkspace() {
   const tabs = useExplorationTabs(username);
   const [picking, setPicking] = useState(false);
   const [limitReached, setLimitReached] = useState(false);
-  // What a save is saving, captured at the gesture: WHICH tab, and the statement that was
-  // on screen when the user pressed the button. Neither is re-read while the dialog is up —
-  // the write is async, and a tab switch behind it would otherwise write one exploration's
-  // SQL and link it to another's tab.
+  // Which tab, and the statement on screen, both taken at the gesture rather than read live
+  // while the dialog is up. The dialog is modal, so nothing can change the active tab behind
+  // it today — capturing is what keeps that a property of THIS code rather than of `Modal`.
   const [saving, setSaving] = useState<{tabId: string; sql: string} | null>(null);
   const queryControls = useExplorationQuery(tabs, tabs.activeTabId);
 
-  // SPEC-183: the destination a save opens on, and the ONE memory of "the space I am
-  // working in" — the same hook, the same sessionStorage key and the same fallback the
-  // Query workspace's save and load surfaces share, so the two features cannot come to
-  // disagree about where the user last was. The list is the view-gated one above.
+  // The ONE memory of "the space I am working in", shared with the Query workspace's save and
+  // load surfaces — same hook, same key. The list is the view-gated one above.
   const savedSpace = useSavedQuerySpace(username || null, spaces);
 
   const {resolution, clear} = useExploreDeepLink(spaces, username, sharedEnabled);

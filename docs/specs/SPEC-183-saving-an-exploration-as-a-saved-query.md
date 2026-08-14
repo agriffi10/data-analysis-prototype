@@ -92,13 +92,20 @@ is not.
 
 #### Acceptance Criteria:
 
-- [ ] With no exploration open, or with a description that could not be rendered, the control is
-      unavailable and carries a `disabledReason` (SPEC-172's `Button.disabledReason`:
-      `aria-disabled`, so the reason is in the tab order rather than hover-only).
+- [ ] With a description that could not be rendered, the control is unavailable and carries a
+      `disabledReason` (SPEC-172's `Button.disabledReason`: `aria-disabled`, so the reason is in
+      the tab order rather than hover-only).
 - [ ] A suspended description (SPEC-181 FR-006) has run nothing, so there is nothing to save and
       the same refusal applies.
-- [ ] The refusal is user text (SPEC-106): it never quotes an `ExplorationRenderError`, whose
-      message names a column for an operator.
+- [ ] **A FAILED execution is refused too, and this is the case with teeth.** A failed apply
+      still HAS a rendered statement — the one Athena rejected — while the region has fallen
+      back to the LAST GOOD execution's rows, so a save there writes one query under a name
+      whose grid is showing another's, and the file fails to open in the workspace FR-005
+      promises it opens in. It is worded apart from the other two, because something did run.
+- [ ] With no exploration open the control is **absent**, not refused: the results region does
+      not mount at all, and the source picker is on screen instead.
+- [ ] Every refusal is user text (SPEC-106): none of them quotes an `ExplorationRenderError`,
+      whose message names a column for an operator.
 
 ### FR-003: The tab remembers what it was saved as
 

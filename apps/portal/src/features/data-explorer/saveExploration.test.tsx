@@ -4,11 +4,12 @@ import userEvent from '@testing-library/user-event';
 import {HeadObjectCommand, ListObjectsV2Command, PutObjectCommand} from '@aws-sdk/client-s3';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
+import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {readExplorationTabsState} from './explorationTabs';
 import {newExploration} from './exploration';
-import {NOTHING_TO_SAVE} from './ExplorationResultsRegion';
+import {FAILED_NOT_SAVEABLE, NOTHING_TO_SAVE} from './ExplorationResultsRegion';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
 import {listSavedQueries, readSavedQuery} from '../saved-queries/savedQueries.service';
@@ -432,15 +433,56 @@ describe('nothing to save (FR-002)', () => {
     // `aria-disabled`, not `disabled` (SPEC-172) — the reason has to be reachable.
     await waitFor(() => expect(button).toHaveAttribute('aria-disabled', 'true'));
     expect(button).not.toHaveAttribute('disabled');
-    expect(button).toHaveAttribute('title', NOTHING_TO_SAVE);
+    // A render refusal is an ERROR as well as an absent statement, so it takes the same
+    // wording a failed execution does: nothing ran, and the way out is to change something.
+    expect(button).toHaveAttribute('title', FAILED_NOT_SAVEABLE);
     expect(runQuery).not.toHaveBeenCalled();
     expect(screen.queryByText(/neither grouped nor aggregated/)).not.toBeInTheDocument();
+  });
+
+  it('refuses a FAILED exploration, whose rows on screen are a DIFFERENT query’s', async () => {
+    // The state this refusal exists for, and the one that is easy to miss: a failed apply
+    // still HAS a rendered statement — the one Athena rejected — while the region has fallen
+    // back to the last good execution's rows (SPEC-181). Saving there wrote the failed query
+    // under a name whose grid showed another one's rows, and the file then failed to open in
+    // the Query workspace FR-005 promises it opens in. Found in review.
+    let started = 0;
+    vi.mocked(runQuery).mockImplementation(async () => {
+      started += 1;
+      return ok({queryExecutionId: `exec-${started}`}) as never;
+    });
+    vi.mocked(getQueryStatus).mockImplementation((async (queryExecutionId: string) =>
+      queryExecutionId === 'exec-2'
+        ? ok({queryExecutionId, state: 'FAILED', stateChangeReason: 'mismatched input'})
+        : ok({queryExecutionId, state: 'SUCCEEDED', dataScannedBytes: 2048})) as never);
+
+    seedTab();
+    const {user} = render();
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
+
+    await user.type(screen.getByLabelText('Filter expression'), 'not sql at all{Enter}');
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
+    await screen.findByText(/syntax error in your query/i);
+
+    // NOT suspended — this is the FIRST failure, not a history step onto a known-bad
+    // statement, so `sql` is non-null and only the failure itself can turn the control off.
+    expect(screen.queryByRole('button', {name: 'Run it anyway'})).not.toBeInTheDocument();
+
+    const button = screen.getByRole('button', {name: 'Save as query'});
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).toHaveAttribute('title', FAILED_NOT_SAVEABLE);
+
+    // …and pressing it anyway writes nothing: `disabledReason` drops the handler.
+    await user.click(button);
+    expect(screen.queryByRole('dialog', {name: 'Save query'})).not.toBeInTheDocument();
+    expect(commandsOfType(PutObjectCommand)).toHaveLength(0);
   });
 
   it('is unavailable while a description is suspended, because nothing has run', async () => {
     // AC2. SPEC-181 holds a history step onto a known-failed statement back rather than
     // re-running it — so the description on screen has produced no statement, and there is
-    // nothing to write.
+    // nothing to write. The refusal comes through `sql === null`, which is what suspension
+    // already produces one layer up; there is no separate clause for it.
     let started = 0;
     vi.mocked(runQuery).mockImplementation(async () => {
       started += 1;
@@ -468,5 +510,32 @@ describe('nothing to save (FR-002)', () => {
     const button = screen.getByRole('button', {name: 'Save as query'});
     expect(button).toHaveAttribute('aria-disabled', 'true');
     expect(button).toHaveAttribute('title', NOTHING_TO_SAVE);
+  });
+});
+
+// ─── Accessibility ──────────────────────────────────────────────────────────
+
+describe('accessibility', () => {
+  it('leaves the open save dialog, and the toolbar’s refused control, axe-clean', async () => {
+    // `document.body` — the DRIVEN tree, not a fresh render of the same JSX: a re-render
+    // would put the dialog back in its closed state and axe would never see it open.
+    seedTab();
+    const {user} = render();
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
+
+    await openSaveDialog(user);
+    await expectContainerHasNoA11yViolations(document.body, COMPONENT_AXE_OPTIONS);
+  });
+
+  it('leaves the Replace confirm axe-clean', async () => {
+    storeReady({occupied: true});
+    seedTab();
+    const {user} = render();
+    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
+
+    await saveAs(user, 'Monthly revenue');
+    await screen.findByRole('alertdialog', {name: 'Confirm replace saved query'});
+
+    await expectContainerHasNoA11yViolations(document.body, COMPONENT_AXE_OPTIONS);
   });
 });
