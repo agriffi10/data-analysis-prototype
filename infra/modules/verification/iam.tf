@@ -18,10 +18,22 @@
 // accepting the finding would have been suppressing a fixable one.
 //
 // `verification_principal_arns` is empty by default and the role is then **not created**, which
-// is deliberate on two counts. The ARNs are operator identities that do not belong in git, so
-// they are set in `terraform.tfvars` (gitignored) — and a role nobody has named is a role nobody
-// needs. **The TRAIL is unconditional**: it is the half that unblocks SPEC-170's negative
-// assertion, and it depends on no principal at all.
+// is deliberate on two counts. The ARNs are operator identities that do not belong in git — and
+// a role nobody has named is a role nobody needs. **The TRAIL is unconditional**: it is the half
+// that unblocks SPEC-170's negative assertion, and it depends on no principal at all.
+//
+// THE ARNs COME FROM A REPO VARIABLE, NOT FROM A LOCAL `terraform.tfvars`. This comment used to
+// say tfvars, and that was wrong in a way that could have destroyed production. A local apply is
+// not available to any human identity here: the laptop IAM user is not on the data buckets'
+// policy allowlists (portal, deploy and execution roles, the account root and the Lake Formation
+// registration role — an IAM user ARN matches none of them, `:root` included), so tofu reads
+// `dat-prod-user-space` and `dat-prod-archive` as ABSENT and plans to destroy and recreate them
+// — measured 2026-08-14 as `25 to add, 3 to change, 13 to destroy`, with both buckets in the
+// replace set. `modules/data/s3.tf` records the same failure mode for the deploy role under
+// SPEC-016. The same plan also fails outright on `GetLFTag` for `portal-managed`. So the
+// value is set as the `TF_VAR_verification_principal_arns` repo variable (a JSON list) and
+// reaches tofu through `deploy-infra.yml`, which runs as the deploy role. That keeps the ARNs
+// out of git without routing anyone through a local apply.
 resource "aws_iam_role" "verification" {
   count = length(var.verification_principal_arns) > 0 ? 1 : 0
 

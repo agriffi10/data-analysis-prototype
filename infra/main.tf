@@ -1051,8 +1051,10 @@ module "verification" {
   # depends on module.archive and no cycle is possible.
   archive_bucket_name = local.archive_bucket_name
 
-  # Operator identities, from terraform.tfvars (gitignored). Empty ⇒ no role, and the TRAIL —
-  # the half that unblocks SPEC-170 — ships regardless.
+  # Operator identities, from the TF_VAR_verification_principal_arns repo variable (NOT a local
+  # terraform.tfvars — a local apply proposes to recreate the data buckets it cannot read; see
+  # modules/verification/iam.tf). Empty ⇒ no role, and the TRAIL — the half that unblocks
+  # SPEC-170 — ships regardless.
   verification_principal_arns = var.verification_principal_arns
 
   # base grants the deploy role the trail, bucket and role perms (and holds the 30s

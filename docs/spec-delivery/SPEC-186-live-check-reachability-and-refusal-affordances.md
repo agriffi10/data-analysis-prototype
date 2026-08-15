@@ -151,15 +151,28 @@ created when it is empty. Two consequences worth knowing:
 
 - **The trail ships unconditionally** — it needs no principal, and it is the half that unblocks
   SPEC-170's negative assertion. That check is runnable the moment this applies.
-- **The catalog read-backs need one line of config first.** Add to `infra/terraform.tfvars`
-  (gitignored — these are operator identities and do not belong in the repo):
+- **The catalog read-backs need one line of config first**, and it is **not** a local
+  `terraform.tfvars`:
 
-  ```hcl
-  verification_principal_arns = ["arn:aws:iam::<account>:user/<your-iam-user>"]
+  ```bash
+  gh variable set TF_VAR_verification_principal_arns \
+    --body '["arn:aws:iam::<account>:user/<your-iam-user>"]'
   ```
 
-  then apply. `terraform.tfvars.example` carries the commented line. Until then SPEC-149's
-  preservation check and SPEC-153's fixture stay blocked on the same Lake Formation wall.
+  then run **Deploy Infrastructure**. Until then SPEC-149's preservation check and SPEC-153's
+  fixture stay blocked on the same Lake Formation wall.
+
+  > **CORRECTED 2026-08-14 (#461).** This section, `terraform.tfvars.example`, both live-check
+  > scripts and the variable's own description originally said to set the ARN in a gitignored
+  > `infra/terraform.tfvars` and apply. **Following that instruction would have destroyed
+  > production.** No human identity in this account can apply locally: the laptop IAM user is
+  > not on the data buckets' policy allowlists, so tofu reads `dat-prod-user-space` and
+  > `dat-prod-archive` as absent and plans to replace them — measured as `25 to add, 3 to
+  > change, 13 to destroy`, with both buckets in the replace set. The same plan then failed on
+  > `GetLFTag` for `portal-managed`, the exact refusal this role exists to lift, so the tfvars
+  > route could not have worked even had the drift been benign. `modules/data/s3.tf` already
+  > recorded this failure mode for the deploy role under SPEC-016; the lesson did not reach the
+  > one variable a human was meant to set by hand.
 
 ## What the fresh-context review caught
 

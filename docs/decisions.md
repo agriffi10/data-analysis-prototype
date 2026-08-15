@@ -3723,10 +3723,20 @@ asserts the role appears nowhere in `portal-role-permissions`.
 **The role is trusted to NAMED principals and does not exist until one is named**, which the
 plan scan is what forced. The first version delegated to the account root; `CKV_AWS_61` rejected it,
 and accepting the finding would have violated the accept list's own rule — that list is for findings
-with **no scopable alternative**, and naming the principal is one. `verification_principal_arns`
-lives in `terraform.tfvars` (gitignored; operator identities do not belong in the repo) and is empty
-by default. **The trail is unconditional**, because it needs no principal and is the half that
+with **no scopable alternative**, and naming the principal is one. `verification_principal_arns` is
+empty by default. **The trail is unconditional**, because it needs no principal and is the half that
 unblocks SPEC-170.
+
+> **CORRECTED 2026-08-14 (#461): the ARNs travel as a repo variable, NOT a gitignored
+> `terraform.tfvars`.** The original wording named tfvars, which implies a local apply — and no
+> human identity in this account has one. The laptop IAM user is not on the data buckets' policy
+> allowlists, so `tofu plan` reads `dat-prod-user-space` and `dat-prod-archive` as absent and
+> proposes to destroy and recreate them: measured `25 to add, 3 to change, 13 to destroy`, both
+> buckets in the replace set, before failing on `GetLFTag` for `portal-managed`. `modules/data/s3.tf`
+> had already recorded this exact failure mode for the deploy role under SPEC-016 — the general
+> lesson was written down and still did not reach the one variable a human was told to set by hand,
+> which is the part worth carrying: **a config route that only an operator walks is not exercised by
+> anything, so it is worth checking that the route exists before documenting it.**
 
 **The trail's own status is part of the assertion.** A trail that is off returns an empty result,
 which reads exactly like a `RestoreObject` that never happened — so the script confirms
