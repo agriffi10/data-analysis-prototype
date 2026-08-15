@@ -115,6 +115,16 @@ jobs:
           TF_VAR_github_repo: ${{ vars.TF_VAR_github_repo }}
           TF_VAR_state_bucket: ${{ secrets.TF_VAR_state_bucket }}
           TF_VAR_state_lock_table: ${{ secrets.TF_VAR_state_lock_table }}
+          # SPEC-186 FR-004. The module's own comment points operators at a gitignored
+          # terraform.tfvars, but a LOCAL apply is not available here: the laptop IAM user
+          # cannot read the data buckets (their policies allowlist the portal, deploy and
+          # execution roles), so tofu reads them as absent and plans to DESTROY AND RECREATE
+          # dat-prod-user-space and dat-prod-archive. Measured 2026-08-14 — 13 to destroy.
+          # So the ARNs arrive here instead, from a repo variable rather than from git.
+          # A JSON list, because the variable is a list(string). `|| '[]'` is load-bearing:
+          # unset, the env is the empty string, which is not a parseable list and fails the
+          # run for every var in this block, not just this one.
+          TF_VAR_verification_principal_arns: ${{ vars.TF_VAR_verification_principal_arns || '[]' }}
 
       - name: Post plan to PR
         uses: actions/github-script@v9
@@ -332,6 +342,8 @@ jobs:
           TF_VAR_github_repo: ${{ vars.TF_VAR_github_repo }}
           TF_VAR_state_bucket: ${{ secrets.TF_VAR_state_bucket }}
           TF_VAR_state_lock_table: ${{ secrets.TF_VAR_state_lock_table }}
+          # SPEC-186 FR-004 — see the plan job's env block for why this is not a tfvars file.
+          TF_VAR_verification_principal_arns: ${{ vars.TF_VAR_verification_principal_arns || '[]' }}
 
       # Managed Login (managed_login_version = 2, set in module.auth) needs a
       # branding style per app client or the v2 login/signup pages fail to render.
