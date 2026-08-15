@@ -7,7 +7,7 @@ the order they are cheapest to run, and every one of them starts from a real tab
 built and tested against Chromium, so a Chromium pass corroborates and cannot discharge. Everything
 below that says "observe in the network panel" means Safari's Web Inspector → Network.
 
-> **AMENDED 2026-08-14 (user decision): the Safari requirement is WAIVED for the behavioural
+> **AMENDED 2026-08-15 (user decision): the Safari requirement is WAIVED for the behavioural
 > checks.** The rows marked DISCHARGED below were run in **Chrome** and are accepted as discharged.
 > The waiver is deliberate and it is not blanket — it applies to assertions about *what the app
 > does* (execution counts, SQL text, refusals), which are engine and app behaviour rather than
@@ -35,7 +35,7 @@ upload a CSV to your own space and build a table from the folder.
 > **A page is 100 rows, not 25 — so the fixture needs MORE THAN 100.** This file originally said
 > ">25", and at 30 rows both pagers render **disabled**: `EXPLORATION_PAGE_SIZE` is `100`
 > (`features/data-explorer/dataExplorer.constants.ts`), so §2 below is simply unrunnable on a
-> 30-row table. Measured 2026-08-14. Size the fixture at **150 rows** and the other sections are
+> 30-row table. Measured 2026-08-15. Size the fixture at **150 rows** and the other sections are
 > unaffected — nothing else here depends on the row count.
 
 Suggested `explorer-fixture.csv` — 30 rows shown for shape, three of them carrying the apostrophe;
@@ -136,14 +136,19 @@ one produces a predicate Athena accepts and that matches **nothing**.
    arriving there started **no** execution.
 
 > **The suspended state is PER-MOUNT, and that is accepted rather than a defect (decided
-> 2026-08-14).** The set of known-failed statements is a `useRef` in `useExplorationQuery`, so it
+> 2026-08-15).** The set of known-failed statements is a `useRef` in `useExplorationQuery`, so it
 > dies when the route unmounts. Leave `/explore` for another nav tab and come back, and the
 > statement is submitted again and you get the error banner rather than "Nothing has been run".
 > **Do not report this as a bug.** The promise is scoped to history navigation, which is what
-> step 3 tests; the banner you get instead is truthful, Athena rejects a malformed statement **at
-> `StartQueryExecution`** so no execution is created and nothing is billed, and persisting the set
-> would put a second writer on the tab's `sessionStorage` key that SPEC-181 deliberately kept to
-> one. Option B (persist with the tab) was considered and declined.
+> step 3 tests; the banner you get instead is truthful; and persisting the set would put a second
+> writer on the tab's `sessionStorage` key that SPEC-181 deliberately kept to one. Option B
+> (persist with the tab) was considered and declined.
+>
+> **On cost, precisely:** for the case step 1 stages — `qty >>> 5`, a parse error — Athena rejects
+> the statement **at `StartQueryExecution`**, so no execution is created and nothing is billed. That
+> is **not** true of every statement the set holds: `noteFailure` records any `exploration.error`,
+> including a **FAILED or CANCELLED poll**, which did create an execution — and a CANCELLED query is
+> billed for what it scanned. So the re-run is free for the syntax-error class and not in general.
 >
 > **You will see TWO `StartQueryExecution` calls for one failing apply, ~1.1 s apart. That is
 > `retry: 1`** in `lib/queryClient.ts`, not a double-subscribe — verified by applying once with no
@@ -246,13 +251,14 @@ Run the whole of the above at **400px in Safari**. What only a real browser can 
 
 ## Owed, and why
 
-Run 2026-08-14 in **Chrome at 1400px**, against `agriffith_three.explorer_fixture` (30 rows).
+Run 2026-08-15 in **Chrome at 1400px**, against `agriffith_three.explorer_fixture` (30 rows).
 Executions were counted by patching `window.fetch` and reading the `x-amz-target` header — the
 network panel reports only URL and status, which cannot separate `StartQueryExecution` from a poll.
 Evidence: `2026-08-15-data-explorer-live-check.md`.
 
 | Check | Status |
 |---|---|
+| SPEC-179 steps 1–2 (picker lists spaces, a tab opens) | **DISCHARGED** |
 | SPEC-179 deep-link refusal + **zero Glue/Athena** | **DISCHARGED** |
 | §1 An apply is a NEW execution with a NEW figure | **DISCHARGED** — 1 exec, 568 B → 1.1 KB |
 | §3 Cache hit, both directions | **DISCHARGED** — 0 execs, total held |
@@ -261,6 +267,7 @@ Evidence: `2026-08-15-data-explorer-live-check.md`.
 | SPEC-182 grouping, and the % absent from the SQL | **DISCHARGED** — 1 exec, counts verified |
 | SPEC-182 step 4, disclosed SQL = `QueryString` | **DISCHARGED** — byte-identical; was PROXIED ONLY |
 | SPEC-182 Calc issues nothing | **DISCHARGED** — 0 Athena requests |
+| SPEC-182 step 5's wording (`N selected cells on this page`) | **DISCHARGED** — read as "4 selected cells on this page", then "3" |
 | SPEC-182 step 6, the `count_all` sort is dropped | **DISCHARGED** |
 | SPEC-183 save — exactly one `PutObject` | **DISCHARGED** — 1 PUT after a HEAD on the exact key |
 | SPEC-183 round trip — reopens as RENDERED SQL | **DISCHARGED** |
@@ -277,8 +284,10 @@ Evidence: `2026-08-15-data-explorer-live-check.md`.
 > **400px is not reachable by window resize on macOS.** Chrome's minimum window width is **606px**,
 > and the Claude-in-Chrome extension refuses page-zoom shortcuts, so neither route gets there. Use
 > DevTools device toolbar (⌘⇧M) at 400px — emulation changes the viewport the page actually sees.
-> A 606px pass was run instead and is recorded as such: it exercises the below-`tablet` reflow but
-> is **not** the 400px pass this file asks for.
+> **At 606px only two things were observed** — the below-`tablet` layout is genuinely active
+> (hamburger nav, stacked file toolbar), and `CreateFolderDialog` renders 392px wide, centred, with
+> no horizontal page scroll. **Nothing on the CSS list below was exercised at any narrow width**, so
+> that list is owed in full. Details in `2026-08-15-data-explorer-live-check.md`.
 
 Record outcomes in a dated session file under `docs/testing/`, as
 `2026-08-14-live-check-session.md` does, and discharge only what was actually **run**.

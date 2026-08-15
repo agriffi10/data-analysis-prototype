@@ -1,8 +1,36 @@
 # Live-check session — 2026-08-15 (Data Explorer arc, SPEC-186 dialogs, saved queries)
 
 Run against deployed prod (`d1kbh4bnvh1je8.cloudfront.net`, `main` at `88caf54`) as
-`agriffith_three`, in **Chrome at 1400×730**. Safari waived for behavioural checks by user
-decision — see the amendment at the head of `data-explorer-e2e.md`.
+`agriffith_three`, in **Chrome at 1400×730**. Safari waived by user decision — see the amendment at
+the head of `data-explorer-e2e.md`.
+
+> **The date.** The session ran on the evening of **2026-08-14 US Eastern**, which is
+> **2026-08-15 UTC**. Everything is dated 2026-08-15 here and in the script, matching the UTC
+> timestamps on the deploys and log records cited below. Where the script says a thing was
+> "measured 2026-08-15", that is this session.
+
+## SPEC-186 FR-005 — `env` and `version` on log records
+
+Read from `s3://dat-prod-athena-admin/logs/service={s}/…/data.jsonl` with the laptop IAM identity
+(the admin bucket is readable; the user-space and archive buckets are not).
+
+- **809 post-deploy records** (timestamp > `2026-08-14T20:50Z`) across **four** services —
+  `dlq-drain`, `observability`, `notifications`, `auth` — with **zero** carrying an empty `env`,
+  an empty `version`, or `version: "0.0.0"`.
+- `env` is `"prod"`; `version` is `88caf54e0571580c5ffc9647fef4331855983708`, **equal to HEAD on
+  `main`** at the time of the run — so the stamp names the app commit, not a stale or infra one.
+- **The boundary is the deploy.** In `logs/service=observability/…/day=14/data.jsonl` the latest
+  `version: "0.0.0"` record is `18:44:35Z` and the earliest real-sha record is `18:54:34Z` — the
+  SPEC-186 Deploy Lambdas run. Shas observed in order: `0.0.0` → `7d59ca10…` (SPEC-186's own merge)
+  → `88caf54e…`.
+- CloudTrail on `dat-prod-archive-audit` reports **`IsLogging: true`**, which is the precondition
+  the archive script's negative assertion rests on.
+
+**Scope limit, stated because the count invites over-reading:** only those four services have
+emitted since the deploy. The other five (`table-builder`, `table-share`, `shared-space`,
+`data-quality`, `user-directory`) are idle, so the mechanism is proven and they are **unobserved**,
+not verified. Every record in their most recent partitions predates the deploy and legitimately
+lacks the fields.
 
 ## How executions were counted
 
@@ -64,6 +92,26 @@ which needs the personal space to be unavailable and cannot be staged from the U
 **Beware:** `Drawer` also carries `role="dialog"`. Measuring `querySelector('[role="dialog"]')`
 with a drawer open returns the **drawer** (440px, no `max-w-md`), not the modal. Select by title.
 
+**These are RENDERING assertions, so Chrome corroborates them and Safari is still owed** — the
+waiver at the head of the script covers behaviour, and a resolved `max-width` and a clipped listbox
+are layout. They are recorded here as measured-in-Chrome, not as discharging the Safari pass.
+
+### The narrow pass was at 606px, and it is NOT the 400px pass
+
+**Chrome's minimum window width on macOS is 606px**, and the Claude-in-Chrome extension refuses
+page-zoom shortcuts (`page zoom keyboard shortcuts are not supported`), so neither route reaches
+400px. What was actually observed at **606×657**:
+
+- The below-`tablet` layout is genuinely active — hamburger nav, and the file toolbar
+  (Restore Archived Data / New folder / Upload) reflowed to a stacked bar at the foot.
+- `CreateFolderDialog`: **392px** wide, centred at left 107 / right 499, `fitsHoriz: true`, and
+  `document.documentElement.scrollWidth === clientWidth` (no horizontal page scroll).
+
+Nothing else on the script's CSS list was exercised at this width — no sticky pinned column, no
+header-menu clipping, no sheet-vs-panel, no Calc/Grouping stacking, no toolbar wrap, no colour-rule
+row wrap, no band boundary, no truncating-cell anchor, no header-drag. **The 400px pass is owed in
+full.** Use DevTools device toolbar (⌘⇧M), which changes the viewport the page actually sees.
+
 ## SPEC-186 FR-003 — suggestion listbox containment
 
 | Surface | `listbox.bottom` vs `dialog.bottom` | Cap | Result |
@@ -101,9 +149,20 @@ specific rather than a generic failure.
 2. **The suspended state is per-mount.** Leaving `/explore` and returning loses the `useRef` set in
    `useExplorationQuery`, so the failed statement is re-submitted and the error banner shows
    instead of "Nothing has been run". **Accepted, not fixed** (user decision) — the promise is
-   scoped to history navigation, Athena rejects the statement at `StartQueryExecution` so nothing
-   is billed, and persisting the set would add a second writer to the tab's `sessionStorage` key
-   that SPEC-181 deliberately kept to one.
+   scoped to history navigation, and persisting the set would add a second writer to the tab's
+   `sessionStorage` key that SPEC-181 deliberately kept to one.
+
+   **The "nothing is billed" half of that rationale is narrower than it looks, and the difference
+   matters.** For the case staged here — `qty >>> 5`, a parse error — Athena rejects the statement
+   **at `StartQueryExecution`**, so no execution is created and nothing is billed; the retry is
+   itself the proof it was rejected at submit. But `DataExplorerWorkspace` calls `noteFailure` on
+   **any** `exploration.error`, which includes `useExploration`'s `executionFailure` — a **FAILED
+   or CANCELLED poll**. Those *did* create an execution, and `useExploration.ts`'s own comment
+   records that a CANCELLED query **is** billed for what it scanned before it stopped. SPEC-178's
+   Trino type-error case (`WHERE "qty" > '5'` against a bigint) is exactly that shape. So a
+   re-submit after a route change is free for the syntax-error class and **not free in general**.
+   That does not change the decision — the re-run happens once and the user is watching — but a
+   future revisit should weigh the post-submit class, not the parse-error one.
 3. **A failing apply issues TWO `StartQueryExecution` calls ~1.1 s apart.** This is `retry: 1` in
    `lib/queryClient.ts`, **not** a double-subscribe. Established by applying once with **no**
    navigation and watching it stop at exactly two and stay there for 20 s — an initial diagnosis
