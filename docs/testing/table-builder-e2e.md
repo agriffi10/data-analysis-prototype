@@ -465,12 +465,24 @@ read, so until this is run the serialization is asserted, not demonstrated.
   version. This needs the SPEC-186 FR-004 verification role (`dat-prod-verification`); from any
   other principal it returns `Insufficient Lake Formation permission(s): Required Describe`.
 
-  > **The role is one config line away, not available today.** It is created only once
-  > `verification_principal_arns` names a principal in `infra/terraform.tfvars` (gitignored —
-  > operator identities do not belong in the repo), because delegating to the account root
-  > instead was rejected by the plan scan (`CKV_AWS_61`) for the right reason. Add
-  > `verification_principal_arns = ["arn:aws:iam::<account>:user/<you>"]` and apply, then
-  > `aws sts assume-role --role-arn "$(tofu -chdir=infra output -raw verification_role_arn)"
+  > **The role is one config line away, not available today — and DO NOT APPLY IT LOCALLY.**
+  > It is created only once `verification_principal_arns` names a principal, because delegating
+  > to the account root instead was rejected by the plan scan (`CKV_AWS_61`) for the right
+  > reason. An earlier version of this note said to put the ARN in `infra/terraform.tfvars` and
+  > apply; **following that would have destroyed production.** No human identity here can apply
+  > locally: the laptop IAM user is not on the data buckets' policy allowlists, so tofu reads
+  > `dat-prod-user-space` and `dat-prod-archive` as ABSENT and plans to destroy and recreate
+  > them (measured 2026-08-14: `25 to add, 3 to change, 13 to destroy`, both buckets in the
+  > replace set). The value is a **repo variable** applied by CI:
+  >
+  > ```bash
+  > gh variable set TF_VAR_verification_principal_arns \
+  >   --body '["arn:aws:iam::<account>:user/<you>"]'
+  > ```
+  >
+  > Then run **Deploy Infrastructure** and expect a red first apply (IAM is eventually
+  > consistent). Once it is green:
+  > `aws sts assume-role --role-arn arn:aws:iam::<account>:role/dat-prod-verification
   > --role-session-name livecheck`.
 
   While you have that response, **paste it verbatim** as SPEC-153's owed foreign projection

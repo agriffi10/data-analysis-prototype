@@ -97,7 +97,7 @@ variable "principal_tag_key" {
 # still plans standalone before auth exists.
 
 variable "verification_principal_arns" {
-  description = "SPEC-186 FR-004: IAM principals allowed to assume the read-only verification role (catalog read-backs + the archive audit record). Set in terraform.tfvars, which is gitignored — these are operator identities and do not belong in the repo. Empty (the default) means the role is not created at all; the CloudTrail trail ships either way, since it needs no principal."
+  description = "SPEC-186 FR-004: IAM principals allowed to assume the read-only verification role (catalog read-backs + the archive audit record). Set as the TF_VAR_verification_principal_arns repo variable and applied by deploy-infra.yml — NOT in a local terraform.tfvars, which would require a local apply, and no human identity here can apply locally without tofu proposing to destroy the data buckets it cannot read. Empty (the default) means the role is not created at all; the CloudTrail trail ships either way, since it needs no principal."
   type        = list(string)
   default     = []
 }

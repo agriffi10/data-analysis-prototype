@@ -132,10 +132,14 @@ Expect:
   the refusal before concluding anything.
 
   > The read-only verification role (`dat-prod-verification`, SPEC-186 FR-004) exists only once
-  > `verification_principal_arns` names a principal in `infra/terraform.tfvars` — it is empty by
-  > default, because those are operator identities and do not belong in the repo. The trail
-  > itself ships regardless, so if you have ordinary read access to
-  > `s3://dat-prod-archive-audit/` you can run the query below without the role at all.
+  > `verification_principal_arns` names a principal — it is empty by default, because those are
+  > operator identities and do not belong in the repo. It is set as the
+  > `TF_VAR_verification_principal_arns` **repo variable** and applied by CI, **never by a local
+  > `tofu apply`**: no human identity here can apply locally without tofu proposing to destroy
+  > and recreate the data buckets it cannot read (see `table-builder-e2e.md` for the measured
+  > plan). The trail itself ships regardless, so if you have ordinary read access to
+  > `s3://dat-prod-archive-audit/` you can run the query below **without the role at all** —
+  > which is the path this check should normally take.
 
   Sweep the trail objects for this archive id:
 

@@ -121,9 +121,9 @@ jobs:
           # execution roles), so tofu reads them as absent and plans to DESTROY AND RECREATE
           # dat-prod-user-space and dat-prod-archive. Measured 2026-08-14 — 13 to destroy.
           # So the ARNs arrive here instead, from a repo variable rather than from git.
-          # A JSON list, because the variable is a list(string). `|| '[]'` is load-bearing:
-          # unset, the env is the empty string, which is not a parseable list and fails the
-          # run for every var in this block, not just this one.
+          # A JSON list, because the variable is a list(string). `|| '[]'` is load-bearing, and
+          # measured: unset, the env is the empty string, which tofu parses as an HCL expression
+          # and rejects with `Error: Missing expression`, failing the whole plan.
           TF_VAR_verification_principal_arns: ${{ vars.TF_VAR_verification_principal_arns || '[]' }}
 
       - name: Post plan to PR

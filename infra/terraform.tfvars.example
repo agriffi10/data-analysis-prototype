@@ -15,7 +15,16 @@ state_lock_table  = "your-tofu-lock-table-name"
 # cognito_domain_prefix = ""
 
 # SPEC-186 FR-004 — who may assume the read-only verification role for live checks
-# (catalog GetTable/GetTableVersions and the archive audit record). Operator identities,
-# so they live here and not in the repo. Leave it out and the role is not created; the
-# CloudTrail trail over the archive vault ships regardless.
-# verification_principal_arns = ["arn:aws:iam::123456789012:user/your-iam-user"]
+# (catalog GetTable/GetTableVersions and the archive audit record).
+#
+# DELIBERATELY NOT SETTABLE HERE. This file once carried a commented
+# `verification_principal_arns` line, and acting on it would have destroyed production: no
+# human identity in this account can run a local `tofu apply`, because the laptop IAM user is
+# not on the data buckets' policy allowlists and tofu therefore reads dat-prod-user-space and
+# dat-prod-archive as ABSENT and plans to recreate them (measured 2026-08-14, 13 to destroy).
+# The value is a repo variable, applied by CI:
+#
+#   gh variable set TF_VAR_verification_principal_arns \
+#     --body '["arn:aws:iam::123456789012:user/your-iam-user"]'
+#
+# Unset, the role is not created; the CloudTrail trail over the archive vault ships regardless.
