@@ -59,6 +59,34 @@ describe('errorMessages', () => {
       );
     });
 
+    it('maps a results-read-too-early 400 to "still running", not the generic fallback', () => {
+      // GetQueryResults against a QUEUED execution. Until 2026-08-15 this reached a user, on an
+      // ordinary first load of the Data Explorer, as "Something went wrong. Contact the
+      // Administrator." — the app's most alarming sentence, for a transient race of our own.
+      // The real fix is the SUCCEEDED gate in `ExplorationResultsRegion`; this rule is the
+      // backstop, so a future slip reads as "still running" rather than as an outage.
+      const {message} = toUserMessage({
+        code: 'InvalidRequestException',
+        message: 'Query has not yet finished. Current state: QUEUED'
+      });
+      expect(message).toBe('The query is still running. Give it a moment and try again.');
+      expect(message).not.toMatch(/Contact the Administrator/i);
+    });
+
+    it('still calls a StartQueryExecution rejection a syntax error', () => {
+      // The guard on the rule above. A rejected START surfaces with `code` = the AWS name
+      // (`toServiceError`), and `InvalidRequestException` is the name for BOTH a malformed
+      // query and the too-early read — so keying the new rule on that name would have been a
+      // `code` rule, and `code` rules outrank every message rule. This is the case that would
+      // have broken.
+      expect(
+        toUserMessage({
+          code: 'InvalidRequestException',
+          message: "line 3:36: mismatched input '>'. Expecting: ')', ','"
+        }).message
+      ).toBe('There’s a syntax error in your query. Check the SQL and try again.');
+    });
+
     it('returns the generic fallback for an unrecognized error and never echoes the raw message', () => {
       const raw = "TypeError: Cannot read properties of undefined (reading 'bucket')";
       const {message} = toUserMessage({code: 'KaboomException', message: raw});

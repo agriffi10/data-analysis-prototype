@@ -364,9 +364,46 @@ describe('columns before the first execution', () => {
     render();
 
     await waitFor(() => expect(headerNames()).toEqual(['id', 'total', 'status']));
-    expect(screen.getByRole('status')).toHaveTextContent('Loading rows…');
+    // "Running…", not "Loading rows…": rows are not being fetched, and saying they are was
+    // the visible face of a real defect. Results are read only at SUCCEEDED, because
+    // GetQueryResults against a QUEUED execution is a 400 the app showed as
+    // "Contact the Administrator" (fixed 2026-08-15). "Loading rows…" now means what it
+    // says — the execution finished and its rows are on the way.
+    expect(screen.getByRole('status')).toHaveTextContent('Running…');
     expect(screen.queryAllByRole('gridcell')).toHaveLength(0);
   });
+
+  it('reads NO results until the execution reports SUCCEEDED', async () => {
+    // The regression this guards is a real one, seen in production on an ordinary first
+    // load: results were requested as soon as StartQueryExecution returned an id, and
+    // Athena answers a QUEUED execution with 400 INVALID_QUERY_EXECUTION_STATE. That name
+    // (`InvalidRequestException`) mapped to nothing, so the user was shown
+    // "Something went wrong. Contact the Administrator."
+    //
+    // Asserted on the CALL, not on the screen. A rendering assertion passes just as well
+    // when the request was made and its failure swallowed — which is exactly how this
+    // survived: TanStack's `retry: 1` usually re-asked after the query had finished, so
+    // the grid looked right and the first request was wrong.
+    let state = 'QUEUED';
+    vi.mocked(getQueryStatus).mockImplementation((async (queryExecutionId: string) =>
+      ok({queryExecutionId, state, dataScannedBytes: 2048, engineExecutionTimeMillis: 120})) as never);
+    seedTabs([{id: 't1', table: 'orders'}]);
+    render();
+
+    // The statement has been submitted — so an ungated reader has an id in hand.
+    await waitFor(() => expect(runQuery).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Running…'));
+    expect(getQueryResults).not.toHaveBeenCalled();
+
+    // The second half is what stops this passing vacuously: a gate that never opens would
+    // satisfy the assertion above. `POLL_INTERVAL_MS` is 1500ms, so the next poll lands
+    // outside `waitFor`'s 1000ms default — these timeouts are deliberate, not padding, and
+    // the TEST timeout is raised with them. Without that, vitest's 5000ms default is the
+    // binding constraint and a slow CI worker fails here on the less legible error.
+    state = 'SUCCEEDED';
+    await waitFor(() => expect(getQueryResults).toHaveBeenCalled(), {timeout: 4000});
+    await waitFor(() => expect(screen.queryAllByRole('gridcell').length).toBeGreaterThan(0), {timeout: 4000});
+  }, 10_000);
 
   it('shows a SQL source no headers until the execution reports them', async () => {
     // No UI opens a `sql` source until SPEC-183 — the grid handles the arm now because

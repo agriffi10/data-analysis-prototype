@@ -42,7 +42,7 @@ import {
   sortOf
 } from './explorationQueryOps';
 import type {ColumnQueryActions} from './ColumnFilterMenu';
-import type {QueryColumn} from '../catalog/catalog.types';
+import type {QueryColumn, QueryState} from '../catalog/catalog.types';
 import type {
   CalcPanelState,
   CopyOptions,
@@ -64,6 +64,13 @@ export type ExplorationResultsRegionProps = {
    */
   sql: string | null;
   queryExecutionId: string | null;
+  /**
+   * The execution's state, or null before the first poll lands.
+   *
+   * Load-bearing, not informational: results are read ONLY at `SUCCEEDED`. See the gate
+   * on `shownExecutionId` — `isPending` cannot stand in for this.
+   */
+  state: QueryState | null;
   /** The exploration is starting or still running. */
   isPending: boolean;
   /** A render refusal, a failed start, a failed poll or a failed execution. */
@@ -158,6 +165,7 @@ export function ExplorationResultsRegion({
   tabId,
   sql,
   queryExecutionId,
+  state,
   isPending,
   error,
   schemaColumns,
@@ -205,20 +213,43 @@ export function ExplorationResultsRegion({
   const [lastGood, setLastGood] = useState<{tabId: string; executionId: string} | null>(null);
   const lastGoodExecutionId = lastGood?.tabId === tabId ? lastGood.executionId : null;
   const failed = Boolean(error);
-  const shownExecutionId = failed ? lastGoodExecutionId : queryExecutionId;
+  // Results are read ONLY once the execution has SUCCEEDED. `useQueryResults` documents
+  // itself as a pager "over a succeeded query's results" and cannot enforce that — it is
+  // handed an id and never sees the execution's state — so the contract is kept here.
+  //
+  // Without the gate, `GetQueryResults` fires the moment `StartQueryExecution` returns an
+  // id, against a QUEUED execution, and Athena answers **400 INVALID_QUERY_EXECUTION_STATE
+  // — "Query has not yet finished"**. That error's name (`InvalidRequestException`) maps to
+  // nothing, so it fell through to the generic fallback and an ordinary first load showed
+  // the user "Something went wrong. Contact the Administrator." It read as intermittent
+  // only because TanStack's `retry: 1` usually landed after the query had finished.
+  //
+  // `isPending` is NOT a substitute, and that is the trap: between `StartQueryExecution`
+  // resolving and the FIRST poll landing, `state` is still null, so `isPending`'s
+  // `state !== null && !isTerminalState(state)` clause is already false. That window is
+  // precisely where the race lived.
+  const shownExecutionId = failed ? lastGoodExecutionId : state === 'SUCCEEDED' ? queryExecutionId : null;
 
   const results = useQueryResults(shownExecutionId, EXPLORATION_PAGE_SIZE);
   // Recorded during render (React's "adjust state when a prop changes" pattern, as
   // `useCellSelection` and `useQueryResults` do) rather than in an effect: an effect would
   // paint one frame in which a failure had emptied the grid before the fallback arrived.
+  //
+  // Judged on `shownExecutionId`, the id these results actually belong to — NOT on
+  // `queryExecutionId`. The two differ for the whole QUEUED window, and reading the ungated
+  // one here would be correct only by an unstated TanStack property (that a DISABLED
+  // `useInfiniteQuery` reports `isPending`). If that ever stopped holding, a still-running
+  // execution would be recorded as "last good", and when it then FAILED the fallback would
+  // point at an execution that never produced rows — a banner over a blank grid, which is
+  // the exact state this fallback exists to prevent.
   if (
     !failed &&
-    queryExecutionId !== null &&
+    shownExecutionId !== null &&
     !results.isPending &&
     !results.isError &&
-    lastGoodExecutionId !== queryExecutionId
+    lastGoodExecutionId !== shownExecutionId
   ) {
-    setLastGood({tabId, executionId: queryExecutionId});
+    setLastGood({tabId, executionId: shownExecutionId});
   }
 
   // SPEC-180 FR-006: a `table` source knows its columns from Glue before anything runs, a

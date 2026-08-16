@@ -103,6 +103,15 @@ consumer beyond `HelpPage` and its tests. The list half is asserted.
 **Everything in `docs/testing/data-explorer-e2e.md`**, and none of it has been run. The three
 assertions nothing offline can make:
 
+> **SUPERSEDED 2026-08-15.** Twelve rows are now discharged, including **all three** assertions
+> below — an apply is a new execution while a cache hit issues zero, `O'Brien` filters correctly
+> (`'O''Brien'`), and the disclosed SQL is byte-identical to the `QueryString` Athena received.
+> **Paging is the exception and is still owed**: `EXPLORATION_PAGE_SIZE` is 100, so the script's
+> ">25 rows" fixture could never page. Safari is waived for the behavioural checks by user decision
+> and **retained for the CSS list** — the sticky block, menu clipping, panel stacking, toolbar wrap
+> and header-drag below are all still owed, and so is the 400px pass. See this script's own
+> *Owed, and why* table and `docs/testing/2026-08-15-data-explorer-live-check.md`.
+
 1. **A filter apply is a new execution with a changed bytes-scanned figure, and paging is none** —
    observed in the network panel, never inferred from the grid.
 2. **A value containing a single quote filters correctly against the real engine** — the

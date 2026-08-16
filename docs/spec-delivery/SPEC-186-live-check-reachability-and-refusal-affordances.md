@@ -124,8 +124,23 @@ five previously-unrunnable assertions rather than running them:
   several-hundred-object folder; two UI submits 2 s apart are measured not to contend.
 - **SPEC-149's preservation check and SPEC-153's foreign projection fixture** are now makeable, from
   the `dat-prod-verification` role.
+
+  > **NOT YET, as of 2026-08-15.** The role is **not created** — `verification_principal_arns` is
+  > unset by decision, so both read-backs remain blocked. Confirmed live: `aws glue get-databases`
+  > returns **empty** for the laptop IAM identity (Lake Formation filtering the catalog), and a
+  > local plan fails on `GetLFTag` for `portal-managed`. Creating it is now a repo variable plus a
+  > CI apply (#461), never a local one.
 - **FR-007's nine dialogs** need a visual pass at desktop and 400px, and **FR-003's listbox** needs
   re-measuring in both dialogs under both share kinds, in Safari.
+
+  > **PARTIALLY SUPERSEDED 2026-08-15.** Measured in **Chrome at desktop**: **8 of the 9 dialogs**
+  > at **392px** (root font-size is 14px, so `max-w-md` is 392 — the 448 figure in this spec's own
+  > text is `max-w-lg`), and FR-003's containment in **Add members** and **Share table under both
+  > share kinds** at 0px/−61px/−135px overhang. Both are **rendering** assertions, so Chrome
+  > corroborates and does not discharge them: **Safari is still owed**, as is **400px** (not
+  > reachable by window resize on macOS — Chrome's minimum is 606px) and the **ninth dialog**
+  > (`SaveQueryDialog`'s "nowhere to save" state, which needs the personal space unavailable).
+  > FR-005 **is** discharged. Evidence: `docs/testing/2026-08-15-data-explorer-live-check.md`.
 
 **Not verifiable offline:** that CloudTrail actually records `RestoreObject` for this bucket's
 object-level calls (the selector is built from the documented shape), that the DESCRIBE tag grant is

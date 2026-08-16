@@ -171,9 +171,13 @@ shared space's folder can finally hold something. **175's cross-bucket `PutObjec
 It asked you to delete `{root}saved_queries/DO_NOT_DELETE.txt` through the portal and confirm
 `AccessDenied`, but the portal issues **zero** `DeleteObject` against the marker: it is hidden by
 basename, and the folder delete is refused **client-side** first. **SPEC-186 FR-001 split it in
-two** — `docs/testing/saved-queries-e2e.md`, check 1 (client-side, browser, DISCHARGED personal and
-shared) and check 2 (the bucket-policy Deny, which needs portal-role credentials via the CLI and is
-**STILL OWED**). Neither result says anything about the other's layer.
+two** — `docs/testing/saved-queries-e2e.md`, check 1 (client-side, browser — **DISCHARGED personal only**,
+2026-08-15, against SPEC-186 FR-002's affordance: both controls `aria-disabled` with the exact
+wording and **no confirm reachable**, with an ordinary folder as the control) and check 2 (the
+bucket-policy Deny, which needs portal-role credentials via the CLI and is **STILL OWED**). Neither
+result says anything about the other's layer. **The 2026-08-14 pass does NOT carry**: it observed
+the pre-FR-002 behaviour, where the refusal arrived only *after* the confirm dialog — so the shared
+half is owed again, not inherited.
 **Open-a-colleague's-query is DISCHARGED (2026-08-14)** — a member opened the owner's `.sql` from
 the shared space's selector, body fetched 200. Evidence:
 `@docs/testing/2026-08-14-live-check-session.md`. Narrative: `ARCS.md` → *Saved-queries-in-spaces arc*.
@@ -184,13 +188,25 @@ reader, the Athena execution/results layer, `useQuerySpaces`, `useColumnWidths`,
 owns the `.sql` store; `features/data-explorer/` holds the engine and the surface — `/explore`, the
 `dataExplorer` flag, the picker, the tab strip, the grid, filtering and ordering, the Calc and
 Grouping panels, save-as-query, presentation and formatting, and **185's copy and export**.
-**The whole arc's live checks are OWED and they are ONE session** — the script is one file:
-`docs/testing/data-explorer-e2e.md`, Safari at desktop and 400px. Three things nothing offline can
-prove: that a **filter apply is a NEW execution with a changed bytes-scanned figure while paging is
-NONE** (observed in the network panel, never inferred from the grid); that a value containing a
-**single quote** filters correctly against the real engine (the `sqlLiteral` path — the wrong
-escaper fails *silently*, as a predicate matching nothing); and that the **disclosed SQL is
-byte-identical to the `QueryString` Athena received**. The CSS list is in the script.
+**Most of the arc's live checks are DISCHARGED (2026-08-15, Chrome at desktop; Safari waived for
+behavioural checks by user decision, NOT for the CSS list).** All three things nothing offline
+could prove are settled: a filter apply **is** a new execution with a changed figure while the
+cache hit issues **zero**; `O'Brien` filters correctly against the real engine (`'O''Brien'`, the
+`sqlLiteral` path, which fails *silently* when wrong); and the **disclosed SQL is byte-identical to
+the `QueryString` Athena received**. Also discharged: the deep-link refusal making **zero** Glue and
+Athena calls, Calc issuing **zero**, grouping dropping its `count_all` sort on the way out, and
+SPEC-183's one-`PutObject` save and rendered-SQL round trip. Evidence + how executions were counted:
+`@docs/testing/2026-08-15-data-explorer-live-check.md`. **Still owed:** §2 paging (see the finding
+below), SPEC-179 steps 3–4, the shared-space pass as a **non-owner member** (needs a second
+account), SPEC-183 steps 4–5, SPEC-185's copy/export and Help, and the CSS list at 400px in Safari.
+**Two findings.** `EXPLORATION_PAGE_SIZE` is **100**, so the script's ">25 rows" fixture could never
+page and §2 was unrunnable — corrected to 150. And the **suspended-failed-statement state is
+per-mount** (a `useRef` in `useExplorationQuery`): leaving `/explore` and returning re-submits the
+statement instead of saying "Nothing has been run" — **accepted, not fixed**, because Athena rejects
+it at `StartQueryExecution` (nothing billed) and persisting it would put a second writer on the
+tab's `sessionStorage` key SPEC-181 kept to one. **A failing apply issues TWO `StartQueryExecution`
+calls ~1.1 s apart and that is `retry: 1`, not a double-subscribe** — count executions on a
+statement that SUCCEEDS.
 **Two things 185 left that outlive the arc.** `useSaveResults` moved to `features/catalog/` and
 **took its destinations as a parameter**, which closed a live defect: the Query workspace's
 Save-results dialog had been offering a colleague's space as a **write target** with
@@ -206,13 +222,26 @@ unreachable and is owed a later spec, which must first move `splitSqlStatements`
 `Modal`/`cx` width sentinel, two refusal affordances, the suggestion listbox's containment, the
 roster/connections agreement, `env`+`version` on every log record, the verification access, the
 chip/status-pill/caption/dialog-chrome consolidation behind a `?raw` glob guard, and the three
-corrected live-check scripts. **What SPEC-186 itself leaves owed is small and all of it is
-browser-or-AWS work:** the nine dialogs re-measured at desktop and 400px in **Safari**; FR-003's
-listbox containment in **both** dialogs under **both** share kinds; one log record read back for
-FR-005; `docs/testing/saved-queries-e2e.md` **check 2** (the bucket-policy Deny, CLI-only); and the
-first apply of `modules/verification` — **a red FIRST apply of new infra is expected**, IAM being
-eventually consistent, and the 30s propagation floor is there for the reason the archive plane's
-own first apply went red. Narrative + the two deliberate visual changes:
+corrected live-check scripts. **Most of what SPEC-186 owed is now DISCHARGED (2026-08-15, Chrome
+at desktop).** FR-005: `env: "prod"` and a real build sha on 809 post-deploy records across four
+services, zero empty or `0.0.0`, the sha equal to HEAD — the `0.0.0` → sha boundary falls exactly at
+the deploy. FR-007 and FR-003 were **measured in Chrome and are CORROBORATED, not discharged** — a
+resolved `max-width` and a clipped listbox are *rendering*, and the Safari waiver covers behaviour
+only: **8 of the 9 dialogs at 392px** (root font-size is **14px**, so `max-w-md` is 392, NOT 448 — a
+checker expecting 448 reads every pass as a fail), and containment in **Add members** and **Share
+table under both share kinds** at overhang 0px/−61px/−135px, each cap a measurement rather than the
+old fixed `max-h-60`. `saved-queries-e2e.md` **check 1** (personal)
+passes byte-exact with no confirm reachable. Evidence:
+`@docs/testing/2026-08-15-data-explorer-live-check.md`. **Still owed:** the ninth dialog
+(`SaveQueryDialog`'s "nowhere to save" state, which needs the personal space unavailable and cannot
+be staged from the UI); the **400px** pass — **not reachable by window resize on macOS** (Chrome's
+minimum is 606px and the extension refuses zoom shortcuts), so use DevTools device toolbar; the CSS
+list in **Safari**; check 1's shared half and **check 2** (the bucket-policy Deny, CLI-only). **The
+verification role is deliberately NOT created** (user decision) — `verification_principal_arns` is
+unset, so SPEC-149's and SPEC-153's read-backs stay owed; #461 moved the ARNs to a repo variable
+because a LOCAL apply plans to destroy the data buckets. **When measuring a dialog, select by
+title:** `Drawer` also carries `role="dialog"`, so `querySelector('[role="dialog"]')` returns the
+drawer, not the modal. Narrative + the two deliberate visual changes:
 `@docs/spec-delivery/SPEC-186-live-check-reachability-and-refusal-affordances.md`.
 
 The observability arc (127→137) is COMPLETE, and so are SPEC-140, 141, 142
@@ -246,11 +275,13 @@ its own source — the user's own shared spaces, from the connections cache the 
 happens if the directory `GetObject` succeeded. **158's pass is part-done and one half FAILED:**
 chips are fine, but the list did **not** position inside the panel (97px overhang, 3 of 8 visible)
 — **FIXED in SPEC-186 FR-003**, which also bounded the dialogs themselves (FR-007), so the numbers
-move and the pass must be re-run. **Still owed:** **Add members** and **Share table** under **both
-share kinds**, the **400px** pass, and the whole thing in **Safari** — a Chromium run corroborates
-but cannot discharge it. Evidence:
-`@docs/testing/2026-08-14-live-check-session.md`. (158 itself owes nothing live: it makes no AWS
-call.)
+move and the pass must be re-run. **Chrome has since measured all three surfaces clean** (2026-08-15: **Add
+members** and **Share table** under **both share kinds**, overhang 0px/−61px/−135px, the list capped
+by measurement and scrolling the active option into view) — but a Chromium run **corroborates and
+cannot discharge** this, so the **Safari** pass and the **400px** pass stay owed. Evidence:
+`@docs/testing/2026-08-14-live-check-session.md` and
+`@docs/testing/2026-08-15-data-explorer-live-check.md`. (158 itself owes nothing live: it makes no
+AWS call.)
 
 Three things the arc left worth carrying:
 - **A `rate()` EventBridge rule fires on creation**, so a new singleton's first scheduled invocation
