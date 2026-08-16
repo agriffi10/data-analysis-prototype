@@ -245,12 +245,18 @@ const MATCH_RULES: readonly ErrorRule[] = [
   // through again it reads as "still running" instead of the generic
   // "Contact the Administrator", which is what a first load showed until 2026-08-15.
   //
-  // Matched on the MESSAGE, deliberately. The AWS name is `InvalidRequestException`, which
-  // also covers MALFORMED_QUERY — and a `code` rule wins over every rule here, so keying on
-  // the name would swallow the syntax-error message below. ──
+  // Matched on the MESSAGE, deliberately. `InvalidRequestException` is the AWS name for a
+  // rejected `StartQueryExecution` — for a MALFORMED_QUERY as much as for this — and a
+  // `code` rule wins over every rule here, so keying on the name would have turned a
+  // rejected-at-submit syntax error into "still running". (An execution that reaches FAILED
+  // arrives as `code: 'FAILED'` and was never at risk.)
+  //
+  // Two alternatives, not three: `current state: <x>` was dropped after review. It added no
+  // coverage — the real message is already caught by the second — and it was the one able to
+  // match an unrelated error quoting a user's own value back, e.g.
+  // `Cannot cast VARCHAR 'current state: queued' to INTEGER`. ──
   {
-    match: (m) =>
-      /(invalid_query_execution_state|query has not yet finished|current state:\s*(queued|running))/i.test(m),
+    match: (m) => /(invalid_query_execution_state|query has not yet finished)/i.test(m),
     message: 'The query is still running. Give it a moment and try again.',
     userFixable: true
   },

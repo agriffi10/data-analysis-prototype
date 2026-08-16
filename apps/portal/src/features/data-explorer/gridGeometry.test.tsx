@@ -397,11 +397,13 @@ describe('columns before the first execution', () => {
 
     // The second half is what stops this passing vacuously: a gate that never opens would
     // satisfy the assertion above. `POLL_INTERVAL_MS` is 1500ms, so the next poll lands
-    // outside `waitFor`'s 1000ms default — the timeout is deliberate, not padding.
+    // outside `waitFor`'s 1000ms default — these timeouts are deliberate, not padding, and
+    // the TEST timeout is raised with them. Without that, vitest's 5000ms default is the
+    // binding constraint and a slow CI worker fails here on the less legible error.
     state = 'SUCCEEDED';
     await waitFor(() => expect(getQueryResults).toHaveBeenCalled(), {timeout: 4000});
     await waitFor(() => expect(screen.queryAllByRole('gridcell').length).toBeGreaterThan(0), {timeout: 4000});
-  });
+  }, 10_000);
 
   it('shows a SQL source no headers until the execution reports them', async () => {
     // No UI opens a `sql` source until SPEC-183 — the grid handles the arm now because

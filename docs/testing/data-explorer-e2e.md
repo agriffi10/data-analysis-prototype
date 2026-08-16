@@ -103,6 +103,14 @@ also change the grid. The assertions are the request and the changed number.
    `NextToken` walk scans no additional bytes.
 3. The bottom line's total must not move.
 
+> **A query that outlives the poll guard now looks different, and neither shape self-heals.**
+> Results are read only at `SUCCEEDED` (fixed 2026-08-15 — before that they were read against a
+> QUEUED execution, which is a 400 the app showed as "Contact the Administrator"). `MAX_POLL_
+> DURATION_MS` is **5 minutes** and `refetchOnWindowFocus` is off, so an execution still running
+> after that renders an indefinite **"Running…"** with no banner and no re-attach affordance —
+> where it previously produced a permanent, wrong error banner. If you can stage a >5-minute
+> query, record what it looks like; the behaviour is not specified anywhere yet.
+
 ### 3. Changing a filter back is a CACHE HIT
 
 1. Clear the filter you applied, then apply the **same** filter again.

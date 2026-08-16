@@ -234,14 +234,22 @@ export function ExplorationResultsRegion({
   // Recorded during render (React's "adjust state when a prop changes" pattern, as
   // `useCellSelection` and `useQueryResults` do) rather than in an effect: an effect would
   // paint one frame in which a failure had emptied the grid before the fallback arrived.
+  //
+  // Judged on `shownExecutionId`, the id these results actually belong to — NOT on
+  // `queryExecutionId`. The two differ for the whole QUEUED window, and reading the ungated
+  // one here would be correct only by an unstated TanStack property (that a DISABLED
+  // `useInfiniteQuery` reports `isPending`). If that ever stopped holding, a still-running
+  // execution would be recorded as "last good", and when it then FAILED the fallback would
+  // point at an execution that never produced rows — a banner over a blank grid, which is
+  // the exact state this fallback exists to prevent.
   if (
     !failed &&
-    queryExecutionId !== null &&
+    shownExecutionId !== null &&
     !results.isPending &&
     !results.isError &&
-    lastGoodExecutionId !== queryExecutionId
+    lastGoodExecutionId !== shownExecutionId
   ) {
-    setLastGood({tabId, executionId: queryExecutionId});
+    setLastGood({tabId, executionId: shownExecutionId});
   }
 
   // SPEC-180 FR-006: a `table` source knows its columns from Glue before anything runs, a
