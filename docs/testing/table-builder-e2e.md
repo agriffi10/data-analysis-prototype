@@ -459,7 +459,16 @@ read, so until this is run the serialization is asserted, not demonstrated.
 
 ### Still owed here beyond the two above
 
-- The **partitioned**-table variant of the add/remove sequence.
+- ~~The **partitioned**-table variant of the add/remove sequence.~~ **DISCHARGED 2026-08-16.**
+  `agriffith_three.partfix` over `partfix/year=2025/part1.csv` + `partfix/year=2026/part2.csv`,
+  declared key `year` (string, `2025, 2026`): the create was queryable by partition filter with no
+  load step; `year=2025/part0.csv` gave **1 column added**; deleting it and refreshing without the
+  opt-in refused naming **`channel`**; the link opened the dialog pre-armed with the opt-in
+  unchecked and submit `aria-disabled`; ticking it gave **1 column removed**. **`part0.csv` must go
+  in the FIRST partition** — the sample is the first key of the whole listing, so a file that sorts
+  first inside `year=2026/` is still invisible. The partition key survived both refreshes (the same
+  filtered SELECT kept working, `year` still projected). Evidence:
+  `2026-08-16-live-check-session.md`.
 - **SPEC-149's preservation check** — refresh a table carrying a `Description` and a column comment,
   then `GetTable`: both survive, the columns changed, and `get-table-versions` shows a previous
   version. This needs the SPEC-186 FR-004 verification role (`dat-prod-verification`); from any

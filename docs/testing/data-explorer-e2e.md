@@ -61,9 +61,12 @@ Leave at least one `qty` cell **empty** in the CSV. The Table Builder makes CSV 
 so that arrives as an empty string, not a NULL — which is the pair SPEC-180 FR-003 is about, and
 worth seeing on screen once.
 
-> **Andrew has to do the upload.** A laptop IAM user cannot write `dat-prod-user-space` (the bucket
-> policy allowlists the portal, deploy and execution roles only), so the fixture goes in through the
-> portal's own Files tab.
+> **The upload goes through the portal, not the CLI** — a laptop IAM user cannot write
+> `dat-prod-user-space` (the bucket policy allowlists the portal, deploy and execution roles only).
+> It does **not** have to be done by hand: the Chrome extension's `file_upload` drops a local file
+> straight into the portal's own `<input type=file>`, so the write is made by the portal role like
+> any other. That is how this fixture, and the SPEC-186 FR-006 partitioned one, were loaded on
+> 2026-08-16.
 
 ---
 
@@ -219,14 +222,21 @@ one produces a predicate Athena accepts and that matches **nothing**.
 3. Click a **column header**, copy, paste. Expect the loaded page's rows only.
 4. Open **Copy…**, choose **JSON**, copy, paste into a text editor. Expect `null` for the NULL and
    `""` for the empty cell — distinguishable, which is the point.
-5. Click **Export** before anything has finished running (open a fresh tab on a large table and be
-   quick): expect it refused, with the reason on hover **and reachable by keyboard** — it is
-   `aria-disabled`, so Tab reaches it.
+5. Click **Export** before anything has finished running: expect it refused, with the reason on
+   hover **and reachable by keyboard** — it is `aria-disabled`, so Tab reaches it.
+
+   > **No need to "be quick", and this file used to say so.** `exportRefusal` comes from
+   > `exploration.outputLocation`, which `useExploration` populates **only at `SUCCEEDED`** — so
+   > "nothing has run yet" and "still running" are one state. Opening any tab and reading the button
+   > before the first result lands is enough; measured 2026-08-16, where it read
+   > `aria-disabled="true"`, `disabled` **false**, `tabIndex 0`, *"Run a query first — export saves
+   > the results Athena returned."*
 6. Once rows are on screen, **Export** → name it `explorer-export` → **My files** → **Save here**.
    Expect a success toast and, in **Files**, `explorer-export.csv`.
 7. **Open the exported CSV and count its rows.** It must hold the **whole** result — every row the
-   filtered query returned, not the 25 on the page. That is what makes export the result-shaped
-   tool and copy the selection-shaped one.
+   filtered query returned, not the **100** on the page (`EXPLORATION_PAGE_SIZE`). That is what
+   makes export the result-shaped tool and copy the selection-shaped one. A laptop identity cannot
+   read the bucket, so open it through the portal: Details → Download.
 8. Confirm in the network panel that steps 1–7 started **zero** `StartQueryExecution`.
 9. Export again with the same name. Expect the **Overwrite** confirm before anything is replaced.
 10. Export into a **shared space**. Expect the cross-bucket copy to succeed.
@@ -255,7 +265,11 @@ Run the whole of the above at **400px in Safari**. What only a real browser can 
   confirm every sort and filter can be set from that dialog alone, and that it fits at 400px.
 - The **Value panel** renders as a sheet rather than a side panel.
 - **Calc and Grouping stack below the grid** rather than beside it.
-- The **toolbar's fourteen controls** wrap rather than overflow.
+- The **toolbar's controls** wrap rather than overflow. There are **17** of them as of 2026-08-16
+  (Back, Forward, Order and filter, Remove all filters, Filter by this value, Grid, Record, Text,
+  Columns, Colours, Transformers, Value, Calc, Grouping, Copy…, Export, Save as query) — this file
+  said "fourteen", which predates SPEC-184 and SPEC-185. Count them rather than trusting either
+  number.
 - The **Colours** rules dialog's rows wrap, and a gradient's shades are readable against real
   rendered text (the contrast maths is asserted in tests; how it *looks* is not).
 - A **band boundary** rule is visible where two striping groups meet.
@@ -267,10 +281,29 @@ Run the whole of the above at **400px in Safari**. What only a real browser can 
 
 ## Owed, and why
 
-Run 2026-08-15 in **Chrome at 1400px**, against `agriffith_three.explorer_fixture` (30 rows).
+**Two sessions, and the rows below name which.** Rows dated **2026-08-15** were run in Chrome at
+1400px against `agriffith_three.explorer_fixture` (30 rows) — evidence
+`2026-08-15-data-explorer-live-check.md`. Rows dated **2026-08-16** were run in Chrome at 1512px
+against `agriffith_three.explorer150` (the 150-row fixture) — evidence
+`2026-08-16-live-check-session.md`. An undated **DISCHARGED** row is from the 2026-08-15 session;
+the two rows that were never live checks at all (the `N/A` one, and the one discharged offline by
+`copyExport.test.tsx`) say so in place.
+
 Executions were counted by patching `window.fetch` and reading the `x-amz-target` header — the
 network panel reports only URL and status, which cannot separate `StartQueryExecution` from a poll.
-Evidence: `2026-08-15-data-explorer-live-check.md`.
+The 2026-08-16 session ran **three** instruments: that fetch patch (widened to record non-GET S3
+requests by path), a `navigator.clipboard.writeText` patch to capture what a copy actually wrote,
+and the `visibilityState` override described below — record any instrument you add, because each
+one is a way the run differs from a user's.
+
+> **A Chrome window hidden at the OS level pauses the polling, and it is indistinguishable from a
+> hung query** (measured 2026-08-16). Opening a table sat on **"Running…"** for 35 s having issued
+> exactly ONE `GetQueryExecution` 254 ms after the start: `document.hasFocus()` was `true` while
+> `document.visibilityState` was **`hidden`**, and TanStack Query's focus manager suspends
+> `refetchInterval` on that. Override `visibilityState`/`hidden` to visible, dispatch
+> `visibilitychange`, and the poll resumes. **This is not the app defect the §2 note below invites
+> you to record** — a real tab fires `visibilitychange` on return — but it wears the same face, so
+> establish which one you are looking at before filing anything.
 
 | Check | Status |
 |---|---|
@@ -287,12 +320,12 @@ Evidence: `2026-08-15-data-explorer-live-check.md`.
 | SPEC-182 step 6, the `count_all` sort is dropped | **DISCHARGED** |
 | SPEC-183 save — exactly one `PutObject` | **DISCHARGED** — 1 PUT after a HEAD on the exact key |
 | SPEC-183 round trip — reopens as RENDERED SQL | **DISCHARGED** |
-| **§2 Paging produces NONE** | **OWED** — needs the >100-row fixture; see the note above |
-| SPEC-179 steps 3–4 (*Explore data*, params dropped, reload) | **OWED** |
+| **§2 Paging produces NONE** | **DISCHARGED** (2026-08-16) — 0 execs over Next/Prev/Next, total held |
+| SPEC-179 steps 3–4 (*Explore data*, params dropped, reload) | **DISCHARGED** (2026-08-16) — `push ?space&db&table` then `replace` with none; reload gave the same tabs |
 | SPEC-179 shared-space pass as a **non-owner member** | **OWED** — needs a second account |
-| SPEC-183 steps 4–5 (other direction, shared destination) | **OWED** |
-| SPEC-185 copy and export | **OWED** |
-| SPEC-185 Help | **OWED** |
+| SPEC-183 steps 4–5 (other direction, shared destination) | **DISCHARGED** (2026-08-16) — both directions, and the shared write is cross-bucket |
+| SPEC-185 copy and export | **DISCHARGED** (2026-08-16) — all ten steps; the export held 150 rows to the page's 100 |
+| SPEC-185 Help | **DISCHARGED** (2026-08-16) — five guides, the Athena callout, none of the three promises |
 | The 400px pass | **OWED** — see below |
 | SPEC-180 → 184 infra/IAM | **N/A** — those specs add no AWS call the app did not already make |
 | FR-005 AC4's COPY assertion (SPEC-184) | **DISCHARGED offline** by `copyExport.test.tsx` — copy reads the raw row |
@@ -300,6 +333,14 @@ Evidence: `2026-08-15-data-explorer-live-check.md`.
 > **400px is not reachable by window resize on macOS.** Chrome's minimum window width is **606px**,
 > and the Claude-in-Chrome extension refuses page-zoom shortcuts, so neither route gets there. Use
 > DevTools device toolbar (⌘⇧M) at 400px — emulation changes the viewport the page actually sees.
+>
+> **And `resize_window` REPORTS SUCCESS while changing nothing the page can see** (measured
+> 2026-08-16). Asked for 400×800 it answered *"Successfully resized window … to 400x800"*, moved
+> `outerWidth`, and left `innerWidth`, `documentElement.clientWidth` and every media query at the
+> 1512px desktop values — `min-width:1300px` still matched. That is worse than the 606px floor,
+> where the layout at least genuinely changed: here a checker reading the tool's own success
+> message would record a narrow pass that never happened. **Assert on `matchMedia`, never on the
+> resize call.**
 > **At 606px only two things were observed** — the below-`tablet` layout is genuinely active
 > (hamburger nav, stacked file toolbar), and `CreateFolderDialog` renders 392px wide, centred, with
 > no horizontal page scroll. **Nothing on the CSS list below was exercised at any narrow width**, so

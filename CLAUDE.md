@@ -171,13 +171,11 @@ shared space's folder can finally hold something. **175's cross-bucket `PutObjec
 It asked you to delete `{root}saved_queries/DO_NOT_DELETE.txt` through the portal and confirm
 `AccessDenied`, but the portal issues **zero** `DeleteObject` against the marker: it is hidden by
 basename, and the folder delete is refused **client-side** first. **SPEC-186 FR-001 split it in
-two** — `docs/testing/saved-queries-e2e.md`, check 1 (client-side, browser — **DISCHARGED personal only**,
-2026-08-15, against SPEC-186 FR-002's affordance: both controls `aria-disabled` with the exact
-wording and **no confirm reachable**, with an ordinary folder as the control) and check 2 (the
-bucket-policy Deny, which needs portal-role credentials via the CLI and is **STILL OWED**). Neither
-result says anything about the other's layer. **The 2026-08-14 pass does NOT carry**: it observed
-the pre-FR-002 behaviour, where the refusal arrived only *after* the confirm dialog — so the shared
-half is owed again, not inherited.
+two** — `docs/testing/saved-queries-e2e.md`, check 1 (client-side, browser — **FULLY DISCHARGED**:
+personal 2026-08-15, **shared 2026-08-16**, against SPEC-186 FR-002's affordance: both controls
+`aria-disabled` with the exact wording and **no confirm reachable**, with an ordinary folder as the
+control) and check 2 (the bucket-policy Deny, which needs portal-role credentials via the CLI and is
+**STILL OWED**). Neither result says anything about the other's layer.
 **Open-a-colleague's-query is DISCHARGED (2026-08-14)** — a member opened the owner's `.sql` from
 the shared space's selector, body fetched 200. Evidence:
 `@docs/testing/2026-08-14-live-check-session.md`. Narrative: `ARCS.md` → *Saved-queries-in-spaces arc*.
@@ -196,9 +194,12 @@ cache hit issues **zero**; `O'Brien` filters correctly against the real engine (
 the `QueryString` Athena received**. Also discharged: the deep-link refusal making **zero** Glue and
 Athena calls, Calc issuing **zero**, grouping dropping its `count_all` sort on the way out, and
 SPEC-183's one-`PutObject` save and rendered-SQL round trip. Evidence + how executions were counted:
-`@docs/testing/2026-08-15-data-explorer-live-check.md`. **Still owed:** §2 paging (see the finding
-below), SPEC-179 steps 3–4, the shared-space pass as a **non-owner member** (needs a second
-account), SPEC-183 steps 4–5, SPEC-185's copy/export and Help, and the CSS list at 400px in Safari.
+`@docs/testing/2026-08-15-data-explorer-live-check.md`. **2026-08-16 discharged the rest of the
+desktop behavioural list** — §2 paging (0 executions, total held), SPEC-179
+steps 3–4, SPEC-183 steps 4–5 and SPEC-185's copy/export (all ten steps; the export held 150 rows
+to the page's 100) and Help: `@docs/testing/2026-08-16-live-check-session.md`. **Still owed:** the
+shared-space pass as a **non-owner member** (needs a second account) and the CSS list at 400px in
+Safari.
 **Two findings.** `EXPLORATION_PAGE_SIZE` is **100**, so the script's ">25 rows" fixture could never
 page and §2 was unrunnable — corrected to 150. And the **suspended-failed-statement state is
 per-mount** (a `useRef` in `useExplorationQuery`): leaving `/explore` and returning re-submits the
@@ -230,13 +231,15 @@ resolved `max-width` and a clipped listbox are *rendering*, and the Safari waive
 only: **8 of the 9 dialogs at 392px** (root font-size is **14px**, so `max-w-md` is 392, NOT 448 — a
 checker expecting 448 reads every pass as a fail), and containment in **Add members** and **Share
 table under both share kinds** at overhang 0px/−61px/−135px, each cap a measurement rather than the
-old fixed `max-h-60`. `saved-queries-e2e.md` **check 1** (personal)
-passes byte-exact with no confirm reachable. Evidence:
-`@docs/testing/2026-08-15-data-explorer-live-check.md`. **Still owed:** the ninth dialog
+old fixed `max-h-60`. `saved-queries-e2e.md` **check 1** passes byte-exact with no confirm
+reachable, personal and (2026-08-16) shared. Evidence:
+`@docs/testing/2026-08-15-data-explorer-live-check.md` and `2026-08-16-live-check-session.md`.
+**Still owed:** the ninth dialog
 (`SaveQueryDialog`'s "nowhere to save" state, which needs the personal space unavailable and cannot
-be staged from the UI); the **400px** pass — **not reachable by window resize on macOS** (Chrome's
-minimum is 606px and the extension refuses zoom shortcuts), so use DevTools device toolbar; the CSS
-list in **Safari**; check 1's shared half and **check 2** (the bucket-policy Deny, CLI-only). **The
+be staged from the UI); the **400px** pass — **not reachable by window resize on macOS, and
+`resize_window` reports success while changing nothing the page sees**, so use DevTools device
+toolbar and assert on `matchMedia` (`data-explorer-e2e.md` → *400px is not reachable*); the CSS
+list in **Safari**; and **check 2** (the bucket-policy Deny, CLI-only). **The
 verification role is deliberately NOT created** (user decision) — `verification_principal_arns` is
 unset, so SPEC-149's and SPEC-153's read-backs stay owed; #461 moved the ARNs to a repo variable
 because a LOCAL apply plans to destroy the data buckets. **When measuring a dialog, select by
@@ -387,7 +390,11 @@ What remains below is the live checks that are owed.
   `already up to date`; the added column must be in a file that **sorts first**. **SPEC-186 FR-006
   wrote that into the script** — `docs/testing/table-builder-e2e.md`, with a fixture that names the
   file (`part0.csv`).
-  **Still owed:** the **partitioned**-table variant, and **149's preservation check:** refresh a table carrying a
+  **The partitioned variant is DISCHARGED (2026-08-16)** — add / refuse-naming-`channel` / link /
+  opt-in / remove all behaved on a `year=`-partitioned table, and the partition key survived both
+  refreshes; the trap is that `part0.csv` must sit in the **first** partition, since the sample is
+  the first key of the whole listing. Evidence: `@docs/testing/2026-08-16-live-check-session.md`.
+  **Still owed: 149's preservation check:** refresh a table carrying a
   `Description` and a column comment, then `GetTable` — both survive, the columns changed, and
   `get-table-versions` shows a previous version. **While you have
   that response, paste it verbatim** as SPEC-153's owed foreign projection fixture (FR-006 AC2 shipped

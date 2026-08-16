@@ -48,6 +48,15 @@ Note the typographic apostrophe (`’`), not `'`.
 **Pass:** both spaces refuse with that exact wording, no confirm is reachable, the folder survives,
 and `marker_control` deletes.
 
+> **DISCHARGED, both halves.** Personal 2026-08-15; **shared 2026-08-16** in `livecheck_186` —
+> byte-exact wording on Delete and Move (`aria-disabled="true"`, `disabled` false, `tabIndex 0`),
+> **zero** dialogs and **zero** alertdialogs on the click, the folder surviving, and the
+> `marker_control` control showing both controls unrestricted, raising its confirm and deleting
+> cleanly. Evidence: `2026-08-16-live-check-session.md`. **Check 2 below is still owed.**
+>
+> A quick way to create the shared fixture: save any query into that space (SPEC-175's destination
+> picker), which creates `saved_queries/` and its marker in one flow.
+
 > Before SPEC-186 FR-002 this refusal arrived **after** the user read *"Delete the folder
 > "saved_queries" and everything inside it? … This can't be undone."* and pressed Delete. If a
 > confirm still opens, that regression is back.
