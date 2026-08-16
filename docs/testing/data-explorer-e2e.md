@@ -38,8 +38,16 @@ upload a CSV to your own space and build a table from the folder.
 > 30-row table. Measured 2026-08-15. Size the fixture at **150 rows** and the other sections are
 > unaffected — nothing else here depends on the row count.
 
-Suggested `explorer-fixture.csv` — 30 rows shown for shape, three of them carrying the apostrophe;
-**generate 150 with the same four columns** so the pager has a second page to walk:
+**The fixture is committed: `docs/testing/fixtures/explorer-fixture-150.csv`.** 150 rows (so page 2
+holds 50), nine `O'Brien` rows, two empty `qty` cells, LF line endings. Upload it into a **new empty
+folder** — the Table Builder builds from a whole folder, and inference reads only the first key in
+listing order, so a second CSV beside it changes what the table becomes.
+
+> **Generate it with LF endings if you ever rebuild it.** Python's `csv.writer` defaults to CRLF,
+> which puts a trailing `\r` on every `qty` value in the built table and quietly breaks the numeric
+> filter checks. Pass `lineterminator="\n"`.
+
+The shape, for reference — the first rows of that file:
 
 ```csv
 id,region,owner,qty

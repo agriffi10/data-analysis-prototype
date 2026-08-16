@@ -3789,3 +3789,49 @@ two separately-numbered checks, because neither layer's result says anything abo
 
 **Any procedure needing a raw ID token says so up front**, says where it is read from, and says it
 must not be pasted into a shell command — it is a live credential and it lands in history.
+
+---
+
+## Results are read only at SUCCEEDED, and `isPending` is not a substitute (2026-08-16)
+
+**Found by running the live-check script against deployed prod, not by review.** Opening a table in
+the Data Explorer occasionally showed *"Something went wrong. Contact the Administrator."* on an
+ordinary first load.
+
+`ExplorationResultsRegion` handed `useQueryResults` the execution id the moment
+`StartQueryExecution` returned, with no gate on the query having finished. `GetQueryResults` against
+a QUEUED execution is **400 `InvalidRequestException` / `INVALID_QUERY_EXECUTION_STATE`, "Query has
+not yet finished"** — a name in no `CODE_RULE` whose message matched no `MATCH_RULE`, so
+`toUserMessage` returned the **generic fallback**. The most alarming sentence the app owns, for a
+transient race of our own making.
+
+**`useQueryResults` already documented the contract** — "a pager over a **succeeded** query's
+results" — and cannot enforce it, because it is handed an id and never sees the state. So the
+contract is kept at the caller, and the caller is now the only place it can be broken.
+
+**`isPending` looks like the obvious gate and is wrong, which is the part worth carrying.** Between
+`StartQueryExecution` resolving and the FIRST poll landing, `state` is still `null`, so
+`isPending`'s `state !== null && !isTerminalState(state)` clause is *already false*. That window is
+exactly where the race lived: gating on `isPending` leaves the bug in place while looking fixed.
+The region therefore takes `state` as a prop.
+
+**It read as intermittent, and the reason generalises.** The race fired on **every** load; what
+varied was whether TanStack's `retry: 1` re-asked before or after the query finished. A bug that
+self-heals on retry presents as flaky and hides in exactly the place a rendering assertion would
+look — so **the guard asserts on the CALL, not the screen**, and was verified by reverting the gate
+(`expected getQueryResults to not be called at all, but actually been called 1 times`).
+
+**The mapping rule is defence in depth and is matched on the MESSAGE, never the name.**
+`InvalidRequestException` is also the name for a rejected MALFORMED_QUERY, and a `code` rule
+outranks every message rule — keying on the name would have turned a rejected-at-submit syntax error
+into "still running". (An execution that reaches FAILED arrives as `code: 'FAILED'` and was never at
+risk.) Rule ordering is **not** load-bearing; the two regexes are disjoint, measured.
+
+**`QueryWorkspace` was never affected** — `displayedResultTab` is null unless the batch is done, and
+result tabs are only pushed at SUCCEEDED.
+
+**Two consequences left standing.** While a statement runs the status line now says **"Running…"**
+where it said "Loading rows…" — the old text was wrong, and wrong *because* the app really was
+fetching rows then. And a query outliving `MAX_POLL_DURATION_MS` (5 min) now shows an indefinite
+"Running…" rather than a permanent wrong error banner; neither self-heals, and the behaviour is
+unspecified.
