@@ -268,7 +268,10 @@ describe('filter by this cell’s value', () => {
     await chooseFromMenu(user, 'note', 'Filter: is null');
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
 
-    await user.click(screen.getAllByRole('gridcell')[1]);
+    // `find`, not `get`: results are read only once the execution reports SUCCEEDED, so a
+    // new apply leaves the grid empty for a poll. Waiting on the `runQuery` count alone
+    // lands in that window.
+    await user.click((await screen.findAllByRole('gridcell'))[1]);
     await user.click(screen.getByRole('button', {name: 'Filter by this value'}));
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(3));
 

@@ -225,6 +225,9 @@ export function DataExplorerWorkspace() {
             // handed to StartQueryExecution rather than a second rendering of it.
             sql={exploration.sql}
             queryExecutionId={exploration.queryExecutionId}
+            // Load-bearing: the region reads results only at SUCCEEDED. Reading them
+            // earlier is a 400 from Athena that surfaces as the generic error message.
+            state={exploration.state}
             isPending={exploration.isPending}
             error={exploration.error}
             schemaColumns={schemaColumns}

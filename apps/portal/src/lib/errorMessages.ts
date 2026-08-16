@@ -238,6 +238,22 @@ const MATCH_RULES: readonly ErrorRule[] = [
     message: `You don’t have permission to run that query. ${CONTACT_ADMIN}`,
     userFixable: false
   },
+  // Trigger: results were read before the execution finished — Athena's
+  // INVALID_QUERY_EXECUTION_STATE, "Query has not yet finished. Current state: QUEUED".
+  // Transient and OURS, not the user's: a caller asked for results too early. The gate in
+  // `ExplorationResultsRegion` is the real fix; this rule exists so that if one ever slips
+  // through again it reads as "still running" instead of the generic
+  // "Contact the Administrator", which is what a first load showed until 2026-08-15.
+  //
+  // Matched on the MESSAGE, deliberately. The AWS name is `InvalidRequestException`, which
+  // also covers MALFORMED_QUERY — and a `code` rule wins over every rule here, so keying on
+  // the name would swallow the syntax-error message below. ──
+  {
+    match: (m) =>
+      /(invalid_query_execution_state|query has not yet finished|current state:\s*(queued|running))/i.test(m),
+    message: 'The query is still running. Give it a moment and try again.',
+    userFixable: true
+  },
   // Trigger: a SQL parse/analysis error. User-fixable — fix the SQL. ──
   {
     match: (m) => /(syntax_error|mismatched input|line \d+:\d+|parse error)/i.test(m),
