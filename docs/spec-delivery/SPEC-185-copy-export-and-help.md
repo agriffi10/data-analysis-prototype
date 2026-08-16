@@ -106,11 +106,14 @@ assertions nothing offline can make:
 > **SUPERSEDED 2026-08-15.** Twelve rows are now discharged, including **all three** assertions
 > below — an apply is a new execution while a cache hit issues zero, `O'Brien` filters correctly
 > (`'O''Brien'`), and the disclosed SQL is byte-identical to the `QueryString` Athena received.
-> **Paging is the exception and is still owed**: `EXPLORATION_PAGE_SIZE` is 100, so the script's
-> ">25 rows" fixture could never page. Safari is waived for the behavioural checks by user decision
+> **Paging was the exception and is now DISCHARGED (2026-08-16)** against a 150-row fixture, along
+> with this spec's own copy/export (all ten steps — the exported CSV held 150 rows to the page's
+> 100) and Help. `EXPLORATION_PAGE_SIZE` is 100, which is why the script's ">25 rows" fixture could
+> never page. Safari is waived for the behavioural checks by user decision
 > and **retained for the CSS list** — the sticky block, menu clipping, panel stacking, toolbar wrap
 > and header-drag below are all still owed, and so is the 400px pass. See this script's own
-> *Owed, and why* table and `docs/testing/2026-08-15-data-explorer-live-check.md`.
+> *Owed, and why* table, `docs/testing/2026-08-15-data-explorer-live-check.md` and
+> `docs/testing/2026-08-16-live-check-session.md`.
 
 1. **A filter apply is a new execution with a changed bytes-scanned figure, and paging is none** —
    observed in the network panel, never inferred from the grid.

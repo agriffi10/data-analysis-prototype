@@ -63,7 +63,14 @@ The browser surface for the refresh arc — the first (and only) part of 143 →
 `npm run test` (1299 passing, 168 files), `npm run lint` and `npm run format:check` green locally, plus
 `tsc --noEmit`. Axe clean in the plain, link-borne and busy dialog states.
 
-**Owed live** — this is the surface that makes the arc's two live checks runnable from the UI, and they are
-still owed: FR-010's add-column / remove-column / opt-in sequence (including against a *partitioned* table),
-and SPEC-149's `Description` + column-comment preservation read-back, which is also where the **column-casing
-premise** gets settled. See `CLAUDE.md`.
+**Owed live** — this is the surface that makes the arc's two live checks runnable from the UI.
+
+> **SUPERSEDED.** FR-010's add-column / remove-column / opt-in sequence is **DISCHARGED**: the flat
+> case 2026-08-14 (which also settled the **column-casing premise** by a live refresh), the
+> *partitioned* case 2026-08-16 — add naming the column, refusal naming `channel`, the link opening
+> the dialog pre-armed with submit `aria-disabled`, then removal, with the partition key surviving
+> both refreshes. Evidence: `docs/testing/2026-08-14-live-check-session.md` and
+> `2026-08-16-live-check-session.md`.
+
+Still owed: SPEC-149's `Description` + column-comment preservation read-back, which needs the
+SPEC-186 FR-004 verification role. See `CLAUDE.md`.
