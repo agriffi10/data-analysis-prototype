@@ -285,7 +285,9 @@ Run the whole of the above at **400px in Safari**. What only a real browser can 
 1400px against `agriffith_three.explorer_fixture` (30 rows) — evidence
 `2026-08-15-data-explorer-live-check.md`. Rows dated **2026-08-16** were run in Chrome at 1512px
 against `agriffith_three.explorer150` (the 150-row fixture) — evidence
-`2026-08-16-live-check-session.md`. Undated rows are from the 2026-08-15 session.
+`2026-08-16-live-check-session.md`. An undated **DISCHARGED** row is from the 2026-08-15 session;
+the two rows that were never live checks at all (the `N/A` one, and the one discharged offline by
+`copyExport.test.tsx`) say so in place.
 
 Executions were counted by patching `window.fetch` and reading the `x-amz-target` header — the
 network panel reports only URL and status, which cannot separate `StartQueryExecution` from a poll.

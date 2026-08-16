@@ -43,7 +43,9 @@ body is the tell. So it was repeated properly: *Filter by this value* on `region
 execution, rows 1–37, 2.9 KB), then *Save as query* → `livecheck_186`. The listing then held
 `explorer-shared-dest.sql` **45 B** beside `explorer-shared-filtered.sql` **69 B** — the 24 bytes
 being the `WHERE`, which is what "the rendered SQL, not a bare `SELECT *`" looks like from the
-outside.
+outside. **Filtered but not ordered** — step 1 asks for both, and the 24-byte delta is the proof it
+was the `WHERE` alone. What step 5 exists to test is the cross-bucket destination, which is
+unaffected; the ordering half is covered by SPEC-183's round-trip row, discharged 2026-08-15.
 
 Two incidentals from that: the Save dialog **pre-fills the last name used** and the field is not
 selected on focus, so a straight `type` appends (this produced
@@ -124,8 +126,10 @@ step-5 save had just created):
 - Clicking Delete opened **zero** dialogs and **zero** alertdialogs, and — with `window.fetch`
   patched to record every request by method and path — issued **zero requests of any kind**. That
   is step 3's third clause, *"no request is sent"*, observed for the shared case directly rather
-  than inherited from the 2026-08-14 trace (which watched the pre-FR-002 behaviour and does not
-  carry).
+  than inherited. **The 2026-08-14 trace still stands for what it established** — that the portal
+  issues zero `DeleteObject` against the marker, which is the premise `saved-queries-e2e.md` is
+  built on. What it cannot carry is the **FR-002 affordance**, because it watched the older
+  behaviour where the refusal arrived only after the confirm.
 - **Control:** an ordinary `marker_control` folder beside it showed both controls with no
   `aria-disabled` and no reason, its confirm opened (*"…and everything inside it? … This can't be
   undone."*), and it deleted cleanly.

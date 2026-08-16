@@ -194,8 +194,8 @@ cache hit issues **zero**; `O'Brien` filters correctly against the real engine (
 the `QueryString` Athena received**. Also discharged: the deep-link refusal making **zero** Glue and
 Athena calls, Calc issuing **zero**, grouping dropping its `count_all` sort on the way out, and
 SPEC-183's one-`PutObject` save and rendered-SQL round trip. Evidence + how executions were counted:
-`@docs/testing/2026-08-15-data-explorer-live-check.md`. **2026-08-16 discharged every remaining
-behavioural check a single account can reach** — §2 paging (0 executions, total held), SPEC-179
+`@docs/testing/2026-08-15-data-explorer-live-check.md`. **2026-08-16 discharged the rest of the
+desktop behavioural list** — §2 paging (0 executions, total held), SPEC-179
 steps 3–4, SPEC-183 steps 4–5 and SPEC-185's copy/export (all ten steps; the export held 150 rows
 to the page's 100) and Help: `@docs/testing/2026-08-16-live-check-session.md`. **Still owed:** the
 shared-space pass as a **non-owner member** (needs a second account) and the CSS list at 400px in
