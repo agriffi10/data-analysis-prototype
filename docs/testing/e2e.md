@@ -113,7 +113,10 @@ JSON.stringify({lines:t.trim().split('\n').length, head:t.split('\n')[0], last:t
 input by ref — never click the input itself (that opens a native picker you cannot see). A laptop
 IAM identity cannot write `dat-prod-user-space` at all; the portal is the way in.
 
-`fixtures/explorer-fixture-150.csv` is committed. Regenerate the rest:
+**`fixtures/explorer-fixture-150.csv` is committed — use it, do not regenerate it.** Every
+discharged Data Explorer result in `sessions.md` was measured against that exact file (9 `O'Brien`
+rows, 2 empty `qty` cells); the generator below seeds the same but yields a different draw, so a
+regenerated copy silently changes the row counts the checks assert. It builds the rest:
 
 ```bash
 cd "$SCRATCH" && python3 - <<'PY'
@@ -125,11 +128,6 @@ def w(name, header, rows):
     with open(name,"w",newline="") as f:
         wr = csv.writer(f, lineterminator="\n")   # LF, NOT csv's default CRLF
         wr.writerow(header); wr.writerows(rows)
-
-# 150 rows: pages (page size is 100), 9 O'Brien rows, 2 empty qty cells
-rows = [[i, regions[i%4], owners[i%5], "" if i in (7,93) else random.randint(1,999)]
-        for i in range(1,151)]
-w("explorer-fixture-150.csv", ["id","region","owner","qty"], rows)
 
 # partitioned: part0 sorts first INSIDE THE FIRST PARTITION and carries the extra column
 w("part1.csv", ["id","region","amount"], [[i,regions[i%4],i*7] for i in range(1,11)])
@@ -199,6 +197,18 @@ because it takes its database with it.
 
 Run **signed out, in a clean profile**. An existing session refreshes via `cognito-idp` and stays
 healthy even when fresh sign-in is completely broken.
+
+**First run only — signup.** Needs a real inbox you control (the default Cognito sender allows
+~50 mails/day) and a username matching the catalog-safe rule `^[a-z][a-z0-9_]{2,62}$`, because the
+username becomes the S3 prefix, the principal tag **and** the Glue database name.
+
+| Do | Expect |
+|---|---|
+| Sign up, then enter the emailed code | Account confirmed. **You are not auto-signed-in** — one explicit login follows, and that is the designed behaviour, not a defect. |
+| First login | Lands on `/files` with your own empty prefix, and a Glue database named **verbatim** for the username. |
+| Sign up again with the same username, a wrong code, a resent code, and a forgotten password | A specific, readable refusal each time — never raw Cognito text. |
+
+**Every run.**
 
 | Do | Expect |
 |---|---|
@@ -275,7 +285,9 @@ the **first** partition.
 4. Tick the opt-in and submit. → `1 column removed`.
 5. The same filtered `WHERE year = '2025'` still works after both refreshes — the definition was
    replaced in place and the partition key survived.
-6. **The casing control:** upload `part00.csv` (`ID,Region,Amount`, sorts first, becomes the sample).
+6. **The casing control:** upload `part00.csv` (`ID,Region,Amount`) **into `year=2025/`** — the same
+   partition as step 1, because the sample is the first key of the whole listing and a copy in
+   `year=2026/` is never read. It sorts before `part1.csv`, so it becomes the sample.
    → `already up to date` and the rail **unchanged** — the diff folds case rather than seeing 3
    added and 3 removed, and nothing is silently re-cased.
 
@@ -361,10 +373,15 @@ it is CLI-only — see `owed.md`.
 |---|---|
 | Create a space | Creator-only. It appears in the rail with its own Glue database. |
 | Add a member | The member sees it after signing in; their status flips **Pending → Active** on first sign-in. |
+| Add a member who does not exist | Silently ignored — the others are still added, and the execution still SUCCEEDS. |
+| Add the same member twice | Idempotent. The owner can never be added as a member. |
+| **Remove** a member | Their slot is cleared and their cache entry dropped; the space leaves their rail. The objects under it are **not** deleted. |
+| Create a space whose name is already taken | Refused by name. The registry record **is** the name lock. |
 | Read the roster | Every member sees a read-only roster, and **the reader's own row is never `Pending`**. No page ever asserts `Active` and `Pending` about one member at once. |
 | Query the space's database | Results route to the space's own `athenaresults/`, not yours. |
 | Leave a space, then reload with its `?space=` still in the URL | Falls back, with **zero S3 requests naming the space** — no existence oracle. |
 | **[approval gate]** Delete a space (type-to-confirm) | Gone from the rail **and** its Glue database gone. A partial teardown that frees the name is the failure this catches. |
+| **[approval gate]** Re-create a space with the just-deleted name | It is accepted. That is the proof the teardown was complete — a partial one leaves the registry record standing, and the record is the lock. |
 
 ### 4.9 Send files
 
@@ -458,7 +475,8 @@ Then leave it. Check back at roughly **1 h, 3 h and 5 h** — Phase C fills the 
 |---|---|
 | A terminal notification: `Restored N files (X MB) to your space, back where they came from. The archive has been cleaned up.` | Its **link works** and lands in the space with the files back. |
 | Every file is back at its original path, **including any empty folder** the archive carried | The listing. |
-| The archive prefix for that id is **gone** | The `archive/` folder no longer lists it. |
+| `archive/{id}/` **still holds its receipt** | The folder survives the restore by design — the receipt is rewritten, never deleted, and it is the only durable record of the archive. A folder that vanished here is a defect. |
+| The **vault** prefix for that id is gone | **Not observable from the browser** — the sweep is of `dat-prod-archive`, which no human principal can read. `owed.md` carries the CLI check; a `cleanup` block in `logs/service=archive/` is what you can see. |
 | The receipt's ARCHIVE lines are **byte-identical to before** the restore, with `Restored to` now filled | A blanked `Requested` line is how you would know the rewrite broke. |
 | The loop actually **looped** | `logs/service=archive/` carries multiple `retrieval polled` events **hours apart**, `poll_count` climbing. |
 
@@ -517,7 +535,10 @@ is not a pass.
 1. Hard-reload signed in. In the network panel, find `_config/feature-flags.json` → **200**. That
    status is the assertion. `ProtectedLayout` mounts the hook and discards the result precisely so
    this request exists to be observed.
-2. The hook reports **`ready`**, not `fallback`.
+2. The response body is **non-empty JSON** carrying the document's `version` and `defaults`. That,
+   with the 200, is the whole of the evidence available in production — the hook's own
+   `ready`/`fallback` console line is behind `import.meta.env.DEV` and prints **nothing** in a
+   production build, so its absence says nothing either way.
 3. `_config/` is **not browsable** in the file browser — the IAM condition, not an SPA filter.
 
 **A flag actually hides things** (one sitting; step 4 restores the environment):
@@ -570,8 +591,9 @@ at **400px via DevTools device toolbar**.
 anything a still-owed check will need, and say in the write-up what you left and why. **Never delete
 something you did not create.**
 
-**Write-up.** `docs/testing/YYYY-MM-DD-live-check-session.md`: what ran, under which username, with
-which instruments, and what each check returned. Then update:
+**Write-up.** Add a dated section to the **top** of [`sessions.md`](sessions.md) — not a new file;
+`scripts/validate_docs.py` rejects one. Record what ran, under which username, at which width and
+browser, with which instruments, and what each check returned. Then update:
 
 1. [`owed.md`](owed.md) — move discharged rows out, add anything newly found unrunnable.
 2. The delivery docs that still state the old status.

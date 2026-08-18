@@ -21,7 +21,7 @@
 # THIS YET.** The producer is the browser, which SPEC-172 builds; SPEC-170 could not
 # enforce a rule about a message nothing in it sends, and the contract is recorded here
 # rather than left in a spec file, because this is where its reader will be standing.
-# `docs/testing/archive-restore-e2e.md` types it correctly so the live check exercises it.
+# `docs/testing/owed.md` §2.2 types it correctly so the live check exercises it.
 #
 # content_based_deduplication is OFF (FR-003): the producer sends an explicit
 # MessageDeduplicationId = requestId (FR-004) as the double-submit guard. That id is also

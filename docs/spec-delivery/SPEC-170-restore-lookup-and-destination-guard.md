@@ -158,7 +158,7 @@ wording a user will actually read.
 
 ### Live check — OWED
 
-Script: `docs/testing/e2e.md` → *SPEC-170*. It runs on the archive SPEC-169's own
+Script: `docs/testing/e2e.md` §4.11 Archive and restore. It runs on the archive SPEC-169's own
 live check produces, so **do the two in one session, 169 first**.
 
 The assertion that matters is a **negative** one: after the `destination_occupied` refusal,

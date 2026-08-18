@@ -277,6 +277,46 @@ def check_links() -> list[str]:
     return errors
 
 
+def check_doc_paths_everywhere() -> list[str]:
+    """Refuse a reference to a missing ``docs/`` file from ANY tracked source file.
+
+    Markdown is not where these rot unseen. The consolidation left two live pointers to deleted
+    scripts in `infra/*.tf` — a comment and a Tofu output description — and a checker that walked
+    only ``*.md`` reported the tree clean. A path in a comment is read by whoever is standing in
+    that file, which is exactly when it is trusted most.
+
+    Scoped to ``.md`` targets and skipping test files: a fixture's fake S3 key (`docs/2024/q1.csv`
+    in the file-browser suite) is not a documentation pointer, and a checker that cries wolf on one
+    gets switched off.
+
+    Args:
+      None.
+
+    Returns:
+      One message per reference to a ``docs/`` path that does not exist.
+
+    Raises:
+      None.
+    """
+    suffixes = {".tf", ".tftpl", ".yml", ".yaml", ".py", ".ts", ".tsx", ".sh", ".toml"}
+    skip = ("node_modules", ".terraform", "dist", "coverage", ".git")
+    pattern = re.compile(r"docs/[A-Za-z0-9_./-]+\.md")
+    errors = []
+    for path in sorted(ROOT.rglob("*")):
+        if path.suffix not in suffixes or any(part in skip for part in path.parts):
+            continue
+        if "test" in path.name:
+            continue
+        try:
+            text = path.read_text()
+        except (UnicodeDecodeError, OSError):
+            continue
+        for target in sorted(set(pattern.findall(text))):
+            if not (ROOT / target).exists():
+                errors.append(f"{path.relative_to(ROOT)}: references a missing doc -> {target}")
+    return errors
+
+
 def main() -> int:
     """Run every check and report all failures at once.
 
@@ -300,6 +340,7 @@ def main() -> int:
         check_spec_status,
         check_delivery_size,
         check_links,
+        check_doc_paths_everywhere,
     ):
         errors.extend(check())
     if errors:

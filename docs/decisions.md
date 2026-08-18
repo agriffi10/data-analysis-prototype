@@ -1667,9 +1667,15 @@ ONE worker at 25 MB/s, so the makespan test certifies the **distributed** case a
 object is **43,980 s** — four times over the ceiling it compares against. That is table-share's
 recorded shape word for word ("while `SHARE_MAX_TOTAL_BYTES` was 20 GiB the bound was implicit …
 raising the total to 1 TiB removed it without anything replacing it"), and this plane *starts* at
-1 TiB. Both gaps now carry a `hasattr` tripwire that **fails the day SPEC-166 adds the cap**, and
-the arithmetic is kept as an assertion so 166 inherits the size of the problem rather than
+1 TiB. Both gaps carried a `hasattr` tripwire that **failed the day SPEC-166 added the cap**, and
+the arithmetic was kept as an assertion so 166 inherited the size of the problem rather than
 re-deriving it.
+
+> **SUPERSEDED in part by SPEC-166.** The caps arrived — `SEND_MAX_OBJECT_BYTES`,
+> `SEND_MAX_TRANSFER_ITEMS`, `SEND_MAX_TRANSFER_BYTES` — with the `TimeoutSeconds` they are
+> measured against, and the `hasattr` tripwires were removed by the computed bounds that replaced
+> them. Full entry: *The three transfer caps are each measured against a DIFFERENT budget
+> (SPEC-166)*.
 
 ### A post-identity failure needs its own seed, and the fleet guard cannot see it (SPEC-165)
 

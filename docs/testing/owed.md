@@ -17,19 +17,46 @@ same property, and a Chromium run standing in for Safari are all recorded here, 
 | **Receiving a send** (SPEC-167) — bob's link lands in `shared_files/alice/` with the files there; the space recipient's link carries `?space=` and lands in the space, not the sender's own files | The prefix is minted in Python and honoured by a TypeScript route rule; the failure mode is a link that *looks* like it worked. Needs `alice`, `bob`, `carol` and a shared space alice does **not** own (an owner who is also the sender gets two messages for one outcome, which changes every count). |
 | **Membership as a non-owner member** — the Data Explorer against a shared space, archive/restore in one, the roster | Runs against real Cognito tags and real Lake Formation. The one-sided version passes trivially. |
 | **Add → acknowledge → read roster** (SPEC-125, after SPEC-186 FR-008) | The acknowledge fan-out is what closed a roster saying `Pending` for a member the same page showed `Active`. Only a second account can flip it. |
+| **Cross-user prefix isolation** (SPEC-013 FR-004) | As `alice`, every S3 verb against `bob/` is denied and a root listing leaks nothing, while the same calls against `alice/` succeed. The app never issues the cross-prefix call, so it needs two users' portal credentials or a policy simulation. The **paired success is what makes the denial mean anything.** |
 | **A share's recipient queries the result** (SPEC-161) | `SELECT count(*)` from the recipient's own database must return the source's row count, not zero. |
 
 ### Needs the CLI
 
 | Check | Why | Recipe |
 |---|---|---|
-| **The `DO_NOT_DELETE.txt` bucket-policy Deny**, personal and shared (SPEC-173) | The portal issues **zero** `DeleteObject` against the marker — it is hidden by basename and the folder delete is refused client-side first. The Deny is the layer that matters if the SPA is ever wrong. | §2.1 |
+| **The `DO_NOT_DELETE.txt` Deny on the portal role**, personal and shared (SPEC-173) | The portal issues **zero** `DeleteObject` against the marker — it is hidden by basename and the folder delete is refused client-side first. The Deny is the layer that matters if the SPA is ever wrong. | §2.1 |
 | **Refresh-lock contention** (SPEC-157) | Two UI submits 2 s apart both return independently — a small table's refresh finishes inside that window, so the lock is never contended. Nothing that runs today proves two real executions serialize. | §2.2 |
 | **A malformed message on a request DLQ** (SPEC-133 Phase 5; also discharges SPEC-126's) | The user is notified, the message is gone, and the redacted body is in `logs/service=dlq-drain/`. Nothing in the app can send a malformed request. | §2.2 |
 | **The archive/restore negative assertion** — for a refused restore, **no** `RestoreObject` for that archive id | A refusal that had already begun retrieval is invisible from the UI and costs 3–5 billed hours. Read the audit trail, never `head-object`. | §2.3 |
 | **`head-object` on user-space or archive** — restored objects back at `STANDARD`, content type survived, byte-identical | The laptop identity is explicitly denied on both buckets, and the UI cannot show a storage class. | — |
-| **Table share at scale** (SPEC-160/161) — a several-hundred-object, >20 GiB table shared to two recipients where one conflicts; one `batch copied` event per child; the 100-column clone read back with all 100 comments through `GetTable` | The counts and the clone are only readable through Glue and the structured log. | §2.4 |
+| **The `>5 GiB` metadata round trip** (SPEC-171, and all three transfer planes) | `CreateMultipartUpload` carries no `MetadataDirective`, so before the fix every object over 5 GiB lost its content type on every copy this repo makes. Only an object over the threshold exercises it; a fixture below it passes forever. Confirm `ContentType` survives by `head-object`. |
+| **The restore plan agrees with the receipt** (SPEC-170) | `s3://dat-prod-athena-admin/archive/{requestId}/restore-plan.json` exists, its entry count equals the receipt's `Files archived`, and two `destKey`s match the original paths by eye. |
+| **The archive plane's log events** (SPEC-169/170/171) | `logs/service=archive/` carries `restore plan built` and `destinations clear` for the request, with **`manifest_present: true`**; then `batch retrieval requested` per Map child, `retrieval polled` **hours apart** with `poll_count` climbing, and a `cleanup` block after the sweep. |
+| **The fan-out is visible exactly once per child** (SPEC-166/167) | `logs/service=file-send/` carries one `batch copied` event per child execution. It is the only place the Distributed Map's fan-out can be seen. |
+| **Table share at scale** (SPEC-160/161) — a several-hundred-object, >20 GiB table shared to two recipients where one conflicts; the 100-column clone read back with all 100 comments through `GetTable`; and the over-cap refusal — with ~500 objects, **41 recipients** exceeds it — whose operator detail reads `N recipients x M objects is <product> transfer items (cap 20000)` while the notification says only *"that's too many files to copy to that many recipients at once."* | The counts and the clone are only readable through Glue and the structured log. | §2.4 |
 | **The `TIMED_OUT` door** (table-share, file-send, archive) | Waiting out a real 3-hour timeout is not a test anyone will run. Confirm the rule matches `TIMED_OUT` **and not** `FAILED`, that it targets the notifier, and drive the handler with a synthetic event. | §2.4 |
+
+### Control-plane bring-up, only reachable through a hand-crafted request
+
+These prove the plane itself, not the feature, and the UI cannot stage them. Recipes in §2.2.
+
+| Check | Why it matters |
+|---|---|
+| **The `cpcommon` layer attaches at cold start** (SPEC-168, and every plane) | SPEC-137 shipped instrumented code whose layer attachment was missing and **every offline gate passed** — `conftest.py` puts the layer on `sys.path`, and `update-function-code` succeeds against a function that cannot import. A hand-crafted request through the queue is the only thing that runs the real cold start. |
+| **A `PutObject` into your own `archive/` prefix is refused**, personal and shared (SPEC-168) | The browser Deny that stops a receipt being forged. The app never issues the call. |
+| **A Deny on ONE key mid-archive** (SPEC-169 step 3) | The whole point of the commit gate: the run fails, **every source object is still there**, the archive prefix is empty, and the notification is honest. Nothing else exercises the rollback arm against real S3. |
+| **The pagination boundary** (SPEC-165) | Over a **1,200-object** folder, `InspectSource`'s `objectCount` equals the `list-objects-v2` count exactly — **not 1,000**, and not one more (the marker is excluded). The only live proof the lister paginates. |
+| **The state order, including the poll loop** (SPEC-108, data quality) | `aws stepfunctions get-execution-history --execution-arn "$EXEC_ARN" --query "events[?type=='TaskStateEntered' \|\| type=='WaitStateEntered'].stateEnteredEventDetails.name" --output text` → `ValidateAuthorize InspectSource CreateTempTables StartProfileQuery WaitForQuery CheckQuery WaitForQuery CheckQuery ByteScan AssembleReport DropTempTables`. **`WaitForQuery`/`CheckQuery` must appear TWICE** — one pass through is a poll that never polled. |
+| **The portal role can enqueue a user action and NOT a `create`** (SPEC-058) | The anti-spoof boundary: a browser that could enqueue `create` could write any user's inbox. Simulate `sqs:SendMessage` against the notifications queue and read the rendered policy. |
+| **The seven shared-space producer events** (SPEC-061), especially **delete fanning out to every member** | One notification per member per event, from the verified actor. A missed fan-out is silent. |
+
+### Needs a second account for the REFUSAL half
+
+| Check | Note |
+|---|---|
+| **Shared-space authorization negatives** (SPEC-053/054) | A **non-owner** `add_members` and `remove_members`; an **owner** trying to `leave`; a **non-owner** trying to `delete`. Each must fail in `Validate` with no side effect. The positive half is in `e2e.md` §4.8 and passes trivially. |
+| **A forged or expired `idToken`** | Fails in `Validate` (Catch → `Failed`) with no side effect — auth is server-side, and this is the only check that says so live. |
+| **A stale membership tag reads as `AccessDenied`** | Sign the member out and in again before concluding anything about a membership check. Without the token refresh a correct system looks broken. |
 
 ### Needs infrastructure that is deliberately not created
 
@@ -62,9 +89,14 @@ same property, and a Chromium run standing in for Safari are all recorded here, 
 
 ### 2.1 Credentials as the portal role
 
-Needed for anything that must be refused by a **bucket policy** rather than by the app. The laptop
-IAM user is on neither data bucket's allowlist, so it gets `AccessDenied` from the *allowlist* — a
-different refusal wearing the same name.
+Needed for anything refused by an **IAM layer the app never reaches**. The `DO_NOT_DELETE.txt` Deny
+is in the **portal role's own identity policy** — `data/policies/portal-role-permissions.json.tftpl`
+and `shared-spaces/policies/portal-role-shared-space.json.tftpl` — not in a bucket policy, and
+**there is no shared-space bucket policy at all** (only user-space, archive, static assets and the
+audit trail have one). So the check must run *as the portal role*: the laptop IAM user is not on the
+user-space allowlist and would be refused by that allowlist instead, which is a different refusal
+wearing the same name. On the shared-space bucket a laptop identity is not blocked by a bucket
+policy — but it does not hold the Deny either, so it proves nothing.
 
 **Never paste the token into a shell command** — it is a live credential and it lands in history.
 
@@ -103,17 +135,21 @@ Afterwards, both markers are still present (they are hidden in the portal, so co
 ### 2.2 Hand-crafted control-plane requests
 
 The only way to stage a malformed request, or two executions that genuinely contend. Every plane
-takes one FIFO queue; the envelope is flat and the actor is the **raw** ID token at the top level —
-never `{"idToken": …}`, which the front door refuses.
+takes one FIFO queue — **but the token field is NOT the same on all six**, and the wrong one is
+refused at the front door in a way that reads exactly like the check failing.
 
-| Plane | Queue |
-|---|---|
-| Table builder | `dat-prod-table-builder-requests.fifo` |
-| Table share | `dat-prod-table-share-requests.fifo` |
-| Data quality | `dat-prod-data-quality-requests.fifo` |
-| Shared spaces | `dat-prod-shared-space-requests.fifo` |
-| File send | `dat-prod-file-send-requests.fifo` |
-| Archive / restore | `dat-prod-archive-requests.fifo` |
+| Plane | Queue | Token field |
+|---|---|---|
+| Table builder | `dat-prod-table-builder-requests.fifo` | `idToken` |
+| Data quality | `dat-prod-data-quality-requests.fifo` | `idToken` |
+| Shared spaces | `dat-prod-shared-space-requests.fifo` | `idToken` |
+| Table share | `dat-prod-table-share-requests.fifo` | `actor` (flat, raw) |
+| File send | `dat-prod-file-send-requests.fifo` | `actor` (flat, raw) |
+| Archive / restore | `dat-prod-archive-requests.fifo` | `actor` (flat, raw) |
+
+On the three `actor` planes the value is the **raw** token at the top level — never
+`{"idToken": …}`, which the front door refuses, and which SPEC-126's drain would write to
+CloudWatch while notifying nobody. Verified against the six `validate-authorize` handlers.
 
 ```bash
 QUEUE=$(aws sqs get-queue-url --queue-name dat-prod-table-builder-requests.fifo --query QueueUrl --output text)
@@ -190,8 +226,18 @@ aws events describe-rule --name dat-prod-table-share-orchestrator-timed-out --qu
 aws events list-targets-by-rule --rule dat-prod-table-share-orchestrator-timed-out --query 'Targets[].Arn'
 ```
 
-Then drive the handler with a synthetic `Step Functions Execution Status Change` event on the
-default bus carrying a real (expired is fine) ID token in the SQS-shaped input. Expect the
+Then drive the handler with a synthetic event on the default bus. **The escaping is the hard part
+and is not reconstructible by eye** — the SQS-shaped `input` is a string inside a string inside a
+string. Substitute the ARNs and a real (expired is fine) token:
+
+```bash
+aws events put-events --entries '[{
+  "Source": "aws.states",
+  "DetailType": "Step Functions Execution Status Change",
+  "Detail": "{\"executionArn\":\"arn:aws:states:us-east-1:ACCT:execution:M:probe\",\"stateMachineArn\":\"<state-machine-arn>\",\"status\":\"TIMED_OUT\",\"inputDetails\":{\"included\":true},\"input\":\"[{\\\"body\\\":\\\"{\\\\\\\"actor\\\\\\\":\\\\\\\"<AN ID TOKEN>\\\\\\\",\\\\\\\"source\\\\\\\":{\\\\\\\"database\\\\\\\":\\\\\\\"<you>\\\\\\\",\\\\\\\"table\\\\\\\":\\\\\\\"sales\\\\\\\"},\\\\\\\"tableName\\\\\\\":\\\\\\\"probe\\\\\\\"}\\\"}]\"}"
+}]'
+```
+ Expect the
 notification in **your own** inbox; repeat with a `username` in the body naming someone else and
 confirm it **still** arrives in yours — the actor comes from the token. Send it once with a wrong
 `stateMachineArn` and expect **no** notification, which is what proves the rule matched.
@@ -248,6 +294,21 @@ run() { printf '%-24s %-64s ' "$1" "$2"; aws iam simulate-principal-policy \
   --policy-source-arn "$ROLE" --action-names "$1" --resource-arns "$2" \
   --query 'EvaluationResults[0].EvalDecision' --output text; }
 ```
+
+**Three ways this returns a confident wrong answer.**
+
+- **Everything comes back `explicitDeny`.** The user-space bucket policy denies on
+  `StringNotLike aws:PrincipalArn`, and a **missing** context key makes that condition **true** — so
+  a simulator that never populated the principal ARN denies everything, uniformly and plausibly. Add
+  `--context-entries ContextKeyName=aws:PrincipalArn,ContextKeyValues=$ROLE,ContextKeyType=string`.
+- **`simulate-principal-policy` does not consult a bucket policy on its own.** Pass
+  `--resource-policy`, or the run is silently only testing the identity half. Add
+  `--resource-owner <account-id>` if the call errors on the resource policy (same-account should not
+  need it).
+- **`simulate-custom-policy` caps each `--policy-input-list` member at 2,000 characters, and the
+  `file://` form is rejected as "invalid content".** Pass it inline
+  (`--policy-input-list "$(cat policy.json)"`) over a minimal extract that reuses the same condition
+  pattern.
 
 Run it **after** the apply, against the deployed role. A row that moves `implicitDeny` →
 **`explicitDeny`** across a widening is the strongest evidence there is: once the widening grants

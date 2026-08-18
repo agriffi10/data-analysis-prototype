@@ -27,7 +27,8 @@ deployed CloudFront environment.
 
 **Phase 2 — journey hardening + E2E acceptance (FR-003, FR-004, FR-005):**
 
-- **`docs/testing/e2e.md`** — the numbered end-to-end acceptance script
+- **The auth acceptance script** (folded into `docs/testing/e2e.md` §4.1 on 2026-08-18)
+  — the numbered end-to-end acceptance script
   (signup → verify → first login → `/files` → refresh → logout → re-login →
   gated access while signed out → forgot-password smoke test), with cleanup steps
   and an execution log.

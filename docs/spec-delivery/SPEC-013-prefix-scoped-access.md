@@ -29,7 +29,7 @@ hidden from the UI.
 - **New infra**: `infra/modules/data/policies/portal-role-permissions.json.tftpl` + `user-space-bucket-policy.json.tftpl`; role inline policy + bucket policy in the data module.
 - **Frontend**: file-browser service now authenticated (Identity Pool) with expiry retry; `/files` scoped to the user-space bucket + `{username}/`; username hidden via `rootLabel`; SPEC-001/002 static/anon path demoted to a dev-only flag.
 - **CI/env**: `VITE_S3_USER_SPACE_BUCKET` wired into `deploy-app.yml` + set as a GitHub variable.
-- **Docs**: `docs/testing/e2e.md` gained the FR-004 isolation procedure + an execution-log entry; `.env.example`, CLAUDE.md, architecture roadmap updated.
+- **Docs**: the auth acceptance script gained the FR-004 isolation procedure + an execution-log entry; `.env.example`, CLAUDE.md, architecture roadmap updated.
 
 ## Verification
 

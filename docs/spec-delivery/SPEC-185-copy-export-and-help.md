@@ -16,7 +16,8 @@ live-check script — plus the completion ritual for SPEC-176 → 185.
   bodies untouched; `features/query/query.format.ts` is gone (it held nothing else).
 - **A `data-explorer` Help section** with five guides, a new `HelpSectionId` and a new
   `HelpIconName`, all six registered under `dataExplorer`.
-- **`docs/testing/e2e.md`** — the arc's live-check script, Safari-named.
+- **The arc's live-check script**, Safari-named — folded into `docs/testing/e2e.md` §4.5 on
+  2026-08-18.
 
 No infra, no IAM, no new AWS call. Export's `CopyObject` is the one the Query workspace has issued
 since SPEC-049.
@@ -100,7 +101,8 @@ consumer beyond `HelpPage` and its tests. The list half is asserted.
 
 ## What is owed
 
-**Everything in `docs/testing/e2e.md`**, and none of it has been run. The three
+**Everything the arc's live-check script listed**, and none of it had been run at the time of
+writing. Most of it was discharged on 2026-08-15 and 2026-08-16 — see `docs/testing/owed.md`. The three
 assertions nothing offline can make:
 
 > **SUPERSEDED 2026-08-15.** Twelve rows are now discharged, including **all three** assertions
@@ -112,7 +114,7 @@ assertions nothing offline can make:
 > never page. Safari is waived for the behavioural checks by user decision
 > and **retained for the CSS list** — the sticky block, menu clipping, panel stacking, toolbar wrap
 > and header-drag below are all still owed, and so is the 400px pass. See this script's own
-> *Owed, and why* table, `docs/testing/sessions.md` and
+> *Owed, and why* table, and the 2026-08-15 and 2026-08-16 sections of
 > `docs/testing/sessions.md`.
 
 1. **A filter apply is a new execution with a changed bytes-scanned figure, and paging is none** —

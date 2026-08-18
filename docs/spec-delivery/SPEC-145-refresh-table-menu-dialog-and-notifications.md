@@ -69,8 +69,8 @@ The browser surface for the refresh arc — the first (and only) part of 143 →
 > case 2026-08-14 (which also settled the **column-casing premise** by a live refresh), the
 > *partitioned* case 2026-08-16 — add naming the column, refusal naming `channel`, the link opening
 > the dialog pre-armed with submit `aria-disabled`, then removal, with the partition key surviving
-> both refreshes. Evidence: `docs/testing/sessions.md` and
-> `sessions.md`.
+> both refreshes. Evidence: the 2026-08-14 (flat) and 2026-08-16 (partitioned) sections of
+> `docs/testing/sessions.md`.
 
 Still owed: SPEC-149's `Description` + column-comment preservation read-back, which needs the
 SPEC-186 FR-004 verification role. See `CLAUDE.md`.

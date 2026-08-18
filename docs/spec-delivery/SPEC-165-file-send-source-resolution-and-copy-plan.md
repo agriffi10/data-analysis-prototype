@@ -157,7 +157,7 @@ clean. Every fix above is mutation-verified: neutering `_checked`, reverting `_c
 key-only, skipping the exclusions on the file branch and dropping `user_settings/` each turn the
 suite red.
 
-**Owed live check: `docs/testing/e2e.md` → *SPEC-165*, checks 4–6.** One folder of more
+**Owed live check: `docs/testing/e2e.md` §4.9 Send files, checks 4–6.** One folder of more
 than 1,000 objects, whose plan's `objectCount` must equal the bucket's. The pagination boundary is
 the one thing a fixture proves least — a fake that pages is only as honest as the person who wrote
 it, and a verb that stops at one page reports a plausible smaller number rather than an error.

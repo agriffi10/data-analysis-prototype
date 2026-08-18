@@ -14,7 +14,7 @@ from a user's.
 
 Run against deployed prod (`d1kbh4bnvh1je8.cloudfront.net`, `main` at `94c892b`) as
 `agriffith_three`, in **Chrome at 1512×786**. Safari waived for behavioural checks by the
-2026-08-15 user decision at the head of `e2e.md`; the CSS list is untouched here.
+2026-08-15 user decision, now recorded at `e2e.md` §4.15; the CSS list is untouched here.
 
 **Nothing was found broken.** Every check below passed. The two findings at the foot are about the
 *instrument*, not the app — and one of them would have let a future session record a pass it never
@@ -22,7 +22,7 @@ ran.
 
 ### The upload constraint is gone, and it is what unblocked most of this
 
-`e2e.md` says *"Andrew has to do the upload"* because a laptop IAM user cannot write
+The script said *"Andrew has to do the upload"* because a laptop IAM user cannot write
 `dat-prod-user-space`. That is still true of the CLI, but it is **not** a limit on a live-check
 session: the Chrome extension's `file_upload` puts a local file straight into the portal's own
 `<input type=file>`, so the upload goes through the **portal role** like any other. Everything
@@ -177,7 +177,7 @@ on 2026-08-15.
 - The **400px** pass and the **Safari** CSS list (`e2e.md`).
 - SPEC-179's shared-space pass as a **non-owner member**, and SPEC-186 FR-008's
   add → acknowledge → roster re-run — both need a second account.
-- `e2e.md` **check 2** (bucket-policy Deny, CLI + portal-role credentials).
+- `owed.md` §2.1 (the `DO_NOT_DELETE.txt` Deny, CLI + portal-role credentials).
 - SPEC-157's refresh lock, SPEC-149's `Description`/comment preservation read-back (needs the
   verification role, deliberately not created), and `SaveQueryDialog`'s "nowhere to save" width.
 - The whole **archive/restore** arc (`e2e.md`). Deliberately not attempted here:
@@ -198,7 +198,7 @@ on 2026-08-15.
 
 Run against deployed prod (`d1kbh4bnvh1je8.cloudfront.net`, `main` at `88caf54`) as
 `agriffith_three`, in **Chrome at 1400×730**. Safari waived by user decision — see the amendment at
-the head of `e2e.md`.
+`e2e.md` §4.15.
 
 > **The date.** The session ran on the evening of **2026-08-14 US Eastern**, which is
 > **2026-08-15 UTC**. Everything is dated 2026-08-15 here and in the script, matching the UTC
