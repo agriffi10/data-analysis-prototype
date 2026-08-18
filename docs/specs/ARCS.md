@@ -1780,6 +1780,15 @@ Do not model shared spaces as directory groups.
 
 ### Other applications acting on behalf of users
 
+**Which half of this Arc B ships, and which half is the target environment.** Arc B lands the
+*contract* — `{actor, delegated_by, assurance}`, nested under one `identity` key, with `assurance`
+`"interactive"` and `delegated_by` null for a human at a keyboard (SPEC-200) — and the planes trusting
+it (SPEC-201). It ships **no** delegated door: no non-human authorizer, no credential issuance, no
+may-this-client-act-as-X allowlist. Everything below about tiers, token exchange and the BFF describes
+the **target environment**, where the BFF exists; today the API verifies the Cognito ID token instead
+and the shape is identical downstream. Read it as the design the contract was cut to fit, not as work
+in this arc.
+
 **IdC provides identity ASSURANCE, not authorization.** It can vouch that a user really is who a caller
 says; it cannot say what they may do in this application — the registry does that, and always did. A
 team expecting IdC to be what *enables* delegation has the wrong model.
