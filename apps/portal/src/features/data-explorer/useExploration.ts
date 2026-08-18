@@ -37,7 +37,7 @@ export type UseExplorationResult = {
  *
  * The rendered SQL is the cache key, so this hook is the feature's cost control as much
  * as its data path: an identical description resolves to the execution already run.
- * Paging is NOT here — the caller pages the returned execution id through SPEC-176's
+ * Paging is NOT here — the caller pages the returned execution id through the catalog's
  * `useQueryResults`, whose `NextToken` walk scans no additional bytes.
  *
  * @param exploration - The exploration to run, or null to run nothing.

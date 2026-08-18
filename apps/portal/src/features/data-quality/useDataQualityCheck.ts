@@ -12,7 +12,7 @@ export type DataQualityTarget = {
   location: string;
 };
 
-/** SPEC-124: how the caller wants the outcome announced. */
+/** How the caller wants the outcome announced. */
 export type StartQualityCheckOptions = {
   /**
    * Push the success/failure toast. Default true — the Files-browser behaviour, unchanged.

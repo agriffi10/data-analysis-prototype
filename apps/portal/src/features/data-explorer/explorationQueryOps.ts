@@ -85,7 +85,7 @@ export function filterValueKind(type: string): FilterValueKind {
 /**
  * A description with nothing to clear: no filters, no expression, no ordering, no grouping.
  *
- * Grouping counts from SPEC-182 (FR-006 AC3), superseding the deliberate exclusion:
+ * Grouping counts, superseding the earlier deliberate exclusion:
  * Clear all now clears the grouping too, so a grouped view with no filters is no longer
  * "empty" — a control that refused there would refuse the only thing left to clear.
  */
@@ -98,7 +98,7 @@ export function isEmptyQuery(query: ExplorationQuery): boolean {
 // A grouping's ARRAYS are not sorted, unlike the filters and the ordering below: their
 // order is the projection's and the GROUP BY's, so two groupings listing the same columns
 // differently render different SQL and are different queries. Only the two flags are
-// normalised — a document written before SPEC-182 carries neither, and an absent flag
+// normalised — a document written before these fields existed carries neither, and an absent flag
 // comparing unequal to `false` would push a history entry for an apply that changed
 // nothing.
 function canonicalGrouping(grouping: ExplorationQuery['grouping']) {

@@ -169,7 +169,7 @@ function ColumnSamples({column}: {column: ColumnFinding}) {
 }
 
 function ColumnsSection({columns}: {columns: ColumnFinding[]}) {
-  // Mount-gated, not CSS-hidden (SPEC-099 precedent): the two presentations are
+  // Mount-gated, not CSS-hidden: the two presentations are
   // structurally different DOM — a faux-table of rows versus a list of cards — so a
   // CSS swap would put BOTH in the document, doubling every column of a 200-column
   // report and reading each one twice to a screen reader.

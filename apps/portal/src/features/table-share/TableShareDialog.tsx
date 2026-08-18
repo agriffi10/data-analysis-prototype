@@ -51,7 +51,7 @@ function unlistedSpaceNote(names: string[]): string {
  *, so validation here is UX only.
  *
  * BOTH kinds suggest as you type — usernames from the published directory
- * (SPEC-146/147), space names from the signed-in user's own connections cache
+ *, space names from the signed-in user's own connections cache
  * — and NEITHER blocks a name it does not know. Free text still
  * commits: the pipeline owns existence checks, and outcomes arrive as
  * notifications.

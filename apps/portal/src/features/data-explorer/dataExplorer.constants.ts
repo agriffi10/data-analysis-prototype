@@ -5,7 +5,7 @@ import type {CalcFunction, ColourOperator, ColourToken, CopyOptions, SurfaceToke
 
 /**
  * Soft cap on open exploration tabs, enforced by refusal: `openTab` returns null and the
- * caller raises the cap dialog (SPEC-179 renders it). Mirrors `QUERY_TABS_MAX` — the two
+ * caller raises the cap dialog. Mirrors `QUERY_TABS_MAX` — the two
  * surfaces have the same shape and no reason to disagree about how many is too many.
  */
 export const EXPLORATION_TABS_MAX = 10;

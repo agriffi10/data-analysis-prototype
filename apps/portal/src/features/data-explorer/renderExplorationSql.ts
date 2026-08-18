@@ -16,7 +16,7 @@ import type {
  * Every case is a caller bug rather than a user typo — the panels that build a
  * description refuse the gesture before it reaches here. The message
  * is operator text: it names the offending column so a failing test says which one, and
- * SPEC-106 forbids rendering it to a user.
+ * the error-wording rule forbids rendering it to a user.
  */
 export class ExplorationRenderError extends Error {
   constructor(message: string) {
@@ -42,7 +42,7 @@ const NUMERIC_CHARS_RE = /^[-+0-9.eE]+$/;
  *
  * **Exported so the surfaces that build a numeric filter refuse exactly what the renderer
  * refuses**. The renderer throws an `ExplorationRenderError` whose message
- * names a column and an operator — operator text SPEC-106 forbids rendering — so a value
+ * names a column and an operator — operator text the error-wording rule forbids rendering — so a value
  * that would reach it has to be turned back at the input, and a second numeric rule at
  * the input is a rule that can disagree with this one.
  *
@@ -105,7 +105,7 @@ function renderFrom(source: ExplorationSource): string {
     return `${sqlIdentifier(source.database)}.${sqlIdentifier(source.table)}`;
   }
   // Trino requires a subquery in a FROM be aliased. The body is the user's own SQL and is
-  // composed verbatim, exactly as the expression is (FR-005) — SPEC-183 owns refusing a
+  // composed verbatim, exactly as the expression is (FR-005) — the save path owns refusing a
   // multi-statement or non-SELECT file before it ever becomes a source.
   //
   // The NEWLINES are not formatting. A saved query ending in a `--` line comment swallows
@@ -236,7 +236,7 @@ function renderOrderBy(ordering: SortEntry[]): string | null {
  * a function that cannot reach them cannot be made to depend on them by a later edit.
  *
  * The two source arms differ only in the `FROM`; filters, the expression, ordering and
- * grouping compose identically over either, which is what lets SPEC-183 load a saved
+ * grouping compose identically over either, which is what lets a saved exploration load
  * `.sql` file as a source without the rest of the feature knowing.
  *
  * @param source - Where the rows come from: a catalog table, or a `.sql` body.

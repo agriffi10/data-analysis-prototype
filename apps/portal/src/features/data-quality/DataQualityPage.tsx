@@ -163,7 +163,7 @@ export function DataQualityPage() {
                 ? 'Pick a folder or a file and we’ll check it for missing values, ragged rows, and type problems.'
                 : 'Try a different filter to see your other checks.'}
             </p>
-            {/* SPEC-124 FR-001 amends SPEC-123 FR-005's copy: the empty state used to send
+            {/* The empty state used to send
                 the user to the Files browser. Files is still a valid entry point (and the
                 help content still says so) — the page just stops sending them away from the
                 one place that can now do the job. */}
@@ -215,15 +215,15 @@ export function DataQualityPage() {
  * writes an index entry, so it has no row here. A history page that silently omits failures
  * teaches the user to trust a list that is lying to them, so the omission is stated.
  *
- * WHY IT NOW SAYS "always" AND NOT "usually". SPEC-114 FR-004 makes the failure notification
+ * WHY IT SAYS "always" AND NOT "usually". The failure notification
  * survive everything that happens once an execution has STARTED — including a Lambda import
  * error and a Step Functions-level error, neither of which any verb can catch. What it could
  * not cover was a request that never started an execution at all (a malformed body the Pipe
  * rejects, which exhausts its receives into the DLQ): nothing ran, so nothing notified, and
- * this line hedged with "usually" for exactly that gap. **SPEC-126** closed it — the request
+ * this line hedged with "usually" for exactly that gap. **The DLQ drain** closed it — the request
  * DLQs drain back into the notification pipeline — so the hedge is now the inaccuracy.
  *
- * The remaining hole is the NOTIFICATIONS DLQ itself, which SPEC-126 deliberately leaves
+ * The remaining hole is the NOTIFICATIONS DLQ itself, which the drain deliberately leaves
  * undrained (draining it through the queue that just failed to deliver is circular). That is
  * a failure of the delivery channel, not of the check — if it breaks, no wording on this page
  * is reaching the user anyway.

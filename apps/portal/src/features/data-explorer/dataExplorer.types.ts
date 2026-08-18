@@ -14,7 +14,7 @@ import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
  * A saved `.sql` file cannot be reverse-engineered into a table plus filters
  * without a SQL parser, so a loaded file is a SOURCE rather than a view state — and
  * filters, ordering and grouping must compose over either arm without knowing which.
- * Retrofitting the union at SPEC-183 would have touched every spec in between.
+ * Retrofitting the union later would have touched every call site in between.
  */
 export type ExplorationSource =
   | {
@@ -52,7 +52,7 @@ export type ColumnFilter = {
   operator: FilterOperator;
   /** Absent for `isNull` / `isNotNull`; a raw cell value otherwise, quoted at render time. */
   value?: string;
-  /** Defaults to `'string'`. SPEC-181 picks it from the column's Glue/Athena type. */
+  /** Defaults to `'string'`. The filter picks it from the column's Glue/Athena type. */
   valueKind?: FilterValueKind;
 };
 
@@ -145,7 +145,7 @@ export type ColourOperator = '=' | '<>' | '>' | '>=' | '<' | '<=' | 'like' | 'il
  * Beyond the spec's Data Model, which carries only `column?` and reads an absent column as
  * "across the row". That conflates two independent choices — what a rule TESTS and what it
  * PAINTS — and leaves the most ordinary rule of all inexpressible: colour the whole row
- * wherever `status` is `failed`. One optional field separates them, on SPEC-181's
+ * wherever `status` is `failed`. One optional field separates them, on the filter's
  * precedent for `valueKind`.
  */
 export type ColourScope = 'cell' | 'row';
@@ -182,7 +182,7 @@ export type Transformer =
   | {kind: 'binary'; encoding: 'hex' | 'base64'; maxLength: number}
   | {kind: 'url'; template: string};
 
-/** Everything SPEC-184 adds, and none of it renders SQL. */
+/** Everything presentation adds, and none of it renders SQL. */
 export type FormattingState = {
   /** Evaluated in order; a later match overrides an earlier one **per property**. */
   rules: ColourRule[];
@@ -214,7 +214,7 @@ export type CellSelection = {
 };
 
 /**
- * Everything that renders NOTHING. Extended by SPEC-180 and SPEC-184.
+ * Everything that renders NOTHING.
  *
  * Changing any field here must never mint an execution: these gestures cost nothing and
  * apply instantly, which is only true because the renderer cannot see this type.
@@ -286,7 +286,7 @@ export type ExplorationTab = {
    * What a re-save replaces, and the only reason `isLinkedSavedQuery` can ever be true
    * here — nothing else in this feature mints a link, because loading a `.sql` file as a
    * source is deferred. Optional because a tab that has never been saved has none, and
-   * because a document written before SPEC-183 carries none either.
+   * because a document written before these fields existed carries none either.
    *
    * It does NOT rename the tab. A Query workspace tab IS its buffer, so a save renames it;
    * an exploration tab is named for the source it is exploring, which a save does not change.

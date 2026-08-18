@@ -31,7 +31,7 @@ export type SaveExplorationDialogProps = {
  *
  * A thin host by design. Every rule about naming, destinations, collisions and in-place
  * replacement is the and lives in `useSaveQuery` — this feature is the second
- * caller, not a second implementation, which is the whole point of SPEC-177 having taken
+ * caller, not a second implementation, which is the whole point of having taken
  * `{sql, link}` instead of a `QueryTab`.
  *
  * **Mounting IS the open state.** `useSaveQuery` carries an `open` flag for a host that

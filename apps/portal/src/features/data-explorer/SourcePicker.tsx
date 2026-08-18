@@ -22,7 +22,7 @@ export type SourcePickerProps = {
  *
  * **There is no database step**, and its absence is a decision rather than an omission: a
  * space maps to exactly one Glue database here (see `spaceDatabase`), so a database control
- * would offer one option — the one-option control SPEC-163 declined to render for the share
+ * would offer one option — the one-option control the gating rule declines to render for the share
  * dialog's recipient kind. The database is shown, beside the space it belongs to.
  *
  * Views are offered alongside tables. A view is a perfectly good thing to explore and the

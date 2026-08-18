@@ -129,7 +129,7 @@ function mode(values: string[]): string | null {
  * "unknown" is not a number — so they stay numeric either way and report their own skips.
  *
  * `countNulls` is the exception that must not be lost: it counts SQL NULL, never the empty
- * string, which is the same distinction SPEC-180 FR-003 and SPEC-181 FR-002 make and the
+ * string, which is the same distinction the grid and the filters make, and the
  * third place it would be easy to drop (Athena hands every value back as a string, so
  * nothing below this layer can tell them apart).
  */

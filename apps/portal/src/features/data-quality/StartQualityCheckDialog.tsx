@@ -23,7 +23,7 @@ type Props = {
  * (or one file), start.
  *
  * It is the `SaveResultsDialog` composition — `Modal` + a space `<select>` + a keyed
- * `DestinationPicker` — with the filename field removed and the picker put into SPEC-124's
+ * `DestinationPicker` — with the filename field removed and the picker put into the dialog's
  * `selectableFiles` mode, because a check can target a single file where a save never can.
  *
  * The picker owns the browse state; this dialog is TOLD the target via `onTargetChange` and

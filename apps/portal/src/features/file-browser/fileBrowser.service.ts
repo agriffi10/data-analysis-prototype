@@ -373,7 +373,7 @@ export async function deleteFolder(params: {
 
   // Refused before any S3 request, like the prefix-marker guard above. The
   // authoritative protection is the role policy's `ResultsNoDelete` deny; this is
-  // what stops the app offering an action its own IAM forbids (SPEC-057, FR-007).
+  // what stops the app offering an action its own IAM forbids.
   const refusal = undeletableRootFolderRefusal(prefix, rootPrefix, 'delete');
   if (refusal) {
     return {success: false, error: {message: refusal, code: 'ProtectedObject'}};

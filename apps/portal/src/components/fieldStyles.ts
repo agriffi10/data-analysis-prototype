@@ -1,7 +1,7 @@
 /**
  * The class strings shared by every form field and section heading, in one place.
  *
- * SPEC-186 FR-010 patterns D and E. `Input` owned the label and hint strings, but five features
+ * `Input` owned the label and hint strings, but five features
  * re-implemented them rather than using it — and they could not use it, because a `<legend>` or
  * a `<select>`'s label is not an `<input>`. Exporting the strings is what actually gives them
  * one owner. Pattern E was worse: three competing strings for one idea across eleven sites,

@@ -146,8 +146,7 @@ export const COPY_FAILED = 'Your browser wouldn’t let the app write to the cli
 export const NOTHING_TO_EXPORT = 'Run a query first — export saves the results Athena returned.';
 
 /**
- * One exploration's rows, and everything that changes which rows they are (SPEC-180,
- * SPEC-181).
+ * One exploration's rows, and everything that changes which rows they are.
  *
  * The **query toolbar and the expression bar render whatever the results are doing** —
  * loading, empty, or failed. That is not cosmetic: a failed apply has to leave the user

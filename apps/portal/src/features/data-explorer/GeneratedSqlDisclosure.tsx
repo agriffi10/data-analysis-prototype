@@ -26,7 +26,7 @@ export type GeneratedSqlDisclosureProps = {
  * held back (the suspension). Two of those keep the previous rows on screen, so
  * "nothing has been run" would be read as a claim about them.
  * The statement sits in a read-only `<textarea>` (the `ValuePanel` precedent) so it is
- * selectable and copyable with the platform's own shortcuts — a copy CONTROL is SPEC-185's.
+ * selectable and copyable with the platform's own shortcuts — a copy CONTROL is the toolbar's.
  */
 export function GeneratedSqlDisclosure({sql}: GeneratedSqlDisclosureProps) {
   return (

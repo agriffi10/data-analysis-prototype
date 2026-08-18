@@ -75,7 +75,7 @@ export function emptyFormattingState(): FormattingState {
 }
 
 /**
- * The empty presentation state. Extended by SPEC-184; nothing here reaches the renderer.
+ * The empty presentation state. Nothing here reaches the renderer.
  *
  * `presentation: null` means "unchosen", which is not the same as `'grid'` — it is what
  * lets the viewport decide the opening view (FR-007) without a tab being born knowing how

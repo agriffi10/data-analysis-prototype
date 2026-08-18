@@ -56,7 +56,7 @@ export function DataQualityRunRow({run}: {run: DataQualityRunSummary}) {
           {/* THE SAMPLED CHIP IS NOT DECORATION. The list is where a user forms a quick
               impression, so a run whose figures are estimates must never read as an
               unqualified "Clean" here any more than it may in the report or the
-              notification (SPEC-112/114, same rule applied at list level). */}
+              notification (the same rule applied at list level). */}
           {hasApproximateFigures && <Badge>Sampled</Badge>}
         </div>
       </Link>

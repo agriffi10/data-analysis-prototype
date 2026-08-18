@@ -4,7 +4,7 @@ import {ToastContext, type ToastApi, type ToastInput} from './toastContext';
 
 /**
  * App-level toast host: mounts a single {@link Toast} and exposes push/dismiss to the
- * whole tree via {@link ToastContext} (SPEC-106 FR-003, replacing per-page toast state).
+ * whole tree via {@link ToastContext}, replacing per-page toast state.
  * Single-toast semantics — a new push replaces the current toast; `dismiss` clears it.
  * Consume it with the `useToast` hook (in `toastContext.ts`).
  *

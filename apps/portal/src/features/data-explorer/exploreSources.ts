@@ -1,6 +1,6 @@
 import type {QuerySpace} from '../catalog/catalog.types';
 
-// The source side of the Data Explorer (SPEC-179 FR-005 / FR-006): which space holds which
+// The source side of the Data Explorer: which space holds which
 // Glue database, and what a `/explore` deep link resolves to. Pure functions, separate from
 // the picker and the hook that use them, because the precedence rule below is the part worth
 // asserting directly rather than through a rendered tree.
@@ -11,7 +11,7 @@ import type {QuerySpace} from '../catalog/catalog.types';
  * A space maps to exactly ONE database in this app — the personal space to the username, a
  * shared space to its own name (`useConnections` builds both, and `QuerySpace.id` carries the
  * shared name verbatim). That is why the picker asks for a space and then shows tables: a
- * database step would offer one option, which SPEC-163 declined to render for the share
+ * database step would offer one option, which the gating rule declines to render for the share
  * dialog's recipient kind. The `db` deep-link parameter survives as a CROSS-CHECK, not a
  * choice — a link naming a database that is not this space's names nothing reachable.
  *
@@ -49,7 +49,7 @@ export type ExploreResolution = {status: 'none'} | {status: 'denied'} | {status:
 /**
  * Resolve `?space=&db=&table=` against the spaces this user can actually reach.
  *
- * **PRECEDENCE IS LOAD-BEARING, and it is SPEC-113's**: the actor's own username always
+ * **PRECEDENCE IS LOAD-BEARING**: the actor's own username always
  * resolves personal, and shared names are consulted only when the parameter differs from it.
  * A user whose username matches a shared space they belong to would otherwise be sent to the
  * shared bucket's database — reading a colleague's catalog under their own name, or, more

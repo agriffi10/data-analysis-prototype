@@ -125,7 +125,7 @@ export default function App() {
           {/* The gate matters MORE here than on the list route: this page reads a report
               from S3 on mount, so a page that mounted before the flag resolved would turn a
               disabled feature into an existence oracle for someone else's report — the
-              exact disclosure SPEC-113 designed the route to avoid. */}
+              exact disclosure the route is designed to avoid. */}
           <Route
             path="/data-quality/:space/:requestId"
             element={

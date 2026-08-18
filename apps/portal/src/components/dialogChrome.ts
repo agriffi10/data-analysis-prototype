@@ -1,7 +1,7 @@
 /**
  * The body chrome `FormDialog` renders, for the four dialogs that cannot use it.
  *
- * SPEC-186 FR-010 pattern C. Every one of them hands its footer to `DestinationPicker`, which
+ * Every one of them hands its footer to `DestinationPicker`, which
  * owns the confirm's label, its enabled-ness and the prefix it acts on, and is shared between
  * them — so `FormDialog`, which renders its own Cancel/submit pair, would give each dialog two
  * footers. Hoisting the picker's state into four parents to reach the shared chrome costs more
