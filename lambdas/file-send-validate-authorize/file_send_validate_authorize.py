@@ -62,7 +62,7 @@ def _check_contract(req) -> None:
     than ignored (FR-002) — a field the producer thinks it is sending and this verb silently
     drops is a contract break that surfaces as behaviour nobody asked for. And the required
     fields are type-checked, which the rejection does not imply: an absent ``requestId``
-    would flow through as ``None`` and a non-string one would flow through whole, and SPEC-166
+    would flow through as ``None`` and a non-string one would flow through whole, and the transfer
     makes that value part of an execution-unique manifest key.
 
     Args:

@@ -6,7 +6,7 @@ with no copy or create side effects. Every rejection is a whole-request terminal
 recipient runs.
 
 Neither of the two things it produces rides on the state. The object list went to S3 first
-(inline, the Map's state reached 95% of the payload limit at the shipped caps); SPEC-161 sent
+(inline, the Map's state reached 95% of the payload limit at the shipped caps); the pointer sent
 the cloned definition the same way, because it was the last user-controlled term left and a
 wide commented table breached the limit on its own.
 

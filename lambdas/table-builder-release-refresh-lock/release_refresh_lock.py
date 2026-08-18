@@ -3,7 +3,7 @@
 It sits before both terminal shaping states, which the create branch shares, so it is invoked on
 requests that never took a lock. That is deliberate. The alternative is a ``Choice`` guarding each
 insertion point, and a ``Choice`` whose Variable path is ABSENT raises ``States.Runtime`` — which
-no Catch anywhere can catch (the SPEC-143 trap). Passing the whole state and deciding in Python
+no Catch anywhere can catch. Passing the whole state and deciding in Python
 means nothing ever evaluates a JSONPath against a key that may not be there, so the uncatchable
 path cannot be reached at all. A request with no ``lock`` is a no-op.
 

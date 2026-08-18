@@ -2,7 +2,7 @@
 
 One invocation copies one BATCH of transfer items, whatever recipients they belong to:
 server-side ``CopyObject``, multipart ``UploadPartCopy`` above S3's single-copy limit, on a
-bounded pool. No object bytes pass through the Lambda. Before SPEC-160 this verb copied a
+bounded pool. No object bytes pass through the Lambda. This verb once copied a
 whole recipient's table inside one invocation, which is why the share caps were the shape of
 its 900-second timeout.
 

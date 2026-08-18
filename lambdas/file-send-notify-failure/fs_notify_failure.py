@@ -4,7 +4,7 @@ This exists for the failures no verb can catch. ``@notifies_on_failure`` is a de
 verb handlers: it catches an exception inside a verb and does nothing at all when the failure
 happens where no verb code is running — a Lambda that fails at import, a state timeout, a
 payload-size failure, a task that cannot be invoked. In that window the sender is told nothing:
-no notification, no DLQ message, and the request simply never completes. SPEC-152 exists to
+no notification, no DLQ message, and the request simply never completes. This path exists to
 close that, and a plane shipping without it leaves "it just never came back" reachable.
 
 Its input carries the raw Step Functions error rather than a decoded reason, and must stay that
@@ -18,7 +18,7 @@ carries ``actor: null``; the machine's failure seed reads the Pipe's original bo
 function would take its no-recipient branch on every single failure — satisfied on paper, silent
 in practice.
 
-**IT HAS TWO DOORS SINCE SPEC-166, and the second exists because the first cannot reach one
+**IT HAS TWO DOORS, and the second exists because the first cannot reach one
 failure.** The ASL door above is a state, so it is reached by a ``Catch`` — and Step Functions
 catchers cover Task, Parallel and Map states but **not top-level execution failures**. A run
 that exhausts the machine's own ``TimeoutSeconds`` is terminated outright: no state runs, no

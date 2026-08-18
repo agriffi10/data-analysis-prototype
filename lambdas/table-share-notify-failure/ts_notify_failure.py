@@ -23,7 +23,7 @@ The ASL door above is a state, so it is reached by a ``Catch`` — and Step Func
 cover Task, Parallel and Map states but **not top-level execution failures**. A run that
 exhausts the machine's own ``TimeoutSeconds`` is terminated outright: no state runs, no Catch
 fires, and this function is never invoked. The documented remedy is the second door, and it is
-what SPEC-161 wired: an EventBridge rule on ``Step Functions Execution Status Change`` with
+the second door: an EventBridge rule on ``Step Functions Execution Status Change`` with
 ``status: TIMED_OUT`` invokes this same function with an event of a completely different shape.
 
 The two doors cannot double-notify. The ASL door is reached only through a ``Catch``, which a

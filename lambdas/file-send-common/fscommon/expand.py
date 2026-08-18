@@ -9,7 +9,7 @@ silent defect.** ``cpcommon.s3_listing.is_ignored`` anchors ``athenaresults/``,
 ``user_settings/`` and its hidden-segment test at the LISTING PREFIX. That is right for the
 three planes that list a table's or a check's own folder, and wrong here: the listing prefix is
 whichever item the user picked, so sending ``alice/reports/`` would drop a user-made
-``alice/reports/athenaresults/`` — which SPEC-164 records as an ordinary sendable folder — and
+``alice/reports/athenaresults/`` — an ordinary sendable folder — and
 any ``_drafts/``, without a refusal or a message. A silent drop is worse than copying it and
 worse than refusing it. The hidden-segment rule also exists because *Athena* ignores those
 files, which says nothing about a byte-for-byte copy. So the predicate below is anchored at the

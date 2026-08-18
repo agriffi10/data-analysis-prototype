@@ -27,7 +27,7 @@ Attributes:
     **not** the objects they expand to. What sizes it is the per-item work that follows: two
     containment checks and, one ``ListObjectsV2`` walk per folder. It is
     emphatically NOT a bound on the transfer — a single folder can hold a million objects — and
-    the caps that bound *that* belong to SPEC-165 (the expansion) and SPEC-166 (the manifest),
+    the caps that bound *that* belong to the expansion and the manifest,
     the same three-way split table-share arrived at.
 
     **It does NOT bound the state payload, and an earlier version of this comment claimed it
@@ -48,7 +48,7 @@ Attributes:
     costs four in the record — so a quote-heavy selection reaches the record at **twice** its
     measured size. At 96 KiB the worst case is a ~200 KB record and a ~204 KB failure state,
     both clear of the limit, and the success state is ~104 KB, leaving room for the fields
-    SPEC-165 adds when it resolves this same state.
+    the expansion adds when it resolves this same state.
 
     An earlier value of 192 KiB was measured against the validated output ALONE and would have
     permitted a request whose execution could not start. ``test_config_fscommon`` now computes
@@ -57,7 +57,7 @@ Attributes:
     **THIS CAP CANNOT BE THE ONLY GUARD, and saying so is the honest version.** It is enforced
     in the first Task, and a request too large for ``StartExecution`` fails before any state
     exists to enforce it — the Pipe simply cannot start the execution. That failure is not
-    silent: the message exhausts its redrive policy, lands on this plane's DLQ, and SPEC-126's
+    silent: the message exhausts its redrive policy, lands on this plane's DLQ, and the
     drain turns it into a user notification. It is merely a worse experience than a refusal, so
     the producer carries the same bound (``fileSend.service.ts``) and a test holds the two
     numbers together.
@@ -79,7 +79,7 @@ Attributes:
 
     It is NOT a bound on the transfer. The manifest carries one item per (recipient, object)
     pair, so 20,000 objects to 50 recipients is a million items — the product caps are
-    SPEC-166's, sized against the Map Run its own ``TimeoutSeconds`` bounds.
+    The transfer's, sized against the Map Run its own ``TimeoutSeconds`` bounds.
   SEND_MAX_TOTAL_BYTES: Cap on the bytes ONE selection holds, and only that. Like its
     table-share twin it says nothing about how much the copy moves, because every recipient
     gets a full copy; it exists so a single send cannot be unbounded on its own.
@@ -95,7 +95,7 @@ Attributes:
     computes it.
 
     **It says nothing about the transfer, and the three caps below are what do.** This cap alone
-    permits 50 recipients x 1 TiB = 50 TiB, which no plausible throughput moves. SPEC-166 added
+    permits 50 recipients x 1 TiB = 50 TiB, which no plausible throughput moves. The transfer added
     them together with the machine's ``TimeoutSeconds``, because a product cap is meaningless
     until there is a ceiling to measure it against.
   SEND_MAX_OBJECT_BYTES: Cap on ONE object, and the cap without which the makespan model above
@@ -109,7 +109,7 @@ Attributes:
     as table-share's ``SHARE_MAX_OBJECT_BYTES``: the two planes share the engine, the batch size
     and the timeout, so a different number here would mean one of them was wrong. Without it the
     worst legal case at ``SEND_MAX_TOTAL_BYTES`` was a single 1 TiB object on one worker —
-    43,980 s, four times over the machine ceiling — which SPEC-165 recorded as owed rather than
+    43,980 s, four times over the machine ceiling — recorded as owed rather than
     absent.
   SEND_MAX_TRANSFER_ITEMS: Cap on ``objects x REQUESTED recipients``, which is the manifest's
     length. Measured on the requested count, before the guard, because a cap that only bites
@@ -156,7 +156,7 @@ Attributes:
     root and namespaced by sender — ``{target}/shared_files/{sender}/{item}``. Mirrors
     ``shared_tables/``, so two senders never collide and provenance is visible in the file
     browser without a metadata lookup. Named here because it is the one layout constant
-    validate-authorize and the SPEC-166 verbs must agree on.
+    validate-authorize and the transfer verbs must agree on.
   USER_SETTINGS_FOLDER: The space's own portal-managed settings folder — the notification inbox
     and the shared-space connections cache. Excluded from an EXPANSION, anchored at
     the space root, not refused as a selected item: the browser hides it everywhere, so a user

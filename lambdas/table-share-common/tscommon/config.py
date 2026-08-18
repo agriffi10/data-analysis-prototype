@@ -12,7 +12,7 @@ Attributes:
     ``list_data_objects`` pages at 1000 keys, so 20,000 objects is 20 ListObjectsV2 round
     trips — one to two seconds of a 120-second budget — and the copy plan it writes is ~3.4 MB
     at ordinary Hive keys, ~21 MB at S3's worst-case 1024-byte ones, which is what the verb's
-    1024 MB is sized for (locals.tf). It is no longer sized by the copy: SPEC-160 made that a
+    1024 MB is sized for (locals.tf). It is no longer sized by the copy, which is now a
     Distributed Map over batches, so no single invocation carries a recipient's whole table.
   SHARE_MAX_TOTAL_BYTES: Cap on the SOURCE table's size, and only that. It bounds what
     inspect-source lists and what the copy plan describes — **it says nothing about how much

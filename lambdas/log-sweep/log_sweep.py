@@ -476,7 +476,7 @@ def _delete(receipts):
 
     Both halves of the response are read. ``DeleteMessageBatch`` reports a partial failure as
     **HTTP 200 with a ``Failed`` array**, so a try/except sees nothing at all on the most likely
-    real fault; SPEC-151 closed the same shape on ``delete_objects``, and this had it too.
+    real fault; the same shape was closed on ``delete_objects``, and this had it too.
 
     Args:
       receipts: The receipt handles to delete.
