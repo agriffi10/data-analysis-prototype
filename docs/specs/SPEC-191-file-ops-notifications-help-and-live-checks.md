@@ -186,7 +186,7 @@ on it.
 
 #### Acceptance Criteria:
 
-- [ ] `docs/testing/file-ops-e2e.md` exists, with fixtures, exact labels, expected numbers and a
+- [ ] `docs/testing/e2e.md` exists, with fixtures, exact labels, expected numbers and a
       section per spec, and is added to `e2e.md`'s sequence.
 - [ ] **An approval gate.** These checks delete real files with versioning off and no trash;
       `e2e.md` maintains an explicit ask-before-running list and this belongs on it.
@@ -255,7 +255,7 @@ gate SPEC-137 exists for.
 
 ### Phase 5: The live-check script and the run
 
-- Write `docs/testing/file-ops-e2e.md`; register it in `e2e.md` including the approval gate;
+- Write `docs/testing/e2e.md`; register it in `e2e.md` including the approval gate;
   then **run it**. Record what was discharged and what was only corroborated — settling a premise is
   not the same as running the check.
 

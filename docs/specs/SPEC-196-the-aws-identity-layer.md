@@ -718,7 +718,7 @@ infra/modules/<api>/                      # SPEC-193's module
 
 Real invocations. **Everything in this spec that matters is invisible to the offline suite**, for the
 reasons SPEC-137 and SPEC-011 each learned once. Written as a runnable script at
-`docs/testing/api-identity-layer-e2e.md`.
+`docs/testing/arc-b-api-container-e2e.md`.
 
 **What only a real assumed-role call can prove:**
 

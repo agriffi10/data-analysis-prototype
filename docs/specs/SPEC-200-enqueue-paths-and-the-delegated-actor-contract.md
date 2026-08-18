@@ -743,7 +743,8 @@ apps/portal/src/
 
 ### Phase 5: Verification
 
-Written as a runnable script at `docs/testing/enqueue-paths-e2e.md`. **Sign in fresh, signed out to
+Written as a new section of `docs/testing/arc-b-api-container-e2e.md`. **Sign in fresh, signed out
+to
 start** — a signed-in pass never tests the token path. What nothing offline can prove: that a group
 id computed in Python is the one the deployed queue receives (ordering has no error path, so this is
 only visible as *work happening*), that the widened envelope is accepted by the deployed verbs, that

@@ -29,7 +29,7 @@ authoritative detail lives in `docs/spec-delivery/SPEC-XXX-*.md` and the per-arc
 - [Refresh-table arc (SPEC-143 → 144 → **149** → 145)](#refresh-table-arc-spec-143--144--149--145)
 - [Username-directory arc (SPEC-146 → 147 → 148)](#username-directory-arc-spec-146--147--148)
 - [Audit-remediation arc (SPEC-150 → 156)](#audit-remediation-arc-spec-150--156)
-- [Follow-ups from the shipped arcs (SPEC-157, 158)](#follow-ups-from-the-shipped-arcs-spec-157-158)
+- [Cross-arc follow-ups (SPEC-157, 158)](#cross-arc-follow-ups-spec-157-158)
 - [Table-share-at-scale arc (SPEC-160 → 161)](#table-share-at-scale-arc-spec-160--161)
 - [Feature-flags arc (SPEC-162 → 163)](#feature-flags-arc-spec-162--163)
 - [Send-files arc (SPEC-164 → 165 → 166 → 167)](#send-files-arc-spec-164--165--166--167)
@@ -494,7 +494,7 @@ element in that `compact()` silently drops the change).
 
 ---
 
-## Observability arc (SPEC-127 → 137, fleet-complete)
+## Observability arc (SPEC-127 → 137)
 
 **Why it exists.** Every Lambda in this repo logs free-form English to CloudWatch. That answers "what happened in this one
 invocation" and nothing else: there is no way to ask for a p95 duration, a week of failures, or every event in one request,
@@ -909,7 +909,7 @@ default, which is a one-line change whose justification is the ruff-0.16 inciden
 
 ---
 
-## Follow-ups from the shipped arcs (SPEC-157, 158)
+## Cross-arc follow-ups (SPEC-157, 158)
 
 Two singles rather than an arc: they share no mechanism and neither depends on the other.
 

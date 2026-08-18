@@ -624,7 +624,7 @@ infra/modules/app/cloudfront.tf                              # − the two CSP l
 .github/workflows/deploy-spa-image.yml
 .github/scripts/spa-image-matrix.sh                          # FR-011's assertion table
 infra/modules/base/policies/github-actions-deploy-spa-image.json.tftpl
-docs/testing/spa-container-e2e.md                            # Phase 5
+docs/testing/arc-b-api-container-e2e.md                            # Phase 5
 ```
 
 ## Implementation Phases
@@ -660,8 +660,9 @@ docs/testing/spa-container-e2e.md                            # Phase 5
 ### Phase 5: Verification
 
 Nothing offline observes a response header, a rolling deployment or a load balancer's opinion of a
-container. These are real invocations against the deployed service, written as a runnable script at
-`docs/testing/spa-container-e2e.md` with exact paths, exact expected header values and the fixture
+container. These are real invocations against the deployed service, as a new section of
+`docs/testing/arc-b-api-container-e2e.md` with exact paths, exact expected header values and the
+fixture
 environment.
 
 - **Every FR-005 header on all six path classes, against the deployed ALB origin**, not a locally-run

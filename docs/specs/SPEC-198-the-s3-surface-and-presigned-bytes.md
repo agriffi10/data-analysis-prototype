@@ -641,7 +641,7 @@ whose only infra item is bucket CORS, and if it is ever wanted it is a spec of i
       `ownPrefixListable: true, foreignPrefixListable: false` — a real call through the assumed session,
       whose `false` half is IAM refusing and whose `true` half is the paired `allowed` control — beside
       its deployed-role policy simulation. This spec **cites that recorded result by the date SPEC-196's
-      script records it** (`docs/testing/api-identity-layer-e2e.md`) rather than repeating it, and adds
+      script records it** (`docs/testing/arc-b-api-container-e2e.md`) rather than repeating it, and adds
       no probe of its own.
 - [ ] **The `archive/` write is NOT the credential-layer proof, and the reason is written down.**
       FR-007 AC4 and FR-009 AC4 both require the write route to refuse `archive/` **server-side, in the
@@ -830,7 +830,8 @@ infra/main.tf                               # + spa_origin passed into both modu
 
 ### Phase 5: Verification
 
-Real invocations, as a runnable script at `docs/testing/s3-surface-e2e.md`. **What nothing offline can
+Real invocations, as a new section of `docs/testing/arc-b-api-container-e2e.md`. **What nothing
+offline can
 prove:** that a browser's preflight against the deployed bucket CORS actually succeeds from the
 container origin (a CORS failure is an opaque `TypeError` and presents as "the API is down"); that a
 presigned URL signed inside a Lambda by an assumed session is honoured by S3; that the expiry is

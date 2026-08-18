@@ -262,7 +262,20 @@ When a spec is done, in the same pass:
    flight may keep one temporary script of its own (`docs/testing/<arc>-e2e.md`); it is folded into
    `e2e.md` and deleted when the arc closes.
 
-**Anti-regrowth & doc hygiene** (each rule below was earned by a defect the 2026-08-03 doc sweep found):
+**Anti-regrowth & doc hygiene** (each rule below was earned by a defect the 2026-08-03 doc sweep found).
+
+> **`scripts/validate_docs.py` enforces the structural half of these rules and runs on every PR**
+> (`ci.yml` → *Validate the documentation layout*). It holds: `docs/testing/` to the guide, the
+> ledger, the log and at most **one** in-flight arc script; `CLAUDE.md` to a byte budget and each
+> Key Decisions line to a length; every `decisions.md` entry to one heading level and a resolving
+> Contents entry; every `ARCS.md` arc to a status-free heading that is in the arc list; every spec
+> header to agreeing with its `INDEX.md` row and every Completed spec to having a delivery doc;
+> every delivery doc to a line cap; and every relative markdown link to resolving. **The budgets
+> are ratchets at the measured level** (SPEC-150's convention for the coverage floors) — raising
+> one so a growing doc passes is the failure mode the gate exists to catch. Move the detail down a
+> tier instead. Every rule it holds existed in prose first and was violated anyway; that is why it
+> is a gate.
+
 
 - If a memory or doc disagrees with the code, fix or delete it — don't let stale state accumulate.
   Don't add prose to the always-loaded tier.

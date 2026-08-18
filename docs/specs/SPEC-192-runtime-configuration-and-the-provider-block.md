@@ -598,7 +598,7 @@ apps/portal/src/
 └── main.tsx                   (async bootstrap; five static imports, no app graph)
 
 .github/workflows/deploy-app.yml   (+ render config.json, + fourth sync pass)
-docs/testing/runtime-config-e2e.md
+docs/testing/arc-b-api-container-e2e.md
 ```
 
 ## Implementation Phases
@@ -636,8 +636,8 @@ docs/testing/runtime-config-e2e.md
 Nothing offline proves any of this. The dev fallback is active under Vitest, which means the entire
 suite exercises the arm that will not exist in production — the mirror of SPEC-137, where
 instrumented code shipped whose layer attachment was missing while every offline gate passed. These
-are real invocations against the deployed app, written as a runnable script at
-`docs/testing/runtime-config-e2e.md`.
+are real invocations against the deployed app, as a new section of
+`docs/testing/arc-b-api-container-e2e.md`.
 
 - The deployed app boots and `GET /config.json` returns **200 with `application/json`** and
   `Cache-Control: no-store`. Read it from the network panel; do not infer it from the app working.

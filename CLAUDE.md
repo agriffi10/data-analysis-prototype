@@ -230,4 +230,6 @@ silently checks nothing. CI now runs it too (#363). Watch every PR to completion
 few lines, the detail belongs in a `docs/` file behind a pointer. Same for `INDEX.md` (status rows
 only) and the inventory router. **A Key Decisions line is one sentence and a fence, not a paragraph**,
 and `## Specs` is not a changelog: both regrew past 300 lines once by being appended to, and were cut
-back on 2026-08-18.
+back on 2026-08-18. **`scripts/validate_docs.py` now enforces this on every PR** — the budgets are
+ratchets at the measured level, so raise the doc's tier, never the cap. Full rule set:
+`@docs/process.md` §5 → *Anti-regrowth & doc hygiene*.

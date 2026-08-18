@@ -94,6 +94,16 @@ jobs:
         # (validate_feature_flags.py). Nothing else in that directory is Python today.
         run: ruff check lambdas/ scripts/
 
+      # The documentation layout is a gate because prose was not one. Every rule the script
+      # holds already existed in CLAUDE.md or docs/process.md, and every one was violated
+      # anyway: `## Specs` regrew to 371 lines of changelog against its own "prune, never
+      # append"; the Key Decisions digest grew a 3,349-character entry against "one line
+      # each"; docs/testing/ reached sixteen files; decisions.md listed 50 of 149 entries.
+      # The budgets are ratchets at the measured level, like the coverage floors (SPEC-150) —
+      # raising one to make this step pass is the failure mode it exists to catch.
+      - name: Validate the documentation layout
+        run: python3 scripts/validate_docs.py
+
       # A malformed feature-flag document must never reach a bucket, and the failure it
       # produces is silent — the browser falls back to all-on, which is indistinguishable
       # from a healthy environment. This is the first of the document's two validations;
