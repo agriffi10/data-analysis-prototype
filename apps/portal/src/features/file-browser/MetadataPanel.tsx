@@ -18,10 +18,10 @@ type Props = {
   rootPrefix?: string; // stripped from the key to show a user-relative path
   /** Gates Rename — false in read-only (dev-unauth) browse. Download always shows. */
   canModify: boolean;
-  /** Opens RenameDialog for this file (SPEC-097). */
+  /** Opens RenameDialog for this file. */
   onRequestRename: (file: S3FileItem) => void;
   /**
-   * SPEC-172: archives THIS file without selecting it first. Absent when the space can't be
+   * archives THIS file without selecting it first. Absent when the space can't be
    * resolved, the `files` flag is off, or the user is inside the read-only `archive/` folder.
    */
   onRequestArchive?: (file: S3FileItem) => void;
@@ -29,16 +29,16 @@ type Props = {
    * Why THIS file can't be archived (it sits in a portal-managed root), if it can't. Needed here
    * as much as in the folder panel: `athenaresults/` and `shared_tables/` are VISIBLE, so a file
    * inside one is reachable, selectable and openable — and without this the panel offered an
-   * Archive the plane then refused as `reserved_folder`, which is the exact failure FR-001 AC5's
+   * Archive the plane then refused as `reserved_folder`, which is the exact failure the plane's
    * list-equality test exists to prevent, arriving through the entry point it does not walk.
    */
   archiveDisabledReason?: string;
-  /** Why nothing here can be written (SPEC-172 FR-004) — Rename carries it. */
+  /** Why nothing here can be written — Rename carries it. */
   writeLockReason?: string;
   onClose: () => void;
 };
 
-// The Download + Rename action pair (SPEC-097). Download resolves a presigned URL
+// The Download + Rename action pair. Download resolves a presigned URL
 // and downloads with attachment disposition (both authenticated + read-only);
 // Rename opens the shared RenameDialog and is hidden in read-only mode. Desktop =
 // side-by-side 50/50; mobile sheet = stacked full-width (≥44px).
@@ -87,7 +87,7 @@ function PanelActions({
           </Button>
         )}
       </div>
-      {/* SPEC-172 FR-001: the second home a per-item action has. A single file can be archived
+      {/* the second home a per-item action has. A single file can be archived
           without selecting it first, which is what makes the toolbar's whole-selection rule
           affordable. */}
       {canModify && onRequestArchive && (
@@ -181,10 +181,10 @@ function MetadataFields({
   );
 }
 
-// SPEC-017 FR-002: a read-only drawer showing a single file's metadata, rendered
+// a read-only drawer showing a single file's metadata, rendered
 // in the shared Drawer primitive (blur backdrop + focus trap; dismissible via the
 // close button, Escape, or backdrop click — focus returns to the trigger on
-// close). SPEC-097 adds a Download + Rename action pair at the top. The fetch
+// close). A Download + Rename action pair sits at the top. The fetch
 // state (loading / inline error / data) comes from useObjectMetadata; reopening
 // after an error refetches because a fresh observer mounts on the same query key.
 export function MetadataPanel({

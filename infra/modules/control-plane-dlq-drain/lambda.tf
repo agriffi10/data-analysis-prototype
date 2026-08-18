@@ -1,10 +1,10 @@
-# ── The drain Lambda + its scheduled sweep (SPEC-126 FR-001/FR-005) ──────────
+# ── The drain Lambda and its scheduled sweep ───────────────────────────────
 # ONE function over FOUR queues. The per-domain differences (the user-facing noun, the field
 # the actor's token lives in) are a table inside the handler keyed off the queue's ARN, so a
 # fifth control plane is one map entry and one more ARN in DLQ_ARNS — not a fifth copy of
 # this file.
 #
-# Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
+# Code-ownership split (architecture.md): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml owns the Python code and attaches
 # the cpcommon layer. `ignore_changes` keeps `tofu apply` from reverting CI's deployed code.
 
@@ -23,7 +23,7 @@ data "archive_file" "placeholder" {
 #
 # THIS LOG GROUP IS NOW THE ONLY COPY OF A DEAD-LETTERED BODY. Consuming a DLQ message
 # deletes it, so the 14-day queue retention the arcs kept "for inspection" is traded for
-# this group's 14-day retention (SPEC-126 FR-004) — a deliberate cost, paid so the user
+# this group's 14-day retention — a deliberate cost, paid so the user
 # hears about the failure at all. Shortening this retention shortens the forensic window.
 resource "aws_cloudwatch_log_group" "drain" {
   name              = local.log_group_name
@@ -45,8 +45,8 @@ resource "aws_lambda_function" "drain" {
       # The drain needs the Cognito pair, the notifications queue URL to send to, and DLQ_ARNS —
       # the queues it now sweeps itself (the four request DLQs, as a JSON list). The buckets and
       # the workgroup are here because the cpcommon layer's config requires them of every
-      # function that attaches it. SPEC-156 FR-004 moved that from import to FIRST READ, so a
-      # missing one no longer crashes at COLD START (the table-builder break, PR #196) — it
+      # function that attaches it. That read moved from import to FIRST ACCESS, so a
+      # missing one no longer crashes at COLD START — it
       # fails on whichever branch reads it. Still set them; "the drain does not use it" is not
       # a reason to prune one.
       COGNITO_USER_POOL_ID    = var.user_pool_id
@@ -57,11 +57,11 @@ resource "aws_lambda_function" "drain" {
       SHARED_SPACE_BUCKET     = var.shared_space_bucket_name
       ADMIN_BUCKET            = var.admin_bucket_name
       ATHENA_WORKGROUP        = var.athena_workgroup
-      # SPEC-133 FR-001/FR-007. Deliberately NOT mirrored by a config._require on the Lambda
+      # Deliberately NOT mirrored by a config._require on the Lambda
       # side: cpcommon.observability reads it with os.environ.get, so a drain that somehow
       # loses this variable logs to stdout and still drains rather than crashing at cold start.
       LOGS_QUEUE_URL = var.logs_queue_url
-      # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+      # `env` shipped empty on every record. Same source of truth as the
       # feature-flag document's `environments` keys (`var.environment`, default "prod").
       ENV_NAME = var.environment
     }
@@ -91,7 +91,7 @@ resource "aws_lambda_function" "drain" {
 # NOTHING re-drives a message here (there is still no DLQ on the drain, and the sweep deletes
 # every message it reads whether or not it could notify about it): a redelivery would only
 # re-run a decision already made about a terminal message — the invisibility this module ends
-# (FR-005). Trade-off vs the mappings: a dead-lettered request now surfaces within one interval
+# Trade-off vs the mappings: a dead-lettered request now surfaces within one interval
 # (~10 min) instead of seconds. Nothing watches these queues in real time, so that is immaterial.
 resource "aws_cloudwatch_event_rule" "sweep" {
   name                = "${local.function_name}-sweep"

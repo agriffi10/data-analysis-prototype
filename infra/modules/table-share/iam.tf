@@ -1,4 +1,4 @@
-# ── Control-plane IAM roles (SPEC-088) ───────────────────────────────────────
+# ── Control-plane IAM roles ─────────────────────────────────────────────────────────────────
 # ONE shared execution role for every verb Lambda (user decision,
 # docs/architecture.md (Control Planes -> Table Share) — mirrors the table-builder's consolidated
 # model; per-verb roles are NOT used), plus the Step Function role and the Pipe
@@ -8,7 +8,7 @@
 # At this stage the execution policy (execution.json.tftpl) is LOGS ONLY — the
 # placeholder path needs nothing else. The LF-admin / Glue / Athena / S3 / Cognito /
 # registry / notifications grants are added by the spec that first needs each
-# (SPEC-089/090/092/094), keeping this foundation behavior-free.
+# with the verbs, keeping this foundation behavior-free.
 
 # ── Shared Lambda execution role (uniform lambda trust) ──────────────────────
 resource "aws_iam_role" "execution" {
@@ -26,7 +26,7 @@ resource "aws_iam_role_policy" "execution" {
   # copies the whole state into every item — at the shipped caps (1000 objects, ordinary
   # Hive keys) that put the Map's output state at 95% of the 256 KB payload limit, where
   # States.DataLimitExceeded fires ON THE MAP and destroys every per-recipient outcome the
-  # Map exists to preserve. Same fix and same reason as SPEC-110's data-quality manifest.
+  # Map exists to preserve. Same fix and same reason as the data-quality manifest.
   #
   # THE ADMIN BUCKET, not a user space: the SPA never browses it, so the plan needs no
   # hidden-folder convention, and a user cannot delete it out from under a running
@@ -38,13 +38,13 @@ resource "aws_iam_role_policy" "execution" {
   # so rationale goes HERE, not in the .tftpl.
   policy = templatefile("${path.module}/policies/execution.json.tftpl", {
     log_group_arn = local.table_share_log_group_wildcard_arn
-    # SPEC-089: registry read (source authz + recipient-space existence), Cognito
-    # recipient-existence checks. SPEC-090: source-bucket ListBucket for the
-    # copy-plan listing. SPEC-092: Glue CreateTable + the Athena DDL run/poll +
+    # Registry read (source authz + recipient-space existence), Cognito
+    # recipient-existence checks. Source-bucket ListBucket for the
+    # copy-plan listing. Glue CreateTable, the Athena DDL run/poll and
     # results write + lakeformation:GetDataAccess — the LF-admin designation itself
     # lives in module.analytics' data_lake_settings (root wires the constructed
     # role ARN; recipient DBs are dynamic, so catalog-wide create via LF admin,
-    # mirroring the table-builder). SPEC-094: sqs:SendMessage to the notifications
+    # mirroring the table-builder). sqs:SendMessage to the notifications
     # queue ONLY (best-effort sender + recipient outcome notifications).
     admin_bucket_arn        = local.admin_bucket_arn
     user_pool_arn           = local.user_pool_arn
@@ -55,18 +55,18 @@ resource "aws_iam_role_policy" "execution" {
     shared_space_bucket_arn = local.shared_space_bucket_arn
     athena_workgroup_arn    = local.athena_workgroup_arn
     notifications_queue_arn = var.notifications_queue_arn
-    # SPEC-136 — structured-logging producer; same Sid and shape as the other three planes.
+    # Structured-logging producer; same Sid and shape as the other three planes.
     logs_queue_arn = var.logs_queue_arn
   })
 }
 
-# ── Portal role — table-share enqueue policy (SPEC-089 FR-001) ────────────────
+# ── Portal role — table-share enqueue policy ────────────────
 # The browser's ONLY table-share privilege: sqs:SendMessage to the request queue.
-# A small inline policy on the shared portal role (SPEC-011), attached BY NAME like
+# A small inline policy on the shared portal role, attached BY NAME like
 # the table-builder / notifications modules (the role is created in module.data; the
 # root module-level depends_on guarantees it exists first). No Lambda invoke, no DLQ,
 # no Step Function — just enqueue. The send helper is enqueueTableShare; the UI that
-# uses it lands in SPEC-093.
+# uses it lives in the browser.
 resource "aws_iam_role_policy" "portal_table_share" {
   name = "table-share-enqueue"
   role = var.portal_role_name
@@ -86,7 +86,7 @@ resource "aws_iam_role_policy" "sfn" {
   name = "permissions"
   role = aws_iam_role.sfn.id
 
-  # SPEC-160 FR-006: the Distributed Map's permissions are the STATE MACHINE's, not the
+  # The Distributed Map's permissions are the STATE MACHINE's, not the
   # Lambdas'. AWS is explicit that the state machine role invokes StartExecution for each
   # child workflow and reads/writes the ItemReader + ResultWriter objects — so the manifest
   # read and the results write belong here, beside states:StartExecution, and NOT in

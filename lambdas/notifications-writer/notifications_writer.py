@@ -19,7 +19,7 @@ these events are the only account of it that exists.
 
 Verification is ``cpcommon.auth``'s, not this module's. It used to be a second copy of the
 issuer and JWKS URLs, the cached client and the claim checks, because the layer's config
-required six environment variables at import and this function sets three — SPEC-156 FR-004
+required six environment variables at import and this function sets three — that read
 made that config resolve lazily, which removed the reason for the copy. The exception type is
 the one thing that does not come from the layer: this handler's SQS retry-into-DLQ contract is
 expressed in ``AuthorizationError``, so the seam maps ``AuthError`` onto it.

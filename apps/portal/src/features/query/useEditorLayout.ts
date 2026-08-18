@@ -27,7 +27,7 @@ function isPreset(value: unknown): value is EditorLayoutPreset {
 }
 
 // All storage access is wrapped so a disabled/quota-exceeded sessionStorage
-// degrades to "not persisted" rather than crashing the workspace (FR-004).
+// degrades to "not persisted" rather than crashing the workspace.
 function readStoredPreset(username: string | null): EditorLayoutPreset | null {
   const key = storageKey(username);
   if (!key) return null;
@@ -54,7 +54,7 @@ function writeStoredPreset(username: string | null, preset: EditorLayoutPreset):
  * available editor+results column height. The proportion is capped so the
  * results region keeps MIN_RESULTS_HEIGHT, then floored so the editor keeps
  * MIN_EDITOR_HEIGHT — on a viewport too short for both floors the editor
- * floor wins (no negative/overlapping panes, FR-002).
+ * floor wins (no negative/overlapping panes).
  */
 export function clampEditorHeight(preset: EditorLayoutPreset, containerHeight: number): number {
   const proportional = containerHeight * LAYOUT_PRESET_EDITOR_FRACTION[preset];
@@ -62,7 +62,7 @@ export function clampEditorHeight(preset: EditorLayoutPreset, containerHeight: n
 }
 
 /**
- * Owns the SPEC-079 editor/results layout preset: the selection (per-user
+ * Owns the editor/results layout preset: the selection (per-user
  * sessionStorage persistence, degrade-safe, default `even`) and the editor
  * pane's derived pixel height within `containerHeight` (the measured
  * editor+results column). The caller applies `editorHeight` to the editor

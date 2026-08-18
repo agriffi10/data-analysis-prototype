@@ -41,7 +41,7 @@ def authorize_source(username: str, space) -> dict:
     bucket policy does not have and would not prevent anything.
 
     **A member whose join chip still reads pending is authorized**, matching file-send and
-    SPEC-073: the chip is display and bookkeeping only, and access is granted at add time.
+    The chip is display and bookkeeping only, and access is granted at add time.
 
     Args:
       username: The verified username, from the ID token claim and nowhere else.
@@ -88,7 +88,7 @@ def assert_not_reserved(root: str, key: str) -> str:
 
     **THREE WAYS TO SELECT ONE, NOT TWO.** The folder itself and anything beneath it are the
     obvious two. The third is an ANCESTOR: selecting the space root as a folder passes both, and
-    SPEC-169 expands a folder by listing its prefix — so ``{"kind": "folder", "key": "alice/"}``
+    the archive expands a folder by listing its prefix — so ``{"kind": "folder", "key": "alice/"}``
     would carry ``alice/user_settings/`` out with everything else *and then delete it*. The
     reserved folders sit directly at the space root, so their only ancestor is the root — but
     the check is written as containment rather than as an equality, because a rule that depends
@@ -129,7 +129,7 @@ def assert_not_protected_marker(key: str) -> str:
 
     A FILE selection is the only reachable case, and that is the point of checking it here rather
     than only during expansion: a marker inside a selected FOLDER is a different question, and
-    SPEC-169 answers it by excluding markers from the expansion the way file-send excludes
+    the archive answers it by excluding markers from the expansion the way file-send excludes
     ``user_settings/`` — a folder must stay archivable, or a marker at the space root would make
     the whole space un-archivable.
 
@@ -142,7 +142,7 @@ def assert_not_protected_marker(key: str) -> str:
     Raises:
       TerminalError: ``protected_marker`` when the key's basename is the marker. It carries the
         BASENAME as a token, not the key: the message names what the user must deselect, and a
-        full key in a user-facing sentence is operator text SPEC-106 forbids rendering. The key
+        full key in a user-facing sentence is operator text the error-wording rule forbids rendering. The key
         still rides in ``detail``, which reaches the logs and the Step Functions record only.
     """
     basename = key.rstrip("/").rsplit("/", 1)[-1]

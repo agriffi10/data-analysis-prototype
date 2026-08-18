@@ -4,7 +4,7 @@ This exists for the failures no verb can catch. ``@notifies_on_failure`` is a de
 verb handlers: it catches an exception inside a verb and does nothing at all when the failure
 happens where no verb code is running — a Lambda that fails at import, a state timeout, a
 payload-size failure, a task that cannot be invoked. In that window the sender is told nothing:
-no notification, no DLQ message, and the request simply never completes. SPEC-152 exists to
+no notification, no DLQ message, and the request simply never completes. This path exists to
 close that, and a plane shipping without it leaves "it just never came back" reachable.
 
 Its input carries the raw Step Functions error rather than a decoded reason, and must stay that
@@ -18,7 +18,7 @@ carries ``actor: null``; the machine's failure seed reads the Pipe's original bo
 function would take its no-recipient branch on every single failure — satisfied on paper, silent
 in practice.
 
-**IT HAS TWO DOORS SINCE SPEC-166, and the second exists because the first cannot reach one
+**IT HAS TWO DOORS, and the second exists because the first cannot reach one
 failure.** The ASL door above is a state, so it is reached by a ``Catch`` — and Step Functions
 catchers cover Task, Parallel and Map states but **not top-level execution failures**. A run
 that exhausts the machine's own ``TimeoutSeconds`` is terminated outright: no state runs, no
@@ -141,7 +141,7 @@ def _sender_from_raw_request(raw) -> str:
     for — a cold-start import error, a state timeout, a task that could not be invoked — all
     happen before any verb produced an actor, so the recorded-failure object carries
     ``actor: null`` every time. Without this the notifier would take its no-recipient branch on
-    every single failure, and SPEC-152's guarantee would read as satisfied while telling nobody
+    every single failure, and the guarantee would read as satisfied while telling nobody
     anything. The ASL's failure seed reads ``$$.Execution.Input`` — the execution's own input,
     which survives whatever the Catch did to the state — to make this possible.
 
@@ -182,7 +182,7 @@ def _verb_already_notified(error) -> bool:
 
     The tempting heuristic — a dotted error name means the engine, a bare one means a handler
     ran — is wrong in the dangerous direction, and this fleet has the outage to prove it: a
-    config module raising a bare ``RuntimeError`` at import is PR #196's own shape, and that
+    config module raising a bare ``RuntimeError`` at import is the shape of a real outage, and that
     rule would have silenced exactly the class of failure this function exists to report.
 
     The price is paid deliberately: an unexpected in-verb exception notifies through the

@@ -6,25 +6,25 @@
 //    the main file browser and the move/copy destination picker.
 //  - `athenaresults/` — Athena query results. Locked out of move/copy
 //    destinations, but still visible in the browser.
-//  - `_data-quality-reports/` — the data-quality reports (SPEC-112). Hidden
+// - `_data-quality-reports/` — the data-quality reports. Hidden
 //    EVERYWHERE, like `user_settings/`.
-//  - `_directory/` — the published username directory (SPEC-146). Hidden
+// - `_directory/` — the published username directory. Hidden
 //    EVERYWHERE. Note this one lives at the BUCKET root, not inside a user's
 //    prefix, so these per-prefix lists cannot actually reach it — the portal
 //    role's `ListBucket` is prefix-conditioned, which is what really keeps it
 //    out of the browser. It is listed anyway because the lists have already
 //    drifted apart from each other (transition_plan.md §6.3), and adding to
 //    both is cheaper than reasoning about which one matters.
-//  - `_config/` — the published feature-flag document (SPEC-162). Hidden
+// - `_config/` — the published feature-flag document. Hidden
 //    EVERYWHERE, and a bucket-root folder for the same reason `_directory/` is,
 //    so the same note applies: IAM is what really keeps it out of the browser,
 //    and these entries are parity with the directory rather than the mechanism.
 //
-//  - `saved_queries/` — the space's saved `.sql` files (SPEC-173). VISIBLE and
+// - `saved_queries/` — the space's saved `.sql` files. VISIBLE and
 //    PASTEABLE — an ordinary folder in every respect a user can see — and only
 //    undestroyable: it appears in UNDELETABLE_ROOT_FOLDERS alone.
 //
-//  - `archive/` — the archive receipts, one folder per archive (SPEC-172). VISIBLE and
+// - `archive/` — the archive receipts, one folder per archive. VISIBLE and
 //    deliberately so: the folder NAMES are the archive ids, and reading one is how a user
 //    finds the id a restore needs, so hiding it would remove the only surface that carries
 //    them. It joins PICKER_LOCKED_FOLDERS and UNDELETABLE_ROOT_FOLDERS and neither of the
@@ -33,7 +33,7 @@
 //    than about a folder's name, and is therefore not one of these lists at all.
 //
 //  - `shared_tables/` — where the table-share pipeline copies tables it has
-//    shared with you (SPEC-088). VISIBLE, because seeing what has been shared
+// shared with you. VISIBLE, because seeing what has been shared
 //    with you is the point of it, but locked out of move/copy destinations:
 //    the pipeline owns the layout, and a table's files acquiring neighbours is
 //    how a later projection read starts returning rows nobody wrote.
@@ -58,7 +58,7 @@
 // never a paste target. So membership differs ON PURPOSE, and the divergence
 // §6.3 flags is only a defect where it is ACCIDENTAL. One such gap existed and
 // is closed below — `shared_tables/` was pasteable. `_fc-work` stays
-// dqcommon-only: the SPEC-116 arc was cancelled with nothing built, so nothing
+// dqcommon-only: the file-converter arc was cancelled with nothing built, so nothing
 // ever creates that folder; it is defensive there and would be dead config here.
 
 import type {SelectableItem} from './selectionContext';
@@ -74,7 +74,7 @@ export const PICKER_LOCKED_FOLDERS = [
   '_directory',
   '_config',
   'shared_tables',
-  // SPEC-172. IAM denies `PutObject` beneath it, so offering it as a paste target only ever
+  // IAM denies `PutObject` beneath it, so offering it as a paste target only ever
   // produced an AccessDenied — and a receipt acquiring neighbours is how an archive folder
   // stops being a record of what this plane did.
   'archive'
@@ -88,17 +88,17 @@ export const PICKER_LOCKED_FOLDERS = [
  * and browsable on purpose — you want to see your query results — but the role
  * policy's `ResultsNoDelete` Sid denies `s3:DeleteObject` beneath it, so
  * offering Delete only ever produced "You don't have permission to do that" for
- * a rule this app itself authored. SPEC-057:97-98 already stated the UI refuses
- * this; SPEC-150 FR-007 is that criterion finally being met.
+ * a rule this app itself authored. The UI was always supposed to refuse
+ * this, and this module is that criterion finally being met.
  *
- * `saved_queries/` (SPEC-173) is the second case, and it is the one that proves
+ * `saved_queries/` is the second case, and it is the one that proves
  * the lists are not a union: it is VISIBLE, it IS a valid paste target, and only
  * the folder itself is undestroyable. Everything inside it is ordinary — files
  * may be uploaded, moved, copied and deleted, and subfolders created — because
  * what keeps the query editor's load list coherent is the store's `.sql` filter,
  * not a write lock.
  *
- * `archive/` (SPEC-172) is the third, and it is the inverse of `saved_queries/`: visible like
+ * `archive/` is the third, and it is the inverse of `saved_queries/`: visible like
  * it, but NOT a valid paste target and read-only inside as well. Deleting the folder would
  * destroy the receipts that carry every archive id — and IAM denies the objects beneath it
  * anyway, so the row here is the browser saying so before the user finds out from S3.
@@ -144,7 +144,7 @@ export function undeletableRootFolderRefusal(
 /**
  * The refusal for a selection in which NOTHING can be destroyed, or null when any of it can.
  *
- * SPEC-186 FR-002. The service already refuses (`fileBrowser.service.ts` calls
+ * The service already refuses (`fileBrowser.service.ts` calls
  * `undeletableRootFolderRefusal` before issuing anything), but it refuses AFTER the user has
  * read *"Delete the folder … and everything inside it? This can't be undone."* and pressed
  * Delete — the most alarming confirm in the app, shown for an action that was never possible.
@@ -200,7 +200,7 @@ export function isRootFolderNamed(folderPrefix: string, rootPrefix: string, name
 
 /**
  * Is this folder one the portal refuses to destroy? True only at the SPACE root,
- * which is `rootPrefix` — so it holds identically in a shared space (SPEC-057's
+ * which is `rootPrefix` — so it holds identically in a shared space (the space
  * own framing) and leaves `alice/reports/athenaresults/` an ordinary folder the
  * user may delete.
  */

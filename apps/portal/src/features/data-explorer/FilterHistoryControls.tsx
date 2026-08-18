@@ -11,10 +11,10 @@ export const NO_HISTORY_BACK = 'This is the earliest set of filters in this tab.
 export const NO_HISTORY_FORWARD = 'This is the latest set of filters in this tab.';
 
 /**
- * Back and forward through this tab's recent query descriptions (SPEC-181 FR-006).
+ * Back and forward through this tab's recent query descriptions.
  *
  * Both refusals ride `Button.disabledReason` rather than `disabled`, so the control keeps
- * its place in the tab order and says why it is unavailable (SPEC-172) — "the button is
+ * its place in the tab order and says why it is unavailable — "the button is
  * greyed out" is the state, and the reason for it is the only useful part.
  *
  * Stepping restores a DESCRIPTION. Whether that costs anything is then the execution

@@ -9,7 +9,7 @@ bucket and its KEY is threaded onward, with the count and the byte total beside 
 
 This module owns **every** admin-bucket key layout on this plane — the two plans, the two
 transfer manifests, the poll's progress record and the three Map Run result exports — for
-SPEC-161's reason: one module, one place a key can be wrong. Where they live is this plane's
+The reason: one module, one place a key can be wrong. Where they live is this plane's
 business; a manifest's BYTES and an export's reader belong to ``cpcommon.transfer``, which is
 shared with table-share and file-send.
 
@@ -17,7 +17,7 @@ shared with table-share and file-send.
 results prefix are execution-stable, so a ``Retry`` of inspect-source rewrites the same object
 rather than leaving a second one behind. The manifest is keyed by the EXECUTION as well, because
 two overlapping executions of one request must not clobber each other's dataset while a Map is
-reading it (SPEC-160). Nothing else on this plane needs that distinction, and stating it here is
+reading it. Nothing else on this plane needs that distinction, and stating it here is
 cheaper than re-deriving it at three call sites.
 
 ``messages`` is imported for its side effect as well as tidiness: it registers this domain's
@@ -38,15 +38,15 @@ Attributes:
   BASENAME: The copy plan's basename — an ARCHIVE's object list.
   RESTORE_BASENAME: The restore plan's basename — a RESTORE's object list, keyed under the
     RESTORE run's own request id and not the archive's. The two ids are deliberately different
-    values (SPEC-170 FR-001), so two restores of one archive write two plans and neither
+    values, so two restores of one archive write two plans and neither
     collides with the copy plan the archive itself wrote.
   MANIFEST_BASENAME: The transfer manifest's basename.
   RESTORE_MANIFEST_BASENAME: The restore transfer manifest's basename. **One manifest feeds BOTH
-    of the restore's Distributed Maps** (SPEC-171) — the retrieval reads its source fields and
+    of the restore's Distributed Maps** — the retrieval reads its source fields and
     the copy-back reads all of them — because they run over the same object set in the same
     order, and a second dataset would be a second thing that could disagree with the plan.
   PROGRESS_BASENAME: The poll's progress record. It lives in the admin bucket rather than on the
-    state for FR-002 AC5's reason: the loop runs for hours and a per-object status list on the
+    state for the reason: the loop runs for hours and a per-object status list on the
     state is the 256 KB failure whose overflow escapes every ``Catch``. What rides is the small
     scalar block the ``Choice`` branches on.
   RESULTS_FOLDER: The folder under the request's prefix that the Distributed Map's
@@ -154,7 +154,7 @@ def write_restore_plan(request: dict, actor: str, objects: list, total_bytes: in
     **Nothing it produces rides on the state**, for the same reason the copy plan does not: at
     ``ARCHIVE_MAX_OBJECTS`` the list is tens of megabytes against a 256 KB payload limit, and
     ``States.DataLimitExceeded`` escapes every ``Catch``. Each entry carries its size so
-    SPEC-172 can tell the user how much is coming back and SPEC-171 can bound its wait.
+    the restore can tell the user how much is coming back and the retrieval can bound its wait.
 
     Args:
       request: The validated restore request, which determines the key and names the archive and
@@ -206,7 +206,7 @@ def load_restore_plan(key: str, request: dict) -> dict:
     """Reads a restore plan back, refusing every shape that is not complete or not ours.
 
     The mirror of ``load`` and refused for the same reasons — a short plan here would mean a
-    guard that cleared destinations the restore then did not check, and SPEC-171 copying back
+    guard that cleared destinations the restore then did not check, and the restore copying back
     over whatever it did not know about. The request-identity check is the other half of
     ``assert_describes``' finding: the key is a pure function of the request id, so a second run
     under a reused id overwrites it.
@@ -277,7 +277,7 @@ def _execution_folder(request: dict, execution_name, what: str) -> str:
       request: The validated request.
       execution_name: The execution's name, stamped onto the state by a ``Pass`` — never read
         from ``$$`` inside the task's own ``Parameters``, which wraps the payload and would put
-        the request one level below where every notify path reads it (SPEC-157).
+        the request one level below where every notify path reads it.
       what: The artifact being keyed, for the refusal's detail.
 
     Returns:
@@ -455,7 +455,7 @@ def _assert_deletable_folder(root: str, key: str) -> None:
     part way through the deletion with "contact an administrator" — the exact shape
     ``assert_not_protected_marker`` refuses a marker up front to avoid.
 
-    It is a WHOLE-REQUEST refusal rather than an exclusion, and that direction is SPEC-165's rule:
+    It is a WHOLE-REQUEST refusal rather than an exclusion, and that direction is the rule:
     the alternative silently drops the user's own data out of an archive that reports success. The
     user can rename the folder or select around it.
 
@@ -495,7 +495,7 @@ def _assert_not_the_record(relative: str) -> str:
     than the record claims, and refuses ``restore_archive_incomplete`` for every object archived
     alongside it. Alone, it restores as ``archive_not_found`` against a receipt the user is holding.
 
-    It is a WHOLE-REQUEST refusal rather than an exclusion, which is SPEC-165's direction: silently
+    It is a WHOLE-REQUEST refusal rather than an exclusion, which is the direction: silently
     dropping the file would archive everything else and delete the one object it could not carry.
 
     Only the space root collides — a ``reports/_manifest.json`` three folders down has a relative
@@ -528,7 +528,7 @@ def _expand_item(bucket: str, root: str, entry: dict):
     assuming one page is the whole folder — S3 returns at most 1,000 keys per page, and treating
     a truncated listing as complete on THIS plane means deleting objects that were never copied.
 
-    **Every key that enters the plan is re-checked against the authorized root** (FR-001 AC2),
+    **Every key that enters the plan is re-checked against the authorized root**,
     and the check is a separate statement rather than an argument to the yield: the ordering is
     security-relevant, and hiding it in Python's argument-evaluation order makes a reader take it
     on faith. The request's keys were checked as strings the browser supplied; these arrive from
@@ -581,7 +581,7 @@ def _expand_item(bucket: str, root: str, entry: dict):
 def expand(source: dict) -> tuple[list, int]:
     """Expands a validated selection into the deduplicated object list an archive will copy.
 
-    **Overlapping selections COLLAPSE here rather than being refused** (FR-001 AC4), which is the
+    **Overlapping selections COLLAPSE here rather than being refused**, which is the
     one place this plane deliberately parts company with file-send. There, two items landing
     under one name is genuinely ambiguous, because the destination is keyed by the item's NAME.
     Here every object keeps its path relative to the space root, so ``reports/`` and
@@ -660,7 +660,7 @@ def assert_archive_unused(request: dict) -> None:
     reachable, and nothing downstream would notice.
 
     What it costs is not a duplicate: a second run under a used id mixes two archives under one
-    prefix that SPEC-170 will list and restore wholesale, overwrites the first run's record and
+    prefix that the restore will list and restore wholesale, overwrites the first run's record and
     receipt, and — if the second run fails its commit gate — has its ROLLBACK delete the first
     archive's objects out of a bucket with versioning off. That last one is unrecoverable, and it
     is the reason this check exists rather than being left to the producer's conventions.

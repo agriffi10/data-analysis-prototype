@@ -12,9 +12,9 @@ read-modify-write this object at once and one would silently lose the other's ru
 
 The loop is ``cpcommon.cas``'s. It used to be duplicated here — the equivalent primitive lived
 in a Lambda layer these functions do not attach, so it was copied and labelled "a deliberate
-twin, not drift; keep the semantics identical", naming SPEC-125 as the convergence point.
-SPEC-125 shipped and the twin drifted anyway: this copy handled the racing 409 that the
-original had not yet grown, and the caps diverged. SPEC-156 FR-001 moved the loop into
+twin, not drift; keep the semantics identical", naming a later spec as the convergence point.
+That shipped and the twin drifted anyway: this copy handled the racing 409 that the
+original had not yet grown, and the caps diverged. The loop moved into
 ``cpcommon``, which every data-quality verb already attaches, so there is no twin to keep in
 sync and nothing here to re-derive.
 
@@ -174,7 +174,7 @@ def append(bucket: str, report_prefix: str, summary: dict) -> bool:
     current document byte for byte still writes, where the shared default would return early.
     Invisible in the index, but a different set of S3 calls than this ever made.
 
-    SPEC-156 FR-001 widened what is swallowed, in the direction of the contract below rather
+    the rule widened what is swallowed, in the direction of the contract below rather
     than against it. The entry-replacement transform used to run outside the guard, so a
     malformed index — ``{"entries": ["x"]}`` survives the read's ``isinstance(…, list)`` check
     and then meets ``e.get(…)`` — raised out of here and failed a check that had already

@@ -18,7 +18,7 @@ export type PartitionKey =
  * kind/bucket/database come from the space; prefix = the folder being viewed.
  * The server computes the table `location` from bucket+prefix.
  *
- * Named (it was inline) so the refresh caller in SPEC-145 can build one from a Glue
+ * Named (it was inline) so the refresh caller can build one from a Glue
  * table's location rather than from a folder the user is looking at.
  */
 export type TableBuildSpace = {

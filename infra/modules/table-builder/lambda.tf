@@ -1,4 +1,4 @@
-# ── Control-plane Lambdas (SPEC-066 skeleton) ────────────────────────────────
+# ── Control-plane Lambdas (skeleton) ────────────────────────────────
 # Single-task verb Lambdas — validate-authorize / check-table-absent /
 # load-table-definition / inspect-source / infer-schema / diff-schema / execute-ddl —
 # orchestrated by
@@ -7,11 +7,11 @@
 # user decision, mirroring shared-spaces) and each gets its task's real timeout/memory
 # (locals.tf; a small validator ≠ the polars infer step, lambdas.md §4).
 #
-# Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
+# Code-ownership split (architecture.md): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python code
 # (lambdas/table-builder-<suffix>/) AND publishes + attaches the layers: the shared
 # cpcommon layer + the tbcommon domain layer on all of them, plus the polars layer on
-# infer-schema (SPEC-107). `ignore_changes` keeps `tofu apply` from reverting CI's code
+# infer-schema. `ignore_changes` keeps `tofu apply` from reverting CI's code
 # OR layers.
 
 # One placeholder package per function so each is valid at create time. CI replaces
@@ -29,8 +29,8 @@ data "archive_file" "placeholder" {
   }
 }
 
-# Explicit log group per function so retention is managed (14 days; matches SPEC-012/
-# 033). Lambda would otherwise create one with infinite retention on first invoke.
+# Explicit log group per function so retention is managed (14 days; matches the other
+# singleton Lambdas). Lambda would otherwise create one with infinite retention on first invoke.
 resource "aws_cloudwatch_log_group" "functions" {
   for_each = local.table_builder_functions
 
@@ -49,7 +49,7 @@ resource "aws_lambda_function" "functions" {
   memory_size   = each.value.memory
 
   # EVERY variable tbcommon/config.py _require()s at import must be COMMON to all
-  # verbs: the shared layer's config runs its fail-fast (SPEC-083 FR-001) on
+  # verbs: the shared layer's config runs its fail-fast on
   # any `from tbcommon import …` chain (every verb imports notify → config), so a
   # verb missing ANY required var crashes at cold start — the 2026-07-05 production
   # break (check-table-absent: RuntimeError COGNITO_USER_POOL_ID unset). Per-verb
@@ -62,9 +62,9 @@ resource "aws_lambda_function" "functions" {
         SHARED_SPACE_BUCKET     = var.shared_space_bucket_name
         ADMIN_BUCKET            = var.admin_bucket_name
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
-        # SPEC-135. Deliberately NOT mirrored by a config._require — see variables.tf.
+        # Deliberately NOT mirrored by a config._require — see variables.tf.
         LOGS_QUEUE_URL = var.logs_queue_url
-        # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+        # `env` shipped empty on every record. Same source of truth as the
         # feature-flag document's `environments` keys (`var.environment`, default "prod").
         ENV_NAME              = var.environment
         COGNITO_USER_POOL_ID  = var.user_pool_id

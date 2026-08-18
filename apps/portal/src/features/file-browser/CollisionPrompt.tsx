@@ -10,7 +10,7 @@ type Props = {
   onCancel: () => void;
 };
 
-// SPEC-016 FR-003: warn-and-confirm when a name already exists. Versioning is off,
+// Warn-and-confirm when a name already exists. Versioning is off,
 // so overwriting is irreversible — the user must explicitly choose Overwrite or
 // pick a new name. No write happens while this is open.
 export function CollisionPrompt({kind, name, onOverwrite, onRename, onCancel}: Props) {

@@ -1,11 +1,11 @@
 /**
  * The five primary features a flag can hide. Named for the features the portal ships, not
- * for the components that render them — a flag governs an AREA, and SPEC-163's gating has
+ * for the components that render them — a flag governs an AREA, and the gating has
  * to reach every entry point into that area, not one screen.
  */
 export type FeatureFlagKey = 'files' | 'query' | 'sharedWorkspaces' | 'dataQuality' | 'dataExplorer';
 
-/** Every flag, always. No consumer ever handles `undefined` (SPEC-162 FR-004). */
+/** Every flag, always. No consumer ever handles `undefined`. */
 export type FeatureFlags = Record<FeatureFlagKey, boolean>;
 
 /**

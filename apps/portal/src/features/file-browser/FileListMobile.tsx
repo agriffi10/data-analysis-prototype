@@ -4,7 +4,7 @@ import type {FileListProps} from './FileListTable';
 
 /**
  * The below-`tablet` file list: a compact two-line card list carrying the same
- * data and handlers as the table (SPEC-099 FR-003). Mount-gated by the caller,
+ * data and handlers as the table. Mount-gated by the caller,
  * not CSS-hidden, so the two structurally-distinct markups never both live in
  * the DOM.
  */

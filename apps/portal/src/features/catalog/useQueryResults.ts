@@ -10,7 +10,7 @@ export type UseQueryResultsResult = {
   columns: QueryColumn[];
   /**
    * Current page only — never more than one page is exposed, so only one page is ever
-   * mounted in the DOM. A `null` cell is SQL NULL, `''` an empty string (SPEC-180).
+   * mounted in the DOM. A `null` cell is SQL NULL, `''` an empty string.
    */
   rows: (string | null)[][];
   /** 0-based. */
@@ -45,12 +45,12 @@ export type UseQueryResultsResult = {
  * isn't already cached; Prev is always served from cache. Disabled while the
  * id is null.
  *
- * `pageSize` is the workspace-global "Rows per page" value (SPEC-087). The
+ * `pageSize` is the workspace-global "Rows per page" value. The
  * query is keyed by it, so a size change drops stale-sized cached pages and
  * refetches page 1 at the new size for every result tab.
  */
 export function useQueryResults(queryExecutionId: string | null, pageSize: number): UseQueryResultsResult {
-  // The page position is kept PER execution id (SPEC-078 FR-007: each result
+  // The page position is kept PER execution id (each result
   // tab owns its own pager) — switching between executions restores each one's
   // page, mirroring how useInfiniteQuery already caches the pages per id. A new
   // run is a new execution id with no entry yet, so it starts on page 1.
@@ -58,7 +58,7 @@ export function useQueryResults(queryExecutionId: string | null, pageSize: numbe
   // useColumnWidths).
   const [pageIndexByExecution, setPageIndexByExecution] = useState<Record<string, number>>({});
 
-  // SPEC-087 FR-004: a page-size change resets EVERY execution to page 1 —
+  // a page-size change resets EVERY execution to page 1 —
   // remembered positions were positions in the old page geometry. Render-time
   // state adjustment (the React "derive state from props" pattern), so the
   // reset lands in the same render as the new size.

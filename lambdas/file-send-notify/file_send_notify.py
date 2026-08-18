@@ -1,6 +1,6 @@
 """notify — the plane's only outcome producer.
 
-The last state before ``Succeeded``. It reads the terminal summary SPEC-166 shapes and turns it
+The last state before ``Succeeded``. It reads the terminal summary the transfer shapes and turns it
 into messages: one to the sender per recipient outcome, and one to each recipient who actually
 received something — a ``user`` directly, a ``space`` through its registered owner.
 

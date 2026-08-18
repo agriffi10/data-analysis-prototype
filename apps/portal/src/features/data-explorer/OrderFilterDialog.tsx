@@ -35,7 +35,7 @@ export type OrderFilterDialogProps = {
   /**
    * Why a column takes no filter and no sort, or null when it does.
    *
-   * The same reader the header menu asks (SPEC-182). It matters most HERE: below `tablet`
+   * The same reader the header menu asks. It matters most HERE: below `tablet`
    * the header menu is unreachable, so this dialog is the only way to sort or filter — and
    * a calculated column offered a sort here would be refused by the renderer, not by
    * Athena, taking the whole exploration to an error banner.
@@ -48,7 +48,7 @@ export type OrderFilterDialogProps = {
 };
 
 /**
- * Every column's visibility, pinning, sort and criteria in one staged form (SPEC-181 FR-005).
+ * Every column's visibility, pinning, sort and criteria in one staged form.
  *
  * The point of the dialog is the STAGING: several changes made here become **one**
  * execution on Apply, where the same changes made from the header would be one execution
@@ -57,10 +57,10 @@ export type OrderFilterDialogProps = {
  *
  * The draft is ONE object holding both halves rather than a staged query here and a staged
  * presentation somewhere else, which is what makes "Cancel discards every staged change"
- * (AC3) structural rather than a rule two pieces of state have to keep.
+ * Structural rather than a rule two pieces of state have to keep.
  *
  * **No field submits on Enter.** `FormDialog` suppresses the browser's implicit submission
- * for every input and `<select>` (SPEC-155, SPEC-175), and this dialog designates no field
+ * for every input and `<select>`, and this dialog designates no field
  * to submit from: every field in it is a criteria row, and a criteria row mid-edit filing
  * the whole dialog is exactly what that suppression exists to prevent. Enter on the Apply
  * button still submits, natively.
@@ -100,7 +100,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
   const submit = () => {
     // Refused HERE, at the field, for the reason `FilterValueDialog` gives: the renderer's
     // refusal is an `ExplorationRenderError` naming a column and an operator, which
-    // SPEC-106 forbids showing anyone. Same predicate, so the two cannot disagree.
+    // the error-wording rule forbids showing anyone. Same predicate, so the two cannot disagree.
     const bad: Record<string, string> = {};
     for (const filter of draft.query.filters) {
       if (!operatorTakesValue(filter.operator)) continue;
@@ -150,7 +150,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
                   type="checkbox"
                   aria-label={`Show ${column.name}`}
                   checked={!hidden}
-                  // The grid needs a column to draw; the same refusal SPEC-180's panel
+                  // The grid needs a column to draw; the same refusal the panel
                   // makes, over the STAGED state rather than the applied one.
                   disabled={!hidden && visibleCount <= 1}
                   title={!hidden && visibleCount <= 1 ? LAST_COLUMN_REFUSAL : undefined}

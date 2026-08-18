@@ -5,7 +5,7 @@ with the domain layers' under one pytest run. Every control-plane verb attaches 
 alongside its domain layer (tbcommon / tscommon / dqcommon / shared-space-common).
 
 This file is deliberately import-free and must stay that way. The original reason expired in
-SPEC-156 — ``config`` used to ``_require`` six environment variables at import, and three
+``config`` used to ``_require`` six environment variables at import, and three
 functions attach the layer without setting them all, so an import added here broke them at
 cold start — and the reason that replaces it is cold-start COST. An import here runs for every
 attaching function whether or not it uses the module, on the layer that attaches to all of

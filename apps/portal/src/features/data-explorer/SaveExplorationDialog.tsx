@@ -7,15 +7,15 @@ import type {SavedQuery, SavedQueryLink} from '../saved-queries/savedQueries.typ
 
 export type SaveExplorationDialogProps = {
   /**
-   * The statement that produced the rows on screen — the body written (FR-001 AC1).
+   * The statement that produced the rows on screen — the body written.
    *
    * Handed down from `useExploration.sql`, the same string `StartQueryExecution` was given.
    * Re-rendering the description here would be a second rendering of it, and the two would
    * differ the moment either the description or the renderer moved between the run and the
-   * save. The parent mounts this component only when there IS one (FR-002).
+   * save. The parent mounts this component only when there IS one.
    */
   sql: string;
-  /** Writable destinations, personal first — ALREADY view-gated by the caller (SPEC-163). */
+  /** Writable destinations, personal first — ALREADY view-gated by the caller. */
   spaces: QuerySpace[];
   /** The space remembered by `useSavedQuerySpace`, for a tab with no link. */
   defaultSpace: QuerySpace | null;
@@ -27,11 +27,11 @@ export type SaveExplorationDialogProps = {
 };
 
 /**
- * The Data Explorer's save flow: SPEC-177's dialog, its collision confirm, and the write.
+ * The Data Explorer's save flow: The dialog, its collision confirm, and the write.
  *
  * A thin host by design. Every rule about naming, destinations, collisions and in-place
- * replacement is SPEC-175's and lives in `useSaveQuery` — this feature is the second
- * caller, not a second implementation, which is the whole point of SPEC-177 having taken
+ * replacement is the and lives in `useSaveQuery` — this feature is the second
+ * caller, not a second implementation, which is the whole point of having taken
  * `{sql, link}` instead of a `QueryTab`.
  *
  * **Mounting IS the open state.** `useSaveQuery` carries an `open` flag for a host that

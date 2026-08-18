@@ -4,7 +4,7 @@ The shared core — region, user pool identifiers, the two space buckets — liv
 ``cpcommon.config``. Only archive's own constants live here, and **not one of them reads the
 environment at import**: this module cannot fail at import, which matters because a shared
 layer's import-time failure surfaces at COLD START, where no test and no deploy can see it
-(PR #196).
+.
 
 ``archive_bucket()`` is the one env-derived value, and it is a FUNCTION for exactly that reason.
 It does **not** belong in ``cpcommon.config._REQUIRED_VARS``: that set is a fleet-wide contract
@@ -23,7 +23,7 @@ Attributes:
 
     ``GLACIER`` is S3 Glacier Flexible Retrieval. It is **not readable**: a ``CopyObject`` whose
     source is in this class fails ``InvalidObjectState``, so a restore is not a copy — it is
-    ``RestoreObject``, a 3-5 hour wait and *then* a copy, which is why SPEC-171 grows a poll loop
+    ``RestoreObject``, a 3-5 hour wait and *then* a copy, which is why the restore grows a poll loop
     no other plane in this repo has.
 
     **The two alternatives were considered and rejected.** ``GLACIER_IR`` is readable in real
@@ -35,14 +35,14 @@ Attributes:
 
     **The 90-day minimum storage duration is a property of this class, not a defect, and the
     user has to be told.** An object archived on Monday and restored the following week is still
-    billed for 90 days. SPEC-172's confirm dialog says so in user-facing wording; it is recorded
+    billed for 90 days. The confirm dialog says so in user-facing wording; it is recorded
     here because this constant is where someone would come looking.
   GLACIER_CLASSES: The three archival classes, for the guard that keeps
     ``ARCHIVE_STORAGE_CLASS`` one of them. The restore path is **unconditional** whatever this
     is set to — a class that needs no restore still tolerates one being requested, and making
     the machinery conditional on a constant is how a config change silently deletes a code path.
   ARCHIVE_MODES: The two things this ONE plane does. A single machine branches on ``mode``
-    rather than a sixth module being stood up (SPEC-143's create/refresh branch is the
+    rather than a sixth module being stood up (the create/refresh branch is the
     precedent): the two verbs share the bucket, the execution role, the key layout and the
     receipt, and a restore is meaningless without the archive that produced it.
   SPACE_KINDS: The two source-space kinds. The kind decides which bucket the source resolves in
@@ -51,9 +51,9 @@ Attributes:
     ``arcommon.paths``.
   ARCHIVE_MAX_ITEMS: Cap on the NUMBER of selected items — the files and folders the user picked,
     **not** the objects they expand to. What sizes it is the per-item work that follows: the
-    containment and reserved-root checks here, and in SPEC-169 one ``ListObjectsV2`` walk per
+    containment and reserved-root checks here, and and one ``ListObjectsV2`` walk per
     folder plus a ``HeadObject`` per file. It is emphatically NOT a bound on the transfer; the
-    object and byte caps over the *expanded* selection are SPEC-169's.
+    object and byte caps over the *expanded* selection belong to the expansion.
 
     The value matches file-send's ``SEND_MAX_ITEMS`` because the per-item work is the same shape
     and the same browser pages the selection at 25 — eight full pages of selection. A different
@@ -95,7 +95,7 @@ Attributes:
     worker**, so a single object's copy time is bounded by nothing else: S3 accepts objects up to
     5 TiB, which at the conservative rate is ~220,000s — 240x the batch verb's own timeout and
     20x the whole machine's ceiling. Without this the makespan model certifies the DISTRIBUTED
-    case only, which is SPEC-166's recorded finding inherited rather than rediscovered.
+    case only, which is the recorded finding inherited rather than rediscovered.
 
     10 GiB matches the two shipped planes, and at the conservative rate it is 429s inside
     ``COPY_TIMEOUT_SECONDS``' 900.

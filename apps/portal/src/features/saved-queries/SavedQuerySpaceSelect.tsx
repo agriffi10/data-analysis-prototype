@@ -11,7 +11,7 @@ type Props = {
 };
 
 /**
- * SPEC-174 FR-001: the labelled space control the saved-queries surfaces open on —
+ * the labelled space control the saved-queries surfaces open on —
  * the user's own space first, then each active shared space.
  *
  * Rendered even with one option: a control that appears once a user joins their first

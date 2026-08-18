@@ -1,10 +1,10 @@
 """delete-archived — the vault swept after a restore, and the one deletion that may fail quietly.
 
-SPEC-171 FR-005. Reached on the one arm of the restore's gate where every object came back: the
+Reached on the one arm of the restore's gate where every object came back: the
 archive has served its purpose, the user's data is in their space again, and the prefix — its
 ``_manifest.json`` included — is removed.
 
-**A failed cleanup does NOT fail the restore.** This is the exact inverse of SPEC-169's
+**A failed cleanup does NOT fail the restore.** This is the exact inverse of the archive's
 delete-source, and the asymmetry is the point of both. There, a half-deleted source meant a user
 told their archive completed while their files were still half there, so it is a terminal
 failure. Here the outcome the user asked for has already happened: their data is back. Residue in
@@ -20,7 +20,7 @@ wrote that no record mentions. A plan-driven deletion would leave exactly those.
 early-deletion fee.** An archive made on Monday and restored on Friday is still billed for 90
 days of storage, and deleting it on Friday brings that charge forward rather than avoiding it.
 It is recorded here so a later cost investigation does not read the line item as a defect —
-SPEC-168's config docstring is where the 90-day minimum itself is reasoned about.
+The config docstring is where the 90-day minimum itself is reasoned about.
 
 The service name is the control plane, not the function, so one restore's invocations stay one
 queryable set. The per-verb identity rides as the ``verb`` field.

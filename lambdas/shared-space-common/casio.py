@@ -1,7 +1,7 @@
 """The shared-space plane's door to the fleet's compare-and-swap loop.
 
 The loop, the precondition predicate and the attempt cap all live in ``cpcommon.cas`` since
-SPEC-156 FR-001 — they were written three times, here and in the data-quality runs index and
+ — they were written three times, here and in the data-quality runs index and
 the log sweep, and the three had already drifted. What remains here is the re-export, so this
 plane's nine call sites keep naming ``casio`` and the module that owns the discipline is the
 one that implements it.

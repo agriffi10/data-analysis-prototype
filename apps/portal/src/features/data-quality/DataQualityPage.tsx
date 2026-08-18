@@ -39,13 +39,13 @@ export function DataQualityPage() {
   usePageTitle('Data quality');
   const {runs, isLoading, error, refresh} = useDataQualityRuns();
 
-  // The second entry point into a check (SPEC-124). Spaces are REUSED from
+  // The second entry point into a check. Spaces are REUSED from
   // `usableSpaceTargets`, not re-derived: `useConnections` carries no bucket and no root
   // prefix, and a third derivation of that mapping would be the one that drifts.
   const {user} = useAuth();
   const {connections} = useConnections(user?.username ?? null);
   const buckets = spaceBuckets();
-  // Same shared-workspace surface as the move/copy picker (SPEC-163): with shared workspaces
+  // Same shared-workspace surface as the move/copy picker: with shared workspaces
   // off, this dialog must not be the remaining way to reach a shared space by name.
   const sharedSpacesEnabled = useFeature('sharedWorkspaces');
   const spaces = usableSpaceTargets(connections, user?.username ?? null, buckets.user, buckets.shared).filter(
@@ -129,7 +129,7 @@ export function DataQualityPage() {
         />
       )}
 
-      {/* SPEC-124 FR-005. A check that has just started is NOT in the list and will not be
+      {/* A check that has just started is NOT in the list and will not be
           for minutes, so without this the most common first impression of the feature is
           "I pressed the button and nothing happened." It reports that the check STARTED —
           never that it will pass — and does not survive a reload: it is a receipt for an
@@ -163,7 +163,7 @@ export function DataQualityPage() {
                 ? 'Pick a folder or a file and we’ll check it for missing values, ragged rows, and type problems.'
                 : 'Try a different filter to see your other checks.'}
             </p>
-            {/* SPEC-124 FR-001 amends SPEC-123 FR-005's copy: the empty state used to send
+            {/* The empty state used to send
                 the user to the Files browser. Files is still a valid entry point (and the
                 help content still says so) — the page just stops sending them away from the
                 one place that can now do the job. */}
@@ -215,20 +215,20 @@ export function DataQualityPage() {
  * writes an index entry, so it has no row here. A history page that silently omits failures
  * teaches the user to trust a list that is lying to them, so the omission is stated.
  *
- * WHY IT NOW SAYS "always" AND NOT "usually". SPEC-114 FR-004 makes the failure notification
+ * WHY IT SAYS "always" AND NOT "usually". The failure notification
  * survive everything that happens once an execution has STARTED — including a Lambda import
  * error and a Step Functions-level error, neither of which any verb can catch. What it could
  * not cover was a request that never started an execution at all (a malformed body the Pipe
  * rejects, which exhausts its receives into the DLQ): nothing ran, so nothing notified, and
- * this line hedged with "usually" for exactly that gap. **SPEC-126** closed it — the request
+ * this line hedged with "usually" for exactly that gap. **The DLQ drain** closed it — the request
  * DLQs drain back into the notification pipeline — so the hedge is now the inaccuracy.
  *
- * The remaining hole is the NOTIFICATIONS DLQ itself, which SPEC-126 deliberately leaves
+ * The remaining hole is the NOTIFICATIONS DLQ itself, which the drain deliberately leaves
  * undrained (draining it through the queue that just failed to deliver is circular). That is
  * a failure of the delivery channel, not of the check — if it breaks, no wording on this page
  * is reaching the user anyway.
  *
- * This is the STANDING explanation; SPEC-124's post-enqueue banner is the MOMENTARY one.
+ * This is the STANDING explanation; The post-enqueue banner is the MOMENTARY one.
  * Together they are what keeps a completed-only list honest: the banner covers the check the
  * user just started and cannot yet see, this line covers every check that will never appear.
  */

@@ -1,10 +1,10 @@
-# ── Table-builder Step Function (SPEC-066 FR-001) ────────────────────────────
-# Standard state machine — TWO branches over one shared spine since SPEC-143:
+# ── Table-builder Step Function ────────────────────────────
+# Standard state machine — TWO branches over one shared spine:
 # validate-authorize → {check-table-absent | load-table-definition} → inspect-source →
 # infer-schema → {execute-ddl → Succeed | the refresh tail}. Each Task retries only transient Lambda
 # SERVICE errors; a shared Catch routes any failure to the terminal Fail state. The
 # per-step bodies are STUBS here (echo/pass-through) — the real logic + the structured
-# recorded-failure outcome land in SPEC-067→070.
+# recorded-failure outcome land with the verbs.
 #
 # The state machine runs under its OWN role (iam.tf, sfn-permissions: InvokeFunction
 # on every verb + log delivery). Each verb Lambda runs under its OWN per-verb
@@ -21,7 +21,7 @@ resource "aws_sfn_state_machine" "table_builder" {
   role_arn = aws_iam_role.sfn.arn
   type     = "STANDARD"
 
-  # SPEC-157 FR-004's execution bound is NOT set here: `aws_sfn_state_machine` has no
+  # The execution bound is NOT set here: `aws_sfn_state_machine` has no
   # `timeout_seconds` argument (tofu validate rejects it). A Standard machine's timeout is a
   # TOP-LEVEL field of the ASL document, so it is "TimeoutSeconds": 3600 in
   # state-machine.asl.json.tftpl, beside StartAt.

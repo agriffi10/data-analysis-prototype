@@ -28,7 +28,7 @@ export type UseDataQualityReportResult = {
  * shared names are consulted only when the segment differs from it. A user whose
  * username happens to match a shared space they belong to would otherwise resolve to
  * the shared bucket and read a stranger's report — or, more likely, 403 on their own.
- * SPEC-114's link builder pins the same rule from the producer side.
+ * the link builder pins the same rule from the producer side.
  *
  * Returns `undefined` for a space the user cannot reach, which is what keeps this
  * function from becoming an existence oracle: the caller does not fetch, so an
@@ -52,7 +52,7 @@ export function resolveSpace(
  * Fetch one data-quality report by space + request id.
  *
  * It does NOT fetch until the space resolves, and never fetches at all for a space the
- * user has no access to (FR-005) — no probing S3 on a guess, and no leaking whether a
+ * user has no access to — no probing S3 on a guess, and no leaking whether a
  * space exists via the difference between a 403 and a 404.
  */
 export function useDataQualityReport(spaceName: string, requestId: string): UseDataQualityReportResult {

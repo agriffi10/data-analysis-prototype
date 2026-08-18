@@ -2,7 +2,7 @@
 
 One place maps each stable terminal reason code to friendly text addressed to the actor, so
 every verb and its tests agree on the wording. Kept ASCII — no smart quotes. This module is
-the table and its wording; the resolution itself is ``cpcommon.messages`` (SPEC-156 FR-002),
+the table and its wording; the resolution itself is ``cpcommon.messages``,
 which also marks these codes valid so they pass ``TerminalError``'s raise-time validation.
 
 The shared base codes are deliberately absent from the table below. ``malformed_event`` and

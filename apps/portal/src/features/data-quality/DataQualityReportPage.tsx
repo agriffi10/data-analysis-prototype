@@ -33,7 +33,7 @@ type ChipTone = 'danger' | 'warning' | 'success';
 type ChipLabel = 'Exact' | 'Approximate' | 'Sampled' | 'Skipped' | 'Not computed';
 
 /**
- * The shared `StatusPill` (SPEC-186 FR-010), which now owns the shape this file used to
+ * The shared `StatusPill`, which now owns the shape this file used to
  * reproduce: a dot PLUS a text label, never colour alone. The label is what carries the
  * meaning — the tone is decoration, and a user who cannot distinguish the tones loses nothing.
  */
@@ -169,7 +169,7 @@ function ColumnSamples({column}: {column: ColumnFinding}) {
 }
 
 function ColumnsSection({columns}: {columns: ColumnFinding[]}) {
-  // Mount-gated, not CSS-hidden (SPEC-099 precedent): the two presentations are
+  // Mount-gated, not CSS-hidden: the two presentations are
   // structurally different DOM — a faux-table of rows versus a list of cards — so a
   // CSS swap would put BOTH in the document, doubling every column of a 200-column
   // report and reading each one twice to a screen reader.
@@ -389,7 +389,7 @@ function ApproximateSection({ragged, encoding}: {ragged: RaggedRowsFigure; encod
  * The space is IN THE ROUTE and not derived, because the report lives at
  * `{space}/_data-quality-reports/{requestId}/report.json` and the request id alone does
  * not say which space holds it. A `/data-quality/:requestId` route could not locate a
- * shared-space report at all, so SPEC-114's deep link would land on a permanent
+ * shared-space report at all, so the deep link would land on a permanent
  * not-found for exactly the reports that are hardest to find another way.
  *
  * Everything on this page reads; nothing mutates. The two header actions are the

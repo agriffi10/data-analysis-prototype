@@ -1,6 +1,6 @@
-# ── Constructed names + ARNs (SPEC-126) ──────────────────────────────────────
+# ── Constructed names + ARNs ──────────────────────────────────────────────────────────────────────
 # Names derive from {project_name}-{environment} so the deploy policy (modules/base, the
-# SPEC-126 PR1 grant) scopes to the same {project}-*-control-plane-dlq-drain patterns, and
+# drain grant) scopes to the same {project}-*-control-plane-dlq-drain patterns, and
 # so ARNs referenced inside IAM policy templates are KNOWN AT PLAN TIME — the
 # architecture.md "unknown ARN in list" discipline. This module plans standalone.
 

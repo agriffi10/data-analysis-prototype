@@ -1,4 +1,4 @@
-/** Which space a quality check targets (SPEC-109 FR-001). */
+/** Which space a quality check targets. */
 export type DataQualitySpaceKind = 'personal' | 'shared';
 
 export type DataQualitySpace = {
@@ -20,12 +20,12 @@ export type DataQualityRequest = {
  * The wire envelope. `idToken` is attached at send time and never stored.
  *
  * There is deliberately NO actor/username field: the actor is derived server-side from
- * the verified token claim, so a body cannot assert an identity (SPEC-109 FR-001).
+ * the verified token claim, so a body cannot assert an identity.
  */
 export type DataQualityMessage = DataQualityRequest & {idToken: string};
 
 /**
- * One row on the runs dashboard (SPEC-123 FR-001).
+ * One row on the runs dashboard.
  *
  * Mirrors an entry in `{space}/_data-quality-reports/index.json`, written by
  * `dqcommon/index_store.py::entry_from`. Deliberately small: this file is fetched whole on
@@ -46,11 +46,11 @@ export type DataQualityRunSummary = {
   verdict: DataQualityVerdict;
   fileCount: number;
   hasApproximateFigures: boolean;
-  /** The report's `completedAt` (SPEC-112 FR-003). */
+  /** The report's `completedAt`. */
   timestamp: string;
 };
 
-// ── The report (SPEC-113 FR-005) ────────────────────────────────────────────
+// ── The report ────────────────────────────────────────────
 //
 // Mirrors `lambdas/data-quality-common/dqcommon/report.py::build` BYTE-FOR-BYTE. The
 // Lambda owns this shape; the SPA reflects it and never reinterprets it. When these
@@ -129,7 +129,7 @@ export type DataQualityReport = {
     crossFile: {columnsAgree: boolean; disagreements: CrossFileDisagreement[]};
   };
   approximate: {raggedRows: RaggedRowsFigure; encoding: EncodingFigure};
-  /** At most 5, severity-ordered, structural findings first (SPEC-112 FR-003). */
+  /** At most 5, severity-ordered, structural findings first. */
   topIssues: string[];
 };
 

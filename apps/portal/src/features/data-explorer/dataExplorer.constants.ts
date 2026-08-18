@@ -1,21 +1,21 @@
 // Named constants for the Data Explorer. The Athena polling cadence and the result page
-// sizing are `features/catalog/` (SPEC-176) — this feature adds no second pager.
+// sizing are `features/catalog/` — this feature adds no second pager.
 
 import type {CalcFunction, ColourOperator, ColourToken, CopyOptions, SurfaceToken} from './dataExplorer.types';
 
 /**
  * Soft cap on open exploration tabs, enforced by refusal: `openTab` returns null and the
- * caller raises the cap dialog (SPEC-179 renders it). Mirrors `QUERY_TABS_MAX` — the two
+ * caller raises the cap dialog. Mirrors `QUERY_TABS_MAX` — the two
  * surfaces have the same shape and no reason to disagree about how many is too many.
  */
 export const EXPLORATION_TABS_MAX = 10;
 
 /**
- * Rows fetched per page of results (SPEC-179 FR-009).
+ * Rows fetched per page of results.
  *
  * A fixed size, unlike the Query workspace's user-controlled one: paging a result set costs
  * no additional bytes scanned (the `NextToken` walk reads an execution that has already run),
- * so there is nothing here for a user to trade off. SPEC-180's grid owns whatever this
+ * so there is nothing here for a user to trade off. The grid owns whatever this
  * becomes when the placeholder table goes.
  */
 export const EXPLORATION_PAGE_SIZE = 100;
@@ -50,7 +50,7 @@ export const TEXT_VIEW_MAX_COLUMN_CHARS = 48;
 export const EXPLORATION_TABS_STORAGE_PREFIX = 's3portal.dataExplorer.tabs.';
 
 /**
- * How many previous query descriptions one tab remembers (SPEC-181 FR-006).
+ * How many previous query descriptions one tab remembers.
  *
  * A cap on a list of DESCRIPTIONS, not of result sets — each is a few hundred bytes and
  * the whole cursor is persisted with the tab, so the cap is about keeping a session's
@@ -59,7 +59,7 @@ export const EXPLORATION_TABS_STORAGE_PREFIX = 's3portal.dataExplorer.tabs.';
 export const EXPLORER_FILTER_HISTORY_MAX = 25;
 
 /**
- * The Calc panel's functions, in the ONE order they are ever listed (SPEC-182 FR-001).
+ * The Calc panel's functions, in the ONE order they are ever listed.
  *
  * A fixed order rather than the order they were added: the panel is read repeatedly during
  * a selection gesture, and a list that reshuffles as functions come and go is a list nobody
@@ -97,7 +97,7 @@ export const CALC_FUNCTION_LABELS: Record<CalcFunction, string> = {
  * What a function with no answer shows.
  *
  * An average over no numeric cells has no value — and `0` would be a computed-looking
- * answer to a question that was not asked, which is the same lie FR-002 keeps the whole
+ * answer to a question that was not asked, which is the same lie the filters keep the whole
  * panel away from.
  */
 export const CALC_NO_VALUE = '—';
@@ -112,10 +112,10 @@ export const CALC_NO_VALUE = '—';
 export const CALC_PRECISION = 12;
 
 // ---------------------------------------------------------------------------------------
-// SPEC-184's palette. Nothing here is a NEW design token: these are the tokens `index.css`
+// the palette. Nothing here is a NEW design token: these are the tokens `index.css`
 // already defines, and this map exists because two of the spec's requirements need their
 // VALUES rather than their names — a gradient has to interpolate between two of them, and
-// FR-002 AC8's contrast has to be computed from them. `formatting.test.ts` pins every entry
+// the contrast has to be computed from them. `formatting.test.ts` pins every entry
 // against `index.css` itself, so the copy cannot drift from the source.
 // ---------------------------------------------------------------------------------------
 
@@ -277,7 +277,7 @@ export const COPY_SQL_TABLE = 'results';
 /** Marks a NULL cell in the XML rendering, where an empty element already means `''`. */
 export const COPY_XML_NULL_ATTRIBUTE = 'null';
 
-/** The copy options Ctrl/Cmd+C uses: the plain paste a spreadsheet wants (FR-001 AC1). */
+/** The copy options Ctrl/Cmd+C uses: the plain paste a spreadsheet wants. */
 export const PLAIN_COPY_OPTIONS: CopyOptions = {
   format: 'tsv',
   includeHeaders: false,

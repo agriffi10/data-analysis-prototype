@@ -10,7 +10,7 @@ import type {QuerySpace} from './catalog.types';
  * first, then each shared space they are an active member of.
  *
  * One definition for the whole feature — `useSaveResults` computed this list inline
- * before SPEC-173, and SPEC-174/175 need it again for loading and saving queries.
+ * before the store moved, and loading and saving queries need it again.
  * A space is usable when it is the personal one or a shared connection whose status
  * is `active`; a connection that is provisioning, failed or leaving is omitted.
  *
@@ -26,7 +26,7 @@ export function useQuerySpaces(): QuerySpace[] {
     // No username means no space, not a space rooted at `/`. On the dev-unauth path
     // `ProtectedLayout` renders the workspace with no user, and an empty username built a
     // personal space whose root was the BUCKET root — which would then hold a marker open
-    // and list `saved_queries/` there. SPEC-043's hook was disabled in exactly this state.
+    // and list `saved_queries/` there. The hook was disabled in exactly this state.
     if (!userSpaceBucket || !username) return [];
     const personal: QuerySpace = {
       id: 'personal',

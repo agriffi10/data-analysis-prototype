@@ -1,6 +1,6 @@
 """The copy plan, passed between states by pointer rather than inline.
 
-inspect-source writes the expanded object list here and threads its key onward; SPEC-166's
+inspect-source writes the expanded object list here and threads its key onward; the transfer's
 manifest builder loads it once. It is not on the state, and the reason is the one this fleet
 learned twice: at ``SEND_MAX_OBJECTS`` the plan is tens of megabytes and the Step Functions
 payload limit is 256 KB, so the list could not ride even once — let alone through a Map's item
@@ -23,7 +23,7 @@ reason codes, and a terminal error validates its reason at construction. Without
 a process importing only this module raises a validation error where it meant to write a
 refusal — the same import-order trap that once shipped three unraisable reason codes.
 
-SPEC-166 added the transfer manifest and the Map Run's results export to this module, so one
+The transfer added the manifest and the Map Run's results export to this module, so one
 place owns every admin-bucket key this plane writes. The manifest's BYTES and its reader belong
 to ``cpcommon.transfer`` — the engine is shared with table-share and, later, archive — but where
 this plane puts them is this plane's business.
@@ -134,7 +134,7 @@ def write(request: dict, source: dict, sender: str, objects: list, total_bytes: 
     """Writes the copy plan to the admin bucket and returns its key.
 
     The plan records the source it was expanded from and the sender it belongs to alongside the
-    objects, so a reader — SPEC-166's manifest builder, or an operator looking at a failed
+    objects, so a reader — the manifest builder, or an operator looking at a failed
     send — does not have to join it back against the execution to know what it describes.
 
     Args:

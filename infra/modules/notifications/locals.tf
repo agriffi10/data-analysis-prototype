@@ -1,4 +1,4 @@
-# ── Constructed names + ARNs (SPEC-058) ──────────────────────────────────────
+# ── Constructed names + ARNs ──────────────────────────────────────────────────────────────────────
 # All resource names derive from {project_name}-{environment} so the deploy policy
 # (modules/base) can scope to the same {project_name}-*-notifications-* patterns and
 # so cross-module ARNs referenced inside IAM policy templates are KNOWN AT PLAN TIME

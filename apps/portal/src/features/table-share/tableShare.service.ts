@@ -6,7 +6,7 @@ import type {TableShareRequest} from './tableShare.types';
 const DEDUP_BUCKET_MS = 60_000;
 
 /**
- * Stable per-request dedup id (SPEC-089 FR-001): a SHA-256 of the caller's token +
+ * Stable per-request dedup id: a SHA-256 of the caller's token +
  * the request content + a one-minute time bucket, so an accidental double-submit
  * dedupes on the FIFO queue while a deliberate re-share later goes through (the
  * queue has content-based dedup OFF — this id is the only guard).

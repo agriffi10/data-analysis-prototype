@@ -3,17 +3,17 @@ import {toUserText} from '../../lib/errorMessages';
 import {enqueueTableShare} from './tableShare.service';
 import type {ShareRecipient} from './tableShare.types';
 
-/** The rail table a share was invoked on (SPEC-077: the DB comes from the rail node). */
+/** The rail table a share was invoked on (the DB comes from the rail node). */
 export type ShareTarget = {database: string; table: string};
 
 type ShareToast = {variant: 'success' | 'danger'; message: string};
 
 /**
- * Dialog + enqueue state for "Share table" (SPEC-093). `open(database, table)`
+ * Dialog + enqueue state for "Share table". `open(database, table)`
  * targets a rail table; `submit` enqueues via `enqueueTableShare` — on success the
  * dialog closes and `notify` gets the transient "Sharing…" toast (outcomes arrive
- * as notifications, SPEC-094); on failure the dialog stays open with `error` set
- * and the entered values intact (FR-003).
+ * as notifications); on failure the dialog stays open with `error` set
+ * and the entered values intact.
  */
 export function useTableShare(notify: (toast: ShareToast) => void) {
   const [target, setTarget] = useState<ShareTarget | null>(null);

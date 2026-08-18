@@ -3,7 +3,7 @@ import {TrashIcon} from '../../components/icons';
 import {ArchiveButton} from '../archive';
 import {useSelection, itemId, type SelectableItem} from './selectionContext';
 
-// Bulk-action glyphs (icon-only on mobile, SPEC-099 FR-006).
+// Bulk-action glyphs (icon-only on mobile).
 function BulkCopyIcon() {
   return (
     <svg
@@ -104,13 +104,13 @@ export function SelectionToolbar({
   /** Absent when the space can't be resolved (no space name) — the action is then omitted. */
   onRequestQualityCheck?: () => void;
   /**
-   * Absent in the dev-unauth path and while the `files` flag is off (SPEC-167 FR-001) — the
-   * action is then omitted rather than disabled, which is SPEC-163's rule: hidden means removed.
+   * Absent in the dev-unauth path and while the `files` flag is off — the
+   * action is then omitted rather than disabled, which is the rule: hidden means removed.
    */
   onRequestSend?: () => void;
   /**
-   * SPEC-172. Absent in the dev-unauth path, while the `files` flag is off, and inside the
-   * read-only `archive/` folder — removed rather than disabled, which is SPEC-163's rule.
+   * Absent in the dev-unauth path, while the `files` flag is off, and inside the
+   * read-only `archive/` folder — removed rather than disabled, which is the rule.
    */
   onRequestArchive?: () => void;
   /**
@@ -120,13 +120,13 @@ export function SelectionToolbar({
    */
   archiveDisabledReason?: string;
   /**
-   * Why writes are unavailable in this folder at all (SPEC-172 FR-004). Move and Delete carry it
+   * Why writes are unavailable in this folder at all. Move and Delete carry it
    * too — IAM denies both beneath `archive/`, so offering either only ever produced an
    * AccessDenied for a rule this app wrote.
    */
   writeLockReason?: string;
   /**
-   * Why THIS SELECTION can't be deleted — a portal-managed root folder (SPEC-186 FR-002).
+   * Why THIS SELECTION can't be deleted — a portal-managed root folder.
    * Distinct from `writeLockReason`, which is about the folder the user is standing IN.
    */
   deleteDisabledReason?: string;
@@ -141,9 +141,9 @@ export function SelectionToolbar({
 
   const active = count > 0;
 
-  // A focused bulk-action bar (SPEC-096): whole-selection Copy / Move / Delete
-  // only (Download + Rename live in the details panel, SPEC-097). Labelled at
-  // ≥ tablet, icon-only on mobile (SPEC-099 FR-006).
+  // A focused bulk-action bar: whole-selection Copy / Move / Delete
+  // only (Download + Rename live in the details panel). Labelled at
+  // ≥ tablet, icon-only on mobile.
   return (
     <div
       className={`mb-4 flex h-11 items-center gap-2 rounded-lg border px-3 tablet:gap-3 tablet:px-4 ${
@@ -168,7 +168,7 @@ export function SelectionToolbar({
 
       <div className="flex-1" />
 
-      {/* SPEC-113: a read-only diagnostic on ONE file or folder. It lives here rather
+      {/* a read-only diagnostic on ONE file or folder. It lives here rather
           than on the top toolbar because it is scoped to the SELECTION, like its
           neighbours — and here it is already reachable at every breakpoint (labelled
           at ≥ tablet, icon-only on mobile) without a second mount. `user_settings` and
@@ -187,7 +187,7 @@ export function SelectionToolbar({
         </Button>
       )}
 
-      {/* SPEC-167: a send is a copy INTO SOMEONE ELSE'S space, so it sits beside Copy rather
+      {/* a send is a copy INTO SOMEONE ELSE'S space, so it sits beside Copy rather
           than anywhere new — one or many items, files and folders alike. Labelled at ≥ tablet,
           icon-only on mobile, exactly like its neighbours. */}
       {onRequestSend && (
@@ -203,7 +203,7 @@ export function SelectionToolbar({
         </Button>
       )}
 
-      {/* SPEC-172: archiving is a copy OUT of this space followed by a delete, so it sits
+      {/* archiving is a copy OUT of this space followed by a delete, so it sits
           between Send and Delete — the last of the "this leaves here" actions. Unlike the
           data-quality check it takes the WHOLE selection: archiving a set is the normal case. */}
       {onRequestArchive && (

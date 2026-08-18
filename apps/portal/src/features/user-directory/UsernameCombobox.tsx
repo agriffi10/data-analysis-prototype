@@ -46,10 +46,10 @@ export type UsernameComboboxProps = SuggestionSource & {
    * The neutral note shown after committing names the source does not list. Called only with a
    * non-empty list, and only while `status === 'ready'`.
    *
-   * A prop because the sentence has to name what was searched: SPEC-158's space entry must say
+   * A prop because the sentence has to name what was searched: The space entry must say
    * the space may exist and simply not be one of yours, since targeting a space you are not a
    * member of is PERMITTED — the username wording would imply the name is wrong. The default is
-   * the username sentence this component has shown since SPEC-147.
+   * the username sentence this component has always shown.
    */
   unlistedNote?: (names: string[]) => string;
 };
@@ -64,7 +64,7 @@ function directoryNote(names: string[]): string {
  *
  * `commit` exists for `TableShareDialog`, which keeps its **Add** button beside the field.
  * The button must go through the SAME path as Enter — otherwise the two would drift, and
- * SPEC-148 FR-003 requires invalid tokens to be surfaced however the commit was triggered.
+ * Invalid tokens must be surfaced however the commit was triggered.
  * One commit path, two ways to reach it.
  */
 export type UsernameComboboxHandle = {
@@ -82,7 +82,7 @@ const ANNOUNCE_DEBOUNCE_MS = 400;
 /**
  * The box the list is actually clipped by — the nearest scrollable ancestor, or the viewport.
  *
- * SPEC-186 FR-003. This used to measure against `window.innerHeight`, which is right for a
+ * This used to measure against `window.innerHeight`, which is right for a
  * combobox on a page and wrong for one inside a dialog: `Modal`'s panel is `overflow-y-auto`, so
  * a list with room below it *in the viewport* is still clipped by the panel. Measured live in
  * Add members, the list ran 97px past the dialog's bottom edge and showed 3 of 8 options.
@@ -107,8 +107,8 @@ function clippingRect(from: HTMLElement): {top: number; bottom: number} {
 
 /**
  * An accessible single-value typeahead over catalog-safe identifiers, suggested by whatever
- * {@link SuggestionSource} the caller supplies — the published username directory (SPEC-146) or
- * the signed-in user's own shared spaces (SPEC-158).
+ * {@link SuggestionSource} the caller supplies — the published username directory or
+ * the signed-in user's own shared spaces.
  *
  * **Every source here is ADVISORY and this component never blocks a name it does not know.** The
  * directory is up to a day stale and misses users not yet provisioned; the space list covers only
@@ -184,7 +184,7 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
 
   // CLAMPED, because `suggestions` can shrink for reasons the input never sees. The keyboard
   // handlers reset the highlight on typing, Escape, Tab and commit — but not when a caller
-  // changes `exclude`/`suppress`, which is exactly what SPEC-148 does (`exclude` is the member
+  // changes `exclude`/`suppress`, which is exactly what the chips field does (`exclude` is the member
   // list, backed by a refetchable query). Without this, `aria-activedescendant` can point at an
   // element that no longer exists — no option reports itself active, and Enter quietly commits
   // the raw typed text instead of the option that was last announced.
@@ -214,9 +214,9 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
       : '';
 
   // Flip above the field when there is not room below, and CAP the list at the room there
-  // actually is — measured against the box that clips it (SPEC-186 FR-003), which inside a
+  // actually is — measured against the box that clips it, which inside a
   // dialog is the panel and not the viewport. A bounded max-height plus this flip is
-  // sufficient — no positioning library, which would be a Tech Stack change (SPEC-147 FR-008).
+  // sufficient — no positioning library, which would be a Tech Stack change.
   //
   // Re-measured on scroll and resize, both captured: the field moves within the dialog's own
   // scroll box, and that scroll event does not bubble to `window`.
@@ -245,7 +245,7 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
     };
   }, [listOpen]);
 
-  // Keep the virtual cursor's option inside the list's VISIBLE region (SPEC-186 FR-003 AC2).
+  // Keep the virtual cursor's option inside the list's VISIBLE region.
   // DOM focus never leaves the input in a combobox, so nothing scrolls the list on its own —
   // arrowing past the last visible option used to move an `aria-activedescendant` the sighted
   // user could not see.
@@ -374,8 +374,8 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
       // Only intercept when the list is open. With it closed, Escape is not touched at all, so
       // the enclosing Modal/Drawer dismisses normally.
       //
-      // `stopPropagation` is what does the work, VERIFIED rather than assumed (SPEC-147
-      // FR-004): React delegates events at its root container, which sits BELOW the `document`
+      // `stopPropagation` is what does the work, VERIFIED rather than assumed:
+      // React delegates events at its root container, which sits BELOW the `document`
       // listener `useEscapeKey` registers, so stopping the native event there means the hook
       // never fires. Measured — a Modal's `onDismiss` is called zero times. `useEscapeKey`
       // therefore needed no `defaultPrevented` guard and did not get one.

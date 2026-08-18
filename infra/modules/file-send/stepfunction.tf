@@ -1,21 +1,21 @@
-# ── File-send Step Function (SPEC-164 FR-001, completed by SPEC-166) ─────────
+# ── File-send Step Function ────────────────────────────────────────────────
 # Standard state machine — validate-authorize and inspect-source once per request,
 # then the guard Map, the top-level Distributed-Map transfer, the collector and the
-# per-recipient summary. The SPEC-152 failure path (a seed → RecordFailure →
+# per-recipient summary. The whole-request failure path (a seed → RecordFailure →
 # NotifyFailure → Failed) has been complete since day one.
 #
 # The state machine runs under its OWN role (iam.tf, sfn-permissions: InvokeFunction
 # on the verbs + log delivery); the verb Lambdas run under the ONE shared execution
 # role. Standard (over Express) keeps per-execution history for debugging and allows
-# the long per-recipient copies SPEC-166 adds — and Express is doubly rejected here,
-# since a Pipe cannot use REQUEST_RESPONSE against a Standard machine (SPEC-157) and
+# the long per-recipient copies — and Express is doubly rejected here,
+# since a Pipe cannot use REQUEST_RESPONSE against a Standard machine and
 # this plane's outcome is a notification, not a response.
 #
-# THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY. SPEC-165
+# THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY. Source resolution alone
 # recorded that this machine could not wedge for hours because nothing in it WAITED: no
-# Map, no poll loop, no copy. SPEC-166 adds all three, so it adds the timeout — and with
+# Map, no poll loop, no copy. The transfer adds all three, so it adds the timeout — and with
 # it the EventBridge rule below and the deploy-role events: grant that manages that
-# rule, because a timeout that cannot notify is SPEC-152 satisfied on paper and silent
+# rule, because a timeout that cannot notify is a failure path satisfied on paper and silent
 # in practice. The arithmetic behind the number is in locals.tf, where a test computes
 # it from the caps.
 
@@ -33,12 +33,12 @@ resource "aws_sfn_state_machine" "file_send" {
     validate_authorize_function_arn = aws_lambda_function.functions["validate-authorize"].arn
     inspect_source_function_arn     = aws_lambda_function.functions["inspect-source"].arn
     notify_failure_function_arn     = aws_lambda_function.functions["notify-failure"].arn
-    # SPEC-166.
+    # The guard, the manifest, the copy and the collector.
     check_target_absent_function_arn      = aws_lambda_function.functions["check-target-absent"].arn
     build_transfer_manifest_function_arn  = aws_lambda_function.functions["build-transfer-manifest"].arn
     copy_objects_function_arn             = aws_lambda_function.functions["copy-objects"].arn
     collect_transfer_results_function_arn = aws_lambda_function.functions["collect-transfer-results"].arn
-    # SPEC-167.
+    # The outcome producer.
     notify_function_arn       = aws_lambda_function.functions["notify"].arn
     guard_map_max_concurrency = local.guard_map_max_concurrency
     # Mirrored from cpcommon/transfer/config.py; a test holds the two together.
@@ -60,11 +60,11 @@ resource "aws_sfn_state_machine" "file_send" {
   ]
 }
 
-# ── SPEC-166 FR-005: the timed-out run's only route to a notification ─────────
+# ── The timed-out run's only route to a notification ─────────
 # A top-level TimeoutSeconds expiry terminates the execution OUTRIGHT. Step Functions catchers
 # cover Task, Parallel and Map states but NOT top-level execution failures, so the machine's own
 # RecordFailure -> NotifyFailure path is unreachable on this one failure and the sender would be
-# told nothing at all — the exact silence SPEC-152 exists to close. Listening for TIMED_OUT on an
+# told nothing at all — the exact silence the failure path exists to close. Listening for TIMED_OUT on an
 # EventBridge bus is the documented remedy, and this is it. Same shape as table-share's, which is
 # the point: two planes with one failure mode should not have two answers to it.
 #

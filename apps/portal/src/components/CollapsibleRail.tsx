@@ -12,8 +12,8 @@ type CollapsibleRailProps = {
   title?: ReactNode;
   /**
    * Width utilities for the expanded panel — static classes only, so a host can
-   * narrow the rail per breakpoint (the Query rail is `w-[220px] desktop:w-[248px]`,
-   * SPEC-100 FR-002). Applied to the panel and its fixed-width inner content alike.
+   * narrow the rail per breakpoint (the Query rail is `w-[220px] desktop:w-[248px]`).
+   * Applied to the panel and its fixed-width inner content alike.
    */
   widthClass?: string;
   /** The rail body — the existing Sidebar list / SchemaBrowser tree. */
@@ -22,7 +22,7 @@ type CollapsibleRailProps = {
 
 /**
  * Shared chrome for the two authenticated left rails (Files `Sidebar` + Query
- * `SchemaBrowser`, SPEC-085): the 248px panel (`widthClass` narrows it per host;
+ * `SchemaBrowser`): the 248px panel (`widthClass` narrows it per host;
  * hidden below `tablet` as before) plus a header **collapse** control and, when
  * collapsed, a slim **reopen** handle at the content's left edge.
  *

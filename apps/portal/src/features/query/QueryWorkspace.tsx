@@ -51,31 +51,31 @@ import type {SavedQuery} from '../saved-queries/savedQueries.types';
 import type {QuerySpace, GlueTableSummary} from '../catalog/catalog.types';
 
 // Monaco is heavy — lazy-load it so it lands in its own async chunk and the Files
-// route / landing page never pay for it (SPEC-035 FR-003).
+// route / landing page never pay for it.
 const SqlEditor = lazy(() => import('./SqlEditor').then((m) => ({default: m.SqlEditor})));
 
-// SPEC-035 query workspace (FR-002): schema browser (left) + editor/status/results
-// (main), wired to the SPEC-034 data layer. SPEC-041 makes the editor multi-tab:
+// The query workspace: schema browser (left) + editor/status/results
+// (main), wired to the catalog data layer. The editor is multi-tab:
 // each tab is an independent query window with its own SQL + run state; Run/Clear/
 // Stop/status/results all act on the active tab.
 export function QueryWorkspace() {
   const {user} = useAuth();
   const username = user?.username ?? '';
-  // SPEC-077: there is no active database. The rail browses every accessible
+  // There is no active database. The rail browses every accessible
   // database; queries carry no execution context and must fully-qualify every
   // base table. `useConnections` still enumerates the browsable/queryable spaces.
-  // SPEC-100: below `tablet` the workspace is browse-first — no Monaco, no editor
+  // Below `tablet` the workspace is browse-first — no Monaco, no editor
   // toolbar, no tab strip. Mount-gated (not CSS-hidden) because `hidden` would
   // still instantiate the editor (react.md §20).
   const isMobile = useIsMobile();
 
   const {connections: allConnections, isLoading: connectionsLoading} = useConnections(username || null);
-  // SPEC-163 (extending the spec's contract table — see the delivery doc): shared spaces are
+  // Gating (extending the contract table — see the delivery doc): shared spaces are
   // a shared-workspace surface here too. Leaving `teamspace` browsable in the rail while the
   // spaces list and /connections are gone reads as a bug rather than as a policy.
   //
   // FILTERED AT THE VIEW, NEVER AT THE SERVICE: `useConnections` still fetches and resolves
-  // every space, because a flag may not touch a service (SPEC-162 FR-006). A saved query
+  // every space, because a flag may not touch a service. A saved query
   // naming a hidden database still RUNS — the grants are untouched, and hiding a surface is
   // not revoking access.
   const sharedSpacesEnabled = useFeature('sharedWorkspaces');
@@ -85,14 +85,14 @@ export function QueryWorkspace() {
   );
   // Every usable database, for the browse rail + multi-database autocomplete.
   const usableDatabases = useMemo(() => connections.filter(isConnectionUsable).map((c) => c.database), [connections]);
-  // SPEC-077 FR-005: autocomplete offers fully-qualified names across every
+  // Autocomplete offers fully-qualified names across every
   // accessible database (shares the schema cache with the expandable rail nodes).
   // Skipped below `tablet`: its only consumer is the editor's autocomplete, and
   // the editor isn't mounted there — otherwise a phone pays 2 Glue calls per
-  // database for a feature it can't reach (SPEC-100).
+  // database for a feature it can't reach.
   const completionSchemas = useAllSchemas(isMobile ? [] : usableDatabases);
 
-  // One-time cleanup of the retired SPEC-047 active-database sessionStorage key.
+  // One-time cleanup of the retired active-database sessionStorage key.
   useEffect(() => {
     try {
       const legacyPrefix = 's3portal.query.activeDatabase.';
@@ -107,7 +107,7 @@ export function QueryWorkspace() {
   const tabs = useQueryTabs(username);
   const {activeTab, activeTabId} = tabs;
 
-  // SPEC-079: the editor/results layout preset. The editor+results column is
+  // The editor/results layout preset. The editor+results column is
   // measured (ResizeObserver, guarded for environments without one) and the
   // hook derives the editor pane's clamped pixel height from the preset.
   const layoutColumnRef = useRef<HTMLDivElement>(null);
@@ -134,21 +134,21 @@ export function QueryWorkspace() {
     [layout]
   );
 
-  // Drawers are mutually exclusive (FR-010): opening one closes the other.
+  // Drawers are mutually exclusive: opening one closes the other.
   const [historyOpen, setHistoryOpen] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [limitOpen, setLimitOpen] = useState(false);
   const [closing, setClosing] = useState<QueryTab | null>(null);
-  // SPEC-044 table actions.
+  // Table actions.
   const [dropping, setDropping] = useState<{database: string; table: GlueTableSummary} | null>(null);
   const toast = useToast();
-  // SPEC-093: "Share table" dialog + enqueue state (toasts route through the host).
+  // "Share table" dialog + enqueue state (toasts route through the host).
   const share = useTableShare(toast.push);
-  // SPEC-145: "Refresh table" dialog + enqueue state, wired the same way. The hook
+  // "Refresh table" dialog + enqueue state, wired the same way. The hook
   // also owns the rail invalidation, since the enqueue is the only signal there is.
-  // SPEC-145 FR-005: `/query?refreshTable={db}.{table}&removed={names}` — the link
-  // SPEC-144's `columns_removed` notification carries. Read from the RAW query string
+  // `/query?refreshTable={db}.{table}&removed={names}` — the link
+  // `columns_removed` notification carries. Read from the RAW query string
   // (`location.search`), never through `useSearchParams`: that decodes, and the names
   // are individually percent-encoded around a comma separator, so a column named
   // `a,b` would arrive already split.
@@ -160,7 +160,7 @@ export function QueryWorkspace() {
   const [, setSearchParams] = useSearchParams();
   const link = useMemo(() => parseRefreshLink(location.search), [location.search]);
   // A database the user can't reach resolves to null and is never fetched — no
-  // existence oracle, and the rail is the authority on what exists (FR-005).
+  // existence oracle, and the rail is the authority on what exists.
   const linkDatabase =
     link && !connectionsLoading && connections.some((c) => c.database === link.database && isConnectionUsable(c))
       ? link.database
@@ -169,7 +169,7 @@ export function QueryWorkspace() {
   const linkTarget = useMemo(() => {
     if (!link || !linkSchema) return null;
     // A view has no folder to re-read and a table with no location can't be turned
-    // into a request (FR-001 disables the menu item for the same reason), so a link
+    // into a request (the menu item is disabled for the same reason), so a link
     // naming either opens nothing.
     const table = linkSchema.tables.find(
       (t) => t.name === link.tableName && t.tableType !== 'VIRTUAL_VIEW' && !!t.location
@@ -196,11 +196,11 @@ export function QueryWorkspace() {
   );
 
   const refresh = useTableRefresh(toast.push, {target: linkTarget, onConsumed: clearRefreshLink});
-  // SPEC-048: Create view. SPEC-077: the target database derived from the body.
+  // Create view. The target database is derived from the body.
   const [createViewOpen, setCreateViewOpen] = useState(false);
   const [createViewDb, setCreateViewDb] = useState('');
   const editorRef = useRef<SqlEditorHandle>(null);
-  // The list fields feed the mobile browse-first home (SPEC-100 FR-004); the
+  // The list fields feed the mobile browse-first home; the
   // desktop drawer subscribes to the same cache key, so this adds no fetch.
   const {
     history,
@@ -209,16 +209,16 @@ export function QueryWorkspace() {
     appendEntry,
     updateEntry
   } = useQueryHistory(username || null);
-  // SPEC-173 FR-005/006: saved queries are `.sql` files in a SPACE's `saved_queries/`
-  // folder. SPEC-174/175 FR-001: WHICH space is one piece of state, shared by loading and
+  // Saved queries are `.sql` files in a SPACE's `saved_queries/`
+  // folder. WHICH space is one piece of state, shared by loading and
   // saving — the personal space plus every active shared space, and the memory a
   // successful save updates.
   const allSpaces = useQuerySpaces();
   const personalSpace: QuerySpace | null = allSpaces[0] ?? null;
-  // Gated at the VIEW, exactly as the connections list above is (SPEC-163): with shared
+  // Gated at the VIEW, exactly as the connections list above is: with shared
   // workspaces hidden, offering a colleague's space in the selector would name spaces the
   // rest of the app has just stopped showing. `useQuerySpaces` still resolves them —
-  // a flag may not touch a service (SPEC-162 FR-006) — and a remembered shared space
+  // a flag may not touch a service — and a remembered shared space
   // falls through `useSavedQuerySpace`'s existing "not in the list" path to personal.
   const savedSpaces = useMemo(
     () => (sharedSpacesEnabled ? allSpaces : allSpaces.slice(0, 1)),
@@ -227,7 +227,7 @@ export function QueryWorkspace() {
   const savedSpace = useSavedQuerySpace(username || null, savedSpaces);
   const saved = useSavedQueries(savedSpace.space);
 
-  // FR-001: hold the folder open, once per space per session. Best effort — a failure is
+  // Hold the folder open, once per space per session. Best effort — a failure is
   // logged and the workspace renders regardless, because saving a query creates the
   // prefix on its own.
   //
@@ -244,7 +244,7 @@ export function QueryWorkspace() {
       .catch((error: unknown) => logBackgroundFailure('saved-queries-folder', error));
   }, [personalSpace]);
 
-  // SPEC-043 FR-008: a linked tab is "dirty" when its editor SQL differs from the file
+  // a linked tab is "dirty" when its editor SQL differs from the file
   // it was opened from. A `.sql` object carries no body until it is READ, so the
   // comparison is against what this session last saw — the body fetched on open, or the
   // buffer written on save — rather than a `sql` field on a list row that no longer
@@ -270,7 +270,7 @@ export function QueryWorkspace() {
   );
   const activeLinkedSaved = activeTab.savedQuery;
 
-  // SPEC-155 FR-009: the whole SPEC-041/078 batch state machine — per-tab runs,
+  // The whole batch state machine — per-tab runs,
   // the headless pollers, submission, sequential advancement, Stop and the
   // per-tab error bookkeeping — lives in `useTabRuns`.
   const {
@@ -286,11 +286,11 @@ export function QueryWorkspace() {
     selectResultTab
   } = useTabRuns({username, activeTabId, tabs: tabs.tabs, appendEntry, updateEntry});
 
-  // SPEC-155 FR-009: Create view and Drop table were the same forty lines twice.
+  // Create view and Drop table were the same forty lines twice.
   // One background-DDL path now runs, records and reports both.
   const ddl = useRunDdl({username, appendEntry, toast});
 
-  // SPEC-100: the below-`tablet` browse-first surface — its view state, the
+  // The below-`tablet` browse-first surface — its view state, the
   // token that identifies a run it submitted, and the reset on crossing up.
   const mobile = useMobileQuerySurface({isMobile, activeTabId, runs, submitBatch});
   // A local const so the `kind` discriminant narrows inside the render callbacks.
@@ -305,7 +305,7 @@ export function QueryWorkspace() {
     setSavedOpen(true);
   };
 
-  // Active-tab derived run state. SPEC-078: in-flight means the BATCH hasn't
+  // Active-tab derived run state. In-flight means the BATCH hasn't
   // reached a terminal state (the finalizer sets `done`), not just the current
   // statement's execution.
   const activeRun = runs[activeTabId];
@@ -313,14 +313,14 @@ export function QueryWorkspace() {
   // the editor buffer alone — so on the editor shell it would pair the tab's
   // draft with results from other SQL entirely. The run itself is untouched (it
   // keeps polling, finalizes, and lands in history); only this shell's status +
-  // results display disowns it (SPEC-100 review).
+  // results display disowns it.
   const editorOwnsRun = activeRun?.token === undefined;
   const activeExecutionId = activeRun?.executionId ?? null;
   const activeStatus = statuses[activeTabId];
   const activeIsInFlight = !!activeRun && !activeRun.done;
   const activeBatchDone = !!activeRun?.done;
 
-  // SPEC-078 FR-007: which execution the results region displays once the batch
+  // Which execution the results region displays once the batch
   // settles — the active result tab in the tab-per-statement scope, else the
   // LAST result-producing statement. A sole succeeded statement that produced
   // no rows (DDL) falls back to its own execution so today's single-statement
@@ -335,10 +335,10 @@ export function QueryWorkspace() {
   const displayExecutionId = displayedResultTab?.executionId ?? (soleStatementSucceeded ? activeRun.executionId : null);
   const displayOutputLocation = displayedResultTab?.outputLocation ?? activeStatus?.outputLocation;
 
-  // SPEC-049/055: the Save-results dialog, its destination list, the overwrite
+  // The Save-results dialog, its destination list, the overwrite
   // warn-and-confirm and the default file name.
   //
-  // SPEC-185: the destinations are `savedSpaces` — the SAME view-gated list every other
+  // The destinations are `savedSpaces` — the SAME view-gated list every other
   // space selector on this page uses. The hook used to build its own from an unfiltered
   // `useQuerySpaces()`, which left this one dialog offering a colleague's space as a write
   // target with `sharedWorkspaces` off; it now has a registry row of its own.
@@ -357,24 +357,24 @@ export function QueryWorkspace() {
     editorOwnsRun && activeRun?.scope === 'script-tabs' && activeBatchDone && activeRun.resultTabs.length > 0;
 
   // Results only fetch once the batch has settled on a displayable execution;
-  // one page at a time via the SPEC-038 pager, sized by the workspace-global
-  // "Rows per page" value (SPEC-087) — one shared value for every result tab.
+  // one page at a time via the pager, sized by the workspace-global
+  // "Rows per page" value — one shared value for every result tab.
   const resultsPageSize = useResultsPageSize(username || null);
   const results = useQueryResults(displayExecutionId, resultsPageSize.pageSize);
 
-  // SPEC-080: exact total row count via a background page-walk. Gated on a result
+  // Exact total row count via a background page-walk. Gated on a result
   // set actually existing (columns present) so DDL/no-result statements show no
   // row-count stat; scoped to the execution id so a new run / tab switch recomputes.
   const hasResultSet = displayExecutionId !== null && results.columns.length > 0;
   const rowCount = useResultRowCount(hasResultSet ? displayExecutionId : null);
 
-  // SPEC-064: result-column widths, keyed by execution id. Lives here (not in
+  // Result-column widths, keyed by execution id. Lives here (not in
   // QueryResultsTable, which unmounts when the active tab has no results) so a
   // user's resizes survive Prev/Next AND query/result-tab switches; a new query
   // (new execution id) starts from defaults.
   const colWidths = useColumnWidths(displayExecutionId, results.columns.length);
 
-  // FR-005/006: Run Statement — the selection, else the statement under the
+  // Run Statement — the selection, else the statement under the
   // cursor, else the sole statement. When the editor handle isn't available
   // (still lazy-loading), the cursor defaults to the buffer end (last statement).
   const handleRunStatement = () => {
@@ -385,11 +385,11 @@ export function QueryWorkspace() {
     submitBatch(resolveRunStatements(buffer, statements, selection, cursor), 'statement');
   };
 
-  // FR-005: Run Script — every statement in the buffer, sequentially.
+  // Run Script — every statement in the buffer, sequentially.
   const handleRunScript = (scope: 'script-single' | 'script-tabs') =>
     submitBatch(splitSqlStatements(activeTab.sql), scope);
 
-  // SPEC-036 / SPEC-041 FR-003: re-open loads the entry's SQL into the active
+  // re-open loads the entry's SQL into the active
   // tab's editor (no auto-run); re-run loads it and submits.
   const handleReopen = (entry: QueryHistoryEntry) => {
     tabs.setActiveSql(entry.sql);
@@ -403,7 +403,7 @@ export function QueryWorkspace() {
     submitBatch(splitSqlStatements(entry.sql), 'script-single');
   };
 
-  // SPEC-041 FR-008: open a tab through the cap guard; at the cap show the dialog.
+  // Open a tab through the cap guard; at the cap show the dialog.
   const handleNewTab = () => {
     const id = tabs.openTab();
     if (id === null) setLimitOpen(true);
@@ -414,7 +414,7 @@ export function QueryWorkspace() {
     const tab = tabs.tabs.find((t) => t.id === id);
     if (!tab) return;
     if (tab.sql.trim()) {
-      setClosing(tab); // non-empty → confirm first (FR-005)
+      setClosing(tab); // non-empty → confirm first
     } else {
       tabs.closeTab(id);
       dropRunState(id);
@@ -428,7 +428,7 @@ export function QueryWorkspace() {
     setClosing(null);
   };
 
-  // FR-008: derive the target database from the view body before opening the
+  // Derive the target database from the view body before opening the
   // dialog; a non-derivable body raises a clear error and never silently picks
   // a database.
   const handleOpenCreateView = () => {
@@ -447,7 +447,7 @@ export function QueryWorkspace() {
     editorRef.current?.focus();
   };
 
-  // SPEC-173 FR-006 / SPEC-175. Every save asks — for a name AND a destination, a linked
+  // Every save asks — for a name AND a destination, a linked
   // tab's included, pre-filled and selected — because a user about to overwrite a file
   // should be told which file, in which space, before it happens. The whole path (the
   // validation, the folder marker, the write, the `Collision` round-trip and the toast)
@@ -455,7 +455,7 @@ export function QueryWorkspace() {
   const saveQuery = useSaveQuery({
     spaces: savedSpaces,
     defaultSpace: savedSpace.space,
-    // SPEC-177 FR-002: the hook takes the two fields it reads, not the tab that happens to
+    // The hook takes the two fields it reads, not the tab that happens to
     // carry them — the Data Explorer has no `QueryTab` to hand it.
     payload: {sql: activeTab.sql, link: activeTab.savedQuery},
     toast,
@@ -467,7 +467,7 @@ export function QueryWorkspace() {
         label: query.name,
         savedQuery: {spaceId: query.spaceId, bucket: query.bucket, key: query.key, name: query.name}
       });
-      // FR-001: ONE memory of "the space I am working in" — the next save and the next
+      // ONE memory of "the space I am working in" — the next save and the next
       // load both open where the user last was, rather than two memories that disagree.
       savedSpace.selectSpace(query.spaceId);
       saved.refresh();
@@ -475,10 +475,10 @@ export function QueryWorkspace() {
     }
   });
 
-  // FR-006: open a saved query into a new linked tab (cap dialog honored). Exactly one
+  // Open a saved query into a new linked tab (cap dialog honored). Exactly one
   // GetObject, and only here — a list row never fetches a body.
   const handleOpenSaved = (query: SavedQuery) => {
-    // SPEC-174 FR-004: the cap is checked BEFORE the fetch. Reading a body only to
+    // The cap is checked BEFORE the fetch. Reading a body only to
     // discard it and raise the limit dialog spends a GetObject on a tab that was never
     // going to open.
     if (tabs.tabs.length >= QUERY_TABS_MAX) {
@@ -510,7 +510,7 @@ export function QueryWorkspace() {
     })();
   };
 
-  // SPEC-100 + SPEC-173 FR-006: the mobile Saved list has no SQL to hand its Run/View
+  // The mobile Saved list has no SQL to hand its Run/View
   // until the file is read, so the fetch happens here — one GetObject, on the card the
   // user actually chose, and never merely because the list is on screen.
   const withSavedSql = (query: SavedQuery, use: (sql: string, title: string) => void) => {
@@ -524,7 +524,7 @@ export function QueryWorkspace() {
     })();
   };
 
-  // FR-007: delete the file and unlink any open tab pointing at it (the tab keeps its
+  // Delete the file and unlink any open tab pointing at it (the tab keeps its
   // SQL; a later Save creates a new file).
   const handleDeleteSaved = (query: SavedQuery) => {
     saved.remove(query).catch((e) => {
@@ -533,7 +533,7 @@ export function QueryWorkspace() {
     tabs.unlinkSavedQuery(query.key);
   };
 
-  // SPEC-044/077/100: the per-table rail actions, and the mobile nav-rail copy
+  // The per-table rail actions, and the mobile nav-rail copy
   // that has to be fed the same handlers.
   const tableActions = useTableActions({
     username,
@@ -550,9 +550,9 @@ export function QueryWorkspace() {
     onDropTable: setDropping
   });
 
-  // SPEC-048/077: turn the active tab's SQL into a named view, in the background
+  // Turn the active tab's SQL into a named view, in the background
   // (the editor keeps showing the user's SELECT). The target database is derived
-  // from the view body's fully-qualified base tables (FR-008), captured in
+  // from the view body's fully-qualified base tables, captured in
   // `createViewDb` when the dialog opened.
   const handleCreateView = (name: string) => {
     const database = createViewDb;
@@ -566,7 +566,7 @@ export function QueryWorkspace() {
     });
   };
 
-  // SPEC-044 FR-005: drop the rail's table or view, recorded in history like any
+  // Drop the rail's table or view, recorded in history like any
   // other statement.
   const handleDropConfirm = () => {
     if (!dropping) return;
@@ -580,7 +580,7 @@ export function QueryWorkspace() {
     });
   };
 
-  // SPEC-078 FR-004: a batch failure names the failing statement's position and
+  // a batch failure names the failing statement's position and
   // makes clear the remaining statements did not run.
   const batchFailureMessage = (() => {
     const run = activeRun;
@@ -606,10 +606,10 @@ export function QueryWorkspace() {
   const showError = !!errorMessage && !dismissed[activeTabId];
   const canRun = !!activeTab.sql.trim() && !activeIsInFlight;
   const canClear = activeTab.sql.length > 0 && !activeIsInFlight;
-  const canSave = !!activeTab.sql.trim(); // FR-001: disabled only when empty
+  const canSave = !!activeTab.sql.trim(); // disabled only when empty
 
-  // SPEC-049: Save results is offered only for a SUCCEEDED, row-returning result
-  // (a result object with columns) — not a DDL / no-result statement. SPEC-078:
+  // Save results is offered only for a SUCCEEDED, row-returning result
+  // (a result object with columns) — not a DDL / no-result statement.
   // it saves the displayed result tab's execution.
   const canSaveResults = displayExecutionId !== null && !!displayOutputLocation && results.columns.length > 0;
 
@@ -620,7 +620,7 @@ export function QueryWorkspace() {
     // `overflow-auto` results region actually scroll; the schema rail already
     // scrolls itself (`overflow-y-auto`).
     <div className="flex h-[calc(100dvh-3.5rem)] min-h-0 min-w-0 flex-1 overflow-hidden">
-      {/* SPEC-100 FR-005: on a phone the rail lives in the nav drawer instead. */}
+      {/* on a phone the rail lives in the nav drawer instead. */}
       {!isMobile && (
         <SchemaBrowser
           connections={connections}
@@ -719,7 +719,7 @@ export function QueryWorkspace() {
                 onRunScript={handleRunScript}
               />
 
-              {/* SPEC-079: the measured editor+results column. The editor pane takes
+              {/* the measured editor+results column. The editor pane takes
               the preset's clamped height; everything below it (status bar +
               results) flexes into the remainder and keeps scrolling internally. */}
               <div
@@ -783,7 +783,7 @@ export function QueryWorkspace() {
       {/* Editor-shell drawers: opened from the tab strip, and their actions
           (Open / Re-run) load SQL into the editor — so they belong to the
           editor's breakpoints only. The mobile home is the surface for these
-          two lists below `tablet` (SPEC-100). */}
+          two lists below `tablet`. */}
       {!isMobile && (
         <>
           <QueryHistoryPanel

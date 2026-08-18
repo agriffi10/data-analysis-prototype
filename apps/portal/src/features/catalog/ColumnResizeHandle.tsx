@@ -19,7 +19,7 @@ type ColumnResizeHandleProps<K extends string | number> = {
  * default; Arrow Left/Right nudge by COLUMN_RESIZE_STEP_PX. role="separator" +
  * aria-orientation="vertical" + a column-naming aria-label keep it accessible.
  *
- * Lives in `features/catalog/` (SPEC-180) because two sibling features draw
+ * Lives in `features/catalog/` because two sibling features draw
  * result grids and neither may import the other. The column identifier is
  * generic for the same reason: the Query workspace keys widths by index (a
  * SELECT may return duplicate names), the Data Explorer by name (its geometry
@@ -74,8 +74,8 @@ export function ColumnResizeHandle<K extends string | number>({
       aria-orientation="vertical"
       aria-label={`Resize column ${columnName}`}
       // A FOCUSABLE separator is a widget, not a divider, so ARIA requires a value —
-      // caught by axe once a grid with these handles was driven into a live state
-      // (SPEC-180). The pixel width is the value the Arrow keys move.
+      // caught by axe once a grid with these handles was driven into a live state.
+      // The pixel width is the value the Arrow keys move.
       aria-valuenow={Math.round(width)}
       aria-valuemin={MIN_COLUMN_WIDTH}
       aria-valuemax={MAX_COLUMN_WIDTH}

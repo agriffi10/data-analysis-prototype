@@ -19,16 +19,16 @@ output "identity_pool_id" {
 }
 
 output "pre_signup_function_name" {
-  description = "Name of the pre-signup validation Lambda (SPEC-012). The deploy-lambdas workflow targets this for update-function-code."
+  description = "Name of the pre-signup validation Lambda. The deploy-lambdas workflow targets this for update-function-code."
   value       = aws_lambda_function.pre_signup.function_name
 }
 
 output "post_confirmation_function_name" {
-  description = "Name of the post-confirmation provisioning Lambda (SPEC-033). The deploy-lambdas workflow targets this for update-function-code."
+  description = "Name of the post-confirmation provisioning Lambda. The deploy-lambdas workflow targets this for update-function-code."
   value       = aws_lambda_function.post_confirmation.function_name
 }
 
 output "post_confirmation_exec_role_arn" {
-  description = "ARN of the post-confirmation Lambda execution role (SPEC-033). Informational — module.analytics adds this role as a Lake Formation admin via a CONSTRUCTED ARN string (root locals), not this output, so the value is known at plan time (an unknown here broke the compact() in the LF admins list and silently dropped the grant)."
+  description = "ARN of the post-confirmation Lambda execution role. Informational — module.analytics adds this role as a Lake Formation admin via a CONSTRUCTED ARN string (root locals), not this output, so the value is known at plan time (an unknown here broke the compact() in the LF admins list and silently dropped the grant)."
   value       = aws_iam_role.post_confirmation.arn
 }

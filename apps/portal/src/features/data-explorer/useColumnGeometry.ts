@@ -45,17 +45,17 @@ function block(column: GridColumn): 'pinned' | 'unpinned' {
  * Resolves the exploration's presentation against the columns an execution (or the Glue
  * schema) actually reports, and returns the actions that change it.
  *
- * **None of this renders SQL** (SPEC-178's central rule), so every action here is a state
+ * **None of this renders SQL** (the central rule), so every action here is a state
  * write and never an execution — which is why geometry can be as free as it looks.
  *
- * Geometry is keyed by column NAME rather than position, and that is what makes FR-006 AC3
+ * Geometry is keyed by column NAME rather than position, and that is what makes the discard rule
  * true by construction: a width, a pin or a hide belonging to a column the new result set
  * does not contain simply never resolves — it is not applied to whichever column now
  * occupies that position. Stale entries are left in place rather than pruned, because a
  * re-execution that brings the column back should bring its geometry back with it.
  *
  * Two columns sharing a name share their geometry. `SELECT *` over a Glue table cannot
- * produce that, and SPEC-182's aggregates carry distinct aliases.
+ * produce that, and the aggregates carry distinct aliases.
  *
  * @param columns - The current column set, in the execution's own order.
  * @param presentation - The tab's presentation state.

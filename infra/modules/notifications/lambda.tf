@@ -1,11 +1,11 @@
-# ── Notifications-writer Lambda + trigger (SPEC-058 FR-001/FR-004/FR-005) ─────
+# ── Notifications-writer Lambda and its trigger ───────────────────────────
 # The single writer of every user's notifications.json. The request queue triggers it
 # directly via an SQS event-source mapping (batch size 1 → one message = one
 # invocation). The handler is an action-switch read-modify-write; for user-originated
 # actions it verifies the caller's Cognito ID token against the pool JWKS (offline — no
 # Cognito IAM needed) and derives the target username from the verified claim.
 #
-# Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
+# Code-ownership split (architecture.md): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml owns the Python code (builds
 # lambdas/notifications-writer, uploads it, update-function-code). `ignore_changes`
 # keeps `tofu apply` from reverting CI's deployed code.
@@ -21,7 +21,7 @@ data "archive_file" "writer_placeholder" {
 }
 
 # Explicit log group so retention is managed (Lambda would otherwise create one with
-# infinite retention on first invoke). 14-day retention (matches SPEC-012/033).
+# infinite retention on first invoke). 14-day retention (matches the other singleton Lambdas).
 resource "aws_cloudwatch_log_group" "writer" {
   name              = local.lambda_log_group_name
   retention_in_days = 14
@@ -40,11 +40,11 @@ resource "aws_lambda_function" "writer" {
       COGNITO_USER_POOL_ID  = var.user_pool_id
       COGNITO_APP_CLIENT_ID = var.app_client_id
       NOTIFICATIONS_MAX     = tostring(var.notifications_max)
-      # SPEC-137 FR-005. Optional BY CONSTRUCTION on the Lambda side — cpcommon.observability
+      # Optional BY CONSTRUCTION on the Lambda side — cpcommon.observability
       # reads it with os.environ.get and never config._require — so a writer deployed without
       # it logs to stdout instead of failing at cold start.
       #
-      # SPEC-156 FR-004: the writer now also imports cpcommon.auth and cpcommon.clients, which
+      # The writer now also imports cpcommon.auth and cpcommon.clients, which
       # it could not before — cpcommon.config _require'd six variables AT IMPORT and only three
       # of them are set here, so the layer's auth was unimportable and the function carried a
       # second copy of the fleet's JWKS verifier. config resolves on first ACCESS now, so the
@@ -52,7 +52,7 @@ resource "aws_lambda_function" "writer" {
       # (ADMIN_BUCKET, SHARED_SPACE_BUCKET, ATHENA_WORKGROUP) are absent on purpose; a probe
       # imports this module without them (test_layer_import_safety.py).
       LOGS_QUEUE_URL = var.logs_queue_url
-      # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+      # `env` shipped empty on every record. Same source of truth as the
       # feature-flag document's `environments` keys (`var.environment`, default "prod").
       ENV_NAME = var.environment
     }
@@ -77,7 +77,7 @@ resource "aws_lambda_function" "writer" {
 
 # SQS event-source mapping — the queue triggers the writer directly (no Pipe, no Step
 # Function). Batch size 1 so each FIFO message is its own invocation, preserving the
-# per-user one-at-a-time processing the single-writer model relies on (FR-001/FR-004).
+# per-user one-at-a-time processing the single-writer model relies on.
 resource "aws_lambda_event_source_mapping" "writer" {
   event_source_arn = aws_sqs_queue.requests.arn
   function_name    = aws_lambda_function.writer.arn

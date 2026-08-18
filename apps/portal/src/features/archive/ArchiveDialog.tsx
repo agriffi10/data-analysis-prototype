@@ -18,27 +18,27 @@ type Props = {
   /** The space root, so a folder is named by its path within the space rather than its key. */
   rootPrefix: string;
   busy: boolean;
-  /** The enqueue's failure, already through `toUserMessage` — never raw AWS text (SPEC-106). */
+  /** The enqueue's failure, already through `toUserMessage` — never raw AWS text. */
   submitError: string | null;
   onConfirm: () => void;
   onCancel: () => void;
 };
 
 /**
- * The archive confirmation (SPEC-172 FR-002).
+ * The archive confirmation.
  *
  * **This dialog carries more weight than a normal confirm, and its shape says so.** Archiving is
  * the only action in this portal that deletes the user's data and cannot be undone in the same
  * sitting: getting it back takes hours and is billed. So it names what goes, says plainly that
  * the data leaves this space, and says how long a restore takes — the last two being consequences
- * of decisions (SPEC-168 FR-002, SPEC-171 FR-001) that no button label could imply.
+ * of decisions that no button label could imply.
  *
  * **THE CONFIRM IS NOT THE FOCUSED CONTROL AND ENTER DOES NOT SUBMIT.** `ConfirmDialog` focuses
  * Cancel and is not a form, so both hold by construction rather than by discipline — and that is
  * why this is built on `ConfirmDialog` rather than on `FormDialog`, whose `submitOnEnterRef` is
  * exactly the affordance this dialog must not have. A keystroke should not delete a folder.
  *
- * Escape cancels through the depth-ordered registry (SPEC-155), and `busy` locks both buttons and
+ * Escape cancels through the depth-ordered registry, and `busy` locks both buttons and
  * dismissal while the enqueue is in flight, so Escape cannot close a half-submitted request.
  */
 export function ArchiveDialog({items, rootPrefix, busy, submitError, onConfirm, onCancel}: Props) {

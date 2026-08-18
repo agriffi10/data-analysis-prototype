@@ -22,7 +22,7 @@ export type UseExplorationQueryResult = {
   back: () => void;
   forward: () => void;
   /**
-   * A restored description whose SQL has already failed, held back from running (FR-006 AC4).
+   * A restored description whose SQL has already failed, held back from running.
    *
    * True only after a history step, never after an apply — an apply IS the user asking for
    * it again.
@@ -37,7 +37,7 @@ export type UseExplorationQueryResult = {
 const NOTHING_TO_CLEAR = 'There are no filters, expressions, sorts or grouping to clear.';
 
 /**
- * The two names the clear-all control goes by (SPEC-182 FR-006 AC3).
+ * The two names the clear-all control goes by.
  *
  * The label changes because the ACTION does: with a grouping in force, pressing it also
  * un-groups the result, and a control that says "filters" while removing a grouping is
@@ -53,7 +53,7 @@ function cap(entries: ExplorationQuery[]): ExplorationQuery[] {
 }
 
 /**
- * The one door through which a tab's query description changes (SPEC-181).
+ * The one door through which a tab's query description changes.
  *
  * Every gesture that renders SQL — a header menu, a cell filter, the expression bar, the
  * settings dialog, Remove all — lands here, which is what makes "one apply is one
@@ -154,7 +154,7 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
 
   const clearAll = useCallback(() => {
     if (isEmptyQuery(query)) return;
-    // Grouping goes too (SPEC-182 FR-006 AC3), superseding SPEC-181's preservation — and
+    // Grouping goes too, superseding the preservation — and
     // the control SAYS so, because "Remove all filters" silently un-grouping a view would
     // be the change nobody asked for that the earlier decision was protecting against.
     apply(emptyExplorationQuery());

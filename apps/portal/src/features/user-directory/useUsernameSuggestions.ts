@@ -5,7 +5,7 @@ import type {SuggestionSource} from './userDirectory.types';
 /**
  * The published username directory as a {@link SuggestionSource}.
  *
- * Thin on purpose. SPEC-158 lifted the combobox's data source to props so a second source could
+ * Thin on purpose. The combobox's data source is a prop so a second source could
  * exist; this hook is what keeps that lift behaviour-neutral for the two consumers that were
  * already suggesting usernames — they gained a prop, not a decision.
  *

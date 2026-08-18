@@ -6,7 +6,7 @@ bounded pool. No object bytes pass through the Lambda, so an object far larger t
 function's memory still transfers.
 
 It is ``cpcommon.transfer.copy`` with this plane's reason code and nothing else — the engine is
-shared with table-share deliberately (SPEC-160), and a forked copier here would be a second
+shared with table-share deliberately, and a forked copier here would be a second
 place for the multipart threshold, the abort-on-failure rule and the transient/deterministic
 split to drift. It knows nothing about recipients, the copy plan or the request: every
 destination was resolved upstream and written into the manifest.

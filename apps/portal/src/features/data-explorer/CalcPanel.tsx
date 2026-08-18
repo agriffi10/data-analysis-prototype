@@ -17,7 +17,7 @@ export type CalcPanelProps = {
 };
 
 /**
- * Aggregates over the current cell selection, computed in the browser (SPEC-182 FR-001).
+ * Aggregates over the current cell selection, computed in the browser.
  *
  * **It issues no query, and it could not.** A selection is client state — aggregating it
  * server-side would mean a billed execution per selection change, for a gesture as cheap
@@ -26,10 +26,10 @@ export type CalcPanelProps = {
  *
  * It is a side panel rather than a `Drawer` for a reason that is not stylistic: a Drawer
  * traps focus, and a panel that recomputes on every selection change has to leave the user
- * able to reach the grid. Escape closes it through the depth-ordered registry (SPEC-155),
+ * able to reach the grid. Escape closes it through the depth-ordered registry,
  * so a dialog opened above it still outranks it.
  *
- * With nothing selected it explains itself rather than showing zeroes (FR-002 AC2): a
+ * With nothing selected it explains itself rather than showing zeroes: a
  * column of `0`s reads as a computed answer to a question nobody asked.
  */
 export function CalcPanel({values, state, onStateChange, onClose}: CalcPanelProps) {
@@ -86,7 +86,7 @@ export function CalcPanel({values, state, onStateChange, onClose}: CalcPanelProp
                   {result.skipped > 0 && (
                     // Said beside the value rather than in a footnote: a sum that ignored
                     // half its cells is a different number, and the reader has to be told
-                    // where they are looking at it (FR-001 AC3).
+                    // where they are looking at it.
                     <span className="ml-1 font-sans text-[10px] text-text-3">{result.skipped} skipped</span>
                   )}
                 </dd>

@@ -2,7 +2,7 @@ import {CALC_NO_VALUE, CALC_PRECISION} from './dataExplorer.constants';
 import {isBareNumeric} from './renderExplorationSql';
 import type {CalcFunction, CalcPanelState, CalcResult, CellRange} from './dataExplorer.types';
 
-// The Calc panel's arithmetic (SPEC-182 FR-001), kept apart from the panel for the reason
+// The Calc panel's arithmetic, kept apart from the panel for the reason
 // `explorationQueryOps` is kept apart from the surfaces that call it: these answers are
 // asserted about directly, and a median hidden inside a component is a median nobody
 // tests over an even-length selection.
@@ -10,7 +10,7 @@ import type {CalcFunction, CalcPanelState, CalcResult, CellRange} from './dataEx
 // **Nothing here renders SQL and nothing here can.** Calc aggregates the cells a user has
 // SELECTED, and a selection exists only in the browser — so the alternative is a query per
 // selection change, for a gesture as cheap as dragging across ten cells. That is why the
-// panel says out loud what it computed over (FR-002): its numbers describe loaded, selected
+// panel says out loud what it computed over: its numbers describe loaded, selected
 // cells and never the result set.
 
 /** What one column contributes: its name, and where its values sit in a row array. */
@@ -123,13 +123,13 @@ function mode(values: string[]): string | null {
  * One function's answer over a selection.
  *
  * The strings toggle decides what the *considered* set is, and it is the panel's whole
- * honesty control (FR-001 AC4): numbers-only considers the numeric cells and reports the
+ * honesty control: numbers-only considers the numeric cells and reports the
  * rest as `skipped`, where mixed considers every non-null cell and compares `min`/`max`
  * as text. `sum`, `avg` and `median` have no mixed reading at all — an average of
  * "unknown" is not a number — so they stay numeric either way and report their own skips.
  *
  * `countNulls` is the exception that must not be lost: it counts SQL NULL, never the empty
- * string, which is the same distinction SPEC-180 FR-003 and SPEC-181 FR-002 make and the
+ * string, which is the same distinction the grid and the filters make, and the
  * third place it would be easy to drop (Athena hands every value back as a string, so
  * nothing below this layer can tell them apart).
  */
@@ -192,7 +192,7 @@ export function calcResults(values: (string | null)[], state: CalcPanelState): C
 }
 
 /**
- * How the Calc panel describes what it aggregated (FR-002 AC1).
+ * How the Calc panel describes what it aggregated.
  *
  * Every word of this is load-bearing. "Selected" bounds it to the cells the user picked,
  * "on this page" bounds it to the rows the browser is holding, and neither may be dropped
@@ -207,7 +207,7 @@ export function calcScopeText(count: number): string {
 }
 
 /**
- * What a grouped result's percentage column is called (SPEC-182 FR-004 AC2).
+ * What a grouped result's percentage column is called.
  *
  * **"On this page" is not a hedge, it is the truth.** Only the current page of a result is
  * in the browser, so a share computed here is a share of those rows — and a column headed

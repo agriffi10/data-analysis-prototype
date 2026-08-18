@@ -9,7 +9,7 @@ export const EMPTY_DISPLAY = '(empty)';
  * string is all that fits.
  *
  * Athena hands every value back as a string, so NULL and `''` arrive looking identical
- * unless something upstream keeps the difference — `getQueryResults` now does (SPEC-180),
+ * unless something upstream keeps the difference — `getQueryResults` now does,
  * and this is one of the two places it becomes visible.
  *
  * @param value - The cell, `null` for SQL NULL.

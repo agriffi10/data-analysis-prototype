@@ -1,4 +1,4 @@
-/** The document SPEC-146's daily builder publishes to `_directory/usernames.json`. */
+/** The document the daily builder publishes to `_directory/usernames.json`. */
 export type UserDirectoryDocument = {
   version: number;
   generatedAt: string;
@@ -30,7 +30,7 @@ export type UsernameSearchResult = {
 
 /**
  * What a suggestion field needs from whatever is suggesting: a status to branch on and a search
- * callback. Named for the ROLE rather than for the username directory, because SPEC-158 gave the
+ * callback. Named for the ROLE rather than for the username directory, because the share dialog gave its
  * combobox a second source — the signed-in user's own shared spaces — and the two are
  * interchangeable from the field's point of view.
  *

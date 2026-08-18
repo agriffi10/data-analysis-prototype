@@ -13,19 +13,19 @@ export type ValuePanelProps = {
    */
   value: string | null | undefined;
   /**
-   * The column's Athena type (SPEC-184 FR-003 AC3).
+   * The column's Athena type.
    *
    * Here because the type tint must never be the only thing carrying a value's type: this
    * panel and the column header are the two places it is written in words.
    */
   type?: string | null;
-  /** How the grid is rendering this cell, when a transformer changes it (FR-005 AC6). */
+  /** How the grid is rendering this cell, when a transformer changes it. */
   transformed?: TransformedValue | null;
   onClose: () => void;
 };
 
 /**
- * The focused cell's full value (SPEC-180 FR-003).
+ * The focused cell's full value.
  *
  * A `<textarea readonly>` rather than a block of text: it is scrollable, selectable and
  * copyable with the platform's own shortcuts, and read-only rather than disabled so it
@@ -36,9 +36,9 @@ export type ValuePanelProps = {
  * NULL and the empty string are named rather than shown, because both would render as an
  * empty box and the whole point of this panel is to say what a cell actually holds.
  *
- * One tree reflows (SPEC-095): below `tablet` it is a full-width sheet docked to the
+ * One tree reflows: below `tablet` it is a full-width sheet docked to the
  * bottom, at `tablet` and up a column beside the grid. Escape closes it through the
- * depth-ordered registry (SPEC-155), so a dialog opened above it still outranks it.
+ * depth-ordered registry, so a dialog opened above it still outranks it.
  */
 export function ValuePanel({column, value, type, transformed, onClose}: ValuePanelProps) {
   useEscapeKey(onClose, true);
@@ -79,7 +79,7 @@ export function ValuePanel({column, value, type, transformed, onClose}: ValuePan
       </div>
       {/* The RAW value and the rendering, both, and labelled apart. A panel that showed
           only the transformed form would leave a user with no way to see what they are
-          actually filtering, colouring and copying (FR-005 AC6). */}
+          actually filtering, colouring and copying. */}
       {focused && transformed && (
         <div className="flex-none">
           <h4 className="text-xs font-medium text-text-2">Shown as</h4>

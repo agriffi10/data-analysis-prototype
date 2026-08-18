@@ -33,7 +33,7 @@ function itemName(item: SendItem): string {
  * The note shown after committing a space name the user's own space list does not hold.
  *
  * It must NOT read as a rejection: any active space is a valid target whether or not the sender
- * belongs to it, and the suggestions cover only the sender's own spaces. SPEC-158 established
+ * belongs to it, and the suggestions cover only the sender's own spaces. That rule was established
  * this wording for the share dialog and it is the same claim here.
  *
  * @param names - The committed names absent from the suggestions; never empty.
@@ -44,7 +44,7 @@ function unlistedSpaceNote(names: string[]): string {
 }
 
 /**
- * The "Send to…" modal (SPEC-167): a read-only summary of the selection, a Users / Shared spaces
+ * The "Send to…" modal: a read-only summary of the selection, a Users / Shared spaces
  * toggle driving ONE combobox, and a combined removable chip list.
  *
  * It is `TableShareDialog` with the table name taken out, deliberately: both kinds suggest as you
@@ -53,7 +53,7 @@ function unlistedSpaceNote(names: string[]): string {
  * outcome comes back as a notification.
  */
 export function SendFilesDialog({items, busy = false, submitError, onSubmit, onCancel}: Props) {
-  // SPEC-163 FR-005: with shared workspaces off there is one recipient kind and no toggle, and
+  // With shared workspaces off there is one recipient kind and no toggle, and
   // `kind` can never leave 'user' because the only thing that sets it no longer renders.
   const sharedSpacesEnabled = useFeature('sharedWorkspaces');
   const [kind, setKind] = useState<SendRecipient['kind']>('user');
@@ -81,7 +81,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
 
   const addPending = () => {
     // The Add button drives the combobox's OWN commit so the button and Enter take one path —
-    // otherwise only one of them would surface the invalid tokens SPEC-148 requires to be shown.
+    // otherwise only one of them would surface the invalid tokens the combobox requires to be shown.
     entryRef.current?.commit();
     entryRef.current?.focus();
   };
@@ -98,7 +98,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
   const canSubmit = recipients.length > 0 && !busy;
 
   const attempt = () => {
-    // The Send control stays ENABLED with no recipients, deliberately: FR-002 AC7 asks for the
+    // The Send control stays ENABLED with no recipients, deliberately: the rule asks for the
     // send to be refused INLINE, and a disabled button explains nothing — the user who typed a
     // name and forgot to commit it presses Send and is told what is missing. `submitDisabled`
     // would make the banner below unreachable, which is what the first version of this dialog
@@ -142,7 +142,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
         </ul>
       </div>
 
-      {/* SPEC-163 FR-005: with `sharedWorkspaces` off there is exactly ONE recipient kind, so the
+      {/* with `sharedWorkspaces` off there is exactly ONE recipient kind, so the
           toggle does not render at all — a single-option radio group is a control that asks a
           question with one answer, and implies the other option exists somewhere. */}
       {sharedSpacesEnabled && (
@@ -186,7 +186,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
         <div className="min-w-0 flex-1">
           {/* ONE field for both kinds, differing only in what it suggests and what it calls
               things. `key={kind}` REMOUNTS on a toggle so a note raised under one kind cannot
-              linger over the other. The source is a PROP (SPEC-158): this dialog calls neither
+              linger over the other. The source is a PROP: this dialog calls neither
               suggestion hook from inside the field. */}
           <UsernameCombobox
             {...(kind === 'space' ? spaceSuggestions : userSuggestions)}
@@ -238,7 +238,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
         </ChipList>
       )}
 
-      {/* FR-002 AC7: submitting with no recipients is refused INLINE and sends nothing. */}
+      {/* Submitting with no recipients is refused INLINE and sends nothing. */}
       {attempted && recipients.length === 0 && (
         <Banner
           variant="warning"

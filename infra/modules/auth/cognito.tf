@@ -3,11 +3,11 @@
 # Sign-in is by username; email is a required, verified standard attribute.
 #
 # Username constraint: the username becomes the user's S3 prefix, the value of the
-# `username` IAM principal tag stamped by the Identity Pool (SPEC-011), AND the
-# user's Glue database name (SPEC-033). An IAM RoleSessionName / tag value allows at
+# `username` IAM principal tag stamped by the Identity Pool, AND the
+# user's Glue database name. An IAM RoleSessionName / tag value allows at
 # most 64 chars from the set `a-z A-Z 0-9 = , . @ - _` (see docs/architecture.md).
-# Signup additionally enforces `^[a-z][a-z0-9_]{2,62}$` via the SPEC-012 pre-signup
-# Lambda (tightened to a catalog-safe identifier by SPEC-033 so the Glue DB name is
+# Signup additionally enforces `^[a-z][a-z0-9_]{2,62}$` via the pre-signup
+# Lambda (a catalog-safe identifier, so the Glue DB name is
 # legal). Case-insensitivity (below) is immutable after pool creation, so `Alice` and
 # `alice` must never become two distinct users / S3 prefixes.
 
@@ -23,8 +23,8 @@ resource "aws_cognito_user_pool" "portal" {
   auto_verified_attributes = ["email"]
 
   # Trigger Lambdas (defined in lambda.tf; invoke permission granted there):
-  #   pre_sign_up       — enforce the username rule server-side (SPEC-012)
-  #   post_confirmation — provision the user's Glue database + LF grant (SPEC-033)
+  # pre_sign_up — enforce the username rule server-side
+  # post_confirmation — provision the user's Glue database + LF grant
   lambda_config {
     pre_sign_up       = aws_lambda_function.pre_signup.arn
     post_confirmation = aws_lambda_function.post_confirmation.arn
@@ -32,7 +32,7 @@ resource "aws_cognito_user_pool" "portal" {
 
   # Email verification uses a 6-digit code (not a link), so the user can enter it
   # on the Hosted UI. Customise the email so recipients recognise it. `{####}` is
-  # the Cognito placeholder for the generated code (SPEC-009 FR-002).
+  # the Cognito placeholder for the generated code.
   verification_message_template {
     default_email_option = "CONFIRM_WITH_CODE"
     email_subject        = "Your S3 Portal verification code"
@@ -47,7 +47,7 @@ resource "aws_cognito_user_pool" "portal" {
     mutable             = true
   }
 
-  # SPEC-056 shared-space membership slots: custom:shared_space_1..N (mutable
+  # Shared-space membership slots: custom:shared_space_1..N (mutable
   # strings, not required). Each holds the name of a shared space the user belongs
   # to, or is unset. The Identity Pool maps each to a principal tag shared_space_k
   # (identity-pool.tf) and the portal-role policy scopes S3/Glue to
@@ -71,7 +71,7 @@ resource "aws_cognito_user_pool" "portal" {
     }
   }
 
-  # Tightened for bot/credential-stuffing resistance (SPEC-030 FR-002). All flags
+  # Tightened for bot/credential-stuffing resistance. All flags
   # were already on; temporary_password_validity_days is added to complete the block.
   password_policy {
     minimum_length                   = 12
@@ -82,7 +82,7 @@ resource "aws_cognito_user_pool" "portal" {
     temporary_password_validity_days = 7
   }
 
-  # Self-signup enabled (open registration + email verification) — SPEC-009 depends on this.
+  # Self-signup enabled (open registration + email verification).
   admin_create_user_config {
     allow_admin_create_user_only = false
   }
@@ -96,7 +96,7 @@ resource "aws_cognito_user_pool" "portal" {
   }
 
   # Default Cognito email sender (50/day) is sufficient for MVP acceptance testing;
-  # SES integration is deferred until real user volume exists (SPEC-006 open question).
+  # SES integration is deferred until real user volume exists.
   email_configuration {
     email_sending_account = "COGNITO_DEFAULT"
   }
@@ -142,7 +142,7 @@ resource "aws_cognito_user_pool_client" "spa" {
   supported_identity_providers = ["COGNITO"]
 
   # Return an identical generic error for "user not found" and "wrong password"
-  # so sign-in attempts can't enumerate registered accounts (SPEC-030 FR-001).
+  # so sign-in attempts can't enumerate registered accounts.
   # This is a free Cognito feature and does NOT require Advanced Security Features.
   prevent_user_existence_errors = "ENABLED"
 

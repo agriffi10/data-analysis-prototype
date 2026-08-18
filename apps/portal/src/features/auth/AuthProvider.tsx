@@ -86,7 +86,7 @@ export function AuthProvider({children}: {children: ReactNode}) {
         return;
       }
       // Map to friendly text here (the code is in scope) so the Header banner
-      // never shows the raw Cognito message (SPEC-106 FR-003).
+      // never shows the raw Cognito message.
       setError(toUserText(result.error));
     },
     [refresh]

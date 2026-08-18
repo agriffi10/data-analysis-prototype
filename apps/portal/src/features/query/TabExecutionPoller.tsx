@@ -3,7 +3,7 @@ import {isTerminalState} from '../catalog/athena.service';
 import {useQueryExecution} from '../catalog/useQueryExecution';
 import type {QueryStatus} from '../catalog/catalog.types';
 
-// SPEC-041 FR-004: a headless poller, one per tab holding an execution. Each runs
+// a headless poller, one per tab holding an execution. Each runs
 // its own useQueryExecution so a backgrounded query keeps polling to terminal
 // (its status/history finalize without waiting for the user to return). Reports
 // status up and finalizes history exactly once per execution id.

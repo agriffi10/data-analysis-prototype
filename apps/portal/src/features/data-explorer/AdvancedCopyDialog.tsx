@@ -14,7 +14,7 @@ export type AdvancedCopyDialogProps = {
 };
 
 /**
- * Why a gap can appear in a paste (FR-001 AC5).
+ * Why a gap can appear in a paste.
  *
  * Stated rather than discovered: a discontiguous selection copies as the rectangle around
  * it, and a spreadsheet has no way to show which of its blank cells were never selected.
@@ -23,7 +23,7 @@ export const COPY_RECTANGLE_NOTE =
   'A copy always comes out as one rectangle. If your selection has gaps, the cells in between are copied blank.';
 
 /**
- * Why the copy may be smaller than the result (FR-001 AC6).
+ * Why the copy may be smaller than the result.
  *
  * The grid holds ONE page, so selecting a whole column selects the loaded rows and no more.
  * A user who has paged through a large result has every reason to expect otherwise, and
@@ -51,7 +51,7 @@ const FORMATS = Object.keys(COPY_FORMAT_LABELS) as CopyFormat[];
 const QUOTING_NOTE_ID = 'advanced-copy-quoting-note';
 
 /**
- * Copy, in the shape the destination wants (SPEC-185 FR-001).
+ * Copy, in the shape the destination wants.
  *
  * Staged rather than applied per control, for the reason every dialog in this feature is:
  * the copy is a single clipboard write, and writing on each keystroke would leave whatever
@@ -119,7 +119,7 @@ export function AdvancedCopyDialog({selectedCount, onCopy, onCancel}: AdvancedCo
 
       {/* Refused rather than silently inert: in JSON, SQL and XML every value is already
           delimited by the format, so a quoting toggle would change nothing about the output.
-          **`aria-disabled`, not `disabled`** — SPEC-172's fleet-wide rule, so the control
+          **`aria-disabled`, not `disabled`** — the fleet-wide rule, so the control
           stays in the tab order and the reason beside it is reachable rather than something
           a keyboard user tabs straight past. The handler ignores the change, since
           `aria-disabled` alone does not stop a checkbox toggling. */}

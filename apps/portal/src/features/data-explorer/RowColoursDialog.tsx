@@ -26,7 +26,7 @@ export type RowColoursDialogProps = {
   onCancel: () => void;
 };
 
-/** Shown against a rule whose column the current result no longer has (FR-007 AC3). */
+/** Shown against a rule whose column the current result no longer has. */
 export const INAPPLICABLE_RULE = 'This column isn’t in the results right now, so the rule is doing nothing.';
 export const NO_RULES = 'No rules yet. Add one to colour cells by what they hold.';
 export const ROW_COLOURS_FREE = 'Colours are worked out in your browser. Nothing here runs a query.';
@@ -38,8 +38,7 @@ function newRule(): ColourRule {
 }
 
 /**
- * Conditional colouring, colour-by-type and row banding, in one staged form (SPEC-184
- * FR-002, FR-003, FR-004).
+ * Conditional colouring, colour-by-type and row banding, in one staged form.
  *
  * Staged for `OrderFilterDialog`'s reason turned inside out. There it is about cost — many
  * changes becoming one execution. Here **nothing costs anything**, and the staging is about
@@ -47,7 +46,7 @@ function newRule(): ColourRule {
  * would repaint the grid from half-written conditions. Cancel discards the draft whole.
  *
  * The palette is a bounded set of design tokens rather than a colour picker, which is what
- * makes the contrast promise (FR-002 AC8) one this dialog can actually keep — every pairing
+ * makes the contrast promise one this dialog can actually keep — every pairing
  * it can produce is measured in `formatting.test.ts`.
  */
 export function RowColoursDialog({columns, formatting, onApply, onCancel}: RowColoursDialogProps) {
@@ -60,7 +59,7 @@ export function RowColoursDialog({columns, formatting, onApply, onCancel}: RowCo
   // The gradient bounds AS TYPED, keyed `${rule.id}:min|max`. A number-only round trip
   // through `Number()` cannot be typed into: `-` is NaN and renders as empty, so the minus
   // is erased, and `1.` renders as `1`, so the point is. Both make a range like `-10..40`
-  // or `0..1.5` unreachable — FR-002 AC4 asks for a numeric range, not a whole positive one.
+  // or `0..1.5` unreachable — the rule asks for a numeric range, not a whole positive one.
   // The parsed value still rides on the rule, so a half-typed bound is refused at Apply.
   const [bounds, setBounds] = useState<Record<string, string>>({});
 
@@ -90,7 +89,7 @@ export function RowColoursDialog({columns, formatting, onApply, onCancel}: RowCo
   const submit = () => {
     // Every refusal is raised at once rather than one per attempt, and each is user
     // wording: the engine's own `SyntaxError` names character offsets in a pattern the
-    // user is still writing, which SPEC-106 forbids showing (SPEC-181's precedent).
+    // user is still writing, which the error-wording rule forbids showing (the same reason).
     const bad: Record<string, string> = {};
     for (const rule of draft.rules) {
       const refusal = ruleRefusal(rule);

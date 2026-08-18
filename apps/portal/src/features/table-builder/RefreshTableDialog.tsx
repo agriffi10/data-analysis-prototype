@@ -15,13 +15,13 @@ type Props = {
 };
 
 /**
- * The "Refresh table" confirmation (SPEC-145). It explains what a refresh does and
+ * The "Refresh table" confirmation. It explains what a refresh does and
  * does not do — the dialog cannot *predict* the outcome, because there is no
- * synchronous inference path (SPEC-144 FR-003) — and carries the removals opt-in.
+ * synchronous inference path — and carries the removals opt-in.
  *
  * The opt-in is always present and always unchecked: a user who knows a column is
  * going away should not have to trigger a refusal to be offered the option. When the
- * dialog was opened from SPEC-144's `columns_removed` notification link it
+ * dialog was opened from `columns_removed` notification link it
  * additionally names the columns that link carried, and confirm stays disabled until
  * the box is ticked — arriving here means a removal is already pending, so
  * proceeding without acknowledging it is not a meaningful action.
@@ -41,7 +41,7 @@ export function RefreshTableDialog({target, busy = false, submitError, onConfirm
       busyLabel="Starting…"
       busy={busy}
       confirmDisabled={!!pending && !allowRemovals}
-      // SPEC-186 FR-002. The banner above already explains the situation, but the CONTROL said
+      // The banner above already explains the situation, but the CONTROL said
       // nothing — a natively-disabled button with no title, skipped by the tab order.
       confirmDisabledReason="Tick “Allow columns to be removed” to refresh this table."
       onConfirm={() => onConfirm(allowRemovals)}
@@ -64,7 +64,7 @@ export function RefreshTableDialog({target, busy = false, submitError, onConfirm
       <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-relaxed text-text-2">
         <li>Your files are not modified — only the table&rsquo;s list of columns changes.</li>
         <li>Partition keys are not changed. To change those, create the table again.</li>
-        {/* SPEC-149 replaced 144's drop-and-recreate with one in-place UpdateTable, so
+        {/* The apply is one in-place Update, not a drop-and-recreate UpdateTable, so
             there is no window in which the table does not exist. */}
         <li>The table stays queryable throughout — its definition is replaced in one step.</li>
         <li>The result arrives as a notification, not here.</li>

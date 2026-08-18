@@ -156,7 +156,7 @@ def emit_recipient_failure(request: dict, kind: str, name: str, reason: str) -> 
 
     Every other per-recipient failure notification comes from the failing verb's own decorator,
     which holds both the recipient and the error. A copy failure no longer has such a verb:
-    SPEC-160's batch copier runs over a mixed batch of recipients' objects and succeeds while
+    The batch copier runs over a mixed batch of recipients' objects and succeeds while
     reporting them, so the recipient is only known once the Map Run's results are attributed.
     Without this the copy failure would be the one outcome that told the sender nothing.
 

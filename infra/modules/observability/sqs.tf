@@ -1,10 +1,10 @@
-# The structured-logging transport (SPEC-127 FR-002, converted to FIFO by SPEC-129).
+# The structured-logging transport, a FIFO queue.
 #
 # FIFO, like every other queue in this repo. It was STANDARD when it shipped, for a concrete
 # reason: log-foundry's SQSSink built its batch entries as {"Id", "MessageBody"} and nothing
 # else, and a FIFO queue REJECTS a SendMessageBatch that omits MessageGroupId — every batch
 # would have failed and the events would have been abandoned to stderr. log-foundry 0.5.0
-# (log-forge SPEC-016) added FIFO support, which removed that constraint.
+# added FIFO support, which removed that constraint.
 #
 # `.fifo` is not decoration: AWS requires a FIFO queue's name to end in it, and the name is a
 # ForceNew attribute — so this rename is a DESTROY-AND-CREATE. The deploy role was granted
@@ -32,7 +32,7 @@ resource "aws_sqs_queue" "logs" {
 
   # No redrive_policy, and no DLQ, deliberately. The only failure the sweep can suffer on a
   # message is a failed S3 write, which is not the message's fault — a maxReceiveCount would
-  # move perfectly good events onto a second queue that nothing reads. FR-005 makes every
+  # move perfectly good events onto a second queue that nothing reads. the rule makes every
   # message routable (an unparseable body goes to logs/service=_unrouted/) and therefore
   # deletable, so there is no poison message for a DLQ to isolate.
 }

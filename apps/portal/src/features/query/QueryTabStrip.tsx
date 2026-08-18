@@ -6,23 +6,23 @@ import type {QueryTab} from './query.types';
 type Props = {
   tabs: QueryTab[];
   activeTabId: string;
-  dirtyTabIds: Set<string>; // SPEC-043: linked tabs whose SQL differs from the saved query
+  dirtyTabIds: Set<string>; // Linked tabs whose SQL differs from the saved query
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onNew: () => void;
-  onOpenSaved: () => void; // SPEC-043 FR-010: global (all-tabs) workspace buttons
+  onOpenSaved: () => void; // Global (all-tabs) workspace buttons
   onOpenHistory: () => void;
 };
 
 const barButton =
   'inline-flex h-7 flex-none items-center gap-1.5 whitespace-nowrap rounded-md border border-transparent px-3 text-sm font-medium text-text-2 hover:bg-surface hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent [&>svg]:h-[15px] [&>svg]:w-[15px]';
 
-// SPEC-041 FR-001/002/005: the query-tab strip above the editor toolbar. "Card"
+// The query-tab strip above the editor toolbar. "Card"
 // tabs (design-system.md §6) — distinct from the topbar Files|Query underline and
 // the sidebar fill. Active tab: an elevated card (surface fill + border + shadow +
 // bold label) — never color-only, and no leading dot so it can't be confused with
 // the dirty-state marker. The last remaining tab hides its close control; the `+`
-// is never disabled (the cap is enforced by a dialog upstream — FR-008).
+// is never disabled (the cap is enforced by a dialog upstream).
 export function QueryTabStrip({
   tabs,
   activeTabId,
@@ -160,7 +160,7 @@ export function QueryTabStrip({
         })}
       </div>
 
-      {/* SPEC-043 FR-010: workspace-global buttons (act across all tabs). They
+      {/* workspace-global buttons (act across all tabs). They
           sit outside the scrollable tablist so they stay visible at any tab count. */}
       <button
         type="button"

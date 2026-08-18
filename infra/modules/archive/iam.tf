@@ -1,12 +1,12 @@
-# ── Control-plane IAM roles (SPEC-168) ───────────────────────────────────────
+# ── Control-plane IAM roles ─────────────────────────────────────────────────────────────────
 # ONE shared execution role for every verb Lambda (the consolidated model every plane has
-# used since SPEC-062), plus the Step Function role and the Pipe role. Trust + permission
+# used by every plane), plus the Step Function role and the Pipe role. Trust + permission
 # policies are .tftpl templates rendered with templatefile() (no inline jsonencode IAM,
 # per architecture.md).
 #
 # The execution policy grants exactly what the shipped verbs need: the registry read that
 # authorizes a shared source, the notifications and logs queues, its own log group, and —
-# since SPEC-169 — the source listing and read, the copy plan and manifest in the admin
+# — the source listing and read, the copy plan and manifest in the admin
 # bucket, the receipt write, the archive vault, and the SOURCE DELETION.
 #
 # THE SOURCE DELETION IS THE STATEMENT TO READ TWICE, AND IT IS WHY THIS ROLE IS UNLIKE
@@ -35,10 +35,10 @@
 # THE ARCHIVE BUCKET'S DeleteObject IS THE ROLLBACK'S, and it is the one grant that looks
 # surprising on a vault. A partial copy is not an archive, so it is removed; without this
 # the gate could refuse the deletion but not clean up after itself, and the residue would
-# sit at the GLACIER 90-day minimum until the 7-year expiry. SPEC-171 uses the same grant
+# sit at the GLACIER 90-day minimum until the 7-year expiry. The restore uses the same grant
 # to clear a restored archive.
 #
-# SPEC-171 ADDS TWO THINGS, AND THE SECOND IS A DELIBERATE WIDENING THAT MUST NOT ARRIVE
+# THE RESTORE ADDS TWO THINGS, AND THE SECOND IS A DELIBERATE WIDENING THAT MUST NOT ARRIVE
 # SILENTLY IN A DIFF.
 #
 #   * s3:RestoreObject on the vault (ArchiveVaultRetrieve). It is a DISTINCT ACTION from
@@ -46,7 +46,7 @@
 #     the failure would be an AccessDenied at the point of no return rather than at plan
 #     time.
 #   * s3:PutObject on the two SPACE buckets, unrestricted by prefix within the space root
-#     (SpaceDataWrite, replacing SPEC-169's ReceiptWrite). SPEC-169 needed only `*/archive/*`
+# (SpaceDataWrite, replacing the ReceiptWrite). The archive needed only `*/archive/*`
 #     because the only thing it wrote into a user's space was a receipt. A RESTORE writes
 #     wherever the data came from, which is anywhere in the space, so the narrow grant cannot
 #     stand. The multipart pair joins it because an archived object may be up to
@@ -64,8 +64,8 @@
 # IT ALSO COVERS `_config/` AND `_directory/`, WHICH ARE AT THE BUCKET ROOT AND NOT INSIDE ANY
 # SPACE. A `*/x/*` pattern cannot match a key with one segment before the folder, so the two
 # documents that are arguably the most dangerous things in that bucket — the feature-flag
-# document that decides what every user can see (SPEC-162) and the username directory
-# (SPEC-146) — were outside a statement whose name claims to cover portal-managed state. They
+# document that decides what every user can see and the username directory
+# — were outside a statement whose name claims to cover portal-managed state. They
 # are unreachable from code, because every restore destination is built by paths.origin_key
 # under an authorized space root, but the widening is what made naming them cheap and correct.
 
@@ -76,7 +76,7 @@
 # NOTE FOR ANYONE ADDING A STATEMENT: IAM rejects a "//" comment key inside a statement
 # ("Policy input list item 1 has invalid content" — verified with simulate_custom_policy),
 # so rationale goes HERE, not in the .tftpl.
-# states:DescribeExecution (SPEC-169 FR-003) is the ONE grant the timeout door needs, and
+# states:DescribeExecution is the ONE grant the timeout door needs, and
 # it is on THIS role rather than the state machine's because it is the notify-failure
 # LAMBDA that makes the call — invoked by EventBridge, outside any execution. It reads back
 # the input of a run whose event omitted it, which on this plane is the ordinary case for a
@@ -106,14 +106,14 @@ resource "aws_iam_role_policy" "execution" {
   })
 }
 
-# ── Portal role — archive enqueue policy (SPEC-168 FR-007) ───────────────────
+# ── Portal role — archive enqueue policy ───────────────────
 # THE BROWSER'S ONLY POSITIVE ARCHIVE PRIVILEGE: sqs:SendMessage to the request queue.
 # It is granted NOTHING on the archive bucket — not GetObject, not ListBucket, nothing —
 # and a rendered-policy test asserts the portal role has no statement of any kind naming
 # that ARN. The browser's only relationship with that bucket is that it has none, and the
 # only route to archived bytes is a restore request through this plane.
 #
-# A small inline policy on the shared portal role (SPEC-011), attached BY NAME like the
+# A small inline policy on the shared portal role, attached BY NAME like the
 # file-send / table-builder / table-share / notifications modules (the role is created in
 # module.data; the root module-level depends_on guarantees it exists first). The two
 # `archive/` write DENIES that go with this live in the space buckets' own portal
@@ -138,12 +138,12 @@ resource "aws_iam_role_policy" "sfn" {
   name = "permissions"
   role = aws_iam_role.sfn.id
 
-  # InvokeFunction on the verbs + log delivery, plus (SPEC-169) the Distributed Map's own
+  # InvokeFunction on the verbs + log delivery, plus the Distributed Map's own
   # permissions — which belong HERE and not on the execution role: the state machine is
   # what calls StartExecution for each child and what reads the ItemReader object and
   # writes the ResultWriter export. Putting them on the Lambda role renders, applies and
   # unit-tests green, then fails on the first real archive with AccessDenied at the
-  # ItemReader (SPEC-160 FR-006's finding, inherited here rather than rediscovered).
+  # ItemReader.
   policy = templatefile("${path.module}/policies/sfn-permissions.json.tftpl", {
     function_arns_json           = jsonencode(local.archive_function_arns)
     sfn_log_group_arn            = local.sfn_log_group_arn

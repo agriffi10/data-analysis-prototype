@@ -1,8 +1,8 @@
 """update-receipt — the archive's receipt, rewritten to say what the restore did.
 
-SPEC-171 FR-006. The receipt at ``{spaceRoot}archive/{archiveId}/receipt.txt`` is the only
+The receipt at ``{spaceRoot}archive/{archiveId}/receipt.txt`` is the only
 artifact of an archive the user can see, and it carries two fields that have been placeholders
-since SPEC-169 wrote it. This verb fills them in. **It rewrites; it never deletes and never
+ wrote it. This verb fills them in. **It rewrites; it never deletes and never
 re-renders the whole document** — the archive lines record the archive RUN, and its start time
 is the one field no restore can recompute, so a fresh render would silently blank it.
 
@@ -54,7 +54,7 @@ def _fallback_record(event) -> dict:
     ordinary path rewrites rather than re-renders.
 
     ``Request ID`` is the ARCHIVE's id and not this restore's. They are deliberately different
-    values (SPEC-170 FR-001), and the one that belongs on this document is the one that opened it.
+    values, and the one that belongs on this document is the one that opened it.
 
     Args:
       event: The validated restore request.

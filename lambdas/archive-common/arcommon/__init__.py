@@ -4,7 +4,7 @@ Imported as a package (``from arcommon import authz``) so its module names canno
 another domain layer's under one pytest run. Every archive verb attaches this layer alongside
 ``cpcommon``.
 
-The split with ``cpcommon`` is SPEC-156's and is not negotiable per plane: **cpcommon owns the
+The split with ``cpcommon`` is the and is not negotiable per plane: **cpcommon owns the
 algorithm, this layer owns archive's tables, key layout and wording**. Nothing here
 re-implements a CAS loop, a message resolver, an SQS parser, a token verification or the key
 containment rule — containment in particular moved to ``cpcommon.paths`` with this spec rather

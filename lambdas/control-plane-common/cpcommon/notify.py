@@ -8,7 +8,7 @@ not decide what goes in one, and the four planes make four different choices (se
 docstring). A plane relying on the queue's content-based dedup simply does not call it.
 
 Event-context extraction is domain work too, with **one narrow exception**: ``actor_of`` reads
-the flat ``actor`` envelope SPEC-164 introduced for file-send and archive inherited, where the
+the flat ``actor`` envelope file-send introduced and archive inherited, where the
 field may be either the verified username or the token object it was verified from. The other
 four planes bind a plain string and read it directly, so this is a two-plane contract living
 here rather than a fleet-wide one.

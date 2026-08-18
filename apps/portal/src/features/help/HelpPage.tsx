@@ -14,15 +14,15 @@ function sectionFromHash(hash: string, sections: typeof HELP_SECTIONS): HelpSect
   const id = hash.replace(/^#/, '');
   const match = sections.find((s) => s.id === id);
   // Falls back to the first VISIBLE section, so `/help#query` with Query off lands somewhere
-  // real instead of on a section the list no longer offers (FR-006: unreachable by anchor).
+  // real instead of on a section the list no longer offers (unreachable by anchor).
   return match ? match.id : sections[0].id;
 }
 
 /**
- * The Help & guides page (SPEC-074): a section sidebar beside the active
+ * The Help & guides page: a section sidebar beside the active
  * section's guides as accordion cards. The active section lives in the URL hash
  * (`/help#query`) so it's shareable and back/forward moves between sections
- * (FR-002/003/004). Static content — no loading/error/network states.
+ * Static content — no loading/error/network states.
  *
  * @example
  * <HelpPage />
@@ -33,7 +33,7 @@ export function HelpPage() {
   const {hash} = useLocation();
   const navigate = useNavigate();
 
-  // SPEC-163 FR-006: a disabled feature's guides are neither listed nor reachable. The
+  // a disabled feature's guides are neither listed nor reachable. The
   // guide→flag mapping lives ONLY in the registry (`hiddenHelpIds`) — `helpContent.ts` knows
   // nothing about flags, so a guide cannot end up gated in the list and ungated by anchor.
   //
@@ -43,7 +43,7 @@ export function HelpPage() {
   const query = useFeature('query');
   const sharedWorkspaces = useFeature('sharedWorkspaces');
   const dataQuality = useFeature('dataQuality');
-  // SPEC-185 registered the Data Explorer's section and its five guides, so this flag now
+  // The Data Explorer's section carries five guides, so this flag now
   // hides content like the other four. The map below stays TOTAL over `FeatureFlagKey`
   // regardless: a partial one type-errors here rather than silently answering `undefined`
   // (falsy, so every guide) the day a new flag's first guide row is registered.
@@ -60,7 +60,7 @@ export function HelpPage() {
   const section = sections.find((s) => s.id === activeId) ?? sections[0] ?? HELP_SECTIONS[0];
 
   // Reset the content panel to the top when the section changes so a long
-  // scroll position doesn't carry over (FR-003).
+  // scroll position doesn't carry over.
   useEffect(() => {
     document.getElementById('main')?.scrollTo?.({top: 0});
   }, [activeId]);
@@ -70,7 +70,7 @@ export function HelpPage() {
   };
 
   // Rail at ≥ tablet, horizontal chips on mobile — mount-gated so exactly one
-  // section selector exists in the layout at a time (SPEC-103 FR-004).
+  // section selector exists in the layout at a time.
   const isMobile = useIsMobile();
 
   return (

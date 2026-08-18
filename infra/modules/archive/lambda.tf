@@ -1,12 +1,12 @@
-# ── Control-plane Lambdas (SPEC-168) ─────────────────────────────────────────
+# ── Control-plane Lambdas ─────────────────────────────────────────
 # Single-task verb Lambdas — validate-authorize and notify-failure at this stage —
 # orchestrated by the Step Function (stepfunction.tf). Both share ONE execution role
 # (iam.tf) and each gets its task's real timeout/memory (locals.tf).
 #
-# Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
+# Code-ownership split (architecture.md): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python code
 # (lambdas/archive-<suffix>/) AND publishes + attaches the layers: the arcommon domain
-# layer PLUS the shared cpcommon layer (SPEC-107). `ignore_changes` keeps `tofu apply`
+# layer PLUS the shared cpcommon layer. `ignore_changes` keeps `tofu apply`
 # from reverting CI's code OR layers.
 
 # One placeholder package per function so each is valid at create time. CI replaces the
@@ -50,7 +50,7 @@ resource "aws_lambda_function" "functions" {
   # surfaces as a failed REQUEST rather than a failed deploy either way. The per-verb map
   # (locals.tf) is reserved for OPTIONAL action env only.
   #
-  # ARCHIVE_BUCKET is this plane's own addition to that shared set (SPEC-168). No other
+  # ARCHIVE_BUCKET is this plane's own addition to that shared set. No other
   # plane sets it and none needs to: it is required only where it is read.
   environment {
     variables = merge(
@@ -63,9 +63,9 @@ resource "aws_lambda_function" "functions" {
         COGNITO_APP_CLIENT_ID = var.app_client_id
         # Optional in cpcommon.config — unset ⇒ emits are logged no-ops.
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
-        # SPEC-136 parity. Deliberately NOT mirrored by a config._require — see variables.tf.
+        # Deliberately NOT mirrored by a config._require — see variables.tf.
         LOGS_QUEUE_URL = var.logs_queue_url
-        # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+        # `env` shipped empty on every record. Same source of truth as the
         # feature-flag document's `environments` keys (`var.environment`, default "prod").
         ENV_NAME = var.environment
       },

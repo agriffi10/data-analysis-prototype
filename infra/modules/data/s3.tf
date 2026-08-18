@@ -1,12 +1,12 @@
 # ── User-Space Bucket (Bucket 1) ─────────────────────────────────────────────
 # Holds every user's files under their own username prefix ({username}/...) plus
 # their future .config/connections.json. Private; per-user isolation is enforced
-# by IAM principal tags on the shared portal role (SPEC-011/013), not by anything
+# by IAM principal tags on the shared portal role, not by anything
 # in this module.
 #
 # This module is storage only — the bucket and its hygiene config. The portal
 # role, its prefix-scoped permission policy, and the bucket policy restricting
-# access to that role all arrive in SPEC-011/013.
+# access to that role arrive with the portal role.
 
 # IAM propagation guard. The module-level `depends_on = [module.base]` orders the
 # API calls so the deploy-role policy (which grants S3 bucket management) is
@@ -18,7 +18,7 @@ resource "time_sleep" "wait_for_deploy_policy" {
   create_duration = "30s"
 }
 
-# RESERVED ROOT PREFIX (SPEC-146). This bucket has an invariant worth naming before breaking
+# RESERVED ROOT PREFIX. This bucket has an invariant worth naming before breaking
 # it: EVERY TOP-LEVEL PREFIX IS A USERNAME. `_directory/` is the one deliberate exception — it
 # holds the daily username-directory document the browser reads for typeahead suggestions.
 #
@@ -77,11 +77,11 @@ resource "aws_s3_bucket_versioning" "user_space" {
   }
 }
 
-# Lifecycle — abort incomplete multipart uploads after 7 days (SPEC-016 FR-006).
-# SPEC-016 uploads via the managed lib-storage Upload, which uses multipart above
+# Lifecycle — abort incomplete multipart uploads after 7 days.
+# Uploads via the managed lib-storage Upload, which uses multipart above
 # the 5 MiB part size. A browser killed mid-upload (or a future cancel) can leave
 # in-progress parts that are billable but invisible; this rule sweeps them up.
-# This is the first lifecycle rule on the bucket (SPEC-010 deferred them). The
+# The first lifecycle rule on the bucket. The
 # empty filter applies the rule to the whole bucket. The deploy role already holds
 # s3:* on this bucket (modules/base S3UserSpaceBucketManage), so no deploy-role
 # change is needed for s3:PutLifecycleConfiguration.
@@ -114,14 +114,14 @@ resource "aws_s3_bucket_cors_configuration" "user_space" {
   }
 }
 
-# ── Bucket Policy — defense in depth (SPEC-013 FR-002; deploy-role fix SPEC-016) ─
+# ── Bucket Policy — defense in depth ──────────────────────────────────────
 # Denies S3 *data* actions (object CRUD + ListBucket) to every principal except
 # the portal role, the deploy role, and the account root (break-glass). This is
 # belt-and-suspenders on top of the role's identity policy: even a misconfigured
 # principal can't read or write user data. Bucket *configuration* actions
 # (PutBucketPolicy, lifecycle, etc.) are intentionally NOT denied.
 #
-# The LF registration role MUST also be excluded (SPEC-032): Lake Formation
+# The LF registration role MUST also be excluded: Lake Formation
 # assumes it to vend credentials for the registered user-space location, so when a
 # user queries a Glue table the S3 read happens AS this role. An explicit Deny in a
 # resource policy overrides the role's identity-policy Allow, so without the
@@ -130,7 +130,7 @@ resource "aws_s3_bucket_cors_configuration" "user_space" {
 # excluding it doesn't widen user data access.
 #
 # The deploy role MUST be excluded: it runs `tofu plan`/`apply`, which calls
-# HeadBucket (an s3:ListBucket action) to refresh the bucket. SPEC-013 omitted it,
+# HeadBucket (an s3:ListBucket action) to refresh the bucket. An earlier version omitted it,
 # so once the policy was live the deploy role got 403 on HeadBucket, tofu refresh
 # reported the bucket as "deleted", and every subsequent infra plan proposed a
 # destructive recreate. Excluding the deploy role (which already holds s3:* on the

@@ -1,4 +1,4 @@
-# ── Lambda Deployment Artifacts Bucket (SPEC-012) ────────────────────────────
+# ── Lambda Deployment Artifacts Bucket ────────────────────────────
 # Staging bucket for Lambda code packages. GitHub Actions
 # (.github/workflows/deploy-lambdas.yml) builds each function's zip, uploads it
 # here under {function}/{git-sha}.zip, then calls update-function-code referencing
@@ -10,7 +10,7 @@
 # written before this module runs — but IAM is eventually consistent, so the
 # deploy role using that grant to create the bucket in the same apply can race
 # the propagation and hit a transient AccessDenied. This pause closes that window.
-# 60s (not 30s): SPEC-012's first apply saw a later bucket-config call
+# 60s (not 30s): The first apply saw a later bucket-config call
 # (GetLifecycleConfiguration) still race even after CreateBucket succeeded.
 resource "time_sleep" "wait_for_deploy_policy" {
   create_duration = "60s"

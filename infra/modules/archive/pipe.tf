@@ -1,10 +1,10 @@
-# ── EventBridge Pipe: request queue → Step Function (SPEC-168 FR-003) ────────
+# ── EventBridge Pipe: request queue → Step Function ────────
 # Drains the FIFO request queue into the orchestrator. Batch size 1 so each message
 # starts its own execution and the FIFO per-MessageGroupId (= the hashed source space
 # root, sqs.tf) ordering is preserved.
 #
 # FIRE_AND_FORGET, and REQUEST_RESPONSE is not merely unused — it is IMPOSSIBLE for a
-# Standard state machine (settled in SPEC-157). The Pipe calls StartExecution and returns
+# Standard state machine. The Pipe calls StartExecution and returns
 # immediately; the outcome reaches the user as a notification, never as a response.
 #
 # Role boundary: this PIPE role only needs states:StartExecution (+ SQS consume) — it

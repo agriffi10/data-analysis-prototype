@@ -17,7 +17,7 @@ type Props = {
  * Left navigation sidebar for the authenticated app shell — a 248px panel
  * listing the user's spaces (the shared `SpacesList`) inside `CollapsibleRail`.
  * Hidden below the `tablet` breakpoint so the browser fills narrow viewports;
- * on mobile the same `SpacesList` is fed into the `AppNavDrawer` (SPEC-099).
+ * on mobile the same `SpacesList` is fed into the `AppNavDrawer`.
  *
  * @example
  * <Sidebar connections={connections} activeSpaceId={spaceId} onSelectSpace={setSpaceId} />

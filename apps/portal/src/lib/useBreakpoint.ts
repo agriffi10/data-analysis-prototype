@@ -1,6 +1,6 @@
 import {useSyncExternalStore} from 'react';
 
-/** Project breakpoint thresholds (SPEC-095); mirror `src/index.css` `@theme`. */
+/** Project breakpoint thresholds; mirror `src/index.css` `@theme`. */
 export const TABLET_MIN = 900;
 export const DESKTOP_MIN = 1300;
 
@@ -41,7 +41,7 @@ function getSnapshot(): BreakpointState {
  * Current viewport tier as booleans, kept live via `matchMedia`. **For
  * mount-gating decisions only** (e.g. not instantiating Monaco on phones,
  * mounting the mobile nav drawer) — never for styling, which is Tailwind's
- * `tablet:` / `desktop:` variants (SPEC-095 FR-008). SSR-safe (defaults to
+ * `tablet:` / `desktop:` variants. SSR-safe (defaults to
  * desktop when `matchMedia` is unavailable).
  *
  * @example

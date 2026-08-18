@@ -1,6 +1,6 @@
-# ── Constructed names + ARNs (SPEC-164) ──────────────────────────────────────
+# ── Constructed names + ARNs ──────────────────────────────────────────────────────────────────────
 # All resource names derive from {project_name}-{environment} so the deploy policy
-# (modules/base, the SPEC-164 PR1 grant) scopes to the same {project}-*-file-send-*
+# (the modules/base grant) scopes to the same {project}-*-file-send-*
 # patterns, and so cross-resource ARNs referenced inside IAM policy templates are
 # KNOWN AT PLAN TIME (constructed strings, not resource attributes) — the
 # architecture.md "unknown ARN in list" discipline. This module plans standalone.
@@ -21,13 +21,13 @@ locals {
   sfn_role_name       = "${var.project_name}-${var.environment}-file-send-sfn-role"
 
   # ONE shared execution role for every verb Lambda, matching every plane since
-  # SPEC-062 consolidated the per-verb roles away. Its permission policy
+  # Every plane uses one role rather than one per verb. Its permission policy
   # (execution.json.tftpl) grows with the arc: logs + notifications + the registry
-  # read and Cognito check validate-authorize needs (164); the source listing lands
-  # with SPEC-165 and the destination writes with SPEC-166.
+  # read and Cognito check validate-authorize needs; the source listing lands
+  # and the destination writes.
   #
   # NO execution_role_arn LOCAL HERE. Root constructs its own twin for the user-space
-  # bucket-policy allowlist (FR-006), and a second construction of the same string in
+  # bucket-policy allowlist, and a second construction of the same string in
   # this module would be one more place for it to drift from the role that actually
   # exists — with the failure appearing as a runtime AccessDenied, not a plan error.
   execution_role_name = "${var.project_name}-${var.environment}-file-send-execution-role"
@@ -37,7 +37,7 @@ locals {
   # "file-send-<suffix>"); value = the handler + the task's real timeout/memory need
   # (a small validator is not a long parallel S3 copy — lambdas.md §4).
   #
-  # SEVEN VERBS: SPEC-164's front door, SPEC-165's source resolution, and SPEC-166's
+  # SEVEN VERBS: The front door, the source resolution, and the transfer's
   # guard, manifest, batch copy and attribution. Only the copy runs inside the
   # Distributed Map; the guard runs per recipient in an inline Map, and the other four
   # once per request.
@@ -53,7 +53,7 @@ locals {
     # recipients. Its work is one registry read plus one Cognito call per recipient —
     # network-bound and small, so the table-share validator's sizing holds here.
     "validate-authorize" = { handler = "file_send_validate_authorize.handler", timeout = 15, memory = 256 }
-    # SPEC-165. Expands the selection and holds the whole copy plan in memory before
+    # Expands the selection and holds the whole copy plan in memory before
     # writing it, which is the ONLY thing that sizes this row — not the listing, which
     # pages at 1000 keys and costs 20 round trips at SEND_MAX_OBJECTS.
     #
@@ -65,7 +65,7 @@ locals {
     # computes the plan against it, so raising SEND_MAX_OBJECTS without raising this
     # fails the build rather than the invocation.
     "inspect-source" = { handler = "file_send_inspect_source.handler", timeout = 120, memory = 1024 }
-    # SPEC-166. The per-recipient conflict guard. ONE delimited listing of the
+    # The per-recipient conflict guard. ONE delimited listing of the
     # recipient's inbox, paginated — so its cost is bounded by what this SENDER has
     # previously sent to this RECIPIENT, not by the size of the send. Even a sender
     # with 20,000 prior items is 20 round trips; the selection only ever costs a set
@@ -73,7 +73,7 @@ locals {
     # would have been 400 round trips per recipient AND could not answer the question
     # correctly (see fscommon/inbox.py on S3's key ordering).
     "check-target-absent" = { handler = "file_send_check_target_absent.handler", timeout = 60, memory = 256 }
-    # SPEC-166. The two verbs either side of the Distributed Map, handling the same
+    # The two verbs either side of the Distributed Map, handling the same
     # volume in opposite directions: the manifest builder expands the copy plan into
     # one JSONL line per (recipient x object) and serialises it, and the collector
     # parses the Map Run's export, which carries every batch's input back again. Both
@@ -84,13 +84,13 @@ locals {
     # VERSION. It is table-share's shipped sizing for the identical pair of verbs at a
     # 20,000-item cap. This plane has no transfer-item cap yet — the manifest is
     # (recipients x objects), so today's caps permit 50 x 20,000 = 1M items, which this
-    # memory does NOT hold. SPEC-166 PR2 adds SEND_MAX_TRANSFER_ITEMS with a test that
+    # memory does NOT hold. SEND_MAX_TRANSFER_ITEMS carries a test that
     # READS THIS ROW and computes the cap against it, the way
     # test_the_worst_case_copy_plan_fits_in_the_verbs_memory already reads
     # inspect-source's. Until then the bound is prose, which is what the cap is for.
     "build-transfer-manifest"  = { handler = "file_send_build_transfer_manifest.handler", timeout = 300, memory = 2048 }
     "collect-transfer-results" = { handler = "file_send_collect_transfer_results.handler", timeout = 300, memory = 2048 }
-    # SPEC-166. One BATCH of transfer items per invocation, on cpcommon.transfer's
+    # One BATCH of transfer items per invocation, on cpcommon.transfer's
     # bounded worker pool. 900s is not a preference: it is COPY_TIMEOUT_SECONDS, the
     # budget cpcommon/transfer/config.py divides by to size MAX_ITEMS_PER_BATCH — and
     # test_the_copy_timeout_matches_this_planes_deployed_verb reads THIS row back, so
@@ -99,15 +99,15 @@ locals {
     # table-share's locals only; one file, one plane.) No object bytes pass through the
     # function, so the memory buys CPU for the pool's threads and nothing else.
     "copy-objects" = { handler = "file_send_copy_objects.handler", timeout = 900, memory = 1024 }
-    # SPEC-167. The plane's only outcome producer: at most one registry read plus a
+    # The plane's only outcome producer: at most one registry read plus a
     # handful of SQS sends, bounded by SEND_MAX_RECIPIENTS. Sized like every other
     # notifier on the fleet — the work is network-bound and small, and it must not be
     # the reason a delivered send reports failure.
     "notify" = { handler = "file_send_notify.handler", timeout = 60, memory = 256 }
-    # SPEC-152's notification of last resort: one decode + one SQS send, reached only
+    # the notification of last resort: one decode + one SQS send, reached only
     # on a whole-request failure path.
     #
-    # SPEC-166 raised it 15s -> 60s, WITH the second door that made 15s wrong. The
+    # 60s rather than 15s, because of the second door that made 15s wrong. The
     # EventBridge TIMED_OUT rule (stepfunction.tf) invokes this same function with an
     # event of a different shape, and that path does strictly more work than the ASL
     # one: a cold-start JWKS fetch over the network plus a JWT verify before the send,
@@ -121,7 +121,7 @@ locals {
   # action env only: everything fscommon/config.py _require()s must live in the COMMON
   # env instead — the shared layer's import-time fail-fast runs for every verb, so a
   # verb missing any required var crashes at COLD START, where no test and no deploy
-  # can see it (the table-builder production break, PR #196).
+  # can see it.
   file_send_verb_env = {}
 
   # ARNs for the execution role's grants (constructed, known at plan).
@@ -160,7 +160,7 @@ locals {
   # header note. Referenced here for documentation/parity only.
   fscommon_layer_name = "${var.project_name}-${var.environment}-file-send-common"
 
-  # SPEC-166 FR-002. Mirrored from cpcommon/transfer/config.py, which is where the two
+  # Mirrored from cpcommon/transfer/config.py, which is where the two
   # numbers are REASONED about: MAX_ITEMS_PER_BATCH equals COPY_CONCURRENCY so a batch
   # is exactly one round of the worker pool, and MAP_MAX_CONCURRENCY bounds how much of
   # the account's Lambda concurrency one send may take. Terraform cannot import Python,
@@ -176,8 +176,8 @@ locals {
   # Map's makespan is one of the terms in the machine's own timeout budget.
   guard_map_max_concurrency = 5
 
-  # SPEC-166 FR-005. A TOP-LEVEL ASL field, not a resource argument and not a task field
-  # (SPEC-157 settled that distinction for the table-builder). Without it a Standard
+  # A TOP-LEVEL ASL field, not a resource argument and not a task field
+  # — the same distinction the table-builder's lock settled. Without it a Standard
   # workflow's ceiling is Step Functions' own default of ONE YEAR, so a wedged run
   # simply never ends — and this is the first version of this machine that can wedge,
   # because it is the first with a Map, a manifest and a copy in it.
@@ -188,7 +188,7 @@ locals {
   # execution failures: this timeout terminates the run outright, so no state runs and
   # no Catch fires. The sender is told by the EventBridge TIMED_OUT rule in
   # stepfunction.tf, which is the documented remedy and is what actually discharges
-  # SPEC-152's "it just never came back" guarantee here.
+  # "it just never came back" guarantee here.
   #
   # 3 hours, and the arithmetic is SEND_MAX_TRANSFER_BYTES (3 TiB) — the RECIPIENT
   # PRODUCT, not SEND_MAX_TOTAL_BYTES. Every manifest item is a full copy, so the Map
@@ -207,11 +207,11 @@ locals {
   # notification, so the margin is bought against the sender's silence, not for free.
   state_machine_timeout_seconds = 10800
 
-  # SPEC-166 FR-004. The Distributed Map's OWN permissions belong to the STATE MACHINE
+  # The Distributed Map's OWN permissions belong to the STATE MACHINE
   # role: it is the state machine that calls StartExecution for each child and that
   # reads the ItemReader object and writes the ResultWriter export. Granting these to
   # the Lambda execution role renders, applies and unit-tests green, then fails on the
-  # first real send with AccessDenied at the ItemReader — SPEC-160 FR-006's finding,
+  # first real send with AccessDenied at the ItemReader,
   # inherited here rather than rediscovered.
   child_execution_arn_wildcard = "arn:aws:states:${var.aws_region}:${var.account_id}:execution:${local.state_machine_name}:*"
 

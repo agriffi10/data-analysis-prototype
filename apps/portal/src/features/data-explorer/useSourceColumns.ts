@@ -5,13 +5,13 @@ import type {QueryColumn} from '../catalog/catalog.types';
 import type {ExplorationSource} from './dataExplorer.types';
 
 /**
- * The columns a source is known to have BEFORE any execution returns (SPEC-180 FR-006).
+ * The columns a source is known to have BEFORE any execution returns.
  *
  * The two arms of `ExplorationSource` differ exactly here: a `table` has its schema in
  * Glue, so its headers can be drawn while the first statement is still running; a `sql`
  * source has none until the execution reports `ResultSetMetadata`, and returns nothing.
  * The grid handles both from the start, even though the `sql` arm has no UI until
- * SPEC-183 — a header path retrofitted later would be a change to every surface built on
+ * a header path retrofitted later would be a change to every surface built on
  * it in between.
  *
  * The read is `features/catalog/`'s cached schema, shared with the source picker and the

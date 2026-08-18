@@ -1,7 +1,7 @@
-# ── Control-plane IAM roles ──────────────────────────────────────────────────
+# ── Control-plane IAM roles ────────────────────────────────────────────────────────────────────────────
 # ONE shared execution role for every verb Lambda (user decision — reverses the
-# SPEC-066 per-verb roles, mirroring the shared-spaces single-orchestrator model in
-# SPEC-062), plus the Step Function role and the Pipe role. Trust + permission policies
+# Per-verb roles, mirroring the shared-spaces single-orchestrator model in
+# every plane uses), plus the Step Function role and the Pipe role. Trust + permission policies
 # are .tftpl templates rendered with templatefile() (no inline jsonencode IAM, per
 # architecture.md Lambda code/infra split).
 #
@@ -9,10 +9,10 @@
 #   - registry read (validate-authorize) + source S3 read/list (inspect/infer/execute)
 #   - Glue Describe + CREATE + UPDATE on the account catalog (check-table-absent +
 #     execute-ddl; GetTable for load-table-definition, which only READS; and UpdateTable
-#     for apply-refresh, SPEC-149's in-place rebuild — scoped to the SAME catalog +
+# for apply-refresh, the in-place rebuild — scoped to the SAME catalog +
 #     database/* + table/*/* as the other Glue actions, not wider)
 #
-# `glue:DeleteTable` WAS HERE AND IS DELETED (SPEC-149, replacing SPEC-144). The refresh no
+# `glue:DeleteTable` WAS HERE AND IS DELETED. The refresh no
 # longer drops and recreates the table; it replaces the definition in place, so NO verb on
 # this plane deletes a table any more. The old comment argued a drop was SAFE because these
 # tables are EXTERNAL — true, and now beside the point: the stronger statement is that the
@@ -54,20 +54,20 @@ resource "aws_iam_role_policy" "execution" {
     glue_catalog_arn        = local.glue_catalog_arn
     glue_database_any       = local.glue_database_any
     glue_table_any          = local.glue_table_any
-    # SPEC-072 — every verb emits an outcome notification (SendMessage, this queue only).
+    # Every verb emits an outcome notification (SendMessage, this queue only).
     notifications_queue_arn = var.notifications_queue_arn
-    # SPEC-135 — structured-logging producer, same Sid and shape as data-quality's, the drain's
+    # Structured-logging producer, same Sid and shape as data-quality's, the drain's
     # and shared-space's, so all four read as one pattern.
     logs_queue_arn = var.logs_queue_arn
   })
 }
 
-# ── Portal role — table-build enqueue policy (SPEC-067 FR-002) ────────────────
+# ── Portal role — table-build enqueue policy ────────────────
 # The browser's ONLY table-builder privilege: sqs:SendMessage to the request queue.
-# A small inline policy on the shared portal role (SPEC-011), attached BY NAME like
+# A small inline policy on the shared portal role, attached BY NAME like
 # the notifications / shared-spaces modules do (the role is created in module.data;
 # the root module-level depends_on guarantees it exists first). No Lambda invoke, no
-# DLQ, no Step Function — just enqueue. The send helper that uses it lands in SPEC-071.
+# DLQ, no Step Function — just enqueue. The send helper that uses it lives in the browser.
 resource "aws_iam_role_policy" "portal_table_builder" {
   name = "table-build-enqueue"
   role = var.portal_role_name

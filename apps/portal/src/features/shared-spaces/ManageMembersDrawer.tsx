@@ -87,7 +87,7 @@ export function ManageMembersDrawer({
           </FeatureGate>
         </div>
       }
-      // SPEC-155 FR-006: no `closeOnEscape` gate — `useEscapeKey` dispatches by tree
+      // no `closeOnEscape` gate — `useEscapeKey` dispatches by tree
       // depth, so a dialog opened from inside this drawer takes Escape on its own.
     >
       {unavailable && (

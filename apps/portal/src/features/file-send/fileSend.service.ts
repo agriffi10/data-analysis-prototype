@@ -28,7 +28,7 @@ function sourceBucket(space: SendSourceSpace): string {
 }
 
 /**
- * FIFO group id: the SHA-256 hex digest of `{bucket}/{sourceSpaceRoot}` (SPEC-164 FR-002), so
+ * FIFO group id: the SHA-256 hex digest of `{bucket}/{sourceSpaceRoot}`, so
  * repeated sends OUT OF one space serialize while sends from different spaces run in parallel.
  *
  * A HASH, NEVER THE RAW PATH. SQS caps `MessageGroupId` at 128 characters where an S3 key
@@ -48,7 +48,7 @@ async function messageGroupId(space: SendSourceSpace): Promise<string> {
  * AWS call, and its only file-send privilege. The async control plane copies the files into
  * each recipient's `shared_files/{sender}/` inbox, so success means *enqueued*, not sent.
  *
- * The token rides as a top-level `actor`, matching every other plane's envelope: SPEC-126's
+ * The token rides as a top-level `actor`, matching every other plane's envelope: the
  * shared DLQ drain reads and redacts that field flatly, so a nested one would mean a
  * dead-lettered send notified nobody and wrote the raw JWT to CloudWatch.
  *

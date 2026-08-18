@@ -45,7 +45,7 @@ export type UsernameChipsFieldProps = SuggestionSource & {
  * chips.
  *
  * Chip rendering can be handed back with `renderChips={false}`, because the two consumers in
- * SPEC-148 genuinely differ — `AddMembersDialog` owns nothing but usernames, while
+ * genuinely differ — `AddMembersDialog` owns nothing but usernames, while
  * `TableShareDialog` mixes user and space chips with kind badges in a single list. Owning the
  * common case and yielding the uncommon one keeps this from becoming the union of both
  * consumers' quirks.
@@ -53,7 +53,7 @@ export type UsernameChipsFieldProps = SuggestionSource & {
  * The component owns NO submission logic: it reports `string[]` and the caller decides what to
  * do with it.
  *
- * The suggestion source is passed STRAIGHT THROUGH to the combobox (SPEC-158): this component
+ * The suggestion source is passed STRAIGHT THROUGH to the combobox: this component
  * adds chips, not a data source, and a hook call here would make it the second place that decides
  * what a field suggests.
  *
@@ -135,7 +135,7 @@ export function UsernameChipsField({
       />
 
       {/* Closes a dead-end the chips model creates. A consumer's submit button is gated on
-          COMMITTED values (SPEC-148 FR-001 requires it), so a user who types a name and reaches
+          COMMITTED values, so a user who types a name and reaches
           straight for that button finds it disabled with nothing explaining why — the text they
           just typed is not a chip yet. One line, only while there is uncommitted text. */}
       {renderChips && entry.trim() !== '' && (

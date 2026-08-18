@@ -3,7 +3,7 @@ variable "project_name" {
   type        = string
 }
 
-# The four below exist only to build the CSP's connect-src (SPEC-140). They are
+# The four below exist only to build the CSP's connect-src. They are
 # passed as constructed strings from root locals, never as module outputs: this
 # module is upstream of base -> data, so a module reference would be a cycle.
 

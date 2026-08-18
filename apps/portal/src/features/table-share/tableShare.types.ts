@@ -1,4 +1,4 @@
-/** A share-request target: an existing user or an active shared space (SPEC-089). */
+/** A share-request target: an existing user or an active shared space. */
 export type ShareRecipient = {
   kind: 'user' | 'space';
   name: string;

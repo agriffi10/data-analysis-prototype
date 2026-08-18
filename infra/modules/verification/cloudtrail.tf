@@ -1,10 +1,10 @@
-// SPEC-186 FR-004 AC1. `RestoreObject` is an S3 OBJECT-level call, which CloudTrail classifies
+// `RestoreObject` is an S3 OBJECT-level call, which CloudTrail classifies
 // as a DATA event — it never appears in the console's Event history, which is why nothing today
 // records it. The trail below records data events for ONE bucket and management events for
 // none, so it is neither a general-purpose audit trail nor a cost of any size.
 //
-// KEYED SO ONE RUN CAN BE ISOLATED, which AC1 requires: the archive key layout is
-// `{personal|shared}/{space}/{archiveId}/…` (SPEC-168), so `requestParameters.key` in each
+// KEYED SO ONE RUN CAN BE ISOLATED, which the rule requires: the archive key layout is
+// `{personal|shared}/{space}/{archiveId}/…`, so `requestParameters.key` in each
 // record carries the archive id, and a live check greps for the id it was handed. No extra
 // correlation field is needed — and none could be added, since the caller is a Lambda whose
 // request the plane does not tag.

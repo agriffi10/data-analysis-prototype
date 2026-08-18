@@ -14,7 +14,7 @@ export type UseRowCountResult = {
 
 /**
  * Counts a succeeded query's total result rows by walking every GetQueryResults
- * page in the background (SPEC-080). Athena's GetQueryResults calls are free — no
+ * page in the background. Athena's GetQueryResults calls are free — no
  * extra bytes scanned — so this is the exact total (no ceiling, no "+"), without a
  * COUNT(*) wrapper. Uses the largest page size to minimize round-trips and a
  * separate query key from the visible pager, so counting never disturbs the

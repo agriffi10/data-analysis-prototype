@@ -5,7 +5,7 @@ import {cx} from '../../lib/cx';
 /**
  * Header help control — a link to `/help`, styled like the notifications bell
  * (32px hit target, 20px icon, active/current treatment on `/help`). Sits left
- * of the bell in the authenticated user-zone (SPEC-074 FR-001).
+ * of the bell in the authenticated user-zone.
  *
  * @example
  * <HelpLink />

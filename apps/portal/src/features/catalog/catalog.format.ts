@@ -22,7 +22,7 @@ export function normalizeColumnType(type: string): string {
  * Normalizes a Save-results file name — appends ".csv" unless the user already
  * typed it (case-insensitive), never doubling it.
  *
- * Moved here from `features/query/` with SPEC-185's export: the results object is Athena's
+ * Moved here from `features/query/` with the export: the results object is Athena's
  * CSV whichever surface saves it, so the naming rule belongs beside the save rather than in
  * one of the two workspaces that use it.
  */

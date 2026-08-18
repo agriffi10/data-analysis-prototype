@@ -7,7 +7,7 @@ type Props = {
 };
 
 /**
- * The Restore Archived Data entry point, on the file browser's primary toolbar (SPEC-172 FR-003).
+ * The Restore Archived Data entry point, on the file browser's primary toolbar.
  *
  * It belongs beside Upload and New folder rather than on the selection toolbar, because a
  * restore has no selection: what it needs is an id the user pastes. That is also why the label

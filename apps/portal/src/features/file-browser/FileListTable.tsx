@@ -10,7 +10,7 @@ import {SECTION_CAPTION} from '../../components/fieldStyles';
 /**
  * The data every file-list surface needs. Shared by the ≥ tablet table and the
  * mobile card list, which render the SAME items and handlers through
- * structurally distinct markup (SPEC-099 FR-002/003) — not a `*Mobile`/`*Desktop`
+ * structurally distinct markup — not a `*Mobile`/`*Desktop`
  * twin of one tree.
  */
 export type FileListProps = {
@@ -18,13 +18,13 @@ export type FileListProps = {
   files: S3FileItem[];
   /** Rows carry a checkbox — the authenticated, writable flow only. */
   selectable: boolean;
-  /** At the space root the `..` row is omitted (SPEC-098). */
+  /** At the space root the `..` row is omitted. */
   atRoot: boolean;
   onNavigateUp: () => void;
   onOpenFolder: (folder: S3FolderItem) => void;
   onFolderDetails: (folder: S3FolderItem) => void;
   onFileDetails: (file: S3FileItem) => void;
-  /** SPEC-081: double-click (table) / tap (mobile) downloads the row. */
+  /** Double-click (table) / tap (mobile) downloads the row. */
   onActivateFile: (file: S3FileItem) => void;
   /** The key currently being signed, so its row shows a busy state. */
   downloadingKey: string | null;
@@ -114,7 +114,7 @@ function FileRow({
   // Read-only fallback only: in the authenticated flow Download lives in the
   // selection toolbar, so this is undefined there and no row Download shows.
   onDownload?: (file: S3FileItem) => void;
-  // SPEC-081: double-click anywhere on the row downloads it (both flows), reusing
+  // Double-click anywhere on the row downloads it (both flows), reusing
   // the same presigned-URL path as the Download control.
   onActivate: () => void;
   onDetails: (file: S3FileItem) => void;
@@ -188,7 +188,7 @@ function FileRow({
 
 /**
  * The ≥ tablet file list: a data table whose Type column sheds at tablet
- * (`hidden desktop:block`) while the columns stay aligned (SPEC-099 FR-002).
+ * (`hidden desktop:block`) while the columns stay aligned.
  */
 export function FileListTable({
   folders,
@@ -228,7 +228,7 @@ export function FileListTable({
       </div>
       <ul aria-label="File list">
         {/* Parent-folder (`..`) row — first row when below the space root
-            (SPEC-098). Navigation only: non-selectable, excluded from
+            . Navigation only: non-selectable, excluded from
             select-all (it's never in `allItems`). */}
         {!atRoot && (
           <ParentFolderRow
@@ -254,7 +254,7 @@ export function FileListTable({
             // Read-only browse has no selection toolbar, so keep a per-row
             // Download there; the authenticated flow downloads from the toolbar.
             onDownload={onRowDownload}
-            // SPEC-081: double-click downloads in both flows.
+            // Double-click downloads in both flows.
             onActivate={() => onActivateFile(file)}
             onDetails={onFileDetails}
             isDownloading={downloadingKey === file.key}

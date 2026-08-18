@@ -36,7 +36,7 @@ type ChipProps = {
   tag?: string;
   /**
    * The remove button's ACCESSIBLE NAME, supplied whole by the caller. Never derived here:
-   * SPEC-163's registry and every removal test query these buttons by name, and SPEC-172 forbids
+   * the registry and every removal test query these buttons by name, and the fleet rule forbids
    * a reason becoming one.
    */
   removeLabel: string;
@@ -46,7 +46,7 @@ type ChipProps = {
 
 /**
  * One removable chip — the single implementation behind the recipient lists in
- * `UsernameChipsField`, `TableShareDialog` and `SendFilesDialog` (SPEC-186 FR-009).
+ * `UsernameChipsField`, `TableShareDialog` and `SendFilesDialog`.
  *
  * The three were byte-identical `<li>`s that had begun to drift: the remove target was 24x24 in
  * one and **20x20** in the other two, below WCAG 2.2 SC 2.5.8's minimum. Consistency was

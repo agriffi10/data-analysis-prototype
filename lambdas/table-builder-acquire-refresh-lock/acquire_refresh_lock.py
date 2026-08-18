@@ -2,7 +2,7 @@
 
 Two refreshes of one table can overlap: ``MessageGroupId`` is the target database, so SQS
 serializes delivery per database, but the Pipe starts the machine ``FIRE_AND_FORGET`` and returns
-immediately. SPEC-149's in-place ``UpdateTable`` reduced the damage to last-write-wins between two
+immediately. The in-place ``UpdateTable`` reduced the damage to last-write-wins between two
 definitions and could not close it, because Glue offers no compare-and-set. This verb takes a
 per-table lock so the second refresh is REFUSED rather than raced.
 
@@ -16,7 +16,7 @@ MESSAGE, and Pipes delivery is at-least-once — so a redelivered message starts
 carrying the same id while the first is still running, and ``table_lock``'s re-entrancy branch
 (which exists for an SFN Task retry, where the ARN genuinely IS the same) would let both hold the
 lock. Silently: no refusal, no notification, and an acquire event reading ``stolen: False``. That
-is the duplicate-execution hazard FR-006 names when it rejects EXPRESS, arrived at by another road.
+is the duplicate-execution hazard the rule names when it rejects EXPRESS, arrived at by another road.
 
 The ARN reaches this verb on ``$.execution.arn``, stamped by the ``StampExecution`` Pass state
 rather than read from ``$$`` in this task's own ``Parameters`` — reading it there means building an

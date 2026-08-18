@@ -3,8 +3,8 @@ import {useSearchParams} from 'react-router';
 import {isConnectionUsable} from '../connections/connection.types';
 import type {Connection} from '../connections/connection.types';
 
-// SPEC-057 Data Model: the file browser's active "space" — derived from a
-// `Connection` (SPEC-047/052). Selecting a space points the browser at that
+// the file browser's active "space" — derived from a
+// `Connection`. Selecting a space points the browser at that
 // space's bucket + root prefix; personal → the user-space bucket at `{username}/`,
 // shared → `dat-prod-shared-space/{name}/`. `label` is the root breadcrumb crumb
 // AND the marker-owner segment (the personal marker lives at `{username}/…`, a
@@ -29,13 +29,12 @@ export type UseFileSpaceParams = {
   userSpaceBucket: string | undefined;
   sharedSpaceBucket: string | undefined;
   /**
-   * Resolve to the personal space and ignore `?space=` entirely (SPEC-163 FR-005).
+   * Resolve to the personal space and ignore `?space=` entirely.
    *
    * Set while the `sharedWorkspaces` flag is off. Deliberately NOT the same thing as a
    * space that cannot be resolved: this reports `fellBack: false`, so no banner claims the
    * space is unavailable — it is available, this build just does not offer shared spaces.
-   * `useConnections` still resolves normally, because a flag may not touch a service
-   * (SPEC-162 FR-006).
+   * `useConnections` still resolves normally, because a flag may not touch a service.
    */
   ignoreSpaceParam?: boolean;
 };
@@ -48,7 +47,7 @@ export type UseFileSpaceResult = {
   selectSpace: (id: string) => void;
   // True when the URL named a space the user can't browse (gone/revoked/not-yet-
   // active) and we fell back to the personal space — drives a non-blocking notice
-  // (FR-004/FR-005). Dismissing clears the stale `?space=` param.
+  // Dismissing clears the stale `?space=` param.
   fellBack: boolean;
   dismissFellBack: () => void;
 };
@@ -101,11 +100,11 @@ export function usableSpaceTargets(
     .filter((t): t is FileSpaceTarget => t !== null);
 }
 
-// SPEC-057 FR-002/FR-004/FR-005: the file browser's active-space state, derived
-// from `useConnections` (SPEC-052) and synced to the `?space=` route param.
+// the file browser's active-space state, derived
+// from `useConnections` and synced to the `?space=` route param.
 // Selection flows through the URL so a deep-link (`/files?space=…&prefix=…`) and a
 // sidebar click are one mechanism, and a vanished/unusable space reconciles to the
-// personal space purely during render (mirrors SPEC-047's `useActiveDatabase`).
+// personal space purely during render (mirrors `useActiveDatabase`).
 export function useFileSpace({
   username,
   connections,
@@ -115,7 +114,7 @@ export function useFileSpace({
   ignoreSpaceParam = false
 }: UseFileSpaceParams): UseFileSpaceResult {
   const [searchParams, setSearchParams] = useSearchParams();
-  // SPEC-163 FR-005: with shared workspaces off the parameter is not resolved-and-refused,
+  // With shared workspaces off the parameter is not resolved-and-refused,
   // it is NOT READ. That distinction is the whole requirement — routing it through the
   // `fellBack` path below would raise "That shared space is no longer available", which is a
   // false statement about a space that is perfectly fine and that the user will see again

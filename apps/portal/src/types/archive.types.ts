@@ -32,7 +32,7 @@ export type ArchiveRequest = {
 export type RestoreRequest = {
   /** This RUN's id. Never the archive's — a refused restore must be re-submittable. */
   requestId: string;
-  /** The space being restored INTO, taken from the route (SPEC-113's rule, SPEC-170 FR-001). */
+  /** The space being restored INTO, taken from the route, never derived. */
   space: ArchiveSpace;
   /** The archive being restored, pasted by the user. UUID-validated before enqueue. */
   archiveId: string;

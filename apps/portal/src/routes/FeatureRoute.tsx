@@ -14,13 +14,13 @@ export type FeatureRouteProps = {
  *
  * **THE PAGE MUST NOT MOUNT WHILE THE ANSWER IS UNKNOWN.** Every gated page fetches on mount,
  * so rendering it first and swapping to the unavailable state a tick later would issue the
- * very requests FR-004 forbids — and on `/data-quality/:space/:requestId` that request is an
- * existence oracle for someone else's report (SPEC-113). Hence a neutral `LoadingState` while
+ * very requests the gate forbids — and on `/data-quality/:space/:requestId` that request is an
+ * existence oracle for someone else's report. Hence a neutral `LoadingState` while
  * the flags resolve, rather than the optimistic render a nav item can afford.
  *
  * It is `LoadingState` and not `null` because a route is the whole viewport: an empty frame
  * for a beat reads as a broken page, where an absent tab reads as a tab that was never there.
- * That difference is why FR-007's "render nothing while loading" applies to the nav and the
+ * That difference is why the "render nothing while loading" applies to the nav and the
  * controls and not here.
  *
  * The offered fallback is the first ENABLED feature in flag order, so the link never points

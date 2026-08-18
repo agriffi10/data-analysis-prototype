@@ -9,7 +9,7 @@ function ackKey(username: string, space: string): string {
 }
 
 /**
- * Join-status acknowledgement (SPEC-073 FR-003). The first time a member's
+ * Join-status acknowledgement. The first time a member's
  * authenticated session resolves a shared space they belong to, enqueue one
  * `acknowledge_membership` request so the control plane flips them Pending → Active in
  * the owner's projection. Best-effort and idempotent server-side: fired only for an

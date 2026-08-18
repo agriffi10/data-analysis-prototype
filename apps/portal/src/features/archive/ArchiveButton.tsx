@@ -46,7 +46,7 @@ type Props = {
 
 /**
  * The Archive entry point, in the two homes a per-item action has in this file browser: the
- * selection toolbar and the two details panels (SPEC-172 FR-001).
+ * selection toolbar and the two details panels.
  *
  * There is no context menu — rows carry a Details button and nothing else — so a single item
  * that has not been selected is reachable only through its panel, and a selection only through

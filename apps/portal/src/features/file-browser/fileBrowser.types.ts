@@ -72,7 +72,7 @@ export const MAX_UPLOAD_BYTES = Number.isFinite(envMax) && envMax > 0 ? envMax :
  * the RAW path, not a label, so the render site owns how much of it to show.
  *
  * `message` is technical and must never be rendered; the banner maps `code` through
- * `toUserMessage` (SPEC-106).
+ * `toUserMessage`.
  */
 export type BulkOperationError = {key: string; message: string; code?: string};
 

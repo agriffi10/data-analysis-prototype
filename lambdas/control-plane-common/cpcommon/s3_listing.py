@@ -51,7 +51,7 @@ def is_ignored(key: str, size: int, prefix: str) -> bool:
     """Reports whether an object is something other than source data.
 
     Public for its own test's benefit, and NOT dead — ``list_data_objects`` calls it below.
-    SPEC-156 FR-006 looked at making it private and kept it public: the ignore rule is the one
+    the rule looked at making it private and kept public: the ignore rule is the one
     part of listing worth asserting case by case, and a test reaching through a leading
     underscore to do that is worse than a name that says it may be read.
 
@@ -93,7 +93,7 @@ def list_data_objects(
     rather than ``ClientError``. Mapping a throttle or 5xx is therefore the caller's job, and
     only helps under a state whose Retry actually names ``TransientError``.
 
-    **The pagination is the shared part; the ignore rule is not necessarily** (SPEC-165). Every
+    **The pagination is the shared part; the ignore rule is not necessarily**. Every
     rule in ``is_ignored`` is anchored at the LISTING PREFIX, which is right for the three
     analytics planes — they list a table's or a check's own folder — and wrong for file-send,
     whose listing prefix is whichever item the user picked. There the same rule would drop a

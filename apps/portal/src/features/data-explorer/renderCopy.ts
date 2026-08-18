@@ -3,12 +3,12 @@ import {sqlIdentifier, sqlLiteral} from '../../lib/sql';
 import type {CellRange, CellSelection, CopyFormat, CopyOptions} from './dataExplorer.types';
 import type {GridColumn} from './useColumnGeometry';
 
-// SPEC-185 FR-001. Turning a selection into text, and nothing else — no clipboard, no React,
+// Turning a selection into text, and nothing else — no clipboard, no React,
 // no query. Copy is the one way out of this feature that costs nothing, and it stays that way
 // because everything here reads rows that are already on screen.
 //
 // **The values are RAW.** Not `cellText`, which renders a NULL as the word NULL for a human
-// to read, and not SPEC-184's `transformCell`, which can turn a value into an anchor's label
+// to read, and not `transformCell`, which can turn a value into an anchor's label
 // — a URL-transformed column pasted into a spreadsheet has to carry the underlying value or
 // the paste is of the presentation rather than of the data. The two are formatted here, per
 // format, and the formatting is the part worth asserting directly.
@@ -16,7 +16,7 @@ import type {GridColumn} from './useColumnGeometry';
 /**
  * The bounding rectangle of a selection, or null when nothing is selected.
  *
- * FR-001 AC5: a discontiguous selection copies as its BOUNDING RECTANGLE with the
+ * a discontiguous selection copies as its BOUNDING RECTANGLE with the
  * unselected cells inside it blank. The alternative — packing the selected cells together —
  * silently moves values into columns they were never in, which is worse than a hole in a
  * paste the user can see. The surfaces say so out loud rather than leaving it to be found.
@@ -134,7 +134,7 @@ function quoted(value: string): string {
 /**
  * A value as delimited text.
  *
- * **This is where FR-001 AC4 is paid for in the formats that have no native null.** A NULL
+ * **This is where the NULL distinction is paid for in the formats that have no native null.** A NULL
  * becomes the token, an empty string becomes nothing, and a hole becomes nothing — so NULL
  * and `''` are always distinguishable, while a value whose TEXT is literally `NULL` is
  * distinguishable only once `quoteValues` is on. That is the honest limit of a delimited
@@ -236,8 +236,8 @@ function markdown(block: CopyBlock, options: CopyOptions): string {
  * honest thing a clipboard format can offer here.
  *
  * Values go through `sqlLiteral` — the TRINO/DML escaper that doubles the quote, never
- * `cpcommon.ddl`'s backslash form (SPEC-178's rule, and the wrong one fails silently). A
- * NULL is the keyword and an empty string is `''`, which is the distinction FR-001 AC4 asks
+ * `cpcommon.ddl`'s backslash form (the rule, and the wrong one fails silently). A
+ * NULL is the keyword and an empty string is `''`, which is the distinction the rule asks
  * for, native to the format. A hole is NULL too; see `json` above.
  */
 function sqlInsert(block: CopyBlock, options: CopyOptions): string {
@@ -275,7 +275,7 @@ function xmlText(value: string): string {
  * and a grouping alias may carry characters no element name admits — so deriving element
  * names from it produces documents that do not parse. The attribute form has no such
  * constraint, and a NULL gets an explicit `null="true"` rather than an empty element,
- * which is what keeps it distinguishable from `''` (FR-001 AC4).
+ * which is what keeps it distinguishable from `''`.
  *
  * **A hole is NOT distinguishable from an empty string here**, and the self-closing tag does
  * not make it one — `<cell/>` and `<cell></cell>` are the same element to every parser, so
@@ -307,7 +307,7 @@ export function formatUsesQuoting(format: CopyFormat): boolean {
 }
 
 /**
- * A selection as clipboard text (SPEC-185 FR-001).
+ * A selection as clipboard text.
  *
  * Pure, and issues nothing: the rows are the page already fetched, so copying — in any
  * format, with any options, however many times — starts no execution and scans no bytes.

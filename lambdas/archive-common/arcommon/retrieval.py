@@ -1,11 +1,11 @@
 """Glacier retrieval: asking for the bytes back, and knowing when they are there.
 
-SPEC-171, and the two things in this arc that no other control plane in this repo has. An
+and the two things in this arc that no other control plane in this repo has. An
 object in ``GLACIER`` is **not readable** — a ``CopyObject`` whose source is in that class fails
 ``InvalidObjectState`` — so a restore is not a copy. It is ``RestoreObject``, a 3-5 hour wait,
 and *then* a copy of the temporary readable object S3 materialises beside it.
 
-**Retrieval is billed and cannot be cancelled.** Everything SPEC-170 does happens before this
+**Retrieval is billed and cannot be cancelled.** Everything the destination guard does happens before this
 module is reached, and the ordering is the reason that spec exists separately: once
 ``request_retrieval`` has run, the user has paid for a retrieval whether or not the rest of the
 run succeeds. Nothing here is speculative and nothing here is retried for free.

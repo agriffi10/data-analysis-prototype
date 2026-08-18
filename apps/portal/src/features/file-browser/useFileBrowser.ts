@@ -25,16 +25,16 @@ export type UseFileBrowserResult = {
 /**
  * Paginated folder listing backed by TanStack Query.
  *
- * Every `DO_NOT_DELETE.txt` is hidden, at any depth, in either bucket (SPEC-173
- * FR-003) — see `isMarkerName`. There is no caller-supplied key: the basename IS
+ * Every `DO_NOT_DELETE.txt` is hidden, at any depth, in either bucket
+ * — see `isMarkerName`. There is no caller-supplied key: the basename IS
  * the rule, because that is what the two bucket policies deny deletion on.
  */
 export function useFileBrowser(bucket: string, prefix?: string): UseFileBrowserResult {
   const queryClient = useQueryClient();
   const normalizedPrefix = prefix ?? '';
 
-  // Server state via TanStack Query (SPEC-015 FR-002). Each page is a
-  // ListObjectsV2 call (MaxKeys = LISTING_PAGE_SIZE, 25 — SPEC-037) threading the
+  // Server state via TanStack Query. Each page is a
+  // ListObjectsV2 call (MaxKeys = LISTING_PAGE_SIZE, 25) threading the
   // continuation token; pages accumulate in query.data.pages.
   const query = useInfiniteQuery({
     queryKey: fileBrowserKeys.list(bucket, normalizedPrefix),
@@ -51,7 +51,7 @@ export function useFileBrowser(bucket: string, prefix?: string): UseFileBrowserR
   });
 
   // Merge folders/files across all loaded pages and re-sort globally so the
-  // ordering matches the single-page SPEC-002 behavior (folders before files,
+  // ordering matches the original single-page behavior (folders before files,
   // each alphabetical). Prefix markers are filtered out by basename.
   const {folders, files} = useMemo(() => {
     const pages = query.data?.pages ?? [];

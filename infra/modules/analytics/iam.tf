@@ -1,9 +1,9 @@
-# ── Lake Formation registration role (SPEC-032 FR-005) ───────────────────────
+# ── Lake Formation registration role ───────────────────────
 # A CUSTOM role (deliberately NOT the LF service-linked role) that Lake Formation
 # assumes to vend temporary S3 credentials for the registered user-space location.
 # Using our own role keeps the trust and the S3 scope explicit and auditable; it is
 # scoped to read/write the user-space bucket only. The deploy role can create and
-# pass this exact role name (modules/base LakeFormationRegistrationRole, FR-007).
+# pass this exact role name (modules/base LakeFormationRegistrationRole).
 resource "aws_iam_role" "lf_registration" {
   name               = "${var.project_name}-analytics-lf-registration-role"
   assume_role_policy = templatefile("${path.module}/policies/lf-registration-trust.json.tftpl", {})
@@ -20,9 +20,9 @@ resource "aws_iam_role_policy" "lf_registration" {
   })
 }
 
-# ── Portal role — analytics permissions (SPEC-032 FR-006) ────────────────────
+# ── Portal role — analytics permissions ────────────────────
 # A SECOND inline policy on the shared portal role (the first, "user-space-access",
-# is attached by module.data / SPEC-013). Glue is scoped to database/<username> and
+# is attached by module.data). Glue is scoped to database/<username> and
 # table/<username>/* via the `username` principal tag — THIS is the per-user
 # isolation gate: a session tagged username=alice can only address database/alice.
 # Athena is workgroup-scoped (ListQueryExecutions omitted — it would leak other

@@ -9,7 +9,7 @@ resource "aws_cloudfront_origin_access_control" "static_assets" {
 }
 
 # ── Response Headers Policy ───────────────────────────────────────────────────
-# SPEC-140. Closes Checkov CKV2_AWS_32 and every Medium plus six of eight Low
+# Closes Checkov CKV2_AWS_32 and every Medium plus six of eight Low
 # findings from the 2026-08-03 ZAP baseline — two scanners reporting one gap.
 #
 # The CSP is assembled from variables, never literals: a hardcoded region or
@@ -88,7 +88,7 @@ locals {
 
 resource "aws_cloudfront_response_headers_policy" "portal" {
   name    = "${var.project_name}-security-headers"
-  comment = "Security response headers for the ${var.project_name} SPA (SPEC-140)"
+  comment = "Security response headers for the ${var.project_name} SPA"
 
   security_headers_config {
     strict_transport_security {
@@ -126,7 +126,7 @@ resource "aws_cloudfront_response_headers_policy" "portal" {
       override        = true
     }
 
-    # ENFORCING as of SPEC-140 Phase 4, after a signed-in pass against the
+    # ENFORCING, after a signed-in pass against the
     # report-only deploy reported no violations — sign-in and the Query editor
     # running a statement included, which is the path exercising Monaco's
     # worker, its runtime style injection and the Athena/Glue endpoints.

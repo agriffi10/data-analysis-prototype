@@ -3,13 +3,13 @@ import {ColumnResizeHandle} from '../catalog/ColumnResizeHandle';
 import type {QueryColumn} from '../catalog/catalog.types';
 import {SECTION_CAPTION} from '../../components/fieldStyles';
 
-// The leading row-number (`#`) column is a fixed, non-resizable width (FR-001).
+// The leading row-number (`#`) column is a fixed, non-resizable width.
 const ROW_NUMBER_COLUMN_WIDTH = 56; // px (matches the old w-14)
 
 type QueryResultsTableProps = {
   columns: QueryColumn[];
   // Current page only (≤ page size). A null cell is SQL NULL and renders blank here —
-  // this surface makes nothing of the distinction (SPEC-180 does, in the Data Explorer).
+  // this surface makes nothing of the distinction (the Data Explorer's grid does).
   rows: (string | null)[][];
   pageIndex: number; // 0-based
   rangeStart: number; // 1-based row number of the first row on this page
@@ -19,7 +19,7 @@ type QueryResultsTableProps = {
   hasNext: boolean;
   isFetchingNext: boolean;
   isLoading: boolean; // first page in flight
-  // SPEC-064: controlled column widths (px per data column), owned by the parent's
+  // Controlled column widths (px per data column), owned by the parent's
   // useColumnWidths so they survive paging AND tab switches; handlers clamp/reset.
   widths: number[];
   onResize: (index: number, px: number) => void;
@@ -28,17 +28,17 @@ type QueryResultsTableProps = {
   onNext: () => void;
 };
 
-// SPEC-035 FR-006 / SPEC-038 FR-002: results table reusing the file-table visual
+// Results table reusing the file-table visual
 // language (surface, border, rounded-lg, surface-2 uppercase header, monospace
-// rows, hover). SPEC-064: columns are user-resizable — a <colgroup> of explicit
+// rows, hover). Columns are user-resizable — a <colgroup> of explicit
 // widths drives table-layout:fixed, each data-column header carries a drag/keyboard
 // resize handle, cells/headers truncate with an ellipsis (full text on hover via
 // `title`), and the body scrolls horizontally for wide (20+ column) results.
 // Widths are supplied by the parent (useColumnWidths, keyed by execution id) so
 // they persist across Prev/Next and tab switches and reset on a new query. A
 // successful DDL / zero-row SELECT renders the friendly empty state, not an error.
-// Navigating REPLACES the visible rows (SPEC-038), unlike the file browser's
-// append-style "Load more" (SPEC-037).
+// Navigating REPLACES the visible rows, unlike the file browser's
+// append-style "Load more".
 export function QueryResultsTable({
   columns,
   rows,
@@ -117,7 +117,7 @@ export function QueryResultsTable({
                   ))}
                 </tr>
               </thead>
-              {/* Array-index keys are intentional here (SPEC-083 FR-010): result
+              {/* Array-index keys are intentional here: result
                   rows/cells are plain strings with no stable identity, columns can
                   share a name (e.g. SELECT a, a), and the table is FULLY replaced on
                   every page/query with no per-cell focus or local state to preserve —
@@ -147,7 +147,7 @@ export function QueryResultsTable({
             </table>
           </div>
 
-          {/* Prev/Next pager (FR-002), below the scroll region so it stays usable
+          {/* Prev/Next pager, below the scroll region so it stays usable
               with a wide/tall, scrolled result. Range indicator shows "Rows X–Y";
               the definitive total appears only at the last page. */}
           <Pager

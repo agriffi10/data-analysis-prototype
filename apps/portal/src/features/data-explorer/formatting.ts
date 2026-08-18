@@ -9,7 +9,7 @@ import {isBareNumeric} from './renderExplorationSql';
 import {resolveUrl} from './urlTransformer';
 import type {ColourRule, ColourToken, FormattingState, SurfaceToken, Transformer} from './dataExplorer.types';
 
-// SPEC-184's arithmetic: which cells a rule paints, what shade a gradient gives them, and
+// the arithmetic: which cells a rule paints, what shade a gradient gives them, and
 // where one band of equal rows ends and the next begins.
 //
 // **Nothing here renders SQL and nothing here can.** That is the whole spec, and it is
@@ -19,7 +19,7 @@ import type {ColourRule, ColourToken, FormattingState, SurfaceToken, Transformer
 // asserts this file is not in it.
 //
 // Every comparison here is against the RAW cell value. A transformer changes only what a
-// cell looks like (FR-005 AC4), so a rule tested against the transformed rendering would
+// cell looks like, so a rule tested against the transformed rendering would
 // match on a URL a user cannot see and miss the number they typed.
 
 /** Resolved colours for one cell. Absent properties mean "leave it alone". */
@@ -116,7 +116,7 @@ export function gradientShade(from: SurfaceToken, to: SurfaceToken, position: nu
 }
 
 /**
- * The colour family an Athena type is tinted with (FR-003).
+ * The colour family an Athena type is tinted with.
  *
  * Six type families are folded into five colours because the palette has five that stay
  * legible on every surface a cell can have (see `FORMATTING_FOREGROUNDS`) — binary and the
@@ -124,7 +124,7 @@ export function gradientShade(from: SurfaceToken, to: SurfaceToken, position: nu
  * to the default text colour: they are the baseline the other families are read against,
  * and tinting everything tints nothing.
  *
- * Colour is never the only carrier of this (AC3): the type is written under every column
+ * Colour is never the only carrier of this: the type is written under every column
  * header and shown in the Value panel.
  *
  * @param type - The Glue/Athena type, in any case.
@@ -172,7 +172,7 @@ function likeExpression(pattern: string, caseInsensitive: boolean): RegExp {
       return character.replace(LIKE_META_RE, '\\$&');
     })
     .join('');
-  // The pattern IS the feature: FR-002 offers LIKE/ILIKE/REGEX over the user's own loaded
+  // The pattern IS the feature: the rule offers LIKE/ILIKE/REGEX over the user's own loaded
   // rows. Every metacharacter above is escaped, so the only expression this can build is
   // the one the wildcards describe; `FORMATTING_PATTERN_MAX` bounds its size.
   // eslint-disable-next-line security/detect-non-literal-regexp
@@ -183,10 +183,10 @@ function likeExpression(pattern: string, caseInsensitive: boolean): RegExp {
  * Why a rule cannot be applied, or null when it can.
  *
  * Called at ENTRY by the rules dialog, and again here before evaluation — an invalid
- * pattern must never be applied (AC6), and a rule that reached storage from an older build
+ * pattern must never be applied, and a rule that reached storage from an older build
  * or a hand-edited document has not been through the dialog. Every message is user text:
  * the engine's own `SyntaxError` names character offsets in a pattern the user is still
- * writing, which SPEC-106 forbids showing.
+ * writing, which the error-wording rule forbids showing.
  *
  * @param rule - The rule to check.
  * @returns The refusal, or null.
@@ -200,7 +200,7 @@ export function ruleRefusal(rule: ColourRule): string | null {
     if (rule.value.length > FORMATTING_PATTERN_MAX) return PATTERN_TOO_LONG_REFUSAL;
     if (rule.operator === 'regex') {
       try {
-        // A user-authored pattern over their own loaded rows is what FR-002 asks for.
+        // A user-authored pattern over their own loaded rows is what asks for.
         // Compiled here so an invalid one is refused at the input rather than thrown from
         // a render.
         // eslint-disable-next-line security/detect-non-literal-regexp
@@ -215,7 +215,7 @@ export function ruleRefusal(rule: ColourRule): string | null {
 }
 
 /**
- * Whether a rule can still be evaluated against the columns in front of it (FR-007 AC3).
+ * Whether a rule can still be evaluated against the columns in front of it.
  *
  * A grouping change replaces the column set wholesale, so a rule naming a column that is
  * no longer there is the ordinary case rather than a fault. It is kept and shown as
@@ -290,13 +290,13 @@ function compile(rule: ColourRule): Compiled['matches'] {
 /**
  * Band indexes for the page: consecutive rows equal in every striping column share one.
  *
- * Computed over the CURRENT PAGE and only ever claimed about it (FR-004 AC2) — a band
+ * Computed over the CURRENT PAGE and only ever claimed about it — a band
  * touching the first or last row of the page may well continue beyond it, and nothing here
  * can know. The surface says so.
  *
  * @param rows - The loaded page's rows, in the execution's column order.
  * @param columns - The current columns, for resolving names to row positions.
- * @param stripeColumns - The chosen columns; empty turns striping off (AC3).
+ * @param stripeColumns - The chosen columns; empty turns striping off.
  * @returns One band index per row, or -1 per row when striping is off.
  */
 export function bandsOf(
@@ -330,13 +330,13 @@ export function bandsOf(
 }
 
 /**
- * Every cell's resolved colours for one page (FR-002, FR-003, FR-004).
+ * Every cell's resolved colours for one page.
  *
  * Precedence runs weakest to strongest — the type tint, then the band, then the rules in
  * their own order — and each layer overrides only the PROPERTY it sets, so a rule that
- * chooses a background leaves a type tint's foreground alone. That is what AC5's "a later
+ * chooses a background leaves a type tint's foreground alone. That is what "a later
  * matching rule overrides an earlier one on the same property" means, and it is also what
- * makes FR-003 AC2 and FR-004 AC4 ("conditional rules win") true without a special case.
+ * makes "conditional rules win" true without a special case.
  *
  * A rule whose `scope` is `'row'` paints every cell of a row in which its condition held
  * anywhere; a `'cell'` rule paints only the cells that matched. A rule with no `column`
@@ -354,7 +354,7 @@ export function computePageFormatting(
 ): PageFormatting {
   const {bands, bandStarts} = bandsOf(rows, columns, formatting.stripeColumns);
 
-  // An unusable rule is skipped rather than applied loosely (AC6). `ruleRefusal` has
+  // An unusable rule is skipped rather than applied loosely. `ruleRefusal` has
   // already run at the input; this is the second gate, for a rule restored from a document
   // that never went through it.
   const names = columns.map((column) => column.name);
@@ -385,7 +385,7 @@ export function computePageFormatting(
       if (rule.gradient) {
         // A gradient is measured on ONE column (its refusal says so), and paints either
         // that cell or the row. A non-numeric or NULL value is left alone rather than
-        // clamped to an end of the scale (AC4) — a clamp would paint text the colour of
+        // clamped to an end of the scale — a clamp would paint text the colour of
         // the minimum, which reads as a measurement of something that was never measured.
         const value = tested.length === 1 ? row[tested[0].index] : undefined;
         if (value === undefined || value === null || !isBareNumeric(value)) continue;
@@ -428,7 +428,7 @@ export function computePageFormatting(
 }
 
 // ---------------------------------------------------------------------------------------
-// Transformers (FR-005)
+// Transformers
 // ---------------------------------------------------------------------------------------
 
 const HEX_DIGITS = '0123456789abcdef';
@@ -457,7 +457,7 @@ function toBase64(bytes: Uint8Array): string {
 /**
  * How one cell is rendered under a transformer, or null where it is rendered as itself.
  *
- * **A transformer changes only the rendering** (FR-005 AC4). Nothing calls this on the way
+ * **A transformer changes only the rendering** Nothing calls this on the way
  * into a filter, a colour rule, a Calc selection or a copy — those all read the raw row,
  * and a transformed value reaching any of them would be a silent wrong answer rather than
  * a visible one.

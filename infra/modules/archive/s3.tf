@@ -1,10 +1,10 @@
-# ── The archive bucket (SPEC-168 FR-001) ─────────────────────────────────────
+# ── The archive bucket ─────────────────────────────────────
 # Bucket 5, holding nothing but archived objects at the GLACIER storage class, reachable
 # by nothing but this control plane.
 #
 # THE BROWSER HAS NO RELATIONSHIP WITH THIS BUCKET AT ALL, and that is the design rather
 # than an omission: there is NO CORS configuration below (the same explicit absence the
-# admin bucket carries), the host is NOT in the CSP connect-src (modules/app, SPEC-140 —
+# admin bucket carries), the host is NOT in the CSP connect-src (modules/app —
 # a reviewer must be able to read that enumerated list and see no archive host), and the
 # portal role holds ZERO statements naming this ARN. The only route to archived bytes is
 # a restore request through this plane, which is the whole point of archiving being
@@ -48,7 +48,7 @@ resource "aws_s3_bucket_ownership_controls" "archive" {
 # 2026-08-03). It is worth saying explicitly here because the obvious next thought on an
 # archive bucket is S3 Object Lock — which REQUIRES versioning, and which is out of
 # scope for a second, independent reason: in compliance mode nothing can delete an
-# object, not even root, so SPEC-171's cleanup of a restored archive would be impossible.
+# object, not even root, so the cleanup of a restored archive would be impossible.
 resource "aws_s3_bucket_versioning" "archive" {
   bucket = aws_s3_bucket.archive.id
 
@@ -57,9 +57,9 @@ resource "aws_s3_bucket_versioning" "archive" {
   }
 }
 
-# ── Retention is a CEILING, not a WORM floor (FR-001) ────────────────────────
+# ── Retention is a CEILING, not a WORM floor ────────────────────────
 # Every object expires 7 years after creation. Nothing here prevents an earlier delete —
-# SPEC-171's restore deletes the archived copy once it has been put back, and it must be
+# the restore deletes the archived copy once it has been put back, and it must be
 # able to.
 #
 # THE EXPIRY RULE IS DELIBERATELY BUCKET-WIDE WITH NO PREFIX FILTER, and it is the exact
@@ -104,7 +104,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "archive" {
   }
 }
 
-# ── Bucket policy: this plane and the deploy role, nobody else (FR-001) ──────
+# ── Bucket policy: this plane and the deploy role, nobody else ──────
 # The same `StringNotLike aws:PrincipalArn` shape the user-space bucket policy uses. It
 # is what makes "the browser has no relationship with this bucket" enforced rather than
 # merely true today: an identity policy that grew a statement naming this ARN would still

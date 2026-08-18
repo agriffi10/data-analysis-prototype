@@ -10,13 +10,13 @@ export type UseSavedQuerySpaceResult = {
 };
 
 /**
- * Which space the saved-queries surfaces read from (SPEC-174 FR-001).
+ * Which space the saved-queries surfaces read from.
  *
  * The selection is the DRAWER's state, not the workspace's: it does not change which
  * database a query runs against and it does not touch the schema rail.
  *
  * The spaces are handed in rather than read from `useQuerySpaces` so the caller can
- * apply the `sharedWorkspaces` gate at the view (SPEC-163) without this hook — or the
+ * apply the `sharedWorkspaces` gate at the view without this hook — or the
  * service beneath it — learning about feature flags. A remembered space the user no
  * longer belongs to, or that a flag has since hidden, resolves through the same
  * fallback: it is not in the list, so the personal space wins.

@@ -199,13 +199,13 @@ def _abandon_if_changed(
 ) -> None:
     """Refuses to write when ANOTHER writer committed between this run's read and this write.
 
-    SPEC-157 FR-005. ``load-table-definition`` captured the table's ``UpdateTime`` at the start of
+    ``load-table-definition`` captured the table's ``UpdateTime`` at the start of
     the run; this compares it against the one on the read that immediately precedes the write. A
     difference means the definition this run computed came from a table that no longer exists in
     that form, so applying it would silently overwrite whatever the other writer did.
 
     **A moved stamp is not by itself another writer, and treating it as one broke a property
-    SPEC-149 shipped.** This state is retried on a Lambda fault and on Glue's own retryable
+    the in-place rebuild shipped.** This state is retried on a Lambda fault and on Glue's own retryable
     faults, and both can fire AFTER the update committed — a client-side timeout on a call the
     service completed, or a lost response. The retry then re-reads a table whose stamp THIS RUN
     moved. Judging on the stamp alone, it would fail a run that had already succeeded, notify the

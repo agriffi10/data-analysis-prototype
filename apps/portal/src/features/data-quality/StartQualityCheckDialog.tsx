@@ -9,7 +9,7 @@ import {DIALOG_PANEL, DIALOG_TITLE} from '../../components/dialogChrome';
 
 type Props = {
   /**
-   * From `usableSpaceTargets` (SPEC-057) — personal first, then usable shared A–Z.
+   * From `usableSpaceTargets` — personal first, then usable shared A–Z.
    * Empty renders null (see below).
    */
   spaces: FileSpaceTarget[];
@@ -23,7 +23,7 @@ type Props = {
  * (or one file), start.
  *
  * It is the `SaveResultsDialog` composition — `Modal` + a space `<select>` + a keyed
- * `DestinationPicker` — with the filename field removed and the picker put into SPEC-124's
+ * `DestinationPicker` — with the filename field removed and the picker put into the dialog's
  * `selectableFiles` mode, because a check can target a single file where a save never can.
  *
  * The picker owns the browse state; this dialog is TOLD the target via `onTargetChange` and
@@ -67,7 +67,7 @@ export function StartQualityCheckDialog({spaces, isPending = false, onStart, onC
       kind: space.kind,
       bucket: space.bucket,
       // The SPACE is identified to the control plane by its root prefix, never by the
-      // folder being browsed (SPEC-109).
+      // folder being browsed.
       prefix: space.rootPrefix
     };
     onStart({space: dqSpace, location: selectedFileKey ?? destPrefix});

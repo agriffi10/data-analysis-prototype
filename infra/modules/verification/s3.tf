@@ -1,6 +1,6 @@
-// SPEC-186 FR-004 — the archive plane's audit record.
+// The archive plane's audit record.
 //
-// Two owed live assertions could not be made by ANY principal. SPEC-170's is the load-bearing
+// Two owed live assertions could not be made by ANY principal. The is the load-bearing
 // one: that a `destination_occupied` refusal did NOT already initiate retrieval. Making it
 // requires knowing whether `RestoreObject` was ever called for a run — and `dat-prod-archive`
 // explicit-denies the laptop IAM user, its execution role trusts `lambda.amazonaws.com` only,

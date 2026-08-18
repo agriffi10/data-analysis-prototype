@@ -29,7 +29,7 @@ export type Placement = {
 /**
  * Where the suggestion list goes and how tall it may be.
  *
- * SPEC-186 FR-003. Kept pure and separate from the component because the property that matters
+ * Kept pure and separate from the component because the property that matters
  * is NUMERIC — the list's far edge must stay inside the clipping box — and jsdom has no layout
  * engine, so a DOM test could only assert that the code ran. Here the arithmetic can be checked
  * against the cases that actually occurred: the 1400x900 Add-members dialog, where the list ran

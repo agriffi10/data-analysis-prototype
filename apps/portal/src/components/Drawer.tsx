@@ -41,9 +41,9 @@ type DrawerProps = {
  * Slide-over drawer: scrim + panel + header with close button + scrollable body.
  * Traps focus while open and restores it to the trigger on close; Escape and
  * backdrop click both dismiss. A nested dialog takes Escape on its own — `useEscapeKey`
- * dispatches by tree depth (SPEC-155 FR-006), so there is no opt-out to remember. Desktop (≥ tablet) is a 440px right slide-over; below
+ * dispatches by tree depth, so there is no opt-out to remember. Desktop (≥ tablet) is a 440px right slide-over; below
  * tablet it becomes a full-width sheet — a docked bottom sheet or a full-height
- * sheet per `mobileVariant` (SPEC-095).
+ * sheet per `mobileVariant`.
  *
  * @example
  * <Drawer open={open} onClose={() => setOpen(false)} title="History" footer={<Pager {...pager} />}>

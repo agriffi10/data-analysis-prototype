@@ -13,7 +13,7 @@ export type UseExploreDeepLinkResult = {
 };
 
 /**
- * Resolve `/explore?space=&db=&table=` into a source to open (SPEC-179 FR-006).
+ * Resolve `/explore?space=&db=&table=` into a source to open.
  *
  * **IT WAITS FOR THE CONNECTIONS LIST, and that is not a nicety.** Resolution consults the
  * shared spaces the user is an active member of; until they load, a link to a shared space
@@ -21,7 +21,7 @@ export type UseExploreDeepLinkResult = {
  * good access — and a link whose space name equals the username would resolve PERSONAL for a
  * beat, which is the one wrong answer that also looks right.
  *
- * The connections read is the user's OWN cache document. It is not the disclosure FR-006
+ * The connections read is the user's OWN cache document. It is not the disclosure the refusal rule
  * guards: nothing is asked of Glue, or of the space named in the link, until a space this
  * user can reach has been found in a list they already had.
  *
@@ -50,7 +50,7 @@ export function useExploreDeepLink(
     //
     // `sharedEnabled` belongs in this condition, not only in the resolver: with the flag off
     // the parameter is discarded unread, so waiting on connections for it would be waiting
-    // on a value that cannot change the answer — and FR-006 AC5's "not read at all" would be
+    // on a value that cannot change the answer — and the "not read at all" would be
     // true of the resolution while visibly false of the page.
     if (isLoading && sharedEnabled && space !== null) return {status: 'loading'};
     return resolveExploreParams({space, db, table}, spaces, username, sharedEnabled);
@@ -59,7 +59,7 @@ export function useExploreDeepLink(
   return {
     resolution,
     // `replace`, so Back leaves the Data Explorer rather than re-opening the tab the link
-    // already opened — and so a reload restores the session's tabs (FR-008 AC4) instead of
+    // already opened — and so a reload restores the session's tabs instead of
     // adding a duplicate of the linked one on top of them.
     clear: () =>
       setSearchParams(

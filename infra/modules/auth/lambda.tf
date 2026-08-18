@@ -1,6 +1,6 @@
-# ── Pre-Signup Validation Lambda (SPEC-012) ──────────────────────────────────
+# ── Pre-Signup Validation Lambda ──────────────────────────────────
 # A Cognito pre-signup trigger that enforces the username rule server-side at
-# registration (^[a-z][a-z0-9_]{2,62}$ — catalog-safe per SPEC-033). The username
+# registration (^[a-z][a-z0-9_]{2,62}$ — catalog-safe). The username
 # becomes the user's S3 prefix, `username` principal tag, and Glue database name, so
 # an unsafe username must never be created.
 #
@@ -61,7 +61,7 @@ resource "aws_iam_role_policy" "pre_signup_logs" {
 }
 
 # Explicit log group so retention is managed (Lambda would otherwise create one
-# with infinite retention on first invoke). 14-day retention (FR-002).
+# with infinite retention on first invoke). 14-day retention.
 resource "aws_cloudwatch_log_group" "pre_signup" {
   name              = "/aws/lambda/${local.pre_signup_function_name}"
   retention_in_days = 14
@@ -79,20 +79,20 @@ resource "aws_lambda_function" "pre_signup" {
   filename         = data.archive_file.pre_signup_placeholder.output_path
   source_code_hash = data.archive_file.pre_signup_placeholder.output_base64sha256
 
-  # SPEC-137 FR-005. Optional BY CONSTRUCTION on the Lambda side — cpcommon.observability
+  # Optional BY CONSTRUCTION on the Lambda side — cpcommon.observability
   # reads it with os.environ.get and never config._require — so a trigger deployed without
   # it logs to stdout instead of failing at cold start. Set here so it is set in practice,
   # and the trigger's narrative lands in logs/service=auth/ with post-confirmation's.
   #
   # NONE of the six variables cpcommon/config.py requires is set here, deliberately: this
-  # function imports only `observability`, which never reaches `config`. Since SPEC-156 that
+  # function imports only `observability`, which never reaches `config`. That
   # config resolves on first ACCESS rather than at import, so the guard is no longer "does the
-  # import crash" (PR #196) but "does any branch read one" — test_layer_import_safety.py scans
+  # import crash" but "does any branch read one" — test_layer_import_safety.py scans
   # this function's whole source for a cpcommon import as well as running it.
   environment {
     variables = {
       LOGS_QUEUE_URL = var.logs_queue_url
-      # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+      # `env` shipped empty on every record. Same source of truth as the
       # feature-flag document's `environments` keys (`var.environment`, default "prod").
       ENV_NAME = var.environment
     }
@@ -123,7 +123,7 @@ resource "aws_lambda_permission" "cognito_invoke" {
   source_arn    = aws_cognito_user_pool.portal.arn
 }
 
-# ── Post-Confirmation Provisioning Lambda (SPEC-033) ─────────────────────────
+# ── Post-Confirmation Provisioning Lambda ─────────────────────────
 # A Cognito post-confirmation trigger that, on sign-up confirmation, creates the
 # user's Glue database (named exactly as the username) and Lake Formation-grants the
 # shared portal role on it. Same code-ownership split as pre-signup: Terraform owns
@@ -186,14 +186,14 @@ resource "aws_lambda_function" "post_confirmation" {
   filename         = data.archive_file.post_confirmation_placeholder.output_path
   source_code_hash = data.archive_file.post_confirmation_placeholder.output_base64sha256
 
-  # The shared portal role the LF grant targets (SPEC-033 FR-002/FR-003), plus the logs
-  # queue (SPEC-137 FR-005 — see the pre-signup function for why no config variable
+  # The shared portal role the LF grant targets, plus the logs
+  # queue (see the pre-signup function for why no config variable
   # joins them).
   environment {
     variables = {
       PORTAL_ROLE_ARN = var.portal_role_arn
       LOGS_QUEUE_URL  = var.logs_queue_url
-      # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+      # `env` shipped empty on every record. Same source of truth as the
       # feature-flag document's `environments` keys (`var.environment`, default "prod").
       ENV_NAME = var.environment
     }

@@ -4,7 +4,7 @@ import {invalidateListing} from './invalidateListing';
 import {toUserText} from '../../lib/errorMessages';
 import {uploadFile, createFolder, uploadPercent} from './fileBrowser.service';
 
-// What the user is being asked to confirm when a name already exists (FR-003).
+// What the user is being asked to confirm when a name already exists.
 // `retry` re-runs the write with overwrite, or with a new name on rename.
 type CollisionDecision = {overwrite: true} | {rename: string};
 
@@ -25,7 +25,7 @@ export type UseFileUploadResult = {
   dismissError: () => void;
 };
 
-// SPEC-016 Phase 3: orchestrates single-file upload + create-folder against the
+// Orchestrates single-file upload + create-folder against the
 // service, tracking progress, surfacing collisions for warn-and-confirm, and
 // invalidating the current prefix's listing on success so the new item appears.
 //

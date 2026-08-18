@@ -69,7 +69,7 @@ Attributes:
     undeleted message blocks its group exactly as an unwritten one does, and because
     ``_append_day`` already emits ``reason="write-failed"`` for a different thing entirely.
   MAX_CAS_ATTEMPTS: Conditional-write attempts per day object before giving up and leaving the
-    messages queued. ``cpcommon.cas.MAX_ATTEMPTS`` since SPEC-156 FR-001 — this was one of three
+    messages queued. ``cpcommon.cas.MAX_ATTEMPTS`` — this was one of three
     copies of the loop, and the caps had drifted.
   LARGE_OBJECT_WARN_BYTES: Size at which the read-modify-write cost is worth knowing about. The
     function has finite memory and a finite timeout, and the alternative is discovering this as
@@ -476,7 +476,7 @@ def _delete(receipts):
 
     Both halves of the response are read. ``DeleteMessageBatch`` reports a partial failure as
     **HTTP 200 with a ``Failed`` array**, so a try/except sees nothing at all on the most likely
-    real fault; SPEC-151 closed the same shape on ``delete_objects``, and this had it too.
+    real fault; the same shape was closed on ``delete_objects``, and this had it too.
 
     Args:
       receipts: The receipt handles to delete.

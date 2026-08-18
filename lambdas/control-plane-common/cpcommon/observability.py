@@ -33,7 +33,7 @@ caveat are in ``docs/lambda-rationale.md``.
 Import-safety is the point of this module's shape. The cpcommon layer attaches to every
 control-plane verb, including three that set almost none of ``config``'s environment — and
 when ``config._require`` ran at import, one missing variable was a cold-start crash across a
-whole control plane, this fleet's own recorded outage (PR #196). SPEC-156 FR-004 moved that
+whole control plane, this fleet's own recorded outage. That read moved
 to first read, which narrows the window but does not change this module's obligation: it must
 reach ``config`` for nothing. So ``LOGS_QUEUE_URL`` is read with ``os.environ.get`` and never
 ``_require``: a function that misses it logs to stdout instead of failing to start. It joins
@@ -66,8 +66,8 @@ UNSTAMPED_VERSION = "0.0.0"
 def _build_version():
     """Resolves the commit this function's code was built from.
 
-    SPEC-186 FR-005. Every record shipped ``"0.0.0"`` because nothing ever set
-    ``BUILD_VERSION``, and the field exists to correlate a record with a deploy.
+    Before the stamp shipped in the package every record carried ``"0.0.0"``, because
+    nothing set ``BUILD_VERSION``. The field exists to correlate a record with a deploy.
 
     The stamp travels IN THE PACKAGE (``BUILD_VERSION`` beside the handler, written by
     ``Deploy Lambdas``) rather than in the function's environment, because Tofu owns the
@@ -103,7 +103,7 @@ def _build_version():
             return handle.read().strip() or UNSTAMPED_VERSION
     except OSError:
         # A missing or unreadable stamp must never keep a function from starting: this module
-        # is on the layer that attaches to every control-plane verb, and PR #196 is what an
+        # is on the layer that attaches to every control-plane verb, and a real outage is what an
         # import-time failure there costs.
         return UNSTAMPED_VERSION
 
@@ -416,7 +416,7 @@ def _emit(level_fn, message: str, fields: dict[str, object]) -> None:
             del fields["echo"]
             logger.warning(
                 "structured logging: `echo` is prohibited and was dropped from %r — the "
-                "narrative goes to the logs queue, never the console (SPEC-130 FR-006)",
+                "narrative goes to the logs queue, never the console",
                 message,
             )
         level_fn(message, echo=False, **fields)

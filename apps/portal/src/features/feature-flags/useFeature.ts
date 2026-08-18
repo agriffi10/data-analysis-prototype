@@ -9,7 +9,7 @@ import type {FeatureFlagKey} from './featureFlags.types';
  * and the registry test has one thing to walk. Reaching for `useFeatureFlags` directly is how
  * a fifth surface ends up gated on a slightly different condition.
  *
- * **A flag is presentation, never authorization** (SPEC-162 FR-006). This hides a control; it
+ * **A flag is presentation, never authorization**. This hides a control; it
  * revokes nothing, and a user with a feature hidden still holds every IAM grant they did
  * before. Never use it to decide whether a request is allowed — only whether a surface is
  * offered.

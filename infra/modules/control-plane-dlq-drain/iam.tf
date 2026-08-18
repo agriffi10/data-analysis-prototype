@@ -1,4 +1,4 @@
-# ── Drain execution role (SPEC-126 FR-006) ───────────────────────────────────
+# ── Drain execution role ───────────────────────────────────
 # The smallest role in the repo, and deliberately so. The drain reads four queues, sends to
 # one, and writes logs. No S3, no Glue, no Athena, no Cognito (token verification is offline
 # JWKS), and no access to any REQUEST queue — a drain that could enqueue into a control plane

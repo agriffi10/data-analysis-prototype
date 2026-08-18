@@ -10,7 +10,7 @@ import {parseS3Url} from '../../lib/s3Url';
  * prefix helper returns null for every shared-space table. The prefix is
  * normalised to a single trailing slash because that is what the control plane
  * authorizes against (`validate_authorize._normalize_prefix`); the server then
- * re-reads the location from the catalog anyway (SPEC-143 FR-004), so a stale
+ * re-reads the location from the catalog anyway, so a stale
  * rail cache can never widen access.
  *
  * @example

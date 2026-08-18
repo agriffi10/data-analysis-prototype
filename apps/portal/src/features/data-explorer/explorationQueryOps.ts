@@ -8,8 +8,8 @@ import type {
   SortEntry
 } from './dataExplorer.types';
 
-// The pure edits every filtering and ordering surface makes to a query description
-// (SPEC-181). They live apart from the components for the reason `exploration.ts` gives
+// The pure edits every filtering and ordering surface makes to a query description.
+// They live apart from the components for the reason `exploration.ts` gives
 // for its constructors: a header menu, a cell action and a settings dialog all "add a
 // filter", and three implementations of that is how two of them come to disagree about
 // whether adding a second filter on one column replaces the first.
@@ -61,7 +61,7 @@ const NUMERIC_TYPES = new Set([
 ]);
 
 /**
- * How a value filtered against this column must be rendered into SQL (SPEC-178 FR-004).
+ * How a value filtered against this column must be rendered into SQL.
  *
  * Trino does not coerce: `WHERE "qty" > '5'` against a `bigint` is a query-time error
  * rather than a comparison, so a numeric column's value has to reach the SQL bare. The
@@ -85,7 +85,7 @@ export function filterValueKind(type: string): FilterValueKind {
 /**
  * A description with nothing to clear: no filters, no expression, no ordering, no grouping.
  *
- * Grouping counts from SPEC-182 (FR-006 AC3), superseding SPEC-181's deliberate exclusion:
+ * Grouping counts, superseding the earlier deliberate exclusion:
  * Clear all now clears the grouping too, so a grouped view with no filters is no longer
  * "empty" — a control that refused there would refuse the only thing left to clear.
  */
@@ -98,7 +98,7 @@ export function isEmptyQuery(query: ExplorationQuery): boolean {
 // A grouping's ARRAYS are not sorted, unlike the filters and the ordering below: their
 // order is the projection's and the GROUP BY's, so two groupings listing the same columns
 // differently render different SQL and are different queries. Only the two flags are
-// normalised — a document written before SPEC-182 carries neither, and an absent flag
+// normalised — a document written before these fields existed carries neither, and an absent flag
 // comparing unequal to `false` would push a history entry for an apply that changed
 // nothing.
 function canonicalGrouping(grouping: ExplorationQuery['grouping']) {
@@ -143,7 +143,7 @@ export function sameQuery(a: ExplorationQuery, b: ExplorationQuery): boolean {
 }
 
 /**
- * Adds or replaces the filter on one column (FR-002 AC4).
+ * Adds or replaces the filter on one column.
  *
  * One filter per column, always — a second filter on a column is far more often a user
  * refining the first than asking for `x = 1 AND x = 2`, and the second reading is
@@ -169,7 +169,7 @@ export function filterOf(query: ExplorationQuery, column: string): ColumnFilter 
 }
 
 // Priorities are re-stamped from the sorted order on every edit, so they stay 0-based and
-// CONTIGUOUS (FR-004 AC3). Left alone, clearing the middle of three sorts would leave
+// CONTIGUOUS. Left alone, clearing the middle of three sorts would leave
 // 0 and 2 — which renders the same ORDER BY but shows the user a "3rd" with no second.
 function stamp(ordering: SortEntry[]): SortEntry[] {
   return ordering.map((entry, index) => ({...entry, priority: index}));
@@ -180,7 +180,7 @@ function restamp(ordering: SortEntry[]): SortEntry[] {
 }
 
 /**
- * Sorts by a column, appending it at the next priority (FR-004 AC1).
+ * Sorts by a column, appending it at the next priority.
  *
  * A column that is already sorted keeps its PLACE and only changes direction — flipping
  * ascending to descending is not a request to make it the primary sort, and promoting it
@@ -223,7 +223,7 @@ export function sortOf(query: ExplorationQuery, column: string): {direction: 'as
 }
 
 /**
- * Moves a sorted column one place up or down the priority list (FR-004 AC2).
+ * Moves a sorted column one place up or down the priority list.
  *
  * @param query - The description to edit.
  * @param column - The sorted column to move.
@@ -243,9 +243,9 @@ export function moveSortPriority(query: ExplorationQuery, column: string, direct
 }
 
 /**
- * Applies a grouping to a description, or leaves grouping mode (SPEC-182 FR-003).
+ * Applies a grouping to a description, or leaves grouping mode.
  *
- * **Grouping mode is exactly "at least one grouping column"** (AC6). A grouping with no
+ * **Grouping mode is exactly "at least one grouping column"** A grouping with no
  * columns is legal SQL — a global aggregate over the whole table — but it is not what the
  * panel is for, and expressing "no columns left" as anything other than "not grouped"
  * would leave the user in a mode with nothing in it.
@@ -253,7 +253,7 @@ export function moveSortPriority(query: ExplorationQuery, column: string, direct
  * Leaving grouping mode **drops any sort on an aggregate's output column**, which is the
  * half that is easy to miss: `count_all` exists only while the grouping does, so an
  * ORDER BY carrying it onto the ungrouped table is a query Athena rejects — and it would
- * also miss the cached ungrouped execution AC6 promises to return to.
+ * also miss the cached ungrouped execution the rule promises to return to.
  *
  * @param query - The description to edit.
  * @param grouping - The grouping to apply, or null to leave grouping mode.
@@ -278,7 +278,7 @@ export function setGrouping(query: ExplorationQuery, grouping: Grouping | null):
  * and taking it put the whole exploration behind an error banner.
  *
  * The rule is the RENDERER's (`groupingOrderingViolation`), not a copy of it: the message
- * the renderer throws names a column and an operator, which SPEC-106 forbids showing
+ * the renderer throws names a column and an operator, which the error-wording rule forbids showing
  * anyone, so the refusal has to be worded here — but a second rule here could disagree,
  * and the way it would disagree is a grouping this accepts and the renderer throws on.
  *

@@ -34,8 +34,8 @@ export function Header() {
   const authed = status === 'authenticated' && !!user;
 
   // The header is the one place that knows both the auth state and the flags, so it is where
-  // the gating decision is made and handed down (SPEC-163 FR-001). `PrimaryNav` and
-  // `AppNavDrawer` live in `components/` and may not import a feature (SPEC-155), and both
+  // the gating decision is made and handed down. `PrimaryNav` and
+  // `AppNavDrawer` live in `components/` and may not import a feature, and both
   // get the SAME predicate — a tab hidden in the topbar and present in the mobile drawer is a
   // feature that is still one hamburger away.
   //

@@ -144,7 +144,7 @@ export function CheckIcon({className}: IconProps) {
 }
 
 /**
- * Help / question-mark in a circle (header help link, SPEC-074).
+ * Help / question-mark in a circle (header help link).
  *
  * @example
  * <HelpCircleIcon className="h-5 w-5" />
@@ -193,7 +193,7 @@ export function ChevronDownIcon({className}: IconProps) {
   );
 }
 
-/** Chevron pointing left — the rail collapse control (SPEC-085). */
+/** Chevron pointing left — the rail collapse control. */
 export function ChevronLeftIcon({className}: IconProps) {
   return (
     <svg
@@ -210,7 +210,7 @@ export function ChevronLeftIcon({className}: IconProps) {
   );
 }
 
-/** Chevron pointing right — the collapsed-rail reopen handle (SPEC-085). */
+/** Chevron pointing right — the collapsed-rail reopen handle. */
 export function ChevronRightIcon({className}: IconProps) {
   return (
     <svg

@@ -1,6 +1,6 @@
 """Turning a validated selection into the concrete, bounded object list a send will copy.
 
-This is the whole of SPEC-165's first requirement. A selection is a mix of files and folders;
+This is the whole of the first requirement. A selection is a mix of files and folders;
 a folder expands recursively and can hold thousands of objects, so the expansion happens here —
 once, in one verb — and everything downstream reads the copy plan rather than listing again.
 
@@ -9,7 +9,7 @@ silent defect.** ``cpcommon.s3_listing.is_ignored`` anchors ``athenaresults/``,
 ``user_settings/`` and its hidden-segment test at the LISTING PREFIX. That is right for the
 three planes that list a table's or a check's own folder, and wrong here: the listing prefix is
 whichever item the user picked, so sending ``alice/reports/`` would drop a user-made
-``alice/reports/athenaresults/`` — which SPEC-164 records as an ordinary sendable folder — and
+``alice/reports/athenaresults/`` — an ordinary sendable folder — and
 any ``_drafts/``, without a refusal or a message. A silent drop is worse than copying it and
 worse than refusing it. The hidden-segment rule also exists because *Athena* ignores those
 files, which says nothing about a byte-for-byte copy. So the predicate below is anchored at the
@@ -25,7 +25,7 @@ Attributes:
     ANCHORED AT THE ROOT, which is the whole difference from the analytics rule — a user's own
     ``reports/athenaresults/`` is an ordinary folder they may send.
 
-    ``athenaresults/`` is the spec's (FR-001 AC4). ``user_settings/`` is not, and it is here
+    ``athenaresults/`` is the spec's. ``user_settings/`` is not, and it is here
     because dropping it would have been a change nobody argued for: it is a portal-managed
     folder holding the sender's notification inbox and shared-space connections cache, hidden
     everywhere in the browser (``protectedFolders.ts``), and unlike the two analytics rules this
@@ -97,7 +97,7 @@ def _excluder(root: str):
 def _collapse(items: list) -> list:
     """Drops repeats of the same item, preserving the order the sender gave.
 
-    A repeat is a duplicate, not an overlap: FR-002 says the same item listed twice collapses
+    A repeat is a duplicate, not an overlap: the rule says the same item listed twice collapses
     rather than being refused, because there is exactly one right answer and no ambiguity about
     what the user meant.
 
@@ -108,7 +108,7 @@ def _collapse(items: list) -> list:
     first and dropped the other — so a request naming both silently sent one zero-byte
     placeholder and none of the folder's contents, reporting success, with the outcome depending
     on the order of the list. Keyed on the pair, both survive to the overlap rule, which refuses
-    them; a silent drop is the thing FR-002 exists to prevent.
+    them; a silent drop is the thing the rule exists to prevent.
 
     Args:
       items: The normalised selection.
@@ -196,7 +196,7 @@ def _assert_no_name_collision(items: list) -> None:
 def _checked(root: str, key: str) -> str:
     """Re-runs every containment rule against a key that arrived from S3.
 
-    **The check is not trusted from validate-authorize alone** (FR-001), and the reason is that
+    **The check is not trusted from validate-authorize alone**, and the reason is that
     the two keys have different provenance. The request's keys were checked as strings the
     sender supplied; these arrive from a ``ListObjectsV2`` response, which is the first point in
     the request's life where a key is produced by something other than the request. Nothing
@@ -237,7 +237,7 @@ def _expand_item(bucket: str, root: str, entry: dict):
     listing.** A ``file`` item is not filtered by anything upstream — validate-authorize
     normalises a *folder* key to a trailing slash and leaves a file key untouched — so naming
     ``{root}/DO_NOT_DELETE.txt`` as a file copied the prefix marker into someone's inbox, and
-    naming a folder AS a file copied its zero-byte placeholder as a file. FR-001 AC4 says these
+    naming a folder AS a file copied its zero-byte placeholder as a file. the rule says these
     are excluded from the copy set; it does not say "when they turn up in a listing". A selection
     of nothing but excluded objects then lands on the zero-object refusal, which is the right
     outcome and the same one an empty folder gets.
@@ -286,7 +286,7 @@ def expand(source: dict) -> tuple[list, int]:
 
     Returns:
       ``(objects, total_bytes)``, each object carrying its owning item name, its relative key,
-      its absolute source key and its size — everything SPEC-166's manifest builder needs
+      its absolute source key and its size — everything the manifest builder needs
       without a second listing.
 
     Raises:

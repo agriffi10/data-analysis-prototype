@@ -13,7 +13,7 @@ Athena text is never placed in a message body — it stays in logs and the SFN r
 A resolver renders a whole sentence, not only its tail. Every control plane composes the
 same three parts — an access-denied short-circuit, a prefix naming the operation, and the
 body for the reason — so those are resolver configuration rather than three hand-written
-copies of one algorithm (SPEC-156 FR-002). The prefix and the access-denied clause are
+copies of one algorithm. The prefix and the access-denied clause are
 marker-substituted templates like the bodies, because table-builder's verb varies per
 request and reaches its access-denied clause too: a create-only line would tell a user they
 cannot create a table they were trying to refresh.
@@ -287,7 +287,7 @@ def register_reasons(reasons: Iterable[str]) -> None:
 
     The seam for a module that raises codes it does not own the wording for — ``cpcommon.glue``
     raises shape refusals that each plane words for itself. All three domain layers went
-    through ``register`` instead as of SPEC-156 FR-002. Idempotent; re-adding a base code is
+    through ``register`` instead. Idempotent; re-adding a base code is
     harmless.
 
     Args:

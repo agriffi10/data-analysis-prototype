@@ -8,7 +8,7 @@ table-builder uses. Projection properties were carried verbatim, so a partitione
 queryable immediately, and the idempotent form plus the conflict guard make a replay a no-op
 success.
 
-The definition arrives as a KEY, not as a value on the state (SPEC-161). One fetch per
+The definition arrives as a KEY, not as a value on the state. One fetch per
 recipient is the cost, bounded by ``SHARE_MAX_RECIPIENTS``, and an unreadable one fails only
 the recipient it was fetched for.
 
@@ -18,7 +18,7 @@ Map fan-out stay one queryable set. The per-verb identity rides as the ``verb`` 
 Attributes:
   athena_mod: Table-share's DDL runner, with this plane's reason codes bound. Held at module
     level so a timing test can replace its ``_now`` and ``_sleep`` seams, which is the whole
-    reason the per-plane wrapper it replaced existed (SPEC-156 FR-005).
+    reason the per-plane wrapper it replaced existed.
 """
 
 import logging

@@ -29,7 +29,7 @@ observability.init(service="shared-space")
 def _fan_out_roster(space, owner, committed):
     """Publishes the promoted roster to the owner and to every member's own cache.
 
-    SPEC-186 FR-008. This used to write the owner's projection alone, which left every member's
+    This used to write the owner's projection alone, which left every member's
     copy — including the acknowledging member's own — frozen at the status it held when they were
     added. The roster is the only member-facing view of who is in a space, so one member could
     read ``Pending`` about themselves on the same page whose connections row said ``Active``, and

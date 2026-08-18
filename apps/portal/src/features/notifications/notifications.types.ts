@@ -9,8 +9,8 @@ export type Notification = {
   /** ISO-8601, writer clock. */
   timestamp: string;
   /**
-   * Optional in-app path the message links to, e.g. `/data-quality/alice/req-1`
-   * (SPEC-113 FR-008). Supplied by a trusted producer on `create` and persisted
+   * Optional in-app path the message links to, e.g. `/data-quality/alice/req-1`.
+   * Supplied by a trusted producer on `create` and persisted
    * verbatim by the writer.
    *
    * It is NOT trusted at render: it arrives from outside the SPA and becomes a

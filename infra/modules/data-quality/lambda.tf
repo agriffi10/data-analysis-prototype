@@ -1,4 +1,4 @@
-# ── Control-plane Lambdas (SPEC-108 skeleton) ────────────────────────────────
+# ── Control-plane Lambdas (skeleton) ────────────────────────────────
 # Nine single-task verb Lambdas — validate-authorize / inspect-source /
 # create-temp-tables / start-profile-query / check-query / byte-scan / assemble-report /
 # drop-temp-tables / notify-failure — orchestrated by the Step Function
@@ -6,12 +6,12 @@
 # and table-share) and each gets its task's real timeout AND memory (locals.tf — see the
 # shared-spaces implicit-128 MB precedent recorded there).
 #
-# notify-failure is a PLACEHOLDER here: SPEC-114 FR-004 wires its real handler and the
+# notify-failure is a PLACEHOLDER here: the notification producer wires its real handler and the
 # NotifyFailure state. Provisioning it in the foundation (function + log group +
 # deploy-lambdas matrix entry) is the notify-failure-Lambda pattern — the foundation
 # spec provisions the placeholder, the producer spec wires it.
 #
-# Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
+# Code-ownership split (architecture.md): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python code
 # (lambdas/data-quality-<suffix>/) AND publishes + attaches the layers: cpcommon +
 # dqcommon on all nine, plus the polars layer on inspect-source. `ignore_changes` keeps
@@ -52,19 +52,19 @@ resource "aws_lambda_function" "functions" {
   memory_size   = each.value.memory
 
   # EVERY variable cpcommon/config.py requires must be COMMON to all nine verbs: every verb
-  # attaches the cpcommon layer, and any of them may reach any of those values. SPEC-156
-  # FR-004 moved the fail-fast (SPEC-083 FR-001) from import to FIRST READ, so a verb missing
-  # one no longer crashes at COLD START (the table-builder production break, PR #196:
-  # check-table-absent, RuntimeError COGNITO_USER_POOL_ID unset) — it fails on whichever
+  # attaches the cpcommon layer, and any of them may reach any of those values. The config
+  # the rule moved the fail-fast from import to FIRST READ, so a verb missing
+  # one no longer crashes at COLD START
+  # (check-table-absent, RuntimeError COGNITO_USER_POOL_ID unset) — it fails on whichever
   # branch reads it, which is narrower and no less broken. The per-verb map
   # (local.data_quality_verb_env) is reserved for OPTIONAL action env only.
   # NOTIFICATIONS_QUEUE_URL stays optional by design (emit is a no-op when unset).
   #
   # ATHENA_WORKGROUP is the SHARED portal workgroup (var.athena_workgroup) — the same one
-  # table-builder/table-share use. SPEC-108 originally gave this arc its own workgroup to
+  # table-builder/table-share use. This plane originally had its own workgroup to
   # escape the portal workgroup's 10 GiB scan cutoff, but Athena ties Lake Formation to the
   # workgroup: a dedicated one fails LF's Create/Describe checks even for an LF-admin role
-  # (SPEC-111 live finding). The cutoff tradeoff is documented in the architecture doc — a
+  # (measured live). The cutoff tradeoff is documented in the architecture doc — a
   # data-quality check over a source larger than the cutoff fails until it is raised.
   environment {
     variables = merge(
@@ -76,7 +76,7 @@ resource "aws_lambda_function" "functions" {
         COGNITO_APP_CLIENT_ID   = var.app_client_id
         ATHENA_WORKGROUP        = var.athena_workgroup
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
-        # SPEC-128. Optional by construction (SPEC-127 FR-003) — that is what makes a
+        # Optional by construction — that is what makes a
         # partial rollout safe: a function that somehow misses it logs to stdout instead
         # of failing at import, which for a shared layer means at COLD START.
         LOGS_QUEUE_URL = var.logs_queue_url

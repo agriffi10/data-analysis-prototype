@@ -1,7 +1,7 @@
 import {Banner} from '../../components/Banner';
 import {toUserText} from '../../lib/errorMessages';
 
-/** `code` is the stable app/AWS code; the banner maps it to friendly text (SPEC-106). */
+/** `code` is the stable app/AWS code; the banner maps it to friendly text. */
 export type OperationError = {label: string; message?: string; code?: string};
 
 type Props = {
@@ -12,7 +12,7 @@ type Props = {
   onDismiss: () => void;
 };
 
-// SPEC-018/019/039: result banner for a bulk delete/move/copy — success count
+// Result banner for a bulk delete/move/copy — success count
 // plus any per-item failures. Shared shell extracted from the three near-identical
 // FileBrowser banners (react-best-practices abstraction pass).
 export function OperationSummaryBanner({count, pastVerb, failVerb, errors, onDismiss}: Props) {

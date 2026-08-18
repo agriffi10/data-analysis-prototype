@@ -9,8 +9,8 @@ import type {UseQueryHistoryResult} from './useQueryHistory';
 import type {ParsedStatement, QueryTab, ResultTab, RunScope} from './query.types';
 import type {QueryStatus} from '../catalog/catalog.types';
 
-// SPEC-041: per-tab in-memory run state (not persisted — results re-fetch on a
-// fresh Run). SPEC-078 extends it to a sequential batch: the statements in
+// Per-tab in-memory run state (not persisted — results re-fetch on a
+// fresh Run). A run is a sequential batch: the statements in
 // scope, the in-flight statement's execution, and the result tabs accumulated
 // as result-producing statements succeed. `submittedSql` is the CURRENT
 // statement's text, kept so the background finalizer can decide whether a
@@ -36,7 +36,7 @@ export type TabRun = {
   failure?: {statementIndex: number; reason: string};
   /** Saved-query link captured at submit, recorded on every statement's history entry. */
   savedQuery?: {key: string; name: string};
-  /** Submitter-supplied identity, so a caller can tell ITS run from a later one (SPEC-100). */
+  /** Submitter-supplied identity, so a caller can tell ITS run from a later one. */
   token?: number;
 };
 
@@ -63,7 +63,7 @@ export type UseTabRunsResult = {
   dropRunState: (id: string) => void;
   /** Clears a tab's error and marks it dismissed, so the banner stays closed. */
   dismissError: (tabId: string) => void;
-  /** SPEC-078 FR-007: switch which result-producing statement the results region shows. */
+  /** switch which result-producing statement the results region shows. */
   selectResultTab: (tabId: string, index: number) => void;
 };
 
@@ -77,7 +77,7 @@ type Params = {
 };
 
 /**
- * The query workspace's batch state machine (SPEC-041 + SPEC-078), extracted
+ * The query workspace's batch state machine, extracted
  * whole from `QueryWorkspace` so the container renders rather than schedules.
  *
  * Owns per-tab run state, the headless pollers that drive it, submission,
@@ -100,7 +100,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
   const [runErrors, setRunErrors] = useState<Record<string, string | null>>({});
   const [dismissed, setDismissed] = useState<Record<string, boolean>>({});
 
-  // Tabs whose run has been submitted but not yet recorded in `runs` (SPEC-083 FR-009).
+  // Tabs whose run has been submitted but not yet recorded in `runs`.
   // The de-dupe guard reads this ref so a rapid double-trigger de-dupes before the
   // async setRuns commits, which the runs/statuses render snapshot alone can miss.
   const submittingTabsRef = useRef<Set<string>>(new Set());
@@ -120,18 +120,18 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
         }
       }).catch((e) => logBackgroundFailure('query-history', e));
 
-      // SPEC-077: a user-typed DDL fully-qualifies its own target; refresh that
+      // a user-typed DDL fully-qualifies its own target; refresh that
       // database's schema (there's no active database to assume).
       const ddlDb = status.state === 'SUCCEEDED' ? schemaChangingDatabase(sql) : null;
       if (ddlDb) void invalidateSchema(queryClient, ddlDb);
 
-      // ── SPEC-078: batch bookkeeping + advancement ─────────────────────────
+      // ── Batch bookkeeping and advancement ────────────────────────────────
       const run = runsRef.current[tabId];
       // Stale finalize (tab closed, or a new run replaced this one) — history
       // above is still recorded; there is no batch to advance.
       if (!run || run.done || run.executionId !== executionId) return;
 
-      // FR-007: a result-producing statement that succeeded earns a result tab
+      // a result-producing statement that succeeded earns a result tab
       // (accumulated in every scope; display differs by scope).
       const resultTab: ResultTab | null =
         status.state === 'SUCCEEDED' && isResultProducingSql(sql)
@@ -161,7 +161,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
         });
       };
 
-      // FR-002: stop at the first non-SUCCEEDED terminal state, and never
+      // Stop at the first non-SUCCEEDED terminal state, and never
       // advance past a Stop even when the statement outran the cancel.
       const hasNext = run.currentIndex < run.statements.length - 1;
       if (status.state !== 'SUCCEEDED' || !hasNext || run.halted) {
@@ -170,7 +170,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
           done: true,
           ...(status.state === 'FAILED' && {
             // Store friendly text for display; the raw stateChangeReason stays in
-            // the QueryStatus/history record for developers (SPEC-106 FR-004).
+            // the QueryStatus/history record for developers.
             failure: {
               statementIndex: cur.currentIndex,
               reason: toUserText({code: status.state, message: status.stateChangeReason})
@@ -208,7 +208,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
         // one as running immediately.
         setStatuses((s) => ({...s, [tabId]: undefined}));
         // Same history race guard as the first statement: the entry must land
-        // before the poller's finalizer can read-modify-write it (FR-003).
+        // before the poller's finalizer can read-modify-write it.
         await appendEntry({
           queryExecutionId: nextId,
           sql: next.sql,
@@ -232,12 +232,12 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
 
   // Submit a batch of statements into a tab (defaults to the active tab),
   // starting the FIRST statement; the finalizer advances through the rest
-  // sequentially (SPEC-078 FR-002). An explicit tabId lets a just-opened tab
-  // (View data, SPEC-044) auto-run into itself before the activeTabId state
+  // sequentially. An explicit tabId lets a just-opened tab
+  // (View data) auto-run into itself before the activeTabId state
   // change has committed. A new run replaces the tab's prior run wholesale, so
-  // the previous batch's result tabs are cleared (FR-007). Returns whether the
+  // the previous batch's result tabs are cleared. Returns whether the
   // submit began, so a caller that tracks its own run (the mobile results view)
-  // doesn't start waiting on a run the guards below refused (SPEC-100).
+  // doesn't start waiting on a run the guards below refused.
   const submitBatch = (
     statements: ParsedStatement[],
     scope: RunScope,
@@ -255,8 +255,8 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     if (existing && !existing.done) return false;
     submittingTabsRef.current.add(tabId);
 
-    // SPEC-043 FR-009: a run from a tab linked to a saved query records that query in
-    // history. Read off the TAB at submit time — SPEC-173 put the whole link there, so
+    // a run from a tab linked to a saved query records that query in
+    // history. Read off the TAB at submit time — the whole link lives there, so
     // there is no list to look the query up in.
     const linkedSaved = tabs.find((t) => t.id === tabId)?.savedQuery;
 
@@ -267,9 +267,9 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     void (async () => {
       try {
         const first = statements[0];
-        // SPEC-077: no execution database context — the query fully-qualifies its
+        // no execution database context — the query fully-qualifies its
         // own tables. Results land in the personal prefix (runQuery's default); a
-        // shared destination is chosen explicitly at Save time (SPEC-049/055).
+        // shared destination is chosen explicitly at Save time.
         const result = await runQuery({
           sql: first.sql,
           username
@@ -294,7 +294,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
         await appendEntry({
           queryExecutionId: id,
           sql: first.sql,
-          // SPEC-077 FR-006: informational only (there's no active database). The
+          // Informational only (there's no active database). The
           // personal database is the fixed default context recorded for display.
           database: username,
           submittedAt: new Date().toISOString(),
@@ -335,7 +335,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     return true;
   };
 
-  // FR-002: Stop cancels the in-flight statement AND halts the remainder. The
+  // Stop cancels the in-flight statement AND halts the remainder. The
   // halted flag is set first so the finalizer never starts the next statement,
   // even when the current one outruns the cancel and SUCCEEDs.
   const handleStop = () => {
@@ -349,7 +349,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     void stopQuery(run.executionId); // poller observes CANCELLED
   };
 
-  // FR-005: drop the closed tab's in-memory run state (its execution keeps running
+  // Drop the closed tab's in-memory run state (its execution keeps running
   // server-side; history is the durable record).
   const dropRunState = (id: string) => {
     const without = <T,>(m: Record<string, T>) => {
@@ -375,7 +375,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
   );
 
   // Background pollers — one per tab with an execution, so backgrounded
-  // queries finalize concurrently (FR-004). They render nothing.
+  // queries finalize concurrently. They render nothing.
   const pollers = Object.entries(runs).map(([tabId, run]) => (
     <TabExecutionPoller
       key={tabId}

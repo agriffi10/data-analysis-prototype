@@ -1,16 +1,16 @@
-"""SPEC-157 FR-001/FR-004 — the per-table refresh lock.
+"""The per-table refresh lock.
 
 Two refreshes of one table can overlap. ``MessageGroupId`` on the request queue is the target
 database, so SQS serializes *delivery* per database, but the Pipe starts the state machine
 ``FIRE_AND_FORGET`` and returns immediately — so it is free to deliver the next message while the
-previous execution is still running. SPEC-149's in-place ``glue:UpdateTable`` reduced the damage
+previous execution is still running. The in-place ``glue:UpdateTable`` reduced the damage
 (neither run can see a missing table) but could not close it, because Glue offers no
 compare-and-set on ``UpdateTable``. This module is the serialization the catalog cannot provide:
 the second refresh is refused rather than raced.
 
 **The lock is released by OVERWRITING, never by deleting, and that is forced rather than chosen.**
 The table-builder execution role carries an explicit ``Deny`` on ``s3:DeleteObject`` for the whole
-admin bucket (``NoDataObjectDelete``), which SPEC-149 deliberately kept when it removed
+admin bucket (``NoDataObjectDelete``), deliberately kept when the plane removed
 ``glue:DeleteTable``. Releasing by deletion would mean amending that Deny — trading a standing
 safety property for an implementation convenience. So "free" is a *state* of the object, not its
 absence, and a test greps this module to keep it that way.
@@ -26,7 +26,7 @@ Attributes:
   MACHINE_TIMEOUT_SECONDS: The table-builder state machine's ``TimeoutSeconds``, mirrored here
     because a steal threshold is only meaningful against a bounded execution — a Standard machine
     with no timeout may run for a year, and no age threshold could be justified against it.
-    Derived (SPEC-157 FR-004 AC1) from the refresh path's worst case: every Task retries 3 times
+    Derived from the refresh path's worst case: every Task retries 3 times
     over 2/4/8-second intervals, so a state costs ``4 * timeout + 14`` seconds, and the path sums
     to ≈2400 s (validate 74, acquire 74, load-definition 74, inspect-source 254, infer-schema 494,
     diff-schema 74, apply-refresh 1214, release 74, notify 74). The create path is ≈2260 s, so
@@ -69,7 +69,7 @@ __all__ = [
 def lock_key(database: str, table: str) -> str:
     """Builds the lock object's key, rejecting anything that could escape the prefix.
 
-    Both names are catalog-safe by construction (SPEC-033 — they are the S3 prefix, the principal
+    Both names are catalog-safe by construction (they are the S3 prefix, the principal
     tag and the Glue database name), so this validation should never fire in production. It
     raises rather than sanitising deliberately: a sanitised name would silently address a
     *different* table's lock, which is worse than the traversal it was trying to prevent.
@@ -108,7 +108,7 @@ def acquire(database: str, table: str, holder: str) -> tuple[bool, str | None]:
     correctly interprets as unheld, so the claim would succeed and grant nothing: two executions
     would hold ``acquired=True`` on one table, which is the exact state this module exists to
     prevent. The caller passes a per-request identity, and an absent path in ASL resolves to
-    exactly this (the SPEC-143 trap), so the guard is on the reachable case, not a theoretical one.
+    exactly this, so the guard is on the reachable case, not a theoretical one.
 
     **A lock this holder already owns is re-claimed, not refused.** The state machine retries the
     acquire task on a Lambda service fault, and a put whose response was lost has already written
@@ -179,9 +179,9 @@ def release(database: str, table: str, etag: str | None) -> None:
     """Marks the table's lock free, under the tag the acquire returned.
 
     Never raises and never retries a lost compare-and-swap. Losing it means the lock was stolen by
-    a later execution (FR-004), and re-writing would clobber the new holder — so the loss is
+    a later execution, and re-writing would clobber the new holder — so the loss is
     recorded and left alone. A request that did its work and then reported failure because of its
-    own bookkeeping would be a worse outcome than a lock that FR-004 can recover anyway.
+    own bookkeeping would be a worse outcome than a lock that the rule can recover anyway.
 
     Args:
       database: The target Glue database name.

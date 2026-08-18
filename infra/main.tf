@@ -2,8 +2,8 @@
 # Infrastructure is grouped into bounded-context modules:
 #   app  — SPA hosting: static assets bucket, CloudFront distribution, OAC
 #   base — foundation: GitHub Actions OIDC provider and deployment role
-#   auth — Cognito: User Pool, SPA app client, Hosted UI domain (SPEC-006)
-#   data — user-space S3 bucket (Bucket 1) + CORS/encryption (SPEC-010)
+# auth — Cognito: User Pool, SPA app client, Hosted UI domain
+# data — user-space S3 bucket (Bucket 1) + CORS/encryption
 # Future contexts get their own modules rather than growing resource-type files.
 
 # The user-space bucket name is computed once here and shared two ways: the data
@@ -34,7 +34,7 @@ locals {
   lambda_artifacts_bucket_name = "${var.project_name}-lambda-artifacts-${data.aws_caller_identity.current.account_id}"
   lambda_artifacts_bucket_arn  = "arn:aws:s3:::${local.lambda_artifacts_bucket_name}"
 
-  # Analytics names (SPEC-032) computed once: the analytics module creates the
+  # Analytics names computed once: the analytics module creates the
   # workgroup + admin bucket, and base's deploy policy is scoped to the admin
   # bucket ARN (constructed string -> no analytics->base cycle). Overridable via
   # the root workgroup_name / athena_admin_bucket_name variables (S3 names are
@@ -43,7 +43,7 @@ locals {
   athena_admin_bucket_name = var.athena_admin_bucket_name != "" ? var.athena_admin_bucket_name : "${var.project_name}-prod-athena-admin"
   athena_admin_bucket_arn  = "arn:aws:s3:::${local.athena_admin_bucket_name}"
 
-  # Shared-space bucket (Bucket 2, SPEC-050) computed once the same cycle-free way:
+  # Shared-space bucket (Bucket 2) computed once the same cycle-free way:
   # the shared-spaces module creates the bucket, base's deploy policy is scoped to
   # its ARN (constructed string -> no shared-spaces->base cycle). Overridable via the
   # root shared_space_bucket_name variable (S3 names are globally unique).
@@ -57,17 +57,17 @@ locals {
   cognito_domain_prefix    = var.cognito_domain_prefix != "" ? var.cognito_domain_prefix : "${var.project_name}-${var.environment}-portal"
   cognito_hosted_ui_domain = "${local.cognito_domain_prefix}.auth.${var.aws_region}.amazoncognito.com"
 
-  # Shared-space orchestrator role ARN (SPEC-050), constructed cycle-free like the
+  # Shared-space orchestrator role ARN, constructed cycle-free like the
   # other role ARNs (shared-spaces creates it as
-  # "${project}-${env}-shared-space-orchestrator-role"). SPEC-056 adds it to the
+  # "${project}-${env}-shared-space-orchestrator-role"). It sits on the
   # analytics Lake Formation admins list as a CONSTRUCTED STRING — known at plan time
   # so it doesn't break the compact() in data_lake_settings (architecture.md trap);
   # apply ordering (module.analytics depends_on module.shared_spaces) guarantees the
   # role exists first.
   shared_space_orchestrator_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-shared-space-orchestrator-role"
 
-  # Table-builder SHARED execution role ARN (SPEC-070; consolidated from the per-verb
-  # roles by user decision), constructed cycle-free like the other role ARNs
+  # Table-builder SHARED execution role ARN — one role for every verb, not one per verb —
+  # constructed cycle-free like the other role ARNs
   # (module.table_builder creates it as "${project}-${env}-table-builder-execution-role").
   # Added to the analytics Lake Formation admins list as a CONSTRUCTED STRING so the
   # verbs' GetTable (check-table-absent) + CREATE (execute-ddl) resolve in the DYNAMIC
@@ -78,8 +78,8 @@ locals {
   # it (LF rejects an unknown admin principal) — no from-scratch re-run needed.
   table_builder_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-table-builder-execution-role"
 
-  # Table-share SHARED execution role ARN (SPEC-092; one role for all five verbs, user
-  # decision mirroring the table-builder). Added to the analytics Lake Formation admins
+  # Table-share SHARED execution role ARN — one role for all five verbs, mirroring the
+  # table-builder. Added to the analytics Lake Formation admins
   # list as a CONSTRUCTED STRING — known at plan time so it's compact()-safe — because
   # the recipient databases are DYNAMIC (per-user + per-shared-space): check-target-absent
   # Describes and create-table CREATEs in DBs static Terraform can't enumerate.
@@ -87,8 +87,8 @@ locals {
   # data_lake_settings references it (LF rejects an unknown admin principal).
   table_share_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-table-share-execution-role"
 
-  # Data-quality SHARED execution role ARN (SPEC-111; one role for all nine verbs,
-  # mirroring the table-builder and table-share arcs). Added to the analytics Lake
+  # Data-quality SHARED execution role ARN — one role for all nine verbs, mirroring the
+  # table-builder and table-share planes. Added to the analytics Lake
   # Formation admins list as a CONSTRUCTED STRING — known at plan time so it's
   # compact()-safe — because the temp-table target database is DYNAMIC: the actor's own
   # database for a personal check, the shared space's for a shared one, neither
@@ -98,8 +98,8 @@ locals {
   # data_lake_settings references it (LF rejects an unknown admin principal).
   data_quality_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-data-quality-execution-role"
 
-  # File-send SHARED execution role ARN (SPEC-164; one role for every verb, like every
-  # plane since SPEC-062), constructed cycle-free like the role ARNs above
+  # File-send SHARED execution role ARN — one role for every verb, like every other
+  # plane — constructed cycle-free like the role ARNs above
   # (module.file_send creates it as "${project}-${env}-file-send-execution-role").
   #
   # NOT ON THE LAKE FORMATION ADMINS LIST, and that is the difference between this plane
@@ -107,7 +107,7 @@ locals {
   # and runs no DDL, so it needs no catalog-wide creator designation.
   #
   # It IS passed to module.data, for the user-space bucket policy's principal allowlist
-  # (SPEC-164 FR-006). An explicit resource-policy Deny beats an identity-policy Allow, so
+  # An explicit resource-policy Deny beats an identity-policy Allow, so
   # a plane whose role is missing from that list is denied by the bucket however correct
   # its own grants are — and the failure is asymmetric enough to read as a code bug: every
   # `space` recipient works (the shared-space bucket has no bucket policy) and every `user`
@@ -116,19 +116,19 @@ locals {
   # inside a LIST silently drops the change.
   file_send_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-file-send-execution-role"
 
-  # Archive bucket (Bucket 5, SPEC-168) computed once the same cycle-free way: the archive
+  # Archive bucket (Bucket 5) computed once the same cycle-free way: the archive
   # module creates it, base's deploy policy is scoped to its NAME (an exact-name statement,
   # because the bucket has no trailing segment and so does not match the plane's
   # {project}-*-archive-* pattern). Overridable via the root archive_bucket_name variable
   # (S3 names are globally unique).
   #
   # NOT IN modules/app's CSP INPUTS, and that absence is a requirement rather than an
-  # oversight (FR-001): the browser never reads this bucket, so its host must not appear in
+  # oversight: the browser never reads this bucket, so its host must not appear in
   # the enumerated connect-src. A reviewer should be able to read that list and see no
   # archive host.
   archive_bucket_name = var.archive_bucket_name != "" ? var.archive_bucket_name : "${var.project_name}-prod-archive"
 
-  # SPEC-186 FR-004: the archive plane's audit trail bucket, and the read-only verification
+  # The archive plane's audit trail bucket, and the read-only verification
   # role's ARN. Both computed the same cycle-free way as the archive bucket above — base's
   # deploy policy is scoped to the bucket NAME, and modules/analytics needs the role ARN at
   # PLAN time for its compact() LF-Tag grant, so neither can come from module.verification's
@@ -144,8 +144,8 @@ locals {
   # drops the change (the same trap the file-send allowlist records above).
   verification_role_arn = length(var.verification_principal_arns) > 0 ? "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-verification" : ""
 
-  # Archive SHARED execution role ARN (SPEC-168; one role for every verb, like every plane
-  # since SPEC-062), constructed cycle-free like the role ARNs above (module.archive creates
+  # Archive SHARED execution role ARN — one role for every verb, like every other plane —
+  # constructed cycle-free like the role ARNs above (module.archive creates
   # it as "${project}-${env}-archive-execution-role").
   #
   # NOT ON THE LAKE FORMATION ADMINS LIST, for file-send's reason: an archive moves FILES.
@@ -162,7 +162,7 @@ locals {
   # the change.
   archive_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-archive-execution-role"
 
-  # Notifications-writer role ARN (SPEC-058), constructed cycle-free like the role ARNs
+  # Notifications-writer role ARN, constructed cycle-free like the role ARNs
   # above (module.notifications creates it as "${project}-${env}-notifications-writer-role").
   # Passed to module.data so the user-space bucket policy can EXCLUDE it from the
   # data-access Deny — the single writer read-modify-writes {username}/user_settings/
@@ -172,7 +172,7 @@ locals {
   # module.notifications depends_on module.data) is preserved.
   notifications_writer_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-notifications-writer-role"
 
-  # Username-directory builder role ARN (SPEC-146), constructed cycle-free like the role ARNs
+  # Username-directory builder role ARN, constructed cycle-free like the role ARNs
   # above (module.user_directory creates it as "${project}-${env}-user-directory-build" — no
   # `-role` suffix, matching the deploy grant's ARN pattern).
   #
@@ -186,15 +186,15 @@ locals {
   #
   # Without the allowlist entry the builder's PutObject fails with an opaque AccessDenied that
   # looks like an IAM problem and is not — the bucket policy's Deny overrides its identity
-  # policy's Allow. That has bitten this repo three times (#241; the comment lives in
-  # modules/observability/iam.tf).
+  # policy's Allow. That has bitten this repo three times; modules/observability/iam.tf
+  # carries the long-form account.
   user_directory_build_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-user-directory-build"
 
-  # Logs queue (SPEC-127) name/ARN/URL, constructed cycle-free like the role ARNs above —
+  # Logs queue name/ARN/URL, constructed cycle-free like the role ARNs above —
   # and here the cycle is REAL, not merely avoided: module.observability consumes
   # module.auth's user_pool_id, so module.auth referencing module.observability's outputs
-  # is a module cycle Tofu rejects outright. The Cognito triggers need the queue (SPEC-137
-  # FR-005), so they get these strings. Must match modules/observability/locals.tf's
+  # is a module cycle Tofu rejects outright. The Cognito triggers need the queue, so they
+  # get these strings. Must match modules/observability/locals.tf's
   # logs_queue_name and the queue's own url/arn attributes.
   #
   # Nothing is lost by constructing them: an IAM policy does not validate that its resource
@@ -204,9 +204,9 @@ locals {
   logs_queue_arn  = "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${local.logs_queue_name}"
   logs_queue_url  = "https://sqs.${var.aws_region}.amazonaws.com/${data.aws_caller_identity.current.account_id}/${local.logs_queue_name}"
 
-  # Notifications queue ARN/URL (SPEC-058), constructed cycle-free like the role ARNs
+  # Notifications queue ARN/URL, constructed cycle-free like the role ARNs
   # above (module.notifications creates it as "${project}-${env}-notifications-requests.fifo").
-  # SPEC-061 feeds these into module.shared_spaces — the FIRST trusted producer: the
+  # These feed module.shared_spaces, the first trusted producer: the
   # ARN scopes the orchestrator role's sqs:SendMessage, the URL is the verb Lambdas'
   # NOTIFICATIONS_QUEUE_URL. Constructed strings (not module.notifications' outputs) so
   # they're KNOWN AT PLAN TIME and don't force a shared_spaces→notifications dependency
@@ -216,7 +216,7 @@ locals {
   notifications_queue_arn  = "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${local.notifications_queue_name}"
   notifications_queue_url  = "https://sqs.${var.aws_region}.amazonaws.com/${data.aws_caller_identity.current.account_id}/${local.notifications_queue_name}"
 
-  # LF registration role ARN (SPEC-032), constructed cycle-free like the role ARNs
+  # LF registration role ARN, constructed cycle-free like the role ARNs
   # above (analytics creates it as "${project_name}-analytics-lf-registration-role").
   # Passed to the data module so the user-space bucket policy can EXCLUDE it from
   # the data-access Deny: Lake Formation assumes THIS role to vend creds for the
@@ -228,7 +228,7 @@ locals {
   # not module.analytics output.
   lf_registration_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-analytics-lf-registration-role"
 
-  # Post-confirmation Lambda exec role ARN (SPEC-033), constructed the same
+  # Post-confirmation Lambda exec role ARN, constructed the same
   # cycle-free way as the portal/deploy roles. The auth module creates this role as
   # "${project_name}-${environment}-post-confirmation-role"; analytics adds it as a
   # Lake Formation admin. It MUST be a constructed string (not module.auth's output)
@@ -239,7 +239,7 @@ locals {
   # ordering (auth -> data -> analytics) still guarantees the role exists first.
   post_confirmation_exec_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-post-confirmation-role"
 
-  # The request DLQs the SPEC-126 drain attaches to. Constructed names (each arc module
+  # The request DLQs the drain attaches to. Constructed names (each arc module
   # creates its own as "${project}-${env}-<domain>-requests-dlq.fifo"), cycle-free and known
   # at plan time like every other cross-module ARN here.
   #
@@ -247,7 +247,7 @@ locals {
   # notifications queue, so draining the notifications DLQ would ask the queue that just
   # failed to deliver to deliver the news about itself. See the comment in
   # modules/notifications/sqs.tf; the honest answer there is operator-facing and out of
-  # SPEC-126's scope. Keep this list and dlq_drain.py's SOURCES table in step — a test in
+  # the drain's scope. Keep this list and dlq_drain.py's SOURCES table in step — a test in
   # lambdas/control-plane-dlq-drain/ reads the module locals.tf files and fails if a fifth
   # control plane appears without being wired or explicitly excluded.
   drained_dlq_names = [
@@ -265,7 +265,7 @@ module "app" {
 
   project_name = var.project_name
 
-  # CSP connect-src inputs (SPEC-140). Constructed strings from locals, NOT
+  # CSP connect-src inputs. Constructed strings from locals, NOT
   # module.data/module.shared_spaces outputs — this module is upstream of
   # base -> data, so a module reference here would be a dependency cycle.
   aws_region               = var.aws_region
@@ -290,17 +290,17 @@ module "base" {
   lambda_artifacts_bucket_arn = local.lambda_artifacts_bucket_arn
   athena_admin_bucket_arn     = local.athena_admin_bucket_arn
 
-  # Shared-space control-plane (SPEC-050): the bucket ARN scopes the deploy role's
-  # s3:* on Bucket 2; the rest of the SPEC-050 deploy grants are scoped by name
+  # Shared-space control-plane: the bucket ARN scopes the deploy role's
+  # s3:* on Bucket 2; the rest of the shared-space deploy grants are scoped by name
   # pattern (${project_name}-*-shared-space-*) inside the policy template.
   shared_space_bucket_arn = local.shared_space_bucket_arn
 
-  # SPEC-168: the archive bucket the deploy role manages, by NAME. The rest of the archive
+  # The archive bucket the deploy role manages, by NAME. The rest of the archive
   # deploy grants are scoped by {project_name}-*-archive-* name patterns in the policy
   # template; the bucket needs an exact-name statement because it has no trailing segment.
   archive_bucket_name = local.archive_bucket_name
 
-  # SPEC-186 FR-004: the archive-audit trail bucket, by NAME and for the same reason.
+  # The archive-audit trail bucket, by NAME and for the same reason.
   verification_trail_bucket_name = local.verification_trail_bucket_name
 }
 
@@ -316,18 +316,18 @@ module "auth" {
   # — silently allowing a host the user pool does not have.
   cognito_domain_prefix = local.cognito_domain_prefix
 
-  # SPEC-033 post-confirmation Lambda inputs. account_id/region scope the exec
+  # Post-confirmation Lambda inputs. account_id/region scope the exec
   # role's Glue ARNs; portal_role_arn (constructed, cycle-free) is the LF grant
   # target the Lambda receives via env var.
   aws_region      = var.aws_region
   account_id      = data.aws_caller_identity.current.account_id
   portal_role_arn = local.portal_role_arn
 
-  # SPEC-056: drives the ten custom:shared_space_1..N user-pool attributes + the
+  # Drives the ten custom:shared_space_1..N user-pool attributes + the
   # Identity-Pool shared_space_1..N principal-tag mappings.
   max_shared_memberships = var.max_shared_memberships
 
-  # SPEC-137 FR-005: both triggers attach the cpcommon layer for `observability` and emit
+  # Both triggers attach the cpcommon layer for `observability` and emit
   # under service="auth". CONSTRUCTED strings, not module.observability's outputs — that
   # module consumes user_pool_id from this one, so a real reference is a module cycle.
   logs_queue_arn = local.logs_queue_arn
@@ -353,25 +353,25 @@ module "data" {
   # this role) can read the registered location when serving Athena queries.
   lf_registration_role_arn = local.lf_registration_role_arn
 
-  # SPEC-051: also excluded from the Deny so the shared-space orchestrator can write
+  # Also excluded from the Deny so the shared-space orchestrator can write
   # each member's per-user cache ({username}/user_settings/shared-connections.json).
   # Constructed string (locals) — known at plan; the role is created in
   # module.shared_spaces, but a bucket-policy condition only needs the ARN string.
   shared_space_orchestrator_role_arn = local.shared_space_orchestrator_role_arn
 
-  # SPEC-058: also excluded from the Deny so the notifications-writer can read-modify-write
+  # Also excluded from the Deny so the notifications-writer can read-modify-write
   # each user's {username}/user_settings/notifications.json. Constructed string (locals) —
   # known at plan; the role is created in module.notifications.
   notifications_writer_role_arn = local.notifications_writer_role_arn
 
-  # SPEC-146: also excluded from the Deny so the daily directory builder can list the bucket's
+  # Also excluded from the Deny so the daily directory builder can list the bucket's
   # workspace prefixes and publish _directory/usernames.json. Constructed string (locals) —
   # known at plan; the role is created in module.user_directory, and a bucket-policy condition
   # only needs the ARN string, so no cycle.
   user_directory_build_role_arn = local.user_directory_build_role_arn
 
-  # SPEC-111 fix (systemic): the three control-plane execution roles that READ user-space
-  # data via their own execution role must ALSO be excluded from the Deny, or the bucket
+  # The three control-plane execution roles that READ user-space data via their own
+  # execution role must ALSO be excluded from the Deny, or the bucket
   # resource policy overrides their identity-side s3:GetObject/ListBucket grants and every
   # read 403s. None was ever added here — invisible until the first live run (greenfield).
   # Constructed strings (locals) — known at plan; the roles are created in their own
@@ -380,15 +380,15 @@ module "data" {
   table_share_execution_role_arn   = local.table_share_execution_role_arn
   data_quality_execution_role_arn  = local.data_quality_execution_role_arn
 
-  # SPEC-164 FR-006: the file-send execution role reads the sender's personal-space files
+  # The file-send execution role reads the sender's personal-space files
   # and writes a `user` recipient's shared_files/ inbox, so it needs the same exclusion.
   # The allowlist is hand-maintained — every future plane that touches this bucket must
   # make this same three-part change (a variable here, the templatefile() argument, the
   # root wiring) or be denied at runtime with nothing in the plan to warn it.
   file_send_execution_role_arn = local.file_send_execution_role_arn
 
-  # SPEC-168 FR-007: the archive execution role reads the actor's personal-space files and
-  # (from SPEC-169) deletes them once every object is confirmed copied, so it needs the same
+  # The archive execution role reads the actor's personal-space files and
+  # deletes them once every object is confirmed copied, so it needs the same
   # exclusion. The allowlist is hand-maintained and this is the FIFTH plane to make the same
   # three-part change (a variable there, the templatefile() argument, the root wiring); a
   # plane that skips it is denied at runtime with nothing in the plan to warn it.
@@ -415,7 +415,7 @@ module "lambda_artifacts" {
   depends_on = [module.base]
 }
 
-# Analytics foundation (SPEC-032): shared Athena workgroup + admin-only results
+# Analytics foundation: shared Athena workgroup + admin-only results
 # bucket. Phase 1 is this additive infrastructure; Phase 2 adds Lake Formation
 # bootstrap, hybrid-mode registration of the user-space bucket, and the portal
 # role's Glue/Athena/LF policy (which will pull in module.data's bucket/role and
@@ -438,37 +438,37 @@ module "analytics" {
   principal_tag_key     = var.principal_tag_key
   deploy_role_arn       = local.deploy_role_arn
 
-  # SPEC-033: the post-confirmation Lambda's exec role, added as a Lake Formation
+  # The post-confirmation Lambda's exec role, added as a Lake Formation
   # admin so it can issue per-database grants. Constructed string (see locals above)
   # — NOT module.auth's output — so it's known at plan time; otherwise the unknown
   # value broke the compact() in the LF admins list and the grant silently dropped.
   lambda_provisioner_role_arn = local.post_confirmation_exec_role_arn
 
-  # SPEC-056: add the shared-space orchestrator role as a Lake Formation admin so it
+  # Add the shared-space orchestrator role as a Lake Formation admin so it
   # can later GrantPermissions on shared DBs + DATA_LOCATION_ACCESS on the shared
   # location. Constructed string (locals above) — known at plan time so it doesn't
   # break the compact() admins list; module.shared_spaces in depends_on guarantees
   # the role exists before this sets data_lake_settings.
   shared_space_orchestrator_role_arn = local.shared_space_orchestrator_role_arn
 
-  # SPEC-070: add the table-builder shared execution role as a Lake Formation admin so
+  # Add the table-builder shared execution role as a Lake Formation admin so
   # its verbs can Describe (check-table-absent) + CREATE (execute-ddl) tables in the
   # dynamic per-user + per-shared-space target databases. Constructed string (locals
   # above) — known at plan time so it's compact()-safe.
   table_builder_execution_role_arn = local.table_builder_execution_role_arn
 
-  # SPEC-092: add the table-share shared execution role as a Lake Formation admin for
+  # Add the table-share shared execution role as a Lake Formation admin for
   # the same reason — its verbs Describe (check-target-absent) + CREATE (create-table)
   # tables in the dynamic recipient databases. Constructed string (locals above).
   table_share_execution_role_arn = local.table_share_execution_role_arn
 
-  # SPEC-111: add the data-quality shared execution role as a Lake Formation admin for
+  # Add the data-quality shared execution role as a Lake Formation admin for
   # the same reason — create-temp-tables CREATEs and drop-temp-tables DELETEs the
   # throwaway dq_tmp_* external tables in the dynamic target database (the actor's own,
   # or the shared space's). Constructed string (locals above).
   data_quality_execution_role_arn = local.data_quality_execution_role_arn
 
-  # SPEC-186 FR-004: the read-only verification role, granted DESCRIBE on the portal-managed
+  # The read-only verification role, granted DESCRIBE on the portal-managed
   # LF-Tag so an owed catalog read-back can be made at all. DESCRIBE only — it is NOT on the
   # Lake Formation admins list and gets no DATA_LOCATION_ACCESS, so it reads definitions and
   # never data. Constructed string (locals above), known at plan time so it is compact()-safe.
@@ -488,10 +488,10 @@ module "analytics" {
   depends_on = [module.base, module.data, module.shared_spaces, module.table_builder, module.table_share, module.data_quality, module.verification]
 }
 
-# Shared-space foundation (SPEC-050): Bucket 2 + the async provisioning control
+# Shared-space foundation: Bucket 2 + the async provisioning control
 # plane (FIFO SQS -> EventBridge Pipe -> Step Function -> provisioner Lambda) under a
 # single privileged orchestrator role. Plumbing only — no access model, no action
-# semantics (SPEC-056 + SPEC-051->055). Standalone-deployable: every cross-module ARN
+# semantics. Standalone-deployable: every cross-module ARN
 # it references (the admin registry bucket, its own resources) is a constructed string
 # in the module's locals, so it plans without analytics/data resource attributes.
 module "shared_spaces" {
@@ -505,23 +505,23 @@ module "shared_spaces" {
   athena_admin_bucket_name = local.athena_admin_bucket_name
   app_url                  = var.app_url
 
-  # SPEC-125: not used by any shared-space verb — required by the cpcommon layer's config.
-  # SPEC-156 FR-004: that config resolves on FIRST READ, not at import, so a missing one is no
-  # longer a cold-start crash (PR #196) but a failure on whichever branch reads it first. The
+  # Not used by any shared-space verb — required by the cpcommon layer's config.
+  # That config resolves on FIRST READ, not at import, so a missing one is no
+  # longer a cold-start crash but a failure on whichever branch reads it first. The
   # union is still what must be set; do not prune one as "unused". Wired and applied here, one
   # PR ahead of the code that imports cpcommon.
   athena_workgroup = local.athena_workgroup_name
 
-  # SPEC-051: the orchestrator writes each member's per-user cache into the
+  # The orchestrator writes each member's per-user cache into the
   # user-space bucket; it also targets the shared portal role in per-DB LF grants.
   user_space_bucket_name = local.user_space_bucket_name
 
-  # SPEC-056: the membership-slot count + the portal role this module attaches the
+  # The membership-slot count + the portal role this module attaches the
   # membership inline policy + sqs:SendMessage + shared delete-denies to.
   max_shared_memberships = var.max_shared_memberships
   portal_role_name       = local.portal_role_name
 
-  # TBAC fix (SPEC-070/111): the three control-plane execution roles get
+  # TBAC fix: the three control-plane execution roles get
   # DATA_LOCATION_ACCESS on the shared bucket here (the `portal-managed` tag +
   # tag-policy grants live in module.analytics). Constructed strings so the module
   # still plans standalone.
@@ -531,22 +531,22 @@ module "shared_spaces" {
     local.data_quality_execution_role_arn,
   ]
 
-  # SPEC-056 trusted-actor binding: the provisioner Lambda verifies caller ID tokens
+  # Trusted-actor binding: the provisioner Lambda verifies caller ID tokens
   # against the pool JWKS (env vars). Module.auth outputs (one-directional dep: auth
   # applies before data, which this module already depends on).
   user_pool_id  = module.auth.user_pool_id
   app_client_id = module.auth.user_pool_client_id
 
-  # SPEC-061: the FIRST trusted notifications producer. The verb Lambdas emit a SPEC-058
+  # The first trusted notifications producer. The verb Lambdas emit a
   # `create` notification at each lifecycle terminal outcome — the ARN scopes the
   # orchestrator role's sqs:SendMessage; the URL is the verbs' NOTIFICATIONS_QUEUE_URL.
   # Constructed strings (above) so this module still plans standalone.
   notifications_queue_arn = local.notifications_queue_arn
   notifications_queue_url = local.notifications_queue_url
 
-  # SPEC-134: the eight verbs join the structured-logging pipe. Taken from
+  # The eight verbs join the structured-logging pipe. Taken from
   # module.observability's OUTPUTS rather than reconstructed, so the queue's `.fifo` suffix
-  # cannot drift between producer and consumer (SPEC-129).
+  # cannot drift between producer and consumer.
   #
   # NO CYCLE, and it is worth stating because this module sits inside one of the repo's
   # trickier dependency chains: module.observability takes only locals, module.auth and
@@ -562,12 +562,12 @@ module "shared_spaces" {
   depends_on = [module.base, module.data]
 }
 
-# Notifications write pipeline (SPEC-058): a FIFO SQS queue that triggers a single
+# Notifications write pipeline: a FIFO SQS queue that triggers a single
 # notifications-writer Lambda directly (SQS event-source mapping — no Pipe, no Step
 # Function). The writer is the only writer of each user's notifications.json in the
 # existing user-space bucket. Standalone-deployable: cross-module ARNs are constructed
-# strings in the module's locals. The deploy-role grants this module needs landed +
-# applied in SPEC-058 PR 1/2, so no in-module time_sleep propagation guard is required.
+# strings in the module's locals. The deploy-role grants this module needs are already
+# applied, so no in-module time_sleep propagation guard is required.
 module "notifications" {
   source = "./modules/notifications"
 
@@ -582,13 +582,13 @@ module "notifications" {
   # The portal role this module attaches the sqs:SendMessage inline policy to, by name.
   portal_role_name = local.portal_role_name
 
-  # Actor binding (FR-005): the writer verifies caller ID tokens against the pool JWKS
+  # Actor binding: the writer verifies caller ID tokens against the pool JWKS
   # for user-originated actions. Module.auth outputs (one-directional dep: auth applies
   # before data, which this module already depends on).
   user_pool_id  = module.auth.user_pool_id
   app_client_id = module.auth.user_pool_client_id
 
-  # SPEC-137 FR-005: the writer attaches the cpcommon layer for `observability` and emits
+  # The writer attaches the cpcommon layer for `observability` and emits
   # under service="notifications". A real reference is safe here (unlike module.auth's —
   # module.observability does not consume anything from this module), so it also orders
   # the queue's creation before the grant that scopes to it.
@@ -596,20 +596,20 @@ module "notifications" {
   logs_queue_url = module.observability.logs_queue_url
 
   # base grants the deploy role its SQS/Lambda/event-source-mapping/IAM/logs perms for
-  # this module (SPEC-058 PR 1/2, already applied); data creates the portal role this
+  # this module (already applied); data creates the portal role this
   # module attaches the enqueue policy to. Force both to settle first.
   depends_on = [module.base, module.data]
 }
 
-# Table-builder control plane (SPEC-066): a DEDICATED FIFO SQS → EventBridge Pipe →
+# Table-builder control plane: a DEDICATED FIFO SQS → EventBridge Pipe →
 # Step Function pipeline orchestrating five single-task verb Lambdas
 # (validate-authorize → check-table-absent → inspect-source → infer-schema →
 # execute-ddl) that turn a folder of files into a Glue/Athena external table. Mirrors
 # the shared-spaces control-plane PATTERN with PER-VERB least-privilege roles.
 # Foundation only here (plumbing + Lambda stubs); the request contract + action
-# semantics land in SPEC-067→070. Standalone-deployable: cross-module ARNs are
+# semantics land with the verbs. Standalone-deployable: cross-module ARNs are
 # constructed strings passed from root locals. The deploy-role grants this module
-# needs landed + applied in SPEC-066 PR1, so no in-module time_sleep guard is required.
+# needs are already applied, so no in-module time_sleep guard is required.
 module "table_builder" {
   source = "./modules/table-builder"
 
@@ -619,35 +619,35 @@ module "table_builder" {
   account_id   = data.aws_caller_identity.current.account_id
 
   # Source-data buckets (read by inspect/infer/execute verbs) + the admin bucket
-  # (shared-spaces registry for shared authz, SPEC-067; Athena results, SPEC-070).
+  # (shared-spaces registry for shared authz; Athena results).
   # Constructed names (not module outputs) so this module plans standalone.
   user_space_bucket_name   = local.user_space_bucket_name
   shared_space_bucket_name = local.shared_space_bucket_name
   admin_bucket_name        = local.athena_admin_bucket_name
 
-  # The analytics workgroup execute-ddl runs the CREATE in (wired in SPEC-070).
+  # The analytics workgroup the execute-ddl verb runs its CREATE in.
   athena_workgroup = local.athena_workgroup_name
 
-  # SPEC-067: the portal role this module attaches the sqs:SendMessage enqueue policy
+  # The portal role this module attaches the sqs:SendMessage enqueue policy
   # to (by name), and the Cognito pool/client validate-authorize verifies tokens with.
   portal_role_name = local.portal_role_name
   user_pool_id     = module.auth.user_pool_id
   app_client_id    = module.auth.user_pool_client_id
 
-  # SPEC-072: the SPEC-058 notifications queue every verb emits its outcome to (the ARN
+  # The notifications queue every verb emits its outcome to (the ARN
   # scopes each verb role's sqs:SendMessage; the URL is their NOTIFICATIONS_QUEUE_URL).
   # Constructed-string locals (known at plan, cycle-free — same as shared_spaces above).
   notifications_queue_arn = local.notifications_queue_arn
   notifications_queue_url = local.notifications_queue_url
 
-  # SPEC-135: the five verbs join the structured-logging pipe. From module.observability's
+  # The five verbs join the structured-logging pipe. From module.observability's
   # OUTPUTS rather than reconstructed, so the queue's `.fifo` suffix cannot drift between
-  # producer and consumer (SPEC-129). No cycle: observability takes only locals, module.auth
+  # producer and consumer. No cycle: observability takes only locals, module.auth
   # and depends_on = [module.base].
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  # base grants the deploy role its table-builder perms (SPEC-066 PR1, already
+  # base grants the deploy role its table-builder perms (already
   # applied); data creates the portal role this module attaches the enqueue policy to.
   # Settle those first. NOTE: this module is ordered BEFORE module.analytics (which
   # depends_on it) so the shared execution role EXISTS before analytics adds it to the
@@ -658,17 +658,17 @@ module "table_builder" {
   depends_on = [module.base, module.data]
 }
 
-# Table-share control plane (SPEC-088): a DEDICATED FIFO SQS → EventBridge Pipe →
+# Table-share control plane: a DEDICATED FIFO SQS → EventBridge Pipe →
 # Standard Step Function pipeline orchestrating five single-task verb Lambdas
 # (validate-authorize → inspect-source → Map(recipients): check-target-absent →
 # copy-objects → create-table) that copy a table's data files into recipient spaces
 # and create a clone table in each recipient database. Mirrors the table-builder
 # control-plane PATTERN with ONE shared execution role (logs-only at this stage;
-# grants land with SPEC-089→092). Foundation only here (plumbing + Lambda stubs);
+# grants land with the verbs). Foundation only here (plumbing + Lambda stubs);
 # decision record: docs/architecture.md (Control Planes -> Table Share). Standalone-deployable: names
 # derive from {project}-{environment} inside the module. The deploy-role grants this
-# module needs landed + applied in SPEC-088 PR1, so no in-module time_sleep guard is
-# required. SPEC-092: the shared execution role is on the analytics LF admins list
+# module needs are already applied, so no in-module time_sleep guard is
+# required. The shared execution role is on the analytics LF admins list
 # (module.analytics depends_on module.table_share for the role-exists ordering).
 module "table_share" {
   source = "./modules/table-share"
@@ -678,7 +678,7 @@ module "table_share" {
   aws_region   = var.aws_region
   account_id   = data.aws_caller_identity.current.account_id
 
-  # SPEC-089: the portal role this module attaches the sqs:SendMessage enqueue
+  # The portal role this module attaches the sqs:SendMessage enqueue
   # policy to (by name), the Cognito pool/client validate-authorize verifies tokens
   # with, and the admin bucket holding the shared-spaces registry (source authz +
   # recipient-space existence — read-only).
@@ -687,48 +687,47 @@ module "table_share" {
   app_client_id     = module.auth.user_pool_client_id
   admin_bucket_name = local.athena_admin_bucket_name
 
-  # SPEC-090: source LOCATIONs must resolve inside one of the two data buckets;
+  # Source LOCATIONs must resolve inside one of the two data buckets;
   # inspect-source lists them for the copy plan (constructed names — plans standalone).
   user_space_bucket_name   = local.user_space_bucket_name
   shared_space_bucket_name = local.shared_space_bucket_name
 
-  # SPEC-092: the analytics workgroup create-table runs the recipient CREATE in.
+  # The analytics workgroup create-table runs the recipient CREATE in.
   athena_workgroup = local.athena_workgroup_name
 
-  # SPEC-094: the SPEC-058 notifications queue the verbs emit sender + recipient
+  # The notifications queue the verbs emit sender + recipient
   # outcome notifications to — the ARN scopes the execution role's sqs:SendMessage,
   # the URL is the verbs' NOTIFICATIONS_QUEUE_URL. Constructed-string locals (known
   # at plan, cycle-free — same as shared_spaces / table_builder).
   notifications_queue_arn = local.notifications_queue_arn
   notifications_queue_url = local.notifications_queue_url
 
-  # SPEC-136: the five verbs join the structured-logging pipe. From module.observability's
+  # The five verbs join the structured-logging pipe. From module.observability's
   # OUTPUTS rather than reconstructed, so the FIFO `.fifo` suffix cannot drift between
-  # producer and consumer (SPEC-129).
+  # producer and consumer.
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  # base grants the deploy role its table-share perms (SPEC-088 PR1, already
+  # base grants the deploy role its table-share perms (already
   # applied); data creates the portal role this module attaches the enqueue policy
   # to. Settle both first.
   depends_on = [module.base, module.data]
 }
 
-# File-send control plane (SPEC-164): a DEDICATED FIFO SQS → EventBridge Pipe → Standard
+# File-send control plane: a DEDICATED FIFO SQS → EventBridge Pipe → Standard
 # Step Function pipeline that copies a user's files and folders into another person's or
 # space's shared_files/ inbox. The browser cannot write into another user's prefix — that
 # is the isolation model working — so sending needs a privileged path, exactly as table
 # share did.
 #
-# ITS OWN PLANE, NOT A MODE OF TABLE SHARE. The two share an ALGORITHM (cpcommon.transfer,
-# SPEC-160) and nothing else: different request contract, different authorization question,
+# ITS OWN PLANE, NOT A MODE OF TABLE SHARE. The two share an ALGORITHM (cpcommon.transfer)
+# and nothing else: different request contract, different authorization question,
 # different failure vocabulary. One queue and one DLQ under two unrelated user features
 # would let a malformed send dead-letter someone's table share.
 #
-# SPEC-164 is the plane + the front door (validate-authorize); nothing is listed or copied
-# yet. Decision record: docs/architecture.md (Control Planes -> Send Files).
+# The plane and its front door. Nothing is listed or copied by the front door itself. Decision record: docs/architecture.md (Control Planes -> Send Files).
 # Standalone-deployable: names derive from {project}-{environment} inside the module. The
-# deploy-role grants this module needs landed + applied in SPEC-164 PR1, so no in-module
+# deploy-role grants this module needs are already applied, so no in-module
 # time_sleep guard is required. NOT on the analytics LF admins list — this plane creates no
 # table and runs no DDL — so module.analytics does not depend on it.
 module "file_send" {
@@ -749,35 +748,34 @@ module "file_send" {
   admin_bucket_name = local.athena_admin_bucket_name
 
   # The two data buckets a send moves between. Set as env on every verb; the S3 grants on
-  # them arrive with the verbs that need them (SPEC-165 listing, SPEC-166 writing).
+  # them arrive with the verbs that need them.
   user_space_bucket_name   = local.user_space_bucket_name
   shared_space_bucket_name = local.shared_space_bucket_name
 
-  # SPEC-152: the SPEC-058 notifications queue the pre-verb failure path emits to. The ARN
+  # The notifications queue the pre-verb failure path emits to. The ARN
   # scopes the execution role's sqs:SendMessage, the URL is the verbs'
   # NOTIFICATIONS_QUEUE_URL. Constructed-string locals (known at plan, cycle-free).
   notifications_queue_arn = local.notifications_queue_arn
   notifications_queue_url = local.notifications_queue_url
 
-  # SPEC-136 parity: the verbs join the structured-logging pipe. From module.observability's
+  # The verbs join the structured-logging pipe. From module.observability's
   # OUTPUTS rather than reconstructed, so the FIFO `.fifo` suffix cannot drift between
-  # producer and consumer (SPEC-129).
+  # producer and consumer.
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  # base grants the deploy role its file-send perms (SPEC-164 PR1, already applied); data
+  # base grants the deploy role its file-send perms (already applied); data
   # creates the portal role this module attaches the enqueue policy to. Settle both first.
   depends_on = [module.base, module.data]
 }
 
-# Archive control plane + the archive bucket (SPEC-168): a DEDICATED FIFO SQS → EventBridge
+# Archive control plane + the archive bucket: a DEDICATED FIFO SQS → EventBridge
 # Pipe → Standard Step Function pipeline running single-task verb Lambdas on ONE shared
 # execution role, plus Bucket 5 — the vault. ONE plane serves both archive and restore,
 # branching on `mode`, because the two share the bucket, the role, the key layout and the
-# receipt (SPEC-143's create/refresh branch is the precedent).
+# receipt (the table-builder's create/refresh branch is the precedent).
 #
-# SPEC-168 is the bucket + the plane + the front door (validate-authorize); nothing is
-# listed, copied or deleted yet, and nothing about restore exists. Decision record:
+# The vault bucket, the plane and its front door. Decision record:
 # docs/architecture.md (Control Planes -> Archive).
 #
 # THE BROWSER HAS NO RELATIONSHIP WITH THE ARCHIVE BUCKET, which is why this block passes
@@ -811,19 +809,19 @@ module "archive" {
   admin_bucket_name = local.athena_admin_bucket_name
 
   # The two space buckets an archive moves OUT of. Set as env on every verb; the S3 grants
-  # on them arrive with the verbs that need them (SPEC-169's listing, copy and delete).
+  # on them arrive with the verbs that need them.
   user_space_bucket_name   = local.user_space_bucket_name
   shared_space_bucket_name = local.shared_space_bucket_name
 
-  # SPEC-152: the SPEC-058 notifications queue the pre-verb failure path emits to. The ARN
+  # The notifications queue the pre-verb failure path emits to. The ARN
   # scopes the execution role's sqs:SendMessage, the URL is the verbs'
   # NOTIFICATIONS_QUEUE_URL. Constructed-string locals (known at plan, cycle-free).
   notifications_queue_arn = local.notifications_queue_arn
   notifications_queue_url = local.notifications_queue_url
 
-  # SPEC-136 parity: the verbs join the structured-logging pipe. From module.observability's
+  # The verbs join the structured-logging pipe. From module.observability's
   # OUTPUTS rather than reconstructed, so the FIFO `.fifo` suffix cannot drift between
-  # producer and consumer (SPEC-129).
+  # producer and consumer.
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
@@ -833,30 +831,30 @@ module "archive" {
   depends_on = [module.base, module.data]
 }
 
-# Data-quality control plane (SPEC-108): a DEDICATED FIFO SQS → EventBridge Pipe →
+# Data-quality control plane: a DEDICATED FIFO SQS → EventBridge Pipe →
 # Standard Step Function pipeline orchestrating nine single-task verb Lambdas around ONE
 # Athena profile query (validate-authorize → inspect-source → create-temp-tables →
 # start-profile-query → [Wait → check-query → Choice] → byte-scan → assemble-report →
 # drop-temp-tables). Diagnoses a file or folder and writes a report; it NEVER modifies a
 # source. Mirrors the table-builder/table-share control-plane PATTERN with ONE shared
-# execution role — logs-only at this stage (S3 lands in SPEC-109; Glue/Athena/LF admin in
-# SPEC-111). Foundation only here (plumbing + Lambda stubs); decision record:
+# execution role — logs-only at this stage (S3, Glue, Athena and LF admin land with
+# the verbs). Foundation only here (plumbing + Lambda stubs); decision record:
 # docs/architecture.md (Control Planes -> Data Quality).
 #
 # The engine is ATHENA, not Lambda: a full pass over a 250 GB source is impossible inside
 # Lambda's 900 s ceiling, so a short Lambda STARTS the query and the STATE MACHINE waits
 # (Standard executions run for up to a year). It runs in the SHARED portal Athena
-# workgroup — the same one table-builder/table-share use. SPEC-108 originally gave the arc
+# workgroup — the same one table-builder/table-share use. This plane originally had
 # its own workgroup to escape the portal workgroup's 10 GiB scan cutoff, but Athena ties
 # Lake Formation to the workgroup: a dedicated workgroup fails LF's Create/Describe checks
-# even for an LF-admin role (SPEC-111 live finding). TRADEOFF: the portal workgroup's scan
+# even for an LF-admin role (measured live). TRADEOFF: the portal workgroup's scan
 # cutoff now applies to data-quality's profile queries, so a check over a source larger
 # than the cutoff fails until it is raised — tracked with the deferred DML-timeout quota
 # increase (architecture.md, Control Planes -> Data Quality).
 #
 # Standalone-deployable: names derive from {project}-{environment} inside the module. The
-# deploy-role grants this module needs landed + applied in SPEC-108 PR1, so no in-module
-# time_sleep guard is required. SPEC-111 adds the shared execution role to the analytics
+# deploy-role grants this module needs are already applied, so no in-module
+# time_sleep guard is required. The shared execution role is added to the analytics
 # LF admins list (module.analytics will depend_on this module for the role-exists
 # ordering, exactly as it does for table_builder / table_share).
 module "data_quality" {
@@ -868,12 +866,12 @@ module "data_quality" {
   account_id   = data.aws_caller_identity.current.account_id
 
   # Source + report buckets, and the admin bucket (shared-spaces registry for shared
-  # authorization in SPEC-109; this workgroup's FALLBACK Athena result location).
+  # authorization by the verbs; this workgroup's FALLBACK Athena result location).
   # Constructed names (not module outputs) so this module plans standalone.
   #
   # These are wired now — before any verb uses them — because every verb attaches the
-  # cpcommon layer and its config requires them. SPEC-156 FR-004 moved that requirement from
-  # import to FIRST READ, so a verb missing one no longer crashes at cold start (PR #196) — it
+  # cpcommon layer and its config requires them. That requirement moved from
+  # import to FIRST READ, so a verb missing one no longer crashes at cold start — it
   # fails on whichever branch reads it. The union is still what must be set; do not prune one
   # as "unused". Same reason the Cognito pair is passed here.
   user_space_bucket_name   = local.user_space_bucket_name
@@ -883,30 +881,30 @@ module "data_quality" {
   user_pool_id  = module.auth.user_pool_id
   app_client_id = module.auth.user_pool_client_id
 
-  # SPEC-111 fix: run every verb's Athena queries in the SHARED portal workgroup (the same
+  # Run every verb's Athena queries in the SHARED portal workgroup (the same
   # one table-builder/table-share use) — Athena ties Lake Formation to the workgroup, so a
   # dedicated workgroup fails LF's table Create/Describe even for an LF-admin role.
   athena_workgroup = local.athena_workgroup_name
 
-  # SPEC-109: the portal role this module attaches the sqs:SendMessage enqueue policy to
+  # The portal role this module attaches the sqs:SendMessage enqueue policy to
   # (by name) — the browser's ONLY data-quality privilege.
   portal_role_name = local.portal_role_name
 
-  # SPEC-114: the SPEC-058 notifications queue the verbs emit outcomes to. Constructed-
+  # The notifications queue the verbs emit outcomes to. Constructed-
   # string locals (known at plan, cycle-free — same as the other control planes).
   notifications_queue_arn = local.notifications_queue_arn
   notifications_queue_url = local.notifications_queue_url
 
-  # base grants the deploy role its data-quality perms (SPEC-108 PR1, already applied);
+  # base grants the deploy role its data-quality perms (already applied);
   # data creates the portal role this module attaches the enqueue policy to, and the
   # user-space bucket the reports land in. Settle both first.
   depends_on = [module.base, module.data]
-  # SPEC-128 — the nine verbs produce structured logs onto the SPEC-127 queue.
+  # The nine verbs produce structured logs onto the logs queue.
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 }
 
-# ── Control-plane DLQ drain (SPEC-126) ───────────────────────────────────────
+# ── Control-plane DLQ drain ───────────────────────────────────────
 # The one function that turns a dead-lettered request into a sentence in the actor's inbox.
 # Before this, a request the pipeline refused simply vanished: no verb ran, so no failure
 # notification fired, and the person who made it waited for a result that never came.
@@ -928,9 +926,9 @@ module "control_plane_dlq_drain" {
   notifications_queue_arn = local.notifications_queue_arn
   notifications_queue_url = local.notifications_queue_url
 
-  # SPEC-133: the drain joins the structured-logging pipe. Taken from the observability
+  # The drain joins the structured-logging pipe. Taken from the observability
   # module's outputs rather than reconstructed, so the queue's FIFO `.fifo` suffix cannot
-  # drift between producer and consumer (SPEC-129).
+  # drift between producer and consumer.
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
@@ -938,19 +936,19 @@ module "control_plane_dlq_drain" {
   app_client_id = module.auth.user_pool_client_id
 
   # Required by the cpcommon layer's config, not used by the drain.
-  # (SPEC-156 FR-004: that config resolves on FIRST READ, not at import, so a missing one is
-  # no longer a cold-start crash — PR #196 — but a failure on whichever branch reads it
+  # (that config resolves on FIRST READ, not at import, so a missing one is
+  # no longer a cold-start crash, but a failure on whichever branch reads it
   # first. The union is still what must be set; do not prune one as "unused".)
   user_space_bucket_name   = local.user_space_bucket_name
   shared_space_bucket_name = local.shared_space_bucket_name
   admin_bucket_name        = local.athena_admin_bucket_name
   athena_workgroup         = local.athena_workgroup_name
 
-  # base grants the deploy role its drain perms (SPEC-126 PR1, already applied).
+  # base grants the deploy role its drain perms (already applied).
   depends_on = [module.base]
 }
 
-# SPEC-127 — the structured-logging pipe: one standard SQS logs queue and one scheduled sweep
+# The structured-logging pipe: one standard SQS logs queue and one scheduled sweep
 # that lands log-foundry events as Hive-partitioned NDJSON under s3://{admin}/logs/.
 module "observability" {
   source = "./modules/observability"
@@ -966,20 +964,20 @@ module "observability" {
   app_client_id = module.auth.user_pool_client_id
 
   # Required by the cpcommon layer's config, not used by the sweep.
-  # (SPEC-156 FR-004: that config resolves on FIRST READ, not at import, so a missing one is
-  # no longer a cold-start crash — PR #196 — but a failure on whichever branch reads it
+  # (that config resolves on FIRST READ, not at import, so a missing one is
+  # no longer a cold-start crash, but a failure on whichever branch reads it
   # first. The union is still what must be set; do not prune one as "unused".)
   user_space_bucket_name   = local.user_space_bucket_name
   shared_space_bucket_name = local.shared_space_bucket_name
   athena_workgroup         = local.athena_workgroup_name
 
-  # base grants the deploy role its observability perms (SPEC-127 PR1, already applied).
+  # base grants the deploy role its observability perms (already applied).
   depends_on = [module.base]
 }
 
-# SPEC-146 username directory: one scheduled Lambda that lists the user-space bucket's
+# Username directory: one scheduled Lambda that lists the user-space bucket's
 # workspace prefixes once a day and publishes them as _directory/usernames.json, which the
-# browser reads to suggest usernames (SPEC-147/148). Not a control plane — no queue, no state
+# browser reads to suggest usernames. Not a control plane — no queue, no state
 # machine, no verbs; the closest sibling is module.observability's sweep.
 #
 # The bucket ARN and the logs queue arrive as CONSTRUCTED STRINGS from the locals above rather
@@ -1001,39 +999,38 @@ module "user_directory" {
   logs_queue_url = local.logs_queue_url
 
   # Required by the cpcommon layer's config, not used by the builder.
-  # (SPEC-156 FR-004: that config resolves on FIRST READ, not at import, so a missing one is
-  # no longer a cold-start crash — PR #196 — but a failure on whichever branch reads it
+  # (that config resolves on FIRST READ, not at import, so a missing one is
+  # no longer a cold-start crash, but a failure on whichever branch reads it
   # first. The union is still what must be set; do not prune one as "unused".)
   # user_pool_id and app_client_id in particular: the builder makes NO Cognito call, and a
-  # test asserts it never will (SPEC-146 FR-001).
+  # test asserts it never will.
   user_pool_id             = module.auth.user_pool_id
   app_client_id            = module.auth.user_pool_client_id
   shared_space_bucket_name = local.shared_space_bucket_name
   admin_bucket_name        = local.athena_admin_bucket_name
   athena_workgroup         = local.athena_workgroup_name
 
-  # base grants the deploy role its user-directory perms (SPEC-146 PR1, already applied);
+  # base grants the deploy role its user-directory perms (already applied);
   # data owns the bucket this writes into.
   depends_on = [module.base, module.data]
 }
 
-# ── Verification access (SPEC-186 FR-004) ─────────────────────────────────────
+# ── Verification access ─────────────────────────────────────
 # NOT A CONTROL PLANE. Two owed live assertions could not be made by ANY principal, and a
-# check nobody can run is indistinguishable from one that passes — SPEC-138's "did not run is
-# never clean" and SPEC-137's blind gates, in a third place.
+# check nobody can run is indistinguishable from one that passes — the# "did not run is never clean" rule, and blind gates, in a third place.
 #
-#  1. SPEC-170's negative assertion — that a `destination_occupied` refusal did not already
+#  1. The restore's negative assertion — that a `destination_occupied` refusal did not already
 #     initiate retrieval. `dat-prod-archive` explicit-denies the laptop IAM user, its
 #     execution role trusts lambda.amazonaws.com only, the deploy role is GitHub-OIDC-only,
 #     and NO TRAILS EXIST, so there was no independent record of whether RestoreObject was
 #     ever called. A UI observation does not substitute: the script itself records that a
 #     refusal which had already started retrieval looks identical from there, and the cost of
 #     being wrong is 3-5 billed, uncancellable hours.
-#  2. Catalog read-backs — SPEC-149's Description/comment preservation and SPEC-153's owed
+#  2. Catalog read-backs — the Description/comment preservation check and the owed
 #     foreign projection fixture — which fail with `Insufficient Lake Formation permission(s):
 #     Required Describe`.
 #
-# Both answers are READ-ONLY and neither widens the data path, which FR-004 puts out of scope
+# Both answers are READ-ONLY and neither widens the data path, which the rule puts out of scope
 # explicitly: the trail records calls it does not authorize, and the role reads table
 # DEFINITIONS with no SELECT and no DATA_LOCATION_ACCESS anywhere in its grants.
 module "verification" {
@@ -1053,8 +1050,8 @@ module "verification" {
 
   # Operator identities, from the TF_VAR_verification_principal_arns repo variable (NOT a local
   # terraform.tfvars — a local apply proposes to recreate the data buckets it cannot read; see
-  # modules/verification/iam.tf). Empty ⇒ no role, and the TRAIL — the half that unblocks
-  # SPEC-170 — ships regardless.
+  # modules/verification/iam.tf). Empty ⇒ no role, and the TRAIL — the half that unblocks the restore's negative assertion
+  # Ships regardless.
   verification_principal_arns = var.verification_principal_arns
 
   # base grants the deploy role the trail, bucket and role perms (and holds the 30s

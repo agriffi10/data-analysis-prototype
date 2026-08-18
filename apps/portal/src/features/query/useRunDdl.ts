@@ -35,8 +35,8 @@ type Params = {
 
 /**
  * Runs one background DDL statement to completion and reports it — the single
- * path behind Create view (SPEC-048) and Drop table (SPEC-044), which were the
- * same forty lines written twice (SPEC-155 FR-009).
+ * path behind Create view and Drop table, which were the
+ * same forty lines written twice.
  *
  * "Background" means the editor keeps showing the user's own SQL while the
  * statement runs; the outcome arrives as a toast. Every run is recorded in
@@ -50,7 +50,7 @@ export function useRunDdl({username, appendEntry, toast}: Params): UseRunDdlResu
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
 
-  // SPEC-155 FR-006: these statements poll Athena for up to ~36 s. Leaving the
+  // These statements poll Athena for up to ~36 s. Leaving the
   // workspace abandons that poller — the statement itself carries on server-side;
   // what stops is us waiting for it.
   //

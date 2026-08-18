@@ -12,9 +12,9 @@ type Props = {
   owner: string;
   /** The full roster (owner + members, with join status). */
   members: Member[];
-  /** True when the member's cache predates SPEC-075 and has no roster yet. */
+  /** True when the member's cache predates the roster and has none yet. */
   unavailable?: boolean;
-  /** The signed-in reader, so their own row can't read `Pending` at them (SPEC-186 FR-008). */
+  /** The signed-in reader, so their own row can't read `Pending` at them. */
   viewer?: string;
   /** Re-read connection state on demand (the roster is eventually consistent). */
   onRefresh: () => void;
@@ -22,7 +22,7 @@ type Props = {
 };
 
 /**
- * Read-only member roster (SPEC-075): a non-owner member can see who else belongs to
+ * Read-only member roster: a non-owner member can see who else belongs to
  * a shared space, presented like the owner's Manage drawer (owner tagged + first, join
  * status per member) but with no Add/Remove controls. Legacy cache entries with no
  * roster show a non-blocking "not available yet" note.
@@ -41,7 +41,7 @@ export function MemberRosterDrawer({
   onRefresh,
   refreshing = false
 }: Props) {
-  // SPEC-186 FR-008. The sentence explains a chip; rendering it where no such chip exists is
+  // The sentence explains a chip; rendering it where no such chip exists is
   // how it came to be read by the one person for whom it was false — a member who HAD signed in,
   // told that Pending means they had not.
   const anyPending = members.some((m) => m.username !== owner && displayedMemberStatus(m, viewer) === 'pending');

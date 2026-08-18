@@ -138,7 +138,7 @@ export function FormDialog({
     <Modal
       ariaLabel={ariaLabel}
       dismissible={!busy}
-      // THE WIDTH IS SUPPLIED HERE, not left to `Modal`'s default (SPEC-186 FR-007). Fixing
+      // THE WIDTH IS SUPPLIED HERE, not left to `Modal`'s default. Fixing
       // only `Modal`'s empty-string fallback closed half the trap: with `scrollBody` and no
       // `className` this `cx` returns a TRUTHY string, `Modal`'s `className || 'max-w-md'`
       // never fires, and the panel takes `w-full` — the identical failure one branch over, and
@@ -170,8 +170,8 @@ export function FormDialog({
           // easy to miss because jsdom implements no implicit submission at all — a test
           // asserting "Enter on the select does not submit" passes in this environment
           // whatever this handler does. Browsers submit the form when Enter is pressed on
-          // a closed select, which would file a save from the destination control
-          // (SPEC-175 FR-004 AC8). An OPEN dropdown is the browser's own modal and its
+          // a closed select, which would file a save from the destination control.
+          // An OPEN dropdown is the browser's own modal and its
           // Enter never reaches here.
           if (!(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLSelectElement)) return;
           // Suppress the browser's implicit submission for EVERY such control, then submit

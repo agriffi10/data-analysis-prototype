@@ -8,7 +8,7 @@ type Props = {
   onCancel: () => void;
 };
 
-// SPEC-016 FR-004: prompt for a new folder name with client-side validation (the
+// Prompt for a new folder name with client-side validation (the
 // same rules the service enforces) before any request is issued. Chrome, focus and
 // Enter-to-submit come from FormDialog; Escape cancels via Modal.
 export function CreateFolderDialog({onCreate, onCancel}: Props) {

@@ -33,7 +33,7 @@ function tabsKey(username: string): string | null {
  *
  * Deliberately unlike `initialTabsState()` in the Query workspace, which seeds "Query 1"
  * with boilerplate SQL. An exploration cannot exist without a source, and there is no
- * table to guess — SPEC-179's empty state asks the user to pick one.
+ * table to guess — the empty state asks the user to pick one.
  *
  * @returns An empty, valid tabs state.
  */
@@ -88,7 +88,7 @@ function isValidGrouping(value: unknown): boolean {
   if (typeof value !== 'object') return false;
   const grouping = value as Record<string, unknown>;
   if (!Array.isArray(grouping.columns) || !grouping.columns.every((c) => typeof c === 'string')) return false;
-  // SPEC-182's two flags are accepted ABSENT as well as boolean, and normalised to false on
+  // the two flags are accepted ABSENT as well as boolean, and normalised to false on
   // the way out. Requiring them would discard the whole document — every tab, not just the
   // grouping — over a field that did not exist when it was written.
   if (grouping.duplicatesOnly !== undefined && typeof grouping.duplicatesOnly !== 'boolean') return false;
@@ -104,11 +104,11 @@ function isValidGrouping(value: unknown): boolean {
 }
 
 /**
- * Reads a stored saved-query link, dropping anything it cannot trust (SPEC-183 FR-003).
+ * Reads a stored saved-query link, dropping anything it cannot trust.
  *
- * Absent is the ordinary case — every document written before SPEC-183, and every tab that
+ * Absent is the ordinary case — every document written before it existed, and every tab that
  * has never been saved — so a missing or malformed link restores the tab WITHOUT one rather
- * than discarding the session, on SPEC-182's precedent for an added field. All four fields
+ * than discarding the session, on the precedent for an added field. All four fields
  * are required together: a half link would name a bucket with no key, and the write path
  * would resolve `overwrite` from it.
  *
@@ -132,7 +132,7 @@ function isValidLedger(value: unknown): boolean {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   // The VALUES matter as much as the shape: `tabBytesScanned` sums them, so one string
   // turns a total into `"0x"` and one NaN turns it into NaN — breaking the never-NaN
-  // invariant FR-007 AC4 exists to hold, from the only untrusted input this model has.
+  // invariant the rule exists to hold, from the only untrusted input this model has.
   return Object.values(value).every((bytes) => typeof bytes === 'number' && Number.isFinite(bytes));
 }
 
@@ -146,7 +146,7 @@ function isValidQuery(value: unknown): boolean {
 }
 
 /**
- * Fills in a grouping's SPEC-182 flags, which a document written before it does not carry.
+ * Fills in a grouping's flags, which an older document does not carry.
  *
  * Absent has to become `false` rather than staying undefined: `sameQuery` compares
  * descriptions on a canonical form, and a restored description whose flag is missing would
@@ -225,7 +225,7 @@ function isValidColourRule(value: unknown): boolean {
   if (typeof rule.value !== 'string') return false;
   // The colours are checked against the PALETTE, not merely against `string`: a stored
   // `#ff0000` would be rendered verbatim as an inline style, and the contrast the palette
-  // is measured for would no longer hold for it (FR-002 AC8).
+  // is measured for would no longer hold for it.
   if (rule.foreground !== undefined && !FORMATTING_FOREGROUNDS.includes(rule.foreground as never)) return false;
   if (rule.background !== undefined && !FORMATTING_BACKGROUNDS.includes(rule.background as never)) return false;
   if (rule.gradient === undefined) return true;
@@ -268,7 +268,7 @@ function isValidTransformer(value: unknown): boolean {
 
 /**
  * Reads a stored formatting block, discarding it WHOLE if any part of it is wrong
- * (FR-007 AC2).
+ *
  *
  * Deliberately unlike the field-by-field normalisation around it, and the difference is
  * what the requirement asks for: a partially-applied colour set is a rule list the user
@@ -276,7 +276,7 @@ function isValidTransformer(value: unknown): boolean {
  * paints the opposite of what was intended. Losing the block costs a tab its colours;
  * keeping half of it costs the user their trust in what they are looking at.
  *
- * A document written before SPEC-184 carries no block at all, which is the ordinary case
+ * A document written before these fields existed carries no block at all, which is the ordinary case
  * for the first session after a deploy and reaches the same default.
  *
  * @param value - The stored `formatting` object, or anything at all.
@@ -306,7 +306,7 @@ function normalizeFormatting(value: unknown): FormattingState {
 /**
  * Reads a stored presentation, defaulting every field it cannot trust.
  *
- * A document written before SPEC-180 carries only the four geometry fields, and one
+ * A document written before these fields existed carries only the four geometry fields, and one
  * written by a future version may carry fields this build has never heard of — both must
  * restore rather than discard the tab, because presentation is cosmetic and the
  * exploration beside it is not.
@@ -377,7 +377,7 @@ export function readExplorationTabsState(username: string): ExplorationTabsState
       ...parsed,
       tabs: parsed.tabs.map((tab) => ({
         ...tab,
-        // A document written before SPEC-181 carries no history at all, which is the
+        // A document written before these fields existed carries no history at all, which is the
         // ordinary case for the first session after a deploy — not a fault.
         history: normalizeHistory(tab.history),
         savedQuery: normalizeSavedQueryLink(tab.savedQuery),
@@ -408,7 +408,7 @@ export function writeExplorationTabsState(username: string, state: ExplorationTa
  * Total bytes this tab has scanned, across every DISTINCT execution it has run.
  *
  * Summed from a map keyed by execution id rather than accumulated as a running total,
- * which is what makes FR-007's "a cache hit adds nothing" true by construction: a
+ * which is what makes the "a cache hit adds nothing" true by construction: a
  * re-rendered identical statement resolves to an id already in the map, so recording it
  * again changes no total. A running sum would have to DETECT a cache hit, and a detector
  * can be wrong in the direction that overcharges.

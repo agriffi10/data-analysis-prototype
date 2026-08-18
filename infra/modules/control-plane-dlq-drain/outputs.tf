@@ -1,4 +1,4 @@
-# ── control-plane-dlq-drain outputs (SPEC-126) ───────────────────────────────
+# ── control-plane-dlq-drain outputs ───────────────────────────────
 
 output "function_name" {
   description = "Name of the drain Lambda — the deploy-lambdas.yml matrix target."

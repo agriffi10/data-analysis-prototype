@@ -10,7 +10,7 @@ type HelpSidebarProps = {
   onSelect: (id: HelpSectionId) => void;
 };
 
-// Presentation-only compact labels for the narrowed tablet rail (SPEC-103 FR-002).
+// Presentation-only compact labels for the narrowed tablet rail.
 // Full labels are shown at desktop; not part of the content model (`helpContent.ts`).
 const SHORT_SECTION_LABELS: Partial<Record<HelpSectionId, string>> = {
   'shared-connections': 'Shared'
@@ -20,7 +20,7 @@ const SHORT_SECTION_LABELS: Partial<Record<HelpSectionId, string>> = {
  * Left rail for the Help page — mirrors the app-shell `Sidebar` (248px surface
  * panel, right hairline, filled active item, hidden below `tablet`). One item per
  * section with its feature icon, label, and a right-aligned guide count derived
- * from the content (FR-003). Selection drives the active section.
+ * from the content. Selection drives the active section.
  *
  * @example
  * <HelpSidebar sections={HELP_SECTIONS} activeId={activeId} onSelect={setActiveId} />

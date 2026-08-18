@@ -1,12 +1,12 @@
 """The restore request: its contract, and the archive it names.
 
-SPEC-170. A restore is the archive read backwards, and the two questions this module answers
+A restore is the archive read backwards, and the two questions this module answers
 are the ones that must be settled before a single byte of Glacier retrieval is paid for: **is
 this request well-formed and authorized, and what would come back where.**
 
 **The space comes from the REQUEST, never from the archive.** The route the user is standing in
 names the space and authorization is then a question about *that* space, exactly as the
-data-quality report view takes its space from the route rather than deriving it (SPEC-113). An
+data-quality report view takes its space from the route rather than deriving it. An
 archive belonging to a different space simply is not found — which is also why
 ``archive_not_found`` says nothing about whether the id ever existed.
 
@@ -14,7 +14,7 @@ archive belonging to a different space simply is not found — which is also why
 encodes its own origin (``paths.origin_key``), so one ``ListObjectsV2`` over the archive prefix
 yields both the objects and their destinations with no record required. The manifest is a
 cross-check only: a restore still works when it is missing, and refuses when it disagrees. That
-is the whole reason SPEC-169's manifest is described as a report rather than a record, and
+is the whole reason the manifest is described as a report rather than a record, and
 ``test_no_restore_verb_requires_the_manifest`` holds it open from the other side.
 
 Attributes:
@@ -49,9 +49,9 @@ def validate(req: dict, request_id: str, actor: str) -> dict:
 
     The archive id is checked against the strict UUID pattern **before** it is concatenated into
     anything, and the archive root is then built by ``paths.archive_root`` — the same function
-    SPEC-168 used to WRITE it, so the read and the write cannot drift.
+    The archive uses the same builder to WRITE it, so the read and the write cannot drift.
 
-    **``requestId`` and ``archiveId`` must be different values** (FR-001 AC2). Conflating them was
+    **``requestId`` and ``archiveId`` must be different values** Conflating them was
     the obvious shortcut and is wrong in both directions: a refused restore must be re-submittable
     under a new run id, and a second attempt at one archive is a new request rather than a
     duplicate of the first. It is refused rather than tolerated, because a producer that has
@@ -72,7 +72,7 @@ def validate(req: dict, request_id: str, actor: str) -> dict:
 
       The ``archive`` block carries the RECEIPT's location alongside the vault's, resolved here
       exactly as validate-authorize resolves it for an archive: it is a pure function of the
-      space and the archive id, so it is built once rather than three agreeing times (SPEC-168).
+      space and the archive id, so it is built once rather than three agreeing times.
       **It is keyed on the ARCHIVE id, not this run's**, because the document it names was
       written by the archive and is being rewritten rather than created.
 
@@ -112,15 +112,15 @@ def derive_destinations(bucket: str, archive_root: str, space_root: str) -> tupl
     Pagination is ``cpcommon.s3_listing``'s — the same paginator the expansion and the rollback
     use, and the third listing of this same prefix — with a predicate of this plane's own. The
     DEFAULT predicate is what must not be reused: it drops zero-byte objects, hidden segments and
-    folder keys, and every one of those is something this archive deliberately CARRIED (SPEC-169's
+    folder keys, and every one of those is something this archive deliberately CARRIED (the expansion's
     ``_excluder`` keeps what the others drop, so an archived empty folder comes back). Restoring
     through a filter the archive did not write through would silently return less than was taken.
-    That is exactly the split SPEC-165 recorded: the pagination is shared, the exclusions are not.
+    That is exactly the split the send plane recorded: the pagination is shared, the exclusions are not.
 
     ``_manifest.json`` is excluded by its EXACT KEY at the archive root, never by basename: a
     user's own ``reports/_manifest.json`` three folders down was archived like any other file
     and must come back, while the record this plane wrote must not land in the user's space as a
-    stray file (FR-003 AC2).
+    stray file.
 
     Args:
       bucket: The archive bucket.
@@ -129,8 +129,8 @@ def derive_destinations(bucket: str, archive_root: str, space_root: str) -> tupl
 
     Returns:
       ``(objects, total_bytes)``, each object carrying its archive key, its destination key and
-      its size. The size rides so SPEC-172 can tell the user how much is coming back and
-      SPEC-171 can bound its wait.
+      its size. The size rides so the restore can tell the user how much is coming back and
+      the retrieval can bound its wait.
 
     Raises:
       TerminalError: ``forbidden`` from the destination reconstruction.
@@ -178,7 +178,7 @@ def derive_destinations(bucket: str, archive_root: str, space_root: str) -> tupl
 def read_recorded_count(bucket: str, archive_root: str) -> int | None:
     """Reads the object count ``_manifest.json`` recorded, or None when there is no record.
 
-    **Absent is not a failure** (FR-003 AC5). The manifest is not load-bearing, and a restore
+    **Absent is not a failure** The manifest is not load-bearing, and a restore
     that refused for want of a convenience record would be exactly the failure mode the
     self-describing key layout exists to prevent. Unreadable and malformed are treated the same
     way as absent and for the same reason — the cross-check can only add confidence, so its own
@@ -244,7 +244,7 @@ def assert_complete(found: int, recorded, archive_id: str) -> None:
 def assert_found(objects: list, archive_id: str, space_name: str) -> None:
     """Refuses an archive prefix that holds nothing, without saying why it is empty.
 
-    **It does not distinguish "never existed" from "belongs to someone else"** (FR-003 AC3), the
+    **It does not distinguish "never existed" from "belongs to someone else"**, the
     same no-existence-oracle rule the data-quality report view follows: the archive key's
     leading ``personal/``/``shared/`` segment and the space name are both derived from the
     REQUEST, so an id belonging to another space resolves to an empty prefix here and reads

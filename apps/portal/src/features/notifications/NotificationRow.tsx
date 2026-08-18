@@ -24,20 +24,20 @@ export function NotificationRow({notification, onMarkRead}: NotificationRowProps
   // accessible name that says where it goes, and keeps the row a single target.
   // A link that could leave this origin is dropped entirely (open-redirect guard),
   // leaving exactly the plain-text row a producer supplying no link would produce.
-  // SPEC-163: a link into a disabled feature is dropped, leaving the plain-text row a producer
+  // a link into a disabled feature is dropped, leaving the plain-text row a producer
   // supplying no link would have produced. The route gate already refuses the destination, so
   // this is not a disclosure — it is the difference between an inbox that offers a dead end and
   // one that does not. Notifications themselves are never gated: the record of what happened
   // outlives the surface that would show it.
   //
-  // SPEC-167 generalised this from one hard-coded prefix to a map, because a second producer
+  // A map rather than one hard-coded prefix, because a second producer
   // arrived and the single-prefix form silently did nothing for it. A file-send notification
   // deep-links into `/files`, and with `files` off that route swaps its element — so the link was
   // a live anchor into the unavailable page. The space-owner variant is worse than a dead end:
   // with `sharedWorkspaces` off the route does not READ `?space=`, resolves the personal space,
   // and then discards a prefix that does not start with it — landing the owner in their own
   // files with no banner, while the message says where to look. That is the "link that silently
-  // lands someone at their space root" SPEC-167 FR-005 exists to prevent.
+  // lands someone at their space root" this rule exists to prevent.
   const flags = {
     files: useFeature('files'),
     dataQuality: useFeature('dataQuality'),
@@ -51,7 +51,7 @@ export function NotificationRow({notification, onMarkRead}: NotificationRowProps
     (link?.includes('?space=') && !flags.sharedWorkspaces);
   const to = !gated && isSafeInAppPath(link) ? link : undefined;
   // Mark-read is a compact trailing control at ≥ tablet; below the message as a
-  // full-width touch target on mobile (SPEC-102 FR-003). Mount-gated so exactly
+  // full-width touch target on mobile. Mount-gated so exactly
   // one button exists (a CSS swap would duplicate it in the DOM).
   const isMobile = useIsMobile();
 

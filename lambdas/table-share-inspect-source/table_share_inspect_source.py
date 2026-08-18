@@ -6,7 +6,7 @@ with no copy or create side effects. Every rejection is a whole-request terminal
 recipient runs.
 
 Neither of the two things it produces rides on the state. The object list went to S3 first
-(inline, the Map's state reached 95% of the payload limit at the shipped caps); SPEC-161 sent
+(inline, the Map's state reached 95% of the payload limit at the shipped caps); the pointer sent
 the cloned definition the same way, because it was the last user-controlled term left and a
 wide commented table breached the limit on its own.
 
@@ -56,7 +56,7 @@ def handler(event, context) -> dict:
 def _enforce_definition_cap(definition, database, table) -> None:
     """Rejects a cloned definition too large for Athena to accept as one statement.
 
-    The definition travels by pointer since SPEC-161, so this is no longer about the Step
+    The definition travels by pointer , so this is no longer about the Step
     Functions state — it is about what create-table will do with it. The whole definition is
     rendered into a single CREATE EXTERNAL TABLE, and Athena refuses a query string over
     262,144 bytes. Rejected here as a whole-request terminal before the write and before any

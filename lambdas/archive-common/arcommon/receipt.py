@@ -5,12 +5,12 @@ deliberately not rendered in the browser — the project has no in-browser previ
 not introduce one. The user downloads it and reads it, and the UUID in it is their route to a
 restore.
 
-**Both restore fields are written from the first version, with placeholder values.** SPEC-171
+**Both restore fields are written from the first version, with placeholder values.** The restore
 rewrites the whole file when a restore is requested; a field that only appeared afterwards would
 make the format conditional on the file's own history, so every reader would need to handle two
 shapes of the same document.
 
-**The paths name the space ROOT and the archive ROOT, which is a deliberate reading of FR-006.**
+**The paths name the space ROOT and the archive ROOT, which is deliberate.**
 The spec's illustrative sample shows a selected folder as the original path, and that would be
 wrong for the key layout this arc actually shipped: ``archived_key`` keeps every object's path
 relative to the SPACE root, so ``alice/reports/q1.csv`` archives to ``{archiveRoot}reports/q1.csv``
@@ -19,11 +19,11 @@ not correspond to it, and a selection of 200 items has no single original path a
 this way the two lines are exact inverses of each other for every object, for every selection.
 
 The byte size renders through the same rule as the file browser's ``formatSize`` — binary units,
-one decimal, a TB ceiling (SPEC-155 FR-007) — so the receipt and the browser never disagree about
+one decimal, a TB ceiling — so the receipt and the browser never disagree about
 one number. The exact byte count rides beside it because the rounded one is not a number anybody
 can reconcile against a bill.
 
-**SPEC-171 rewrites the two restore lines IN PLACE and touches nothing else**, which is the
+**the restore rewrites the two restore lines IN PLACE and touches nothing else**, which is the
 only way the document can carry both halves. The archive lines record the archive run — its
 start time above all, which no restore run knows and cannot recompute — so a rewrite that
 re-rendered the whole file from the restore's own state would silently blank the ``Requested``
@@ -135,7 +135,7 @@ def _line(label: str, value: str) -> str:
 def render(record: dict) -> str:
     """Renders the receipt's text.
 
-    One writer for the whole document, so the format is decided in exactly one place — SPEC-171
+    One writer for the whole document, so the format is decided in exactly one place — the restore
     rewrites this file rather than appending to it, and two renderers would be two formats.
 
     Args:
@@ -172,7 +172,7 @@ def restore_lines(restore: dict) -> dict:
     Three outcomes and three sentences, and the second is the one that has to be careful. On
     ``incomplete`` the ``Restored to`` field must not name a destination as though the restore
     landed there — it records the attempt and what it left behind, so the receipt never claims a
-    restore that did not finish (FR-006 AC2).
+    restore that did not finish.
 
     Args:
       restore: The restore's state — its ``requestedAt`` timestamp, its ``status``
@@ -215,7 +215,7 @@ def rewrite(text: str, restore: dict) -> str:
 
     A label the document does not carry is APPENDED rather than dropped. That case is not
     reachable from anything this plane wrote — every receipt has carried both fields since
-    SPEC-169's first version, deliberately, so the format would never be conditional on the
+    The first version, deliberately, so the format would never be conditional on the
     file's own history — and it is handled because the alternative is a rewrite that silently
     records nothing.
 
@@ -246,10 +246,10 @@ def rewrite(text: str, restore: dict) -> str:
 def write(bucket: str, key: str, record: dict) -> str:
     """Writes the receipt into the space's own bucket and returns its key.
 
-    **The key is passed in rather than derived here**, and that is SPEC-168's design being
+    **The key is passed in rather than derived here**, and that is the design being
     honoured rather than a convenience: validate-authorize resolves the archive prefix and the
     receipt key once, because they are pure functions of the request, so that the copier, the
-    receipt writer and SPEC-170's restore read ONE string instead of three agreeing constructions
+    receipt writer and the restore read ONE string instead of three agreeing constructions
     of it. Deriving it again here made ``archive.receiptKey`` a field nothing read — the
     "placeholder that outlives its placeholder" the machine's own ``Validated`` state warns about.
 
@@ -265,7 +265,7 @@ def write(bucket: str, key: str, record: dict) -> str:
       TransientError: On a retryable S3 fault, so the caller's Retry re-runs the verb — safe,
         because the key is a pure function of the request and the write is a whole-object PUT.
       ClientError: Any deterministic fault propagates, and the verb turns it into the terminal
-        failure FR-006 requires: a user with no receipt has no UUID and therefore no route to a
+        failure the rule requires: a user with no receipt has no UUID and therefore no route to a
         restore, even though their data is safely archived.
     """
     return write_text(bucket, key, render(record))

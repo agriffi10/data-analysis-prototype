@@ -4,7 +4,7 @@ import {Button} from '../../components/Button';
 import {emptyDraftKey, type DraftPartitionKey, type PartitionKeyErrors, type PartitionType} from './partitionKeys';
 import {FIELD_HINT, FIELD_LABEL} from '../../components/fieldStyles';
 
-// SPEC-071 FR-002: the optional, ordered partition-keys editor. Controlled — the
+// The optional, ordered partition-keys editor. Controlled — the
 // dialog owns the draft rows (so it can compute validity + the wire keys) and the
 // per-row `errors`; this component renders + edits them and manages focus on
 // add/remove (accessibility rulebook: labelled dynamic rows). An empty list means a

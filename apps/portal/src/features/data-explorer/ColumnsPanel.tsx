@@ -10,9 +10,9 @@ export type ColumnsPanelProps = {
 };
 
 /**
- * Hide/show, pin and reorder, away from the header row (SPEC-180 FR-001).
+ * Hide/show, pin and reorder, away from the header row.
  *
- * It is a panel rather than a header menu because SPEC-181 owns the per-column header
+ * It is a panel rather than a header menu because the header menu owns the per-column
  * menu, and because these are the gestures a keyboard user needs an alternative for: drag
  * has no keyboard equivalent, so **Move earlier / Move later** is that equivalent and the
  * live region below is where it is announced.

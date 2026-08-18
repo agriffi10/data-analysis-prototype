@@ -1,13 +1,13 @@
-# ── Shared-Space Bucket (Bucket 2, SPEC-050 FR-001) ──────────────────────────
+# ── Shared-Space Bucket (Bucket 2) ──────────────────────────
 # Backs every shared connection: objects live under {name}/... and are seen by all
 # members of that space (a single shared copy, not per-user copies). Hygiene mirrors
 # the user-space bucket (data/s3.tf): all public access blocked, SSE-S3,
 # BucketOwnerEnforced, versioning off (MVP), abort-incomplete-multipart lifecycle.
 #
-# SPEC-050 is plumbing only — this bucket is created with NO access grants and NO
+# Is plumbing only — this bucket is created with NO access grants and NO
 # bucket policy. The membership-tag portal-role statements, the shared-results
-# delete-denies, and the Lake Formation hybrid registration all arrive in SPEC-056;
-# the per-space provisioning (prefix marker, Glue DB) in SPEC-051+.
+# delete-denies, and the Lake Formation hybrid registration arrive with the access model;
+# the per-space provisioning (prefix marker, Glue DB) with the verbs.
 
 # IAM propagation guard — same rationale as data/s3.tf and auth/lambda.tf. The
 # module-level depends_on = [module.base] orders the deploy-role policy (which now
@@ -68,7 +68,7 @@ resource "aws_s3_bucket_versioning" "shared_space" {
   }
 }
 
-# Lifecycle — abort incomplete multipart uploads after 7 days (mirrors SPEC-016).
+# Lifecycle — abort incomplete multipart uploads after 7 days.
 # Shared-space uploads use the same managed lib-storage multipart path as the
 # user-space bucket; a browser killed mid-upload leaves billable, invisible parts.
 resource "aws_s3_bucket_lifecycle_configuration" "shared_space" {

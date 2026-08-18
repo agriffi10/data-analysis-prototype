@@ -1,6 +1,6 @@
-# ── Constructed names + ARNs (SPEC-066) ──────────────────────────────────────
+# ── Constructed names + ARNs ──────────────────────────────────────────────────────────────────────
 # All resource names derive from {project_name}-{environment} so the deploy policy
-# (modules/base, the SPEC-066 PR1 grant) scopes to the same {project}-*-table-builder-*
+# (the modules/base grant) scopes to the same {project}-*-table-builder-*
 # patterns, and so cross-resource ARNs referenced inside IAM policy templates are
 # KNOWN AT PLAN TIME (constructed strings, not resource attributes) — the
 # architecture.md "unknown ARN in list" discipline. This module plans standalone.
@@ -13,9 +13,9 @@ locals {
   state_machine_name  = "${var.project_name}-${var.environment}-table-builder-orchestrator"
   sfn_role_name       = "${var.project_name}-${var.environment}-table-builder-sfn-role"
 
-  # ONE shared execution role for every verb Lambda (user decision — reverses the
-  # SPEC-066 per-verb roles, mirroring the shared-spaces single-orchestrator model in
-  # SPEC-062). Its permission policy is the UNION of the verbs' needs (execution.json.tftpl),
+  # ONE shared execution role for every verb Lambda — user decision, reversing the
+  # per-verb roles and mirroring the shared-spaces single-orchestrator model.
+  # Its permission policy is the UNION of the verbs' needs (execution.json.tftpl),
   # and it is the table-builder Lake Formation admin (analytics data_lake_settings) so
   # check-table-absent + execute-ddl can Describe/CREATE in the DYNAMIC per-user +
   # per-shared-space target databases (they can't be statically LF-granted). ARN is a
@@ -30,7 +30,7 @@ locals {
   # All share ONE execution role (execution_role above); the Step Function orchestrates
   # them as two branches over one shared spine (stepfunction.tf).
   #
-  # load-table-definition (SPEC-143) is the refresh branch's entry verb and mirrors
+  # load-table-definition is the refresh branch's entry verb and mirrors
   # check-table-absent in the negative — one Glue GetTable, no S3 — so it takes the same
   # 15 s / 256 MB. lambda.tf needs no edit for a new entry: it is entirely for_each over
   # this map, so the function, its log group and its placeholder zip all follow.
@@ -42,7 +42,7 @@ locals {
     "validate-authorize"    = { handler = "validate_authorize.handler", timeout = 15, memory = 256 }
     "check-table-absent"    = { handler = "check_table_absent.handler", timeout = 15, memory = 256 }
     "load-table-definition" = { handler = "load_table_definition.handler", timeout = 15, memory = 256 }
-    # SPEC-157. The refresh lock's two halves: one conditional S3 read + one conditional
+    # The refresh lock's two halves: one conditional S3 read + one conditional
     # write each, no Glue and no Athena, so both take the smallest shape here. The 15 s
     # timeout is an INPUT to the state machine's TimeoutSeconds derivation (stepfunction.tf's
     # comment; the field itself is in the ASL template)
@@ -55,7 +55,7 @@ locals {
     "diff-schema"          = { handler = "diff_schema.handler", timeout = 15, memory = 256 }
     "apply-refresh"        = { handler = "apply_refresh.handler", timeout = 300, memory = 512 }
     "execute-ddl"          = { handler = "execute_ddl.handler", timeout = 300, memory = 512 }
-    # SPEC-152. The notification of last resort: one decode + one SQS send, reached only
+    # The notification of last resort: one decode + one SQS send, reached only
     # on a failure path, so it takes the smallest shape any verb here has.
     "notify-failure" = { handler = "tb_notify_failure.handler", timeout = 15, memory = 256 }
   }
@@ -105,7 +105,7 @@ locals {
   shared_space_bucket_arn = "arn:aws:s3:::${var.shared_space_bucket_name}"
   admin_bucket_arn        = "arn:aws:s3:::${var.admin_bucket_name}"
 
-  # Athena/Glue ARNs for the execution role's DDL statements (SPEC-070). The workgroup
+  # Athena/Glue ARNs for the execution role's DDL statements. The workgroup
   # + the catalog it creates tables in are scoped in execution.json.tftpl. Target
   # databases are DYNAMIC (one per user + per shared space), so Glue/table are scoped to
   # the account catalog's database/* + table/*/* — Lake Formation (the execution role is

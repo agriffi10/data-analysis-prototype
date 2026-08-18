@@ -6,7 +6,7 @@ are in a bucket the browser has no relationship with, and the reports folder tha
 is the one place the id appears outside a notification.
 
 **Its failure is a terminal failure of the run even though the data is safely archived**, and that
-is FR-006's decision rather than an oversight: a user with no receipt has no id, and therefore no
+is the decision rather than an oversight: a user with no receipt has no id, and therefore no
 route to a restore. The failure message says the data IS archived and names the request id, so the
 run is recoverable by hand rather than merely reported.
 
@@ -57,7 +57,7 @@ def _write_receipt(event) -> dict:
     """Renders the receipt from the state and writes it to the space's own bucket.
 
     **The key comes off the state, resolved once by validate-authorize.** Recomputing it here
-    would be a second construction of a string SPEC-168 deliberately resolves in one place — and
+    would be a second construction of a string the plane deliberately resolves in one place — and
     it would leave ``archive.receiptKey`` a field that rides the whole run and is never read.
 
     Args:

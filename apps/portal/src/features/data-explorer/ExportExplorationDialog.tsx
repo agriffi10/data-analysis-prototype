@@ -8,12 +8,12 @@ export type ExportExplorationDialogProps = {
 };
 
 /**
- * Export this exploration's rows into a space (SPEC-185 FR-002).
+ * Export this exploration's rows into a space.
  *
  * **Nothing here is new.** It is the Query workspace's own destination picker, overwrite
  * warn-and-confirm and cross-bucket copy, mounted on the other workspace — which is why
  * `useSaveResults` moved down to `features/catalog/` rather than being reimplemented here.
- * The Explorer may not import `features/query/` (SPEC-176's sibling clause), and a second
+ * The Explorer may not import `features/query/` (the sibling clause), and a second
  * copy of a path with a collision round-trip in it is how the two come to disagree about
  * what happens when a name is taken.
  *

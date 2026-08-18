@@ -5,7 +5,7 @@ where their inbox is, and refuses the recipient if any selected item name is alr
 there. Read-only — it decides whether a copy may start, and never starts one.
 
 **A send never overwrites, and this is where that is enforced.** The destination layout keys by
-item NAME (SPEC-165), so a second send of ``notes.txt`` collides where a first send of
+item NAME, so a second send of ``notes.txt`` collides where a first send of
 ``reports/`` to the same recipient does not. Refusing rather than merging is the recorded
 behaviour: a merge would leave a recipient's folder holding two sends' worth of files with no
 way to tell which arrived when, and an overwrite would destroy data this plane holds no delete
@@ -13,9 +13,9 @@ right over.
 
 **An expected refusal is a RETURN VALUE, not an exception, and that is the one place this verb
 departs from table-share's guard.** A conflict has to name the colliding item so the sender can
-be told which file was already there (FR-001 AC5) — and a raised ``TerminalError`` cannot carry
+be told which file was already there — and a raised ``TerminalError`` cannot carry
 it: its tokens are deliberately kept out of the exception message, and its detail is operator
-text that may quote raw service output and must never be rendered to a user (SPEC-106). Parsing
+text that may quote raw service output and must never be rendered to a user. Parsing
 a filename back out of a Step Functions ``Cause`` would be both fragile and a rule break. So the
 two refusals this verb EXPECTS — an unresolved recipient and a name conflict — come back as a
 uniform record with a reason and a detail field, and the Map item's ``Catch`` is left for what
@@ -26,7 +26,7 @@ must not cost everybody else the send. The whole-request failures on this plane 
 before any recipient runs.
 
 It notifies nobody, and that is deliberate rather than an omission. Every per-recipient outcome
-on this plane — this refusal included — is told to the sender ONCE, by SPEC-167's producer
+on this plane — this refusal included — is told to the sender ONCE, by the producer
 reading the terminal summary. Table-share notifies from its own guard verb because it has no
 such producer; reproducing that here would send two messages about one conflict.
 

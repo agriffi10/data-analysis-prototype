@@ -7,13 +7,13 @@ export const URL_NOT_HTTPS = 'Only https links are opened from a cell.';
 /** What a template resolved to: a link, or a reason there is not one. */
 export type ResolvedUrl = {href: string; reason?: undefined} | {href?: undefined; reason: string};
 
-// SPEC-184 FR-006. The one place in this spec where being wrong is a security bug rather
+// The one place in this spec where being wrong is a security bug rather
 // than an ugly grid: the TEMPLATE is authored by the user, but the value substituted into
 // it comes from the table — so a link's destination is partly attacker-controlled wherever
 // the data is.
 //
 // **`isSafeInAppPath` is deliberately not used here, and this is the note recording why.**
-// That rule (SPEC-061/167) governs IN-APP paths: it asks whether a notification's link is a
+// That rule governs IN-APP paths: it asks whether a notification's link is a
 // route inside this application, and it answers by refusing anything that is not root-
 // relative. Every URL in this file is by definition external and absolute, so that rule
 // would reject all of them — and if it were loosened to admit them it would be answering a
@@ -45,7 +45,7 @@ export function templateRefusal(template: string): string | null {
  *    natural template for a column that already holds links) the value IS the URL, so
  *    encoding it would turn every legitimate `https://…` into `https%3A%2F%2F…` — not a
  *    URL, and that column could never link at all. There it is substituted raw and left to
- *    the two steps below, which is exactly the case FR-006 AC2 describes.
+ *    the two steps below, which is exactly the case the worked example describes.
  * 2. The **resolved** URL is parsed, never the template. A template of `${value}` with a
  *    cell holding `javascript:alert(1)` is the case that matters, and a template-only check
  *    passes it happily.

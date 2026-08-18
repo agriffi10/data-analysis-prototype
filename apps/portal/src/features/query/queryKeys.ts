@@ -5,8 +5,8 @@
  *
  * The schema, execution, results and row-count keys are `catalogKeys` in
  * `features/catalog/`, the connections key is `connectionKeys` in
- * `features/connections/` (SPEC-176), and the saved-query key is `savedQueryKeys` in
- * `features/saved-queries/` (SPEC-177).
+ * `features/connections/`, and the saved-query key is `savedQueryKeys` in
+ * `features/saved-queries/`.
  */
 export const queryKeys = {
   all: ['query'] as const,

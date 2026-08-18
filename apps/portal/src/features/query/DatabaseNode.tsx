@@ -12,7 +12,7 @@ import type {TableActions} from './SchemaBrowser';
 import {useFeature} from '../feature-flags';
 import {SECTION_CAPTION} from '../../components/fieldStyles';
 
-// SPEC-063: a single database in the schema rail — a disclosure node that, when
+// a single database in the schema rail — a disclosure node that, when
 // expanded, loads its own schema (`useSchema`, decoupled from the active target)
 // and splits its objects into two collapsible groups: Tables and Views.
 
@@ -30,7 +30,7 @@ function Chevron({open, className}: {open: boolean; className?: string}) {
   );
 }
 
-// Each object row: expand to reveal its columns (inspection only — SPEC-077
+// Each object row: expand to reveal its columns (inspection only — the rail is browse-only
 // drops click-to-insert) and a per-row (view-aware) actions menu. The "View"
 // badge is dropped inside the Views group (membership conveys the type).
 function TableRow({
@@ -47,7 +47,7 @@ function TableRow({
   actions: TableActions;
 }) {
   const isView = table.tableType === 'VIRTUAL_VIEW';
-  // SPEC-163: belt to the `/query` route's braces. The flag already removes the route these
+  // Belt to the `/query` route's braces. The flag already removes the route these
   // items live inside, so this can only matter if a later spec surfaces the table menu from
   // somewhere else — which is precisely the class of miss the registry exists to catch.
   const queryEnabled = useFeature('query');
@@ -102,7 +102,7 @@ function TableRow({
                 label: 'View data',
                 onSelect: () => actions.onViewData(database, table)
               },
-              // SPEC-179: base tables AND views — a view is a perfectly good thing to
+              // Base tables AND views — a view is a perfectly good thing to
               // explore. Gated by BOTH flags, which is what makes it the mirror image of
               // "Create table": the capability is the Data Explorer's, the surface is the
               // Query workspace's, and either flag being off must remove it.
@@ -115,8 +115,8 @@ function TableRow({
                     }
                   ]
                 : []),
-              // SPEC-145: base tables only — a view has no folder to re-read. The
-              // browser runs NO other eligibility check: SPEC-143's rules (a
+              // Base tables only — a view has no folder to re-read. The
+              // browser runs NO other eligibility check: The rules (a
               // reconstructable partition scheme, a location inside the space) are
               // the server's to enforce, and its refusals come back as user-facing
               // notifications. A client-side gate here would only drift from them.
@@ -131,7 +131,7 @@ function TableRow({
                       disabled: !table.location
                     }
                   ]),
-              // SPEC-093: base tables only — the server rejects views, so no item.
+              // Base tables only — the server rejects views, so no item.
               ...(isView || !queryEnabled
                 ? []
                 : [
@@ -157,7 +157,7 @@ function TableRow({
           {table.columns.length === 0 ? (
             <li className="px-2 py-1 text-xs text-text-3">No columns</li>
           ) : (
-            // SPEC-077: columns are shown for inspection only — no click-to-insert.
+            // Columns are shown for inspection only — no click-to-insert.
             table.columns.map((column) => (
               <li
                 key={column.name}
@@ -173,7 +173,7 @@ function TableRow({
   );
 }
 
-// FR-002: a Tables/Views sub-group — its own disclosure toggle + object count, and
+// a Tables/Views sub-group — its own disclosure toggle + object count, and
 // an empty state so the grouping stays legible rather than disappearing.
 function ObjectGroup({
   database,
@@ -241,15 +241,15 @@ export function DatabaseNode({
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   // Group expansion: Tables defaults open; Views defaults open iff there are views
-  // (FR-002). `null` = "use the default"; an explicit toggle pins a boolean.
+  // `null` = "use the default"; an explicit toggle pins a boolean.
   const [tablesOpen, setTablesOpen] = useState<boolean | null>(null);
   const [viewsOpen, setViewsOpen] = useState<boolean | null>(null);
   const [openTables, setOpenTables] = useState<Set<string>>(new Set());
 
-  // FR-004: a node fetches its schema only when expanded (disabled while collapsed).
+  // a node fetches its schema only when expanded (disabled while collapsed).
   const {data, isPending, isError, error, isFetching} = useSchema(expanded ? connection.database : null);
 
-  // SPEC-086: re-read only THIS database's schema on demand (invalidate its query key;
+  // re-read only THIS database's schema on demand (invalidate its query key;
   // the expanded node is an active observer so it refetches). `isFetching` drives the
   // button's disabled/spinner state and blocks overlapping refetches for this node.
   const queryClient = useQueryClient();
@@ -277,7 +277,7 @@ export function DatabaseNode({
         </p>
       );
     } else if (isError) {
-      // getDatabase NotFound = the per-user DB isn't provisioned yet (SPEC-033
+      // getDatabase NotFound = the per-user DB isn't provisioned yet (the post-confirmation Lambda creates it
       // backfill window) — present it as "setting up", not an error.
       const message = (error as Error)?.message ?? '';
       body = /does not exist/i.test(message) ? (
@@ -337,8 +337,8 @@ export function DatabaseNode({
           <DatabaseRowIcon />
           <span className="min-w-0 truncate">{connection.label}</span>
         </button>
-        {/* SPEC-086: per-node refresh — only on an expanded (loaded) node; re-reads
-            just this database's tables/views, never toggling expansion. SPEC-155 FR-006:
+        {/* per-node refresh — only on an expanded (loaded) node; re-reads
+            just this database's tables/views, never toggling expansion:
             it shares the app's one refresh glyph now, where it used to draw its own
             two-path variant — a deliberate (small) visual change. */}
         {expanded && (

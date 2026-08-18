@@ -1,5 +1,5 @@
 // Named constants for the catalog data layer — properties of Athena and of result-column
-// sizing, as opposed to the query workspace's own preferences (SPEC-176).
+// sizing, as opposed to the query workspace's own preferences.
 
 /**
  * Athena execution polling cadence while a query is non-terminal — responsive
@@ -22,7 +22,7 @@ export const MAX_POLL_DURATION_MS = 5 * 60_000;
 export const DEFAULT_MAX_ROWS = 100;
 
 /**
- * GetQueryResults MaxResults for the background total-row-count walk (SPEC-080) —
+ * GetQueryResults MaxResults for the background total-row-count walk —
  * Athena's per-page maximum, so the walk makes the fewest round-trips. These
  * calls scan no extra bytes; they only re-read the already-computed result set.
  */

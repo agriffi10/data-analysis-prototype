@@ -1,6 +1,6 @@
 """inspect-archive — what a restore would write back, and where.
 
-SPEC-170 FR-003, the restore arm's counterpart to inspect-source. Lists the archive prefix,
+the restore arm's counterpart to inspect-source. Lists the archive prefix,
 rebuilds each object's destination, cross-checks the count against ``_manifest.json`` when there
 is one, and writes the restore plan to the admin bucket. Read-only against both buckets: it
 decides what a restore WOULD do and starts nothing.
@@ -8,7 +8,7 @@ decides what a restore WOULD do and starts nothing.
 **It does not read the manifest to find out what to restore.** The archived key encodes its own
 origin, so one ``ListObjectsV2`` yields both the objects and their destinations — which is what
 makes a restore work when the record is gone and refuse when the record disagrees. Reversing
-that dependency would make a convenience document load-bearing, and SPEC-169 wrote it as a report
+that dependency would make a convenience document load-bearing, and it is written as a report
 precisely so it never would be.
 
 **Nothing it produces rides on the state.** At ``ARCHIVE_MAX_OBJECTS`` the plan is tens of

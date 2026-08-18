@@ -19,7 +19,7 @@ type Props = {
   batchDone: boolean;
   /**
    * The editor shell may narrate this run — false for a run the mobile surface
-   * submitted, which leaves the editor buffer untouched by design (SPEC-100).
+   * submitted, which leaves the editor buffer untouched by design.
    */
   editorOwnsRun: boolean;
   /** Non-null once the editor's own run has an execution — gates the status bar. */
@@ -33,7 +33,7 @@ type Props = {
   results: UseQueryResultsResult;
   pageSize: UseResultsPageSizeResult;
   colWidths: UseColumnWidthsResult;
-  /** SPEC-078 FR-007: show the tab-per-statement scope's result-tab strip. */
+  /** show the tab-per-statement scope's result-tab strip. */
   showResultTabs: boolean;
   showError: boolean;
   errorMessage: string | null;
@@ -45,7 +45,7 @@ type Props = {
 
 /**
  * Everything below the editor pane: the status bar, the failure banner, and the
- * results region — the SPEC-078 result-tab strip, the SPEC-087 page-size control,
+ * results region — the result-tab strip, the page-size control,
  * and either the grid or the empty state that explains why there is none.
  */
 export function QueryResultsRegion({
@@ -95,7 +95,7 @@ export function QueryResultsRegion({
             variant="danger"
             title="Query failed."
             onDismiss={onDismissError}>
-            {/* SPEC-106 FR-004: friendly, mapped guidance — no raw Athena
+            {/* friendly, mapped guidance — no raw Athena
           engine text (the raw reason is dev-logged + kept in history). */}
             <p className="text-sm">{errorMessage}</p>
           </Banner>
@@ -103,7 +103,7 @@ export function QueryResultsRegion({
       )}
 
       <div className={cx('flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4')}>
-        {/* SPEC-078 FR-007: the tab-per-statement scope gets a result-tab
+        {/* the tab-per-statement scope gets a result-tab
       strip; the other scopes render a single result view. Tabs are
       ephemeral — a new run replaces the tab's run state wholesale. */}
         {showResultTabs && run && (
@@ -113,7 +113,7 @@ export function QueryResultsRegion({
             onSelect={onSelectResultTab}
           />
         )}
-        {/* SPEC-087 FR-002: the Results header row carries the "Rows per
+        {/* the Results header row carries the "Rows per
       page" control — above the grid, right under the status bar's
       row-count stat, and always rendered (disabled, never hidden,
       when there's no result set to page). */}

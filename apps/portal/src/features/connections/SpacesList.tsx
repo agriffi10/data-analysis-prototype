@@ -15,7 +15,7 @@ export type SpacesListProps = {
 /**
  * The spaces list itself (personal + shared connections), decoupled from the
  * rail chrome so it can render both on-page inside `Sidebar`/`CollapsibleRail`
- * (≥ tablet) and inside the mobile `AppNavDrawer` contextual slot (SPEC-099).
+ * (≥ tablet) and inside the mobile `AppNavDrawer` contextual slot.
  * Selecting a space points the file browser at it; provisioning/failed
  * connections show disabled with their status.
  *

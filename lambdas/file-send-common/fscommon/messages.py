@@ -4,11 +4,11 @@ One place maps each stable terminal reason code to friendly text, so every verb 
 agree on the wording. Kept ASCII — no smart quotes.
 
 This module is the table and its wording; the resolution itself is ``cpcommon.messages``
-(SPEC-156 FR-002), which also marks these codes valid so they pass ``TerminalError``'s
+, which also marks these codes valid so they pass ``TerminalError``'s
 raise-time validation. ``unexpected_error`` is deliberately absent — it resolves through the
 base table and renders the same sentence everywhere.
 
-**No raw AWS text is ever interpolated into any of these** (SPEC-106): the detail on the
+**No raw AWS text is ever interpolated into any of these**: the detail on the
 exception is for the logs and the Step Functions record, and the sentence the user reads is
 composed here.
 

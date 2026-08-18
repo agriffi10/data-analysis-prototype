@@ -247,7 +247,7 @@ class BoundRunner:
     """One plane's DDL runner: ``run_ddl`` with that plane's reason codes already bound.
 
     Two per-plane wrappers existed, byte-identical apart from two strings, each re-declaring
-    the poll bounds and the clock seams (SPEC-156 FR-005). The seams are INSTANCE attributes
+    the poll bounds and the clock seams. The seams are INSTANCE attributes
     read at call time, not constructor arguments, because that is what the timing tests need:
     a test replaces ``runner._now`` and ``runner._sleep`` and drives a fake clock with no real
     sleeping, exactly as it replaced the module globals before.

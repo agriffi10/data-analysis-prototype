@@ -8,19 +8,19 @@ type QueryStatusBarProps = {
   isInFlight: boolean;
   startedAt: number | null;
   /**
-   * Multi-statement batch progress (SPEC-078 FR-004): 1-based current statement
+   * Multi-statement batch progress: 1-based current statement
    * + total. Supplied only when the run holds more than one statement.
    */
   batch?: {current: number; total: number};
-  /** Loaded-count fallback shown while the exact total is still being counted (SPEC-038/080). */
+  /** Loaded-count fallback shown while the exact total is still being counted. */
   rowCount?: number;
   hasMoreRows?: boolean;
   /**
    * Whether the succeeded query returned a result set. False for DDL/no-result
-   * statements, which show no row-count stat at all (SPEC-080 FR-004).
+   * statements, which show no row-count stat at all.
    */
   hasResultSet?: boolean;
-  /** Exact total from the background page-walk; null while still counting (SPEC-080). */
+  /** Exact total from the background page-walk; null while still counting. */
   totalRowCount?: number | null;
   /** Shown only when the succeeded query produced a savable result (row-returning, not pure DDL). */
   canSaveResults?: boolean;
@@ -29,7 +29,7 @@ type QueryStatusBarProps = {
 
 /**
  * The row-count fragment for a succeeded, row-returning query. Prefers the exact
- * background total (SPEC-080); until it resolves, falls back to today's loaded
+ * background total; until it resolves, falls back to today's loaded
  * count with a "+" when more pages exist.
  */
 function rowCountLabel({
@@ -76,7 +76,7 @@ export function QueryStatusBar({
   const elapsedMs = isInFlight && startedAt && nowTick ? nowTick - startedAt : undefined;
   const state = status?.state;
 
-  // The bar wraps onto a second line on a phone (SPEC-100 FR-006); the shipped
+  // The bar wraps onto a second line on a phone; the shipped
   // single-row bar is restored from `tablet:` up.
   return (
     <div

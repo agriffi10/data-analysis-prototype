@@ -35,7 +35,7 @@ export type MenuProps = {
  * popover with focus-into-menu on open, Arrow up/down roving, and Escape /
  * outside-click dismissal (Escape returns focus to the trigger). `items` drive
  * the body — action items (with an optional `icon` and a `danger` tone) and
- * separators. Extracted from the query schema-rail kebab (SPEC-095) so overflow
+ * separators. Extracted from the query schema-rail kebab so overflow
  * menus and kebabs across surfaces share one implementation.
  *
  * @example

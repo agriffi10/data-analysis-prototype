@@ -22,7 +22,7 @@ export type QueryResultPage = {
    *
    * A cell is `null` where Athena reported **SQL NULL** and `''` where it reported an
    * empty string — a distinction that used to be flattened here and cannot be recovered
-   * downstream (SPEC-180). Surfaces that have nothing to say about it render both as
+   * downstream. Surfaces that have nothing to say about it render both as
    * blank; the Data Explorer's Value panel is required to tell them apart.
    */
   rows: (string | null)[][];
@@ -41,15 +41,15 @@ export type GlueTableSummary = {
 
 /**
  * One accessible database's schema, as `useAllSchemas` returns it and as the query
- * editor's completion provider consumes it (SPEC-077). Declared here rather than in
+ * editor's completion provider consumes it. Declared here rather than in
  * `features/query/sqlCompletions.ts` because the hook that produces it is a catalog
- * module and may not import from a leaf feature (SPEC-176 FR-001).
+ * module and may not import from a leaf feature.
  */
 export type DatabaseSchema = {database: string; tables: GlueTableSummary[]};
 
 /**
  * A space a saved query (or a saved result) can live in: the user's own space, or a
- * shared space they are an active member of. Replaces SPEC-049's `DestinationSpace`,
+ * shared space they are an active member of. Replaces `DestinationSpace`,
  * so the catalog layer has ONE definition of what a space is.
  */
 export type QuerySpace = {

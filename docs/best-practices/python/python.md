@@ -191,6 +191,14 @@ Docstrings describe the interface and are the **primary source of context**; com
 - ✅ Class docstring below the `class` line summarizing what an **instance represents** (an `Exception` subclass says what it *represents*, not when it's raised); document public attributes in an `Attributes:` section.
 - ✅ **When code needs explaining, prefer expanding the docstring over adding comments.** Docstrings are discoverable (`help()`, hover, generated docs); scattered comments are not.
 - ✅ **Comments explain *why*, not *what*** — tricky logic, non-obvious decisions; assume the reader knows Python. Complete sentences, proper capitalization/punctuation, kept in sync with the code. 🔴 No verbose or paragraph-length comments, and never a comment that just narrates *what* the next line does. 🔴 Never leave a comment that contradicts the code. Block comments at the code's indent (`# ` prefix); inline comments ≥2 spaces from code, used sparingly.
+- 🔴 **A comment names no spec, PR or issue number.** Not `SPEC-166`, not `(#252)`, not "since
+  SPEC-158". A reader hitting a comment is standing in the file, not in the project's history: a
+  number tells them a decision was made somewhere else and leaves them to find it, where a sentence
+  tells them what is true. Write the *reason* instead — "a third copy of this would fork the
+  lookup" beats "the fork SPEC-156 exists to prevent". The decision's full entry lives in
+  `docs/decisions.md`, findable by what it says rather than by when it happened, and a comment that
+  cannot be written without citing a spec is a sign the reasoning never made it there. Enforced by
+  `scripts/validate_docs.py`.
 - ✅ `TODO:` in caps + colon + a **tracked reference** (issue link preferred) + `-` explanation: `# TODO: <issue-url> - Investigate X`. Don't attribute TODOs to a person/team as the context.
 
 ## §15 Modules, main & power features

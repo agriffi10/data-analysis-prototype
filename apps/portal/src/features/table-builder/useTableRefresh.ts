@@ -11,7 +11,7 @@ import type {PendingRemoval, TableRefreshTarget} from './tableRefresh.types';
 type RefreshToast = {variant: 'success' | 'danger'; message: string};
 
 /**
- * A target the caller derived from the URL (SPEC-144's `columns_removed` link) plus
+ * A target the caller derived from the URL (`columns_removed` link) plus
  * the way to retire it. The link-borne dialog is a function of the query string
  * rather than of state set in an effect — React Compiler's `set-state-in-effect`
  * rule forbids the latter, and the derived form is the shape the rulebook asks for
@@ -24,17 +24,17 @@ type LinkedTarget = {
 };
 
 /**
- * Dialog + enqueue state for "Refresh table" (SPEC-145), shaped like
+ * Dialog + enqueue state for "Refresh table", shaped like
  * {@link useTableShare} so the two dialogs in the same menu are wired alike:
  * `open` targets a rail table, `submit(allowRemovals)` enqueues, and on success the
- * dialog closes with a transient toast (the outcome is a notification, SPEC-114).
+ * dialog closes with a transient toast (the outcome is a notification).
  * A failure keeps the dialog open with `error` set.
  *
  * `linked` is the optional second entry point: a target the caller derived from
- * SPEC-144's notification link. It is passed in rather than opened, because opening
+ * the notification link. It is passed in rather than opened, because opening
  * it would mean setting state in an effect. An explicitly opened target always wins.
  *
- * It also owns FR-005's schema invalidation, because the successful enqueue is the
+ * It also owns the schema invalidation, because the successful enqueue is the
  * only signal there is: the rail is invalidated once on submit and once more the
  * next time the window regains focus — the refresh is asynchronous, so the columns
  * usually land while the user is elsewhere. The second pass is armed by a submit
@@ -50,7 +50,7 @@ export function useTableRefresh(notify: (toast: RefreshToast) => void, linked?: 
   // The database owed a post-focus re-read, or null when nothing is armed.
   const refetchOnFocus = useRef<string | null>(null);
   // A ref, not `busy`: see useDataQualityCheck for why the state read loses the race.
-  // It matters more here — SPEC-149 leaves concurrent refreshes on one table racing,
+  // It matters more here — concurrent refreshes on one table can race,
   // and `deduplicationId` is a fresh UUID per call, so SQS cannot collapse the pair.
   const inFlight = useRef(false);
 
@@ -103,7 +103,7 @@ export function useTableRefresh(notify: (toast: RefreshToast) => void, linked?: 
         setError(null);
         const result = await enqueueTableRefresh({
           space: {
-            // The personal database IS the username (SPEC-033), which is exactly what
+            // The personal database IS the username, which is exactly what
             // the rail's `Connection.kind` encodes and what the control plane
             // re-checks against the verified actor.
             kind: target.database === username ? 'personal' : 'shared',

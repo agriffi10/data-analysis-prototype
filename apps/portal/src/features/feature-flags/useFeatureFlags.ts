@@ -62,7 +62,7 @@ export function useFeatureFlags(): UseFeatureFlagsResult {
   //
   // Only auth STILL RESOLVING is `'loading'`. Treating that as fallback instead would show
   // every gated surface and then take them away a tick later once the real read began —
-  // the flicker FR-007 exists to prevent, arriving by the other door.
+  // the flicker the rule exists to prevent, arriving by the other door.
   const status: FeatureFlagsStatus =
     authStatus === 'loading'
       ? 'loading'
@@ -81,9 +81,9 @@ export function useFeatureFlags(): UseFeatureFlagsResult {
 }
 
 /**
- * Say out loud, in dev only, which way the read went (SPEC-162 FR-009).
+ * Say out loud, in dev only, which way the read went.
  *
- * FR-005 is deliberately silent, which means a permanently-blocked fetch is
+ * The fallback is deliberately silent, which means a permanently-blocked fetch is
  * indistinguishable from a healthy all-on environment — there is no banner and no toast,
  * because the user is not the audience for that failure. This is the audience. Stripped
  * from production builds by the `DEV` guard, exactly as `warnIfMisconfigured` is, and for

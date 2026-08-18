@@ -1,9 +1,8 @@
-# ── Control-plane IAM roles (SPEC-050 FR-003; SPEC-062) ──────────────────────
+# ── Control-plane IAM roles ────────────────────────────────────────────────
 # Two roles:
 #   - orchestrator role: the single privileged role the Step Function AND every verb/
-#     validator Lambda run under (trust = states + lambda). SPEC-062 decomposes the
-#     monolith into six Lambdas but keeps ONE shared role (user decision; SPEC-062
-#     FR-005 note) — so the policy carries the union of all verbs' permissions (Glue,
+#     validator Lambda run under (trust = states + lambda). The plane decomposes into
+#     six Lambdas but keeps ONE shared role by user decision — so the policy carries the union of all verbs' permissions (Glue,
 #     Lake Formation, S3 on the shared bucket + admin registry prefix, user-space
 #     cache, Cognito admin, invoke the verb Lambdas, states/logs).
 #   - pipe role: assumed by the EventBridge Pipe to read the queue and start the SFN.
@@ -29,19 +28,19 @@ resource "aws_iam_role_policy" "orchestrator" {
     shared_space_bucket_arn = local.shared_space_bucket_arn
     admin_bucket_arn        = local.admin_bucket_arn
     user_space_bucket_arn   = local.user_space_bucket_arn
-    # SPEC-062: invoke every verb/validator Lambda (constructed ARNs, known at plan).
+    # Invoke every verb/validator Lambda (constructed ARNs, known at plan).
     function_arns_json    = jsonencode(local.shared_space_function_arns)
     lambda_log_groups_arn = local.lambda_log_groups_arn
     sfn_log_group_arn     = local.sfn_log_group_arn
-    # SPEC-061: trusted notifications producer — sqs:SendMessage scoped to this ARN only.
+    # Trusted notifications producer — sqs:SendMessage scoped to this ARN only.
     notifications_queue_arn = var.notifications_queue_arn
-    # SPEC-134: structured-logging producer, same Sid and shape as data-quality's and the
+    # Structured-logging producer, same Sid and shape as data-quality's and the
     # drain's, so all three read as one pattern rather than three inventions.
     logs_queue_arn = var.logs_queue_arn
   })
 }
 
-# ── Portal role — shared-space membership policy (SPEC-056 FR-002) ────────────
+# ── Portal role — shared-space membership policy ────────────
 # A THIRD inline policy on the shared portal role (after data's "user-space-access"
 # and analytics' "analytics-access"), attached BY NAME like the analytics module does
 # (the role is created in module.data; module-level depends_on = [module.data]
@@ -55,7 +54,7 @@ resource "aws_iam_role_policy" "orchestrator" {
 # request queue only. An unset slot stamps no tag → the statement matches nothing
 # (implicit deny); verified with aws iam simulate-custom-policy.
 #
-# SPEC-168 FR-006 adds a third deny — SharedArchiveReceiptsAreNotUserWritable — using the
+# A third deny — SharedArchiveReceiptsAreNotUserWritable — using the
 # WILDCARD SPACE SEGMENT form the two existing denies already use
 # (${shared_space_bucket_arn}/*/archive/*) rather than a per-slot loop. That is not a
 # shortcut: a Deny needs no tag to be correct, so one wildcard statement covers every

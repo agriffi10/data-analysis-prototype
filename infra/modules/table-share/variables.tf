@@ -1,4 +1,4 @@
-# ── table-share module variables (SPEC-088) ──────────────────────────────────
+# ── table-share module variables ──────────────────────────────────
 # Bounded-context module for the "share a table across databases" control plane: a
 # DEDICATED FIFO SQS → EventBridge Pipe → Step Function pipeline that orchestrates
 # five single-task verb Lambdas (validate-authorize → inspect-source → Map(recipients):
@@ -6,8 +6,8 @@
 # Mirrors the table-builder control plane PATTERN (not its resources); decision
 # record: docs/architecture.md (Control Planes -> Table Share).
 #
-# SPEC-088 is FOUNDATION ONLY — plumbing + Lambda stubs, no request contract and no
-# action semantics (those land in SPEC-089→092). Cross-module ARNs are CONSTRUCTED
+# FOUNDATION ONLY — plumbing + Lambda stubs, no request contract and no
+# action semantics (those land with the verbs). Cross-module ARNs are CONSTRUCTED
 # STRINGS (passed from root locals), never another module's output, so they are known
 # at plan time (architecture.md "unknown ARN in list" trap) and this module plans
 # standalone.
@@ -38,75 +38,75 @@ variable "dlq_max_receive_count" {
   default     = 3
 }
 
-# ── SPEC-089: request contract + validate-authorize ──────────────────────────
+# ── Request contract + validate-authorize ──────────────────────────
 
 variable "portal_role_name" {
-  description = "SPEC-089: name of the shared portal role (SPEC-011) this module attaches the browser's sqs:SendMessage (table-share queue only) inline policy to, by name — mirrors the table-builder/notifications modules."
+  description = "Name of the shared portal role this module attaches the browser's sqs:SendMessage (table-share queue only) inline policy to, by name — mirrors the table-builder/notifications modules."
   type        = string
 }
 
 variable "user_pool_id" {
-  description = "SPEC-089: Cognito User Pool ID — passed to validate-authorize (env COGNITO_USER_POOL_ID) for offline ID-token verification, and used to build the pool ARN scoping the execution role's recipient-existence checks (AdminGetUser/ListUsers)."
+  description = "Cognito User Pool ID — passed to validate-authorize (env COGNITO_USER_POOL_ID) for offline ID-token verification, and used to build the pool ARN scoping the execution role's recipient-existence checks (AdminGetUser/ListUsers)."
   type        = string
   default     = ""
 }
 
 variable "app_client_id" {
-  description = "SPEC-089: Cognito SPA app client ID — the ID-token audience validate-authorize checks (env COGNITO_APP_CLIENT_ID)."
+  description = "Cognito SPA app client ID — the ID-token audience validate-authorize checks (env COGNITO_APP_CLIENT_ID)."
   type        = string
   default     = ""
 }
 
 variable "admin_bucket_name" {
-  description = "SPEC-089: name of the existing analytics admin bucket (SPEC-032). The shared-spaces registry read for source authorization + recipient-space existence lives here. No bucket is created here."
+  description = "Name of the existing analytics admin bucket. The shared-spaces registry read for source authorization + recipient-space existence lives here. No bucket is created here."
   type        = string
   default     = ""
 }
 
-# ── SPEC-090: source resolution + copy plan ───────────────────────────────────
+# ── Source resolution + copy plan ───────────────────────────────────
 
 variable "user_space_bucket_name" {
-  description = "SPEC-090: name of the user-space bucket (Bucket 1, SPEC-013). A personal source table's LOCATION resolves here; inspect-source lists it and the copy verbs read/write it (SPEC-091). No bucket is created here."
+  description = "Name of the user-space bucket (Bucket 1). A personal source table's LOCATION resolves here; inspect-source lists it and the copy verbs read/write it. No bucket is created here."
   type        = string
   default     = ""
 }
 
 variable "shared_space_bucket_name" {
-  description = "SPEC-090: name of the shared-space bucket (Bucket 2, SPEC-050). A shared source/recipient's LOCATION resolves here; inspect-source lists it and the copy verbs read/write it (SPEC-091). No bucket is created here."
+  description = "Name of the shared-space bucket (Bucket 2). A shared source/recipient's LOCATION resolves here; inspect-source lists it and the copy verbs read/write it. No bucket is created here."
   type        = string
   default     = ""
 }
 
-# ── SPEC-092: recipient table creation (create-table) ─────────────────────────
+# ── Recipient table creation (create-table) ─────────────────────────
 
 variable "athena_workgroup" {
-  description = "SPEC-092: name of the shared analytics workgroup (SPEC-032) create-table runs the recipient CREATE EXTERNAL TABLE in — the same LF-enforced path the table-builder and app queries use. Scopes the execution role's athena:* grant and feeds the verbs' ATHENA_WORKGROUP env."
+  description = "Name of the shared analytics workgroup create-table runs the recipient CREATE EXTERNAL TABLE in — the same LF-enforced path the table-builder and app queries use. Scopes the execution role's athena:* grant and feeds the verbs' ATHENA_WORKGROUP env."
   type        = string
   default     = ""
 }
 
-# ── SPEC-094: notification producer (sender + recipients) ─────────────────────
+# ── Notification producer (sender + recipients) ─────────────────────
 
 variable "logs_queue_arn" {
-  description = "SPEC-136: ARN of the structured-logging queue — scopes the execution role's sqs:SendMessage for log events."
+  description = "ARN of the structured-logging queue — scopes the execution role's sqs:SendMessage for log events."
   type        = string
   default     = ""
 }
 
 variable "logs_queue_url" {
-  description = "SPEC-136: URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda. Optional BY CONSTRUCTION on the Lambda side (os.environ.get, never config._require), so a verb missing it logs to stdout rather than crashing the plane at cold start (PR #196)."
+  description = "URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda. Optional BY CONSTRUCTION on the Lambda side (os.environ.get, never config._require), so a verb missing it logs to stdout rather than crashing the plane at cold start."
   type        = string
   default     = ""
 }
 
 variable "notifications_queue_arn" {
-  description = "SPEC-094: ARN of the SPEC-058 notifications FIFO queue — scopes the shared execution role's sqs:SendMessage to that queue ONLY (the verbs emit sender + recipient outcome notifications, best-effort). Constructed string from root (known at plan time); empty keeps this module standalone."
+  description = "ARN of the notifications FIFO queue — scopes the shared execution role's sqs:SendMessage to that queue ONLY (the verbs emit sender + recipient outcome notifications, best-effort). Constructed string from root (known at plan time); empty keeps this module standalone."
   type        = string
   default     = ""
 }
 
 variable "notifications_queue_url" {
-  description = "SPEC-094: URL of the SPEC-058 notifications FIFO queue — the verbs' NOTIFICATIONS_QUEUE_URL env (optional in tscommon.config: unset makes every emit a logged no-op)."
+  description = "URL of the notifications FIFO queue — the verbs' NOTIFICATIONS_QUEUE_URL env (optional in tscommon.config: unset makes every emit a logged no-op)."
   type        = string
   default     = ""
 }

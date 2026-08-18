@@ -53,7 +53,7 @@ export function QueryDialogs({clear, save, closing, tabLimit, createView, drop, 
       )}
       {save.open && (
         <SaveQueryDialog
-          // Remounted per open, so the space control re-defaults each time (SPEC-175 FR-001).
+          // Remounted per open, so the space control re-defaults each time.
           initialName={save.initialName}
           spaces={save.spaces}
           initialSpace={save.initialSpace}
@@ -64,9 +64,9 @@ export function QueryDialogs({clear, save, closing, tabLimit, createView, drop, 
           onCancel={save.closeDialog}
         />
       )}
-      {/* SPEC-173 FR-004: the collision is a HEAD on the exact key, so the confirm is
+      {/* the collision is a HEAD on the exact key, so the confirm is
           raised by the WRITE's failure rather than by a scan of the loaded list. It names
-          the SPACE as well as the query — SPEC-175 made the destination a choice, so
+          the SPACE as well as the query — the destination is a choice, so
           "already exists" without a where is half an answer. */}
       {save.collision && (
         <ConfirmDialog

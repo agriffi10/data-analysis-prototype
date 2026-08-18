@@ -12,12 +12,12 @@ export type DataQualityTarget = {
   location: string;
 };
 
-/** SPEC-124: how the caller wants the outcome announced. */
+/** How the caller wants the outcome announced. */
 export type StartQualityCheckOptions = {
   /**
    * Push the success/failure toast. Default true — the Files-browser behaviour, unchanged.
-   * The dashboard passes false because it raises its own banner, which says strictly more
-   * (SPEC-124 FR-005): one action, one confirmation.
+   * The dashboard passes false because it raises its own banner, which says strictly more:
+   * one action, one confirmation.
    */
   toast?: boolean;
 };
@@ -41,8 +41,8 @@ export type UseDataQualityCheckResult = {
  * only channel there is.
  *
  * The check itself is asynchronous and takes minutes. Success here means *enqueued*, never
- * *checked* — the outcome arrives as a notification carrying a link to the report
- * (SPEC-114), which is what lets this stop at "started" without stranding the user.
+ * *checked* — the outcome arrives as a notification carrying a link to the report,
+ * which is what lets this stop at "started" without stranding the user.
  *
  * @example
  * const {start, isPending} = useDataQualityCheck();
@@ -74,7 +74,7 @@ export function useDataQualityCheck(): UseDataQualityCheckResult {
           // `toast: false` suppresses the SUCCESS toast only. A caller opts out because it
           // has a better receipt of its own (the dashboard's banner), never because it wants
           // a silent failure — and no caller re-implements the failure wording, which is
-          // `toUserMessage`'s and lives here (SPEC-124 FR-004).
+          // `toUserMessage`'s and lives here.
           if (opts?.toast !== false) {
             toast.push({
               variant: 'success',

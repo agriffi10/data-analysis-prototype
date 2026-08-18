@@ -10,7 +10,7 @@ type Props = {
 type State = {hasError: boolean};
 
 /**
- * Authored copy, like every other user-facing string (SPEC-106). The thrown
+ * Authored copy, like every other user-facing string. The thrown
  * error's `message` is NEVER rendered: a render throw is as likely to carry AWS
  * or bundler text as anything else, and this is the one surface with no service
  * layer in front of it to map through `toUserMessage`.

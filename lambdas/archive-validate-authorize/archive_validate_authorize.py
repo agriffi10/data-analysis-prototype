@@ -3,7 +3,7 @@
 Parses the SQS record, verifies the caller's Cognito ID token into the trusted actor, authorizes
 the actor's access to the space, and resolves the archive prefix — for an ARCHIVE, checking that
 every selected item sits inside the source and is not one of the portal's own folders and
-enforcing the request-shape caps; for a RESTORE (SPEC-170), validating the pasted archive id
+enforcing the request-shape caps; for a RESTORE, validating the pasted archive id
 before it is concatenated into a key. Read-only in both: nothing is listed, copied or deleted
 here.
 
@@ -29,7 +29,7 @@ queryable set. The per-verb identity rides as the ``verb`` field.
 
 Attributes:
   _ALLOWED_FIELDS: The complete set of top-level request fields, PER MODE. Unknown fields are
-    REJECTED rather than ignored (FR-004): a field the producer thinks it is sending and this
+    REJECTED rather than ignored: a field the producer thinks it is sending and this
     verb silently drops is a contract break that shows up as behaviour nobody asked for, and the
     cheapest moment to catch a renamed field is the first one.
 
@@ -37,7 +37,7 @@ Attributes:
     against ``space`` + ``archiveId`` — and a union would accept a restore carrying a selection
     and an archive naming an archive id, then silently ignore whichever the mode did not read.
   _ITEM_KINDS: The two selection kinds a request may carry. A ``folder`` key is normalised to a
-    trailing slash before any rule runs: SPEC-169 expands a folder with a prefix listing, so
+    trailing slash before any rule runs: the archive expands a folder with a prefix listing, so
     ``alice/archiv`` without one would match ``alice/archive/`` and carry the receipts of every
     past archive out through a door the reserved-root rule never sees.
 """
@@ -73,7 +73,7 @@ def _check_contract(req) -> str:
     """Fails the request if its top-level shape is not the one its mode's contract defines.
 
     Both directions, because only one of them is obvious. Unknown fields are REJECTED rather
-    than ignored (FR-004) — a field the producer thinks it is sending and this verb silently
+    than ignored — a field the producer thinks it is sending and this verb silently
     drops is a contract break that surfaces as behaviour nobody asked for. And the required
     fields are type-checked, which the rejection does not imply: an absent ``requestId`` would
     flow through as ``None``, and this value becomes the ``{uuid}`` segment of a key in two
@@ -112,7 +112,7 @@ def _check_contract(req) -> str:
     # THE ENVELOPE IS FLAT: `actor` is the RAW ID token at the top level, never a nested
     # {"idToken": …}. Type-checked here rather than left to the verifier, because the two
     # failures read identically to a user and only one of them is a contract break — and
-    # because SPEC-126's drain redacts this field FLATLY, so a nested token would reach
+    # because the drain redacts this field FLATLY, so a nested token would reach
     # CloudWatch verbatim on a dead-lettered request.
     if not isinstance(req.get("actor"), str) or not req["actor"].strip():
         raise TerminalError(events.MALFORMED, "actor must be the raw ID token, as a string")
@@ -287,7 +287,7 @@ def _validate_and_authorize(event) -> dict:
 
     The actor comes from the verified token in the envelope, never from a body username — the
     token IS the top-level ``actor`` field, as a raw string. That flatness is the same shape
-    every plane's envelope uses and is load-bearing rather than stylistic: SPEC-126's drain reads
+    every plane's envelope uses and is load-bearing rather than stylistic: The drain reads
     and redacts that field flatly, so a nested ``{"idToken": …}`` would mean a dead-lettered
     archive notifies nobody *and* writes the JWT to CloudWatch. From the point the actor is
     known, a whole-request rejection notifies them before the Catch records it;
@@ -295,7 +295,7 @@ def _validate_and_authorize(event) -> dict:
 
     **The archive prefix is resolved HERE, not by the verb that copies.** It is a pure function
     of the request — kind, name and request id — so computing it once and carrying it forward
-    means the copier, the receipt writer and SPEC-170's restore all read one string rather than
+    means the copier, the receipt writer and the restore all read one string rather than
     three agreeing constructions of it.
 
     Args:

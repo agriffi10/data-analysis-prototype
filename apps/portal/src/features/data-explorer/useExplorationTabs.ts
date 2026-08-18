@@ -19,7 +19,7 @@ export type UseExplorationTabsResult = {
   tabs: ExplorationTab[];
   /** '' when there are no tabs. */
   activeTabId: string;
-  /** Null when there are no tabs — SPEC-179 renders the empty state. */
+  /** Null when there are no tabs — the shell renders the empty state. */
   activeTab: ExplorationTab | null;
   /** Opens a tab over a source and returns its id, or null at the cap (caller shows the dialog). */
   openTab: (source: ExplorationSource, opts?: OpenExplorationOpts) => string | null;
@@ -38,7 +38,7 @@ export type UseExplorationTabsResult = {
   /** Records what one execution scanned, keyed by execution id so a repeat is free. */
   recordScan: (tabId: string, queryExecutionId: string, bytesScanned: number) => void;
   /**
-   * Links a tab to the `.sql` file a save just wrote (SPEC-183 FR-003).
+   * Links a tab to the `.sql` file a save just wrote.
    *
    * By id rather than "the active tab", for the reason `updateTab` is: the write is async
    * and the user may have switched tabs while it was in flight, and linking the wrong tab
@@ -50,14 +50,14 @@ export type UseExplorationTabsResult = {
 };
 
 /**
- * Owns the Data Explorer's tabs and their sessionStorage persistence (SPEC-178 FR-008).
+ * Owns the Data Explorer's tabs and their sessionStorage persistence.
  *
  * Mirrors `useQueryTabs` — an ordered list, one active tab, a soft cap enforced by
  * refusal — with two deliberate differences. There is no seeded first tab, because an
  * exploration needs a source and there is no table to guess; and a tab carries its own
  * cost ledger, because cost is this feature's through-line.
  *
- * No component is delivered here (SPEC-179 mounts the first one).
+ * No component is delivered here; the shell mounts the first one.
  *
  * @param username - Whose tabs these are; '' persists nothing (the dev-unauth path).
  * @returns The tabs, the active one, and the actions over them.
@@ -81,7 +81,7 @@ export function useExplorationTabs(username: string): UseExplorationTabsResult {
   // open happens in the same tick — three rapid opens two below the cap would each see
   // room, each return an id, and only two tabs would appear, so the caller would believe
   // it opened three and raise no cap dialog. A plausible shape for a multi-select "open
-  // these tables" in SPEC-179.
+  // these tables".
   const openCount = useRef(state.tabs.length);
   useEffect(() => {
     openCount.current = state.tabs.length;

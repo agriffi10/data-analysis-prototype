@@ -38,7 +38,7 @@ export type WriteOutcome<T> = ServiceResult<T> & {recovered?: boolean};
  * a corrupt one — telling the two apart is the whole point, because the corrupt case is
  * recovered by quarantining the bytes and the newer case must be left strictly alone.
  *
- * Written once here rather than per document: `saved-queries.json` (retired by SPEC-173)
+ * Written once here rather than per document: `saved-queries.json` (retired)
  * and `query-history.json` had byte-identical parsers differing only in the array field's
  * name, and a tightened classifier that reached one and not the other is the drift this
  * closes.

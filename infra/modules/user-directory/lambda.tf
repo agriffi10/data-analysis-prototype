@@ -1,9 +1,9 @@
-# ── The username-directory builder + its daily schedule (SPEC-146 FR-006) ────
+# ── The username-directory builder + its daily schedule ────
 # One function, one schedule, one published object. It lists the user-space bucket's
 # top-level common prefixes and publishes them as a sorted JSON document the browser reads to
-# suggest usernames (SPEC-147/148).
+# suggest usernames.
 #
-# Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
+# Code-ownership split (architecture.md): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml owns the Python code and attaches
 # the cpcommon layer. `ignore_changes` keeps `tofu apply` from reverting CI's deployed code.
 
@@ -39,9 +39,8 @@ resource "aws_lambda_function" "build" {
     variables = {
       # USER_SPACE_BUCKET is the one variable this function actually uses. The rest are here
       # because the cpcommon layer's config requires them of every function that attaches it.
-      # SPEC-156 FR-004 moved that from import to FIRST READ, so a missing one no longer
-      # crashes at COLD START (the table-builder break PR #196, and the nine-day signup outage
-      # PR #317) — it fails on whichever branch reads it, which is narrower and no less broken.
+      # That read happens on FIRST ACCESS rather than at import, so a missing one no longer
+      # crashes at COLD START — it fails on whichever branch reads it, which is narrower and no less broken.
       # lambdas/user-directory-build/test_build_directory.py asserts this block against
       # config.py's own declaration rather than against a hand-kept copy.
       USER_SPACE_BUCKET     = var.user_space_bucket_name
@@ -50,11 +49,11 @@ resource "aws_lambda_function" "build" {
       SHARED_SPACE_BUCKET   = var.shared_space_bucket_name
       ADMIN_BUCKET          = var.admin_bucket_name
       ATHENA_WORKGROUP      = var.athena_workgroup
-      # SPEC-146 FR-008. Deliberately NOT mirrored by a config._require on the Lambda side:
+      # Deliberately NOT mirrored by a config._require on the Lambda side:
       # cpcommon.observability reads it with os.environ.get, so a builder that somehow loses
       # this variable logs to stdout and still publishes rather than crashing at cold start.
       LOGS_QUEUE_URL = var.logs_queue_url
-      # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+      # `env` shipped empty on every record. Same source of truth as the
       # feature-flag document's `environments` keys (`var.environment`, default "prod").
       ENV_NAME = var.environment
     }
@@ -82,8 +81,8 @@ resource "aws_lambda_function" "build" {
 # The document is rebuilt from scratch every run — there is no incremental state, so nothing
 # reconciles and a missed run costs staleness, never correctness. A user provisioned just
 # after a run is absent from the suggestions for up to a day; they can still be added by
-# typing the name, because every consumer accepts a name that is not in the list
-# (SPEC-147 FR-005). That bound is the whole reason a daily schedule is sufficient.
+# typing the name, because every consumer accepts a name that is not in the list.
+# That bound is the whole reason a daily schedule is sufficient.
 resource "aws_cloudwatch_event_rule" "schedule" {
   name                = "${local.function_name}-schedule"
   description         = "Rebuild the username directory from the user-space bucket's workspace prefixes, once a day."
@@ -97,7 +96,7 @@ resource "aws_cloudwatch_event_target" "schedule" {
 
 # Resource-based grant so the rule (events.amazonaws.com) may invoke the function — this is
 # why the schedule needs no separate invoke role, unlike EventBridge Scheduler. Scoped to this
-# rule's ARN. Same shape as SPEC-126's sweep and SPEC-127's log sweep.
+# rule's ARN. Same shape as the sweep and the log sweep.
 resource "aws_lambda_permission" "schedule" {
   statement_id  = "AllowEventBridgeSchedule"
   action        = "lambda:InvokeFunction"

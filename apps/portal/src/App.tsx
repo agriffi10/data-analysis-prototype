@@ -20,7 +20,7 @@ const QueryPage = lazy(() => import('./routes/QueryPage'));
 // The Connections route pulls in the SQS client — lazy-load it too; most
 // sessions never open it.
 const ConnectionsPage = lazy(() => import('./routes/ConnectionsPage'));
-// The Data Explorer route pulls the Athena + Glue clients (SPEC-179) — same reasoning as
+// The Data Explorer route pulls the Athena + Glue clients — same reasoning as
 // /query, minus Monaco.
 const ExplorePage = lazy(() => import('./routes/ExplorePage'));
 
@@ -38,7 +38,7 @@ export default function App() {
           element={<LandingPage />}
         />
         <Route element={<ProtectedLayout />}>
-          {/* SPEC-163: every gated route keeps its path and swaps its ELEMENT. The route
+          {/* Every gated route keeps its path and swaps its ELEMENT. The route
               must still match, or a disabled feature would fall through to the `*` 404 and
               tell a user with a perfectly correct link that their URL is wrong.
 
@@ -106,7 +106,7 @@ export default function App() {
             path="/help"
             element={<HelpPage />}
           />
-          {/* The runs dashboard (SPEC-123) — a primary nav destination. Eager, same
+          {/* The runs dashboard — a primary nav destination. Eager, same
               reasoning as the report view below. Declared BEFORE the two-segment
               report route; react-router matches on specificity, not order, but
               keeping the list route first reads in the order a user meets them. */}
@@ -118,14 +118,14 @@ export default function App() {
               </FeatureRoute>
             }
           />
-          {/* Reached from this list or from a notification's deep link (SPEC-114) —
+          {/* Reached from this list or from a notification's deep link —
               the space is in the path because a requestId alone doesn't say which
               space holds the report. Eager: it reuses the S3 client the Files route
               already pulls in, so lazy-loading would save nothing. */}
           {/* The gate matters MORE here than on the list route: this page reads a report
               from S3 on mount, so a page that mounted before the flag resolved would turn a
               disabled feature into an existence oracle for someone else's report — the
-              exact disclosure SPEC-113 designed the route to avoid. */}
+              exact disclosure the route is designed to avoid. */}
           <Route
             path="/data-quality/:space/:requestId"
             element={

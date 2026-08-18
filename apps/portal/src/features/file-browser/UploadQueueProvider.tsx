@@ -15,9 +15,9 @@ import {
   type UploadQueueContextValue
 } from './uploadQueueContext';
 
-// SPEC-020 FR-001/FR-002 (+ feedback 2026-06-30): drives the upload queue. The
+// Drives the upload queue. The
 // pure reducer (uploadQueueContext) owns the item list; this provider runs the
-// side effects — a concurrency gate that starts queued items via SPEC-016's
+// side effects — a concurrency gate that starts queued items via the uploader's
 // `uploadFile`, wires progress + cancel, and invalidates the listing as each
 // upload finishes.
 //
@@ -66,7 +66,7 @@ export function UploadQueueProvider({children}: {children: ReactNode}) {
       if (result.success) {
         dispatch({type: 'succeed', id: item.id});
         // Invalidate the destination folder so the finished file appears there,
-        // whether or not the user is still viewing it (FR-001).
+        // whether or not the user is still viewing it.
         await invalidateListing(queryClient, item.bucket, keyPrefix(item.key));
       } else if (result.error.code === 'Cancelled') {
         dispatch({type: 'cancelled', id: item.id});
@@ -74,7 +74,7 @@ export function UploadQueueProvider({children}: {children: ReactNode}) {
         dispatch({type: 'collision', id: item.id});
       } else {
         // Map to friendly text here (the code is in scope) so UploadList never
-        // renders the raw AWS message (SPEC-106 FR-003).
+        // renders the raw AWS message.
         dispatch({type: 'fail', id: item.id, error: toUserText(result.error)});
       }
     },
@@ -82,7 +82,7 @@ export function UploadQueueProvider({children}: {children: ReactNode}) {
   );
 
   // Concurrency gate: whenever the queue changes, fill open slots with the next
-  // queued items, up to UPLOAD_CONCURRENCY in flight (FR-001). Idempotent under
+  // queued items, up to UPLOAD_CONCURRENCY in flight. Idempotent under
   // StrictMode via the `launched` guard.
   useEffect(() => {
     const inFlight = state.items.filter((i) => i.status === 'uploading').length;
@@ -131,7 +131,7 @@ export function UploadQueueProvider({children}: {children: ReactNode}) {
     if (!item) return;
     if (item.status === 'uploading') {
       // Abort the in-flight upload; `launch` resolves to the Cancelled branch and
-      // transitions the item, so no listed object remains (FR-002).
+      // transitions the item, so no listed object remains.
       controllers.current.get(id)?.abort();
     } else {
       // Queued or awaiting a collision decision — nothing was written; drop it.

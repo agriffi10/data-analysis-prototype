@@ -44,20 +44,20 @@ function unlistedSpaceNote(names: string[]): string {
 }
 
 /**
- * The "Share table" modal (SPEC-093): recipient-kind toggle (users / shared
+ * The "Share table" modal: recipient-kind toggle (users / shared
  * spaces), multi-entry recipient chips, and a catalog-safe result table name
  * defaulted to the source name. Submit stays disabled until there is at least
- * one recipient and the name is valid; the server re-validates authoritatively
- * (SPEC-089), so validation here is UX only.
+ * one recipient and the name is valid; the server re-validates authoritatively,
+ * so validation here is UX only.
  *
- * BOTH kinds suggest as you type — usernames from the published directory
- * (SPEC-146/147), space names from the signed-in user's own connections cache
- * (SPEC-158) — and NEITHER blocks a name it does not know. Free text still
+ * BOTH kinds suggest as you type — usernames from the published directory,
+ * space names from the signed-in user's own connections cache
+ * — and NEITHER blocks a name it does not know. Free text still
  * commits: the pipeline owns existence checks, and outcomes arrive as
  * notifications.
  */
 export function TableShareDialog({source, busy = false, submitError, onSubmit, onCancel}: Props) {
-  // SPEC-163 FR-005: with shared workspaces off there is one recipient kind and no toggle.
+  // With shared workspaces off there is one recipient kind and no toggle.
   // `kind` stays state rather than becoming a constant so the space branch is exercised by
   // the same code path when the flag is on — and it can never LEAVE 'user' while off, because
   // the only thing that sets it is the control that no longer renders.
@@ -92,7 +92,7 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
   const addPending = () => {
     // The Add button drives the combobox's OWN commit, so the button and Enter take one path —
     // otherwise the two would drift, and only one of them would surface the invalid tokens
-    // SPEC-148 FR-003 requires to be shown. Since SPEC-158 that holds for BOTH kinds: the space
+    // the combobox requires to be shown. That holds for BOTH kinds: the space
     // entry is the same combobox, so the pre-parse that used to gate this button for spaces
     // would now be a second, quieter parser beside the one that actually commits.
     entryRef.current?.commit();
@@ -153,7 +153,7 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
         </p>
       </div>
 
-      {/* SPEC-163 FR-005: with `sharedWorkspaces` off there is exactly ONE recipient kind, so
+      {/* with `sharedWorkspaces` off there is exactly ONE recipient kind, so
           the toggle does not render at all. A single-option radio group is a control that
           asks a question with one answer — worse than no control, because it implies the
           other option exists somewhere. The field below then labels itself for usernames,
@@ -189,9 +189,9 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
 
       <div className="mb-1 flex items-end gap-2">
         <div className="min-w-0 flex-1">
-          {/* ONE field for both kinds since SPEC-158, differing only in what it suggests and
+          {/* ONE field for both kinds, differing only in what it suggests and
               what it calls things. It stays a BULK field — `onCommitMany` is what keeps
-              `bob, cara` producing two chips, which it has done since SPEC-093.
+              `bob, cara` producing two chips, which it has always done.
 
               The current user is deliberately NOT excluded from the user kind: sharing a table
               into your own database is something the pipeline allows, and the field must not

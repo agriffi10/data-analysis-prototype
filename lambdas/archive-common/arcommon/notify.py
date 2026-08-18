@@ -1,15 +1,15 @@
 """Best-effort outcome notifications for the archive pipeline.
 
 The shared primitives live in ``cpcommon.notify``; this module keeps the archive specifics: the
-actor-addressed failure (SPEC-168), and since SPEC-172 the three outcomes a FAILURE table cannot
+actor-addressed failure, and the three outcomes a FAILURE table cannot
 carry — an archive that completed, a restore that has started, and a restore that finished.
 
 **Only three, because the other six terminal outcomes are already told by the decorator.**
-FR-006 names nine; ``archive_not_found``, ``archive_incomplete``, ``destination_occupied``,
+The outcome table names nine; ``archive_not_found``, ``archive_incomplete``, ``destination_occupied``,
 ``restore_incomplete``, ``restore_timed_out`` and every other refusal are reason codes in
 ``messages._BODIES``, emitted once from ``notifies_on_failure`` or from the machine's
 ``NotifyFailure``. Adding a second producer for them would be the duplicate-notification bug
-SPEC-114's one-token-per-outcome rule exists to prevent.
+the one-token-per-outcome rule exists to prevent.
 
 A missed notification must never change or fail the outcome, so every emit goes through
 ``cpcommon.notify.emit_notification``, which catches, logs and never raises.
@@ -19,14 +19,14 @@ shape inherited from table-share. Every failure body names its own reason and mo
 or a file, so two distinct runs rendering byte-identical text is remote, and content dedup is
 what makes a verb's ``Retry`` safe.
 
-**The three SUCCESS emitters pass one, and that is SPEC-172 closing a real hole rather than a
+**The three SUCCESS emitters pass one, and that closes a real hole rather than a
 stylistic difference.** ``restore_started_message`` says only how many files are being retrieved;
 ``restored_message`` adds a byte total and a space-root link. Two restores of the same folder
 started back to back render **identical** text, and the queue's five-minute window would collapse
 them into one inbox row — the user sees a response to one of two requests and cannot tell which.
 ``cpcommon.notify.dedup_id(requestId, outcome)`` is per RUN and per OUTCOME, so it keeps the
 retry-safety content dedup was providing (a re-invocation composes the same token) without
-letting two runs share one. This is SPEC-114's rule read literally: one token per outcome.
+letting two runs share one. This is the rule read literally: one token per outcome.
 """
 
 import logging
@@ -171,7 +171,7 @@ def _space_query(kind: str, name: str) -> str:
 
     A shared space needs it or the route resolves the personal space and then DISCARDS a prefix
     that does not start with it — landing the user in their own files with no banner while the
-    message tells them where to look. That is the SPEC-167 finding, and it applies unchanged here.
+    message tells them where to look. That is a finding the send plane made first, and it applies unchanged here.
 
     Args:
       kind: ``personal`` or ``shared``.

@@ -57,7 +57,7 @@ export type ExplorationResultsRegionProps = {
   /** The tab these rows belong to — what the fallback execution below is scoped by. */
   tabId: string;
   /**
-   * The statement that was run, straight from `useExploration` (SPEC-182 FR-005).
+   * The statement that was run, straight from `useExploration`.
    *
    * Passed down rather than rendered here, so the disclosure shows the string the
    * execution used and the two cannot drift.
@@ -78,17 +78,17 @@ export type ExplorationResultsRegionProps = {
   /**
    * Columns the SOURCE is known to have before any execution returns — Glue's, for a
    * `table` source. Empty for a `sql` source, whose columns are unknowable until the
-   * first execution reports them (FR-006).
+   * first execution reports them.
    */
   schemaColumns: QueryColumn[];
   /** The active tab's presentation state — the grid's geometry lives here. */
   presentation: ExplorationPresentation;
   onPresentationChange: (update: (presentation: ExplorationPresentation) => ExplorationPresentation) => void;
-  /** The query description and every operation over it (SPEC-181). */
+  /** The query description and every operation over it. */
   queryControls: UseExplorationQueryResult;
-  /** Raises the save dialog (SPEC-183). The host owns the write; this owns the gesture. */
+  /** Raises the save dialog. The host owns the write; this owns the gesture. */
   onSaveQuery: () => void;
-  /** Raises the export dialog (SPEC-185 FR-002). The host owns the copy; this owns the gesture. */
+  /** Raises the export dialog. The host owns the copy; this owns the gesture. */
   onExport: () => void;
   /**
    * Why export is unavailable, or null when it is.
@@ -102,13 +102,13 @@ export type ExplorationResultsRegionProps = {
 
 export const NO_CELL_TO_FILTER = 'Select a cell first.';
 /**
- * Why the percentage column takes no filter and no sort (SPEC-182 FR-004 AC2).
+ * Why the percentage column takes no filter and no sort.
  *
  * It is computed in the browser and appended to the result, so there is no such column in
  * the SQL: an `ORDER BY` on it is a description `renderExplorationSql` REFUSES — which
  * would take the whole exploration to an error banner — and a `WHERE` on it fails at
  * Athena as an unknown column. The refusal is user text; the renderer's own names a column
- * and an operator, which SPEC-106 forbids showing anyone.
+ * and an operator, which the error-wording rule forbids showing anyone.
  */
 export const CALCULATED_COLUMN_REFUSAL =
   'This column is worked out in your browser, so it can’t be sorted or filtered.';
@@ -117,15 +117,15 @@ export const SUSPENDED_TEXT = 'This set of filters failed last time it ran. Noth
 /** No statement exists yet: nothing rendered, or a suspended description was held back. */
 export const NOTHING_TO_SAVE = 'There’s no query to save yet — nothing has run.';
 /**
- * Why a FAILED exploration cannot be saved (SPEC-183 FR-002).
+ * Why a FAILED exploration cannot be saved.
  *
  * Its own wording because its own state: there IS a statement here, and it is the one
  * Athena rejected. The rows under the banner are the LAST GOOD execution's, so saving would
  * write one query while the grid showed another's rows — and the file would fail to open in
- * the Query workspace, which is the surface FR-005 promises it opens in.
+ * the Query workspace, which is the surface a saved exploration promises it opens in.
  */
 export const FAILED_NOT_SAVEABLE = 'This query didn’t run, so there’s nothing to save. Fix it and try again.';
-/** Copy takes a SELECTION, and an empty one has no rectangle to take (FR-001 AC5). */
+/** Copy takes a SELECTION, and an empty one has no rectangle to take. */
 export const NOTHING_SELECTED_TO_COPY = 'Select some cells first.';
 /**
  * A clipboard write the browser refused.
@@ -137,7 +137,7 @@ export const NOTHING_SELECTED_TO_COPY = 'Select some cells first.';
  */
 export const COPY_FAILED = 'Your browser wouldn’t let the app write to the clipboard.';
 /**
- * Why export is unavailable (FR-002 AC3).
+ * Why export is unavailable.
  *
  * Export copies the object Athena wrote, which exists only once an execution has SUCCEEDED
  * — so this covers a first run still in flight, a failed one, and a suspended description
@@ -146,19 +146,18 @@ export const COPY_FAILED = 'Your browser wouldn’t let the app write to the cli
 export const NOTHING_TO_EXPORT = 'Run a query first — export saves the results Athena returned.';
 
 /**
- * One exploration's rows, and everything that changes which rows they are (SPEC-180,
- * SPEC-181).
+ * One exploration's rows, and everything that changes which rows they are.
  *
  * The **query toolbar and the expression bar render whatever the results are doing** —
  * loading, empty, or failed. That is not cosmetic: a failed apply has to leave the user
- * somewhere they can correct it (FR-003 AC4/AC5), and a toolbar that disappears with the
+ * somewhere they can correct it, and a toolbar that disappears with the
  * rows takes the correction with it.
  *
  * For the same reason a failure keeps the LAST GOOD execution's rows on screen beneath the
  * banner rather than emptying the grid. `useQueryResults` is pointed at that execution
  * while the current one is failed; paging it costs nothing, as paging never does.
  *
- * Errors go through `ErrorBanner` (SPEC-106): Athena's own text never reaches a user, and
+ * Errors go through `ErrorBanner`: Athena's own text never reaches a user, and
  * neither does an `ExplorationRenderError`, whose message names a column for an operator.
  */
 export function ExplorationResultsRegion({
@@ -252,13 +251,13 @@ export function ExplorationResultsRegion({
     setLastGood({tabId, executionId: shownExecutionId});
   }
 
-  // SPEC-180 FR-006: a `table` source knows its columns from Glue before anything runs, a
+  // a `table` source knows its columns from Glue before anything runs, a
   // `sql` source only from the execution. The execution's own metadata WINS once it lands
   // — grouping changes the column set entirely, and Glue would still be describing the
   // table underneath it.
   const executionColumns = results.columns.length > 0 ? results.columns : schemaColumns;
 
-  // SPEC-182 FR-004 AC2: the percentage is computed HERE, from rows already fetched, and
+  // The percentage is computed HERE, from rows already fetched, and
   // appended as a real column so it sizes, hides and pins like any other. It is deliberately
   // not in the SQL — a windowed total would be a second scan of the same data for a column
   // the user asked to SEE.
@@ -292,7 +291,7 @@ export function ExplorationResultsRegion({
   const geometry = useColumnGeometry(columns, presentation, onPresentationChange);
   const visibleNames = geometry.visible.map((column) => column.name);
   // Paging clears the selection rather than carrying coordinates onto different rows
-  // (FR-002 AC8), and so does a change to the column set — a row/column pair means
+  // and so does a change to the column set — a row/column pair means
   // nothing once either axis has moved underneath it.
   const selection = useCellSelection(
     rows.length,
@@ -309,7 +308,7 @@ export function ExplorationResultsRegion({
     [selection.selection.ranges, geometry.visible, rows]
   );
 
-  // SPEC-184. Resolved from the rows already on screen, which is the whole spec: every
+  // Resolved from the rows already on screen, which is the whole spec: every
   // gesture behind this is a state write, so the grid repaints and NOTHING is fetched. It is
   // memoised because it is recomputed on every render of a region that re-renders on every
   // cursor move.
@@ -332,7 +331,7 @@ export function ExplorationResultsRegion({
 
   // Every per-column gesture goes through ONE object, and every one of them is a single
   // `apply` — so a menu choice is a description change, and a description change is at
-  // most one execution (FR-001 AC5).
+  // most one execution.
   const actions: ColumnQueryActions = {
     // The ONE reader every filter and sort surface asks first. Today it names exactly the
     // appended percentage column, which the grid draws like any other and the SQL has
@@ -361,9 +360,9 @@ export function ExplorationResultsRegion({
   const pendingInitialValue =
     pendingExisting && operatorTakesValue(pendingExisting.operator) ? (pendingExisting.value ?? '') : '';
 
-  // FR-007: below `tablet` an UNCHOSEN tab opens in Record — a horizontally-scrolling grid
+  // Below `tablet` an UNCHOSEN tab opens in Record — a horizontally-scrolling grid
   // on a 400px screen is not a data explorer. `useIsMobile` decides which view MOUNTS,
-  // never how anything is styled (SPEC-095 FR-008), and a tab whose user HAS chosen keeps
+  // never how anything is styled, and a tab whose user HAS chosen keeps
   // that choice at every width, which is what `presentation: null` exists to express.
   const isMobile = useIsMobile();
   const view: GridPresentation = presentation.presentation ?? (isMobile ? 'record' : 'grid');
@@ -374,7 +373,7 @@ export function ExplorationResultsRegion({
 
   // Record and the grid share ONE focused row, and the sync runs in BOTH directions —
   // entering Record from the cursor, and moving the cursor to the row Record left off at
-  // (FR-004 AC3). Only the first half shipped at first, so "switch back" landed on
+  // Only the first half shipped at first, so "switch back" landed on
   // whatever the cursor last touched (found in review).
   const setView = (next: GridPresentation) => {
     if (next !== 'record' && view === 'record') {
@@ -389,19 +388,19 @@ export function ExplorationResultsRegion({
 
   const cursorColumn = geometry.visible.find((column) => column.name === selection.selection.cursor.column) ?? null;
   const cursorRow = view === 'record' ? recordRow : selection.selection.cursor.row;
-  // THE RAW CELL VALUE, never `cellText` and never a formatted rendering (FR-002 AC2): a
+  // THE RAW CELL VALUE, never `cellText` and never a formatted rendering: a
   // NULL reads as "NULL" on screen and a transformed URL will not look like its value at
-  // all (SPEC-184), and either one as a predicate matches nothing.
+  // all, and either one as a predicate matches nothing.
   const cursorValue = cursorColumn ? rows[cursorRow]?.[cursorColumn.index] : undefined;
 
   // Suspended is not loading: nothing is in flight, deliberately. Without this the status
   // line announced "Running…" directly above the panel saying nothing had been run.
   const loading = !queryControls.suspended && (isPending || !shownExecutionId || results.isPending);
 
-  // SPEC-183 FR-002. `failed` is checked FIRST and is the one that is easy to miss: a failed
+  // `failed` is checked FIRST and is the one that is easy to miss: a failed
   // apply still has a rendered `sql` — the statement Athena rejected — while `shownExecutionId`
   // has fallen back to the last good one, so the grid is showing a DIFFERENT query's rows. A
-  // save there writes a file that fails to open in the workspace FR-005 promises it opens in.
+  // save there writes a file that fails to open in the workspace it promises it opens in.
   // A suspended description needs no clause of its own: the workspace passes `useExploration`
   // nothing while suspended, so `sql` is already null.
   const saveRefusal = failed ? FAILED_NOT_SAVEABLE : sql === null ? NOTHING_TO_SAVE : null;
@@ -415,14 +414,14 @@ export function ExplorationResultsRegion({
       valueKindOf(cursorColumn.name) === 'number' &&
       !isBareNumeric(cursorValue) /* a numeric column's value is emitted BARE, so one
         the renderer would refuse has to be refused at the gesture instead — the refusal
-        it throws is operator text (SPEC-106). */
+        it throws is operator text. */
         ? UNFILTERABLE_VALUE
         : null));
 
   // THE ROWS, not the rendering. `renderCopy` is handed `rows` — the raw page, transformed
   // values and all left behind — because a URL column pasted into a spreadsheet has to carry
-  // its value, not its link text (FR-001 AC3). Every argument here is already in memory, so
-  // a copy issues nothing however often it is used (AC7).
+  // its value, not its link text. Every argument here is already in memory, so
+  // a copy issues nothing however often it is used.
   const copySelection = async (options: CopyOptions): Promise<boolean> => {
     const text = renderCopy(selection.selection, geometry.visible, rows, options, results.rangeStart);
     // Nothing selected, or every range names a column this result no longer has. Not a
@@ -458,7 +457,7 @@ export function ExplorationResultsRegion({
 
   const filterByCell = () => {
     if (!cursorColumn || cursorValue === undefined) return;
-    // A NULL cell is `IS NULL`, not `= ''` (FR-002 AC3). Athena hands every value back as
+    // A NULL cell is `IS NULL`, not `= ''`. Athena hands every value back as
     // a string, so nothing below this line could tell the two apart.
     if (cursorValue === null) actions.filter(cursorColumn.name, 'isNull');
     else actions.filter(cursorColumn.name, '=', cursorValue);
@@ -477,7 +476,7 @@ export function ExplorationResultsRegion({
     // less true account of the same failure.
     if (shownExecutionId !== null && results.isError) return null;
     // Nothing to draw a header from yet: the statement is running and the source could not
-    // say what its columns are. That is the `sql` arm's ordinary state (FR-006 AC2) — and
+    // say what its columns are. That is the `sql` arm's ordinary state — and
     // the `table` arm's only while Glue is still being read.
     if (loading && geometry.visible.length === 0) {
       // No `role="status"` here: the toolbar's own status line says the same words at
@@ -612,7 +611,7 @@ export function ExplorationResultsRegion({
         </Button>
         {/* Colours, striping and the type tint change how the rows on screen LOOK and
             nothing about which rows they are — so unlike Grouping beside it, opening this
-            and applying what it stages are both free (FR-001). */}
+            and applying what it stages are both free. */}
         <Button
           size="sm"
           onClick={() => setColoursOpen(true)}>
@@ -631,7 +630,7 @@ export function ExplorationResultsRegion({
         </Button>
         {/* Calc runs no query — opening it, changing its functions and re-selecting cells
             are all free, which is exactly why it aggregates the SELECTION and not the
-            result set (FR-001 AC7). */}
+            result set. */}
         <Button
           size="sm"
           aria-pressed={calcOpen}
@@ -648,7 +647,7 @@ export function ExplorationResultsRegion({
         </Button>
         {/* Copy issues nothing and never has — see `renderCopy`. The plain Ctrl/Cmd+C is on
             the grid; this is the same copy with the formats and toggles a destination other
-            than a spreadsheet wants (FR-001 AC2). */}
+            than a spreadsheet wants. */}
         <Button
           size="sm"
           disabledReason={selection.selectedCount === 0 ? NOTHING_SELECTED_TO_COPY : undefined}
@@ -657,7 +656,7 @@ export function ExplorationResultsRegion({
         </Button>
         {/* Export writes the EXECUTION's own results object, so a filtered, ordered or
             grouped exploration exports exactly what is on screen without a second query and
-            without a second bill (FR-002 AC1). The refusal comes from the host, which is
+            without a second bill. The refusal comes from the host, which is
             what knows whether that object exists yet. */}
         <Button
           size="sm"
@@ -677,7 +676,7 @@ export function ExplorationResultsRegion({
           </Button>
         )}
         {/* The count says "on this page" every time it is said, because that is the only
-            thing a selection here can ever mean — Ctrl/Cmd+A included (FR-002 AC4). */}
+            thing a selection here can ever mean — Ctrl/Cmd+A included. */}
         <p
           role="status"
           className="text-xs text-text-3">
@@ -696,7 +695,7 @@ export function ExplorationResultsRegion({
         onApply={(expression) => apply({expression})}
       />
 
-      {/* Available whether or not grouping is active (FR-005 AC4): the Explorer writes SQL
+      {/* Available whether or not grouping is active: the Explorer writes SQL
           the user did not, grouped or otherwise, and every statement it writes is a bill. */}
       <GeneratedSqlDisclosure sql={sql} />
 
@@ -773,7 +772,7 @@ export function ExplorationResultsRegion({
             setSettingsOpen(false);
             // Two writes in one handler, so React batches them into one render and one
             // rendered statement — however many criteria changed, the dialog is one
-            // execution (AC2). The presentation half renders no SQL and so adds none (AC4).
+            // execution. The presentation half renders no SQL and so adds none.
             onPresentationChange((p) => ({...p, hiddenColumns, pinnedColumns}));
             apply(staged);
           }}

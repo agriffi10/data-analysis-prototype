@@ -28,9 +28,9 @@ export function runsSources(
   if (username && buckets.user) sources.push({space: username, bucket: buckets.user});
   if (buckets.shared) {
     for (const name of sharedSpaceNames) {
-      // A shared space named like the user would resolve PERSONAL at the report route
-      // (SPEC-113 FR-005), so its rows would link somewhere that 404s. Skipping it here
-      // matches what SPEC-114's link builder does on the producer side.
+      // A shared space named like the user would resolve PERSONAL at the report route,
+      // so its rows would link somewhere that 404s. Skipping it here
+      // matches what the link builder does on the producer side.
       if (name !== username) sources.push({space: name, bucket: buckets.shared});
     }
   }
@@ -97,7 +97,7 @@ export function useDataQualityRuns(): UseDataQualityRunsResult {
       }
       if (failed.length === settled.length) {
         // Everything failed, so there is no partial list to show. Throwing here is what
-        // puts the FR-005 banner up; resolving with [] would render "no checks yet", which
+        // puts the banner up; resolving with [] would render "no checks yet", which
         // would tell the user their history is empty when it is merely unreachable.
         throw failed[0].result.success ? new Error('unreachable') : failed[0].result.error;
       }

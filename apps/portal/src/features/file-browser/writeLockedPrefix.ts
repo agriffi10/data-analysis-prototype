@@ -4,13 +4,13 @@ import type {FileSpaceKind} from './useFileSpace';
 /**
  * Is this folder one the portal role cannot write into — so the browser must not offer a write?
  *
- * **THE FIRST PREFIX-BASED WRITE GATE IN THIS APP** (SPEC-172 FR-004). Everything before it was
+ * **THE FIRST PREFIX-BASED WRITE GATE IN THIS APP**. Everything before it was
  * a rule about a folder's NAME at the space root (`protectedFolders.ts`); this is a rule about
  * where the user is STANDING, and it is built as a predicate rather than an `if` inside the
  * toolbar because the next read-only prefix will want it.
  *
  * IAM denies `PutObject` / `DeleteObject` / `AbortMultipartUpload` under `archive/` in both space
- * buckets (SPEC-168 FR-006), so without this every attempt produces a bare `AccessDenied` for a
+ * buckets, so without this every attempt produces a bare `AccessDenied` for a
  * rule this application wrote — the situation `isUndeletableRootFolder` exists to prevent for
  * `athenaresults/`.
  *
@@ -40,7 +40,7 @@ export function isWriteLockedPrefix(prefix: string, rootPrefix: string, spaceKin
 /**
  * The user-facing reason writes are unavailable here, or null when they are available.
  *
- * A disabled control with no reason is the thing FR-004 exists to replace, so the gate and its
+ * A disabled control with no reason is the thing the rule exists to replace, so the gate and its
  * explanation are one function rather than a boolean the caller has to find words for.
  *
  * @param prefix - The folder currently being viewed.

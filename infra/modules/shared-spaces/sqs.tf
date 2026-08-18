@@ -1,11 +1,11 @@
-# ── Request Queue + DLQ (SPEC-050 FR-003) ────────────────────────────────────
-# The control-plane entry point. The browser (SPEC-056+) enqueues a request
+# ── Request Queue + DLQ ────────────────────────────────────
+# The control-plane entry point. The browser enqueues a request
 # message; an EventBridge Pipe (pipe.tf) drains it into the Step Function.
 #
-# FIFO with a single, constant MessageGroupId (a producer convention, SPEC-056) so
+# FIFO with a single, constant MessageGroupId (a producer convention) so
 # requests are processed strictly one-at-a-time, in order — the user-required serial
 # intake that, together with the create action's atomic conditional PutObject
-# (If-None-Match, SPEC-051), makes duplicate shared-space names impossible even when
+# (If-None-Match), makes duplicate shared-space names impossible even when
 # two users submit the same name at once. The Pipe reads a batch of 1 (pipe.tf).
 #
 # Duplicate-name safety does NOT depend on SQS content dedup — content-based

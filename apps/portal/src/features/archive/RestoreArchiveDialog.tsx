@@ -14,20 +14,20 @@ type Props = {
 };
 
 /**
- * The Restore Archived Data modal (SPEC-172 FR-003).
+ * The Restore Archived Data modal.
  *
  * One field, and therefore the single-field case `submitOnEnterRef` exists for — **the opposite
  * call from `ArchiveDialog`, for the opposite reason**: Enter here submits an id the user has
  * just finished typing, where Enter there would delete a folder.
  *
  * **The id is validated as a UUID before enqueue, and that is not the boundary.** The control
- * plane checks it again before building any key (SPEC-170 FR-002). This copy exists so a typo
+ * plane checks it again before building any key. This copy exists so a typo
  * costs a sentence now instead of a notification later — which on this plane is the whole
  * difference, since a request that reaches the machine and fails still had to be read by someone
  * hours after they stopped thinking about it.
  *
  * **It restores into the space the user is browsing, and says which one.** The space comes from
- * the route (SPEC-113's rule, SPEC-170 FR-001), never from the archive — an archive belonging to
+ * the route, never from the archive — an archive belonging to
  * another space is then simply not found, rather than an oracle for what exists elsewhere.
  */
 export function RestoreArchiveDialog({spaceLabel, busy = false, submitError, onSubmit, onCancel}: Props) {
@@ -55,7 +55,7 @@ export function RestoreArchiveDialog({spaceLabel, busy = false, submitError, onS
       onSubmit={() => {
         setAttempted(true);
         // Validation happens on submit rather than through `submitDisabled`: a disabled control
-        // is not a refusal, and the user needs to be told what a valid id looks like (SPEC-175's
+        // is not a refusal, and the user needs to be told what a valid id looks like (the save dialog's
         // recorded rule — `submitDisabled` never stands in for an explanation).
         if (isArchiveId(trimmed)) onSubmit(trimmed);
       }}

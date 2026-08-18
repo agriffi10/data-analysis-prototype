@@ -7,7 +7,7 @@ export const MAX_LINKED_COLUMNS = 20;
 /**
  * The raw (still percent-encoded) value of one query parameter.
  *
- * `URLSearchParams.get` is deliberately NOT used for this: it decodes, and SPEC-144
+ * `URLSearchParams.get` is deliberately NOT used for this: it decodes, and the plane
  * encodes each column name individually before joining them with a comma — so a
  * name containing `%2C` would come back as a bare comma and split into two columns.
  * The separator has to be read before anything is decoded.
@@ -31,7 +31,7 @@ function decode(value: string): string | null {
 }
 
 /**
- * Parse SPEC-144's `columns_removed` notification link
+ * Parse `columns_removed` notification link
  * (`/query?refreshTable={database}.{table}&removed={names}`) off the Query route's
  * query string. Returns `null` — meaning "ignore these parameters entirely" — for
  * anything that isn't a pair of catalog-safe identifiers, because the link is

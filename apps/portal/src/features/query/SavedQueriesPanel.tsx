@@ -38,11 +38,11 @@ type Props = {
  * time, with Open (→ new linked tab) and Delete (→ confirm). The delete confirm owns
  * Escape while open.
  *
- * SPEC-174 FR-006: the selector renders ABOVE every body state, so a space the user can
+ * the selector renders ABOVE every body state, so a space the user can
  * no longer reach is an error about *that space* — they pick another and carry on —
  * rather than a broken drawer.
  *
- * SPEC-173 FR-006: a row is name + last-modified + size and carries **no SQL preview**.
+ * a row is name + last-modified + size and carries **no SQL preview**.
  * That is a deliberate, user-visible loss — a `.sql` file holds no metadata, so a
  * preview would mean a `GetObject` per row on every open: twenty-five round trips to
  * show twenty-five one-line snippets. The body is fetched only when a query is opened.
@@ -76,7 +76,7 @@ export function SavedQueriesPanel({
   });
 
   // The pager follows the ROWS, not the error: a load-more that fails must not take the
-  // rows the user already has (FR-002 AC5), and Prev has to remain reachable.
+  // rows the user already has, and Prev has to remain reachable.
   const footer =
     !isLoading && pager.page.length > 0 ? (
       <Pager
@@ -125,7 +125,7 @@ export function SavedQueriesPanel({
         {isLoading || pager.isFilling ? (
           <p className="text-sm text-text-3">Loading saved queries&hellip;</p>
         ) : pager.isEmpty ? (
-          // Never an empty state and an error at once (FR-006 AC6) — the banner above has
+          // Never an empty state and an error at once — the banner above has
           // already said why there is nothing.
           error ? null : (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">

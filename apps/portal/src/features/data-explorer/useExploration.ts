@@ -16,7 +16,7 @@ export type UseExplorationResult = {
   queryExecutionId: string | null;
   state: QueryState | null;
   /**
-   * Where Athena wrote this execution's CSV, once it has SUCCEEDED (SPEC-185 FR-002).
+   * Where Athena wrote this execution's CSV, once it has SUCCEEDED.
    *
    * The whole of export: a server-side `CopyObject` of that object captures every row the
    * statement returned, filters, ordering and grouping included, without a second query and
@@ -33,11 +33,11 @@ export type UseExplorationResult = {
 };
 
 /**
- * Runs an exploration and reports what it cost (SPEC-178 FR-006 / FR-007).
+ * Runs an exploration and reports what it cost.
  *
  * The rendered SQL is the cache key, so this hook is the feature's cost control as much
  * as its data path: an identical description resolves to the execution already run.
- * Paging is NOT here — the caller pages the returned execution id through SPEC-176's
+ * Paging is NOT here — the caller pages the returned execution id through the catalog's
  * `useQueryResults`, whose `NextToken` walk scans no additional bytes.
  *
  * @param exploration - The exploration to run, or null to run nothing.
@@ -72,7 +72,7 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
     //
     // `gcTime` is as load-bearing as `staleTime` and is the half that is easy to omit.
     // Changing a filter detaches the previous statement's observer, and under TanStack's
-    // 5-minute default its entry is then collected — so FR-006 AC2's "changing a filter
+    // 5-minute default its entry is then collected — so the "changing a filter
     // and changing it back is a cache hit" would hold for five minutes and silently
     // become a second execution, and a second bill, after that. An exploration session
     // lasts longer than five minutes; the cache is a few dozen strings.
@@ -97,7 +97,7 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
     if (sql !== null && state !== null) lastVerdict.current = {sql, state};
   }, [sql, state]);
 
-  // FR-006 AC4: a failed execution must not be cached as a success — re-applying the same
+  // a failed execution must not be cached as a success — re-applying the same
   // description retries. The eviction happens on the way OUT (the statement changed, or
   // the hook unmounted), never while mounted: evicting on FAILED with an observer
   // attached refetches immediately, which is start → FAILED → evict → start, an unbounded
@@ -120,12 +120,12 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
   const cost = useMemo((): ExecutionCost | null => {
     // TERMINAL states only. A QUEUED or RUNNING poll carries no `Statistics`, so it reports
     // a perfectly confident 0 B — and a consumer that captures the FIRST cost it sees for an
-    // execution (SPEC-181's per-apply figure does, deliberately, so that a cache hit is
+    // execution (the per-apply figure does, deliberately, so that a cache hit is
     // detected before the ledger is written) would then freeze that 0 forever. Every real
     // query takes more than one poll, so the surface said "This query scanned 0 B" beside a
     // running total that disagreed with it.
     if (!status || !isTerminalState(status.state)) return null;
-    // FR-007 AC4: an execution that fails before reporting statistics contributes ZERO,
+    // an execution that fails before reporting statistics contributes ZERO,
     // never NaN — a NaN here propagates silently into the tab's cumulative total and
     // renders as "NaN B" long after the failed run is forgotten.
     return {
@@ -137,7 +137,7 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
   // A query Athena REFUSES is not an error anywhere in the plumbing: `getQueryStatus`
   // resolves, and the reason arrives as a field on a successful poll. So the state has to
   // be turned into one here, in the shape `toUserMessage` maps engine text from — a syntax
-  // error in the expression bar (SPEC-181 FR-003 AC4) is a `stateChangeReason` and nothing
+  // error in the expression bar is a `stateChangeReason` and nothing
   // else. Without this the failure surfaced one layer later as "could not read results",
   // which is a true sentence about the wrong thing.
   const executionFailure = useMemo(() => {

@@ -14,9 +14,9 @@ import type {
  * signature promises a `string` and there is no half-rendered SQL worth handing back.
  *
  * Every case is a caller bug rather than a user typo — the panels that build a
- * description (SPEC-181, SPEC-182) refuse the gesture before it reaches here. The message
+ * description refuse the gesture before it reaches here. The message
  * is operator text: it names the offending column so a failing test says which one, and
- * SPEC-106 forbids rendering it to a user.
+ * the error-wording rule forbids rendering it to a user.
  */
 export class ExplorationRenderError extends Error {
   constructor(message: string) {
@@ -41,8 +41,8 @@ const NUMERIC_CHARS_RE = /^[-+0-9.eE]+$/;
  * `security/detect-unsafe-regex`), where the engine's own parser cannot be.
  *
  * **Exported so the surfaces that build a numeric filter refuse exactly what the renderer
- * refuses** (SPEC-181). The renderer throws an `ExplorationRenderError` whose message
- * names a column and an operator — operator text SPEC-106 forbids rendering — so a value
+ * refuses**. The renderer throws an `ExplorationRenderError` whose message
+ * names a column and an operator — operator text the error-wording rule forbids rendering — so a value
  * that would reach it has to be turned back at the input, and a second numeric rule at
  * the input is a rule that can disagree with this one.
  *
@@ -67,7 +67,7 @@ const OPERATOR_SQL: Record<Exclude<ColumnFilter['operator'], 'isNull' | 'isNotNu
 /**
  * The column name an aggregate produces, and the name an `ORDER BY` may reference.
  *
- * Exported because SPEC-182's panel must label a grouped column with the name the SQL
+ * Exported because the panel must label a grouped column with the name the SQL
  * actually emits — a second naming scheme at the view would disagree with the result set
  * the moment either changed.
  *
@@ -105,7 +105,7 @@ function renderFrom(source: ExplorationSource): string {
     return `${sqlIdentifier(source.database)}.${sqlIdentifier(source.table)}`;
   }
   // Trino requires a subquery in a FROM be aliased. The body is the user's own SQL and is
-  // composed verbatim, exactly as the expression is (FR-005) — SPEC-183 owns refusing a
+  // composed verbatim, exactly as the expression is — the save path owns refusing a
   // multi-statement or non-SELECT file before it ever becomes a source.
   //
   // The NEWLINES are not formatting. A saved query ending in a `--` line comment swallows
@@ -116,7 +116,7 @@ function renderFrom(source: ExplorationSource): string {
 }
 
 function renderProjection(grouping: Grouping | null): string {
-  // FR-003: `SELECT *` always, when not grouping. Narrowing to the visible columns would
+  // `SELECT *` always, when not grouping. Narrowing to the visible columns would
   // cut bytes scanned on Parquet — and would make un-hiding a column a billed, several-
   // second re-run, so cost would depend on a gesture users read as cosmetic. The renderer
   // cannot see which columns are visible anyway; that is the point of its signature.
@@ -132,7 +132,7 @@ function renderWhere(filters: ColumnFilter[], expression: string | null): string
   const filterSql = filters.map(renderFilter);
   const trimmed = expression?.trim();
 
-  // FR-005 AC2: both sides parenthesized when both are present, so an expression
+  // Both sides parenthesized when both are present, so an expression
   // containing a top-level OR cannot capture a filter. `a = 1 AND b OR c` is not
   // `a = 1 AND (b OR c)`, and the difference is rows the user did not ask for.
   const clauses: string[] = [];
@@ -150,10 +150,10 @@ function renderWhere(filters: ColumnFilter[], expression: string | null): string
  * rejects it at ANALYSIS, so nothing is scanned and AWS does not bill a failed query —
  * what refusing buys is not money but immediacy: the gesture is refused where the user
  * made it, instead of surfacing seconds later as an engine error the app is forbidden to
- * render (SPEC-106).
+ * render.
  *
- * **Exported so the Grouping panel refuses exactly what the renderer refuses** (SPEC-182
- * FR-004 AC3), on the `isBareNumeric` precedent. It returns the offending COLUMN rather
+ * **Exported so the Grouping panel refuses exactly what the renderer refuses**,
+ * on the `isBareNumeric` precedent. It returns the offending COLUMN rather
  * than a message, because the two callers have to word it differently: this file wraps it
  * in operator text naming the column, and the panel wraps it in a sentence a user is
  * allowed to read. A second rule at the panel is a rule that can disagree with this one —
@@ -184,7 +184,7 @@ function assertOrderingIsGroupable(ordering: SortEntry[], grouping: Grouping): v
  * beside the aggregates under their own names, so grouping by a column called `count_all`
  * while `COUNT(*)` is present yields two result columns of one name — which share one
  * geometry entry in the grid and make `groupingOrderingViolation` answer for whichever the
- * reader meant. SPEC-182's panel made that reachable, because any column can be grouped by.
+ * reader meant. The panel made that reachable, because any column can be grouped by.
  *
  * **Exported for the same reason `groupingOrderingViolation` is**: the panel has to turn
  * the collision back at the gesture, and the message thrown below is operator text.
@@ -228,7 +228,7 @@ function renderOrderBy(ordering: SortEntry[]): string | null {
 }
 
 /**
- * The ONE SQL builder for the Data Explorer (SPEC-178 FR-002).
+ * The ONE SQL builder for the Data Explorer.
  *
  * Takes the source and the query description **and nothing else**. That parameter list is
  * the feature's central rule made structural: column visibility, order, pinning, width,
@@ -236,7 +236,7 @@ function renderOrderBy(ordering: SortEntry[]): string | null {
  * a function that cannot reach them cannot be made to depend on them by a later edit.
  *
  * The two source arms differ only in the `FROM`; filters, the expression, ordering and
- * grouping compose identically over either, which is what lets SPEC-183 load a saved
+ * grouping compose identically over either, which is what lets a saved exploration load
  * `.sql` file as a source without the rest of the feature knowing.
  *
  * @param source - Where the rows come from: a catalog table, or a `.sql` body.
@@ -263,7 +263,7 @@ export function renderExplorationSql(source: ExplorationSource, query: Explorati
     parts.push(`GROUP BY ${grouping.columns.map(sqlIdentifier).join(', ')}`);
   }
 
-  // FR-004 AC1: the duplicate finder. `COUNT(*)` is written out rather than referencing an
+  // The duplicate finder. `COUNT(*)` is written out rather than referencing an
   // aggregate's alias, because the predicate must hold whether or not the user kept the
   // default `COUNT(*)` among the aggregates — and Trino does not accept a SELECT alias in
   // a HAVING clause anyway. It follows the GROUP BY and precedes the ORDER BY, which is

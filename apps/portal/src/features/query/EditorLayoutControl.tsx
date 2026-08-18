@@ -8,7 +8,7 @@ const OPTIONS: ReadonlyArray<{value: EditorLayoutPreset; label: string; descript
 ];
 
 /**
- * SPEC-079 layout-preset segmented control: three toggle buttons in a labeled
+ * Layout-preset segmented control: three toggle buttons in a labeled
  * group snapping the editor/results vertical split (Default 50/50 / Query
  * Editor ~90% / Results ~90%). The active option carries `aria-pressed` so the
  * selection is never conveyed by styling alone (same pattern as the

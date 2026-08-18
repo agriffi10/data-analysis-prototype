@@ -39,7 +39,7 @@ export function emptyExplorationQuery(): ExplorationQuery {
 }
 
 /**
- * The grouping a panel starts from: no columns yet, and `COUNT(*)` (SPEC-182 FR-003 AC2).
+ * The grouping a panel starts from: no columns yet, and `COUNT(*)`.
  *
  * `COUNT(*)` is present by default because a grouping with no aggregate answers nothing —
  * it is a distinct list — and "how many in each" is the question grouping is nearly always
@@ -61,8 +61,7 @@ export function emptyQueryHistory(): QueryHistoryCursor {
 }
 
 /**
- * Formatting as a tab starts: no rules, no type tint, no striping, no transformers
- * (SPEC-184).
+ * Formatting as a tab starts: no rules, no type tint, no striping, no transformers.
  *
  * Every default is "off" rather than a sensible-looking preset, because each one changes
  * how a value READS — a number rendered to two decimals is a different number to anyone
@@ -75,10 +74,10 @@ export function emptyFormattingState(): FormattingState {
 }
 
 /**
- * The empty presentation state. Extended by SPEC-184; nothing here reaches the renderer.
+ * The empty presentation state. Nothing here reaches the renderer.
  *
  * `presentation: null` means "unchosen", which is not the same as `'grid'` — it is what
- * lets the viewport decide the opening view (FR-007) without a tab being born knowing how
+ * lets the viewport decide the opening view without a tab being born knowing how
  * wide the window is.
  *
  * @returns Presentation state that changes no SQL.
@@ -97,7 +96,7 @@ export function emptyExplorationPresentation(): ExplorationPresentation {
 }
 
 /**
- * A new exploration over a source, with an empty query description (FR-001 AC4).
+ * A new exploration over a source, with an empty query description.
  *
  * @param source - Where the rows come from.
  * @param id - An explicit id; omit for a fresh one.

@@ -8,15 +8,15 @@ export type ExplorationTabStripProps = {
   activeTabId: string;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
-  /** Opens the source picker, or raises the cap dialog when there is no room (FR-008 AC2). */
+  /** Opens the source picker, or raises the cap dialog when there is no room. */
   onNew: () => void;
 };
 
 /**
- * The strip of open explorations, above the results (FR-008).
+ * The strip of open explorations, above the results.
  *
  * Mirrors the Query workspace's tab strip in shape and keyboard model rather than sharing
- * it: `features/query/` is a sibling this feature may not import (SPEC-176), and the two
+ * it: `features/query/` is a sibling this feature may not import, and the two
  * differ where it counts — an exploration tab has no dirty state, and closing the last one
  * is legal here, so the close control is never hidden.
  *

@@ -23,7 +23,7 @@ type QueryResultsMobileProps = {
   totalRowCount: number | null;
   /** True while this view's own run is in flight or settled — drives the status strip. */
   hasRun: boolean;
-  /** Friendly, already-mapped failure text (SPEC-106); null when there's nothing to show. */
+  /** Friendly, already-mapped failure text; null when there's nothing to show. */
   errorMessage: string | null;
   onDismissError: () => void;
   /** The workspace's shared pager — one page in the DOM at a time. */
@@ -33,7 +33,7 @@ type QueryResultsMobileProps = {
 };
 
 /**
- * The mobile (`< tablet`) results view (SPEC-100 FR-006): back + query name +
+ * The mobile (`< tablet`) results view: back + query name +
  * re-run, a **read-only** SQL preview, the shared status strip, one card per
  * result row (column → value), and a fixed Prev/Next pager. Paging is
  * replace-style, exactly as on desktop — never infinite scroll. All data comes
@@ -139,7 +139,7 @@ export function QueryResultsMobile({
 
       {displayExecutionId !== null && rows.length > 0 && (
         // A single page holding every row leaves both sides false, so the pager
-        // renders disabled rather than disappearing (FR-006).
+        // renders disabled rather than disappearing.
         <Pager
           className="flex-none border-t border-border bg-surface px-4 py-3"
           hasPrev={results.hasPrev}

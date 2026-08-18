@@ -1,15 +1,15 @@
-# ── table-builder module outputs (SPEC-066) ──────────────────────────────────
+# ── table-builder module outputs ──────────────────────────────────
 # Exported for later wiring: the browser learns the queue URL to enqueue requests
-# (sqs:SendMessage granted to the portal role in SPEC-067 → VITE_TABLE_BUILD_QUEUE_URL);
+# (sqs:SendMessage granted to the portal role → VITE_TABLE_BUILD_QUEUE_URL);
 # the queue ARN scopes that grant; the state-machine ARN is for ops/observability.
 
 output "table_build_queue_url" {
-  description = "URL of the FIFO request queue (ends in .fifo). The browser enqueues create-table requests here (sqs:SendMessage, granted to the portal role in SPEC-067). Maps to VITE_TABLE_BUILD_QUEUE_URL."
+  description = "URL of the FIFO request queue (ends in .fifo). The browser enqueues create-table requests here (sqs:SendMessage, granted to the portal role). Maps to VITE_TABLE_BUILD_QUEUE_URL."
   value       = aws_sqs_queue.requests.url
 }
 
 output "table_build_queue_arn" {
-  description = "ARN of the FIFO request queue — the portal-role sqs:SendMessage scope (SPEC-067)."
+  description = "ARN of the FIFO request queue — the portal-role sqs:SendMessage scope."
   value       = aws_sqs_queue.requests.arn
 }
 

@@ -1,14 +1,14 @@
-# ── Shared Athena Workgroup (SPEC-032 FR-002) ────────────────────────────────
+# ── Shared Athena Workgroup ────────────────────────────────
 # One workgroup every authenticated user queries through. Per-user isolation is
 # NOT at the workgroup layer — it's the Glue database/table ARN scoped by the
-# `username` principal tag (FR-006) plus the per-user results prefix. Athena has
+# `username` principal tag plus the per-user results prefix. Athena has
 # no built-in per-user result location, so enforcement is OFF and the app sets a
 # per-user OutputLocation (s3://<user-space-bucket>/{username}/athenaresults/) on
-# every StartQueryExecution; IAM (FR-006) is what actually confines each caller to
+# every StartQueryExecution; IAM is what actually confines each caller to
 # its own prefix.
 
 # IAM propagation guard: the module-level depends_on = [module.base] orders the
-# deploy-role policy (which now grants Athena/S3-admin-bucket perms, FR-007) before
+# deploy-role policy (which now grants Athena/S3-admin-bucket perms) before
 # this module runs, but IAM is eventually consistent — this fresh pause absorbs the
 # propagation window so the deploy role's first CreateWorkGroup / CreateBucket call
 # in the same apply doesn't race the grant and hit AccessDenied (same pattern as
@@ -22,7 +22,7 @@ resource "aws_athena_workgroup" "portal" {
 
   configuration {
     # OFF on purpose: the client supplies a per-user OutputLocation per query (see
-    # header). The real per-user boundary is the FR-006 IAM scoping, noted here so
+    # header). The real per-user boundary is the IAM scoping, noted here so
     # nobody "hardens" this to true and breaks per-user result routing.
     enforce_workgroup_configuration    = false
     publish_cloudwatch_metrics_enabled = true
@@ -37,11 +37,11 @@ resource "aws_athena_workgroup" "portal" {
     bytes_scanned_cutoff_per_query = var.query_scan_cutoff_bytes
 
     result_configuration {
-      # DEFAULT/fallback only → the admin-only bucket (FR-003). Any query that ever
+      # DEFAULT/fallback only → the admin-only bucket. Any query that ever
       # omits an explicit OutputLocation writes here, never to a user-readable place.
       # Scoped to a fallback-results/ prefix (not the bucket root) so the
       # expire-admin-results lifecycle rule can target ONLY transient fallback output
-      # and leave the SPEC-050 shared-spaces/ registry prefix untouched (s3.tf).
+      # and leave the shared-spaces/ registry prefix untouched (s3.tf).
       output_location = "s3://${var.athena_admin_bucket_name}/fallback-results/"
 
       encryption_configuration {

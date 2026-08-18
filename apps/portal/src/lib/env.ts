@@ -42,7 +42,7 @@ export const REQUIRED_ENV = [
 
 /** Set in a working deployment, but each with its own degraded path when absent. */
 export const OPTIONAL_ENV = [
-  // Which block of the feature-flag document this build resolves (SPEC-162). Optional
+  // Which block of the feature-flag document this build resolves. Optional
   // because its degraded path is total: an unset value resolves to the document's own
   // `defaults` and still reports 'ready'. Nothing is unavailable without it, so it fails
   // the REQUIRED_ENV membership test above — but a build that ships it unset silently
@@ -71,7 +71,7 @@ export type PortalEnvVar = RequiredEnvVar | OptionalEnvVar;
  * mistake this whole module exists to name.
  *
  * The dev-unauth variables are deliberately absent from `PortalEnvVar`: they are read
- * behind an `import.meta.env.DEV` guard at their own call sites, and SPEC-153's bypass
+ * behind an `import.meta.env.DEV` guard at their own call sites, and the bypass
  * guard asserts that the set of modules naming that flag is exactly those sites — so
  * this module must not name it either.
  */

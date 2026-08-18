@@ -1,17 +1,17 @@
-# ── EventBridge Pipe: request queue → Step Function (SPEC-050 FR-003) ─────────
+# ── EventBridge Pipe: request queue → Step Function ─────────
 # Drains the FIFO request queue into the orchestrator. Batch size 1 so each message
 # starts its own execution and the FIFO single-MessageGroupId ordering (sqs.tf) is
 # preserved — strictly serial intake.
 #
 # FIRE_AND_FORGET: the Pipe calls StartExecution on the Standard state machine and
 # returns immediately (Standard machines can run longer than a synchronous call
-# allows). Serial *intake* + the registry conditional-put (SPEC-051) is what makes
+# allows). Serial *intake* + the registry conditional-put is what makes
 # duplicate names impossible; see the sqs.tf header.
 #
 # Role boundary: this PIPE role only needs states:StartExecution (+ SQS consume) —
 # it starts the execution but does NOT run it. The state machine then runs under the
 # ORCHESTRATOR role (stepfunction.tf role_arn), which is what holds lambda:InvokeFunction
-# and the Glue/LF/S3/Cognito grants used once SPEC-051+ fill in the action bodies.
+# and the Glue/LF/S3/Cognito grants the action bodies use.
 
 resource "aws_pipes_pipe" "requests" {
   name     = local.pipe_name

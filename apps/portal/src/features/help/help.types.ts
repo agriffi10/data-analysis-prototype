@@ -1,5 +1,5 @@
 /**
- * Types for the static Help & guides content (SPEC-074). All UI-local — nothing
+ * Types for the static Help & guides content. All UI-local — nothing
  * outside `features/help/` consumes them, so they live here rather than in
  * `src/types/`. There is no runtime/user data: the content ships in the bundle.
  */
@@ -7,10 +7,10 @@
 /** Which feature glyph a section/card renders (maps to an icon in `helpIcons`). */
 export type HelpIconName = 'files' | 'query' | 'tables' | 'explore' | 'connections' | 'notifications';
 
-/** Stable section id — also the URL hash (FR-003), e.g. `/help#query`. */
+/** Stable section id — also the URL hash, e.g. `/help#query`. */
 export type HelpSectionId = 'files' | 'query' | 'tables' | 'data-explorer' | 'shared-connections' | 'notifications';
 
-/** An accent "Tip" or a danger "Careful" note; a guide renders at most one (FR-004). */
+/** An accent "Tip" or a danger "Careful" note; a guide renders at most one. */
 export type HelpCallout = {kind: 'tip'; text: string} | {kind: 'warning'; text: string};
 
 /** A single how-to guide — one task the user can perform. */
@@ -38,6 +38,6 @@ export type HelpSection = {
   /** `PageLayout` subtitle for the section. */
   subtitle: string;
   icon: HelpIconName;
-  /** The section's guides; the count drives the sidebar badge (FR-003). */
+  /** The section's guides; the count drives the sidebar badge. */
   guides: HelpGuide[];
 };

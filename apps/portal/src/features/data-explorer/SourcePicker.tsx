@@ -18,11 +18,11 @@ export type SourcePickerProps = {
 };
 
 /**
- * Pick what to explore: a space on the left, its tables and views on the right (FR-005).
+ * Pick what to explore: a space on the left, its tables and views on the right.
  *
  * **There is no database step**, and its absence is a decision rather than an omission: a
  * space maps to exactly one Glue database here (see `spaceDatabase`), so a database control
- * would offer one option — the one-option control SPEC-163 declined to render for the share
+ * would offer one option — the one-option control the gating rule declines to render for the share
  * dialog's recipient kind. The database is shown, beside the space it belongs to.
  *
  * Views are offered alongside tables. A view is a perfectly good thing to explore and the
@@ -37,8 +37,8 @@ export function SourcePicker({spaces, username, onChoose, onCancel}: SourcePicke
   const database = selected ? spaceDatabase(selected, username) : null;
   const {data, isPending, isError} = useSchema(database);
 
-  // FR-005 AC6: no usable space is a state that explains itself. Rendering an empty picker
-  // would leave a user clicking at nothing with no idea whose fault it is (SPEC-167).
+  // no usable space is a state that explains itself. Rendering an empty picker
+  // would leave a user clicking at nothing with no idea whose fault it is.
   if (spaces.length === 0) {
     return (
       <section

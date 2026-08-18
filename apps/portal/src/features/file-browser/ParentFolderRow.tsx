@@ -7,18 +7,18 @@ type Props = {
   selectable: boolean;
   /**
    * Presentation: `grid` (default) = the ≥ tablet table row; `mobile` = the 56px
-   * two-line card-list row (SPEC-099 FR-007). Placed in the matching markup.
+   * two-line card-list row. Placed in the matching markup.
    */
   variant?: 'grid' | 'mobile';
 };
 
-// SPEC-098: the `..` parent-folder row — the first listing row when not at the
+// The `..` parent-folder row — the first listing row when not at the
 // space root. Navigation, not an item: no checkbox (an empty spacer keeps column
 // alignment), no type pill, no Details button, and excluded from selection (it's
 // never added to the select-all set). The whole row is a button, so it's
 // keyboard-focusable and Enter/Space-activatable. The `grid` variant's column
 // widths mirror FileBrowser's COL_* constants; the `mobile` variant is a 56px
-// two-line row (SPEC-099).
+// two-line row.
 export function ParentFolderRow({onNavigateUp, selectable, variant = 'grid'}: Props) {
   if (variant === 'mobile') {
     return (

@@ -15,7 +15,7 @@ type HelpGuideCardProps = {
  * One accordion guide card: a header button (feature icon + title + subtitle
  * beneath + chevron) toggling an ordered, numbered step list and an optional
  * single Tip/Careful callout. Cards are independent — open state is local
- * (FR-004). `aria-expanded`/`aria-controls` wire the header to its panel (FR-006).
+ * `aria-expanded`/`aria-controls` wire the header to its panel
  *
  * @example
  * <HelpGuideCard guide={guide} iconName="files" defaultOpen />

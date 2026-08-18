@@ -15,9 +15,9 @@ import type {SaveQueryRequest} from './SaveQueryDialog';
 /**
  * What is being saved: the body, and the file it would replace in place.
  *
- * SPEC-177 FR-002 — this was the Query workspace's `QueryTab`, which is a shape no other
+ * this was the Query workspace's `QueryTab`, which is a shape no other
  * caller can produce. Two fields is what the flow actually reads, so the collision-and-
- * confirm path SPEC-175 spent a spec getting right is reusable rather than reimplemented.
+ * confirm path the Query workspace got right is reusable rather than reimplemented.
  */
 export type SaveQueryPayload = {
   /** The buffer written to the `.sql` object. */
@@ -30,7 +30,7 @@ export type SaveQueryPayload = {
 export type SaveQueryCollision = {space: QuerySpace; name: string};
 
 export type UseSaveQueryResult = {
-  /** The destinations the dialog offers, personal first. Empty drives FR-007's banner. */
+  /** The destinations the dialog offers, personal first. Empty drives the banner. */
   spaces: QuerySpace[];
   /** The payload's link, if any — what an unchanged re-save replaces. */
   linked: SavedQueryLink | undefined;
@@ -68,7 +68,7 @@ type Params = {
 
 /**
  * The whole save path for a saved query: the prompt, the destination, the write, the
- * collision round-trip and the toast (SPEC-175).
+ * collision round-trip and the toast.
  *
  * EVERY save prompts — a linked buffer's included — so there is exactly one way a `.sql`
  * file is written and it always passes through the dialog. The one thing a linked
@@ -94,7 +94,7 @@ export function useSaveQuery({spaces, defaultSpace, payload, onSaved, toast}: Pa
   const [pending, setPending] = useState<SaveQueryRequest | null>(null);
 
   const linked = payload.link;
-  // FR-001: a linked buffer opens on ITS OWN space, even when the remembered one differs;
+  // a linked buffer opens on ITS OWN space, even when the remembered one differs;
   // a link whose space is no longer offered (membership revoked) falls back through the
   // remembered one to personal, exactly as `useSavedQuerySpace` does for a stored id.
   const linkedSpace = linked ? (spaces.find((s) => s.id === linked.spaceId) ?? null) : null;
@@ -105,7 +105,7 @@ export function useSaveQuery({spaces, defaultSpace, payload, onSaved, toast}: Pa
 
     const nameError = validateSavedQueryName(name);
     if (nameError) {
-      // FR-002 AC3: the message, the dialog still open, and NO request — the dialog
+      // The message, the dialog still open, and NO request — the dialog
       // validates on submit too, so this is the guard for every other caller.
       setError(nameError);
       setOpen(true);
@@ -136,7 +136,7 @@ export function useSaveQuery({spaces, defaultSpace, payload, onSaved, toast}: Pa
         }
         // Clear the confirm too: it was raised by the FIRST attempt's collision, and
         // leaving it up after the replace itself failed offers a retry of a step that has
-        // already happened. FR-006: the dialog stays open with the name and the space the
+        // already happened. The dialog stays open with the name and the space the
         // user chose, so another destination is one control away.
         setCollision(null);
         setOpen(true);
@@ -172,8 +172,8 @@ export function useSaveQuery({spaces, defaultSpace, payload, onSaved, toast}: Pa
     collision,
     initialName: pending?.name ?? linked?.name ?? '',
     initialSpace: pending?.space ?? linkedSpace ?? defaultSpace,
-    // FR-004: the in-place re-save writes through, because the file it replaces is the one
-    // the user is looking at the name of. Any other key takes FR-003's HEAD-and-confirm.
+    // The in-place re-save writes through, because the file it replaces is the one
+    // the user is looking at the name of. Any other key takes the HEAD-and-confirm.
     save: (request) => write(request, isLinkedSavedQuery(linked, request.space, request.name)),
     confirmReplace: () => {
       if (collision) write({space: collision.space, name: collision.name}, true);

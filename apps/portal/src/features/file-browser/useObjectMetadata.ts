@@ -11,7 +11,7 @@ export type UseObjectMetadataResult = {
   error: unknown;
 };
 
-// SPEC-017 FR-002: fetch a single object's HeadObject metadata via TanStack
+// Fetch a single object's HeadObject metadata via TanStack
 // Query, keyed per object so each file caches independently. Pass `key: null`
 // to disable the query (no file selected) — the panel only mounts this hook
 // when a file's Details action is open, so a failed fetch refetches on reopen

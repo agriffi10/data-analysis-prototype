@@ -6,7 +6,7 @@ import {EditorLayoutControl} from './EditorLayoutControl';
 import {FeatureGate} from '../feature-flags';
 import type {EditorLayoutPreset} from './query.constants';
 
-// SPEC-100 FR-003: the editor toolbar is icon-only in the tablet band so its
+// The editor toolbar is icon-only in the tablet band so its
 // actions fit the narrower main column; each button keeps its `aria-label`.
 const TOOLBAR_LABEL = 'hidden desktop:inline';
 
@@ -17,7 +17,7 @@ type Props = {
   isInFlight: boolean;
   canRun: boolean;
   canClear: boolean;
-  /** Gates Save query and Create view alike: FR-001 disables them only when the buffer is empty. */
+  /** Gates Save query and Create view alike: both are disabled only when the buffer is empty. */
   canSave: boolean;
   onClear: () => void;
   onSave: () => void;
@@ -28,8 +28,8 @@ type Props = {
 };
 
 /**
- * The editor toolbar: the SPEC-079 layout preset on the left, then Clear, Save
- * and Create view, and the SPEC-078 run split button — which is replaced by a
+ * The editor toolbar: the layout preset on the left, then Clear, Save
+ * and Create view, and the run split button — which is replaced by a
  * single Stop while a batch is in flight.
  */
 export function QueryToolbar({
@@ -69,7 +69,7 @@ export function QueryToolbar({
         <SaveIcon />
         <span className={TOOLBAR_LABEL}>Save</span>
       </Button>
-      {/* SPEC-163: registered under the `query` flag, which already removes this whole
+      {/* registered under the `query` flag, which already removes this whole
           route — the row exists so a future surface inherits the gate, not the bug. */}
       <FeatureGate flag="query">
         <Button
@@ -105,7 +105,7 @@ export function QueryToolbar({
           <span className={TOOLBAR_LABEL}>Stop</span>
         </Button>
       ) : (
-        // SPEC-078 FR-005: three distinct run scopes as a split button.
+        // Three distinct run scopes as a split button.
         // Run Statement stays the primary action (⌘⏎); the two whole-script
         // scopes — which differ only in how results are shown — live in an
         // attached dropdown so the toolbar stays compact.

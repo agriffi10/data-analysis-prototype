@@ -6,7 +6,7 @@ type Props = {
 };
 
 /**
- * The refusal `openTab` returns as `null`, said out loud (FR-008 AC2).
+ * The refusal `openTab` returns as `null`, said out loud.
  *
  * Dismiss-only: nothing was opened and there is nothing to confirm. It exists because the
  * `+` stays enabled at the cap — a disabled control would leave the user guessing, where

@@ -11,7 +11,7 @@ definition is worse than no table: the recipient would query a dataset silently 
 
 **The sender is notified from here, and only for a copy failure.** Every other per-recipient
 failure notifies from the failing verb's own decorator; a copy failure has no such verb since
-SPEC-160, because the batch that failed spans several recipients and succeeds anyway.
+The batch that failed spans several recipients and succeeds anyway.
 
 The service name is the control plane, not the function, so one share's invocations and its
 Map fan-out stay one queryable set. The per-verb identity rides as the ``verb`` field.

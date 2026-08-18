@@ -28,16 +28,16 @@ export function isArchiveId(value: string): boolean {
 }
 
 /**
- * Dialog + enqueue state for Archive (SPEC-172 FR-002).
+ * Dialog + enqueue state for Archive.
  *
  * `open(items)` targets a selection or a single item; `submit()` enqueues via `enqueueArchive` —
  * on success the dialog closes and `notify` gets a transient toast, and on failure the dialog
- * stays open with `error` set and the selection intact (FR-002).
+ * stays open with `error` set and the selection intact.
  *
  * THE REQUEST ID IS MINTED PER SUBMIT, not per open, and here it is doing two jobs: it is the
  * queue's `MessageDeduplicationId` and it becomes the archive's permanent identity. Keeping one
  * id across a failed attempt would make the queue swallow the retry — the user sees an error,
- * presses the button again, and nothing at all happens (SPEC-167's recorded finding). The trade
+ * presses the button again, and nothing at all happens. The trade
  * is a submit whose response was lost being retried as a new request; the plane refuses that as
  * `request_id_reused` only if the first one actually got far enough to write, and otherwise it
  * is simply a second archive.
@@ -67,7 +67,7 @@ export function useArchive(space: ArchiveSpace | null, notify: (toast: ArchiveTo
    * THE RETURN VALUE IS LOAD-BEARING: the caller clears the selection and invalidates the
    * listing only after a successful enqueue, and reading `error` from the enclosing render to
    * decide would read the value from BEFORE the submit — clearing the selection under a dialog
-   * whose retry then has nothing to archive (SPEC-167's journey test caught exactly that).
+   * whose retry then has nothing to archive (the journey test caught exactly that).
    */
   const submit = async (): Promise<boolean> => {
     if (!items || !space || inFlight.current) return false;
@@ -109,14 +109,14 @@ export function useArchive(space: ArchiveSpace | null, notify: (toast: ArchiveTo
 }
 
 /**
- * Dialog + enqueue state for Restore Archived Data (SPEC-172 FR-003).
+ * Dialog + enqueue state for Restore Archived Data.
  *
  * Beside `useArchive` rather than in its own file because the two are one plane's two modes and
  * share every rule that matters here — the per-submit request id, the in-flight ref, the busy
  * lock, and "success means enqueued". What differs is the shape of what is submitted, and that
  * is the whole of the difference.
  *
- * `requestId` and `archiveId` are DIFFERENT values (SPEC-170 FR-001): this run's id, and the
+ * `requestId` and `archiveId` are DIFFERENT values: this run's id, and the
  * archive it names. A refused restore must be re-submittable, so the run id is minted per submit
  * exactly as the archive's is.
  */

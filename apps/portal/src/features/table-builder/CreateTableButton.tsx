@@ -8,19 +8,19 @@ import {enqueueTableBuild} from './tableBuild.service';
 import type {PartitionKey} from './tableBuild.types';
 
 type Props = {
-  // The active space (SPEC-057) the current folder belongs to, plus the folder key.
+  // The active space the current folder belongs to, plus the folder key.
   spaceKind: 'personal' | 'shared';
   bucket: string;
   database: string; // username (personal) | shared-space name
   prefix: string; // the current folder key (within the space)
 };
 
-// SPEC-071 FR-001/004: the file-browser toolbar action. Opens the name/partition
+// The file-browser toolbar action. Opens the name/partition
 // prompt and, on confirm, ENQUEUES a create-table request for the current folder in
 // the space's database (the browser never creates the table). Eligibility is
-// enforced server-side (SPEC-067/068), so the button is available at any folder; a
+// enforced server-side, so the button is available at any folder; a
 // bad case comes back as a notification, not a pre-flight block. Async: a success
-// toast confirms submission and the outcome arrives via notifications (SPEC-072).
+// toast confirms submission and the outcome arrives via notifications.
 export function CreateTableButton({spaceKind, bucket, database, prefix}: Props) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -51,7 +51,7 @@ export function CreateTableButton({spaceKind, bucket, database, prefix}: Props) 
         message: `Creating table “${tableName}”… you’ll be notified when it’s ready.`
       });
     } else {
-      // Keep the dialog open so the user can retry (FR-004 — no silent failure).
+      // Keep the dialog open so the user can retry ( — no silent failure).
       setSubmitError(toUserText(result.error));
     }
   };

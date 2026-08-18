@@ -12,7 +12,7 @@ export type ExplorationRecordViewProps = {
   rowIndex: number;
   /** 1-based row number of the first row on this page, for the label. */
   rangeStart: number;
-  /** Resolved colours per row, per column name (SPEC-184). Banding is a grid affordance. */
+  /** Resolved colours per row, per column name. Banding is a grid affordance. */
   formats: Record<string, CellFormat>[];
   /** Transformed renderings per row, per column name — the same ones the grid shows. */
   transformed: Record<string, TransformedValue>[];
@@ -22,10 +22,10 @@ export type ExplorationRecordViewProps = {
 };
 
 /**
- * One row, transposed: a line per column, name beside value (SPEC-180 FR-004).
+ * One row, transposed: a line per column, name beside value.
  *
  * The natural way to read a wide row, and below `tablet` the natural way to read any row —
- * which is why FR-007 opens there rather than shipping a horizontally-scrolling grid onto
+ * which is why this view is the default there rather than shipping a horizontally-scrolling grid onto
  * a 400px screen. Next/Previous walk the loaded page without going back to the grid; the
  * pager below still owns moving between pages.
  */

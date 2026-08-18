@@ -1,4 +1,4 @@
-# ── archive module outputs (SPEC-168) ────────────────────────────────────────
+# ── archive module outputs ────────────────────────────────────────
 # The browser learns the queue URL to enqueue archive requests (sqs:SendMessage granted to
 # the portal role above → VITE_ARCHIVE_QUEUE_URL); the queue ARN scopes that grant; the
 # state-machine ARN is for ops/observability. The execution-role ARN is exported for
@@ -12,7 +12,7 @@ output "archive_queue_url" {
 }
 
 output "archive_queue_arn" {
-  description = "ARN of the FIFO request queue — the portal-role sqs:SendMessage scope (FR-007)."
+  description = "ARN of the FIFO request queue — the portal-role sqs:SendMessage scope."
   value       = aws_sqs_queue.requests.arn
 }
 

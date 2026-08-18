@@ -1,5 +1,5 @@
 /**
- * SQL escaping for queries the BROWSER composes (SPEC-178 FR-004).
+ * SQL escaping for queries the BROWSER composes.
  *
  * These live in `lib/` rather than in a feature because they are language rules, not
  * feature domain — the Data Explorer is the first caller, not the owner.
@@ -23,7 +23,7 @@
  *
  * This is what every value the app quotes ON THE USER'S BEHALF goes through — a filter
  * built from a cell value, a per-column menu choice. It is NOT for the raw expression
- * bar, which is the user's own SQL and passes through verbatim (SPEC-178 FR-005).
+ * bar, which is the user's own SQL and passes through verbatim.
  *
  * @param value - The raw value, straight from data. `O'Brien` is the whole hazard.
  * @returns The quoted, escaped literal, ready to concatenate.
@@ -37,7 +37,7 @@ export function sqlLiteral(value: string): string {
  *
  * Column names go through this and must **not** be checked against
  * `CATALOG_IDENTIFIER_RE`: that rule describes names this app CREATES (a username, a
- * database, a view), and column names are not catalog-safe — SPEC-144 had to record the
+ * database, a view), and column names are not catalog-safe — the refresh had to record the
  * same fact for a different reason. Validating a name and quoting one are different jobs
  * and are not interchangeable.
  *

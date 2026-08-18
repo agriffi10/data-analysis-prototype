@@ -1,6 +1,6 @@
 """poll-restore — the only wait loop in this repo, and the one thing GLACIER makes unavoidable.
 
-SPEC-171 FR-002. Every other control plane here finishes in seconds and reports; this one sits
+Every other control plane here finishes in seconds and reports; this one sits
 between a billed request and a copy that cannot start until S3 has finished, which at the
 ``Standard`` tier is 3-5 hours. So the machine grows ``Wait`` -> this verb -> ``Choice``, and this
 verb answers one question: **is every archived object readable yet.**

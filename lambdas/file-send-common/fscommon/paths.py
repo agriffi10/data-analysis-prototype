@@ -3,14 +3,14 @@
 Containment is the one place on this plane where a bug is a cross-tenant read, so the rule it
 enforces is written as **two independent checks** rather than one, and each has its own test.
 
-**Those two checks moved to ``cpcommon.paths`` with SPEC-168** and are re-exported here, so
-every call site and every test on this plane is unchanged. The move is SPEC-156's rule applied
+**Those two checks moved to ``cpcommon.paths``** and are re-exported here, so
+every call site and every test on this plane is unchanged. The move is the rule applied
 to the third plane that needed the rule: containment is an ALGORITHM, and the archive plane
 asking the identical question would otherwise have been a second copy of it — in the one place
 where a copy that drifts is a cross-tenant read. What stays here is what is genuinely
 file-send's: the inbox layout below.
 
-SPEC-165 added that second half. ``destination_key`` is the ONE builder for every key this plane
+The expansion added that second half. ``destination_key`` is the ONE builder for every key this plane
 writes, and it lives here rather than in a verb because the layout is what a recipient sees
 forever — a verb that concatenated its own would be free to disagree with it, and the
 disagreement would show up as files landing in the wrong inbox rather than as an error. A test
@@ -40,7 +40,7 @@ def item_name(key: str) -> str:
     The last path segment, with a folder's trailing slash removed first — so ``alice/reports/``
     and ``alice/reports`` both name ``reports``, and ``alice/deep/nested/q1.csv`` names
     ``q1.csv``. **This is what makes the destination independent of the sender's own folder
-    depth** (FR-003): a recipient sees what was sent, not where it lived.
+    depth** a recipient sees what was sent, not where it lived.
 
     Args:
       key: The selected item's key, already confirmed inside the authorized root.
@@ -91,7 +91,7 @@ def inbox_prefix(target_root: str, sender: str) -> str:
 
     ``{targetRoot}shared_files/{sender}/`` — everything that sender has ever sent to that
     recipient, and nothing anyone else sent. It is factored out of ``destination_key`` below
-    rather than written twice because SPEC-166's conflict guard needs the prefix without a key:
+    rather than written twice because the conflict guard needs the prefix without a key:
     it asks what item names the inbox ALREADY holds, which is one listing at this prefix rather
     than a probe per selected item. A guard that composed the prefix itself would be the second
     builder the sweep in ``test_paths_fscommon`` exists to forbid.

@@ -25,21 +25,21 @@ import type {ExploreTarget} from './exploreSources';
 const EMPTY_PRESENTATION = emptyExplorationPresentation();
 
 /**
- * The Data Explorer's shell (SPEC-179): the source picker, the tab strip, and one
+ * The Data Explorer's shell: the source picker, the tab strip, and one
  * exploration's rows.
  *
- * The engine is SPEC-178's — this mounts it. The results table below is explicitly a
- * placeholder that SPEC-180 replaces with the real grid.
+ * The engine is the — this mounts it. The results table below is explicitly a
+ * placeholder the real grid replaces.
  *
  * **A denied deep link renders the refusal ALONE**, with no picker and no active
  * exploration: the page must ask nothing of Glue or Athena about a space this user cannot
- * reach, or the route becomes an existence oracle for someone else's catalog (SPEC-113).
+ * reach, or the route becomes an existence oracle for someone else's catalog.
  */
 export function DataExplorerWorkspace() {
   const {user} = useAuth();
   const username = user?.username ?? '';
 
-  // FILTERED AT THE VIEW, never in `useQuerySpaces` and never in a service (SPEC-174's
+  // FILTERED AT THE VIEW, never in `useQuerySpaces` and never in a service (the space selector's
   // precedent): the hook answers "which spaces can this user reach", which is a question
   // about access, and a flag is presentation.
   const sharedEnabled = useFeature('sharedWorkspaces');
@@ -71,7 +71,7 @@ export function DataExplorerWorkspace() {
   // rule the early return below applies to Glue, applied to the bill.
   //
   // A SUSPENDED description is held back for the same reason and by the same means: a
-  // history step onto a statement that already failed must not re-run it (FR-006 AC4),
+  // history step onto a statement that already failed must not re-run it,
   // and "runs nothing" is expressed here, by passing nothing to run.
   const linkUnsettled = resolution.status === 'loading' || denied;
   const exploration = useExploration(
@@ -81,7 +81,7 @@ export function DataExplorerWorkspace() {
   // Glue nothing at all, and this hook reads a database.
   const schemaColumns = useSourceColumns(linkUnsettled ? null : (tabs.activeTab?.exploration.source ?? null));
 
-  // SPEC-185 FR-002: export. The Query workspace's own save path, mounted here — it copies
+  // Export. The Query workspace's own save path, mounted here — it copies
   // the EXECUTION's results object, so what leaves is every row the statement returned
   // rather than the page in the grid, and the copy is server-side (zero executions).
   //
@@ -126,7 +126,7 @@ export function DataExplorerWorkspace() {
 
   // What THIS apply cost, decided at the one moment the answer is knowable: an execution
   // the tab's ledger already holds is one it has already run and already been billed for,
-  // so this gesture scanned nothing (FR-008 AC3).
+  // so this gesture scanned nothing.
   //
   // Read during render rather than in the effect below, and that ordering is the whole
   // point — `recordScan` puts the id in the ledger, after which every execution looks
@@ -151,7 +151,7 @@ export function DataExplorerWorkspace() {
   }, [tabs.activeTab?.id, exploration.queryExecutionId, exploration.cost]);
 
   // A statement that failed is remembered so history never walks back into it unasked
-  // (FR-006 AC4). In memory and per tab — see `useExplorationQuery`.
+  // In memory and per tab — see `useExplorationQuery`.
   useEffect(() => {
     if (exploration.error != null && exploration.sql !== null) queryControls.noteFailure(exploration.sql);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `queryControls` is re-created each render; noteFailure is idempotent per statement.
@@ -198,7 +198,7 @@ export function DataExplorerWorkspace() {
           onClose={tabs.closeTab}
           // A state read is honest for ONE human click — the picker's choice still goes
           // through `openTab`, which is the authority and refuses on its own synchronous
-          // count (SPEC-178). What this buys is the refusal arriving at the gesture that
+          // count. What this buys is the refusal arriving at the gesture that
           // asked for it, rather than one table-click later.
           onNew={() => (tabs.tabs.length >= EXPLORATION_TABS_MAX ? setLimitReached(true) : setPicking(true))}
         />
@@ -221,7 +221,7 @@ export function DataExplorerWorkspace() {
           className="flex min-h-0 flex-1 flex-col">
           <ExplorationResultsRegion
             tabId={tabs.activeTabId}
-            // The statement that RAN, so the disclosure (SPEC-182 FR-005) shows the string
+            // The statement that RAN, so the disclosure shows the string
             // handed to StartQueryExecution rather than a second rendering of it.
             sql={exploration.sql}
             queryExecutionId={exploration.queryExecutionId}
@@ -234,7 +234,7 @@ export function DataExplorerWorkspace() {
             presentation={presentation}
             // Presentation changes land the same way every other exploration edit does —
             // through the tab — so geometry survives paging and tab switches, and is
-            // persisted with the tab it belongs to (FR-001 AC7).
+            // persisted with the tab it belongs to.
             onPresentationChange={(update) =>
               tabs.updateActiveExploration((e) => ({...e, presentation: update(e.presentation)}))
             }
@@ -259,7 +259,7 @@ export function DataExplorerWorkspace() {
         </div>
       )}
 
-      {/* Mounting IS the open state (SPEC-183) — see the dialog's own note. */}
+      {/* Mounting IS the open state — see the dialog's own note. */}
       {saving && (
         <SaveExplorationDialog
           sql={saving.sql}
@@ -274,7 +274,7 @@ export function DataExplorerWorkspace() {
               name: query.name
             });
             // ONE memory of "the space I am working in", written on every success — the
-            // same rule SPEC-175 settled for the Query workspace, and the same storage key.
+            // same rule the Query workspace settles, and the same storage key.
             savedSpace.selectSpace(query.spaceId);
             setSaving(null);
           }}

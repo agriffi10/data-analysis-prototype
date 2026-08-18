@@ -15,11 +15,11 @@ queryable set. The per-verb identity rides as the ``verb`` field.
 
 Attributes:
   _ALLOWED_FIELDS: The complete set of top-level request fields. Unknown fields are REJECTED
-    rather than ignored (FR-002): a field the producer thinks it is sending and this verb
+    rather than ignored: a field the producer thinks it is sending and this verb
     silently drops is a contract break that shows up as behaviour nobody asked for, and the
     cheapest moment to catch a renamed field is the first one.
   _ITEM_KINDS: The two selection kinds a request may carry. A ``folder`` key is normalised to a
-    trailing slash before any rule runs: SPEC-165 expands a folder with a prefix listing, so
+    trailing slash before any rule runs: the expansion walks a folder with a prefix listing, so
     ``alice/athenaresult`` without one would match ``alice/athenaresults/`` and carry the query
     results out through a door the results rule never sees.
   _MAX_RECIPIENT_NAME: Cognito's own limit on a username. A longer name is not "no such user" —
@@ -59,10 +59,10 @@ def _check_contract(req) -> None:
     """Fails the request if its top-level shape is not the one this contract defines.
 
     Both directions, because only one of them is obvious. Unknown fields are REJECTED rather
-    than ignored (FR-002) — a field the producer thinks it is sending and this verb silently
+    than ignored — a field the producer thinks it is sending and this verb silently
     drops is a contract break that surfaces as behaviour nobody asked for. And the required
     fields are type-checked, which the rejection does not imply: an absent ``requestId``
-    would flow through as ``None`` and a non-string one would flow through whole, and SPEC-166
+    would flow through as ``None`` and a non-string one would flow through whole, and the transfer
     makes that value part of an execution-unique manifest key.
 
     Args:
@@ -215,7 +215,7 @@ def _annotate_recipients(recipients) -> list:
     access question was about the source.
 
     The username directory is deliberately NOT consulted: it is advisory and never an
-    authorization input (SPEC-146), so existence stays ``admin_get_user``.
+    authorization input, so existence stays ``admin_get_user``.
 
     Args:
       recipients: The normalised recipients.
@@ -267,7 +267,7 @@ def _validate_and_authorize(event) -> dict:
 
     The actor comes from the verified token in the envelope, never from a body username — the
     token is the top-level ``actor`` field, the same flat shape every plane's envelope uses and
-    the one SPEC-126's drain and its redaction both depend on. From the point the sender is
+    the one the drain and its redaction both depend on. From the point the sender is
     known, a whole-request rejection notifies them before the Catch records it; pre-verification
     failures have no trusted recipient and stay notification-free.
 

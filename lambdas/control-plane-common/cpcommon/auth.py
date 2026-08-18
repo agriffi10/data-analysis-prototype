@@ -7,7 +7,7 @@ eventually have been made in one.
 The claim was not true when it was written: ``notifications-writer`` was a fourth copy, and
 not by oversight — this module reaches ``config``, which required six environment variables
 at import, and that function sets three of them. The blocker was the cause of the duplication,
-so SPEC-156 FR-004 removed the blocker (``config`` resolves on first access) and the copy
+so that blocker is gone (``config`` resolves on first access) and the copy
 with it. A parity run over nine token shapes preceded the deletion.
 
 The layering exists because the callers disagree about exceptions, not about verification:

@@ -13,7 +13,7 @@ type Props = {
 
 /**
  * A {@link Banner} that renders user-safe error text mapped through
- * {@link toUserMessage} (SPEC-106 FR-003) — never the raw `.message`. Use for
+ * {@link toUserMessage} — never the raw `.message`. Use for
  * danger/error banners so wording stays consistent with toasts and inline surfaces.
  *
  * @example

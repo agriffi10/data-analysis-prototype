@@ -1,4 +1,4 @@
-# The scheduled log sweep (SPEC-127 FR-004).
+# The scheduled log sweep.
 #
 # Terraform owns the function and a placeholder zip; CI deploys the real code and attaches the
 # cpcommon layer. `ignore_changes` keeps `tofu apply` from reverting CI's deployed code.
@@ -28,7 +28,7 @@ resource "aws_lambda_function" "sweep" {
   # the next one fires) and below the queue's 360s visibility timeout (so in-flight messages
   # cannot become visible to the next sweep and be written to S3 twice).
   timeout = 300
-  # 512 MB, not 256: SPEC-129 made each sweep read the day's whole object back before appending
+  # 512 MB, not 256: each sweep reads the day's whole object back before appending
   # to it (S3 has no append), so peak memory now tracks a day's log volume rather than one
   # batch. LARGE_OBJECT_WARN_BYTES in the handler warns long before this becomes the binding
   # limit.
@@ -40,8 +40,8 @@ resource "aws_lambda_function" "sweep" {
       ENV_NAME       = var.environment
 
       # ADMIN_BUCKET is genuinely used (the sweep writes under logs/); the rest are the
-      # cpcommon layer's required union. SPEC-156 FR-004 moved that requirement from import to
-      # FIRST READ, so omitting one no longer crashes this function at COLD START (PR #196) —
+      # cpcommon layer's required union. That requirement moved from import to
+      # FIRST READ, so omitting one no longer crashes this function at COLD START —
       # it fails on whichever branch reads it. Still set them; the union is what any code path
       # in the layer may demand.
       ADMIN_BUCKET          = var.admin_bucket_name
@@ -80,7 +80,7 @@ resource "aws_lambda_function" "sweep" {
 # running when the next one fires — with 600s there is now twice the headroom there was at 5.
 resource "aws_cloudwatch_event_rule" "sweep" {
   name                = local.schedule_name
-  description         = "Fires the SPEC-127 structured-logging sweep every 10 minutes."
+  description         = "Fires the structured-logging sweep every 10 minutes."
   schedule_expression = "rate(10 minutes)"
 }
 
@@ -90,7 +90,7 @@ resource "aws_cloudwatch_event_target" "sweep" {
 }
 
 # No invoke role is needed — EventBridge invokes Lambda through a resource policy on the
-# function, scoped to this rule's ARN. Same mechanism as SPEC-126's sweep.
+# function, scoped to this rule's ARN. Same mechanism as the sweep.
 resource "aws_lambda_permission" "sweep" {
   statement_id  = "AllowExecutionFromEventBridge"
   action        = "lambda:InvokeFunction"

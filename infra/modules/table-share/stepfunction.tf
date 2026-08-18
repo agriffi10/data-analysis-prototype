@@ -1,10 +1,10 @@
-# ── Table-share Step Function (SPEC-088 FR-001) ──────────────────────────────
+# ── Table-share Step Function ──────────────────────────────
 # Standard state machine — validate-authorize → inspect-source once per request,
 # then a Map over $.recipients running check-target-absent → copy-objects →
 # create-table PER RECIPIENT with a per-item Catch (one recipient's failure never
 # aborts its siblings — docs/architecture.md Control Planes -> Table Share). The per-step bodies
 # are STUBS here (pass-through) — the real logic + the structured recorded-failure
-# outcomes land in SPEC-089→092.
+# outcomes land with the verbs.
 #
 # The state machine runs under its OWN role (iam.tf, sfn-permissions: InvokeFunction
 # on the five verbs + log delivery); the verb Lambdas run under the ONE shared
@@ -30,10 +30,10 @@ resource "aws_sfn_state_machine" "table_share" {
     collect_transfer_results_function_arn = aws_lambda_function.functions["collect-transfer-results"].arn
     create_table_function_arn             = aws_lambda_function.functions["create-table"].arn
     notify_failure_function_arn           = aws_lambda_function.functions["notify-failure"].arn
-    # SPEC-160 FR-002 — mirrored in cpcommon/transfer/config.py; a test holds the two together.
+    # Mirrored in cpcommon/transfer/config.py; a test holds the two together.
     transfer_max_items_per_batch = local.transfer_max_items_per_batch
     transfer_map_max_concurrency = local.transfer_map_max_concurrency
-    # SPEC-161 FR-003 — a TOP-LEVEL ASL field. See the local for the arithmetic.
+    # a TOP-LEVEL ASL field. See the local for the arithmetic.
     state_machine_timeout_seconds = local.state_machine_timeout_seconds
   })
 
@@ -49,11 +49,11 @@ resource "aws_sfn_state_machine" "table_share" {
   ]
 }
 
-# ── SPEC-161 FR-003 AC2: the timed-out run's only route to a notification ─────
+# ── The timed-out run's only route to a notification ─────
 # A top-level TimeoutSeconds expiry terminates the execution OUTRIGHT. Step Functions catchers
 # cover Task, Parallel and Map states but NOT top-level execution failures, so the machine's own
 # RecordFailure -> NotifyFailure path is unreachable on this one failure and the sender would be
-# told nothing at all — the exact silence SPEC-152 exists to close. Listening for TIMED_OUT on an
+# told nothing at all — the exact silence the failure path exists to close. Listening for TIMED_OUT on an
 # EventBridge bus is the documented remedy, and this is it.
 #
 # TIMED_OUT ONLY, never FAILED. Every other whole-request failure already reaches NotifyFailure

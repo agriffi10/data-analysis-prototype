@@ -1,4 +1,4 @@
-# ── Control-plane IAM roles (SPEC-108) ───────────────────────────────────────
+# ── Control-plane IAM roles ─────────────────────────────────────────────────────────────────
 # ONE shared execution role for all nine verb Lambdas (matching table-builder and
 # table-share), plus the Step Function role and the Pipe role. Trust + permission
 # policies are .tftpl templates rendered with templatefile() (no inline jsonencode IAM,
@@ -6,26 +6,25 @@
 #
 # The execution policy is STAGED — each grant lands in the spec that first needs it, so
 # the blast radius grows only with a reviewed reason:
-#   - logs                                                → SPEC-108
+#   - logs
 #   - S3 (source read; registry read; report read+write)
-#     + the protected-object Deny                         → SPEC-109
-#   - Glue / Athena / Lake Formation admin                → SPEC-111
-#   - sqs:SendMessage on the NOTIFICATIONS queue only     → SPEC-114 (here)
+#     + the protected-object Deny
+#   - Glue / Athena / Lake Formation admin
+#   - sqs:SendMessage on the NOTIFICATIONS queue only
 #
-# The SPEC-114 grant is one action on one queue ARN — the outcome notification is the
+# The notification grant is one action on one queue ARN — the outcome notification is the
 # arc's only write outside its own report prefix. Scoped to the notifications queue and
 # nothing else: not the data-quality request queue (the browser enqueues there, and a verb
 # that could re-enqueue its own work is a loop), and not the DLQ.
 #
-# THE ZERO-CATALOG-ACCESS PROPERTY IS DELIBERATELY SURRENDERED HERE (SPEC-111 FR-006,
-# architecture.md, Control Planes -> Data Quality) — this is a decision, not drift, and it is the
-# largest privilege the arc spends. Up to SPEC-110 this role could not touch the Glue
-# catalog at all. It now can, because the pipeline's whole design is "let Athena read the
+# THE ZERO-CATALOG-ACCESS PROPERTY IS DELIBERATELY SURRENDERED HERE
+# (architecture.md, Control Planes -> Data Quality) — this is a decision, not drift, and it is the
+# largest privilege this plane spends. The role holds Glue catalog access because the pipeline's whole design is "let Athena read the
 # 250 GB, not a Lambda", and Athena reads through a Glue external table. The temp tables
 # are created in the ACTOR'S OWN database (personal) or the shared space's (shared) —
 # both DYNAMIC, one per user and one per space — so they cannot be statically LF-granted
 # in Terraform, which is why the role is an LF ADMIN rather than a grantee. Identical
-# reasoning to SPEC-070's table-builder execute-ddl role and SPEC-092's table-share role.
+# reasoning to the table-builder execute-ddl role and the table-share role.
 #
 # What still bounds it: glue is CreateTable/GetTable/DeleteTable/GetDatabase only — no
 # DeleteDatabase, no catalog-wide data grant beyond lakeformation:GetDataAccess (which is
@@ -40,7 +39,7 @@
 #      its cleanup was an authenticated cross-user file-delete primitive.)
 #   2. The explicit Deny on s3:PutObject to */user_settings/* and */DO_NOT_DELETE.txt.
 #
-# WHY THAT DENY IS NOT OPTIONAL (SPEC-109 FR-006): the user-space policy denies
+# WHY THAT DENY IS NOT OPTIONAL: the user-space policy denies
 # s3:DeleteObject on user_settings/* (analytics/policies/portal-role-analytics.json.tftpl)
 # but leaves s3:PutObject WIDE OPEN. So any role that can write in a user's space can
 # overwrite user_settings/notifications.json and PERMANENTLY DESTROY the notification
@@ -49,7 +48,7 @@
 # destination validation is defence in depth. Shape copied from
 # table-share/policies/execution.json.tftpl's cross-bucket deny.
 #
-# Note ReadWriteReports grants GetObject as well as PutObject: assemble-report (SPEC-112)
+# Note ReadWriteReports grants GetObject as well as PutObject: assemble-report
 # READS BACK the intermediate results it wrote, so a write-only grant would fail at the
 # very last verb, after all the work was done.
 
@@ -77,9 +76,9 @@ resource "aws_iam_role_policy" "execution" {
   })
 }
 
-# ── Portal role — data-quality enqueue policy (SPEC-109 FR-003) ──────────────
+# ── Portal role — data-quality enqueue policy ──────────────
 # The browser's ONLY data-quality privilege: sqs:SendMessage to the request queue. A small
-# inline policy on the shared portal role (SPEC-011), attached BY NAME like the other
+# inline policy on the shared portal role, attached BY NAME like the other
 # control planes do (the role is created in module.data; the root module-level depends_on
 # guarantees it exists first). No Lambda invoke, no DLQ, no Step Function — just enqueue.
 resource "aws_iam_role_policy" "portal_data_quality" {

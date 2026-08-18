@@ -22,12 +22,12 @@ import, the failure below raises a validation error in any process that has not 
 imported it — true of a process importing only this module, and the same class of import-order
 trap that once shipped three unraisable reason codes.
 
-This module also owns the transfer manifest's KEY LAYOUT (SPEC-160). The manifest's bytes and
+This module also owns the transfer manifest's KEY LAYOUT. The manifest's bytes and
 its reader belong to ``cpcommon.transfer`` — the engine is shared with the file-send and
 archive planes — but where table-share puts it, and what makes that key unique, is this
 plane's business and belongs beside the plan it sits next to.
 
-SPEC-161 added the third artifact, the cloned table DEFINITION, on the same pointer discipline
+The third artifact is the cloned table DEFINITION, on the same pointer discipline
 and for the same reason the plan is here: it rode inline on the Map's state, it is
 user-controlled, and a wide table pushed it past the payload limit. One module owns every
 admin-bucket key this plane writes, so the request digest has one home rather than three.
@@ -144,7 +144,7 @@ def plan_key(request: dict) -> str:
     listings, where the earlier execution would copy the later snapshot. Nothing here silently
     mixes two different sources, because the digest covers the database and table. Making it
     airtight would take an execution-unique salt threaded through the state, which costs an ASL
-    payload-shape change the bounded exposure did not justify. SPEC-160 pays that cost for the
+    payload-shape change the bounded exposure did not justify. The Distributed Map pays that cost for the
     transfer manifest, where the argument above does NOT carry — see
     ``transfer_manifest_key``. The plan is deliberately left as it was.
 

@@ -3,7 +3,7 @@
 The Distributed Map fans out over ``(recipient x object)`` pairs, so per-recipient isolation
 stops being a property of a Map item and becomes this verb's job: read the run's exported
 results, attribute every failed item to its recipient, and emit the one flat per-recipient list
-the terminal summary — and SPEC-167's notifications — are built from.
+the terminal summary — and the notifications — are built from.
 
 **Both halves of the export are read, and that is the thing about it that surprises.** Step
 Functions files a child execution by its STATUS, not by what its payload says, and the batch
@@ -22,7 +22,7 @@ failed-key list is the unbounded term that breaches the 256 KB payload limit —
 error lands ON the Map and destroys every per-recipient outcome it exists to preserve.
 
 It notifies nobody: every per-recipient outcome is told to the sender once, from the terminal
-summary, by SPEC-167's producer.
+summary, by the producer.
 
 The service name is the control plane, not the function, so one send's invocations and its Map
 fan-out stay one queryable set. The per-verb identity rides as the ``verb`` field.
@@ -198,7 +198,7 @@ def _item_names(event) -> list:
 
     Here rather than in a Pass state because ASL cannot map keys to their last segment, and here
     rather than upstream because this is the LAST state holding the selection they come from —
-    ShapeSummary drops it, and SPEC-167's notification names them to both parties.
+    ShapeSummary drops it, and the notification names them to both parties.
 
     Args:
       event: The request, carrying the authorized source and its normalised items.

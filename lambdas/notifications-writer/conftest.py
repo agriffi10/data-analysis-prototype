@@ -2,7 +2,7 @@
 
 ``test_notifications_writer.py`` fakes ``verified_username`` and the bucket name on the module
 and does not restore them — harmless while it was the only file here, and it runs as a plain
-script too, so a pytest fixture is not available to it. SPEC-156 added
+script too, so a pytest fixture is not available to it. The config gained
 ``test_verifier_parity.py``, which exercises the REAL verifier, and the stale fake made it pass
 or fail on collection order.
 

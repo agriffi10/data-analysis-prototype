@@ -14,24 +14,24 @@ import {normalizeColumnType} from './catalog.format';
 import type {QueryColumn, QueryResultPage, QueryState, QueryStatus} from './catalog.types';
 
 // The caller's own protected results prefix. The app supplies this OutputLocation
-// per query, but it is enforced server-side: IAM (SPEC-032 FR-006) restricts
+// per query, but it is enforced server-side: IAM restricts
 // writes to `{username}/athenaresults/*` and explicitly DENIES delete there, so a
 // query pointed at another user's prefix is denied. The workgroup deliberately
-// does not enforce a fixed output location (SPEC-032).
+// does not enforce a fixed output location.
 function outputLocation(username: string): string {
   return `s3://${userSpaceBucket()}/${username}/athenaresults/`;
 }
 
-// Athena terminal execution states — polling stops once one is reached (FR-003).
+// Athena terminal execution states — polling stops once one is reached.
 const TERMINAL_STATES: ReadonlySet<QueryState> = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED']);
 
-/** Whether an Athena execution state is terminal — polling stops once reached (FR-003). */
+/** Whether an Athena execution state is terminal — polling stops once reached. */
 export function isTerminalState(state: QueryState): boolean {
   return TERMINAL_STATES.has(state);
 }
 
 /**
- * Start an Athena query for the signed-in user (FR-002). The same path runs both
+ * Start an Athena query for the signed-in user. The same path runs both
  * `SELECT` and DDL (`CREATE TABLE`, `DROP TABLE`, CTAS, `INSERT`) — it does not inspect
  * the query type. Results always land in the caller's own `{username}/athenaresults/`
  * prefix (the IAM-enforced isolation boundary).
@@ -39,12 +39,12 @@ export function isTerminalState(state: QueryState): boolean {
 export async function runQuery(p: {
   sql: string;
   username: string;
-  // SPEC-077: no execution database context by default — every base table must be
+  // no execution database context by default — every base table must be
   // fully-qualified `database.table`. `database` is optional and, when omitted (the
   // default), `QueryExecutionContext.Database` is not sent at all.
   database?: string;
-  // SPEC-055: where results land. Omitted → the personal prefix (SPEC-034); a shared
-  // path is chosen explicitly at Save time (SPEC-049/055), no longer per run.
+  // Where results land. Omitted → the personal prefix; a shared
+  // path is chosen explicitly at Save time, no longer per run.
   outputLocation?: string;
 }): Promise<ServiceResult<{queryExecutionId: string}>> {
   const {sql, database, username, outputLocation: outLoc} = p;
@@ -55,7 +55,7 @@ export async function runQuery(p: {
           QueryString: sql,
           WorkGroup: import.meta.env.VITE_ATHENA_WORKGROUP as string,
           // Omit the field entirely when there's no database — Athena then resolves
-          // only fully-qualified names, which is the intended behavior (FR-002).
+          // only fully-qualified names, which is the intended behavior.
           ...(database ? {QueryExecutionContext: {Database: database}} : {}),
           ResultConfiguration: {OutputLocation: outLoc ?? outputLocation(username)}
         })
@@ -78,7 +78,7 @@ export async function runQuery(p: {
 }
 
 /**
- * Fetch a query's current execution status, mapped onto {@link QueryStatus} (FR-003).
+ * Fetch a query's current execution status, mapped onto {@link QueryStatus}.
  * The Athena state strings map 1:1 onto `QueryState`; a missing status defaults to
  * `QUEUED` (the query was just submitted).
  */
@@ -106,8 +106,8 @@ export async function getQueryStatus(queryExecutionId: string): Promise<ServiceR
 }
 
 /**
- * Cancel a running query (FR-005). `StopQueryExecution` transitions the execution to
- * `CANCELLED`, which the FR-003 poller then observes as a terminal state.
+ * Cancel a running query. `StopQueryExecution` transitions the execution to
+ * `CANCELLED`, which the poller then observes as a terminal state.
  */
 export async function stopQuery(queryExecutionId: string): Promise<ServiceResult<void>> {
   return withCredentialRetry(getAthenaClient, async (client) => {
@@ -121,7 +121,7 @@ export async function stopQuery(queryExecutionId: string): Promise<ServiceResult
 }
 
 /**
- * Read one page of a succeeded query's results (FR-004). Columns come from
+ * Read one page of a succeeded query's results. Columns come from
  * `ResultSetMetadata` (name + type); rows are the string cells (Athena returns every
  * value as a string). Pagination threads `nextToken`. A DDL/CTAS query that produced no
  * result set yields empty columns/rows — not an error.
@@ -136,8 +136,8 @@ export async function getQueryResults(p: {
   // Athena prepends the column names as the first row of the FIRST page of a
   // SELECT (the header foot-gun handled below). Request one extra row on page 1
   // so that, after dropping that header, a SELECT still nets a full `pageSize`
-  // data rows; continuation pages have no header and request exactly `pageSize`
-  // (SPEC-038 FR-001). Athena rejects MaxResults > 1000, so at the SPEC-087
+  // data rows; continuation pages have no header and request exactly `pageSize`.
+  // Athena rejects MaxResults > 1000, so at the
   // 1000-row maximum the +1 is clamped away and page 1 nets 999 data rows —
   // callers must not assume uniform page lengths (useQueryResults numbers rows
   // from the actual loaded pages).
@@ -160,7 +160,7 @@ export async function getQueryResults(p: {
       }));
       // An ABSENT `VarCharValue` is SQL NULL; an empty one is an empty string. Collapsing
       // the two to `''` here destroyed the difference for every caller, and no consumer
-      // can reconstruct it — SPEC-180's Value panel has to show which one a cell holds.
+      // can reconstruct it — the Value panel has to show which one a cell holds.
       let rows: (string | null)[][] = (response.ResultSet?.Rows ?? []).map((r) =>
         (r.Data ?? []).map((d) => d.VarCharValue ?? null)
       );
@@ -213,7 +213,7 @@ export function isAbandoned(result: ServiceResult<unknown>): boolean {
 
 /**
  * Run a statement and poll it to a terminal state, returning the final
- * {@link QueryStatus} (SPEC-044). Succeeds for ANY terminal state — the caller inspects
+ * {@link QueryStatus}. Succeeds for ANY terminal state — the caller inspects
  * `.state`. Used by internal/background runs (View DDL, Drop table) that aren't driven
  * by the per-tab UI poller. Never throws.
  */
@@ -252,8 +252,8 @@ export async function runStatementToCompletion(p: {
 }
 
 /**
- * Fetch a table's (or view's) authoritative DDL via Athena (SPEC-044 FR-003 / SPEC-048
- * FR-006) — `SHOW CREATE VIEW` for a view, `SHOW CREATE TABLE` otherwise — assembling
+ * Fetch a table's (or view's) authoritative DDL via Athena
+ * — `SHOW CREATE VIEW` for a view, `SHOW CREATE TABLE` otherwise — assembling
  * the single-column result rows into the statement. Internal UI fetch — it does NOT
  * append a query-history entry.
  */

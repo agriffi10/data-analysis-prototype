@@ -44,7 +44,7 @@ function defaultOf(kind: Transformer['kind']): Transformer {
 }
 
 /**
- * How each column's values are rendered (SPEC-184 FR-005).
+ * How each column's values are rendered.
  *
  * One row per column, so several are set in one Apply and any one is cleared on its own.
  * Staged like the colours dialog beside it: a link template is half-invalid for most of the

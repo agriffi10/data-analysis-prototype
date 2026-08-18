@@ -60,8 +60,8 @@ export async function listFiles(
   if (result.success || !isExpiryError(result.error.code)) return result;
 
   // Credentials expired mid-session — refresh once and retry transparently. The
-  // signal is threaded through the retry too: dropping it here left SPEC-155
-  // FR-006's guarantee (navigating out of a folder stops the request on the wire)
+  // signal is threaded through the retry too: dropping it here left the
+  // the guarantee (navigating out of a folder stops the request on the wire)
   // silently untrue on the one path where the listing takes longest.
   const refreshed = await getS3Client(true);
   if (!refreshed.success) return refreshed;
@@ -84,7 +84,7 @@ async function listWithClient(
       ContinuationToken: continuationToken
     });
 
-    // SPEC-155 FR-006: the SDK aborts the in-flight request, not just the promise —
+    // The SDK aborts the in-flight request, not just the promise —
     // navigating out of a folder mid-listing stops the request on the wire. TanStack
     // Query hands the caller a signal per query; this is where it lands.
     const response = await client.send(command, {abortSignal});
@@ -331,7 +331,7 @@ async function deleteInBatches(client: S3Client, bucket: string, keys: string[])
       for (const e of response.Errors ?? []) {
         if (e.Key) {
           // e.Message/e.Code are raw S3 fields (technical); the surface maps
-          // the code (e.g. AccessDenied) to friendly text (SPEC-106 FR-002).
+          // the code (e.g. AccessDenied) to friendly text.
           errors.push({
             key: e.Key,
             message: e.Message ?? e.Code ?? 'Failed to delete object',
@@ -373,7 +373,7 @@ export async function deleteFolder(params: {
 
   // Refused before any S3 request, like the prefix-marker guard above. The
   // authoritative protection is the role policy's `ResultsNoDelete` deny; this is
-  // what stops the app offering an action its own IAM forbids (SPEC-057, FR-007).
+  // what stops the app offering an action its own IAM forbids.
   const refusal = undeletableRootFolderRefusal(prefix, rootPrefix, 'delete');
   if (refusal) {
     return {success: false, error: {message: refusal, code: 'ProtectedObject'}};

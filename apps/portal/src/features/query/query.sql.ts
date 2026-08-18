@@ -49,7 +49,7 @@ export function isSchemaChangingSql(sql: string): boolean {
   // backtracking. Each optional group is anchored by a literal (`or`, `replace`,
   // `external`), so a failing alternative is rejected in O(1) and there is no ambiguous
   // split to explore. Measured linear: 200k chars of whitespace, or of repeated `or `,
-  // matches in <0.3ms. The input IS user-typed SQL (SPEC-035 editor), so this was
+  // matches in <0.3ms. The input IS user-typed SQL, so this was
   // verified rather than argued.
   // eslint-disable-next-line security/detect-unsafe-regex
   return /^(create|drop|alter)\s+(or\s+replace\s+)?(external\s+|temporary\s+)?(table|view)\b/i.test(
@@ -73,8 +73,8 @@ const DDL_QUALIFIED_TARGET = /\b(?:table|view)\s+(?:if\s+(?:not\s+)?exists\s+)?(
 
 /**
  * The database a schema-changing statement targets, taken from its
- * fully-qualified `database.object` (SPEC-077 — there's no active database to
- * assume). Returns null when the statement isn't schema-changing or its target
+ * fully-qualified `database.object` — there's no active database to
+ * assume. Returns null when the statement isn't schema-changing or its target
  * isn't database-qualified. Used to refresh the right database's schema after a
  * user-typed DDL run succeeds.
  */
@@ -87,8 +87,8 @@ export function schemaChangingDatabase(sql: string): string | null {
 export type ViewTarget = {database: string} | {error: string};
 
 /**
- * Derives the target database for a "Create view" from the view body itself
- * (SPEC-077 FR-008): the single database of the fully-qualified base tables the
+ * Derives the target database for a "Create view" from the view body itself:
+ * the single database of the fully-qualified base tables the
  * body selects from. Views generally don't span databases, so exactly one is
  * expected. Returns `{error}` (never a silent pick) when the body qualifies
  * tables from more than one database, or has no fully-qualified base table.
@@ -110,7 +110,7 @@ export function deriveViewTargetDatabase(body: string): ViewTarget {
   };
 }
 
-// ── SPEC-078: multi-statement support ─────────────────────────────────────
+// ── Multi-statement support ──────────────────────────────────────────────
 
 // Advances past a quoted region starting at `i` (buffer[i] is the opening
 // quote) and returns the index just after the closing quote. Doubled quotes
@@ -150,7 +150,7 @@ function skipComment(buffer: string, i: number): number {
 }
 
 // True when the segment holds anything besides whitespace and comments — a
-// whitespace/comment-only segment is not a statement (FR-001).
+// whitespace/comment-only segment is not a statement.
 function hasSqlContent(segment: string): boolean {
   let i = 0;
   while (i < segment.length) {
@@ -169,12 +169,12 @@ function hasSqlContent(segment: string): boolean {
 }
 
 /**
- * Parses an editor buffer into its individual SQL statements (SPEC-078
- * FR-001). A semicolon terminates a statement only outside single-/double-
+ * Parses an editor buffer into its individual SQL statements.
+ * A semicolon terminates a statement only outside single-/double-
  * quoted strings, backtick identifiers, and line/block comments; empty
  * (whitespace/comment-only) segments are dropped. Each statement's `range`
  * is the source offsets of its trimmed text in the buffer, so a cursor or
- * selection can be mapped back to a statement (FR-006).
+ * selection can be mapped back to a statement.
  */
 export function splitSqlStatements(buffer: string): ParsedStatement[] {
   const statements: ParsedStatement[] = [];
@@ -216,8 +216,8 @@ export function splitSqlStatements(buffer: string): ParsedStatement[] {
 }
 
 /**
- * Resolves what "Run Statement" executes (SPEC-078 FR-006): a non-empty
- * selection wins (re-split per FR-001, ranges mapped back into the buffer);
+ * Resolves what "Run Statement" executes: a non-empty
+ * selection wins (re-split, ranges mapped back into the buffer);
  * otherwise the statement whose range contains the cursor; a cursor in the
  * whitespace between statements falls back to the nearest preceding statement
  * (or the first when the cursor precedes them all). Returns [] only when the
@@ -246,8 +246,8 @@ export function resolveRunStatements(
 /**
  * True for a statement that returns a result set worth a grid — SELECT/WITH/
  * SHOW/DESCRIBE/VALUES/EXPLAIN. DDL/DML (CREATE/INSERT/DROP/…) are false: their
- * outcome lives in history + the status bar, never a result tab (SPEC-078
- * FR-007). Leading comments/whitespace are skipped.
+ * outcome lives in history + the status bar, never a result tab.
+ * Leading comments/whitespace are skipped.
  */
 export function isResultProducingSql(sql: string): boolean {
   return /^(select|with|show|desc|describe|values|explain)\b/i.test(stripLeadingSqlComments(sql));

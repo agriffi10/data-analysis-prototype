@@ -1,4 +1,4 @@
-# ── Control-plane Lambdas (SPEC-088 skeleton) ────────────────────────────────
+# ── Control-plane Lambdas (skeleton) ────────────────────────────────
 # Single-task verb Lambdas — validate-authorize / inspect-source /
 # check-target-absent / build-transfer-manifest / copy-objects /
 # collect-transfer-results / create-table / notify-failure — orchestrated by the
@@ -7,10 +7,10 @@
 # timeout/memory (locals.tf; a small validator ≠ a long parallel S3 copy,
 # lambdas.md §4).
 #
-# Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
+# Code-ownership split (architecture.md): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python
 # code (lambdas/table-share-<suffix>/) AND publishes + attaches the layers to all
-# five: the tscommon domain layer PLUS the shared cpcommon layer (SPEC-107).
+# five: the tscommon domain layer PLUS the shared cpcommon layer.
 # `ignore_changes` keeps `tofu apply` from reverting CI's code OR layers.
 
 # One placeholder package per function so each is valid at create time. CI replaces
@@ -49,9 +49,8 @@ resource "aws_lambda_function" "functions" {
 
   # EVERY variable tscommon/config.py _require()s at import must be COMMON to all
   # verbs: the shared layer's fail-fast runs on any `from tscommon import …`
-  # chain, so a verb missing ANY required var crashes at cold start (the
-  # table-builder production break, PR #196). The per-verb map (locals.tf) is
-  # reserved for OPTIONAL action env only.
+  # chain, so a verb missing ANY required var crashes at cold start. The per-verb
+  # map (locals.tf) is reserved for OPTIONAL action env only.
   environment {
     variables = merge(
       {
@@ -61,11 +60,11 @@ resource "aws_lambda_function" "functions" {
         COGNITO_USER_POOL_ID  = var.user_pool_id
         COGNITO_APP_CLIENT_ID = var.app_client_id
         ATHENA_WORKGROUP      = var.athena_workgroup
-        # SPEC-094 (optional in tscommon.config — unset ⇒ emits are logged no-ops).
+        # Optional in tscommon.config — unset ⇒ emits are logged no-ops.
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
-        # SPEC-136. Deliberately NOT mirrored by a config._require — see variables.tf.
+        # Deliberately NOT mirrored by a config._require — see variables.tf.
         LOGS_QUEUE_URL = var.logs_queue_url
-        # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+        # `env` shipped empty on every record. Same source of truth as the
         # feature-flag document's `environments` keys (`var.environment`, default "prod").
         ENV_NAME = var.environment
       },

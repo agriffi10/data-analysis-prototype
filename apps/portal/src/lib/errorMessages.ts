@@ -1,4 +1,4 @@
-// SPEC-106 — the single source of truth for user-facing error wording.
+// The single source of truth for user-facing error wording.
 //
 // Every error a user can see (toast, banner, inline) is routed through
 // `toUserMessage`. Raw AWS / Cognito / Athena text is NEVER shown to a user:
@@ -56,8 +56,8 @@ const CONTACT_ADMIN = 'Contact the Administrator.';
 // is ordered because several patterns can match one Athena message.
 
 const CODE_RULES: readonly ErrorRule[] = [
-  // ── App codes our file-browser/query services already author (SPEC-106
-  // FR-002). Trigger: a service returned this code with user-safe, often
+  // ── App codes our file-browser/query services already author.
+  // Trigger: a service returned this code with user-safe, often
   // parameterized text (filename / size / validation reason). User-fixable —
   // the wording tells them what to change. Passed through unchanged. ──
   {code: 'Collision', userFixable: true, passthrough: true}, // dest name already exists (carries the name)
@@ -75,7 +75,7 @@ const CODE_RULES: readonly ErrorRule[] = [
   // documented deploy gotcha presented as "Something went wrong."
   {code: 'NotConfigured', userFixable: false, passthrough: true},
 
-  // Trigger: a send whose selection exceeds the file-send plane's caps (SPEC-164), refused by
+  // Trigger: a send whose selection exceeds the file-send plane's caps, refused by
   // the producer before it reaches SQS. Passthrough for the same reason as the rule above —
   // the sentence is authored by our own service layer and embeds no AWS text. It is genuinely
   // user-fixable, and it has to say so: the alternative to refusing here is a request too
@@ -89,7 +89,7 @@ const CODE_RULES: readonly ErrorRule[] = [
   // twenty-five queries needs to know which one vanished, not that "that item" did.
   {code: 'SavedQueryNotFound', userFixable: true, passthrough: true},
 
-  // ── Data-quality report reads (SPEC-113 FR-005). Deliberately NOT folded into
+  // ── Data-quality report reads. Deliberately NOT folded into
   // the generic `NotFound` above: that one says "refresh and try again", which is
   // wrong advice here — a report the user followed a link to is either still being
   // written, or gone for good, and refreshing a deleted one forever is not a plan. ──
@@ -104,7 +104,7 @@ const CODE_RULES: readonly ErrorRule[] = [
     userFixable: false
   },
 
-  // ── Settings documents whose live body the write path could not use (SPEC-159).
+  // ── Settings documents whose live body the write path could not use.
   // The read-modify-write path never treats "unreadable" as the empty document,
   // because the write is an unconditional PutObject: an empty misread would be
   // COMMITTED, discarding the whole document. What follows from that splits three
@@ -117,7 +117,7 @@ const CODE_RULES: readonly ErrorRule[] = [
   // whole point. Not user-fixable in the sense of an action to take, but not an
   // administrator's problem either: nothing is broken any more.
   //
-  // SPEC-173 retired the saved-queries JSON store, so query history is the one
+  // The saved-queries JSON store is retired, so query history is the one
   // `user_settings/` document this trio still speaks for. ──
   {
     code: 'QueryHistoryRecovered',
@@ -192,7 +192,7 @@ const CODE_RULES: readonly ErrorRule[] = [
 
 const CODE_INDEX = new Map<string, ErrorRule>(CODE_RULES.map((r) => [r.code as string, r]));
 
-// ── Athena engine-message patterns (SPEC-106 FR-004/005). ───────────────────
+// ── Athena engine-message patterns. ───────────────────
 // Query failures surface as {code: 'FAILED', message: stateChangeReason}; there
 // is no app code, so we match the raw engine text. Ordered by specificity: the
 // unqualified-table case is checked before generic not-found, which is checked
@@ -202,7 +202,7 @@ const UNQUALIFIED_FIX = 'Add a database to each table, like `mydb.sales`.';
 
 /** True when Athena reported a missing table referenced WITHOUT a `database.` prefix. */
 function isUnqualifiedTable(msg: string): boolean {
-  // SPEC-077: queries carry no active database, so an unqualified `FROM sales`
+  // Queries carry no active database, so an unqualified `FROM sales`
   // fails as "Table <name> does not exist" / "Schema/Database does not exist".
   const m = msg.match(/table\s+(\S+?)\s+(?:does not exist|not found)/i);
   if (m && !m[1].includes('.')) return true; // bare table name → they omitted the db
@@ -210,7 +210,7 @@ function isUnqualifiedTable(msg: string): boolean {
 }
 
 const MATCH_RULES: readonly ErrorRule[] = [
-  // Trigger: unqualified base table under SPEC-077 (no active database).
+  // Trigger: an unqualified base table (there is no active database).
   // User-fixable — qualify each table as `database.table`. ──
   {
     match: isUnqualifiedTable,

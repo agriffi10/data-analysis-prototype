@@ -1,6 +1,6 @@
 """What a recipient's inbox already holds from one sender.
 
-SPEC-166's conflict guard asks one question — *is any of the names this send would create
+The conflict guard asks one question — *is any of the names this send would create
 already taken?* — and this module answers it with a **delimited listing of the inbox prefix**
 rather than a probe per selected item.
 
@@ -17,7 +17,7 @@ exactly as the recipient sees it.
 A name here is a name whatever it holds. A previous send of the FILE ``notes.txt`` conflicts
 with a new send of the FOLDER ``notes.txt/`` and vice versa, because the destination key builder
 gives both the same base — and "merge into what is there" is not a behaviour this plane has
-(SPEC-166 Out of Scope).
+(out of scope).
 """
 
 from cpcommon import clients

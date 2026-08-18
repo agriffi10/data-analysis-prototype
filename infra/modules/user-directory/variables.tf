@@ -29,7 +29,7 @@ variable "user_space_bucket_arn" {
 }
 
 variable "logs_queue_arn" {
-  description = "Structured-logging queue ARN — the builder's only sqs:SendMessage scope (SPEC-146 FR-008)."
+  description = "Structured-logging queue ARN — the builder's only sqs:SendMessage scope."
   type        = string
 }
 
@@ -39,13 +39,13 @@ variable "logs_queue_url" {
 
     Optional BY CONSTRUCTION on the Lambda side: cpcommon.observability reads it with
     os.environ.get and never config._require, so a builder deployed without it logs to stdout
-    instead of failing at cold start (PR #196). Passed here so it is set in practice.
+    instead of failing at cold start. Passed here so it is set in practice.
   EOT
   type        = string
 }
 
 variable "user_pool_id" {
-  description = "NOT used by the builder — the directory's source is S3 common prefixes, never Cognito (SPEC-146 FR-001). Required by the cpcommon layer's config, which resolves on first READ rather than at import (SPEC-156 FR-004) — so a missing value is no longer a cold-start crash (PR #196) but a failure on whichever branch reads it first. STILL SET IT: the union is what any code path in the layer may demand, and 'the function does not use it' is not a reason to remove it."
+  description = "NOT used by the builder — the directory's source is S3 common prefixes, never Cognito. Required by the cpcommon layer's config, which resolves on first READ rather than at import — so a missing value is no longer a cold-start crash but a failure on whichever branch reads it first. STILL SET IT: the union is what any code path in the layer may demand, and 'the function does not use it' is not a reason to remove it."
   type        = string
 }
 

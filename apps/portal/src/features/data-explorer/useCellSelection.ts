@@ -31,9 +31,9 @@ function clamp(value: number, max: number): number {
 }
 
 /**
- * The grid's cell cursor and rectangular selection (SPEC-180 FR-002).
+ * The grid's cell cursor and rectangular selection.
  *
- * The substrate SPEC-182's Calc panel aggregates over and SPEC-185's copy reads, so the
+ * The substrate the Calc panel aggregates over and the copy reads, so the
  * model is deliberately explicit rather than emergent: `ranges` is a list of inclusive
  * rectangles in selection order, and **the last one is always the live one** — its `from`
  * is the anchor a Shift gesture extends from and its `to` is the cursor. A discontiguous
@@ -41,7 +41,7 @@ function clamp(value: number, max: number): number {
  *
  * Everything is addressed by (row within the CURRENT PAGE, column name). Coordinates are
  * therefore meaningless across a page change, which is why paging resets rather than
- * carrying them onto different rows (AC8) — and why Ctrl/Cmd+A can only ever mean "this
+ * carrying them onto different rows — and why Ctrl/Cmd+A can only ever mean "this
  * page", a claim the caller has to make out loud.
  *
  * @param rowCount - Rows on the loaded page.
@@ -69,7 +69,7 @@ export function useCellSelection(
   // Reset during render (React's "adjust state when a prop changes" pattern, as
   // `useColumnWidths` and `useQueryResults` do) rather than in an effect: an effect would
   // paint one frame of the OLD selection over the new page's rows, which is precisely the
-  // stale-coordinates state AC8 forbids.
+  // stale-coordinates state the grid forbids.
   const [previousKey, setPreviousKey] = useState(resetKey);
   if (previousKey !== resetKey) {
     setPreviousKey(resetKey);

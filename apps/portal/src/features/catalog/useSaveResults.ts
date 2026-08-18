@@ -10,7 +10,7 @@ import type {QuerySpace} from './catalog.types';
 
 /**
  * A pending overwrite confirm when the chosen destination key already exists.
- * SPEC-055: carries source + dest buckets so the retry repeats the same
+ * carries source + dest buckets so the retry repeats the same
  * (possibly cross-bucket) copy.
  */
 export type OverwritePrompt = {
@@ -40,14 +40,14 @@ export type UseSaveResultsResult = {
 
 type Params = {
   /**
-   * The destinations to offer, already gated (SPEC-185).
+   * The destinations to offer, already gated.
    *
-   * A PARAMETER rather than a `useQuerySpaces()` call inside the hook, on SPEC-174's
-   * precedent and for the reason SPEC-177 gave `useSaveQuery` the same shape. The hook read
+   * A PARAMETER rather than a `useQuerySpaces()` call inside the hook, on the space selector's
+   * precedent, and for the reason `useSaveQuery` has the same shape. The hook read
    * the unfiltered list, so with `sharedWorkspaces` off this dialog went on offering a
    * colleague's space as a WRITE target after every other shared-workspace surface had gone
-   * — and a flag may not be applied inside a hook that answers a question about access
-   * (SPEC-162 FR-006), so the filter belongs at the view either way. Both call sites now
+   * — and a flag may not be applied inside a hook that answers a question about access,
+   * so the filter belongs at the view either way. Both call sites now
    * hand it a list they have gated.
    */
   spaces: QuerySpace[];
@@ -60,12 +60,12 @@ type Params = {
 };
 
 /**
- * SPEC-049/055: copy the displayed query result out of `athenaresults/` and into
+ * copy the displayed query result out of `athenaresults/` and into
  * a space the user can browse.
  *
  * A server-side `CopyObject` captures ALL rows, independent of how many pages the
  * results table loaded. A destination collision returns to a warn-and-confirm
- * (SPEC-039) rather than overwriting, and the destination listing is invalidated
+ * rather than overwriting, and the destination listing is invalidated
  * so the new file appears if the user browses there.
  */
 export function useSaveResults({
@@ -81,14 +81,14 @@ export function useSaveResults({
   const [busy, setBusy] = useState(false);
   const [overwritePrompt, setOverwritePrompt] = useState<OverwritePrompt | null>(null);
 
-  // SPEC-055 FR-003: the spaces a result can be saved into — the user's own space
+  // The spaces a result can be saved into — the user's own space
   // first, then every shared space they currently belong to (usable). The picker
-  // excludes each space's protected `athenaresults/` folder. SPEC-173 FR-005: the list
+  // excludes each space's protected `athenaresults/` folder. The list
   // is `useQuerySpaces`, shared with the saved-queries surfaces rather than rebuilt —
-  // and SPEC-185 moved the CALL to the two views, which gate it (see `Params`).
+  // and the CALL sits in the two views, which gate it (see `Params`).
   const personalBucket = spaces[0]?.bucket;
 
-  // SPEC-049: default file name — the saved query's name when the tab is linked,
+  // Default file name — the saved query's name when the tab is linked,
   // else a generic stamp; sanitized to the leaf-name rule (no slash/control chars).
   const defaultName = (() => {
     const d = new Date();
@@ -132,7 +132,7 @@ export function useSaveResults({
       setOpen(false);
       setOverwritePrompt(null);
       void invalidateListing(queryClient, args.destBucket, args.destPrefix);
-      // SPEC-055: the Files browser only renders the personal space until SPEC-057,
+      // The Files browser only renders the personal space,
       // so the "View in Files" deep-link is offered only for a personal-space save.
       const isPersonalDest = args.destBucket === personalBucket;
       toast.push({
@@ -152,7 +152,7 @@ export function useSaveResults({
   };
 
   const save = (args: {destBucket: string; destPrefix: string; filename: string}) => {
-    // SPEC-078: save the DISPLAYED result (the active result tab's execution),
+    // Save the DISPLAYED result (the active result tab's execution),
     // not necessarily the batch's last statement.
     if (!outputLocation) return;
     const parsed = parseS3Url(outputLocation);

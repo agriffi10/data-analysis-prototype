@@ -8,7 +8,7 @@ import type {ArchiveRequest, ArchiveSpace, RestoreRequest} from '../../types/arc
  *
  * The mirror is not belt-and-braces. `validate-authorize` enforces these in the machine's first
  * task, but a request too large for `StartExecution` never reaches it: the Pipe cannot start the
- * execution at all, the message dead-letters, and the user learns about it from SPEC-126's drain
+ * execution at all, the message dead-letters, and the user learns about it from the drain
  * minutes later rather than from a refusal now. Below the caps the verb is still the authority.
  *
  * `test_config_arcommon.py` reads these two names back out of this file, because a restatement
@@ -48,7 +48,7 @@ async function digest(canonical: string): Promise<string> {
 }
 
 /**
- * The ARCHIVE group id: the digest of `{spaceBucket}/{spaceRoot}` (SPEC-168 FR-004), so two
+ * The ARCHIVE group id: the digest of `{spaceBucket}/{spaceRoot}`, so two
  * archives out of one space serialize — they may select overlapping folders — while archives
  * from different spaces run in parallel.
  */
@@ -64,8 +64,8 @@ function archiveGroupId(space: ArchiveSpace): Promise<string> {
  * while restores of different archives in one space proceed in parallel.
  *
  * **The archive BUCKET is deliberately not part of it**, which is where this differs from
- * SPEC-170 FR-001's literal wording. The browser has no relationship with that bucket by
- * decision (SPEC-168): its name is absent from the CSP, from every portal-role statement and
+ * The plane's literal wording. The browser has no relationship with that bucket by
+ * decision: its name is absent from the CSP, from every portal-role statement and
  * from this app's build env, and `test_archive_bucket_isolation.py` enforces that absence. It
  * would also add no discrimination — it is one constant across every restore this app can make
  * — and the `personal/`/`shared/` segment already makes the archive root globally unique, which
@@ -87,7 +87,7 @@ function selectionTooLarge(items: ArchiveRequest['items']): boolean {
  * `GLACIER`, confirms every object, and only then deletes the source, so success here means
  * *enqueued*, not archived.
  *
- * The token rides as a top-level `actor`, matching every other plane's envelope: SPEC-126's
+ * The token rides as a top-level `actor`, matching every other plane's envelope: the
  * shared DLQ drain reads and redacts that field flatly, so a nested one would mean a
  * dead-lettered archive notified nobody *and* wrote the raw JWT to CloudWatch.
  *
@@ -123,15 +123,15 @@ export async function enqueueArchive(req: ArchiveRequest): Promise<ServiceResult
 
 /**
  * Enqueue a restore request onto the same FIFO queue — one plane serves both modes, branching on
- * `mode` (SPEC-168 FR-003).
+ * `mode`.
  *
  * The body's field set is the RESTORE contract and not a superset of the archive one: unknown
  * top-level fields are rejected rather than ignored by `validate-authorize`, per mode, so a
  * restore carrying a selection is a refusal rather than a request that quietly ignores half of
  * itself.
  *
- * The space comes from the caller — the route the user is standing in — never from the archive
- * (SPEC-170 FR-001). An archive belonging to a different space is then simply not found, which
+ * The space comes from the caller — the route the user is standing in — never from the archive.
+ * An archive belonging to a different space is then simply not found, which
  * is what keeps this from becoming an existence oracle over other people's archives.
  */
 export async function enqueueRestore(req: RestoreRequest): Promise<ServiceResult<void>> {

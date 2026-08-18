@@ -1,6 +1,6 @@
 import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
 
-// The exploration model (SPEC-178 FR-001). An exploration is a SOURCE plus a QUERY
+// The exploration model. An exploration is a SOURCE plus a QUERY
 // DESCRIPTION plus PRESENTATION STATE, and the split is the feature's central rule: the
 // first two determine the SQL, the third never does. They are three separate fields
 // rather than one flattened bag precisely so `renderExplorationSql`'s parameter list can
@@ -11,10 +11,10 @@ import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
  * Where an exploration's rows come from.
  *
  * A discriminated union from the outset, with only the `table` arm reachable until
- * SPEC-183. A saved `.sql` file cannot be reverse-engineered into a table plus filters
+ * A saved `.sql` file cannot be reverse-engineered into a table plus filters
  * without a SQL parser, so a loaded file is a SOURCE rather than a view state — and
  * filters, ordering and grouping must compose over either arm without knowing which.
- * Retrofitting the union at SPEC-183 would have touched every spec in between.
+ * Retrofitting the union later would have touched every call site in between.
  */
 export type ExplorationSource =
   | {
@@ -52,7 +52,7 @@ export type ColumnFilter = {
   operator: FilterOperator;
   /** Absent for `isNull` / `isNotNull`; a raw cell value otherwise, quoted at render time. */
   value?: string;
-  /** Defaults to `'string'`. SPEC-181 picks it from the column's Glue/Athena type. */
+  /** Defaults to `'string'`. The filter picks it from the column's Glue/Athena type. */
   valueKind?: FilterValueKind;
 };
 
@@ -74,7 +74,7 @@ export type GroupingAggregate = {
 export type Grouping = {
   columns: string[];
   aggregates: GroupingAggregate[];
-  /** `HAVING COUNT(*) > 1` — the grouped rows that occur more than once (SPEC-182 FR-004). */
+  /** `HAVING COUNT(*) > 1` — the grouped rows that occur more than once. */
   duplicatesOnly: boolean;
   /**
    * Whether the grid shows each grouped row's share of the first aggregate's total.
@@ -90,14 +90,14 @@ export type Grouping = {
 /** Everything that renders SQL. Nothing else may. */
 export type ExplorationQuery = {
   filters: ColumnFilter[];
-  /** User-authored WHERE fragment, passed through verbatim (FR-005). */
+  /** User-authored WHERE fragment, passed through verbatim. */
   expression: string | null;
   ordering: SortEntry[];
   grouping: Grouping | null;
 };
 
 /**
- * The aggregates the Calc panel offers over a cell selection (SPEC-182 FR-001).
+ * The aggregates the Calc panel offers over a cell selection.
  *
  * Named apart from `AggregateFunction` above, and the difference is the whole point of
  * the spec: that one is a `GROUP BY` clause rendered into SQL and billed, this one runs in
@@ -119,14 +119,14 @@ export type CalcResult = {
   skipped: number;
 };
 
-/** How the current page's rows are drawn (SPEC-180). None of these render SQL. */
+/** How the current page's rows are drawn. None of these render SQL. */
 export type GridPresentation = 'grid' | 'record' | 'text';
 
 /**
- * A colour a rule may paint text in (SPEC-184 FR-002).
+ * A colour a rule may paint text in.
  *
  * A bounded set of design tokens rather than the spec's free-form `string`, and the
- * narrowing is what makes FR-002 AC8 assertable at all: "every pairing meets contrast
+ * narrowing is what makes the contrast claim assertable at all: "every pairing meets contrast
  * requirements" is not a claim anyone can make about a colour picker. Every token here
  * clears 4.5:1 against every surface it can land on — `formatting.test.ts` recomputes that
  * from the token values rather than restating it, and `warning` is absent because it does
@@ -140,12 +140,12 @@ export type SurfaceToken = 'accent-soft' | 'success-soft' | 'warning-soft' | 'da
 export type ColourOperator = '=' | '<>' | '>' | '>=' | '<' | '<=' | 'like' | 'ilike' | 'regex';
 
 /**
- * What a matching rule paints (SPEC-184 FR-002 AC3).
+ * What a matching rule paints.
  *
  * Beyond the spec's Data Model, which carries only `column?` and reads an absent column as
  * "across the row". That conflates two independent choices — what a rule TESTS and what it
  * PAINTS — and leaves the most ordinary rule of all inexpressible: colour the whole row
- * wherever `status` is `failed`. One optional field separates them, on SPEC-181's
+ * wherever `status` is `failed`. One optional field separates them, on the filter's
  * precedent for `valueKind`.
  */
 export type ColourScope = 'cell' | 'row';
@@ -164,14 +164,14 @@ export type ColourRule = {
    * Numeric gradient across [min, max] instead of a binary match.
    *
    * Present means the operator and value are unused: the cell's own number decides the
-   * shade. A non-numeric cell is left UNSTYLED rather than clamped (FR-002 AC4) — clamping
+   * shade. A non-numeric cell is left UNSTYLED rather than clamped — clamping
    * would paint a text cell the colour of the minimum, which reads as a measurement.
    */
   gradient?: {min: number; max: number; from: SurfaceToken; to: SurfaceToken};
 };
 
 /**
- * A per-column rendering change (SPEC-184 FR-005).
+ * A per-column rendering change.
  *
  * **Rendering only.** The raw value continues to drive filtering, colouring, Calc and copy
  * — a transformed value reaching any of those is a silent wrong answer, which is why the
@@ -182,7 +182,7 @@ export type Transformer =
   | {kind: 'binary'; encoding: 'hex' | 'base64'; maxLength: number}
   | {kind: 'url'; template: string};
 
-/** Everything SPEC-184 adds, and none of it renders SQL. */
+/** Everything presentation adds, and none of it renders SQL. */
 export type FormattingState = {
   /** Evaluated in order; a later match overrides an earlier one **per property**. */
   rules: ColourRule[];
@@ -200,7 +200,7 @@ export type CellRef = {row: number; column: string};
 export type CellRange = {from: CellRef; to: CellRef};
 
 /**
- * The grid's cursor and selection (SPEC-180 FR-002).
+ * The grid's cursor and selection.
  *
  * Named `CellSelection` rather than the spec's `Selection`: that name is a DOM global
  * (`window.getSelection()`), and a same-named export shadows it wherever both are in
@@ -214,7 +214,7 @@ export type CellSelection = {
 };
 
 /**
- * Everything that renders NOTHING. Extended by SPEC-180 and SPEC-184.
+ * Everything that renders NOTHING.
  *
  * Changing any field here must never mint an execution: these gestures cost nothing and
  * apply instantly, which is only true because the renderer cannot see this type.
@@ -222,7 +222,7 @@ export type CellSelection = {
  * Column geometry is keyed by column NAME, not by position: it outlives the execution it
  * was set on (a filter change is a new execution over the same columns), and a width that
  * followed a POSITION would land on whatever column moved into it after a re-order or a
- * grouping change (FR-006 AC3). That is also why it is not `features/catalog/`'s
+ * grouping change. That is also why it is not `features/catalog/`'s
  * `useColumnWidths`, which is index-keyed, per-execution and in-memory.
  */
 export type ExplorationPresentation = {
@@ -233,7 +233,7 @@ export type ExplorationPresentation = {
   /**
    * The chosen presentation, or **null for "the user has not chosen"**.
    *
-   * Null is what makes FR-007's mobile default expressible: below `tablet` an unchosen
+   * Null is what makes the mobile default expressible: below `tablet` an unchosen
    * tab opens in Record and above it in Grid, while a tab whose user HAS chosen keeps that
    * choice at every width. A non-null default would have to be picked when the tab is
    * created — by `useExplorationTabs`, which has no business reading the viewport.
@@ -242,7 +242,7 @@ export type ExplorationPresentation = {
   valuePanelOpen: boolean;
   /** The Record view's focused row index within the current page. */
   recordRowIndex: number;
-  /** Colours, striping and transformers (SPEC-184). Restored whole or not at all. */
+  /** Colours, striping and transformers. Restored whole or not at all. */
   formatting: FormattingState;
 };
 
@@ -260,11 +260,11 @@ export type ExecutionCost = {
 };
 
 /**
- * This tab's undo/redo over its own query DESCRIPTIONS (SPEC-181 FR-006).
+ * This tab's undo/redo over its own query DESCRIPTIONS.
  *
  * Descriptions, never result sets: a description is a few hundred bytes and re-renders to
- * the same SQL, so stepping back resolves to the execution already cached (SPEC-178
- * FR-006) rather than to rows this would otherwise have to hold. It rides in the tab, so
+ * the same SQL, so stepping back resolves to the execution already cached
+ * rather than to rows this would otherwise have to hold. It rides in the tab, so
  * it is per tab and lives exactly as long as the session does.
  */
 export type QueryHistoryCursor = {
@@ -281,12 +281,12 @@ export type ExplorationTab = {
   label: string;
   exploration: Exploration;
   /**
-   * The `.sql` file this tab was last saved to (SPEC-183 FR-003).
+   * The `.sql` file this tab was last saved to.
    *
    * What a re-save replaces, and the only reason `isLinkedSavedQuery` can ever be true
    * here — nothing else in this feature mints a link, because loading a `.sql` file as a
    * source is deferred. Optional because a tab that has never been saved has none, and
-   * because a document written before SPEC-183 carries none either.
+   * because a document written before these fields existed carries none either.
    *
    * It does NOT rename the tab. A Query workspace tab IS its buffer, so a save renames it;
    * an exploration tab is named for the source it is exploring, which a save does not change.
@@ -295,13 +295,13 @@ export type ExplorationTab = {
   /**
    * Bytes scanned per DISTINCT execution this tab has run, keyed by execution id.
    *
-   * Keyed rather than summed because that is what makes FR-007's "a cache hit adds
+   * Keyed rather than summed because that is what makes the "a cache hit adds
    * nothing" true by construction: a re-rendered identical SQL resolves to the execution
    * id already recorded, so re-adding it changes no total. A running sum would need to
    * detect a cache hit, and a detector can be wrong.
    */
   scannedByExecution: Record<string, number>;
-  /** Back/forward over this tab's previous query descriptions (SPEC-181 FR-006). */
+  /** Back/forward over this tab's previous query descriptions. */
   history: QueryHistoryCursor;
 };
 
@@ -314,7 +314,7 @@ export type ExplorationTabsState = {
 };
 
 /**
- * A clipboard shape (SPEC-185 FR-001).
+ * A clipboard shape.
  *
  * `tsv` is what Ctrl/Cmd+C uses and what a spreadsheet expects from a paste; the other five
  * exist because a selection's next destination is as often a document, a script or an API

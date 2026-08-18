@@ -3,14 +3,14 @@ import {cx} from '../../lib/cx';
 import type {ResultTab} from './query.types';
 
 type Props = {
-  /** One entry per result-producing statement, execution order (SPEC-078 FR-007). */
+  /** One entry per result-producing statement, execution order. */
   tabs: ResultTab[];
   activeIndex: number;
   onSelect: (index: number) => void;
 };
 
 /**
- * SPEC-078 FR-007: the result-tab strip shown for a "Run Script (tab per
+ * the result-tab strip shown for a "Run Script (tab per
  * statement)" run — one tab per result-producing statement, labeled by its
  * 1-based statement position and a short statement hint. Same WAI-ARIA tabs
  * keyboard model as QueryTabStrip (roving tabindex; Left/Right/Home/End move

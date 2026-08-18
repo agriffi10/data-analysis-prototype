@@ -13,7 +13,7 @@ export type PresentationSwitchProps = {
 };
 
 /**
- * Grid / Record / Text (SPEC-180 FR-004, FR-005).
+ * Grid / Record / Text.
  *
  * Three presentations of rows that have ALREADY been fetched, so switching runs no query
  * — the same rule that makes column geometry free. `SegmentedFilter` carries the choice
