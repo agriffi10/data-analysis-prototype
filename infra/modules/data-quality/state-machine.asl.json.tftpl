@@ -1,10 +1,10 @@
 {
-  "Comment": "Data-quality control plane (SPEC-108 skeleton — the canonical state list; later specs WIRE these states, none adds one). validate-authorize -> inspect-source -> create-temp-tables -> start-profile-query -> [WaitForQuery -> CheckQuery -> Choice] -> byte-scan -> assemble-report -> drop-temp-tables -> RecordSuccess. NO ASL STATE DECODES AN ERROR CAUSE: States.StringToJson in a Pass state raises an uncatchable States.Runtime on any non-JSON Cause, which killed executions before they could notify. The raw $.error travels to RecordFailure and Python decodes it. TWO structural decisions live here and must not be retrofitted: (1) THE ATHENA POLL IS IN THIS STATE MACHINE, not inside a Lambda; (2) every Catch reaches DropTempTablesOnFailure BEFORE Fail. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload.",
+  "Comment": "Data-quality control plane (the canonical state list; the verbs behind these states are none adds one). validate-authorize -> inspect-source -> create-temp-tables -> start-profile-query -> [WaitForQuery -> CheckQuery -> Choice] -> byte-scan -> assemble-report -> drop-temp-tables -> RecordSuccess. NO ASL STATE DECODES AN ERROR CAUSE: States.StringToJson in a Pass state raises an uncatchable States.Runtime on any non-JSON Cause, which killed executions before they could notify. The raw $.error travels to RecordFailure and Python decodes it. TWO structural decisions live here and must not be retrofitted: (1) THE ATHENA POLL IS IN THIS STATE MACHINE, not inside a Lambda; (2) every Catch reaches DropTempTablesOnFailure BEFORE Fail. Each Task threads the running request object via Payload.$=$ + OutputPath=$.Payload.",
   "StartAt": "ValidateAuthorize",
   "States": {
     "ValidateAuthorize": {
       "Type": "Task",
-      "Comment": "First step. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state. A failure here runs BEFORE the request identity exists, so its Catch (no ResultPath — the input is an array, not an object) routes to ValidateFailureSeed, which seeds null identity fields so the shared failure path is uniform. Wired real in SPEC-109.",
+      "Comment": "First step. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state. A failure here runs BEFORE the request identity exists, so its Catch (no ResultPath — the input is an array, not an object) routes to ValidateFailureSeed, which seeds null identity fields so the shared failure path is uniform.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${validate_authorize_function_arn}",
@@ -35,7 +35,7 @@
     },
     "InspectSource": {
       "Type": "Task",
-      "Comment": "List + classify by extension, probe every file's header, write the S3 MANIFEST and pass its key onward. States pass a manifest POINTER, never an inline file list: Step Functions caps a state payload at 256 KB and States.DataLimitExceeded is thrown OUTSIDE any Catch — so an inline list would give the user NO notification at all, the worst failure mode in the pipeline. Wired in SPEC-110.",
+      "Comment": "List + classify by extension, probe every file's header, write the S3 MANIFEST and pass its key onward. States pass a manifest POINTER, never an inline file list: Step Functions caps a state payload at 256 KB and States.DataLimitExceeded is thrown OUTSIDE any Catch — so an inline list would give the user NO notification at all, the worst failure mode in the pipeline.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${inspect_source_function_arn}",
@@ -67,7 +67,7 @@
     },
     "CreateTempTables": {
       "Type": "Task",
-      "Comment": "Create the temp external table over the SOURCE (+ for CSV, the single-column RAW-LINE table the ragged check needs). Temp tables live in the USER'S OWN database, which is exactly why every failure path below must reach DropTempTables. Wired in SPEC-111.",
+      "Comment": "Create the temp external table over the SOURCE (+ for CSV, the single-column RAW-LINE table the ragged check needs). Temp tables live in the USER'S OWN database, which is exactly why every failure path below must reach DropTempTables.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${create_temp_tables_function_arn}",
@@ -99,7 +99,7 @@
     },
     "StartProfileQuery": {
       "Type": "Task",
-      "Comment": "START the Athena profile query and return its QueryExecutionId — it does NOT wait. StartQueryExecution carries a ClientRequestToken (= requestId), or a Retry after a post-submission transient error would start a SECOND query. Wired in SPEC-111.",
+      "Comment": "START the Athena profile query and return its QueryExecutionId — it does NOT wait. StartQueryExecution carries a ClientRequestToken (= requestId), or a Retry after a post-submission transient error would start a SECOND query.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${start_profile_query_function_arn}",
@@ -181,7 +181,7 @@
     },
     "ByteScan": {
       "Type": "Task",
-      "Comment": "The ONE thing SQL cannot see: a bounded, SAMPLED raw-byte encoding check. Its budget is PER REQUEST (DQ_SCAN_TOTAL_BYTES, default 2 GiB), divided across the manifest's files — never per file. Wired in SPEC-112.",
+      "Comment": "The ONE thing SQL cannot see: a bounded, SAMPLED raw-byte encoding check. Its budget is PER REQUEST (DQ_SCAN_TOTAL_BYTES, default 2 GiB), divided across the manifest's files — never per file.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${byte_scan_function_arn}",
@@ -213,7 +213,7 @@
     },
     "AssembleReport": {
       "Type": "Task",
-      "Comment": "Join the Athena results + the byte scan + the cross-file column agreement (computed from inspect-source's per-file probe, NOT in SQL — an external table has one schema for the whole folder and would HIDE exactly that disagreement) into report.json. Wired in SPEC-112.",
+      "Comment": "Join the Athena results + the byte scan + the cross-file column agreement (computed from inspect-source's per-file probe, NOT in SQL — an external table has one schema for the whole folder and would HIDE exactly that disagreement) into report.json.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${assemble_report_function_arn}",
@@ -245,7 +245,7 @@
     },
     "DropTempTables": {
       "Type": "Task",
-      "Comment": "Success-path cleanup. Idempotent by design — it must tolerate being reached before any table was created. Touches GLUE ONLY (no s3:DeleteObject is granted anywhere in this arc), which is what makes it safe to reach from every path. Wired in SPEC-111.",
+      "Comment": "Success-path cleanup. Idempotent by design — it must tolerate being reached before any table was created. Touches GLUE ONLY (no s3:DeleteObject is granted anywhere in this arc), which is what makes it safe to reach from every path.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${drop_temp_tables_function_arn}",
@@ -277,7 +277,7 @@
     },
     "RecordSuccess": {
       "Type": "Pass",
-      "Comment": "Shape the terminal SUCCESS outcome SPEC-114 notifies from. The field list is FR-003's summary payload, which is wider than FR-005's own sentence and deliberately so: FR-004 promises a SPEC-123 index entry can be built from it, and that needs format and fileCount too. A NotifySuccess added later (the mirror of RecordFailure -> NotifyFailure) reads THIS state, so anything omitted here is a field SPEC-114/123 would have to reopen the machine to get. Nothing durable is written by a terminal state — the report object is the artefact, so no future UI should be built expecting a success object in S3. THE IDENTITY CONTRACT: every field read here must EXIST as a key by now. ValidateAuthorize guarantees requestId/actor/location; AssembleReport guarantees verdict/hasApproximateFigures/hasIncompleteFigures/reportKey and threads the rest. A Pass state's JSONPath HARD-FAILS on an ABSENT key (States.Runtime) and a Pass state has NO Catch, so that failure escapes straight to ExecutionFailed, skipping NotifyFailure and leaving the user with no notification at all. A null VALUE is fine; a missing key is fatal. (Caught by the SPEC-108 live smoke test.)",
+      "Comment": "Shape the terminal SUCCESS outcome the notification producer reads. The field list is FR-003's summary payload, which is wider than FR-005's own sentence and deliberately so: FR-004 promises a runs-index entry can be built from it, and that needs format and fileCount too. A NotifySuccess added later (the mirror of RecordFailure -> NotifyFailure) reads THIS state, so anything omitted here is a field the notification producer and the runs index would have to reopen the machine to get. Nothing durable is written by a terminal state — the report object is the artefact, so no future UI should be built expecting a success object in S3. THE IDENTITY CONTRACT: every field read here must EXIST as a key by now. ValidateAuthorize guarantees requestId/actor/location; AssembleReport guarantees verdict/hasApproximateFigures/hasIncompleteFigures/reportKey and threads the rest. A Pass state's JSONPath HARD-FAILS on an ABSENT key (States.Runtime) and a Pass state has NO Catch, so that failure escapes straight to ExecutionFailed, skipping NotifyFailure and leaving the user with no notification at all. A null VALUE is fine; a missing key is fatal. (Caught by the live smoke test.)",
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
@@ -296,7 +296,7 @@
     },
     "ValidateFailureSeed": {
       "Type": "Pass",
-      "Comment": "A validate-authorize failure occurs before the request identity exists (its input was the raw SQS array), so its Catch replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared cleanup/RecordFailure path is uniform for every verb. `location` IS SEEDED HERE FOR THE SAME REASON requestId and actor are, and it is load-bearing: SPEC-112 FR-005 added $.location to RecordFailure, and a Pass state hard-fails on an ABSENT key with an uncatchable States.Runtime — so without this line the ONE failure path that reaches RecordFailure without ever having a location (a malformed or unauthorized request) would die before NotifyFailure and tell the user nothing at all.",
+      "Comment": "A validate-authorize failure occurs before the request identity exists (its input was the raw SQS array), so its Catch replaced the state with the error object. Seed null identity fields + carry the error under $.error so the shared cleanup/RecordFailure path is uniform for every verb. `location` IS SEEDED HERE FOR THE SAME REASON requestId and actor are, and it is load-bearing: the report path added $.location to RecordFailure, and a Pass state hard-fails on an ABSENT key with an uncatchable States.Runtime — so without this line the ONE failure path that reaches RecordFailure without ever having a location (a malformed or unauthorized request) would die before NotifyFailure and tell the user nothing at all.",
       "Parameters": {
         "requestId": null,
         "actor": null,
@@ -340,7 +340,7 @@
     },
     "RecordFailure": {
       "Type": "Pass",
-      "Comment": "The single recorded-failure state every verb's Catch reaches (after cleanup). Shapes the structured outcome { requestId, actor, location, status:'failed', error } (SPEC-112 FR-005; identity and location are null for a pre-identity validate failure, which ValidateFailureSeed seeds precisely so this state's JSONPath finds the KEYS). Nothing durable is written here either — a failed check produces no report object, so no UI should be built expecting a failure artefact in S3. SPEC-114 notifies from this state, and it needs `location` to say WHICH check failed: a user who started three of them cannot act on 'your check failed'. IT CARRIES THE RAW ERROR OBJECT, NOT A DECODED reason: this used to read $.parsed.cause.errorMessage, produced by a ParseError Pass state running States.StringToJson($.error.Cause) — which raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON (States.Timeout, States.DataLimitExceeded, Lambda.Unknown; verified against the live service with TestState). The execution died right here, before NotifyFailure, on exactly the failures a user most needs to hear about. $.error is copied whole because a plain JSONPath copy of a key that always exists cannot fail; notify-failure decodes it in Python via cpcommon.errors.failure_reason, where any shape is safe. IT ALSO CARRIES $.reportKey, which is null until assemble-report fills it — and since assemble-report is followed only by DropTempTables, a NON-NULL reportKey on THIS state means exactly one thing: the check succeeded, the report was written, the user was already notified, and the only thing that failed afterwards was cleanup. notify-failure stays silent in that case rather than contradicting the success message it already sent. reportKey is seeded null by validate-authorize AND by ValidateFailureSeed for the same reason location is: a Pass state's JSONPath hard-fails on an ABSENT key.",
+      "Comment": "The single recorded-failure state every verb's Catch reaches (after cleanup). Shapes the structured outcome { requestId, actor, location, status:'failed', error } (identity and location are null for a pre-identity validate failure, which ValidateFailureSeed seeds precisely so this state's JSONPath finds the KEYS). Nothing durable is written here either — a failed check produces no report object, so no UI should be built expecting a failure artefact in S3. The notification producer reads this state, and it needs `location` to say WHICH check failed: a user who started three of them cannot act on 'your check failed'. IT CARRIES THE RAW ERROR OBJECT, NOT A DECODED reason: this used to read $.parsed.cause.errorMessage, produced by a ParseError Pass state running States.StringToJson($.error.Cause) — which raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON (States.Timeout, States.DataLimitExceeded, Lambda.Unknown; verified against the live service with TestState). The execution died right here, before NotifyFailure, on exactly the failures a user most needs to hear about. $.error is copied whole because a plain JSONPath copy of a key that always exists cannot fail; notify-failure decodes it in Python via cpcommon.errors.failure_reason, where any shape is safe. IT ALSO CARRIES $.reportKey, which is null until assemble-report fills it — and since assemble-report is followed only by DropTempTables, a NON-NULL reportKey on THIS state means exactly one thing: the check succeeded, the report was written, the user was already notified, and the only thing that failed afterwards was cleanup. notify-failure stays silent in that case rather than contradicting the success message it already sent. reportKey is seeded null by validate-authorize AND by ValidateFailureSeed for the same reason location is: a Pass state's JSONPath hard-fails on an ABSENT key.",
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor",
@@ -353,7 +353,7 @@
     },
     "NotifyFailure": {
       "Type": "Task",
-      "Comment": "Emit the friendly failure notification to the actor. PLACEHOLDER here — SPEC-114 FR-004 wires the real handler. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
+      "Comment": "Emit the friendly failure notification to the actor. PLACEHOLDER here — the notification producer wires the real handler. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${notify_failure_function_arn}",

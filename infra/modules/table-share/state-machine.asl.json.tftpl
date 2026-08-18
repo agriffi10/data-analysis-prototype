@@ -1,11 +1,11 @@
 {
-  "Comment": "Table-share control plane (SPEC-088 skeleton; verbs real since SPEC-089→092; restructured for scale by SPEC-160; caps raised and bounded in time by SPEC-161). validate-authorize → inspect-source run once per request. The recipient work then splits in three: a GUARD Map (check-target-absent per recipient, per-item Catch so one conflict never aborts a sibling), a TOP-LEVEL DISTRIBUTED MAP that copies every (recipient × object) pair from a JSONL manifest, and a FINISH Map that creates each cleared recipient's table. Attribution moved out of the Map item and into collect-transfer-results, which reads the Map Run's exported results. ShapeSummary/RecordFailure carry the structured terminal outcomes SPEC-094 notifies from. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
+  "Comment": "Table-share control plane. validate-authorize → inspect-source run once per request. The recipient work then splits in three: a GUARD Map (check-target-absent per recipient, per-item Catch so one conflict never aborts a sibling), a TOP-LEVEL DISTRIBUTED MAP that copies every (recipient × object) pair from a JSONL manifest, and a FINISH Map that creates each cleared recipient's table. Attribution moved out of the Map item and into collect-transfer-results, which reads the Map Run's exported results. ShapeSummary/RecordFailure carry the structured terminal outcomes the notification producer reads. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload; only transient Lambda SERVICE errors are retried.",
   "TimeoutSeconds": ${state_machine_timeout_seconds},
   "StartAt": "ValidateAuthorize",
   "States": {
     "ValidateAuthorize": {
       "Type": "Task",
-      "Comment": "First step (real since SPEC-089): verifies the ID token into the actor, authorizes source access, validates the result name, annotates recipients. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state for the next steps. A failure here runs BEFORE the request identity exists, so its Catch (no ResultPath — the input is an array, not an object) routes to ValidateFailureSeed, which seeds null identity fields so the shared recorded-failure state can reference them uniformly. TransientError (a throttled Cognito/S3 read) is retried, never terminalized.",
+      "Comment": "First step: verifies the ID token into the actor, authorizes source access, validates the result name, annotates recipients. The Pipe forwards the raw SQS batch (a JSON ARRAY), so Payload.$=$ hands the array to the validator (it reads record[0]); OutputPath=$.Payload makes the validated request object the whole state for the next steps. A failure here runs BEFORE the request identity exists, so its Catch (no ResultPath — the input is an array, not an object) routes to ValidateFailureSeed, which seeds null identity fields so the shared recorded-failure state can reference them uniformly. TransientError (a throttled Cognito/S3 read) is retried, never terminalized.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${validate_authorize_function_arn}",
@@ -365,7 +365,7 @@
           },
           "RecipientSucceeded": {
             "Type": "Pass",
-            "Comment": "Per-recipient success record (SPEC-092 final shape): a flat {kind, name, status} summary entry — what ShapeSummary collects and SPEC-094 notifications read.",
+            "Comment": "Per-recipient success record: a flat {kind, name, status} summary entry — what ShapeSummary collects and the notifications read.",
             "Parameters": {
               "kind.$": "$.recipient.kind",
               "name.$": "$.recipient.name",
@@ -430,7 +430,7 @@
     },
     "RecordFailure": {
       "Type": "Pass",
-      "Comment": "The single recorded-failure state every whole-request Catch reaches (identity is null for a pre-identity validate failure). Shapes the structured outcome { actor, source, tableName, status:'failed', error } SPEC-094 notifies from, then fails the execution. It carries the RAW $.error {Error, Cause}, not a decoded reason: the ParseError Pass state that used to produce one ran States.StringToJson, which raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON (States.Timeout, States.DataLimitExceeded, Lambda.Unknown — verified live), killing the execution before it could record anything. Decode with cpcommon.errors.failure_reason, never in ASL. Per-RECIPIENT failures never come here — they end their Map item via RecipientRefused/RecipientFailed and siblings continue.",
+      "Comment": "The single recorded-failure state every whole-request Catch reaches (identity is null for a pre-identity validate failure). Shapes the structured outcome { actor, source, tableName, status:'failed', error } the notification producer reads, then fails the execution. It carries the RAW $.error {Error, Cause}, not a decoded reason: the ParseError Pass state that used to produce one ran States.StringToJson, which raises an UNCATCHABLE States.Runtime whenever Cause is absent or is not JSON (States.Timeout, States.DataLimitExceeded, Lambda.Unknown — verified live), killing the execution before it could record anything. Decode with cpcommon.errors.failure_reason, never in ASL. Per-RECIPIENT failures never come here — they end their Map item via RecipientRefused/RecipientFailed and siblings continue.",
       "Parameters": {
         "actor.$": "$.actor",
         "source.$": "$.source",

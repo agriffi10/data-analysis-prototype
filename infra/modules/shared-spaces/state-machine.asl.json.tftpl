@@ -257,7 +257,7 @@
     },
     "AcknowledgeMembership": {
       "Type": "Task",
-      "Comment": "SPEC-073 — a member confirms they've picked up the space; flips them pending -> active in the owner's projection.",
+      "Comment": "A member confirms they've picked up the space; flips them pending -> active in the owner's projection.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${acknowledge_function_arn}",
@@ -287,7 +287,7 @@
     },
     "ValidateFailureSeed": {
       "Type": "Pass",
-      "Comment": "A Validate failure occurs before the request context exists (its input was the raw SQS array), and its Catch carries NO ResultPath because you cannot merge a key into an array — so the state has been REPLACED by the error object. Seed null context fields + carry the error under $.error so the shared RecordFailure path is uniform for every failure. The nulls are not decoration: RecordFailure is a Pass state, and a Pass state's JSONPath hard-fails on an ABSENT key with an uncatchable States.Runtime. A null VALUE is fine; a missing key is fatal. actor stays NULL rather than being read from the body — the body's own username is attacker-controlled, and the notifier treats a null actor as 'no trustworthy recipient' and stays silent (the SPEC-126 rule).",
+      "Comment": "A Validate failure occurs before the request context exists (its input was the raw SQS array), and its Catch carries NO ResultPath because you cannot merge a key into an array — so the state has been REPLACED by the error object. Seed null context fields + carry the error under $.error so the shared RecordFailure path is uniform for every failure. The nulls are not decoration: RecordFailure is a Pass state, and a Pass state's JSONPath hard-fails on an ABSENT key with an uncatchable States.Runtime. A null VALUE is fine; a missing key is fatal. actor stays NULL rather than being read from the body — the body's own username is attacker-controlled, and the notifier treats a null actor as 'no trustworthy recipient' and stays silent (the drain's rule).",
       "Parameters": {
         "requestId": null,
         "actor": null,
