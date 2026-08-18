@@ -160,7 +160,7 @@ export function QueryTabStrip({
         })}
       </div>
 
-      {/* SPEC-043 FR-010: workspace-global buttons (act across all tabs). They
+      {/* workspace-global buttons (act across all tabs). They
           sit outside the scrollable tablist so they stay visible at any tab count. */}
       <button
         type="button"

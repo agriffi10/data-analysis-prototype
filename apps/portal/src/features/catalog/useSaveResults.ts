@@ -42,12 +42,12 @@ type Params = {
   /**
    * The destinations to offer, already gated.
    *
-   * A PARAMETER rather than a `useQuerySpaces()` call inside the hook, on SPEC-174's
-   * precedent and for the reason SPEC-177 gave `useSaveQuery` the same shape. The hook read
+   * A PARAMETER rather than a `useQuerySpaces()` call inside the hook, on the space selector's
+   * precedent, and for the reason `useSaveQuery` has the same shape. The hook read
    * the unfiltered list, so with `sharedWorkspaces` off this dialog went on offering a
    * colleague's space as a WRITE target after every other shared-workspace surface had gone
    * — and a flag may not be applied inside a hook that answers a question about access
-   * (SPEC-162 FR-006), so the filter belongs at the view either way. Both call sites now
+   *, so the filter belongs at the view either way. Both call sites now
    * hand it a list they have gated.
    */
   spaces: QuerySpace[];
@@ -83,9 +83,9 @@ export function useSaveResults({
 
   // The spaces a result can be saved into — the user's own space
   // first, then every shared space they currently belong to (usable). The picker
-  // excludes each space's protected `athenaresults/` folder. SPEC-173 FR-005: the list
+  // excludes each space's protected `athenaresults/` folder. The list
   // is `useQuerySpaces`, shared with the saved-queries surfaces rather than rebuilt —
-  // and SPEC-185 moved the CALL to the two views, which gate it (see `Params`).
+  // and the CALL sits in the two views, which gate it (see `Params`).
   const personalBucket = spaces[0]?.bucket;
 
   // Default file name — the saved query's name when the tab is linked,
@@ -132,7 +132,7 @@ export function useSaveResults({
       setOpen(false);
       setOverwritePrompt(null);
       void invalidateListing(queryClient, args.destBucket, args.destPrefix);
-      // The Files browser only renders the personal space until SPEC-057,
+      // The Files browser only renders the personal space,
       // so the "View in Files" deep-link is offered only for a personal-space save.
       const isPersonalDest = args.destBucket === personalBucket;
       toast.push({

@@ -5,7 +5,7 @@
  * owns the confirm's label, its enabled-ness and the prefix it acts on, and is shared between
  * them — so `FormDialog`, which renders its own Cancel/submit pair, would give each dialog two
  * footers. Hoisting the picker's state into four parents to reach the shared chrome costs more
- * than the chrome saves, and `FormDialog`'s Enter-to-submit contract (SPEC-155
+ * than the chrome saves, and `FormDialog`'s Enter-to-submit contract (
  * AC8) has no meaning where the submitting control belongs to a child.
  *
  * "Cannot" is a legitimate answer that has to be written down, which is what this file is. What

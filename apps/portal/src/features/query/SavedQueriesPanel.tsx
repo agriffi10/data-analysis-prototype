@@ -42,7 +42,7 @@ type Props = {
  * no longer reach is an error about *that space* — they pick another and carry on —
  * rather than a broken drawer.
  *
- * SPEC-173 FR-006: a row is name + last-modified + size and carries **no SQL preview**.
+ * a row is name + last-modified + size and carries **no SQL preview**.
  * That is a deliberate, user-visible loss — a `.sql` file holds no metadata, so a
  * preview would mean a `GetObject` per row on every open: twenty-five round trips to
  * show twenty-five one-line snippets. The body is fetched only when a query is opened.

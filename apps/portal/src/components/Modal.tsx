@@ -18,7 +18,7 @@ type ModalProps = {
    * own (e.g. `max-w-lg` + padding) to replace it — no tailwind-merge, so don't
    * expect a passed `max-w-*` to layer on top of a default.
    *
-   * An EMPTY STRING counts as omitted (SPEC-186 FR-007). `cx()` no longer returns one,
+   * An EMPTY STRING counts as omitted. `cx()` no longer returns one,
    * but a caller composing its own class string can still produce it, and `??` would
    * take it as a deliberate choice to have no width at all — leaving the panel's
    * `w-full` to fill the viewport.

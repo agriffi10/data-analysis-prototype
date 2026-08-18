@@ -108,7 +108,7 @@ export const NO_CELL_TO_FILTER = 'Select a cell first.';
  * the SQL: an `ORDER BY` on it is a description `renderExplorationSql` REFUSES — which
  * would take the whole exploration to an error banner — and a `WHERE` on it fails at
  * Athena as an unknown column. The refusal is user text; the renderer's own names a column
- * and an operator, which SPEC-106 forbids showing anyone.
+ * and an operator, which the error-wording rule forbids showing anyone.
  */
 export const CALCULATED_COLUMN_REFUSAL =
   'This column is worked out in your browser, so it can’t be sorted or filtered.';

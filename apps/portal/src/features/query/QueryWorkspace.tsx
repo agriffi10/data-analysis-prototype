@@ -620,7 +620,7 @@ export function QueryWorkspace() {
     // `overflow-auto` results region actually scroll; the schema rail already
     // scrolls itself (`overflow-y-auto`).
     <div className="flex h-[calc(100dvh-3.5rem)] min-h-0 min-w-0 flex-1 overflow-hidden">
-      {/* SPEC-100 FR-005: on a phone the rail lives in the nav drawer instead. */}
+      {/* on a phone the rail lives in the nav drawer instead. */}
       {!isMobile && (
         <SchemaBrowser
           connections={connections}
@@ -719,7 +719,7 @@ export function QueryWorkspace() {
                 onRunScript={handleRunScript}
               />
 
-              {/* SPEC-079: the measured editor+results column. The editor pane takes
+              {/* the measured editor+results column. The editor pane takes
               the preset's clamped height; everything below it (status bar +
               results) flexes into the remainder and keeps scrolling internally. */}
               <div

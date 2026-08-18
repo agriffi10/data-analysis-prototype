@@ -20,7 +20,7 @@ export type ExpressionBarProps = {
  * Monaco's buffer does: `sqlLiteral` is for values the app quotes on a user's behalf, and
  * escaping this would only break the operators the bar exists to offer.
  *
- * **It is not gated on the `query` flag** (SPEC-162): a flag is presentation, never
+ * **It is not gated on the `query` flag**: a flag is presentation, never
  * authorization — it revokes no grant and the IAM boundary is identical either way — so
  * gating this input would buy nothing and cost the feature the filters people actually
  * write. The accepted cost is stated plainly in the spec: an environment that turns

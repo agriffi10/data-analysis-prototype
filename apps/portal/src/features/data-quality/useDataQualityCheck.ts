@@ -17,7 +17,7 @@ export type StartQualityCheckOptions = {
   /**
    * Push the success/failure toast. Default true — the Files-browser behaviour, unchanged.
    * The dashboard passes false because it raises its own banner, which says strictly more
-   * (SPEC-124 FR-005): one action, one confirmation.
+   *: one action, one confirmation.
    */
   toast?: boolean;
 };
@@ -42,7 +42,7 @@ export type UseDataQualityCheckResult = {
  *
  * The check itself is asynchronous and takes minutes. Success here means *enqueued*, never
  * *checked* — the outcome arrives as a notification carrying a link to the report
- * (SPEC-114), which is what lets this stop at "started" without stranding the user.
+ *, which is what lets this stop at "started" without stranding the user.
  *
  * @example
  * const {start, isPending} = useDataQualityCheck();

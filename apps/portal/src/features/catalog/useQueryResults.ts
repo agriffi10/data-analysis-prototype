@@ -50,7 +50,7 @@ export type UseQueryResultsResult = {
  * refetches page 1 at the new size for every result tab.
  */
 export function useQueryResults(queryExecutionId: string | null, pageSize: number): UseQueryResultsResult {
-  // The page position is kept PER execution id (SPEC-078 FR-007: each result
+  // The page position is kept PER execution id (each result
   // tab owns its own pager) — switching between executions restores each one's
   // page, mirroring how useInfiniteQuery already caches the pages per id. A new
   // run is a new execution id with no entry yet, so it starts on page 1.

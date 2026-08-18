@@ -215,7 +215,7 @@ export function hiddenHelpIds(isEnabled: (key: FeatureFlagKey) => boolean): Set<
  * The nav destinations a flag governs, as `path → flag`.
  *
  * `PrimaryNav` and `AppNavDrawer` live in `components/`, which may not import a feature
- * (SPEC-155), so they take a predicate instead of reaching for the hook. This is what the
+ *, so they take a predicate instead of reaching for the hook. This is what the
  * predicate is built from — and it is derived from the registry, so a nav row cannot be gated
  * on a different flag from the route it points at.
  */

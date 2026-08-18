@@ -20,7 +20,7 @@ const EMPTY: UserDirectory = {usernames: [], generatedAt: null};
  * only honest thing to do with an unavailable suggestion list is offer no suggestions — an
  * error banner would announce the failure of a feature whose whole promise is that it stays
  * out of the way, and every consumer accepts a name that is not in the list anyway
- * (SPEC-147 FR-005).
+ *.
  *
  * The bucket name is read at CALL time, never at module load: a module-level
  * `import.meta.env` const is captured before `vi.stubEnv` runs.

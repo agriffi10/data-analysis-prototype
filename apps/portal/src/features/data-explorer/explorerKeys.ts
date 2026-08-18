@@ -6,7 +6,7 @@
  * a namespace naming a feature the module does not belong to lets one feature's blanket
  * invalidation reach another's caches.
  *
- * The execution key is **the rendered SQL itself** (SPEC-178 FR-006). That is what makes
+ * The execution key is **the rendered SQL itself**. That is what makes
  * the cache the cost control: two explorations that render identically resolve to one
  * Athena execution, so changing a filter and changing it back is a cache hit rather than
  * a second bill. Keying by exploration id instead would bill every gesture.

@@ -186,7 +186,7 @@ function likeExpression(pattern: string, caseInsensitive: boolean): RegExp {
  * pattern must never be applied (AC6), and a rule that reached storage from an older build
  * or a hand-edited document has not been through the dialog. Every message is user text:
  * the engine's own `SyntaxError` names character offsets in a pattern the user is still
- * writing, which SPEC-106 forbids showing.
+ * writing, which the error-wording rule forbids showing.
  *
  * @param rule - The rule to check.
  * @returns The refusal, or null.

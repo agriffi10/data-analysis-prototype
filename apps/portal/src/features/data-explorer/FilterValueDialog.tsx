@@ -19,14 +19,14 @@ export type FilterValueDialogProps = {
 export const NUMERIC_VALUE_REFUSAL = 'Enter a number — this column holds numbers, not text.';
 
 /**
- * Asks for the value a comparison filters by (SPEC-181 FR-001 AC2).
+ * Asks for the value a comparison filters by.
  *
  * The value never reaches the SQL unescaped: it is carried on a `ColumnFilter` and quoted
  * by `sqlLiteral` at render time. What this dialog owns instead is the ONE case the
  * renderer cannot escape its way out of — a numeric column, whose value is emitted bare —
  * and it refuses that here, at the input, using the renderer's own predicate. The
  * alternative is an `ExplorationRenderError`, whose message names a column and an operator
- * and is operator text SPEC-106 forbids showing anyone.
+ * and is operator text the error-wording rule forbids showing anyone.
  *
  * Cancelling applies nothing at all: the caller only learns a value through `onApply`.
  */

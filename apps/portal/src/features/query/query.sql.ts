@@ -88,7 +88,7 @@ export type ViewTarget = {database: string} | {error: string};
 
 /**
  * Derives the target database for a "Create view" from the view body itself
- * (SPEC-077 FR-008): the single database of the fully-qualified base tables the
+ *: the single database of the fully-qualified base tables the
  * body selects from. Views generally don't span databases, so exactly one is
  * expected. Returns `{error}` (never a silent pick) when the body qualifies
  * tables from more than one database, or has no fully-qualified base table.

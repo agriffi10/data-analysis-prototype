@@ -168,7 +168,7 @@ export function SelectionToolbar({
 
       <div className="flex-1" />
 
-      {/* SPEC-113: a read-only diagnostic on ONE file or folder. It lives here rather
+      {/* a read-only diagnostic on ONE file or folder. It lives here rather
           than on the top toolbar because it is scoped to the SELECTION, like its
           neighbours — and here it is already reachable at every breakpoint (labelled
           at ≥ tablet, icon-only on mobile) without a second mount. `user_settings` and
@@ -187,7 +187,7 @@ export function SelectionToolbar({
         </Button>
       )}
 
-      {/* SPEC-167: a send is a copy INTO SOMEONE ELSE'S space, so it sits beside Copy rather
+      {/* a send is a copy INTO SOMEONE ELSE'S space, so it sits beside Copy rather
           than anywhere new — one or many items, files and folders alike. Labelled at ≥ tablet,
           icon-only on mobile, exactly like its neighbours. */}
       {onRequestSend && (
@@ -203,7 +203,7 @@ export function SelectionToolbar({
         </Button>
       )}
 
-      {/* SPEC-172: archiving is a copy OUT of this space followed by a delete, so it sits
+      {/* archiving is a copy OUT of this space followed by a delete, so it sits
           between Send and Delete — the last of the "this leaves here" actions. Unlike the
           data-quality check it takes the WHOLE selection: archiving a set is the normal case. */}
       {onRequestArchive && (

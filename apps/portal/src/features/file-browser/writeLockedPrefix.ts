@@ -4,7 +4,7 @@ import type {FileSpaceKind} from './useFileSpace';
 /**
  * Is this folder one the portal role cannot write into — so the browser must not offer a write?
  *
- * **THE FIRST PREFIX-BASED WRITE GATE IN THIS APP** (SPEC-172 FR-004). Everything before it was
+ * **THE FIRST PREFIX-BASED WRITE GATE IN THIS APP**. Everything before it was
  * a rule about a folder's NAME at the space root (`protectedFolders.ts`); this is a rule about
  * where the user is STANDING, and it is built as a predicate rather than an `if` inside the
  * toolbar because the next read-only prefix will want it.

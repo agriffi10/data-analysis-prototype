@@ -20,7 +20,7 @@ export const FIELD_HINT = 'mt-1.5 text-xs text-text-3';
  * The majority variant of the three that existed. The other two — `font-medium text-text-2` and
  * `tracking-[.04em]` — are folded into this one, which makes seven captions very slightly
  * bolder, dimmer or more tightly tracked than before. That is the deliberate visual change in
- * this consolidation, on SPEC-155 FR-007's precedent: two spellings of one idea on two screens
+ * this consolidation, on the byte-formatter precedent: two spellings of one idea on two screens
  * is the defect, not the fix.
  */
 export const SECTION_CAPTION = 'text-xs font-semibold uppercase tracking-wide text-text-3';

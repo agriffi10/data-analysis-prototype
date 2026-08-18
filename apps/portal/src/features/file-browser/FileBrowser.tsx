@@ -267,7 +267,7 @@ function FileBrowserContent({
             CSS-hidden) so the two never both live in the DOM. */}
         {writable && !isMobile && (
           <div className="flex items-center gap-3">
-            {/* SPEC-071: turn the current folder into a Glue/Athena table. Needs the
+            {/* turn the current folder into a Glue/Athena table. Needs the
                 space's database (= the marker owner: username | shared name), so it's
                 gated on `username` like the other space-scoped actions. */}
             {username && queryEnabled && (
@@ -278,7 +278,7 @@ function FileBrowserContent({
                 prefix={currentPrefix}
               />
             )}
-            {/* SPEC-172 FR-003: a restore has no selection — it takes a pasted id — so it sits
+            {/* a restore has no selection — it takes a pasted id — so it sits
                 with the primary actions rather than on the selection toolbar. */}
             {restoreEnabled && <RestoreArchiveButton onClick={restore.openDialog} />}
             <Button

@@ -337,7 +337,7 @@ export function DatabaseNode({
           <DatabaseRowIcon />
           <span className="min-w-0 truncate">{connection.label}</span>
         </button>
-        {/* SPEC-086: per-node refresh — only on an expanded (loaded) node; re-reads
+        {/* per-node refresh — only on an expanded (loaded) node; re-reads
             just this database's tables/views, never toggling expansion. SPEC-155 FR-006:
             it shares the app's one refresh glyph now, where it used to draw its own
             two-path variant — a deliberate (small) visual change. */}

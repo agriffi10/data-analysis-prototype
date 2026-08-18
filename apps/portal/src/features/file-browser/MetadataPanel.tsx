@@ -87,7 +87,7 @@ function PanelActions({
           </Button>
         )}
       </div>
-      {/* SPEC-172 FR-001: the second home a per-item action has. A single file can be archived
+      {/* the second home a per-item action has. A single file can be archived
           without selecting it first, which is what makes the toolbar's whole-selection rule
           affordable. */}
       {canModify && onRequestArchive && (

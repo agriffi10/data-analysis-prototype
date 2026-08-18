@@ -55,7 +55,7 @@ export function ProtectedLayout() {
     void prefetchNotifications(queryClient, username);
   }, [queryClient, username]);
 
-  // SPEC-162 resolves the feature flags here and DISCARDS the result — SPEC-163 is what
+  // The feature flags resolve here and the result is DISCARDEDlt — the gating registry is what
   // reads them. This is not a placeholder: without a mount the whole feature is
   // tree-shaken out of the production bundle, and then the `_config/*` grant, the
   // bucket-policy allowlist, the CORS preflight, the CSP `connect-src` entry, the key

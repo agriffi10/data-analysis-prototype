@@ -36,7 +36,7 @@ type ChipProps = {
   tag?: string;
   /**
    * The remove button's ACCESSIBLE NAME, supplied whole by the caller. Never derived here:
-   * the registry and every removal test query these buttons by name, and SPEC-172 forbids
+   * the registry and every removal test query these buttons by name, and the fleet rule forbids
    * a reason becoming one.
    */
   removeLabel: string;

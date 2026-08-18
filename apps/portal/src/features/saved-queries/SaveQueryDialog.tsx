@@ -50,7 +50,7 @@ export function SaveQueryDialog({initialName, spaces, initialSpace, linked, erro
   const [spaceId, setSpaceId] = useState(initialSpace?.id ?? spaces[0]?.id ?? '');
   // Validation runs on SUBMIT (FR-002 AC5), not as a disabled condition: a refusal the
   // user cannot reach is dead code an "it's disabled" test passes straight over
-  // (SPEC-167). Cleared as they type, so the message never outlives the value it judged.
+  //. Cleared as they type, so the message never outlives the value it judged.
   const [submitError, setSubmitError] = useState<string | null>(null);
   // …and the same is true of the HOST's message, which this cannot clear because it does
   // not own it. An `AccessDenied` for one destination, still pinned to the field after the

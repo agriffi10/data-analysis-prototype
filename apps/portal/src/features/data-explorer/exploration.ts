@@ -39,7 +39,7 @@ export function emptyExplorationQuery(): ExplorationQuery {
 }
 
 /**
- * The grouping a panel starts from: no columns yet, and `COUNT(*)` (SPEC-182 FR-003 AC2).
+ * The grouping a panel starts from: no columns yet, and `COUNT(*)`.
  *
  * `COUNT(*)` is present by default because a grouping with no aggregate answers nothing —
  * it is a distinct list — and "how many in each" is the question grouping is nearly always
@@ -62,7 +62,7 @@ export function emptyQueryHistory(): QueryHistoryCursor {
 
 /**
  * Formatting as a tab starts: no rules, no type tint, no striping, no transformers
- * (SPEC-184).
+ *.
  *
  * Every default is "off" rather than a sensible-looking preset, because each one changes
  * how a value READS — a number rendered to two decimals is a different number to anyone

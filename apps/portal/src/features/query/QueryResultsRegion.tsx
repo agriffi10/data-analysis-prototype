@@ -95,7 +95,7 @@ export function QueryResultsRegion({
             variant="danger"
             title="Query failed."
             onDismiss={onDismissError}>
-            {/* SPEC-106 FR-004: friendly, mapped guidance — no raw Athena
+            {/* friendly, mapped guidance — no raw Athena
           engine text (the raw reason is dev-logged + kept in history). */}
             <p className="text-sm">{errorMessage}</p>
           </Banner>
@@ -103,7 +103,7 @@ export function QueryResultsRegion({
       )}
 
       <div className={cx('flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4')}>
-        {/* SPEC-078 FR-007: the tab-per-statement scope gets a result-tab
+        {/* the tab-per-statement scope gets a result-tab
       strip; the other scopes render a single result view. Tabs are
       ephemeral — a new run replaces the tab's run state wholesale. */}
         {showResultTabs && run && (
@@ -113,7 +113,7 @@ export function QueryResultsRegion({
             onSelect={onSelectResultTab}
           />
         )}
-        {/* SPEC-087 FR-002: the Results header row carries the "Rows per
+        {/* the Results header row carries the "Rows per
       page" control — above the grid, right under the status bar's
       row-count stat, and always rendered (disabled, never hidden,
       when there's no result set to page). */}

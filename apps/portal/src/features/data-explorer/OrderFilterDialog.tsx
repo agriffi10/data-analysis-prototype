@@ -100,7 +100,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
   const submit = () => {
     // Refused HERE, at the field, for the reason `FilterValueDialog` gives: the renderer's
     // refusal is an `ExplorationRenderError` naming a column and an operator, which
-    // SPEC-106 forbids showing anyone. Same predicate, so the two cannot disagree.
+    // the error-wording rule forbids showing anyone. Same predicate, so the two cannot disagree.
     const bad: Record<string, string> = {};
     for (const filter of draft.query.filters) {
       if (!operatorTakesValue(filter.operator)) continue;

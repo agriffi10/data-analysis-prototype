@@ -29,7 +29,7 @@ export function runsSources(
   if (buckets.shared) {
     for (const name of sharedSpaceNames) {
       // A shared space named like the user would resolve PERSONAL at the report route
-      // (SPEC-113 FR-005), so its rows would link somewhere that 404s. Skipping it here
+      //, so its rows would link somewhere that 404s. Skipping it here
       // matches what the link builder does on the producer side.
       if (name !== username) sources.push({space: name, bucket: buckets.shared});
     }

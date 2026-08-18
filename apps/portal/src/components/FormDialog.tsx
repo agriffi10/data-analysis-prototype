@@ -171,7 +171,7 @@ export function FormDialog({
           // asserting "Enter on the select does not submit" passes in this environment
           // whatever this handler does. Browsers submit the form when Enter is pressed on
           // a closed select, which would file a save from the destination control
-          // (SPEC-175 FR-004 AC8). An OPEN dropdown is the browser's own modal and its
+          //. An OPEN dropdown is the browser's own modal and its
           // Enter never reaches here.
           if (!(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLSelectElement)) return;
           // Suppress the browser's implicit submission for EVERY such control, then submit

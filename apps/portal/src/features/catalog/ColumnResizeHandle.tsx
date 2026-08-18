@@ -75,7 +75,7 @@ export function ColumnResizeHandle<K extends string | number>({
       aria-label={`Resize column ${columnName}`}
       // A FOCUSABLE separator is a widget, not a divider, so ARIA requires a value —
       // caught by axe once a grid with these handles was driven into a live state
-      // (SPEC-180). The pixel width is the value the Arrow keys move.
+      //. The pixel width is the value the Arrow keys move.
       aria-valuenow={Math.round(width)}
       aria-valuemin={MIN_COLUMN_WIDTH}
       aria-valuemax={MAX_COLUMN_WIDTH}

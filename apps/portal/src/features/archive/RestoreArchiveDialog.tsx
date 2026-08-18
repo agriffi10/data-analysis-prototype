@@ -55,7 +55,7 @@ export function RestoreArchiveDialog({spaceLabel, busy = false, submitError, onS
       onSubmit={() => {
         setAttempted(true);
         // Validation happens on submit rather than through `submitDisabled`: a disabled control
-        // is not a refusal, and the user needs to be told what a valid id looks like (SPEC-175's
+        // is not a refusal, and the user needs to be told what a valid id looks like (the save dialog's
         // recorded rule — `submitDisabled` never stands in for an explanation).
         if (isArchiveId(trimmed)) onSubmit(trimmed);
       }}

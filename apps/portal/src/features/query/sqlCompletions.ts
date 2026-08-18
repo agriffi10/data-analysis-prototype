@@ -23,7 +23,7 @@ const VIEW_TABLE_TYPE = 'VIRTUAL_VIEW';
 
 /**
  * Builds schema completion descriptors across every accessible database
- * (SPEC-077 FR-005). Tables/views are suggested **fully-qualified**
+ *. Tables/views are suggested **fully-qualified**
  * (`database.table`) since there is no active-database context; columns keep
  * their SPEC-065 form — bare name, de-duplicated across all databases, with
  * type + owning table as detail. Returns [] when there is no schema.

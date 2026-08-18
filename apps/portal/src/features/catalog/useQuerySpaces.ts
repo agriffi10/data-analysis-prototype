@@ -10,7 +10,7 @@ import type {QuerySpace} from './catalog.types';
  * first, then each shared space they are an active member of.
  *
  * One definition for the whole feature — `useSaveResults` computed this list inline
- * before SPEC-173, and SPEC-174/175 need it again for loading and saving queries.
+ * before the store moved, and loading and saving queries need it again.
  * A space is usable when it is the personal one or a shared connection whose status
  * is `active`; a connection that is provisioning, failed or leaving is omitted.
  *

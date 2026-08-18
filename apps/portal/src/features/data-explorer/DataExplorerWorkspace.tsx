@@ -29,7 +29,7 @@ const EMPTY_PRESENTATION = emptyExplorationPresentation();
  * exploration's rows.
  *
  * The engine is the — this mounts it. The results table below is explicitly a
- * placeholder that SPEC-180 replaces with the real grid.
+ * placeholder the real grid replaces.
  *
  * **A denied deep link renders the refusal ALONE**, with no picker and no active
  * exploration: the page must ask nothing of Glue or Athena about a space this user cannot
@@ -39,7 +39,7 @@ export function DataExplorerWorkspace() {
   const {user} = useAuth();
   const username = user?.username ?? '';
 
-  // FILTERED AT THE VIEW, never in `useQuerySpaces` and never in a service (SPEC-174's
+  // FILTERED AT THE VIEW, never in `useQuerySpaces` and never in a service (the space selector's
   // precedent): the hook answers "which spaces can this user reach", which is a question
   // about access, and a flag is presentation.
   const sharedEnabled = useFeature('sharedWorkspaces');
@@ -274,7 +274,7 @@ export function DataExplorerWorkspace() {
               name: query.name
             });
             // ONE memory of "the space I am working in", written on every success — the
-            // same rule SPEC-175 settled for the Query workspace, and the same storage key.
+            // same rule the Query workspace settles, and the same storage key.
             savedSpace.selectSpace(query.spaceId);
             setSaving(null);
           }}

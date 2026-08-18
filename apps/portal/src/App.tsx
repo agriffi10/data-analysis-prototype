@@ -38,7 +38,7 @@ export default function App() {
           element={<LandingPage />}
         />
         <Route element={<ProtectedLayout />}>
-          {/* SPEC-163: every gated route keeps its path and swaps its ELEMENT. The route
+          {/* Every gated route keeps its path and swaps its ELEMENT. The route
               must still match, or a disabled feature would fall through to the `*` 404 and
               tell a user with a perfectly correct link that their URL is wrong.
 

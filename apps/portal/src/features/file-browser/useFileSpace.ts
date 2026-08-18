@@ -35,7 +35,7 @@ export type UseFileSpaceParams = {
    * space that cannot be resolved: this reports `fellBack: false`, so no banner claims the
    * space is unavailable — it is available, this build just does not offer shared spaces.
    * `useConnections` still resolves normally, because a flag may not touch a service
-   * (SPEC-162 FR-006).
+   *.
    */
   ignoreSpaceParam?: boolean;
 };

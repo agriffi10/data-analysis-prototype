@@ -3,7 +3,7 @@
 //
 // The Glue reader, the Athena execution/results layer and the space list are
 // `features/catalog/` and the `.sql` store is `features/saved-queries/`
-// (SPEC-177) — this feature composes both and may not import `features/query/`.
+// — this feature composes both and may not import `features/query/`.
 export {
   renderExplorationSql,
   ExplorationRenderError,

@@ -172,7 +172,7 @@ export function FileBrowserDialogs({
         />
       )}
 
-      {/* SPEC-113: confirm a read-only data-quality check on the one selected item.
+      {/* confirm a read-only data-quality check on the one selected item.
           The space root prefix (not the current folder) is what identifies the space
           to the control plane; `location` is the item itself. */}
       {dialogs.checkingQuality && username && (

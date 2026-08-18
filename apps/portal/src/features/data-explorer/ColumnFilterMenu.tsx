@@ -8,14 +8,14 @@ import type {ColumnFilter, FilterOperator, FilterValueKind} from './dataExplorer
  *
  * One object, built once from `useExplorationQuery`, rather than a handful of callbacks
  * threaded through the grid: the header menu, the settings dialog and the cell action all
- * make the same four edits, and they must make them the same way (SPEC-181 FR-002 AC4's
+ * make the same four edits, and they must make them the same way (the shared-edit rule's
  * "replaces rather than accumulates" is a property of `setFilter`, not of a caller).
  */
 export type ColumnQueryActions = {
   /**
    * Why this column takes no filter and no sort, or null when it does.
    *
-   * SPEC-182 introduced the first column that is **not part of the query**: the grouped
+   * The percentage column is the first that is **not part of the query**: the grouped
    * result's percentage, computed in the browser and appended to the result. It is a real
    * grid column — it sizes, hides, pins and reorders — but there is no such column in the
    * SQL, so an `ORDER BY` on it is a description the renderer REFUSES (taking the whole
@@ -44,7 +44,7 @@ export type ColumnFilterMenuProps = {
 
 /**
  * The per-column header menu: ordering, the six comparisons, and the two null tests
- * (SPEC-181 FR-001).
+ *.
  *
  * Composed on the `Menu` primitive, and its accessible name **names its column** — two
  * columns' menus are otherwise indistinguishable to anything that queries by name, which

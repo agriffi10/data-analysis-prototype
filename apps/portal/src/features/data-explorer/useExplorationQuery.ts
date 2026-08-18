@@ -37,7 +37,7 @@ export type UseExplorationQueryResult = {
 const NOTHING_TO_CLEAR = 'There are no filters, expressions, sorts or grouping to clear.';
 
 /**
- * The two names the clear-all control goes by (SPEC-182 FR-006 AC3).
+ * The two names the clear-all control goes by.
  *
  * The label changes because the ACTION does: with a grouping in force, pressing it also
  * un-groups the result, and a control that says "filters" while removing a grouping is

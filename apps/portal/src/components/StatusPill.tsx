@@ -28,7 +28,7 @@ type StatusPillProps = {
 };
 
 /**
- * A status as a tinted pill with a dot and a TEXT LABEL (SPEC-186 FR-010 pattern A).
+ * A status as a tinted pill with a dot and a TEXT LABEL.
  *
  * THE LABEL ALWAYS CARRIES THE MEANING. The tone and the dot are redundant signals, so a user
  * who cannot distinguish the tones loses nothing (WCAG 1.4.1) — that rule was written out

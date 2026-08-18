@@ -142,7 +142,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
         </ul>
       </div>
 
-      {/* SPEC-163 FR-005: with `sharedWorkspaces` off there is exactly ONE recipient kind, so the
+      {/* with `sharedWorkspaces` off there is exactly ONE recipient kind, so the
           toggle does not render at all — a single-option radio group is a control that asks a
           question with one answer, and implies the other option exists somewhere. */}
       {sharedSpacesEnabled && (

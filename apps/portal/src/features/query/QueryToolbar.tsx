@@ -69,7 +69,7 @@ export function QueryToolbar({
         <SaveIcon />
         <span className={TOOLBAR_LABEL}>Save</span>
       </Button>
-      {/* SPEC-163: registered under the `query` flag, which already removes this whole
+      {/* registered under the `query` flag, which already removes this whole
           route — the row exists so a future surface inherits the gate, not the bug. */}
       <FeatureGate flag="query">
         <Button

@@ -74,7 +74,7 @@ export type GroupingAggregate = {
 export type Grouping = {
   columns: string[];
   aggregates: GroupingAggregate[];
-  /** `HAVING COUNT(*) > 1` — the grouped rows that occur more than once (SPEC-182 FR-004). */
+  /** `HAVING COUNT(*) > 1` — the grouped rows that occur more than once. */
   duplicatesOnly: boolean;
   /**
    * Whether the grid shows each grouped row's share of the first aggregate's total.

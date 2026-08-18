@@ -9,7 +9,7 @@ import type {
 } from './dataExplorer.types';
 
 // The pure edits every filtering and ordering surface makes to a query description
-// (SPEC-181). They live apart from the components for the reason `exploration.ts` gives
+//. They live apart from the components for the reason `exploration.ts` gives
 // for its constructors: a header menu, a cell action and a settings dialog all "add a
 // filter", and three implementations of that is how two of them come to disagree about
 // whether adding a second filter on one column replaces the first.
@@ -278,7 +278,7 @@ export function setGrouping(query: ExplorationQuery, grouping: Grouping | null):
  * and taking it put the whole exploration behind an error banner.
  *
  * The rule is the RENDERER's (`groupingOrderingViolation`), not a copy of it: the message
- * the renderer throws names a column and an operator, which SPEC-106 forbids showing
+ * the renderer throws names a column and an operator, which the error-wording rule forbids showing
  * anyone, so the refusal has to be worded here — but a second rule here could disagree,
  * and the way it would disagree is a grouping this accepts and the renderer throws on.
  *

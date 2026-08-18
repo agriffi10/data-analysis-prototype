@@ -41,7 +41,7 @@ const NUMERIC_CHARS_RE = /^[-+0-9.eE]+$/;
  * `security/detect-unsafe-regex`), where the engine's own parser cannot be.
  *
  * **Exported so the surfaces that build a numeric filter refuse exactly what the renderer
- * refuses** (SPEC-181). The renderer throws an `ExplorationRenderError` whose message
+ * refuses**. The renderer throws an `ExplorationRenderError` whose message
  * names a column and an operator — operator text SPEC-106 forbids rendering — so a value
  * that would reach it has to be turned back at the input, and a second numeric rule at
  * the input is a rule that can disagree with this one.

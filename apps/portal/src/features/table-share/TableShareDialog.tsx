@@ -48,11 +48,11 @@ function unlistedSpaceNote(names: string[]): string {
  * spaces), multi-entry recipient chips, and a catalog-safe result table name
  * defaulted to the source name. Submit stays disabled until there is at least
  * one recipient and the name is valid; the server re-validates authoritatively
- * (SPEC-089), so validation here is UX only.
+ *, so validation here is UX only.
  *
  * BOTH kinds suggest as you type — usernames from the published directory
  * (SPEC-146/147), space names from the signed-in user's own connections cache
- * (SPEC-158) — and NEITHER blocks a name it does not know. Free text still
+ * — and NEITHER blocks a name it does not know. Free text still
  * commits: the pipeline owns existence checks, and outcomes arrive as
  * notifications.
  */
@@ -153,7 +153,7 @@ export function TableShareDialog({source, busy = false, submitError, onSubmit, o
         </p>
       </div>
 
-      {/* SPEC-163 FR-005: with `sharedWorkspaces` off there is exactly ONE recipient kind, so
+      {/* with `sharedWorkspaces` off there is exactly ONE recipient kind, so
           the toggle does not render at all. A single-option radio group is a control that
           asks a question with one answer — worse than no control, because it implies the
           other option exists somewhere. The field below then labels itself for usernames,
