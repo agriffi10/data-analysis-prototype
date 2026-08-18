@@ -6,7 +6,7 @@
 # and table-share) and each gets its task's real timeout AND memory (locals.tf — see the
 # shared-spaces implicit-128 MB precedent recorded there).
 #
-# notify-failure is a PLACEHOLDER here: SPEC-114 FR-004 wires its real handler and the
+# notify-failure is a PLACEHOLDER here: the notification producer wires its real handler and the
 # NotifyFailure state. Provisioning it in the foundation (function + log group +
 # deploy-lambdas matrix entry) is the notify-failure-Lambda pattern — the foundation
 # spec provisions the placeholder, the producer spec wires it.
@@ -52,16 +52,16 @@ resource "aws_lambda_function" "functions" {
   memory_size   = each.value.memory
 
   # EVERY variable cpcommon/config.py requires must be COMMON to all nine verbs: every verb
-  # attaches the cpcommon layer, and any of them may reach any of those values. SPEC-156
+  # attaches the cpcommon layer, and any of them may reach any of those values. The config
   # FR-004 moved the fail-fast from import to FIRST READ, so a verb missing
-  # one no longer crashes at COLD START (the table-builder production break, PR #196:
+  # one no longer crashes at COLD START (
   # check-table-absent, RuntimeError COGNITO_USER_POOL_ID unset) — it fails on whichever
   # branch reads it, which is narrower and no less broken. The per-verb map
   # (local.data_quality_verb_env) is reserved for OPTIONAL action env only.
   # NOTIFICATIONS_QUEUE_URL stays optional by design (emit is a no-op when unset).
   #
   # ATHENA_WORKGROUP is the SHARED portal workgroup (var.athena_workgroup) — the same one
-  # table-builder/table-share use. SPEC-108 originally gave this arc its own workgroup to
+  # table-builder/table-share use. This plane originally had its own workgroup to
   # escape the portal workgroup's 10 GiB scan cutoff, but Athena ties Lake Formation to the
   # workgroup: a dedicated one fails LF's Create/Describe checks even for an LF-admin role
   # (measured live). The cutoff tradeoff is documented in the architecture doc — a

@@ -25,7 +25,7 @@ variable "portal_role_name" {
 }
 
 variable "deploy_role_arn" {
-  description = "ARN of the GitHub Actions deploy role (modules/base). Excluded from the user-space bucket policy's data-access Deny so the IaC principal can HeadBucket/manage the bucket; without it tofu refresh reports false 'deleted' drift and plans a destructive recreate (SPEC-013 FR-002 fix)."
+  description = "ARN of the GitHub Actions deploy role (modules/base). Excluded from the user-space bucket policy's data-access Deny so the IaC principal can HeadBucket/manage the bucket; without it tofu refresh reports false 'deleted' drift and plans a destructive recreate."
   type        = string
 }
 
@@ -48,7 +48,7 @@ variable "notifications_writer_role_arn" {
 
 # The three control-plane execution roles below all read USER-SPACE data via their own
 # execution role (table-builder/table-share inspect a source folder; data-quality lists +
-# probes + profiles one). SPEC-070/092/109 granted each the identity-side s3:GetObject/
+# probes + profiles one). Each holds the identity-side s3:GetObject/
 # ListBucket — but NONE was ever added to THIS bucket's resource-policy allowlist, so the
 # Deny below overrode those Allows and every read 403'd. The gap was invisible until the
 # Live smoke run became the first time any of the three actually read a real
@@ -57,19 +57,19 @@ variable "notifications_writer_role_arn" {
 # exist at apply time); default "" keeps this module planning standalone.
 
 variable "table_builder_execution_role_arn" {
-  description = "SPEC-070/111-fix: ARN of the table-builder shared execution role. Excluded from the user-space bucket policy's data-access Deny so inspect-source can read a personal-space source folder; the identity-side grant alone is overridden by the Deny without this exclusion."
+  description = "ARN of the table-builder shared execution role. Excluded from the user-space bucket policy's data-access Deny so inspect-source can read a personal-space source folder; the identity-side grant alone is overridden by the Deny without this exclusion."
   type        = string
   default     = ""
 }
 
 variable "table_share_execution_role_arn" {
-  description = "SPEC-092/111-fix: ARN of the table-share shared execution role. Excluded from the user-space bucket policy's data-access Deny so inspect-source/copy-objects can read a personal-space source table's files."
+  description = "ARN of the table-share shared execution role. Excluded from the user-space bucket policy's data-access Deny so inspect-source/copy-objects can read a personal-space source table's files."
   type        = string
   default     = ""
 }
 
 variable "data_quality_execution_role_arn" {
-  description = "SPEC-109/111-fix: ARN of the data-quality shared execution role. Excluded from the user-space bucket policy's data-access Deny so inspect-source can list+probe and Athena can profile a personal-space folder; without it the whole pipeline 403s at the first read."
+  description = "ARN of the data-quality shared execution role. Excluded from the user-space bucket policy's data-access Deny so inspect-source can list+probe and Athena can profile a personal-space folder; without it the whole pipeline 403s at the first read."
   type        = string
   default     = ""
 }
@@ -81,7 +81,7 @@ variable "file_send_execution_role_arn" {
 }
 
 variable "archive_execution_role_arn" {
-  description = "ARN of the archive shared execution role, constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny so an archive can read the actor's personal-space files and — from SPEC-169, once every object is confirmed copied — delete them. AN EXPLICIT RESOURCE-POLICY DENY BEATS AN IDENTITY-POLICY ALLOW, so without this the plane half-works: every SHARED-space archive succeeds (the shared-space bucket has no bucket policy) and every PERSONAL one fails AccessDenied, which reads like a code bug and is not."
+  description = "ARN of the archive shared execution role, constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny so an archive can read the actor's personal-space files and — once every object is confirmed copied — delete them. AN EXPLICIT RESOURCE-POLICY DENY BEATS AN IDENTITY-POLICY ALLOW, so without this the plane half-works: every SHARED-space archive succeeds (the shared-space bucket has no bucket policy) and every PERSONAL one fails AccessDenied, which reads like a code bug and is not."
   type        = string
   default     = ""
 }

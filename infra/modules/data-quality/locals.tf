@@ -1,6 +1,6 @@
 # ── Constructed names + ARNs ──────────────────────────────────────
 # All resource names derive from {project_name}-{environment} so the deploy policy
-# (modules/base, the SPEC-108 PR1 grant) scopes to the same {project}-*-data-quality-*
+# (the modules/base grant) scopes to the same {project}-*-data-quality-*
 # patterns, and so cross-resource ARNs referenced inside IAM policy templates are KNOWN
 # AT PLAN TIME (constructed strings, not resource attributes) — the architecture.md
 # "unknown ARN in list" discipline. This module plans standalone.
@@ -14,10 +14,10 @@ locals {
   sfn_role_name       = "${var.project_name}-${var.environment}-data-quality-sfn-role"
 
   # ONE shared execution role for all nine verb Lambdas (no per-verb roles — matching
-  # table-builder and table-share). At SPEC-108 its policy is LOGS ONLY; the S3 grants
-  # + the protected-object Deny arrive in SPEC-109, and the Glue/Athena/Lake-Formation
-  # admin grants in SPEC-111 (the spec that first needs them). ARN is a constructed
-  # string (known at plan time) so SPEC-111 can add it to the analytics LF admins list
+  # table-builder and table-share). Its policy covers logs, the S3 grants
+  # and the protected-object Deny, and the Glue/Athena/Lake-Formation
+  # admin grants. The ARN is a constructed
+  # string (known at plan time) so it can be added to the analytics LF admins list
   # without a cycle.
   execution_role_name = "${var.project_name}-${var.environment}-data-quality-execution-role"
   execution_role_arn  = "arn:aws:iam::${var.account_id}:role/${var.project_name}-${var.environment}-data-quality-execution-role"
@@ -36,16 +36,16 @@ locals {
   # NO VERB HERE STREAMS BULK DATA — Athena does the heavy work — which is why nothing
   # needs the maximum timeout or memory tier. byte-scan is the ONLY function that
   # touches file bytes, and its budget is bounded PER REQUEST (DQ_SCAN_TOTAL_BYTES,
-  # default 2 GiB — SPEC-112 FR-001); 300 s / 1024 MB is sized against that. A
+  # default 2 GiB); 300 s / 1024 MB is sized against that. A
   # PER-FILE budget (v3's design: 256 MiB × up to 1000 files ≈ 276 GB) would need
   # ~920 MB/s sustained through one Lambda and is impossible — it would pass on a
   # three-file fixture and time out in production.
-  # Each verb's module is named dq_<verb>.py, never a uniform handler.py. SPEC-108 chose
+  # Each verb's module is named dq_<verb>.py, never a uniform handler.py. An earlier version chose
   # the uniform name on the grounds that "the verb directory already disambiguates"; that
   # is true for Lambda (each function is its own zip) and FALSE for pytest, which flattens
   # every verb dir into ONE module namespace. With nine `handler.py` files the first
   # `import handler` wins for the whole session, so the tests silently imported
-  # the handler and asserted against the wrong module. Reversed in SPEC-110 (user
+  # the handler and asserted against the wrong module. Reversed (user
   # decision, 2026-07-16) before the remaining seven verbs — and the file-converter arc's
   # eight — inherited it.
   #
@@ -102,7 +102,7 @@ locals {
   # (modules/base). Referenced here for documentation/parity only.
   #
   # dqcommon carries the DOMAIN surface only — no polars, no Excel engine, and NO
-  # PyJWT/cryptography (those live once, in cpcommon — SPEC-107 FR-001).
+  # PyJWT/cryptography (those live once, in cpcommon).
   dqcommon_layer_name = "${var.project_name}-${var.environment}-data-quality-common"
 
   # polars, attached to inspect-source ONLY. The layer is unavoidable: Athena requires
@@ -123,7 +123,7 @@ locals {
   admin_bucket_arn        = "arn:aws:s3:::${var.admin_bucket_name}"
 
   # The SHARED portal Athena workgroup every verb runs in (var.athena_workgroup) — the
-  # same one table-builder/table-share use. SPEC-108 gave this arc its OWN workgroup to
+  # same one table-builder/table-share use. This plane once had its OWN workgroup to
   # escape the portal workgroup's scan cutoff, but a dedicated workgroup fails Lake
   # Formation's Create/Describe checks (Athena ties LF to the workgroup); The live
   # run proved it. The ARN scopes the execution role's athena:StartQueryExecution etc.

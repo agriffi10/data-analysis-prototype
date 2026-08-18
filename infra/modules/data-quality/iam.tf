@@ -6,20 +6,20 @@
 #
 # The execution policy is STAGED — each grant lands in the spec that first needs it, so
 # the blast radius grows only with a reviewed reason:
-#   - logs                                                → SPEC-108
+#   - logs
 #   - S3 (source read; registry read; report read+write)
-#     + the protected-object Deny                         → SPEC-109
-#   - Glue / Athena / Lake Formation admin                → SPEC-111
-#   - sqs:SendMessage on the NOTIFICATIONS queue only     → SPEC-114 (here)
+#     + the protected-object Deny
+#   - Glue / Athena / Lake Formation admin
+#   - sqs:SendMessage on the NOTIFICATIONS queue only
 #
-# The SPEC-114 grant is one action on one queue ARN — the outcome notification is the
+# The notification grant is one action on one queue ARN — the outcome notification is the
 # arc's only write outside its own report prefix. Scoped to the notifications queue and
 # nothing else: not the data-quality request queue (the browser enqueues there, and a verb
 # that could re-enqueue its own work is a loop), and not the DLQ.
 #
-# THE ZERO-CATALOG-ACCESS PROPERTY IS DELIBERATELY SURRENDERED HERE (SPEC-111 FR-006,
+# THE ZERO-CATALOG-ACCESS PROPERTY IS DELIBERATELY SURRENDERED HERE (
 # architecture.md, Control Planes -> Data Quality) — this is a decision, not drift, and it is the
-# largest privilege the arc spends. Up to SPEC-110 this role could not touch the Glue
+# largest privilege this plane spends. Without it the role could not touch the Glue
 # catalog at all. It now can, because the pipeline's whole design is "let Athena read the
 # 250 GB, not a Lambda", and Athena reads through a Glue external table. The temp tables
 # are created in the ACTOR'S OWN database (personal) or the shared space's (shared) —

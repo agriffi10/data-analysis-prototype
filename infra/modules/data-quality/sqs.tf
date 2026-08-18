@@ -16,7 +16,7 @@
 # same location with the same body is a legitimate re-run the user asked for.
 #
 # No time_sleep guard here: the deploy-role grants these resource types need were applied
-# in the SPEC-108 PR1 (modules/base deploy-data-quality) BEFORE this module's resources
+# in modules/base (deploy-data-quality) BEFORE this module's resources
 # land (the deploy-perms-before-resources rule), so there is no self-grant race to wait out.
 
 resource "aws_sqs_queue" "requests_dlq" {

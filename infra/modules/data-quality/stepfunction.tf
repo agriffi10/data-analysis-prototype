@@ -9,7 +9,7 @@
 # (state-machine.asl.json.tftpl, WaitForQuery) instead of inside a 900 s Lambda. It also
 # keeps per-execution history for debugging a multi-step check.
 #
-# The per-step bodies are STUBS here (echo/pass-through) — later specs (SPEC-109→112,
+# The per-step bodies are STUBS here (echo/pass-through) — the verbs (
 # 114) wire each state to real logic. No later spec adds or renames a state; the
 # canonical list is complete in the template.
 #

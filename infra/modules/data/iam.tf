@@ -1,6 +1,6 @@
 # ── Portal Role (shared, trust only) ─────────────────────────────────────────
 # The single IAM role every authenticated user assumes via the Identity Pool
-# Trust ONLY — no permission policy is attached here; SPEC-013 adds
+# Trust ONLY — no permission policy is attached here; the data module adds
 # the prefix-scoped S3 policy. Per-user isolation is enforced by the `username`
 # principal tag the Identity Pool stamps server-side (auth module), evaluated by
 # the policy via ${aws:PrincipalTag/username}. One role for all users.

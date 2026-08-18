@@ -30,21 +30,21 @@ variable "account_id" {
   type        = string
 }
 
-# ── Buckets (env for every verb; grants land in SPEC-109/111) ─────────────────
-# NOTE: these are wired into the COMMON Lambda env now, not because the SPEC-108 stubs
+# ── Buckets (env for every verb) ───────────────────────────────────────────
+# NOTE: these are wired into the COMMON Lambda env now, not because the stubs
 # use them, but because every verb attaches the cpcommon layer and cpcommon/config.py
 # requires them. That requirement moved from import to
 # FIRST READ, so a verb missing one no longer crashes at cold start (the table-builder
-# production break, PR #196) — it fails on whichever branch reads it. The union is still
+# — it fails on whichever branch reads it. The union is still
 # what must be set; do not prune one as "unused". No bucket is created here.
 
 variable "user_space_bucket_name" {
-  description = "Name of the user-space bucket (Bucket 1). Personal-space sources + the report destination; env USER_SPACE_BUCKET (required by cpcommon.config). Grants land in SPEC-109."
+  description = "Name of the user-space bucket (Bucket 1). Personal-space sources + the report destination; env USER_SPACE_BUCKET (required by cpcommon.config). "
   type        = string
 }
 
 variable "shared_space_bucket_name" {
-  description = "Name of the shared-space bucket (Bucket 2). Shared-space sources + report destination; env SHARED_SPACE_BUCKET (required by cpcommon.config). Grants land in SPEC-109."
+  description = "Name of the shared-space bucket (Bucket 2). Shared-space sources + report destination; env SHARED_SPACE_BUCKET (required by cpcommon.config). "
   type        = string
 }
 
@@ -95,7 +95,7 @@ variable "portal_role_name" {
 }
 
 variable "athena_workgroup" {
-  description = "SPEC-111-fix: the SHARED portal Athena workgroup every verb's queries run in — the SAME workgroup table-builder/table-share use. Athena's Lake Formation integration is tied to the workgroup: a dedicated workgroup (the original design) fails LF's Create/Describe checks even when the execution role is an LF admin, because everything LF-governed must run in the one workgroup. Constructed string from root (the portal workgroup name), mirroring table-builder's athena_workgroup input."
+  description = "the SHARED portal Athena workgroup every verb's queries run in — the SAME workgroup table-builder/table-share use. Athena's Lake Formation integration is tied to the workgroup: a dedicated workgroup (the original design) fails LF's Create/Describe checks even when the execution role is an LF admin, because everything LF-governed must run in the one workgroup. Constructed string from root (the portal workgroup name), mirroring table-builder's athena_workgroup input."
   type        = string
 }
 
