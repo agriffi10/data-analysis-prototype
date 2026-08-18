@@ -187,9 +187,9 @@ on it.
 #### Acceptance Criteria:
 
 - [ ] `docs/testing/file-ops-e2e.md` exists, with fixtures, exact labels, expected numbers and a
-      section per spec, and is added to `full-e2e-run.md`'s sequence.
+      section per spec, and is added to `e2e.md`'s sequence.
 - [ ] **An approval gate.** These checks delete real files with versioning off and no trash;
-      `full-e2e-run.md` maintains an explicit ask-before-running list and this belongs on it.
+      `e2e.md` maintains an explicit ask-before-running list and this belongs on it.
 - [ ] **An identity note first, naming the ONE usable path.** A laptop IAM user cannot read or write
       `dat-prod-user-space`, and the verification role is deliberately not created — so fixtures are
       built and checks driven **through the portal UI**, not "an assumed role".
@@ -255,7 +255,7 @@ gate SPEC-137 exists for.
 
 ### Phase 5: The live-check script and the run
 
-- Write `docs/testing/file-ops-e2e.md`; register it in `full-e2e-run.md` including the approval gate;
+- Write `docs/testing/file-ops-e2e.md`; register it in `e2e.md` including the approval gate;
   then **run it**. Record what was discharged and what was only corroborated — settling a premise is
   not the same as running the check.
 

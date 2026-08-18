@@ -66,7 +66,7 @@ one constant across every restore this app can make, while the archive root's ow
 `personal/`/`shared/` segment already makes it globally unique — which is the property the group id
 actually needs. Pinned by `test_the_browser_builds_the_restore_group_id_without_the_archive_bucket`,
 which names the decision to re-open if it ever fails.
-**`docs/testing/archive-restore-e2e.md` was corrected to match**, so the hand-crafted SPEC-170 check
+**`docs/testing/e2e.md` was corrected to match**, so the hand-crafted SPEC-170 check
 exercises the rule the browser reproduces.
 
 **The write gate is per SPACE KIND.** FR-004's last AC wants the UI gate and the IAM Deny to agree,
@@ -151,5 +151,5 @@ producer routes are asserted. The failure that guard really exists for is `"$.ac
 ## Live check owed
 
 The whole flow, in Safari, at 400px and desktop — appended to
-`docs/testing/archive-restore-e2e.md` as *SPEC-172*. It is the arc's fourth owed check and the only
+`docs/testing/e2e.md` as *SPEC-172*. It is the arc's fourth owed check and the only
 one that exercises the browser at all.

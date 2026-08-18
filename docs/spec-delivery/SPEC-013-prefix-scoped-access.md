@@ -29,14 +29,14 @@ hidden from the UI.
 - **New infra**: `infra/modules/data/policies/portal-role-permissions.json.tftpl` + `user-space-bucket-policy.json.tftpl`; role inline policy + bucket policy in the data module.
 - **Frontend**: file-browser service now authenticated (Identity Pool) with expiry retry; `/files` scoped to the user-space bucket + `{username}/`; username hidden via `rootLabel`; SPEC-001/002 static/anon path demoted to a dev-only flag.
 - **CI/env**: `VITE_S3_USER_SPACE_BUCKET` wired into `deploy-app.yml` + set as a GitHub variable.
-- **Docs**: `docs/testing/auth-e2e.md` gained the FR-004 isolation procedure + an execution-log entry; `.env.example`, CLAUDE.md, architecture roadmap updated.
+- **Docs**: `docs/testing/e2e.md` gained the FR-004 isolation procedure + an execution-log entry; `.env.example`, CLAUDE.md, architecture roadmap updated.
 
 ## Verification
 
 - **FR-001 (role policy)** — `aws iam simulate-principal-policy` against the **live** `dat-portal-user-role`: own-prefix Get/Put/Delete **allowed**; cross-prefix all **implicitDeny**; `*/DO_NOT_DELETE.txt` delete **explicitDeny**; `ListBucket` with own prefix allowed, other/empty-prefix (root) **denied**; no-`username`-tag session **denied**.
 - **FR-002 (bucket policy)** — live policy confirms the Deny excludes exactly the portal role ARN + account root. `aws:PrincipalArn` for a Cognito-assumed session resolves to the **role IAM ARN** (AWS docs), which is excluded — so user sessions are not blocked (confirmed live in FR-003). A regular IAM admin (`tofu-deploy-user`) is correctly denied bucket data access (`HeadBucket` → 403).
 - **FR-003 (browser switchover)** — **live, deployed app, 2026-06-12**: a signed-in test user lists their own seeded object (seeded via root) in `/files` with no errors; username hidden; authenticated path + prefix scoping + bucket policy all work end to end. Unit tests cover the retry path and `rootLabel`.
-- **FR-004 (isolation)** — cross-user/root-list denial proven at the policy layer via the simulator (above) and enforced by the same `${aws:PrincipalTag/username}` scoping demonstrated working for the allow case. The **live** cross-user negative-path run (dev-server console, per `auth-e2e.md`) is the remaining manual step; the production bundle's console can't exercise it (no `import()` of bare specifiers / no `import.meta`).
+- **FR-004 (isolation)** — cross-user/root-list denial proven at the policy layer via the simulator (above) and enforced by the same `${aws:PrincipalTag/username}` scoping demonstrated working for the allow case. The **live** cross-user negative-path run (dev-server console, per `e2e.md`) is the remaining manual step; the production bundle's console can't exercise it (no `import()` of bare specifiers / no `import.meta`).
 
 ### Follow-ups / notes
 

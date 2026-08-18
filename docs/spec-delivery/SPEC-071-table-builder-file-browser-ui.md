@@ -59,4 +59,4 @@ no axe violations on the dialog + the dynamic partition rows.
 **Not browser-verified locally:** the action only renders in the authenticated **writable**
 flow; the local dev server runs the read-only dev-unauth path, which shows no write controls.
 Behaviour (incl. a11y) is covered by the unit suite. A live end-to-end check belongs with the
-SPEC-072 notification wiring, per `docs/testing/table-builder-e2e.md`.
+SPEC-072 notification wiring, per `docs/testing/e2e.md`.

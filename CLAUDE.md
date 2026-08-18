@@ -75,7 +75,7 @@ engine the other three arcs depend on, and **161 moved the ceiling**: caps re-si
 definition behind a pointer, a top-level `TimeoutSeconds`. **Two live checks are now owed on this
 plane, and they are one session** — 161's (a >20 GiB several-hundred-object share, an over-cap
 refusal naming the count and cap, a `GetTable` read-back on a 100-column clone) and 160's SCALE
-half below, which the same fixture serves. Script: `docs/testing/table-share-e2e.md` → *SPEC-161*.
+half below, which the same fixture serves. Script: `docs/testing/e2e.md` → *SPEC-161*.
 **DISCHARGED: the Map Run `manifest.json` shape** — a real one is transcribed into
 `test_transfer_cpcommon.py` and parsed by the shipped reader, settling that `ResultFiles` maps a
 group name to `{Key, Size}` entries and that **`Key` is absolute, not prefix-relative**. **Still
@@ -108,7 +108,7 @@ belt-and-braces.
 speaks: a request is proved legitimate, expanded into a copy plan, guarded per recipient, copied by
 a top-level Distributed Map, attributed back, and told — one message per outcome to the sender, one
 to each recipient who received something, with a link into the folder holding it. **The whole arc's
-live checks are owed and they are ONE session** — `docs/testing/file-send-e2e.md`: *SPEC-164* 1–3,
+live checks are owed and they are ONE session** — `docs/testing/e2e.md`: *SPEC-164* 1–3,
 *SPEC-165* 4–6, *SPEC-166* 7–10 and *SPEC-167*'s Safari pass. **Read the file's identity note
 first**: a laptop IAM user cannot read or write `dat-prod-user-space` at all (the bucket policy
 allowlists the portal, deploy and execution roles), so every check touching a user's space needs an
@@ -124,7 +124,7 @@ the archive ids, and one notification per outcome. **Only three outcomes needed 
 failure decorator emits, and a second producer would be SPEC-114's duplicate.
 
 **FIVE live checks are owed on this plane and they are ONE session, in order** — the script is one
-file: `docs/testing/archive-restore-e2e.md`, and **172's section is the only one driven from the
+file: `docs/testing/e2e.md`, and **172's section is the only one driven from the
 UI**, which is now the easiest way to run 169's and 170's too. **UNBLOCKED by SPEC-186 FR-004: the
 negative assertion is read from `dat-prod-archive-audit`, NOT by `head-object`** — nothing human can
 reach `dat-prod-archive`, so the trail is the record, and **confirm `get-trail-status` reports
@@ -171,14 +171,14 @@ shared space's folder can finally hold something. **175's cross-bucket `PutObjec
 It asked you to delete `{root}saved_queries/DO_NOT_DELETE.txt` through the portal and confirm
 `AccessDenied`, but the portal issues **zero** `DeleteObject` against the marker: it is hidden by
 basename, and the folder delete is refused **client-side** first. **SPEC-186 FR-001 split it in
-two** — `docs/testing/saved-queries-e2e.md`, check 1 (client-side, browser — **FULLY DISCHARGED**:
+two** — `docs/testing/e2e.md`, check 1 (client-side, browser — **FULLY DISCHARGED**:
 personal 2026-08-15, **shared 2026-08-16**, against SPEC-186 FR-002's affordance: both controls
 `aria-disabled` with the exact wording and **no confirm reachable**, with an ordinary folder as the
 control) and check 2 (the bucket-policy Deny, which needs portal-role credentials via the CLI and is
 **STILL OWED**). Neither result says anything about the other's layer.
 **Open-a-colleague's-query is DISCHARGED (2026-08-14)** — a member opened the owner's `.sql` from
 the shared space's selector, body fetched 200. Evidence:
-`@docs/testing/2026-08-14-live-check-session.md`. Narrative: `ARCS.md` → *Saved-queries-in-spaces arc*.
+`@docs/testing/sessions.md`. Narrative: `ARCS.md` → *Saved-queries-in-spaces arc*.
 
 **The Data Explorer arc (176 → 185) is COMPLETE (2026-08-14).** `features/catalog/` owns the Glue
 reader, the Athena execution/results layer, `useQuerySpaces`, `useColumnWidths`,
@@ -194,10 +194,10 @@ cache hit issues **zero**; `O'Brien` filters correctly against the real engine (
 the `QueryString` Athena received**. Also discharged: the deep-link refusal making **zero** Glue and
 Athena calls, Calc issuing **zero**, grouping dropping its `count_all` sort on the way out, and
 SPEC-183's one-`PutObject` save and rendered-SQL round trip. Evidence + how executions were counted:
-`@docs/testing/2026-08-15-data-explorer-live-check.md`. **2026-08-16 discharged the rest of the
+`@docs/testing/sessions.md`. **2026-08-16 discharged the rest of the
 desktop behavioural list** — §2 paging (0 executions, total held), SPEC-179
 steps 3–4, SPEC-183 steps 4–5 and SPEC-185's copy/export (all ten steps; the export held 150 rows
-to the page's 100) and Help: `@docs/testing/2026-08-16-live-check-session.md`. **Still owed:** the
+to the page's 100) and Help: `@docs/testing/sessions.md`. **Still owed:** the
 shared-space pass as a **non-owner member** (needs a second account) and the CSS list at 400px in
 Safari.
 **Two findings.** `EXPLORATION_PAGE_SIZE` is **100**, so the script's ">25 rows" fixture could never
@@ -231,14 +231,14 @@ resolved `max-width` and a clipped listbox are *rendering*, and the Safari waive
 only: **8 of the 9 dialogs at 392px** (root font-size is **14px**, so `max-w-md` is 392, NOT 448 — a
 checker expecting 448 reads every pass as a fail), and containment in **Add members** and **Share
 table under both share kinds** at overhang 0px/−61px/−135px, each cap a measurement rather than the
-old fixed `max-h-60`. `saved-queries-e2e.md` **check 1** passes byte-exact with no confirm
+old fixed `max-h-60`. `e2e.md` **check 1** passes byte-exact with no confirm
 reachable, personal and (2026-08-16) shared. Evidence:
-`@docs/testing/2026-08-15-data-explorer-live-check.md` and `2026-08-16-live-check-session.md`.
+`@docs/testing/sessions.md` and `sessions.md`.
 **Still owed:** the ninth dialog
 (`SaveQueryDialog`'s "nowhere to save" state, which needs the personal space unavailable and cannot
 be staged from the UI); the **400px** pass — **not reachable by window resize on macOS, and
 `resize_window` reports success while changing nothing the page sees**, so use DevTools device
-toolbar and assert on `matchMedia` (`data-explorer-e2e.md` → *400px is not reachable*); the CSS
+toolbar and assert on `matchMedia` (`e2e.md` → *400px is not reachable*); the CSS
 list in **Safari**; and **check 2** (the bucket-policy Deny, CLI-only). **The
 verification role is deliberately NOT created** (user decision) — `verification_principal_arns` is
 unset, so SPEC-149's and SPEC-153's read-backs stay owed; #461 moved the ARNs to a repo variable
@@ -282,8 +282,8 @@ move and the pass must be re-run. **Chrome has since measured all three surfaces
 members** and **Share table** under **both share kinds**, overhang 0px/−61px/−135px, the list capped
 by measurement and scrolling the active option into view) — but a Chromium run **corroborates and
 cannot discharge** this, so the **Safari** pass and the **400px** pass stay owed. Evidence:
-`@docs/testing/2026-08-14-live-check-session.md` and
-`@docs/testing/2026-08-15-data-explorer-live-check.md`. (158 itself owes nothing live: it makes no
+`@docs/testing/sessions.md` and
+`@docs/testing/sessions.md`. (158 itself owes nothing live: it makes no
 AWS call.)
 
 Three things the arc left worth carrying:
@@ -353,7 +353,7 @@ What remains below is the live checks that are owed.
   the build sha from a `BUILD_VERSION` file **in the package** (Tofu owns the env map and Deploy
   Infrastructure is path-filtered, so an env-borne sha would name the wrong commit). **Owed: read one
   record back** and confirm neither is empty or `0.0.0`. Evidence:
-  `@docs/testing/2026-08-14-live-check-session.md`.
+  `@docs/testing/sessions.md`.
 - **DISCHARGED (2026-08-03): the data-quality live run.** A real check was run end to end from the
   UI, clearing what **114** (`reportKey` seeding), **123** (the index CAS), **128** (`request_id` as
   the join key), **129** (the append at real volume) and **132's Phase 4** all owed.
@@ -367,7 +367,7 @@ What remains below is the live checks that are owed.
   `write_roster_to_all` (best-effort, never failing an already-committed registry write), and the
   reader's own row never reads `Pending`. **Owed: re-run add → acknowledge → read roster live.**
   Evidence:
-  `@docs/testing/2026-08-14-live-check-session.md`. **Still owed live:** **133's Phase 5**: a
+  `@docs/testing/sessions.md`. **Still owed live:** **133's Phase 5**: a
   malformed message on one request DLQ, confirming the user is notified, the message is gone, and
   the redacted body is in `logs/service=dlq-drain/`. That discharges **126**'s owed malformed-body
   check too.
@@ -384,16 +384,16 @@ What remains below is the live checks that are owed.
 - **The refresh arc's FR-010 sequence is DISCHARGED and the casing premise is DEMONSTRATED
   (2026-08-14)** — add / refuse-with-named-column / link / opt-in all behaved, and a mixed-case
   sample produced no schema change and no re-casing. Evidence:
-  `@docs/testing/2026-08-14-live-check-session.md`. **The trap worth carrying: inference samples
+  `@docs/testing/sessions.md`. **The trap worth carrying: inference samples
   exactly ONE object — the first key in listing order** (`sample_by_format.setdefault`), so a column
   added in a file that sorts *later* is invisible **by design** and the refresh correctly says
   `already up to date`; the added column must be in a file that **sorts first**. **SPEC-186 FR-006
-  wrote that into the script** — `docs/testing/table-builder-e2e.md`, with a fixture that names the
+  wrote that into the script** — `docs/testing/e2e.md`, with a fixture that names the
   file (`part0.csv`).
   **The partitioned variant is DISCHARGED (2026-08-16)** — add / refuse-naming-`channel` / link /
   opt-in / remove all behaved on a `year=`-partitioned table, and the partition key survived both
   refreshes; the trap is that `part0.csv` must sit in the **first** partition, since the sample is
-  the first key of the whole listing. Evidence: `@docs/testing/2026-08-16-live-check-session.md`.
+  the first key of the whole listing. Evidence: `@docs/testing/sessions.md`.
   **Still owed: 149's preservation check:** refresh a table carrying a
   `Description` and a column comment, then `GetTable` — both survive, the columns changed, and
   `get-table-versions` shows a previous version. **While you have
@@ -414,8 +414,8 @@ What remains below is the live checks that are owed.
   two submits **2 s apart** both returned independently — a small table's refresh finishes inside
   that window, so the lock is never contended. **SPEC-186 FR-006 replaced the procedure**: an SQS
   double-send, or a several-hundred-object folder that makes the first refresh slow enough to
-  overlap — both written out in `docs/testing/table-builder-e2e.md`. Evidence:
-  `@docs/testing/2026-08-14-live-check-session.md`.
+  overlap — both written out in `docs/testing/e2e.md`. Evidence:
+  `@docs/testing/sessions.md`.
   **Nothing that runs today proves two real executions serialize** — the unit tests simulate
   contention with a pinned read. Its **IAM simulation is DISCHARGED against the DEPLOYED role**
   (2026-08-09): `PutObject`/`GetObject` allowed under `locks/table-builder/`, `DeleteObject`
@@ -425,7 +425,7 @@ What remains below is the live checks that are owed.
 - **SPEC-142 is FULLY DISCHARGED (2026-08-14):** disagreeing files produced the cross-file finding
   marked **Exact** and naming the column, while **"rows with the wrong number of fields" stayed 0** —
   the negative the spec exists for; the agreeing control was clean with the section absent. Evidence:
-  `@docs/testing/2026-08-14-live-check-session.md`. Its `"$path"` premise stays CONFIRMED from
+  `@docs/testing/sessions.md`. Its `"$path"` premise stays CONFIRMED from
   SPEC-151's Phase 5.
 - **SPEC-151 left two things owed, and neither is a blocker.** (1) **FR-006's escaping is asserted at
   RENDER time only** — a data-quality check over a folder whose partition segment contains `'` was

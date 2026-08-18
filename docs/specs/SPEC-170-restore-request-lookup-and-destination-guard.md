@@ -73,7 +73,7 @@ means a restore still works when the manifest is missing and refuses when it dis
       **NOT MET BY THIS SPEC, AND NOT SILENTLY:** both are properties of the PRODUCER, and the
       producer is the browser, which SPEC-172 builds. Nothing in this spec enqueues, so there is no
       Python home for either rule and a test here could only restate them. They are carried as a
-      contract in the delivery doc and in `docs/testing/archive-restore-e2e.md`, and SPEC-172 owes
+      contract in the delivery doc and in `docs/testing/e2e.md`, and SPEC-172 owes
       them. Consequence while they are unmet: two concurrent restores of one archive are not
       serialized, so both could pass the guard — the same TOCTOU table-share and file-send both
       carry, and here neither run deletes anything.

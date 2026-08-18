@@ -28,6 +28,7 @@ paragraph in the always-loaded file.
 | Reuse | `docs/component-inventory.md` → `component-inventory/<area>.md` | the area(s) you need | services/hooks/components already built |
 | Rulebooks | `docs/best-practices/INDEX.md` → domain doc | the section(s) you need | domain coding rules (React, a11y, …) |
 | History | `docs/spec-delivery/SPEC-XXX-*.md` | when a dependency points to one | what a past spec shipped |
+| Validation | `docs/testing/e2e.md` + `owed.md` | when running live checks | how to validate the deployed app, and what is still owed |
 | Method | `docs/process.md` (this file) | once | how we work |
 
 **Context discipline (the user cares about session-start token cost):**
@@ -253,6 +254,13 @@ When a spec is done, in the same pass:
    end-to-end** — a Draft or infra-less feature stays out until it ships. If nothing user-facing changed, say so
    and move on. (This step exists because help content silently drifts as features land; SPEC-073's join status
    and the table-builder arc, for instance, shipped after SPEC-074 was authored and had to be folded in.)
+
+8. **Live checks fold into the one guide.** A spec that owes a live check adds its steps to the
+   matching feature section of `docs/testing/e2e.md` — **not** a new per-spec or per-arc file, which is
+   how that directory grew to sixteen. A spec whose check cannot be run from a signed-in browser
+   session adds a row to `docs/testing/owed.md` saying why and what it would take. An arc still in
+   flight may keep one temporary script of its own (`docs/testing/<arc>-e2e.md`); it is folded into
+   `e2e.md` and deleted when the arc closes.
 
 **Anti-regrowth & doc hygiene** (each rule below was earned by a defect the 2026-08-03 doc sweep found):
 

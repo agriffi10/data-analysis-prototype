@@ -51,4 +51,4 @@ PR `plan` green against live AWS (proving PR1's grants, incl. plan-time
 `states:ValidateStateMachineDefinition`). **Live smoke test (post-merge):** a message
 on the FIFO queue drove Pipe → SFN → all five placeholders in order (one recipient-Map
 iteration) → execution **SUCCEEDED**, `recipientResults` collected, CloudWatch lines
-present, no Glue/S3 side effects. Documented in `docs/testing/table-share-e2e.md`.
+present, no Glue/S3 side effects. Documented in `docs/testing/e2e.md`.

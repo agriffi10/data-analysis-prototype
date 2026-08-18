@@ -17,7 +17,7 @@ enforcement.
   `SELECT/INSERT/DESCRIBE/ALTER/DROP`. Idempotent, always returns the event (never blocks signup),
   ignores non-signup triggers.
 - **`lambdas/post-confirmation/backfill.py`** — imports `provision_user` from the handler (no
-  drift) for already-confirmed users; documented in `docs/testing/auth-e2e.md`.
+  drift) for already-confirmed users; documented in `docs/testing/e2e.md`.
 - **`infra/modules/auth/lambda.tf`** — second function + exec role + 14-day log group + User Pool
   `lambda:InvokeFunction` permission; `cognito.tf` wires `lambda_config.post_confirmation`;
   `outputs.tf` exports `post_confirmation_exec_role_arn`. Exec-role `.tftpl` grants exactly
@@ -42,7 +42,7 @@ propagation race (re-run cleared it); (2) the LF-admin add silently dropped beca
 ARN was unknown-at-plan inside `compact()` — fixed by constructing the ARN as a known-at-plan string
 (PR #65). Both pre-existing users (`themrandrew`, `agriffith`) backfilled via Lambda invoke; logs
 confirm DB + grant, re-invoke idempotent. The deploy-gated provisioning checks + the SPEC-032
-per-user isolation proof (alice/bob) were verified live and checked off in `docs/testing/auth-e2e.md`
+per-user isolation proof (alice/bob) were verified live and checked off in `docs/testing/e2e.md`
 (2026-06-18).
 
 **Durable learning:** the AWS account root user cannot assume IAM roles, so the only way to give

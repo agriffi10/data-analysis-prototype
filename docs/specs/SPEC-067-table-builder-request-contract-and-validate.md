@@ -35,7 +35,7 @@ validated, normalized request for the next steps.
   (`kind`/`bucket`/`prefix`/`database`), `tableName`, and an optional **`partitionKeys`** array (the
   user-declared keys in granularity order, each with a projection `type` + range; **empty/absent = flat table**
   — partition keys are **never** auto-detected from the path, decided 2026-06-30). Documented in
-  `docs/testing/table-builder-e2e.md` so the browser (SPEC-071) and the pipeline build to one shape. Sent FIFO
+  `docs/testing/e2e.md` so the browser (SPEC-071) and the pipeline build to one shape. Sent FIFO
   with **`MessageGroupId` = `space.database`** + a `MessageDeduplicationId` (collapses a double-submit).
 - **Browser producer access** — the **portal role** gains `sqs:SendMessage` on the table-build queue ARN **only**
   (a `.tftpl` statement); the queue URL is wired to the app as **`VITE_TABLE_BUILD_QUEUE_URL`** (SPEC-066 export).
@@ -90,7 +90,7 @@ validated, normalized request for the next steps.
   collapsed by FIFO.
 - [ ] A message failing schema validation (missing/garbled fields) is a **terminal** failure (logged → recorded;
   no partial progress), never a silent pass.
-- [ ] The contract is documented in `docs/testing/table-builder-e2e.md`.
+- [ ] The contract is documented in `docs/testing/e2e.md`.
 
 ### FR-002: Browser producer access
 
@@ -166,7 +166,7 @@ validated, normalized request for the next steps.
   duplicate name → `invalid_partition_keys`), and **missing/expired token** each produce the correct terminal
   reason with **no** side effect; the validated payload shape matches FR-005. Idempotent (re-running validation is
   side-effect-free).
-- [ ] `docs/testing/table-builder-e2e.md`: a real browser-style message (valid token, personal space) passes
+- [ ] `docs/testing/e2e.md`: a real browser-style message (valid token, personal space) passes
   `validate` and reaches the (stub) `check-table-absent`; a forged/cross-user message is recorded-failed at
   `validate` with no downstream run.
 
@@ -243,7 +243,7 @@ infra/modules/table-builder/
 infra/modules/<portal-role module>/policies/   # + sqs:SendMessage on the table-build queue ARN (FR-002)
 infra/modules/base/policies/                    # deploy-policy-table-builder additions (FR-006)
 apps/portal/.env.example                        # + VITE_TABLE_BUILD_QUEUE_URL (FR-002)
-docs/testing/table-builder-e2e.md               # contract + validate flow (FR-001/FR-007)
+docs/testing/e2e.md               # contract + validate flow (FR-001/FR-007)
 ```
 
 ## Implementation Phases

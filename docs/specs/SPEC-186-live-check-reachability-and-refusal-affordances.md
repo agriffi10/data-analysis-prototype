@@ -432,9 +432,9 @@ docs/
 ├── specs/
 │   └── SPEC-186-live-check-reachability-and-refusal-affordances.md
 └── testing/
-    ├── saved-queries-e2e.md          # new — FR-001's two-layer script
-    ├── archive-restore-e2e.md        # amended — FR-004 negative assertion
-    └── table-builder-e2e.md          # amended — FR-006 sampling + contention
+    ├── e2e.md          # new — FR-001's two-layer script
+    ├── e2e.md        # amended — FR-004 negative assertion
+    └── e2e.md          # amended — FR-006 sampling + contention
 
 apps/portal/src/
 ├── components/

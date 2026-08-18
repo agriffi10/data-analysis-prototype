@@ -140,7 +140,7 @@ consumes them.
   their own `"*"` statements
 - [ ] `tofu validate` + `plan` succeed; `simulate-custom-policy` proves slot allow/deny (set/unset) + portal
   `sqs:SendMessage`; an authorized no-op request flows end-to-end and is actor-bound, a forged/unauthorized one fails
-  cleanly — documented in `docs/testing/shared-spaces-e2e.md`
+  cleanly — documented in `docs/testing/e2e.md`
 
 ---
 
@@ -185,7 +185,7 @@ infra/modules/shared-spaces/
 infra/modules/data/policies/portal-role-permissions.json.tftpl   # + 10 membership slots + sqs:SendMessage + denies
 lambdas/shared-space-provisioner/shared_space_provisioner.py      # + validate/authorize (actor binding); verbs stubbed
 infra/modules/base/policies/                                       # deploy-role additions (FR-006)
-docs/testing/shared-spaces-e2e.md                                  # access + authorized/forged request tests (FR-006)
+docs/testing/e2e.md                                  # access + authorized/forged request tests (FR-006)
 ```
 
 ## Implementation Phases
@@ -210,7 +210,7 @@ the orchestrator is an LF admin. `tofu validate`/`plan` clean (expect one self-g
 #### Checkpoint
 
 An authorized no-op request flows SQS→Pipe→SF→validate (actor bound, registry-authorized) and a forged/unauthorized
-request lands in the failure state with no side effects. Documented in `docs/testing/shared-spaces-e2e.md`.
+request lands in the failure state with no side effects. Documented in `docs/testing/e2e.md`.
 
 ## Implementation Decisions (in-session, 2026-06-26)
 

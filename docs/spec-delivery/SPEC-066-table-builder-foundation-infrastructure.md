@@ -46,4 +46,4 @@ confirmed tolerated; Python stubs compile; workflow YAML valid; PR `plan` checks
 AWS state; both fresh-context reviews **APPROVE** (no blockers). **Live smoke test (post-merge):** a
 message on the FIFO queue drove the Pipe → SFN → all five stub Lambdas in order →
 execution **SUCCEEDED**, no table created. polars layer measured at **107 MB** unzipped (CI cap 240
-MB). Documented in `docs/testing/table-builder-e2e.md`.
+MB). Documented in `docs/testing/e2e.md`.

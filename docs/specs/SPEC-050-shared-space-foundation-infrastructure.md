@@ -132,7 +132,7 @@ membership actions in SPEC-051→055.
   no unknown-ARN-in-list drop — architecture.md trap)
 - [ ] `tofu -chdir=infra validate` + `plan` succeed; IAM scopability for the new actions checked with
   `aws iam simulate-custom-policy`
-- [ ] A documented **smoke test** (`docs/testing/shared-spaces-e2e.md`): placing a message on the queue drives the
+- [ ] A documented **smoke test** (`docs/testing/e2e.md`): placing a message on the queue drives the
   Pipe → Step Function → Lambda and is observable in CloudWatch (the Lambda echoes/dispatches); no provisioning yet
 
 ---
@@ -169,7 +169,7 @@ lambdas/shared-space-provisioner/
 infra/modules/analytics/s3.tf       # lifecycle rule scoped to exclude shared-spaces/ (FR-002)
 infra/modules/base/policies/         # deploy-role expansion (FR-004)
 .github/workflows/deploy-lambdas.yml # + shared-space-provisioner matrix row
-docs/testing/shared-spaces-e2e.md    # control-plane smoke test (FR-005)
+docs/testing/e2e.md    # control-plane smoke test (FR-005)
 ```
 
 ## Implementation Phases
@@ -193,7 +193,7 @@ docs/testing/shared-spaces-e2e.md    # control-plane smoke test (FR-005)
 
 (Expect one self-grant re-run.) A message placed on the queue reaches the Step Function and the Lambda (CloudWatch
 execution + echo); `simulate-custom-policy` confirms the orchestrator role's scoped actions. Documented in
-`docs/testing/shared-spaces-e2e.md`.
+`docs/testing/e2e.md`.
 
 ## Implementation Decisions (in-session, 2026-06-26)
 

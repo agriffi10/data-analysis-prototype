@@ -269,7 +269,7 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 | [`docs/spec-delivery/`](docs/spec-delivery/) | Delivery records — what was actually built per spec, plus later‑change amendments |
 | [`docs/templates/`](docs/templates/) | Spec + spec‑completion templates |
 | [`docs/deploy-setup.md`](docs/deploy-setup.md) | Deploy setup checklist |
-| [`docs/testing/auth-e2e.md`](docs/testing/auth-e2e.md) | Auth end‑to‑end test notes |
+| [`docs/testing/e2e.md`](docs/testing/e2e.md) | Auth end‑to‑end test notes |
 | [`infra/bootstrap/README.md`](infra/bootstrap/README.md) | One‑time remote‑state (S3 + DynamoDB) bootstrap |
 | [`.github/workflows/README.md`](.github/workflows/README.md) | CI/CD workflows + first‑time GitHub Actions configuration |
 

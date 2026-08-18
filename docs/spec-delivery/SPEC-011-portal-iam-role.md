@@ -28,7 +28,7 @@ nothing.
 
 - `tofu validate`/`fmt` clean; `tsc -b`, `npm run lint`, `npm run build` clean; `npm run test` → 60 passed.
 - CloudTrail `AssumeRoleWithWebIdentity` (`sts.amazonaws.com`): `roleArn` = `dat-portal-user-role`, `audience` = the identity pool, `provider` = `cognito-identity.amazonaws.com`, and **`principalTags.username` == `agriffith`** (FR-002 proof). Credentials issued (`GetCredentialsForIdentity` 200).
-- The verification procedure is recorded in `docs/testing/auth-e2e.md` ("Verifying Scoped Credentials & the `username` Principal Tag").
+- The verification procedure is recorded in `docs/testing/e2e.md` ("Verifying Scoped Credentials & the `username` Principal Tag").
 
 ## What has changed?
 

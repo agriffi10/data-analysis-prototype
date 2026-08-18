@@ -89,7 +89,7 @@ still sends.
 - **The `Validated` state lost its `"status": "validated"` literal** and its terminal role. It is
   kept, and its whole job is now the ASL/verb cross-check — a Task hands its output on whole, so
   nothing between two Tasks notices a renamed field.
-- **`docs/testing/file-send-e2e.md`** — SPEC-164's check 1 now ends at `Planned`, and its file key
+- **`docs/testing/e2e.md`** — SPEC-164's check 1 now ends at `Planned`, and its file key
   must really exist, because inspect-source HEADs it.
 
 ## The caps are computed, and the dominant term is not the obvious one
@@ -157,7 +157,7 @@ clean. Every fix above is mutation-verified: neutering `_checked`, reverting `_c
 key-only, skipping the exclusions on the file branch and dropping `user_settings/` each turn the
 suite red.
 
-**Owed live check: `docs/testing/file-send-e2e.md` → *SPEC-165*, checks 4–6.** One folder of more
+**Owed live check: `docs/testing/e2e.md` → *SPEC-165*, checks 4–6.** One folder of more
 than 1,000 objects, whose plan's `objectCount` must equal the bucket's. The pagination boundary is
 the one thing a fixture proves least — a fake that pages is only as honest as the person who wrote
 it, and a verb that stops at one page reports a plausible smaller number rather than an error.

@@ -39,8 +39,8 @@ added the inline call sites.
   bulk add per-user; delete fan-out deduped with distinct deleter message; no-op/replay
   silence; a swallowed emit failure doesn't change the delete outcome). `91 passed`.
 - **Docs:** producer flow + the seven-event table + `simulate-custom-policy` scopability
-  added to `docs/testing/notifications-e2e.md`; the stale "no notifications yet" check in
-  `docs/testing/shared-spaces-e2e.md` now points to it.
+  added to `docs/testing/e2e.md`; the stale "no notifications yet" check in
+  `docs/testing/e2e.md` now points to it.
 
 ## What changed from earlier specs?
 
@@ -55,5 +55,5 @@ added the inline call sites.
 `tofu validate` clean; orchestrator policy renders valid JSON with the scoped
 `sqs:SendMessage`; ruff clean; `91 passed` (pytest `lambdas/`). End-to-end producer flow
 (real create/add/leave/delete → `create` on the notifications queue → writer appends →
-recipient sees it in the SPEC-060 page) documented in `notifications-e2e.md` for execution
+recipient sees it in the SPEC-060 page) documented in `e2e.md` for execution
 against the deployed environment.

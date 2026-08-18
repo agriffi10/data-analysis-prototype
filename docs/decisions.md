@@ -2779,7 +2779,7 @@ added precisely because nothing checks a space name against the User Pool — al
 globally unique. The bucket is one constant across every restore this app can make.
 
 So the canonical string is `{kind}/{name}/archive/{archiveId}/`, mirroring `arcommon.paths.
-archive_root`, and `docs/testing/archive-restore-e2e.md`'s hand-crafted command was corrected to
+archive_root`, and `docs/testing/e2e.md`'s hand-crafted command was corrected to
 match so the live check exercises the rule the browser reproduces. A test pins the derivation and
 names SPEC-168's browser isolation — not the test — as the decision to re-open if it ever fails.
 

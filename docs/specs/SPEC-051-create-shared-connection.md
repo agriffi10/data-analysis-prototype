@@ -120,7 +120,7 @@ to **active** once the pipeline finishes (surfaced via SPEC-052's list + Refresh
   no pending entry; success shows the pending entry + Toast
 - [ ] Pipeline (Lambda unit tests, Python): unique-name pass + collision fail (conditional put); create+grant+cache
   happy path; slot-full failure; replay idempotency; failure path records a reason and avoids a half-provisioned
-  state — covered in `lambdas/shared-space-provisioner/` tests and the `docs/testing/shared-spaces-e2e.md` flow
+  state — covered in `lambdas/shared-space-provisioner/` tests and the `docs/testing/e2e.md` flow
 
 ---
 
@@ -185,7 +185,7 @@ shows a provisioning pending state + Toast; invalid names blocked; enqueue failu
 
 A real Create drives the pipeline: registry object + Glue DB + creator slot/grant + per-user cache `active` entry
 appear; a duplicate name fails with "name already taken"; replay doesn't double-provision; after a token refresh
-the creator can query `database/{name}` and read/write `dat-prod-shared-space/{name}/*`. `docs/testing/shared-spaces-e2e.md` updated.
+the creator can query `database/{name}` and read/write `dat-prod-shared-space/{name}/*`. `docs/testing/e2e.md` updated.
 
 ## Implementation Decisions (in-session, 2026-06-26)
 

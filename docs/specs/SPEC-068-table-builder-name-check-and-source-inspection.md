@@ -141,7 +141,7 @@ extension, declared keys absent from the path) is a terminal failure with a spec
   `unexpected_partitioning` (flat request but nested data), and `partition_layout_mismatch` (declared key
   missing / out of order / extra undeclared segment); the marker/results/hidden files are ignored; the output
   payload matches FR-004 and carries `partitionKeys` through unchanged.
-- [ ] `docs/testing/table-builder-e2e.md`: a valid flat-Parquet request flows `validate → check → inspect` and
+- [ ] `docs/testing/e2e.md`: a valid flat-Parquet request flows `validate → check → inspect` and
   reaches the stub `infer-schema` with the expected payload; an existing-name and a mixed-format request are each
   recorded-failed at the right step.
 
@@ -192,7 +192,7 @@ infra/modules/table-builder/
 └── state-machine.asl.json.tftpl        # + check-table-absent, inspect-source Tasks (FR-005)
 
 infra/modules/base/policies/            # deploy-policy-table-builder additions (FR-005)
-docs/testing/table-builder-e2e.md       # check + inspect flow (FR-006)
+docs/testing/e2e.md       # check + inspect flow (FR-006)
 ```
 
 ## Implementation Phases

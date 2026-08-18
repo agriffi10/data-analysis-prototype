@@ -59,7 +59,7 @@ matching the SPEC-088 precedent) and no Help-content change (nothing user-facing
   `states:ValidateStateMachineDefinition` isolated on `"*"`; log groups in both ARN forms.
   The Athena workgroup needed no new grant (the main policy already covers
   `workgroup/dat-*`), and `cpcommon`'s layer grant came from SPEC-107.
-- **Smoke procedure** — `docs/testing/data-quality-e2e.md`. The `check-query` stub returns
+- **Smoke procedure** — `docs/testing/e2e.md`. The `check-query` stub returns
   `RUNNING` then `SUCCEEDED` off a `pollCount` it threads, so the loop **provably iterates
   once and terminates** with no Athena query in existence.
 

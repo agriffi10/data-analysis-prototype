@@ -83,7 +83,7 @@ Terraform owns the function infrastructure and execution role, mirroring SPEC-01
 #### Acceptance Criteria:
 
 - [ ] `infra/modules/base/policies/` extended for the new function: `lambda` actions scoped to the function name pattern, `iam` for its execution role (incl. `PassRole`, scoped), `logs` for its log group; `cognito-idp:UpdateUserPool` already granted (SPEC-012) — verify
-- [ ] A documented, runnable **backfill** for already-confirmed users (none in production yet): a small admin script (`lambdas/post-confirmation/backfill.py` or a documented CLI sequence) that runs the same create-database + grant logic for a given username, reusing FR-002's logic (not duplicated). Idempotent. Documented in `docs/testing/auth-e2e.md` or a `docs/runbooks/` note
+- [ ] A documented, runnable **backfill** for already-confirmed users (none in production yet): a small admin script (`lambdas/post-confirmation/backfill.py` or a documented CLI sequence) that runs the same create-database + grant logic for a given username, reusing FR-002's logic (not duplicated). Idempotent. Documented in `docs/testing/e2e.md` or a `docs/runbooks/` note
 - [ ] `deploy-infra.yml` PR plan succeeds with the deploy role
 
 ---
@@ -162,7 +162,7 @@ docs/specs/SPEC-012-pre-signup-validation.md       ← amendment note (regex tig
 
 #### Checkpoint
 
-The **per-user isolation property** (SPEC-032 FR-006) is proven, not assumed: with two confirmed users (`alice`, `bob`), alice signs in and — via a hand-crafted Athena/Glue SDK call in the dev console using her live session credentials — can `GetDatabase`/`GetTables`, run `CREATE EXTERNAL TABLE`/`SELECT` in `alice`, and write results only to `alice/athenaresults/`; she receives `AccessDenied` (IAM, Glue ARN scoping) for the same calls against `bob` and cannot delete anything under `alice/athenaresults/` (delete-deny). The backfill provisions a database for a manually-created pre-existing user. Both steps appended to `docs/testing/auth-e2e.md`, executed and dated.
+The **per-user isolation property** (SPEC-032 FR-006) is proven, not assumed: with two confirmed users (`alice`, `bob`), alice signs in and — via a hand-crafted Athena/Glue SDK call in the dev console using her live session credentials — can `GetDatabase`/`GetTables`, run `CREATE EXTERNAL TABLE`/`SELECT` in `alice`, and write results only to `alice/athenaresults/`; she receives `AccessDenied` (IAM, Glue ARN scoping) for the same calls against `bob` and cannot delete anything under `alice/athenaresults/` (delete-deny). The backfill provisions a database for a manually-created pre-existing user. Both steps appended to `docs/testing/e2e.md`, executed and dated.
 
 ## Open Questions
 

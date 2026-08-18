@@ -306,7 +306,7 @@ observed at all.
       is indistinguishable from a live one at a glance.
 - [ ] Every documentation site naming the identity pool is corrected or marked: `README.md`,
       `.github/workflows/README.md` (both the variable table and the `tofu output` mapping), and
-      `docs/testing/auth-e2e.md`'s *Verifying Scoped Credentials & the `username` Principal Tag*
+      `docs/testing/e2e.md`'s *Verifying Scoped Credentials & the `username` Principal Tag*
       section, whose whole procedure is the retired path. That section gets a superseded marker
       pointing at FR-010, **not** a deletion — it is the record of how isolation was originally
       proved.
@@ -530,7 +530,7 @@ checklist for any later change to the API or the container.
 - [ ] The script exists at that path, with Prerequisites (the origins, the fixtures, a test user, the
       CLI identity each section needs), numbered steps carrying `- [ ] Pass` boxes, an explicit
       **blocking / non-blocking** marker per section, and an Execution Log — the house shape of
-      `docs/testing/auth-e2e.md` and `file-send-e2e.md`.
+      `docs/testing/e2e.md` and `e2e.md`.
 - [ ] **§3 — sign-in from a clean, signed-out profile.** Stated first because it is the state nobody
       exercises: an existing session refreshes against `cognito-idp` and stays healthy while fresh
       sign-in is completely broken. Landing page → Hosted UI → back on `/files` with the username in
@@ -646,7 +646,7 @@ the Identity Pool is gone, against what is actually deployed.
 - [ ] The portal role's trust is verified by `get-role`: exactly one statement, naming the API
       Lambda's execution role, with `sts:AssumeRole` and `sts:TagSession`.
 - [ ] The results table lands in FR-009's script with a **date and a run reference**, in the shape
-      `archive-restore-e2e.md` §0 uses, so a later session can re-run it rather than re-derive it.
+      `e2e.md` §0 uses, so a later session can re-run it rather than re-derive it.
 
 ### FR-011: The documentation reversal, as the arc closer
 

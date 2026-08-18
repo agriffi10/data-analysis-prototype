@@ -11,7 +11,7 @@ Plumbing for the shared-connections arc — **no access model, no action semanti
 - **Registry storage (FR-002)** — reuses the analytics admin bucket under `shared-spaces/`; `expire-admin-results` rescoped to `filter { prefix = "fallback-results/" }` and the workgroup fallback `OutputLocation` moved to `fallback-results/` so registry objects never expire.
 - **Provisioner skeleton** `lambdas/shared-space-provisioner/shared_space_provisioner.py` (dispatch/echo, never raises) + tests; `deploy-lambdas.yml` matrix row.
 - **Deploy-role IAM** — shared-space grants (SQS/Pipes/Step Functions/Lambda/roles+`PassRole`/logs, scoped to `{project}-*-shared-space-*`) shipped as a **customer-managed policy** `dat-deploy-shared-spaces` (not inline), plus deploy-role self-management of its own managed policies.
-- Root wiring + outputs; smoke test `docs/testing/shared-spaces-e2e.md` (**executed green**).
+- Root wiring + outputs; smoke test `docs/testing/e2e.md` (**executed green**).
 
 Deviations (all in the spec's "Implementation Decisions" section): FIFO+single-MessageGroupId for serial intake (user requirement; dup-name correctness is SPEC-051's conditional `PutObject`); one orchestrator role (per FR-003); FR-002 via prefix-scoped expiry (S3 can't exclude a prefix); deploy grants as a **managed** policy (the 10,240-char inline limit is a per-role *aggregate*).
 

@@ -172,7 +172,7 @@ The dtype→Hive mapping and DDL assembly are **pure functions**, unit-tested wi
   **no** type inference, (b) a **JSON** fixture with a date/datetime field yields a `date`/`timestamp` column
   (date parsing), (c) a **Parquet** fixture preserves native types; scan error → `schema_inference_failed`;
   transient S3 → raised.
-- [ ] `docs/testing/table-builder-e2e.md`: a flat-Parquet and a partitioned-CSV (projection) request flow through
+- [ ] `docs/testing/e2e.md`: a flat-Parquet and a partitioned-CSV (projection) request flow through
   `inspect → infer` and the generated DDL is captured (and visibly correct, incl. projection properties) before
   the stub `execute-ddl`.
 
@@ -220,7 +220,7 @@ infra/modules/table-builder/
 ├── lambda.tf                       # infer-schema attaches the polars layer (SPEC-066)
 └── state-machine.asl.json.tftpl    # + infer-schema Task (FR-005)
 
-docs/testing/table-builder-e2e.md   # infer flow + captured DDL (FR-006)
+docs/testing/e2e.md   # infer flow + captured DDL (FR-006)
 ```
 
 ## Implementation Phases

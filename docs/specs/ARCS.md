@@ -951,7 +951,7 @@ typeable. **Do not add the directory "for symmetry with SPEC-146."**
 > is what let `SHARE_MAX_DEFINITION_BYTES` stop being a choice between the 256 KB payload and a
 > 100-column commented table. The machine declares a top-level `TimeoutSeconds` of 10,800, so a
 > run that can now last hours cannot last a year. **One live check is owed** — the script is in
-> `docs/testing/table-share-e2e.md` → *SPEC-161*. What shipped:
+> `docs/testing/e2e.md` → *SPEC-161*. What shipped:
 > `docs/spec-delivery/SPEC-161-table-share-caps-wide-definitions-long-runs.md`.
 
 The arc exists because the table-share caps are not a policy — they are the shape of one Lambda.

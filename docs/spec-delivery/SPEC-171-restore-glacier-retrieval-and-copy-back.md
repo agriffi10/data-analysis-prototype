@@ -205,4 +205,4 @@ wording has to be argued for rather than merely passing.
   owns the notification producer; this spec fixes the outcomes and their wording, and the wording is
   reachable today only through the failure path's own decorator.
 - **Phase 4's live check is owed in full**, and it is the one nothing offline can stand in for. See
-  `docs/testing/archive-restore-e2e.md` → *SPEC-171*.
+  `docs/testing/e2e.md` → *SPEC-171*.
