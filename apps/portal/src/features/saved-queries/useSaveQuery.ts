@@ -105,7 +105,7 @@ export function useSaveQuery({spaces, defaultSpace, payload, onSaved, toast}: Pa
 
     const nameError = validateSavedQueryName(name);
     if (nameError) {
-      // FR-002 AC3: the message, the dialog still open, and NO request — the dialog
+      // The message, the dialog still open, and NO request — the dialog
       // validates on submit too, so this is the guard for every other caller.
       setError(nameError);
       setOpen(true);

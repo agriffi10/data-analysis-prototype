@@ -225,7 +225,7 @@ function isValidColourRule(value: unknown): boolean {
   if (typeof rule.value !== 'string') return false;
   // The colours are checked against the PALETTE, not merely against `string`: a stored
   // `#ff0000` would be rendered verbatim as an inline style, and the contrast the palette
-  // is measured for would no longer hold for it (FR-002 AC8).
+  // is measured for would no longer hold for it.
   if (rule.foreground !== undefined && !FORMATTING_FOREGROUNDS.includes(rule.foreground as never)) return false;
   if (rule.background !== undefined && !FORMATTING_BACKGROUNDS.includes(rule.background as never)) return false;
   if (rule.gradient === undefined) return true;

@@ -13,7 +13,7 @@ right over.
 
 **An expected refusal is a RETURN VALUE, not an exception, and that is the one place this verb
 departs from table-share's guard.** A conflict has to name the colliding item so the sender can
-be told which file was already there (FR-001 AC5) — and a raised ``TerminalError`` cannot carry
+be told which file was already there — and a raised ``TerminalError`` cannot carry
 it: its tokens are deliberately kept out of the exception message, and its detail is operator
 text that may quote raw service output and must never be rendered to a user. Parsing
 a filename back out of a Step Functions ``Cause`` would be both fragile and a rule break. So the

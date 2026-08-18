@@ -62,7 +62,7 @@ def _expected_items(event) -> int:
       TerminalError: ``transfer_results_unreadable`` when the transfer block is absent or
         malformed, reports no items, or disagrees with the plan. Reached only after the Map has
         run — the zero case is refused before it, at the Choice, because an archive of nothing is
-        a refusal and never a success (FR-001 AC6).
+        a refusal and never a success.
     """
     transfer = event.get("transfer")
     expected = transfer.get("itemCount") if isinstance(transfer, dict) else None

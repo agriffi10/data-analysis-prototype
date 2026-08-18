@@ -71,7 +71,7 @@ export function DataExplorerWorkspace() {
   // rule the early return below applies to Glue, applied to the bill.
   //
   // A SUSPENDED description is held back for the same reason and by the same means: a
-  // history step onto a statement that already failed must not re-run it (FR-006 AC4),
+  // history step onto a statement that already failed must not re-run it,
   // and "runs nothing" is expressed here, by passing nothing to run.
   const linkUnsettled = resolution.status === 'loading' || denied;
   const exploration = useExploration(
@@ -126,7 +126,7 @@ export function DataExplorerWorkspace() {
 
   // What THIS apply cost, decided at the one moment the answer is knowable: an execution
   // the tab's ledger already holds is one it has already run and already been billed for,
-  // so this gesture scanned nothing (FR-008 AC3).
+  // so this gesture scanned nothing.
   //
   // Read during render rather than in the effect below, and that ordering is the whole
   // point — `recordScan` puts the id in the ledger, after which every execution looks
@@ -234,7 +234,7 @@ export function DataExplorerWorkspace() {
             presentation={presentation}
             // Presentation changes land the same way every other exploration edit does —
             // through the tab — so geometry survives paging and tab switches, and is
-            // persisted with the tab it belongs to (FR-001 AC7).
+            // persisted with the tab it belongs to.
             onPresentationChange={(update) =>
               tabs.updateActiveExploration((e) => ({...e, presentation: update(e.presentation)}))
             }

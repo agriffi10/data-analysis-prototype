@@ -172,7 +172,7 @@ def restore_lines(restore: dict) -> dict:
     Three outcomes and three sentences, and the second is the one that has to be careful. On
     ``incomplete`` the ``Restored to`` field must not name a destination as though the restore
     landed there — it records the attempt and what it left behind, so the receipt never claims a
-    restore that did not finish (FR-006 AC2).
+    restore that did not finish.
 
     Args:
       restore: The restore's state — its ``requestedAt`` timestamp, its ``status``

@@ -25,7 +25,7 @@ Attributes:
     ANCHORED AT THE ROOT, which is the whole difference from the analytics rule — a user's own
     ``reports/athenaresults/`` is an ordinary folder they may send.
 
-    ``athenaresults/`` is the spec's (FR-001 AC4). ``user_settings/`` is not, and it is here
+    ``athenaresults/`` is the spec's. ``user_settings/`` is not, and it is here
     because dropping it would have been a change nobody argued for: it is a portal-managed
     folder holding the sender's notification inbox and shared-space connections cache, hidden
     everywhere in the browser (``protectedFolders.ts``), and unlike the two analytics rules this

@@ -59,7 +59,7 @@ export function useExploreDeepLink(
   return {
     resolution,
     // `replace`, so Back leaves the Data Explorer rather than re-opening the tab the link
-    // already opened — and so a reload restores the session's tabs (FR-008 AC4) instead of
+    // already opened — and so a reload restores the session's tabs instead of
     // adding a duplicate of the linked one on top of them.
     clear: () =>
       setSearchParams(

@@ -97,7 +97,7 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
     if (sql !== null && state !== null) lastVerdict.current = {sql, state};
   }, [sql, state]);
 
-  // FR-006 AC4: a failed execution must not be cached as a success — re-applying the same
+  // a failed execution must not be cached as a success — re-applying the same
   // description retries. The eviction happens on the way OUT (the statement changed, or
   // the hook unmounted), never while mounted: evicting on FAILED with an observer
   // attached refetches immediately, which is start → FAILED → evict → start, an unbounded
@@ -125,7 +125,7 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
     // query takes more than one poll, so the surface said "This query scanned 0 B" beside a
     // running total that disagreed with it.
     if (!status || !isTerminalState(status.state)) return null;
-    // FR-007 AC4: an execution that fails before reporting statistics contributes ZERO,
+    // an execution that fails before reporting statistics contributes ZERO,
     // never NaN — a NaN here propagates silently into the tab's cumulative total and
     // renders as "NaN B" long after the failed run is forgotten.
     return {

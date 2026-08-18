@@ -91,7 +91,7 @@ export function useSavedQueriesPager({
     page,
     hasPrev: safeIndex > 0,
     // A failed listing stops the fill, so Next past the loaded rows would be a control
-    // that does nothing. Prev still works, and the rows stay (FR-002 AC5).
+    // that does nothing. Prev still works, and the rows stay.
     hasNext: safeIndex < pageCount - 1 || (hasMore && !error),
     isFetching: isLoadingMore,
     label: `${total === 0 ? 0 : start + 1}–${start + page.length} of ${total}${hasMore ? '+' : ''}`,

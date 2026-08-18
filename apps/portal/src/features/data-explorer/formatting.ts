@@ -19,7 +19,7 @@ import type {ColourRule, ColourToken, FormattingState, SurfaceToken, Transformer
 // asserts this file is not in it.
 //
 // Every comparison here is against the RAW cell value. A transformer changes only what a
-// cell looks like (FR-005 AC4), so a rule tested against the transformed rendering would
+// cell looks like, so a rule tested against the transformed rendering would
 // match on a URL a user cannot see and miss the number they typed.
 
 /** Resolved colours for one cell. Absent properties mean "leave it alone". */
@@ -215,7 +215,7 @@ export function ruleRefusal(rule: ColourRule): string | null {
 }
 
 /**
- * Whether a rule can still be evaluated against the columns in front of it (FR-007 AC3).
+ * Whether a rule can still be evaluated against the columns in front of it.
  *
  * A grouping change replaces the column set wholesale, so a rule naming a column that is
  * no longer there is the ordinary case rather than a fault. It is kept and shown as
@@ -290,7 +290,7 @@ function compile(rule: ColourRule): Compiled['matches'] {
 /**
  * Band indexes for the page: consecutive rows equal in every striping column share one.
  *
- * Computed over the CURRENT PAGE and only ever claimed about it (FR-004 AC2) — a band
+ * Computed over the CURRENT PAGE and only ever claimed about it — a band
  * touching the first or last row of the page may well continue beyond it, and nothing here
  * can know. The surface says so.
  *

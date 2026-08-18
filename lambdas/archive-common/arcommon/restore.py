@@ -120,7 +120,7 @@ def derive_destinations(bucket: str, archive_root: str, space_root: str) -> tupl
     ``_manifest.json`` is excluded by its EXACT KEY at the archive root, never by basename: a
     user's own ``reports/_manifest.json`` three folders down was archived like any other file
     and must come back, while the record this plane wrote must not land in the user's space as a
-    stray file (FR-003 AC2).
+    stray file.
 
     Args:
       bucket: The archive bucket.

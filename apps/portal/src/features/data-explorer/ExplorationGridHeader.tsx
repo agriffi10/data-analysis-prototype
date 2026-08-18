@@ -25,7 +25,7 @@ export type ExplorationGridHeaderProps = {
    * that depends on it works in a browser and nowhere else.
    */
   onColumnDrag?: (name: string | null) => void;
-  /** Clicking the header selects the whole column (FR-002 AC3). */
+  /** Clicking the header selects the whole column. */
   onSelectColumn: (name: string) => void;
   /** Ordering and filtering, for each column's own menu. */
   actions: ColumnQueryActions;

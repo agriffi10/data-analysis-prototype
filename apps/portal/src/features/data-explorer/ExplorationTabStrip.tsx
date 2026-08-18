@@ -8,7 +8,7 @@ export type ExplorationTabStripProps = {
   activeTabId: string;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
-  /** Opens the source picker, or raises the cap dialog when there is no room (FR-008 AC2). */
+  /** Opens the source picker, or raises the cap dialog when there is no room. */
   onNew: () => void;
 };
 

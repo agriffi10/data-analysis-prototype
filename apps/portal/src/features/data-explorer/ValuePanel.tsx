@@ -19,7 +19,7 @@ export type ValuePanelProps = {
    * panel and the column header are the two places it is written in words.
    */
   type?: string | null;
-  /** How the grid is rendering this cell, when a transformer changes it (FR-005 AC6). */
+  /** How the grid is rendering this cell, when a transformer changes it. */
   transformed?: TransformedValue | null;
   onClose: () => void;
 };
@@ -79,7 +79,7 @@ export function ValuePanel({column, value, type, transformed, onClose}: ValuePan
       </div>
       {/* The RAW value and the rendering, both, and labelled apart. A panel that showed
           only the transformed form would leave a user with no way to see what they are
-          actually filtering, colouring and copying (FR-005 AC6). */}
+          actually filtering, colouring and copying. */}
       {focused && transformed && (
         <div className="flex-none">
           <h4 className="text-xs font-medium text-text-2">Shown as</h4>

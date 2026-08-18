@@ -164,7 +164,7 @@ export type ColourRule = {
    * Numeric gradient across [min, max] instead of a binary match.
    *
    * Present means the operator and value are unused: the cell's own number decides the
-   * shade. A non-numeric cell is left UNSTYLED rather than clamped (FR-002 AC4) — clamping
+   * shade. A non-numeric cell is left UNSTYLED rather than clamped — clamping
    * would paint a text cell the colour of the minimum, which reads as a measurement.
    */
   gradient?: {min: number; max: number; from: SurfaceToken; to: SurfaceToken};
@@ -222,7 +222,7 @@ export type CellSelection = {
  * Column geometry is keyed by column NAME, not by position: it outlives the execution it
  * was set on (a filter change is a new execution over the same columns), and a width that
  * followed a POSITION would land on whatever column moved into it after a re-order or a
- * grouping change (FR-006 AC3). That is also why it is not `features/catalog/`'s
+ * grouping change. That is also why it is not `features/catalog/`'s
  * `useColumnWidths`, which is index-keyed, per-execution and in-memory.
  */
 export type ExplorationPresentation = {

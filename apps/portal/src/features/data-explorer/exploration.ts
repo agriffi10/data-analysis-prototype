@@ -97,7 +97,7 @@ export function emptyExplorationPresentation(): ExplorationPresentation {
 }
 
 /**
- * A new exploration over a source, with an empty query description (FR-001 AC4).
+ * A new exploration over a source, with an empty query description.
  *
  * @param source - Where the rows come from.
  * @param id - An explicit id; omit for a fresh one.

@@ -143,7 +143,7 @@ export function sameQuery(a: ExplorationQuery, b: ExplorationQuery): boolean {
 }
 
 /**
- * Adds or replaces the filter on one column (FR-002 AC4).
+ * Adds or replaces the filter on one column.
  *
  * One filter per column, always — a second filter on a column is far more often a user
  * refining the first than asking for `x = 1 AND x = 2`, and the second reading is
@@ -169,7 +169,7 @@ export function filterOf(query: ExplorationQuery, column: string): ColumnFilter 
 }
 
 // Priorities are re-stamped from the sorted order on every edit, so they stay 0-based and
-// CONTIGUOUS (FR-004 AC3). Left alone, clearing the middle of three sorts would leave
+// CONTIGUOUS. Left alone, clearing the middle of three sorts would leave
 // 0 and 2 — which renders the same ORDER BY but shows the user a "3rd" with no second.
 function stamp(ordering: SortEntry[]): SortEntry[] {
   return ordering.map((entry, index) => ({...entry, priority: index}));
@@ -180,7 +180,7 @@ function restamp(ordering: SortEntry[]): SortEntry[] {
 }
 
 /**
- * Sorts by a column, appending it at the next priority (FR-004 AC1).
+ * Sorts by a column, appending it at the next priority.
  *
  * A column that is already sorted keeps its PLACE and only changes direction — flipping
  * ascending to descending is not a request to make it the primary sort, and promoting it
@@ -223,7 +223,7 @@ export function sortOf(query: ExplorationQuery, column: string): {direction: 'as
 }
 
 /**
- * Moves a sorted column one place up or down the priority list (FR-004 AC2).
+ * Moves a sorted column one place up or down the priority list.
  *
  * @param query - The description to edit.
  * @param column - The sorted column to move.

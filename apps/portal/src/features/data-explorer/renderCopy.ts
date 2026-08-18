@@ -16,7 +16,7 @@ import type {GridColumn} from './useColumnGeometry';
 /**
  * The bounding rectangle of a selection, or null when nothing is selected.
  *
- * FR-001 AC5: a discontiguous selection copies as its BOUNDING RECTANGLE with the
+ * a discontiguous selection copies as its BOUNDING RECTANGLE with the
  * unselected cells inside it blank. The alternative — packing the selected cells together —
  * silently moves values into columns they were never in, which is worse than a hole in a
  * paste the user can see. The surfaces say so out loud rather than leaving it to be found.
@@ -275,7 +275,7 @@ function xmlText(value: string): string {
  * and a grouping alias may carry characters no element name admits — so deriving element
  * names from it produces documents that do not parse. The attribute form has no such
  * constraint, and a NULL gets an explicit `null="true"` rather than an empty element,
- * which is what keeps it distinguishable from `''` (FR-001 AC4).
+ * which is what keeps it distinguishable from `''`.
  *
  * **A hole is NOT distinguishable from an empty string here**, and the self-closing tag does
  * not make it one — `<cell/>` and `<cell></cell>` are the same element to every parser, so

@@ -26,7 +26,7 @@ export type RowColoursDialogProps = {
   onCancel: () => void;
 };
 
-/** Shown against a rule whose column the current result no longer has (FR-007 AC3). */
+/** Shown against a rule whose column the current result no longer has. */
 export const INAPPLICABLE_RULE = 'This column isn’t in the results right now, so the rule is doing nothing.';
 export const NO_RULES = 'No rules yet. Add one to colour cells by what they hold.';
 export const ROW_COLOURS_FREE = 'Colours are worked out in your browser. Nothing here runs a query.';
@@ -39,7 +39,7 @@ function newRule(): ColourRule {
 
 /**
  * Conditional colouring, colour-by-type and row banding, in one staged form (
- * FR-002, FR-003).
+ * FR-002).
  *
  * Staged for `OrderFilterDialog`'s reason turned inside out. There it is about cost — many
  * changes becoming one execution. Here **nothing costs anything**, and the staging is about
@@ -47,7 +47,7 @@ function newRule(): ColourRule {
  * would repaint the grid from half-written conditions. Cancel discards the draft whole.
  *
  * The palette is a bounded set of design tokens rather than a colour picker, which is what
- * makes the contrast promise (FR-002 AC8) one this dialog can actually keep — every pairing
+ * makes the contrast promise one this dialog can actually keep — every pairing
  * it can produce is measured in `formatting.test.ts`.
  */
 export function RowColoursDialog({columns, formatting, onApply, onCancel}: RowColoursDialogProps) {

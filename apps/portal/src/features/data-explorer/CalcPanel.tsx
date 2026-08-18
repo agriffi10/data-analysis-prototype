@@ -29,7 +29,7 @@ export type CalcPanelProps = {
  * able to reach the grid. Escape closes it through the depth-ordered registry,
  * so a dialog opened above it still outranks it.
  *
- * With nothing selected it explains itself rather than showing zeroes (FR-002 AC2): a
+ * With nothing selected it explains itself rather than showing zeroes: a
  * column of `0`s reads as a computed answer to a question nobody asked.
  */
 export function CalcPanel({values, state, onStateChange, onClose}: CalcPanelProps) {
@@ -86,7 +86,7 @@ export function CalcPanel({values, state, onStateChange, onClose}: CalcPanelProp
                   {result.skipped > 0 && (
                     // Said beside the value rather than in a footnote: a sum that ignored
                     // half its cells is a different number, and the reader has to be told
-                    // where they are looking at it (FR-001 AC3).
+                    // where they are looking at it.
                     <span className="ml-1 font-sans text-[10px] text-text-3">{result.skipped} skipped</span>
                   )}
                 </dd>

@@ -123,7 +123,7 @@ function mode(values: string[]): string | null {
  * One function's answer over a selection.
  *
  * The strings toggle decides what the *considered* set is, and it is the panel's whole
- * honesty control (FR-001 AC4): numbers-only considers the numeric cells and reports the
+ * honesty control: numbers-only considers the numeric cells and reports the
  * rest as `skipped`, where mixed considers every non-null cell and compares `min`/`max`
  * as text. `sum`, `avg` and `median` have no mixed reading at all — an average of
  * "unknown" is not a number — so they stay numeric either way and report their own skips.
@@ -192,7 +192,7 @@ export function calcResults(values: (string | null)[], state: CalcPanelState): C
 }
 
 /**
- * How the Calc panel describes what it aggregated (FR-002 AC1).
+ * How the Calc panel describes what it aggregated.
  *
  * Every word of this is load-bearing. "Selected" bounds it to the cells the user picked,
  * "on this page" bounds it to the rows the browser is holding, and neither may be dropped

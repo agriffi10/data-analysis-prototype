@@ -22,7 +22,7 @@ export type UseExplorationQueryResult = {
   back: () => void;
   forward: () => void;
   /**
-   * A restored description whose SQL has already failed, held back from running (FR-006 AC4).
+   * A restored description whose SQL has already failed, held back from running.
    *
    * True only after a history step, never after an apply — an apply IS the user asking for
    * it again.

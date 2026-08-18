@@ -18,7 +18,7 @@ export type GatedSurface = {
   /**
    * For `kind: 'guide'`, the `helpContent.ts` section or guide id this row hides.
    *
-   * The registry is the ONLY home of the guide→flag mapping (FR-006 AC3) — `helpContent.ts`
+   * The registry is the ONLY home of the guide→flag mapping — `helpContent.ts`
    * knows nothing about flags, so a guide cannot end up gated in the Help list and ungated in
    * the search index, or vice versa.
    */

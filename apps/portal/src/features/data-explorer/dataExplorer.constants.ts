@@ -277,7 +277,7 @@ export const COPY_SQL_TABLE = 'results';
 /** Marks a NULL cell in the XML rendering, where an empty element already means `''`. */
 export const COPY_XML_NULL_ATTRIBUTE = 'null';
 
-/** The copy options Ctrl/Cmd+C uses: the plain paste a spreadsheet wants (FR-001 AC1). */
+/** The copy options Ctrl/Cmd+C uses: the plain paste a spreadsheet wants. */
 export const PLAIN_COPY_OPTIONS: CopyOptions = {
   format: 'tsv',
   includeHeaders: false,

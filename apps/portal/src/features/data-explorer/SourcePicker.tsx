@@ -37,7 +37,7 @@ export function SourcePicker({spaces, username, onChoose, onCancel}: SourcePicke
   const database = selected ? spaceDatabase(selected, username) : null;
   const {data, isPending, isError} = useSchema(database);
 
-  // FR-005 AC6: no usable space is a state that explains itself. Rendering an empty picker
+  // no usable space is a state that explains itself. Rendering an empty picker
   // would leave a user clicking at nothing with no idea whose fault it is.
   if (spaces.length === 0) {
     return (

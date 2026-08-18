@@ -48,7 +48,7 @@ type Props = {
 export function SaveQueryDialog({initialName, spaces, initialSpace, linked, error, busy, onSave, onCancel}: Props) {
   const [name, setName] = useState(initialName);
   const [spaceId, setSpaceId] = useState(initialSpace?.id ?? spaces[0]?.id ?? '');
-  // Validation runs on SUBMIT (FR-002 AC5), not as a disabled condition: a refusal the
+  // Validation runs on SUBMIT, not as a disabled condition: a refusal the
   // user cannot reach is dead code an "it's disabled" test passes straight over
   //. Cleared as they type, so the message never outlives the value it judged.
   const [submitError, setSubmitError] = useState<string | null>(null);

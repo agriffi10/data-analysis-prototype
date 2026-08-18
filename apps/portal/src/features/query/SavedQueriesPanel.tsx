@@ -76,7 +76,7 @@ export function SavedQueriesPanel({
   });
 
   // The pager follows the ROWS, not the error: a load-more that fails must not take the
-  // rows the user already has (FR-002 AC5), and Prev has to remain reachable.
+  // rows the user already has, and Prev has to remain reachable.
   const footer =
     !isLoading && pager.page.length > 0 ? (
       <Pager
@@ -125,7 +125,7 @@ export function SavedQueriesPanel({
         {isLoading || pager.isFilling ? (
           <p className="text-sm text-text-3">Loading saved queries&hellip;</p>
         ) : pager.isEmpty ? (
-          // Never an empty state and an error at once (FR-006 AC6) — the banner above has
+          // Never an empty state and an error at once — the banner above has
           // already said why there is nothing.
           error ? null : (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">

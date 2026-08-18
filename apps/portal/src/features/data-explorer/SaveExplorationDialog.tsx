@@ -7,7 +7,7 @@ import type {SavedQuery, SavedQueryLink} from '../saved-queries/savedQueries.typ
 
 export type SaveExplorationDialogProps = {
   /**
-   * The statement that produced the rows on screen — the body written (FR-001 AC1).
+   * The statement that produced the rows on screen — the body written.
    *
    * Handed down from `useExploration.sql`, the same string `StartQueryExecution` was given.
    * Re-rendering the description here would be a second rendering of it, and the two would

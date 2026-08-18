@@ -238,7 +238,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
         </ChipList>
       )}
 
-      {/* FR-002 AC7: submitting with no recipients is refused INLINE and sends nothing. */}
+      {/* Submitting with no recipients is refused INLINE and sends nothing. */}
       {attempted && recipients.length === 0 && (
         <Banner
           variant="warning"

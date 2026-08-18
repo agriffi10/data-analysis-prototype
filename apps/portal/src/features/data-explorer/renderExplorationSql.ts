@@ -132,7 +132,7 @@ function renderWhere(filters: ColumnFilter[], expression: string | null): string
   const filterSql = filters.map(renderFilter);
   const trimmed = expression?.trim();
 
-  // FR-005 AC2: both sides parenthesized when both are present, so an expression
+  // Both sides parenthesized when both are present, so an expression
   // containing a top-level OR cannot capture a filter. `a = 1 AND b OR c` is not
   // `a = 1 AND (b OR c)`, and the difference is rows the user did not ask for.
   const clauses: string[] = [];
@@ -263,7 +263,7 @@ export function renderExplorationSql(source: ExplorationSource, query: Explorati
     parts.push(`GROUP BY ${grouping.columns.map(sqlIdentifier).join(', ')}`);
   }
 
-  // FR-004 AC1: the duplicate finder. `COUNT(*)` is written out rather than referencing an
+  // The duplicate finder. `COUNT(*)` is written out rather than referencing an
   // aggregate's alias, because the predicate must hold whether or not the user kept the
   // default `COUNT(*)` among the aggregates — and Trino does not accept a SELECT alias in
   // a HAVING clause anyway. It follows the GROUP BY and precedes the ORDER BY, which is

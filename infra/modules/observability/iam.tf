@@ -90,7 +90,7 @@ resource "aws_iam_role_policy" "sweep" {
   policy = data.aws_iam_policy_document.sweep.json
 }
 
-# FR-004/FR-006: the sweep is also a PRODUCER — it instruments itself through
+# The sweep is also a PRODUCER — it instruments itself through
 # cpcommon.observability, which is what proves the whole path without touching a control plane.
 resource "aws_iam_role_policy" "sweep_producer" {
   name   = "logs-producer"

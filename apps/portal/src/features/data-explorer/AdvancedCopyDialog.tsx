@@ -14,7 +14,7 @@ export type AdvancedCopyDialogProps = {
 };
 
 /**
- * Why a gap can appear in a paste (FR-001 AC5).
+ * Why a gap can appear in a paste.
  *
  * Stated rather than discovered: a discontiguous selection copies as the rectangle around
  * it, and a spreadsheet has no way to show which of its blank cells were never selected.
@@ -23,7 +23,7 @@ export const COPY_RECTANGLE_NOTE =
   'A copy always comes out as one rectangle. If your selection has gaps, the cells in between are copied blank.';
 
 /**
- * Why the copy may be smaller than the result (FR-001 AC6).
+ * Why the copy may be smaller than the result.
  *
  * The grid holds ONE page, so selecting a whole column selects the loaded rows and no more.
  * A user who has paged through a large result has every reason to expect otherwise, and
