@@ -296,6 +296,17 @@ These pass locally and fail later — check them as part of the work, not as an 
 - **New `VITE_*` vars need deploy wiring.** Any var the app reads must be added to `deploy-app.yml`'s
   build env **and** set as a GitHub Actions repo variable, or production ships it `undefined` (IAM
   being correct won't save you).
+- **`lambdas/` has a second CI-only gate beside ruff: `mypy` is BLOCKING** over the five shared
+  layers at zero errors. The ratchet path — which package widens next, and at what strictness — is
+  recorded in `pyproject.toml`'s `[tool.mypy]` block and nowhere else.
+- **A `rate()` EventBridge rule fires on creation**, so a new singleton Lambda's first scheduled
+  invocation can hit the placeholder zip before `Deploy Lambdas` lands. The async retry fixes it —
+  **a red first invocation is expected, not a defect.**
+- **Never `tofu apply` from a laptop.** The deploy role is GitHub-OIDC-only and the local CLI
+  identity is an IAM *user* that is on no data bucket's policy allowlist, so tofu reads those
+  buckets as **absent** and plans to destroy and recreate them (measured: `25 to add, 3 to change,
+  13 to destroy`). The same isolation is why `get-object` on the user-space bucket returns
+  `AccessDenied` from a laptop — that is the model working, not a fault.
 - **Adding a new AWS resource type to `infra/`** trips a recurring set of deploy-role IAM traps
   (self-grant propagation, non-scopable actions, refresh deadlocks, unknown-ARN-in-list). Read
   `architecture.md` → *Deploy-role IAM — adding a new resource type* and *Lambda code/infra split*

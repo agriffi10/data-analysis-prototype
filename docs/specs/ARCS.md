@@ -1,36 +1,47 @@
 # Spec Arcs — narrative context
 
-Why each arc exists and how its specs fit together. **Pulled on demand**, not at session start —
-`INDEX.md` carries status, this file carries reasoning. Most arcs below are shipped; their
+Why each arc exists and how its specs fit together. **Pulled on demand**, not at session start — `INDEX.md`
+carries status, this file carries reasoning. **These headings name a spec range and nothing else** —
+status written into them rotted silently, four arcs at a time. Most arcs below are shipped; their
 authoritative detail lives in `docs/spec-delivery/SPEC-XXX-*.md` and the per-arc architecture docs.
 
 **Arcs** — one `##` per arc; read only the one you're in:
 
-- File-operations arc (SPEC-015 → 020, + 039 copy — shipped)
-- Analytics arc (SPEC-032 → 036 — shipped)
-- Query-editor UX follow-ups (SPEC-040 → 042 — shipped)
-- Query-editor UX, round 2 (SPEC-043 → 044, + 041 amend — shipped)
-- Query-editor UX, round 3 (SPEC-046 → 049, one-offs — shipped)
-- Shared-connections arc (SPEC-050 + 056 → 055 — shipped)
-- Notifications arc (SPEC-058 → 061 — shipped)
-- Control-plane refactor (SPEC-062, standalone — shipped)
-- Query-editor UX, round 4 (SPEC-063 → 065, user-feedback one-offs — shipped)
-- Create-Table-from-Files / "Table Builder" arc (SPEC-066 → 071, + 072 producer — shipped)
-- Query-editor UX, round 5 + file-browser one-off (SPEC-077 → 080, + 081 — shipped)
-- Table-Share arc (SPEC-088 → 093, + 094 producer — shipped)
-- App-shell / schema-rail UX one-offs (SPEC-085, 086 — shipped)
-- Best-practice audit follow-ups (SPEC-082 → 084 — shipped)
-- Responsive & Files-UX arc (SPEC-095 → 104 — shipped)
-- Control-plane-common prerequisite (SPEC-107 — shipped)
-- File-converter arc (SPEC-115 → 122 — cancelled)
-- Data-quality arc (SPEC-108 → 114, + 123 → 124 — shipped)
-- Observability arc (SPEC-127 → 137, fleet-complete)
-- Refresh-table arc (SPEC-143 → 144 → **149** → 145 — active; 143 and 144 COMPLETE)
-- Username-directory arc (SPEC-146 → 147 → 148 — shipped)
+- [File-operations arc (SPEC-015 → 020, + 039 copy)](#file-operations-arc-spec-015--020--039-copy)
+- [Analytics arc (SPEC-032 → 036)](#analytics-arc-spec-032--036)
+- [Query-editor UX follow-ups (SPEC-040 → 042)](#query-editor-ux-follow-ups-spec-040--042)
+- [Query-editor UX, round 2 (SPEC-043 → 044, + 041 amend)](#query-editor-ux-round-2-spec-043--044--041-amend)
+- [Query-editor UX, round 3 (SPEC-046 → 049, one-offs)](#query-editor-ux-round-3-spec-046--049-one-offs)
+- [Shared-connections arc (SPEC-050 + 056 → 055)](#shared-connections-arc-spec-050--056--055)
+- [Notifications arc (SPEC-058 → 061)](#notifications-arc-spec-058--061)
+- [Control-plane refactor (SPEC-062, standalone)](#control-plane-refactor-spec-062-standalone)
+- [Query-editor UX, round 4 (SPEC-063 → 065, user-feedback one-offs)](#query-editor-ux-round-4-spec-063--065-user-feedback-one-offs)
+- [Create-Table-from-Files / "Table Builder" arc (SPEC-066 → 071, + 072 producer)](#create-table-from-files--table-builder-arc-spec-066--071--072-producer)
+- [Query-editor UX, round 5 + file-browser one-off (SPEC-077 → 080, + 081)](#query-editor-ux-round-5--file-browser-one-off-spec-077--080--081)
+- [Table-Share arc (SPEC-088 → 093, + 094 producer)](#table-share-arc-spec-088--093--094-producer)
+- [App-shell / schema-rail UX one-offs (SPEC-085, 086)](#app-shell--schema-rail-ux-one-offs-spec-085-086)
+- [Best-practice audit follow-ups (SPEC-082 → 084)](#best-practice-audit-follow-ups-spec-082--084)
+- [Responsive & Files-UX arc (SPEC-095 → 104)](#responsive--files-ux-arc-spec-095--104)
+- [Control-plane-common prerequisite (SPEC-107)](#control-plane-common-prerequisite-spec-107)
+- [File-converter arc (SPEC-115 → 122 — cancelled)](#file-converter-arc-spec-115--122--cancelled)
+- [Data-quality arc (SPEC-108 → 114, + 123 → 124)](#data-quality-arc-spec-108--114--123--124)
+- [Observability arc (SPEC-127 → 137)](#observability-arc-spec-127--137)
+- [Refresh-table arc (SPEC-143 → 144 → **149** → 145)](#refresh-table-arc-spec-143--144--149--145)
+- [Username-directory arc (SPEC-146 → 147 → 148)](#username-directory-arc-spec-146--147--148)
+- [Audit-remediation arc (SPEC-150 → 156)](#audit-remediation-arc-spec-150--156)
+- [Follow-ups from the shipped arcs (SPEC-157, 158)](#follow-ups-from-the-shipped-arcs-spec-157-158)
+- [Table-share-at-scale arc (SPEC-160 → 161)](#table-share-at-scale-arc-spec-160--161)
+- [Feature-flags arc (SPEC-162 → 163)](#feature-flags-arc-spec-162--163)
+- [Send-files arc (SPEC-164 → 165 → 166 → 167)](#send-files-arc-spec-164--165--166--167)
+- [Archival arc (SPEC-168 → 169 → 170 → 171 → 172)](#archival-arc-spec-168--169--170--171--172)
+- [Saved-queries-in-spaces arc (SPEC-173 → 174 → 175)](#saved-queries-in-spaces-arc-spec-173--174--175)
+- [Data Explorer arc (SPEC-176 → 185)](#data-explorer-arc-spec-176--185)
+- [File-operations control-plane arc (SPEC-187 → 191)](#file-operations-control-plane-arc-spec-187--191)
+- [API-layer & containerisation arc (SPEC-192 → 202)](#api-layer--containerisation-arc-spec-192--202)
 
 ---
 
-## File-operations arc (SPEC-015 → 020, + 039 copy — shipped)
+## File-operations arc (SPEC-015 → 020, + 039 copy)
 
 Turns the read-only browser into a filesystem:
 download, upload, create-folder, metadata, delete, move, rename, large-file upload, copy. All
@@ -40,7 +51,7 @@ recursive + non-atomic. See architecture.md Known Constraints.
 
 ---
 
-## Analytics arc (SPEC-032 → 036 — shipped)
+## Analytics arc (SPEC-032 → 036)
 
 A second portal surface: an in-app Athena query workspace beside the
 file browser. Each user gets a private Glue database **named exactly as their username** (created by
@@ -58,7 +69,7 @@ design-led (`docs/design/query-workspace.html` + `design-system.md` §6). New de
 
 ---
 
-## Query-editor UX follow-ups (SPEC-040 → 042 — shipped)
+## Query-editor UX follow-ups (SPEC-040 → 042)
 
 Refines the SPEC-035/036 workspace without touching the data
 layer or IAM: 040 persists the un-run editor draft across tab switches/reloads (`sessionStorage`,
@@ -69,7 +80,7 @@ pass (new tab strip in `query-workspace.html` + §6) before code.
 
 ---
 
-## Query-editor UX, round 2 (SPEC-043 → 044, + 041 amend — shipped)
+## Query-editor UX, round 2 (SPEC-043 → 044, + 041 amend)
 
 Builds on the tab model: 043 adds **saved
 queries** (Save in the Run bar → named JSON store at `{username}/user_settings/saved-queries.json`,
@@ -85,7 +96,7 @@ access; the `?prefix=` deep-link is frontend-only).
 
 ---
 
-## Query-editor UX, round 3 (SPEC-046 → 049, one-offs — shipped)
+## Query-editor UX, round 3 (SPEC-046 → 049, one-offs)
 
 Small, mostly independent additions on the
 SPEC-034→044 workspace: 046 adds a **Refresh** control to the history drawer (manual re-read of
@@ -105,7 +116,7 @@ independent. No IAM/infra change (all reuse existing user-scoped S3 + analytics 
 
 ---
 
-## Shared-connections arc (SPEC-050 + 056 → 055 — shipped)
+## Shared-connections arc (SPEC-050 + 056 → 055)
 
 Bucket 2 (`dat-prod-shared-space`): user-created, uniquely-named,
 non-renameable shared connections (name = shared S3 prefix = shared Glue DB), provisioned by an async
@@ -130,7 +141,7 @@ user = exists in the User Pool; registry reuses the admin bucket).
 
 ---
 
-## Notifications arc (SPEC-058 → 061 — shipped)
+## Notifications arc (SPEC-058 → 061)
 
 A per-user notifications inbox. A notification is `{id, message, read,
 timestamp}`; the inbox is one JSON array at `{username}/user_settings/notifications.json` in the existing user-space
@@ -157,7 +168,7 @@ add-unknown-user / member-left / deleted — delete fans out to the deleter + al
 
 ---
 
-## Control-plane refactor (SPEC-062, standalone — shipped)
+## Control-plane refactor (SPEC-062, standalone)
 
 The shared-space control plane shipped (050→054) as a **single
 711-line provisioner Lambda** with an `action`-switch (create/add_members/remove_members/leave/delete) + inline JWT
@@ -177,7 +188,7 @@ decision recorded in `docs/architecture.md` → *Control Planes → Shared Space
 
 ---
 
-## Query-editor UX, round 4 (SPEC-063 → 065, user-feedback one-offs — shipped)
+## Query-editor UX, round 4 (SPEC-063 → 065, user-feedback one-offs)
 
 Three independent presentation/editor refinements
 on the SPEC-034→049 workspace, no data-layer/IAM change: **063** restructures the schema rail into a **tree** — each
@@ -198,7 +209,7 @@ was written.)*
 
 ---
 
-## Create-Table-from-Files / "Table Builder" arc (SPEC-066 → 071, + 072 producer — shipped)
+## Create-Table-from-Files / "Table Builder" arc (SPEC-066 → 071, + 072 producer)
 
 A new
 **dedicated** async control plane (its own FIFO **SQS → EventBridge Pipe → Step Function**, **single-task Lambdas**
@@ -230,7 +241,7 @@ name dialog **+ partition-keys section** + enqueue (the only browser surface); *
 
 ---
 
-## Query-editor UX, round 5 + file-browser one-off (SPEC-077 → 080, + 081 — shipped)
+## Query-editor UX, round 5 + file-browser one-off (SPEC-077 → 080, + 081)
 
 A user-feedback batch (2026-07-01), no
 data-layer/IAM change: **077** removes database **selection** entirely — no "current database" anywhere; the schema
@@ -254,7 +265,7 @@ stay). 077→080 are query-workspace one-offs (077 is a dependency-of-none but r
 
 ---
 
-## Table-Share arc (SPEC-088 → 093, + 094 producer — shipped)
+## Table-Share arc (SPEC-088 → 093, + 094 producer)
 
 Filed 2026-07-04; "**share a table** across databases." From the Query schema rail, a user shares any accessible table to one or more **users** and/or **shared spaces**: the data files are **copied** into each recipient's space under `shared_tables/{table}/` and a table of a chosen name is **created** over the copy in the recipient DB. A **new dedicated** async control plane (its own FIFO **SQS+DLQ → EventBridge Pipe → Standard Step Function**, single-task Lambdas + a **`table-share-common` (`tscommon`)** layer, **one shared execution role that is an LF admin**) mirrors the table-builder/shared-spaces pattern (reuses the pattern, not the resources). The SFN: **validate-authorize** (ID-token actor; actor must have **source** access — personal = own DB, shared = active member) → **inspect-source** (`GetTable`, **clone the source table definition**; reject views / catalog-partitioned / non-external; list objects; enforce object/size caps) → **`Map` over recipients** (per-item Catch): **check-target-absent** (fail that recipient on name conflict / non-empty prefix) → **copy-objects** (parallel server-side `CopyObject`, multipart >5 GiB, layout-preserving) → **create-table** (clone def, repoint `LOCATION`, Athena `CREATE EXTERNAL TABLE IF NOT EXISTS`; projection ⇒ no `MSCK`). **Decisions (2026-07-04):** push (no consent; recipient notified), clone-not-infer (format-agnostic), parallel `CopyObject` (Batch Ops deferred), **any space is a valid target** (source access still gated), conflict = **fail that recipient only** (no overwrite), v1 sources = **flat or projection-partitioned** base external tables. Build order 088→…→093; **094** (notifications: actor per-recipient outcome + recipient "shared with you") after SPEC-058 + the verb Lambdas. Decision record: `docs/architecture.md` → *Control Planes → Table Share* (read first). New infra: `infra/modules/table-share/`; new browser grant: `sqs:SendMessage` + `VITE_TABLE_SHARE_QUEUE_URL`.
 
@@ -270,7 +281,7 @@ Filed 2026-07-04; "**share a table** across databases." From the Query schema ra
 
 ---
 
-## App-shell / schema-rail UX one-offs (SPEC-085, 086 — shipped)
+## App-shell / schema-rail UX one-offs (SPEC-085, 086)
 
 Filed 2026-07-02, both presentation-only (no data-layer/IAM/infra).
 **085** adds a **collapsible side nav**: the Files spaces `Sidebar` and the Query `SchemaBrowser` share the same 248px rail
@@ -283,7 +294,7 @@ non-destructive; mirrors the SPEC-046 history-refresh pattern. Both are independ
 
 ---
 
-## Best-practice audit follow-ups (SPEC-082 → 084 — shipped)
+## Best-practice audit follow-ups (SPEC-082 → 084)
 
 Filed 2026-07-02 from a read-only audit of the Lambdas + SPA against
 `docs/best-practices/`; all code-only, no IAM/infra. **082** fixes a lost-update race in the shared-space **registry**
@@ -298,7 +309,7 @@ the query editor's Monaco completion-provider registration/disposal remount-safe
 
 ---
 
-## Responsive & Files-UX arc (SPEC-095 → 104 — shipped)
+## Responsive & Files-UX arc (SPEC-095 → 104)
 
 Filed 2026-07-08 from the Claude Design
 responsive mockups (`docs/design/Responsive Breakpoints.dc.html` + `README.md` + `design-system.md`); makes the whole
@@ -331,7 +342,7 @@ env vars, deps, or IAM.
 
 ---
 
-## Control-plane-common prerequisite (SPEC-107 — shipped)
+## Control-plane-common prerequisite (SPEC-107)
 
 Filed 2026-07-11. `tbcommon/auth.py` and `tscommon/auth.py` are already
 **near-identical twins** (same logic; they differ only in an import order and one error string); the two arcs below would take
@@ -364,7 +375,7 @@ trust-marker design. Read all of it as design record only.
 
 ---
 
-## Data-quality arc (SPEC-108 → 114, + 123 → 124 — shipped)
+## Data-quality arc (SPEC-108 → 114, + 123 → 124)
 
 **Data-quality arc (108 → 114)** and **file-converter arc (115 → 121)** — filed 2026-07-11 from
 their architecture decision records (data-quality since folded into `docs/architecture.md` → *Control Planes → Data Quality*; the file-converter record and the 2026-07-11 review doc are removed), both **re-architected (v3)** after that review **and** the 250 GB source-file requirement. Two **independent** dedicated async control
@@ -612,7 +623,7 @@ in the repo is registered or explicitly excluded.
 
 ---
 
-## Refresh-table arc (SPEC-143 → 144 → **149** → 145 — active; 143 and 144 COMPLETE)
+## Refresh-table arc (SPEC-143 → 144 → **149** → 145)
 
 Filed 2026-08-03 (user request). **Table Builder writes a schema once and never looks again.** It infers columns from a
 bounded read of one sample file, issues `CREATE EXTERNAL TABLE`, and stops. When files with new columns land in the same
@@ -732,7 +743,7 @@ arc reads the `cognito:username` claim outside `cpcommon.auth`, so it survives u
 
 ---
 
-## Username-directory arc (SPEC-146 → 147 → 148 — shipped)
+## Username-directory arc (SPEC-146 → 147 → 148)
 
 Filed 2026-08-03 (user request). **Every flow that asks a user to name another user asks by free text.** `AddMembersDialog`
 is a textarea, `TableShareDialog` is an input with chips; both run `parseMemberInput`, which silently drops anything failing
@@ -838,7 +849,7 @@ the S3 prefix, the principal tag and the Glue database name (SPEC-033), it is al
 two PRs; 147 and 148 add no IAM, no AWS resource and no env var — 147 derives the object's location from the existing
 `userSpaceBucket()` helper, so the four-point `VITE_*` wiring dance is avoided across the whole arc.
 
-## Audit-remediation arc (SPEC-150 → 156 — active, all Draft)
+## Audit-remediation arc (SPEC-150 → 156)
 
 A 2026-08-05 whole-codebase audit produced ~40 findings. They are grouped here into **seven specs by plane
 and risk profile**, not by severity, because a spec that mixes a browser one-liner with a Lambda data-loss
@@ -898,7 +909,7 @@ default, which is a one-line change whose justification is the ruff-0.16 inciden
 
 ---
 
-## Follow-ups from the shipped arcs (SPEC-157, 158 — filed 2026-08-05)
+## Follow-ups from the shipped arcs (SPEC-157, 158)
 
 Two singles rather than an arc: they share no mechanism and neither depends on the other.
 
@@ -938,7 +949,7 @@ is discoverable today only by colliding with it at create time, and space names 
 often descriptive. So 158 suggests only what the user can already see, and any other space stays
 typeable. **Do not add the directory "for symmetry with SPEC-146."**
 
-## Table-share-at-scale arc (SPEC-160 → 161 — filed 2026-08-10; **COMPLETE**)
+## Table-share-at-scale arc (SPEC-160 → 161)
 
 > **160 is COMPLETE (2026-08-10).** The mechanism changed and nothing user-visible did — the
 > caps, conflict rules and notifications are exactly as they were, which was the arc's stated
@@ -989,7 +1000,7 @@ The engine lands on **`cpcommon`**, not `tscommon`, and that is the arc's other 
 the send-files arc below is its second caller, and SPEC-156 already settled that `cpcommon` owns
 the algorithm while a domain layer owns the wording.
 
-## Feature-flags arc (SPEC-162 → 163 — filed 2026-08-10; **COMPLETE 2026-08-11**)
+## Feature-flags arc (SPEC-162 → 163)
 
 Everything ships to everyone the moment it merges. The arc adds a git-controlled JSON document in
 the user-space bucket (`_config/feature-flags.json`, beside `_directory/`), per environment,
@@ -1025,7 +1036,7 @@ bought nothing that `_config/` beside `_directory/` does not already have. The l
 and because this feature fails *silently* to its all-on defaults, a blocked read would have looked
 exactly like a healthy environment.
 
-## Send-files arc (SPEC-164 → 165 → 166 → 167 — filed 2026-08-10)
+## Send-files arc (SPEC-164 → 165 → 166 → 167)
 
 A user can move a file anywhere inside a space they can reach, and can share a whole *table* with
 anyone — but cannot hand a colleague a file. The browser has no permission to write into another
@@ -1056,7 +1067,7 @@ cross-tenant read: an item's key is validated against a **trailing-slash-normali
 `alice2/` never passes as inside `alice/`, and 165 re-checks every key that comes back from
 `ListObjectsV2` rather than trusting the request-time check.
 
-## Archival arc (SPEC-168 → 169 → 170 → 171 → 172 — filed 2026-08-10; 168–171 COMPLETE)
+## Archival arc (SPEC-168 → 169 → 170 → 171 → 172)
 
 > **SPEC-169 shipped (2026-08-12), so the commit gate below is now a state rather than a plan:**
 > `collect-transfer-results` returns one boolean and `CommitOrRollback` branches on it, with the
@@ -1162,7 +1173,7 @@ arc has no dependency on 162→163 or 164→167 beyond the shared `cpcommon.tran
 landed by the time 172 is built, the archive entry points register in its surface registry (they
 inherit the Files flag rather than gaining one of their own).
 
-## Saved-queries-in-spaces arc (SPEC-173 → 174 → 175 — filed 2026-08-11)
+## Saved-queries-in-spaces arc (SPEC-173 → 174 → 175)
 
 **A saved query is a file, and SPEC-043 made it a row in a private document.** Today every saved
 query lives in `{username}/user_settings/saved-queries.json` — a JSON store only the query editor
@@ -1277,7 +1288,7 @@ destroy it" are different guarantees, and only one of them survives a stale cach
 > drift apart. Choosing a different space **copies**; nothing in this arc ever moves or deletes a
 > colleague's file.
 
-## Data Explorer arc (SPEC-176 → 185 — filed 2026-08-13; **COMPLETE 2026-08-14**)
+## Data Explorer arc (SPEC-176 → 185)
 
 The portal can already run SQL. What it cannot do is let someone **look at a table** without writing
 any — pick a database and a table, see its rows, page through them. That is the Data Explorer, and
@@ -1523,7 +1534,7 @@ already-granted `{username}/athenaresults/` prefix, and the only non-app change 
 > feature reaches another as `'../query/…'`, which contains no `features/` segment. FR-006's demand
 > that it be verified by violating it in both directions is the only reason it shipped working.
 
-## File-operations control-plane arc (SPEC-187 → 191 — filed 2026-08-17)
+## File-operations control-plane arc (SPEC-187 → 191)
 
 Recursive folder copy, move and delete are the last bulk data operations this product performs in
 the **browser**. `copyFolder` issues one `CopyObject` per object in a strictly sequential loop,
@@ -1615,7 +1626,7 @@ criterion that forbade it, and would have silently removed the ability to copy *
 `athenaresults/`, which is picker-locked and undeletable but deliberately copy-able. State the rule
 per (side × operation), enumerated against the real constants, and read that file's own note first.
 
-## API-layer & containerisation arc (SPEC-192 → 202 — scoped 2026-08-17, specs written 2026-08-18)
+## API-layer & containerisation arc (SPEC-192 → 202)
 
 > **RE-SCOPED 2026-08-18, after the first five specs were drafted — read this before the entry below.**
 > **This arc is PREP WORK, and it keeps the current Cognito authentication exactly as it is** (user
