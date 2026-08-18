@@ -391,10 +391,11 @@ describe('env', () => {
 
       for (const [path, source] of Object.entries(SOURCES)) {
         if (path.includes('.test.') || path.includes('/test/')) continue;
-        // The registry module itself: its docstrings carry placeholder names
-        // (`import.meta.env.VITE_X`) that are not variables, and its own reads go
-        // through the registry by construction.
-        if (path.endsWith('/env.ts')) continue;
+        // The registry module itself — matched by exact path, not basename, so a
+        // future `features/foo/env.ts` is scanned rather than silently exempt. Its
+        // docstrings carry placeholder names (`import.meta.env.VITE_X`) that are not
+        // variables, and its own reads go through the registry by construction.
+        if (path === './env.ts') continue;
         for (const name of source.match(/VITE_[A-Z0-9_]+/g) ?? []) {
           if (!known.has(name)) unregistered.set(name, path);
         }
