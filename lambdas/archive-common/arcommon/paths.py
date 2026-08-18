@@ -2,9 +2,9 @@
 
 **The archived key encodes its own origin.** An object at
 ``personal/alice/archive/{uuid}/reports/q1.csv`` came from ``alice/reports/q1.csv``, and
-``origin_key`` reconstructs that with no lookup at all. That is what lets SPEC-170 rebuild every
+``origin_key`` reconstructs that with no lookup at all. That is what lets the restore rebuild every
 destination from one ``ListObjectsV2`` over the archive prefix rather than trusting the receipt
-— the receipt is a **report, not a record**, exactly as SPEC-143 judges a table by its shape
+— the receipt is a **report, not a record**, exactly as the refresh judges a table by its shape
 rather than by the marker it also writes.
 
 **THE LEADING ``personal/`` / ``shared/`` SEGMENT IS NOT COSMETIC, and this is the module that
@@ -12,7 +12,7 @@ would be wrong without it.** Receipts sit in each space's own bucket, where the 
 cannot meet. The archive bucket is the first place they do. Shared-space names are made unique
 against the shared-space registry only — **nothing anywhere checks a proposed space name against
 the User Pool** — so a user ``alice`` and a space ``alice`` can both exist today. Flat, they
-would share one archive prefix; and since SPEC-170 authorizes a restore by SPACE and then reads
+would share one archive prefix; and  authorizes a restore by SPACE and then reads
 whatever sits at that prefix, a member of space ``alice`` could restore user ``alice``'s files
 into the shared space. The kind segment is the entire fix and costs nothing else.
 
@@ -22,7 +22,7 @@ already exist, and it would make space creation depend on the User Pool for a re
 to space creation.
 
 Containment (``assert_inside_root``, ``has_dot_segment``, ``normalize_root``) is **not** here —
-it is ``cpcommon.paths``, shared with file-send since SPEC-168, because it is an algorithm and a
+it is ``cpcommon.paths``, shared with file-send , because it is an algorithm and a
 second copy of it is a second place a cross-tenant read can be introduced.
 
 Attributes:
@@ -76,10 +76,10 @@ def validated_request_id(request_id) -> str:
 def validated_archive_id(archive_id) -> str:
     """Returns the pasted archive id, or fails terminally if it is not a well-formed UUID v4.
 
-    SPEC-170 FR-002. **The archive id is the only part of a restore request that is both typed
+    **The archive id is the only part of a restore request that is both typed
     by a human and used to build an S3 key**, so it is matched against the pattern rather than
     sanitised into one: a value carrying ``/``, ``..``, a percent escape or a trailing space is
-    refused as malformed and never normalised, the same discipline SPEC-151 applied to DDL
+    refused as malformed and never normalised, the same discipline the DDL discipline applied to DDL
     literals after a raw interpolation turned out to be the defect.
 
     It shares ``validated_request_id``'s regex on purpose — one rule, so the id that opened an
@@ -195,7 +195,7 @@ def origin_key(archive_key: str, archive_prefix: str, source_root: str) -> str:
     """Reconstructs where an archived object came from, with no lookup at all.
 
     The exact inverse of ``archived_key``, and **the reason the receipt is a report rather than
-    a record**: SPEC-170 rebuilds every restore destination by listing the archive prefix and
+    a record**: the restore rebuilds every destination by listing the archive prefix and
     running each key through this, so a lost, truncated or hand-edited receipt cannot make a
     restore wrong. The manifest exists as a cross-check that can only fire when something is
     already broken.

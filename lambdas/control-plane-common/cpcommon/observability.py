@@ -66,7 +66,7 @@ UNSTAMPED_VERSION = "0.0.0"
 def _build_version():
     """Resolves the commit this function's code was built from.
 
-    SPEC-186 FR-005. Every record shipped ``"0.0.0"`` because nothing ever set
+    Every record shipped ``"0.0.0"`` because nothing ever set
     ``BUILD_VERSION``, and the field exists to correlate a record with a deploy.
 
     The stamp travels IN THE PACKAGE (``BUILD_VERSION`` beside the handler, written by

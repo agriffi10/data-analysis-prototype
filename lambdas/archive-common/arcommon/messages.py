@@ -8,7 +8,7 @@ This module is the table and its wording; the resolution itself is ``cpcommon.me
 raise-time validation. ``unexpected_error`` is deliberately absent — it resolves through the
 base table and renders the same sentence everywhere.
 
-**No raw AWS text is ever interpolated into any of these** (SPEC-106): the detail on the
+**No raw AWS text is ever interpolated into any of these** : the detail on the
 exception is for the logs and the Step Functions record, and the sentence the user reads is
 composed here.
 
@@ -19,7 +19,7 @@ Attributes:
     ``{itemName}`` is filled from the RAISE SITE instead — it is the user's own file name, not a
     number this module can know — and ``test_every_marker_in_every_body_can_be_filled_by_
     somebody`` holds every marker to having a supplier, because ``blank_unfilled=True`` renders
-    an unsupplied one as a GAP, which reads as a typo rather than as a bug. The SPEC-169 outcome
+    an unsupplied one as a GAP, which reads as a typo rather than as a bug. The archive outcome
     bodies fill ``{copied}``, ``{total}``, ``{failed}``, ``{residue}`` and ``{requestId}`` the
     same way, for the same reason: they are counts of one run, not properties of this plane.
 
@@ -35,7 +35,7 @@ Attributes:
     not a member" must not be distinguishable to a caller — the difference is an existence
     oracle over other people's spaces.
 
-    **``restore_incomplete`` is the one body that has to say three things** (SPEC-171 FR-004),
+    **``restore_incomplete`` is the one body that has to say three things**,
     and the third is the one an author would leave out. A partial restore cannot be rolled back
     the way a partial archive can: the user's space now holds some of their data, and deleting it
     to make the operation atomic would destroy the very thing the restore was for. So the archive
@@ -45,7 +45,7 @@ Attributes:
 
     ``restore_archive_incomplete`` is the manifest-disagreement refusal, and it does NOT
     reuse the ``archive_incomplete`` name FR-005 proposed: that code was already registered by
-    SPEC-169 for a copy that fell short, its body promises "nothing was deleted and your files
+    The archive's own body for a copy that fell short, its body promises "nothing was deleted and your files
     are exactly where they were", and the ASL seeds the literal in ``RollbackReturnedSeed``. One
     code cannot carry both sentences, and the shorter name belongs to the arm that shipped first.
 
@@ -270,7 +270,7 @@ def restore_started_message(object_count: int) -> str:
 def restored_message(object_count: int, total_bytes: int, *, archive_swept: bool = True) -> str:
     """Composes the text for a completed RESTORE.
 
-    **The last sentence is CONDITIONAL, and that is not a nicety.** SPEC-171 made a failed vault
+    **The last sentence is CONDITIONAL, and that is not a nicety.** the restore made a failed vault
     sweep a flag on a successful run rather than a failure of it — ``DeleteArchived``'s Catch
     reaches the same success terminal through ``CleanupIncomplete``. Said unconditionally, "the
     archive has been cleaned up" turns that flag into a positive claim about the one route where

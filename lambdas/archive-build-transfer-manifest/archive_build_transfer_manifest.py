@@ -7,7 +7,7 @@ ceiling is the manifest's length rather than one Lambda's timeout.
 
 **Every destination comes from ``arcommon.paths.archived_key``**, called once per object. This
 verb composes no key of its own: the archived key is what a restore reconstructs an origin from,
-so a builder that disagreed with it would put objects where SPEC-170 will look for something else
+so a builder that disagreed with it would put objects where the restore looks for something else
 — and the disagreement would surface as a restore writing to the wrong place, not as a failure.
 
 **The storage class comes from ``config.ARCHIVE_STORAGE_CLASS`` and is never a literal here.** It

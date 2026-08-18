@@ -8,7 +8,7 @@ this function's memory still transfers.
 It is ``cpcommon.transfer.copy`` with this plane's reason code and nothing else — the engine is
 shared with table-share and file-send deliberately, and this plane is its third caller.
 A forked copier here would be a second place for the multipart threshold, the abort-on-failure
-rule, the transient/deterministic split and — since SPEC-169 — the storage class's two homes to
+rule, the transient/deterministic split and —  — the storage class's two homes to
 drift. It knows nothing about the request: every destination and the class were resolved upstream
 and written into the manifest.
 

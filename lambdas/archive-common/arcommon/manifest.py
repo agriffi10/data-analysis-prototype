@@ -4,9 +4,9 @@ Written to the ARCHIVE bucket at ``{archiveRoot}_manifest.json``, where the user
 before the source is deleted. It records what the run believed it had copied: the request, the
 actor, the source it came from, the object count and the byte total.
 
-**It is a record, not a lookup table, and nothing may come to depend on it.** SPEC-170 rebuilds
+**It is a record, not a lookup table, and nothing may come to depend on it.** the restore rebuilds
 every restore destination by listing the archive prefix and running each key through
-``paths.origin_key`` — the archived key encodes its own origin — exactly as SPEC-143 judges a
+``paths.origin_key`` — the archived key encodes its own origin — exactly as the refresh judges a
 table by its shape rather than by the marker it also writes. That is what makes a lost, truncated
 or hand-edited manifest unable to make a restore wrong, and it is why the only consumers here are
 the count/byte cross-check and a human reading a failed run.

@@ -1,7 +1,7 @@
 """Best-effort outcome notifications for the archive pipeline.
 
 The shared primitives live in ``cpcommon.notify``; this module keeps the archive specifics: the
-actor-addressed failure, and since SPEC-172 the three outcomes a FAILURE table cannot
+actor-addressed failure, and the three outcomes a FAILURE table cannot
 carry — an archive that completed, a restore that has started, and a restore that finished.
 
 **Only three, because the other six terminal outcomes are already told by the decorator.**
@@ -19,7 +19,7 @@ shape inherited from table-share. Every failure body names its own reason and mo
 or a file, so two distinct runs rendering byte-identical text is remote, and content dedup is
 what makes a verb's ``Retry`` safe.
 
-**The three SUCCESS emitters pass one, and that is SPEC-172 closing a real hole rather than a
+**The three SUCCESS emitters pass one, and that closes a real hole rather than a
 stylistic difference.** ``restore_started_message`` says only how many files are being retrieved;
 ``restored_message`` adds a byte total and a space-root link. Two restores of the same folder
 started back to back render **identical** text, and the queue's five-minute window would collapse
@@ -171,7 +171,7 @@ def _space_query(kind: str, name: str) -> str:
 
     A shared space needs it or the route resolves the personal space and then DISCARDS a prefix
     that does not start with it — landing the user in their own files with no banner while the
-    message tells them where to look. That is the SPEC-167 finding, and it applies unchanged here.
+    message tells them where to look. That is a finding the send plane made first, and it applies unchanged here.
 
     Args:
       kind: ``personal`` or ``shared``.

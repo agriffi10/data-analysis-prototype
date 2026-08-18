@@ -56,7 +56,7 @@ def handler(event, context) -> dict:
 def _enforce_definition_cap(definition, database, table) -> None:
     """Rejects a cloned definition too large for Athena to accept as one statement.
 
-    The definition travels by pointer since SPEC-161, so this is no longer about the Step
+    The definition travels by pointer , so this is no longer about the Step
     Functions state — it is about what create-table will do with it. The whole definition is
     rendered into a single CREATE EXTERNAL TABLE, and Athena refuses a query string over
     262,144 bytes. Rejected here as a whole-request terminal before the write and before any

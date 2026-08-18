@@ -8,7 +8,7 @@ This module is the table and its wording; the resolution itself is ``cpcommon.me
 raise-time validation. ``unexpected_error`` is deliberately absent — it resolves through the
 base table and renders the same sentence everywhere.
 
-**No raw AWS text is ever interpolated into any of these** (SPEC-106): the detail on the
+**No raw AWS text is ever interpolated into any of these** : the detail on the
 exception is for the logs and the Step Functions record, and the sentence the user reads is
 composed here.
 

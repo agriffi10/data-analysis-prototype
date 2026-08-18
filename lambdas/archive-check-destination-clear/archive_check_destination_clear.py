@@ -1,15 +1,15 @@
 """check-destination-clear — the absolute collision guard, and the last state before a bill.
 
-SPEC-170 FR-004. Reads the restore plan back and refuses the whole restore if ANY destination is
+Reads the restore plan back and refuses the whole restore if ANY destination is
 already occupied. Read-only: it decides whether a retrieval may start, and never starts one.
 
-**This is the state SPEC-170 exists for, and its position in the machine is the point.** Glacier
+**This is the state the restore guard exists for, and its position in the machine is the point.** Glacier
 retrieval is billed and irreversible once initiated, so every question that can be answered in
-seconds is answered here, before SPEC-171 spends hours and money on one that cannot be taken
+seconds is answered here, before the retrieval spends hours and money on one that cannot be taken
 back. A guard on the other side of the retrieval would report the same conflict and charge the
 user for the privilege.
 
-**SPEC-171 invokes this same verb a SECOND time, immediately before the copy**, and the two are
+**the restore invokes this same verb a SECOND time, immediately before the copy**, and the two are
 not redundant. The first is about the bill and the second is about the data: between them sit
 three to five hours in which the user has been told a restore is in flight and has every reason
 to be working in their own space. Re-creating a file in that window is the ordinary case this

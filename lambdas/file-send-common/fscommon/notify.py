@@ -1,7 +1,7 @@
 """Best-effort outcome notifications for the file-send pipeline.
 
 The shared primitives live in ``cpcommon.notify``; this module keeps the file-send specifics:
-the sender-addressed failure, and since SPEC-167 the per-recipient outcomes, the
+the sender-addressed failure, and  the per-recipient outcomes, the
 recipient's own message and the link that takes them to what arrived.
 
 A missed notification must never change or fail the outcome, so every emit goes through

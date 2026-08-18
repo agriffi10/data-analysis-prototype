@@ -37,7 +37,7 @@ Attributes:
     against ``space`` + ``archiveId`` — and a union would accept a restore carrying a selection
     and an archive naming an archive id, then silently ignore whichever the mode did not read.
   _ITEM_KINDS: The two selection kinds a request may carry. A ``folder`` key is normalised to a
-    trailing slash before any rule runs: SPEC-169 expands a folder with a prefix listing, so
+    trailing slash before any rule runs: the archive expands a folder with a prefix listing, so
     ``alice/archiv`` without one would match ``alice/archive/`` and carry the receipts of every
     past archive out through a door the reserved-root rule never sees.
 """

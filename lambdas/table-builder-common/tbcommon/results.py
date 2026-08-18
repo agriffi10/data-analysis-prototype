@@ -1,6 +1,6 @@
 """Where the table-builder's Athena statements write their results.
 
-The construction is ``cpcommon.results``'s since SPEC-156 FR-003. This module's own docstring
+The construction is ``cpcommon.results``'s  FR-003. This module's own docstring
 warned that a divergent results prefix "only shows up as a Lake Formation denial on whichever
 path is exercised less", and two more copies were written anyway — so what is left here is the
 table-builder's shape of the call, not a second construction.

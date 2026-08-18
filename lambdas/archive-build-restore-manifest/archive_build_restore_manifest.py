@@ -1,6 +1,6 @@
 """build-restore-manifest — the dataset BOTH of the restore's Distributed Maps read.
 
-SPEC-171. Takes the restore plan inspect-archive wrote and turns it into one JSON Lines item per
+Takes the restore plan inspect-archive wrote and turns it into one JSON Lines item per
 object, in the shape ``cpcommon.transfer`` copies: the archived object as the source, its
 reconstructed origin as the destination, the size the listing measured, and the destination
 storage class.

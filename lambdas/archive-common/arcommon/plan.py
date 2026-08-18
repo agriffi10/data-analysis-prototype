@@ -42,7 +42,7 @@ Attributes:
     collides with the copy plan the archive itself wrote.
   MANIFEST_BASENAME: The transfer manifest's basename.
   RESTORE_MANIFEST_BASENAME: The restore transfer manifest's basename. **One manifest feeds BOTH
-    of the restore's Distributed Maps** (SPEC-171) — the retrieval reads its source fields and
+    of the restore's Distributed Maps** — the retrieval reads its source fields and
     the copy-back reads all of them — because they run over the same object set in the same
     order, and a second dataset would be a second thing that could disagree with the plan.
   PROGRESS_BASENAME: The poll's progress record. It lives in the admin bucket rather than on the
@@ -154,7 +154,7 @@ def write_restore_plan(request: dict, actor: str, objects: list, total_bytes: in
     **Nothing it produces rides on the state**, for the same reason the copy plan does not: at
     ``ARCHIVE_MAX_OBJECTS`` the list is tens of megabytes against a 256 KB payload limit, and
     ``States.DataLimitExceeded`` escapes every ``Catch``. Each entry carries its size so
-    SPEC-172 can tell the user how much is coming back and SPEC-171 can bound its wait.
+    the restore can tell the user how much is coming back and SPEC-171 can bound its wait.
 
     Args:
       request: The validated restore request, which determines the key and names the archive and
@@ -206,7 +206,7 @@ def load_restore_plan(key: str, request: dict) -> dict:
     """Reads a restore plan back, refusing every shape that is not complete or not ours.
 
     The mirror of ``load`` and refused for the same reasons — a short plan here would mean a
-    guard that cleared destinations the restore then did not check, and SPEC-171 copying back
+    guard that cleared destinations the restore then did not check, and the restore copying back
     over whatever it did not know about. The request-identity check is the other half of
     ``assert_describes``' finding: the key is a pure function of the request id, so a second run
     under a reused id overwrites it.
@@ -660,7 +660,7 @@ def assert_archive_unused(request: dict) -> None:
     reachable, and nothing downstream would notice.
 
     What it costs is not a duplicate: a second run under a used id mixes two archives under one
-    prefix that SPEC-170 will list and restore wholesale, overwrites the first run's record and
+    prefix that the restore will list and restore wholesale, overwrites the first run's record and
     receipt, and — if the second run fails its commit gate — has its ROLLBACK delete the first
     archive's objects out of a bucket with versioning off. That last one is unrecoverable, and it
     is the reason this check exists rather than being left to the producer's conventions.

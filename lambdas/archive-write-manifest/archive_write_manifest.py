@@ -8,7 +8,7 @@ record that describes the archive, then the deletion of the source, then the rec
 the user about it. A run interrupted between any two of those leaves a state an operator can read
 and act on; the reverse order leaves a receipt for an archive that does not exist.
 
-**Nothing may come to depend on this file.** SPEC-170 rebuilds every restore destination from the
+**Nothing may come to depend on this file.** the restore rebuilds every destination from the
 archived keys themselves, because an archived key encodes its own origin. This is a cross-check
 that can only ever fire when something is already wrong.
 

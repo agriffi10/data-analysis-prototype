@@ -1,6 +1,6 @@
 """The restore request: its contract, and the archive it names.
 
-SPEC-170. A restore is the archive read backwards, and the two questions this module answers
+A restore is the archive read backwards, and the two questions this module answers
 are the ones that must be settled before a single byte of Glacier retrieval is paid for: **is
 this request well-formed and authorized, and what would come back where.**
 
@@ -49,7 +49,7 @@ def validate(req: dict, request_id: str, actor: str) -> dict:
 
     The archive id is checked against the strict UUID pattern **before** it is concatenated into
     anything, and the archive root is then built by ``paths.archive_root`` — the same function
-    SPEC-168 used to WRITE it, so the read and the write cannot drift.
+    The archive uses the same builder to WRITE it, so the read and the write cannot drift.
 
     **``requestId`` and ``archiveId`` must be different values** (FR-001 AC2). Conflating them was
     the obvious shortcut and is wrong in both directions: a refused restore must be re-submittable
@@ -112,10 +112,10 @@ def derive_destinations(bucket: str, archive_root: str, space_root: str) -> tupl
     Pagination is ``cpcommon.s3_listing``'s — the same paginator the expansion and the rollback
     use, and the third listing of this same prefix — with a predicate of this plane's own. The
     DEFAULT predicate is what must not be reused: it drops zero-byte objects, hidden segments and
-    folder keys, and every one of those is something this archive deliberately CARRIED (SPEC-169's
+    folder keys, and every one of those is something this archive deliberately CARRIED (the expansion's
     ``_excluder`` keeps what the others drop, so an archived empty folder comes back). Restoring
     through a filter the archive did not write through would silently return less than was taken.
-    That is exactly the split SPEC-165 recorded: the pagination is shared, the exclusions are not.
+    That is exactly the split the send plane recorded: the pagination is shared, the exclusions are not.
 
     ``_manifest.json`` is excluded by its EXACT KEY at the archive root, never by basename: a
     user's own ``reports/_manifest.json`` three folders down was archived like any other file
@@ -129,7 +129,7 @@ def derive_destinations(bucket: str, archive_root: str, space_root: str) -> tupl
 
     Returns:
       ``(objects, total_bytes)``, each object carrying its archive key, its destination key and
-      its size. The size rides so SPEC-172 can tell the user how much is coming back and
+      its size. The size rides so the restore can tell the user how much is coming back and
       SPEC-171 can bound its wait.
 
     Raises:

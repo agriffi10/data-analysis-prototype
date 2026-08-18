@@ -23,7 +23,7 @@ Attributes:
 
     ``GLACIER`` is S3 Glacier Flexible Retrieval. It is **not readable**: a ``CopyObject`` whose
     source is in this class fails ``InvalidObjectState``, so a restore is not a copy — it is
-    ``RestoreObject``, a 3-5 hour wait and *then* a copy, which is why SPEC-171 grows a poll loop
+    ``RestoreObject``, a 3-5 hour wait and *then* a copy, which is why the restore grows a poll loop
     no other plane in this repo has.
 
     **The two alternatives were considered and rejected.** ``GLACIER_IR`` is readable in real
@@ -51,9 +51,9 @@ Attributes:
     ``arcommon.paths``.
   ARCHIVE_MAX_ITEMS: Cap on the NUMBER of selected items — the files and folders the user picked,
     **not** the objects they expand to. What sizes it is the per-item work that follows: the
-    containment and reserved-root checks here, and in SPEC-169 one ``ListObjectsV2`` walk per
+    containment and reserved-root checks here, and and one ``ListObjectsV2`` walk per
     folder plus a ``HeadObject`` per file. It is emphatically NOT a bound on the transfer; the
-    object and byte caps over the *expanded* selection are SPEC-169's.
+    object and byte caps over the *expanded* selection belong to the expansion.
 
     The value matches file-send's ``SEND_MAX_ITEMS`` because the per-item work is the same shape
     and the same browser pages the selection at 25 — eight full pages of selection. A different

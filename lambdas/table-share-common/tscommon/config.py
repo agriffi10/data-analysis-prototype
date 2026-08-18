@@ -70,7 +70,7 @@ Attributes:
     the Map exists to preserve. A test computes the worst case from these constants, so
     changing one without re-checking the other fails the build.
   SHARE_MAX_DEFINITION_BYTES: Sanity check on the serialised cloned table definition, and
-    since SPEC-161 that is ALL it is — it is no longer a bound on the Step Functions state,
+     that is ALL it is — it is no longer a bound on the Step Functions state,
     because the definition travels by pointer. What sizes it now is Athena's query-string
     quota: the definition is rendered into one CREATE EXTERNAL TABLE, and Athena refuses a
     query string over 262,144 bytes (a hard quota, not adjustable).

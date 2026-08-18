@@ -1,6 +1,6 @@
 """delete-archived — the vault swept after a restore, and the one deletion that may fail quietly.
 
-SPEC-171 FR-005. Reached on the one arm of the restore's gate where every object came back: the
+Reached on the one arm of the restore's gate where every object came back: the
 archive has served its purpose, the user's data is in their space again, and the prefix — its
 ``_manifest.json`` included — is removed.
 

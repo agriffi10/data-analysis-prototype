@@ -199,7 +199,7 @@ def _abandon_if_changed(
 ) -> None:
     """Refuses to write when ANOTHER writer committed between this run's read and this write.
 
-    SPEC-157 FR-005. ``load-table-definition`` captured the table's ``UpdateTime`` at the start of
+    ``load-table-definition`` captured the table's ``UpdateTime`` at the start of
     the run; this compares it against the one on the read that immediately precedes the write. A
     difference means the definition this run computed came from a table that no longer exists in
     that form, so applying it would silently overwrite whatever the other writer did.

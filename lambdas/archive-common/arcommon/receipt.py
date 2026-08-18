@@ -5,7 +5,7 @@ deliberately not rendered in the browser — the project has no in-browser previ
 not introduce one. The user downloads it and reads it, and the UUID in it is their route to a
 restore.
 
-**Both restore fields are written from the first version, with placeholder values.** SPEC-171
+**Both restore fields are written from the first version, with placeholder values.** The restore
 rewrites the whole file when a restore is requested; a field that only appeared afterwards would
 make the format conditional on the file's own history, so every reader would need to handle two
 shapes of the same document.
@@ -23,7 +23,7 @@ one decimal, a TB ceiling — so the receipt and the browser never disagree abou
 one number. The exact byte count rides beside it because the rounded one is not a number anybody
 can reconcile against a bill.
 
-**SPEC-171 rewrites the two restore lines IN PLACE and touches nothing else**, which is the
+**the restore rewrites the two restore lines IN PLACE and touches nothing else**, which is the
 only way the document can carry both halves. The archive lines record the archive run — its
 start time above all, which no restore run knows and cannot recompute — so a rewrite that
 re-rendered the whole file from the restore's own state would silently blank the ``Requested``
@@ -135,7 +135,7 @@ def _line(label: str, value: str) -> str:
 def render(record: dict) -> str:
     """Renders the receipt's text.
 
-    One writer for the whole document, so the format is decided in exactly one place — SPEC-171
+    One writer for the whole document, so the format is decided in exactly one place — the restore
     rewrites this file rather than appending to it, and two renderers would be two formats.
 
     Args:

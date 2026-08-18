@@ -6,7 +6,7 @@ has been written. What it deletes is exactly the plan — the same list the mani
 — so an object that was never copied is also never deleted.
 
 **``DeleteObjects`` returns HTTP 200 with a per-item ``Errors`` array**, and a response inspected
-only by its status code is the defect SPEC-151 fixed elsewhere in this repo. Here that defect
+only by its status code is the defect the DDL discipline fixed elsewhere in this repo. Here that defect
 would report a completed archive over a source that is still half there, and the user would be
 told their files had moved when some of them had not. ``arcommon.delete`` reads the array, attempts
 every batch before reporting, and returns counts rather than keys.

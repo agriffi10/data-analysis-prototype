@@ -6,7 +6,7 @@ rename, so a restore is a copy and a copy overwrites. If the user has re-created
 trace — so **any** occupied destination refuses the whole restore. There is no skip, no
 overwrite, no merge and no "restore what fits".
 
-**The guard runs before any ``RestoreObject``, and that ordering is the reason SPEC-170 exists
+**The guard runs before any ``RestoreObject``, and that ordering is the reason the guard exists
 as its own spec.** Glacier retrieval is billed and irreversible once initiated: discovering the
 conflict afterwards would charge the user for hours of retrieval that cannot land, and there is
 no way to give it back.
@@ -18,7 +18,7 @@ explicitly told a restore is in flight and invited to go and do something else. 
 file in that window is not an exotic race; it is the ordinary case the guard was written for,
 arriving late. With versioning off, a single check at the start would have let the copy-back
 overwrite that file silently and report success. The second pass costs one round of heads
-against a run that has already waited hours, and it is the only thing that makes SPEC-170's
+against a run that has already waited hours, and it is the only thing that makes the guard's
 "any occupied destination refuses the whole restore" still TRUE at the moment of the write
 rather than only at the moment of the promise.
 
