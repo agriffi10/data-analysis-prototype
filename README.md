@@ -133,8 +133,7 @@ shared IAM role, the user‑space bucket, the GitHub Actions OIDC role, Lambda i
 provisioned by OpenTofu. The runbook below stands up the whole thing in a **new AWS account**.
 
 > Detailed, step‑by‑step references: [`infra/bootstrap/README.md`](infra/bootstrap/README.md)
-> (remote state), [`.github/workflows/README.md`](.github/workflows/README.md) (CI/CD config),
-> and [`docs/deploy-setup.md`](docs/deploy-setup.md).
+> (remote state) and [`.github/workflows/README.md`](.github/workflows/README.md) (CI/CD config).
 
 ### 1. Bootstrap remote state (once per account)
 
