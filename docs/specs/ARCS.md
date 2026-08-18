@@ -1745,6 +1745,148 @@ Two further constraints on that flow, both settled and both easy to lose: the jw
 an expired-but-undeleted item is still returned by reads — so session expiry is checked on read, and
 TTL is storage hygiene rather than the security boundary.
 
+### Shared-space membership: the tags come from YOUR registry, not from any directory
+
+> **This section describes the TARGET ENVIRONMENT, not Arc B.** What Arc B actually builds is
+> **SPEC-196**, which stamps `shared_space_1..N` from the **`custom:shared_space_k` claims of the
+> verified Cognito ID token** — byte-identical to what the Identity Pool stamps today, which is the
+> whole argument that no IAM policy is rewritten. Do not source those tags from the registry while
+> building SPEC-196; that would break the equivalence, and SPEC-196 records it as a requirement whose
+> wrong implementation silently succeeds. `useSharedSpaceAccessRecovery` stays for the same reason:
+> claim-sourced tags still carry SPEC-056's propagation delay.
+
+**Both directories are effectively shut, and that is fine.** Membership is a principal tag today
+(`custom:shared_space_1..N`, written by `shared-space-add-members`, mapped by the Identity Pool to
+`${aws:PrincipalTag/shared_space_k}`). In the target environment you cannot write to Entra. Identity
+Center is subtler, and the flat claim that its store is "read-only under SCIM" is **wrong**: what AWS
+documents is that *"after setting up automatic provisioning with SCIM for your IdP, you can no longer
+add or edit users in the IAM Identity Center **console**"*, while *"the Identity Store APIs that allow
+for mutating users and group membership remain accessible"* to principals in the **management account
+and the delegated administrator account**.
+
+That is a stronger argument against stashing membership there, not a weaker one. The door exists but
+it is the wrong door: it needs management-account or delegated-admin privilege this application will
+never hold, and AWS warns in the same breath that using it on a SCIM-provisioned directory causes the
+directory to **drift from the IdP** — "breaking the expectation that the IdP is the single source of
+truth", with unintended privilege escalation and audit gaps named as the consequences, and an SCP
+offered to block it outright. So membership stays ours by design, not by inability.
+
+**The BFF removes the need.** Membership had to live in the IdP only because the *browser* received
+credentials directly and could not be trusted to assert its own. The BFF calls `AssumeRole` itself, so
+it computes the tags from the **shared-space registry** — already the source of truth, and already the
+authorization input everywhere that matters (`is_active_member`, never the member's join chip). The
+trust level is unchanged: the BFF is a privileged server-side component like the control planes that
+write the registry, and the browser still cannot influence it.
+
+Three things this improves rather than merely permits. **Membership takes effect immediately** — today
+there is a propagation delay that `useSharedSpaceAccessRecovery` exists solely to paper over, and that
+affordance can go. **The slot limit dissolves** — `shared_space_1..N` is a fixed pre-allocation only
+because a Cognito custom attribute can never be renamed or deleted; `AssumeRole` takes up to 50 session
+tags and you pass only what applies. **The self-service-edit risk disappears** — no directory attribute
+backs the tag, so there is nothing a user could edit to assume someone else's access.
+
+Keep the same tag keys and values and **no IAM policy changes at all** — only where the tag comes from.
+
+Where IdC still matters for shared spaces is the **catalog plane**: Lake Formation grants against the
+IdC user for a shared space's database. IdC groups cannot be **authored** — but SCIM syncs them from
+Entra, so groups do exist and are perfectly good grant targets. The distinction is worth stating,
+because it decides where a grant is keyed: **team-level** data sharing grants to an Entra-sourced
+group and needs nothing from our registry, whereas a **shared space** is this app's own construct with
+no Entra group behind it, so its grants stay per-user and registry-driven — §3.8's reconciler.
+Do not model shared spaces as directory groups.
+
+### Other applications acting on behalf of users
+
+**Which half of this Arc B ships, and which half is the target environment.** Arc B lands the
+*contract* — `{actor, delegated_by, assurance}`, nested under one `identity` key, with `assurance`
+`"interactive"` and `delegated_by` null for a human at a keyboard (SPEC-200) — and the planes trusting
+it (SPEC-201). It ships **no** delegated door: no non-human authorizer, no credential issuance, no
+may-this-client-act-as-X allowlist. Everything below about tiers, token exchange and the BFF describes
+the **target environment**, where the BFF exists; today the API verifies the Cognito ID token instead
+and the shape is identical downstream. Read it as the design the contract was cut to fit, not as work
+in this arc.
+
+**IdC provides identity ASSURANCE, not authorization.** It can vouch that a user really is who a caller
+says; it cannot say what they may do in this application — the registry does that, and always did. A
+team expecting IdC to be what *enables* delegation has the wrong model.
+
+Because the BFF resolves membership from the registry, the path downstream of identification is
+**identical** for a browser session and a delegated call. Two tiers differ only in how the end user was
+established: an **IdC-integrated caller** presents an IdC access token scoped to this application as
+audience, exchanged through the token-exchange grant so IdC validates the user; a **non-IdC caller**
+authenticates as itself (IAM SigV4 or client credentials), asserts a username, and is checked against a
+per-service delegation allowlist. That difference is what the `assurance` field records, and why
+flattening the two would be wrong.
+
+**The control planes never notice.** They receive `{actor, delegated_by, assurance}` and authorize on
+the registry; they never see a token. A delegated request and a browser request produce byte-identical
+messages apart from those two fields, so delegation costs the planes nothing.
+
+**One real limitation, and it IS binding.** A delegated call whose user identity was *asserted*
+carries no IdC identity context, so it cannot make a Lake Formation-enforced query on that user's
+behalf. **Triggering** is unaffected — the enqueue paths run inside a control plane under its own
+execution role with LF grants to that role, so the user identity is used for authorization and
+attribution, never for data-plane enforcement. But **reading data as the user is not delegation
+through this API at all**, and the earlier reading — that consuming teams only want to trigger
+processes — is wrong: teams may want Lake Formation permissions of their own.
+
+It is a separate integration that **bypasses the BFF entirely**, in one of two shapes: **(a)** we grant
+Lake Formation permissions in **our** account, RAM-share the resource, and the other team queries from
+**their** account under their own propagated identity; or **(b)** they run against an **IdC-enabled
+Athena workgroup in our account**, with their users assigned through Identity Center. Either way our
+API is out of the path — which is cleaner than routing data reads through a BFF that could not
+propagate identity anyway.
+
+Three facts fence that off, each confirmed against the live AWS docs:
+
+- **RAM sharing carries trusted identity propagation only inside one organization instance.** Grantor
+  and grantee must be in the same **Region**, the same **AWS Organization**, and the same
+  **organization instance** of IAM Identity Center. An account instance forecloses shape (a) outright —
+  hence the new open question below. **Source note:** this one is *not* on the limitations page the
+  next two are quoted from — it is in Lake Formation's cross-account sharing material, corroborated by
+  Identity Center's own prerequisite that with an account instance *"all AWS services that you want
+  users to access with trusted identity propagation must reside in the same AWS account."* Do not go
+  looking for it on `identity-center-lf-notes.html` and conclude it is invented.
+- **The grants stay ours.** Lake Formation refuses to grant to IdC users or groups on Data Catalog
+  resources in an external account — the literal error is *"Cross-account grants are not supported for
+  the principal."* Permissions are granted only on resources in the **owning** account; an
+  external-account IAM role acts as a **carrier role** on behalf of an IdC user or group.
+- **Shape (b) is new infrastructure, not a config flip.** An IdC-enabled Athena workgroup requires
+  **both** Lake Formation configured for IdC identities **and** S3 Access Grants — *"Amazon S3 Access
+  Grants must be configured to use Trusted identity propagation identities."* Access Grants is nowhere
+  in this architecture today. It also explains `transition_plan.md` §3.6: the
+  `AWSIAMIdentityCenterAllowListForIdentityContext` policy permits only the three S3 Access Grants
+  operations, which is why plain `GetObject` is denied on that plane.
+
+**And the same page reaches our own Path B. It is AMBIGUOUS, and both confident readings are wrong.**
+The considerations list names *"Federated access to the Athena API"* among the features TIP is **not
+compatible with**, and says queries in a TIP workgroup *"cannot be run directly from the Athena
+console. They must be run from the Athena interface in an EMR Studio that has IAM Identity Center
+enabled."* Athena SQL support for TIP is stated to be available *"in both EMR Studio and SageMaker
+Unified Studio"* — both studio products. Read one way, our shape is exactly what that bullet excludes.
+
+But AWS uses *"federated access to Athena"* elsewhere as a **narrow, named feature**: the page titled
+*Use Lake Formation and JDBC or ODBC drivers for federated access to Athena* defines it as *"SAML
+2.0-based federation with Athena using Okta and Microsoft Active Directory Federation Services (AD FS)
+identity providers"*. The sibling bullet in the very same incompatibility list names that driver
+feature, so the two plausibly read as the API half and the driver half of one SAML feature — which our
+shape is not. TIP's own mechanism (`AssumeRole` with `ProvidedContexts`) exists precisely so a caller
+*can* make AWS API calls carrying an identity context, and the console exclusion is explicable by the
+console's session not being identity-enhanced rather than by a ban on API callers.
+
+So: **materially at risk, not settled either way — and settled only by experiment.** That is gate G7
+(`transition_plan.md` §5.5), and it stays in **Phase 0** because `transition_plan.md` §3.5's step 3 and
+the whole catalog-plane design rest on the answer. Budget for the possibility that it fails; do not
+plan as though it already has.
+
+Three more constraints from the same list bite independently of G7. **An IdC-enabled workgroup cannot
+be modified to support resource-level IAM permissions or identity-based IAM policies** — which
+constrains what can happen *inside such a workgroup*, and does **not** touch §3.4's separate base plane,
+where `${aws:PrincipalTag/username}` keeps governing S3 and the personal Glue database. A workgroup's
+**authentication method is fixed at creation** and an existing workgroup cannot be converted.
+**Entitlement changes take up to an hour**, which floors the reconciler's lag no matter how often it
+runs, and queries **time out at 30 minutes, one hour maximum**.
+
 ### Was open — all four settled 2026-08-18, when the specs were written
 
 1. **The machine-facing surface is DEFERRED to a later arc; only its contract lands here.**
@@ -1778,6 +1920,24 @@ the browser, which is the thing this arc removes, and keeping it would mean the 
 `@aws-sdk/client-s3` for one dev-only branch nobody tests against the real one. Local work points the
 SPA at a locally-run or deployed API. This supersedes a CLAUDE.md Key Decision and needs a
 `decisions.md` entry plus a superseded marker at every site still stating the old claim.
+
+### Still open — and it is NOT a spec decision
+
+**Which Identity Center instance the portal lands on: the organization instance, or an account
+instance.** This does not belong in the settled list above, and no spec can close it — it is the
+client platform team's call, and with the successor-account move it has a long lead time. It needs to
+reach them **before Phase 1**.
+
+It is here because of what it forecloses. AWS's own prerequisite is explicit: with an **account
+instance**, *"all AWS services that you want users to access with trusted identity propagation must
+reside in the same AWS account where you enable IAM Identity Center."* So an account instance rules
+out shape (a) above — RAM-shared data read from another team's account under their propagated
+identity — because Lake Formation's RAM sharing carries trusted identity propagation only when
+grantor and grantee are in the same **Region**, the same **AWS Organization**, and the same
+**organization instance**. AWS recommends the organization instance for exactly this reason.
+
+Nothing in Arc B depends on the answer; everything in Phase 5 and any future team-level data sharing
+does.
 
 ### The shape
 
