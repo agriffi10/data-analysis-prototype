@@ -114,6 +114,33 @@ The cheapest defence against a five-spec port silently losing a behaviour. Every
 5. **`lib/s3Json.ts` keeps its four exports and its eight consumers.** A later spec that wants
    per-document routes is proposing to re-decide eight key layouts and must say so.
 
+**AMENDED 2026-08-18 — the presigning design survives the target environment, on one unproven
+condition, and the alternative was considered rather than missed.** `transition_plan.md` §3.9 moves
+storage in the successor account onto **S3 Access Grants**: the backend calls `GetDataAccess` on the
+user's identity-enhanced session and receives prefix-scoped temporary credentials. The client's own
+architecture hands *those credentials* to the browser and has it call S3 directly — which is the one
+place that design and this arc disagree.
+
+**This spec's shape is kept, and the reason is that it is a superset.** Presigning is a local SigV4
+operation, so the API can presign from whichever credential the environment requires — the assumed
+portal role today, Access-Grants-vended credentials later — and S3 evaluates the grant's scope at
+redemption either way. Nothing above the route changes, the browser still never holds a credential,
+and the transfer still never touches compute. Handing credentials to the tab buys nothing here and
+costs the negative SPEC-202's live checks are built on.
+
+**The condition is gate G9** (`transition_plan.md` §5.5): presigning from `GetDataAccess` credentials
+is *expected* to work and is **unproven**. It runs in Phase 0, long before it is needed. If it fails,
+the fallback is the client's shape — scoped credentials to the browser — and two things move:
+FR-005/FR-006's route surface gains a credential-vending route, and **SPEC-202's load-bearing
+negative must be re-worded before it is run**, because "the browser makes no AWS call other than
+presigned S3 bytes" would no longer be the target's truth.
+
+**What this spec must therefore leave behind: the credential is a parameter of presigning, not a
+constant of it.** FR-006's clamp already ties a URL's lifetime to the signing credential's remaining
+lifetime rather than to a fixed number — keep it stated that way, because an Access-Grants credential
+has a different maximum than SPEC-196's `DurationSeconds` 3600 and a hard-coded 3600 would mint URLs
+that outlive their own signature.
+
 ---
 
 ## Functional Requirements
@@ -352,7 +379,12 @@ sends the bytes to S3 itself.
       3600 and caches credentials per container, so the remaining lifetime is routinely far below
       3600 — and a URL minted for longer than its signing session lives returns **403 at redemption**,
       which reads as a permissions bug and not as an expiry. A test asserts the returned `expiresAt` is
-      never later than the credentials' own expiry.
+      never later than the credentials' own expiry, and **drives it with a credential whose remaining
+      lifetime is below the configured duration** — the clamp must read the credential, never
+      `DurationSeconds`. The two agree today and will not later: `transition_plan.md` §3.9 signs from
+      Access-Grants-vended credentials in the target, whose maximum differs, and a clamp computed as
+      `min(900, DURATION_SECONDS)` passes every test here and mints URLs that outlive their own
+      signature there.
 - [ ] `expiresAt` is returned so the caller can distinguish an expired link from a denial. It is a
       new field on an existing shape and is additive (SPEC-197 Premise 3).
 

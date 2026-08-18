@@ -127,6 +127,43 @@ change; and the file-ops allowlist FR-006 widens does not exist until SPEC-187 s
 6. **`assurance` is a closed set and a plane may only add a value after every plane accepts it.**
    This spec ships one value; SPEC-201 owns what a plane does with one it does not accept.
 
+**AMENDED 2026-08-18 — the contract's justification is now external, and one simplification is
+refused in advance.**
+
+**Why a plane runs under its own role with the user in the message, rather than under the user's
+identity: it is FORCED.** This was recorded as a design choice; it is not one. Step Functions is not a
+trusted-identity-propagation receiving service, and
+`AWSIAMIdentityCenterAllowListForIdentityContext` — the managed policy STS attaches to every
+identity-enhanced session, which denies everything not on its list regardless of what the role's own
+policies allow — carries **no `states:` actions** (verified 2026-08-18 against **policy v12**, the
+version current since 2024-10-01; the policy is a `Deny` with `NotAction`, so it is a ceiling over
+the role's own grants rather than a grant itself). An identity-enhanced session therefore cannot
+start an execution at all, and a ~1-hour session is in any case shorter than the work. So in the
+target environment as much as here, the user identity in this block is for **authorization and
+attribution**, never for data-plane enforcement inside a plane. That also bounds what a delegated
+caller can ask for: triggering is unaffected, but *reading data as the user* is **not delegation
+through this API** and would need a different integration entirely (`ARCS.md` → *Other applications
+acting on behalf of users*). **Re-check the policy version before relying on this in a later spec** —
+AWS revises it, and the whole "FORCED, not chosen" argument rests on one absent action.
+
+**REJECTED ALTERNATIVE: API Gateway's native `StartExecution` integration, replacing the queue.** It
+is the obvious simplification — the payload is small, the mapping from a job type to a state-machine
+ARN is server-side, and it deletes a hop and ten routes. It is refused, and it is recorded here
+rather than argued later because a reader who knows API Gateway and not this repo will propose it:
+
+- The **`MessageDeduplicationId`** is the only double-submit guard several planes have (FR-003, and
+  SPEC-167 FR-003's per-submit `requestId` rides on it). `StartExecution` has an execution-name
+  idempotency window instead, with different semantics and a different failure mode.
+- The **`MessageGroupId`** carries per-space ordering that SPEC-187's lock and SPEC-157's lock are
+  both written against. Delivery ordering is not execution serialisation (SPEC-157), but removing
+  ordering removes the property the locks were sized for.
+- The **request DLQ** and SPEC-126's drain are how a malformed request reaches a user at all. A
+  direct integration dead-letters nowhere.
+- **At-least-once redelivery** is the model every plane's idempotency is written against.
+
+If the queue ever does come off, it is a per-plane spec that re-derives all four properties — not a
+front-door change.
+
 ---
 
 ## Functional Requirements

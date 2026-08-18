@@ -765,7 +765,7 @@ remembering with picking.
 prefix is created **by the browser** on first visit to `/files` (`ensurePrefixMarker`, SPEC-014 — a deliberate
 no-backend decision), so a confirmed user who never opened the file browser has no prefix. *After the transition* it
 reverses: §2 item 7 settles that **sign-in provisions nothing** — the sync pre-creates every space and `ensurePrefixMarker`
-is deleted outright (§6.3) — while federated login makes `cognito:username` a synthetic `identitycenter_<subject>` value
+is deleted outright (§6.3) — while federated login makes `cognito:username` a synthetic provider-prefixed value (and under the transition's baseline variant there is no `cognito:username` at all — `transition_plan.md` §6.1)
 (§6.1) and users appear in the pool only after first sign-in. So S3 becomes complete and Cognito becomes both incomplete and
 wrong-keyed. Choosing the source that is right on the far side of a migration already in flight beats the one right today,
 especially when today's gap is bounded (pre-production, no production users) and the failure mode is a missing suggestion in
@@ -1620,6 +1620,15 @@ refuse before the destructive confirm), and the plane becomes the enforcement, e
 deliberate violation of the other. That is the same gap SPEC-173's still-owed bucket-policy check
 exists for, closed for a different set of rules.
 
+**One target-environment note, filed 2026-08-18 and not work in this arc.** The client's design has an
+**S3 event notification on upload completion** triggering the file-management state machine. That is
+a second front door into this plane, and its envelope has no verified token in it — every
+authorization check in SPEC-187 reads an actor the browser's request proved. If that trigger is
+actually wanted, it needs its own spec: either a verb that derives the actor from the object key's
+own prefix (the prefix *is* the principal, so this is tractable) or a decision that event-triggered
+work runs as the plane rather than as a user. Do not let it arrive as a bucket-notification config
+change.
+
 **The one trap to carry into 188.** The three protected-folder lists in `protectedFolders.ts` differ
 on purpose and must not be unioned — the first draft did exactly that in the same acceptance
 criterion that forbade it, and would have silently removed the ability to copy *out of*
@@ -1656,6 +1665,23 @@ per (side × operation), enumerated against the real constants, and read that fi
 >
 > Everything the entry below says about a BFF, a session, a cookie, a code exchange or Identity Center
 > is retained **for the later arc to inherit** — not to build here.
+>
+> **AMENDED 2026-08-18 — the target environment now has two identity variants, and Arc B is
+> deliberately outside them.** `transition_plan.md` §3.3 splits the identity plane into **[A]** Entra
+> issuing OIDC directly with no Cognito at all (the baseline) and **[B]** Entra SAML with Cognito
+> reduced to a bridge (the fallback), decided by gate G8 in Phase 0. **No variant decision reaches
+> this arc and no spec here is gated on a transition gate** — the API is a verifier whose issuer,
+> audience, JWKS URI and username claim are configuration, so a variant is a configuration change to
+> a component this arc already ships.
+>
+> **It is not left literally untouched, and that is worth being exact about.** The revision adds
+> three forward-compatibility obligations, each small, each with a test, each shippable today:
+> SPEC-195 gains a premise keeping the verifier free of router dependencies; SPEC-198 strengthens one
+> existing acceptance criterion so the presigned-URL clamp reads the credential rather than a
+> configured duration; SPEC-199 requires the results-location derivation to stay in one function. Two
+> further sections below are re-framed rather than changed — the shared-space membership section
+> (now explicitly *interim*) and the credentials-never-reach-the-browser claim (unconditional here,
+> gated on G9 in the target).
 
 ### What the review gate caught, and why the arc entry says so
 
@@ -1730,22 +1756,48 @@ Arc A lands; an API built around a synchronous folder copy sets its own shape.
   a `username` session tag now, an Identity Center identity context later — and makes the calls
   itself. Every existing IAM policy, bucket policy and Lake Formation grant keeps enforcing unchanged.
 - **File bytes: presigned URLs**, both directions. The browser talks to S3 for bytes only, which is
-  why **bucket CORS is still required** for the new origin.
+  why **bucket CORS is still required** for the new origin. **In the target this survives only if the
+  API can presign from `GetDataAccess`-vended credentials — gate G9** (`transition_plan.md` §5.5,
+  §3.9). It is unproven, it is cheap to prove, and if it fails the browser holds scoped credentials
+  after all and SPEC-202's load-bearing negative needs re-wording. Nothing in Arc B waits on it.
 - **Queue trust:** the API verifies the token, strips it, and writes a verified `actor`. The queues
   become writable only by the API's role. The control-plane Lambdas drop JWKS verification and keep
   every authorization check.
 - **Identity provider: Entra ID in the target environment, Cognito today**, and the OIDC layer is
   provider-agnostic so one image serves both. The current environment keeps Cognito and its two
-  trigger Lambdas exactly as they are.
+  trigger Lambdas exactly as they are. **This is now load-bearing rather than a convenience**
+  (2026-08-18): the target's baseline variant deletes Cognito outright, so the configuration-driven
+  verifier is what makes that a config change instead of a rewrite — see SPEC-195.
 - **Machine-facing API: designed for, built later.** `{actor, delegated_by, assurance}` enters the
   control-plane message contract in this arc so the later door needs no rework. Callers act **on
   behalf of a named user** and pass the portal username directly.
+- **A control plane runs under its own execution role and the requesting user rides in the message —
+  and that is FORCED, not chosen** (recorded 2026-08-18). Step Functions is not a
+  trusted-identity-propagation receiving service, and `AWSIAMIdentityCenterAllowListForIdentityContext`
+  — which STS attaches to every identity-enhanced session and which denies everything not on its
+  list — carries no `states:` actions. So an identity-enhanced session **cannot start an execution**,
+  and even if it could, a ~1-hour session is shorter than the work. This is the strongest
+  justification the `{actor, delegated_by, assurance}` contract has, and it is external to us: the
+  user identity is for **authorization and attribution**, never for data-plane enforcement inside a
+  plane. SPEC-200 records it.
+- **The queue in front of a plane is NOT optional, and the tempting simplification is REJECTED**
+  (recorded 2026-08-18). API Gateway offers a native `StartExecution` integration, and a target-side
+  reader will propose using it to delete the enqueue hop. It would take the FIFO
+  `MessageDeduplicationId`, the `MessageGroupId` ordering, the request DLQ and SPEC-126's drain, and
+  the at-least-once redelivery model SPEC-157's per-table lock is written against — all of which are
+  load-bearing here and none of which a direct `StartExecution` has. SPEC-200 carries it as a named
+  rejected alternative so it is refused once rather than re-argued.
 
 ### The correction most likely to be made again
 
-**Identity Center is not a login provider for a web application.** Its OIDC service implements only
-the device-authorization parts needed for the AWS CLI, and the customer-managed OAuth 2.0 app setup
-*requires* a trusted token issuer — it assumes your app authenticates users elsewhere. So Entra and
+**Identity Center is not a login provider for a web application.** The citation to use is AWS's own
+**Important** on the customer-managed-applications page: such an application *"must obtain a token
+from a trusted token issuer, **which is external to IAM Identity Center**."* That is the whole
+argument, and it is documented rather than inferred. *Do not lean on the older phrasing that IdC's
+OIDC service "implements only the device-authorization parts needed for the AWS CLI" — it is
+quotable from the OIDC Welcome page but sits in the same guide as `CreateTokenWithIAM`, which
+documents `authorization_code` with PKCE, `refresh_token`, `jwt-bearer` and `token-exchange`. The
+conclusion is right; that sentence is the weak way to reach it.* So Entra and
 IdC are not alternatives: **Entra authenticates the users; IdC propagates their identity into AWS.**
 Anyone who reads "tie the app to an Identity Center login" as a sign-in flow will build something
 that cannot work.
@@ -1765,6 +1817,29 @@ TTL is storage hygiene rather than the security boundary.
 > building SPEC-196; that would break the equivalence, and SPEC-196 records it as a requirement whose
 > wrong implementation silently succeeds. `useSharedSpaceAccessRecovery` stays for the same reason:
 > claim-sourced tags still carry SPEC-056's propagation delay.
+
+> **AMENDED 2026-08-18 — this section describes the INTERIM plane, and it is right about it.**
+> `transition_plan.md` §3.4 collapses the target's two credential planes into one, and the
+> identity-enhanced session's allow-list denies plain S3 — so in the **end state there are no
+> principal tags at all**, and a member's access to a shared space becomes an **S3 Access Grant on
+> its prefix plus a Lake Formation grant on its database**, issued per (member, space) by the
+> shared-space control plane (§3.9).
+>
+> What follows is still correct and still gets built, for **Phases 1 through 4**: the API assumes the
+> portal role with `username` plus the membership tags computed from the registry, and every existing
+> policy keeps enforcing. That interim plane is what makes a working file browser possible before the
+> trusted token issuer, the customer-managed application, the Access Grants instance and the
+> IdC-enabled workgroup exist. Read this section as a **way station with a known exit**, not as the
+> destination — and note the exit is *better* on the same axes: no per-user slot limit, no propagation
+> delay, no directory attribute, and per-user attribution on storage as well as on queries.
+>
+> **One correction to what follows, and it is the thing most likely to be misread.** The
+> ten-slot ceiling does **not** dissolve when the tags stop coming from Cognito. It lives in
+> `infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl`, which loops over
+> `max_shared_memberships` and emits `${aws:PrincipalTag/shared_space_${k}}` into the S3 resources,
+> the `ListBucket` prefix condition and the Glue ARNs — so an eleventh tag matches no resource
+> whatever wrote it. `AssumeRole` accepting 50 session tags is true of STS and irrelevant to
+> enforcement. The ceiling goes at Phase 5, with the tags.
 
 **Both directories are effectively shut, and that is fine.** Membership is a principal tag today
 (`custom:shared_space_1..N`, written by `shared-space-add-members`, mapped by the Identity Pool to
@@ -1791,12 +1866,17 @@ write the registry, and the browser still cannot influence it.
 
 Three things this improves rather than merely permits. **Membership takes effect immediately** — today
 there is a propagation delay that `useSharedSpaceAccessRecovery` exists solely to paper over, and that
-affordance can go. **The slot limit dissolves** — `shared_space_1..N` is a fixed pre-allocation only
-because a Cognito custom attribute can never be renamed or deleted; `AssumeRole` takes up to 50 session
-tags and you pass only what applies. **The self-service-edit risk disappears** — no directory attribute
+affordance can go. **The slot limit gets easier to raise, but does not dissolve** — `shared_space_1..N` is a fixed
+pre-allocation partly because a Cognito custom attribute can never be renamed or deleted, and
+`AssumeRole` takes up to 50 session tags so you pass only what applies. **The binding constraint is
+the IAM policy**, which enumerates the slots; raising the cap means re-rendering it, bounded by IAM's
+6,144-character inline-policy limit. Only Phase 5's move off principal tags removes it. **The self-service-edit risk disappears** — no directory attribute
 backs the tag, so there is nothing a user could edit to assume someone else's access.
 
-Keep the same tag keys and values and **no IAM policy changes at all** — only where the tag comes from.
+Keep the same tag keys and values and **no IAM policy changes at all** — only where the tag comes
+from. That holds for the whole interim window; Phase 5 then retires the tags and the
+`${aws:PrincipalTag/username}` conditions along with them, which is a policy change and is scoped
+there rather than here.
 
 Where IdC still matters for shared spaces is the **catalog plane**: Lake Formation grants against the
 IdC user for a shared space's database. IdC groups cannot be **authored** — but SCIM syncs them from
@@ -1805,6 +1885,11 @@ because it decides where a grant is keyed: **team-level** data sharing grants to
 group and needs nothing from our registry, whereas a **shared space** is this app's own construct with
 no Entra group behind it, so its grants stay per-user and registry-driven — §3.8's reconciler.
 Do not model shared spaces as directory groups.
+
+**And that is the same reason the end state's storage grants are per-user too.** Once the tags are
+gone, the Access Grant on a space's prefix is keyed exactly the way the Lake Formation grant on its
+database already is: per (member, space), from the registry, issued by the plane that owns
+membership. The two halves are one job and should be specced as one — and nothing specs them yet.
 
 ### Other applications acting on behalf of users
 
@@ -1887,13 +1972,21 @@ console's session not being identity-enhanced rather than by a ban on API caller
 
 So: **materially at risk, not settled either way — and settled only by experiment.** That is gate G7
 (`transition_plan.md` §5.5), and it stays in **Phase 0** because `transition_plan.md` §3.5's step 3 and
-the whole catalog-plane design rest on the answer. Budget for the possibility that it fails; do not
+the whole identity-enhanced query design rest on the answer. Budget for the possibility that it fails; do not
 plan as though it already has.
 
 Three more constraints from the same list bite independently of G7. **An IdC-enabled workgroup cannot
 be modified to support resource-level IAM permissions or identity-based IAM policies** — which
-constrains what can happen *inside such a workgroup*, and does **not** touch §3.4's separate base plane,
-where `${aws:PrincipalTag/username}` keeps governing S3 and the personal Glue database. A workgroup's
+constrains what can happen *inside such a workgroup*, and does **not** reach the plane where
+`${aws:PrincipalTag/username}` governs S3 and the personal Glue database.
+
+> **SUPERSEDED 2026-08-18.** This passage said that plane was *"§3.4's separate base plane"*, separate
+> **by design**. `transition_plan.md` §3.4 is superseded: there is one plane in the end state, and the
+> tag-governed one is the **interim** plane that runs through the transition's Phase 4 and retires in
+> Phase 5 (§3.9). They are separate in **time**, not by design. The constraint above is unaffected
+> either way; only the reason it does not bite is.
+
+A workgroup's
 **authentication method is fixed at creation** and an existing workgroup cannot be converted.
 **Entitlement changes take up to an hour**, which floors the reconciler's lag no matter how often it
 runs, and queries **time out at 30 minutes, one hour maximum**.
@@ -1932,12 +2025,24 @@ the browser, which is the thing this arc removes, and keeping it would mean the 
 SPA at a locally-run or deployed API. This supersedes a CLAUDE.md Key Decision and needs a
 `decisions.md` entry plus a superseded marker at every site still stating the old claim.
 
-### Still open — and it is NOT a spec decision
+### Was open, now answered — and it was never a spec decision
 
-**Which Identity Center instance the portal lands on: the organization instance, or an account
-instance.** This does not belong in the settled list above, and no spec can close it — it is the
-client platform team's call, and with the successor-account move it has a long lead time. It needs to
-reach them **before Phase 1**.
+**Which Identity Center instance the portal lands on: SETTLED 2026-08-18 — the ORGANIZATION
+instance.** Confirmed with the client platform team alongside same-Region and single-central-account.
+No spec could have closed it; it was theirs to answer, and the answer is the permissive one.
+
+**What it un-forecloses.** An account instance would have ruled out shape (a) below — RAM-shared data
+read from another team's account under their propagated identity — because AWS's prerequisite is
+explicit that with an account instance *"all AWS services that you want users to access with trusted
+identity propagation must reside in the same AWS account"*, and Lake Formation's RAM sharing carries
+trusted identity propagation only when grantor and grantee share a Region, an Organization **and** an
+organization instance. Both shapes are now available. Nothing in Arc B ever depended on the answer;
+Phase 5 and any future team-level data sharing did.
+
+**One question replaces it, and it is a spec decision nobody has taken.** Per-(member, shared-space)
+Access Grants and Lake Formation grants (`transition_plan.md` §3.9) have no owning spec. They are a
+new verb on the shared-space control plane, they are Phase 5 work, and the Phase 3 inventory is what
+sizes them.
 
 It is here because of what it forecloses. AWS's own prerequisite is explicit: with an **account
 instance**, *"all AWS services that you want users to access with trusted identity propagation must

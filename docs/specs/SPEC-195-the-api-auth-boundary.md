@@ -31,7 +31,8 @@ genuine token passes both — an API that skips verification entirely works perf
   required-claims check (`token_use: id` on Cognito), the username from a configured claim — through **the
   repo's one JWKS path**, `cpcommon.auth`, extended rather than copied (FR-001, FR-006).
 - **Provider-agnosticism in reduced form**: issuer, audience, JWKS URI, username claim and the
-  required-claims map are configuration (FR-002).
+  required-claims map are configuration (FR-002). *Reduced in what it builds, not in what it is worth
+  — see the amendment under* Premises *below.*
 - **Deny by default in the router**, and the refusal surface: 401 vs 403, one indistinguishable 401 body, no
   provider text on the wire (FR-003, FR-004), plus one temporary probe route (FR-005).
 - **The `error.stack` scrub**, with its own `decisions.md` entry beside the original (FR-007).
@@ -84,6 +85,25 @@ genuine token passes both — an API that skips verification entirely works perf
    exempted** (FR-004, FR-007). SPEC-197's envelope may add fields to other statuses; the unauthenticated body
    stays identical across every failure. Any later handler added to `lambdas/api/` inherits the interpolation
    sweep and the sentinel test, and neither is optional.
+5. **The verifier is a module the router calls, not logic inlined in the router** (FR-001, FR-003). The
+   target environment splits the gate from the worker — a Lambda authorizer returns allow/deny plus the
+   resolved identity, and the BFF does the work — because there the check is a DynamoDB session read on
+   every request rather than a cached-JWKS signature verify, and API Gateway's authorizer result caching is
+   what makes that affordable. **This spec does not build that split** (one Lambda behind a proxy
+   integration, settled in the arc entry), and it should not: caching an *allow* decision keyed on a
+   credential is a revocation-latency question this arc has no reason to open. What it must leave behind is
+   a verifier with no router dependencies, so the split is a wiring change. A test asserting the module
+   imports nothing from the router is the cheap way to hold it.
+
+**AMENDED 2026-08-18 — FR-002 is load-bearing, not a convenience.** `transition_plan.md` §3.3 now carries
+**two variants** of the target identity plane, decided by gate G8 in Phase 0: **[A]** Entra issues OIDC
+directly and **there is no Cognito anywhere**, or **[B]** Entra is SAML-only and Cognito survives as a
+bridge that issues the JWT. Under **[A]**, this spec's configuration-driven verifier is the single reason
+deleting Cognito is a configuration change rather than a rewrite of every auth path in the product; under
+**[B]** it points at a pool that exists to be deleted later. Either way FR-002 is what makes the variant a
+late-bound decision instead of an early-bound one, and **no requirement below may hard-code a Cognito
+issuer, a `cognito:` claim prefix or a `token_use` value as a constant** — they are configuration with
+Cognito-shaped defaults.
 
 ---
 
@@ -593,4 +613,9 @@ Deferred, not abandoned. The reasoning is in `docs/transition_plan.md` §3.5 (Id
   trusted token issuer. **Entra authenticates the users; IdC propagates their identity into AWS.** The
   jwt-bearer assertion is **single-use** — exchange once at login, then use the `refresh_token` grant.
 - **An Entra implementation**, which under this spec is five environment variables plus whatever claim mapping
-  Entra needs. That is the entire dividend of FR-002.
+  Entra needs. That is the entire dividend of FR-002 — and under the **[A]** variant
+  (`transition_plan.md` §3.3) it is also the entire cost of deleting Cognito from the product, because
+  nothing else in the codebase will name a provider by then.
+- **The authorizer/BFF split** (premise 5): the gate moves to a Lambda authorizer with API Gateway result
+  caching, the BFF becomes the worker, and this spec's verifier module is what the authorizer calls. That
+  spec owns the question this one declines: how long an *allow* may be cached against a revoked session.
