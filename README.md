@@ -259,19 +259,22 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 
 | Document | What's in it |
 |---|---|
-| [`CLAUDE.md`](CLAUDE.md) | Project memory (always loaded, kept lean): tech stack, code conventions, a one‑line **Key Decisions** digest, session workflow |
+| [`CLAUDE.md`](CLAUDE.md) | Project memory (always loaded, kept lean): tech stack, code conventions, a one-line **Key Decisions** digest, session workflow |
+| [`docs/process.md`](docs/process.md) | How we work: where truth lives, the spec lifecycle, the reviewer contract, the completion ritual |
 | [`docs/decisions.md`](docs/decisions.md) | The **Key Decisions register in full** — reasoning + the "do NOT build" fences |
-| [`docs/architecture.md`](docs/architecture.md) | System design: auth flow, authorization model, two‑bucket model, env vars, deployment, known constraints |
-| [`docs/component-inventory.md`](docs/component-inventory.md) | **Router** to the per‑area inventories in [`docs/component-inventory/`](docs/component-inventory/) (reusable services / hooks / components / types / utilities) |
-| [`docs/design/design-system.md`](docs/design/design-system.md) | Design tokens, typography, component patterns (the source of truth for the UI) |
-| [`docs/design/landing.html`](docs/design/landing.html) · [`docs/design/mockup.html`](docs/design/mockup.html) | Interactive design references (marketing landing · file browser + upload) |
+| [`docs/architecture.md`](docs/architecture.md) | System design: auth flow, authorization model, the bucket model, control planes, env vars, deployment, known constraints |
+| [`docs/transition_plan.md`](docs/transition_plan.md) | The client-environment transition — IdC federation, de-provisioning, Lake Formation re-keying |
+| [`docs/lambda-rationale.md`](docs/lambda-rationale.md) | The long-form *why* behind `lambdas/` — sizing evidence, rejected designs, the traps |
+| [`docs/component-inventory.md`](docs/component-inventory.md) | **Router** to the per-area inventories in [`docs/component-inventory/`](docs/component-inventory/) (reusable services / hooks / components / types / utilities) |
+| [`docs/best-practices/INDEX.md`](docs/best-practices/INDEX.md) | Router to the domain rulebooks — React, Python, lambdas, accessibility |
 | [`docs/specs/`](docs/specs/) | Feature specs — what each feature should do; [`INDEX.md`](docs/specs/INDEX.md) is status, [`ARCS.md`](docs/specs/ARCS.md) is arc narrative |
-| [`docs/spec-delivery/`](docs/spec-delivery/) | Delivery records — what was actually built per spec, plus later‑change amendments |
-| [`docs/templates/`](docs/templates/) | Spec + spec‑completion templates |
-| [`docs/deploy-setup.md`](docs/deploy-setup.md) | Deploy setup checklist |
-| [`docs/testing/e2e.md`](docs/testing/e2e.md) | Auth end‑to‑end test notes |
-| [`infra/bootstrap/README.md`](infra/bootstrap/README.md) | One‑time remote‑state (S3 + DynamoDB) bootstrap |
-| [`.github/workflows/README.md`](.github/workflows/README.md) | CI/CD workflows + first‑time GitHub Actions configuration |
+| [`docs/spec-delivery/`](docs/spec-delivery/) | Delivery records — what was actually built per spec, plus later-change amendments |
+| [`docs/testing/e2e.md`](docs/testing/e2e.md) | **The** end-to-end validation guide; [`owed.md`](docs/testing/owed.md) is what it cannot settle, [`sessions.md`](docs/testing/sessions.md) is what has been run |
+| [`docs/security-baseline.md`](docs/security-baseline.md) | Every scanner finding with a disposition, and the gate thresholds |
+| [`docs/design/design-system.md`](docs/design/design-system.md) | Design tokens, typography, component patterns (the source of truth for the UI) |
+| [`docs/templates/`](docs/templates/) | Spec + spec-completion templates |
+| [`infra/bootstrap/README.md`](infra/bootstrap/README.md) | One-time remote-state (S3 + DynamoDB) bootstrap |
+| [`.github/workflows/README.md`](.github/workflows/README.md) | CI/CD workflows + first-time GitHub Actions configuration |
 
 ---
 
