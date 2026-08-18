@@ -127,7 +127,7 @@ The owed partitioned twin of the FR-010 add/remove sequence. Fixture `agriffith_
 `part0.csv` is the load-bearing name: it sorts first **within the first partition**, so it is the
 first key in the whole listing and therefore the inference sample.
 
-### Saved queries (`e2e.md`) — check 1, the owed SHARED half
+### Saved queries — the client-side refusal (`e2e.md` §4.7), the owed SHARED half
 
 PASS, byte-exact, with its control. In `livecheck_186` (whose `saved_queries/` folder the SPEC-183
 step-5 save had just created):
@@ -324,7 +324,7 @@ SPEC-158 failure reported — but the cause is now the opposite: then it overhun
 now it is capped to fit. The Shared-spaces list offered exactly one option (`livecheck_186`, the
 user's own space), which is SPEC-158's "no published directory of spaces" working.
 
-### Saved queries (`e2e.md`) — check 1, personal half
+### Saved queries — the client-side refusal (`e2e.md` §4.7), personal half
 
 PASS, byte-exact. Delete and Move both `aria-disabled="true"` with `disabled` **false** and
 `tabIndex 0`, so the reason is in the tab order:

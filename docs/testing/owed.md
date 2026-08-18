@@ -17,7 +17,7 @@ same property, and a Chromium run standing in for Safari are all recorded here, 
 | **Receiving a send** (SPEC-167) — bob's link lands in `shared_files/alice/` with the files there; the space recipient's link carries `?space=` and lands in the space, not the sender's own files | The prefix is minted in Python and honoured by a TypeScript route rule; the failure mode is a link that *looks* like it worked. Needs `alice`, `bob`, `carol` and a shared space alice does **not** own (an owner who is also the sender gets two messages for one outcome, which changes every count). |
 | **Membership as a non-owner member** — the Data Explorer against a shared space, archive/restore in one, the roster | Runs against real Cognito tags and real Lake Formation. The one-sided version passes trivially. |
 | **Add → acknowledge → read roster** (SPEC-125, after SPEC-186 FR-008) | The acknowledge fan-out is what closed a roster saying `Pending` for a member the same page showed `Active`. Only a second account can flip it. |
-| **Cross-user prefix isolation** (SPEC-013 FR-004) | As `alice`, every S3 verb against `bob/` is denied and a root listing leaks nothing, while the same calls against `alice/` succeed. The app never issues the cross-prefix call, so it needs two users' portal credentials or a policy simulation. The **paired success is what makes the denial mean anything.** |
+| **Cross-user prefix isolation** (SPEC-013 FR-004) | As `alice`, every S3 verb against `bob/` is denied and a root listing leaks nothing, while the same calls against `alice/` succeed. The app never issues the cross-prefix call, so it needs two users' portal credentials or a policy simulation. The **paired success is what makes the denial mean anything**, and it must be driven from `npm run dev` — the production bundle's console cannot `import()` a bare specifier. |
 | **A share's recipient queries the result** (SPEC-161) | `SELECT count(*)` from the recipient's own database must return the source's row count, not zero. |
 
 ### Needs the CLI
@@ -27,26 +27,30 @@ same property, and a Chromium run standing in for Safari are all recorded here, 
 | **The `DO_NOT_DELETE.txt` Deny on the portal role**, personal and shared (SPEC-173) | The portal issues **zero** `DeleteObject` against the marker — it is hidden by basename and the folder delete is refused client-side first. The Deny is the layer that matters if the SPA is ever wrong. | §2.1 |
 | **Refresh-lock contention** (SPEC-157) | Two UI submits 2 s apart both return independently — a small table's refresh finishes inside that window, so the lock is never contended. Nothing that runs today proves two real executions serialize. | §2.2 |
 | **A malformed message on a request DLQ** (SPEC-133 Phase 5; also discharges SPEC-126's) | The user is notified, the message is gone, and the redacted body is in `logs/service=dlq-drain/`. Nothing in the app can send a malformed request. | §2.2 |
-| **The archive/restore negative assertion** — for a refused restore, **no** `RestoreObject` for that archive id | A refusal that had already begun retrieval is invisible from the UI and costs 3–5 billed hours. Read the audit trail, never `head-object`. | §2.3 |
+| **The archive/restore negative assertion** — for a refused restore, **no** `RestoreObject` for that archive id | A refusal that had already begun retrieval is invisible from the UI and costs 3–5 billed hours. Read the audit trail, never `head-object`. | §2.4 |
+| **The vault prefix is swept after a restore** (SPEC-171 FR-005) | Nothing human can read `dat-prod-archive`, and the browser sees only the receipt folder, which survives by design. `aws s3api list-objects-v2 --bucket dat-prod-archive --prefix "personal/$USERNAME/archive/$ARCHIVE_ID/" --max-keys 5` → **`KeyCount: 0`**, `_manifest.json` included. Needs a principal on that bucket's allowlist, which no human identity is. | — |
 | **`head-object` on user-space or archive** — restored objects back at `STANDARD`, content type survived, byte-identical | The laptop identity is explicitly denied on both buckets, and the UI cannot show a storage class. | — |
 | **The `>5 GiB` metadata round trip** (SPEC-171, and all three transfer planes) | `CreateMultipartUpload` carries no `MetadataDirective`, so before the fix every object over 5 GiB lost its content type on every copy this repo makes. Only an object over the threshold exercises it; a fixture below it passes forever. Confirm `ContentType` survives by `head-object`. |
 | **The restore plan agrees with the receipt** (SPEC-170) | `s3://dat-prod-athena-admin/archive/{requestId}/restore-plan.json` exists, its entry count equals the receipt's `Files archived`, and two `destKey`s match the original paths by eye. |
 | **The archive plane's log events** (SPEC-169/170/171) | `logs/service=archive/` carries `restore plan built` and `destinations clear` for the request, with **`manifest_present: true`**; then `batch retrieval requested` per Map child, `retrieval polled` **hours apart** with `poll_count` climbing, and a `cleanup` block after the sweep. |
 | **The fan-out is visible exactly once per child** (SPEC-166/167) | `logs/service=file-send/` carries one `batch copied` event per child execution. It is the only place the Distributed Map's fan-out can be seen. |
-| **Table share at scale** (SPEC-160/161) — a several-hundred-object, >20 GiB table shared to two recipients where one conflicts; the 100-column clone read back with all 100 comments through `GetTable`; and the over-cap refusal — with ~500 objects, **41 recipients** exceeds it — whose operator detail reads `N recipients x M objects is <product> transfer items (cap 20000)` while the notification says only *"that's too many files to copy to that many recipients at once."* | The counts and the clone are only readable through Glue and the structured log. | §2.4 |
-| **The `TIMED_OUT` door** (table-share, file-send, archive) | Waiting out a real 3-hour timeout is not a test anyone will run. Confirm the rule matches `TIMED_OUT` **and not** `FAILED`, that it targets the notifier, and drive the handler with a synthetic event. | §2.4 |
+| **Table share at scale** (SPEC-160/161) — a several-hundred-object, >20 GiB table shared to two recipients where one conflicts; the 100-column clone read back with all 100 comments through `GetTable`; and the over-cap refusal — with ~500 objects, **41 recipients** exceeds it — whose operator detail reads `N recipients x M objects is <product> transfer items (cap 20000)` while the notification says only *"that's too many files to copy to that many recipients at once."* | The counts and the clone are only readable through Glue and the structured log. | §2.5 |
+| **The `TIMED_OUT` door** (table-share, file-send, archive) | Waiting out a real 3-hour timeout is not a test anyone will run. Confirm the rule matches `TIMED_OUT` **and not** `FAILED`, that it targets the notifier, and drive the handler with a synthetic event. | §2.5 |
 
 ### Control-plane bring-up, only reachable through a hand-crafted request
 
-These prove the plane itself, not the feature, and the UI cannot stage them. Recipes in §2.2.
+These prove the plane itself, not the feature, and the UI cannot stage them. The first four are
+driven by a hand-crafted request (§2.2); SPEC-108's has its own recipe in §2.3; SPEC-058's is a
+policy simulation (§2.8). **SPEC-169's Deny-on-one-key needs a temporary policy edit and has no
+recipe anywhere** — write one when you run it.
 
 | Check | Why it matters |
 |---|---|
 | **The `cpcommon` layer attaches at cold start** (SPEC-168, and every plane) | SPEC-137 shipped instrumented code whose layer attachment was missing and **every offline gate passed** — `conftest.py` puts the layer on `sys.path`, and `update-function-code` succeeds against a function that cannot import. A hand-crafted request through the queue is the only thing that runs the real cold start. |
 | **A `PutObject` into your own `archive/` prefix is refused**, personal and shared (SPEC-168) | The browser Deny that stops a receipt being forged. The app never issues the call. |
 | **A Deny on ONE key mid-archive** (SPEC-169 step 3) | The whole point of the commit gate: the run fails, **every source object is still there**, the archive prefix is empty, and the notification is honest. Nothing else exercises the rollback arm against real S3. |
-| **The pagination boundary** (SPEC-165) | Over a **1,200-object** folder, `InspectSource`'s `objectCount` equals the `list-objects-v2` count exactly — **not 1,000**, and not one more (the marker is excluded). The only live proof the lister paginates. |
-| **The state order, including the poll loop** (SPEC-108, data quality) | `aws stepfunctions get-execution-history --execution-arn "$EXEC_ARN" --query "events[?type=='TaskStateEntered' \|\| type=='WaitStateEntered'].stateEnteredEventDetails.name" --output text` → `ValidateAuthorize InspectSource CreateTempTables StartProfileQuery WaitForQuery CheckQuery WaitForQuery CheckQuery ByteScan AssembleReport DropTempTables`. **`WaitForQuery`/`CheckQuery` must appear TWICE** — one pass through is a poll that never polled. |
+| **The pagination boundary** (SPEC-165) | Over a **1,200-object** folder, `InspectSource`'s `objectCount` equals the `list-objects-v2` count exactly — **not 1,000**, and not one more than it — the `DO_NOT_DELETE.txt` marker is excluded, but it lives at the **space root**, not in this folder. The only live proof the lister paginates. |
+| **The state order, including the poll loop** (SPEC-108, data quality) | **`WaitForQuery`/`CheckQuery` must appear TWICE** — one pass through is a poll that never polled. Recipe in §2.3. |
 | **The portal role can enqueue a user action and NOT a `create`** (SPEC-058) | The anti-spoof boundary: a browser that could enqueue `create` could write any user's inbox. Simulate `sqs:SendMessage` against the notifications queue and read the rendered policy. |
 | **The seven shared-space producer events** (SPEC-061), especially **delete fanning out to every member** | One notification per member per event, from the verified actor. A missed fan-out is silent. |
 
@@ -154,10 +158,18 @@ CloudWatch while notifying nobody. Verified against the six `validate-authorize`
 ```bash
 QUEUE=$(aws sqs get-queue-url --queue-name dat-prod-table-builder-requests.fifo --query QueueUrl --output text)
 aws sqs send-message --queue-url "$QUEUE" \
-  --message-group-id "<see below>" --message-deduplication-id "$REQUEST_ID" \
-  --message-body "$(jq -nc --arg r "$REQUEST_ID" --arg t "$(cat /tmp/idtoken)" \
-      '{action:"refresh_table", requestId:$r, idToken:$t, space:{kind:"personal",name:"'"$USERNAME"'"}, tableName:"partfix"}')"
+  --message-group-id "$USERNAME" --message-deduplication-id "$REQUEST_ID" \
+  --message-body "$(jq -nc --arg t "$(cat /tmp/idtoken)" --arg u "$USERNAME" --arg r "$REQUEST_ID" \
+      '{idToken:$t, mode:"refresh", requestId:$r, tableName:"partfix",
+        space:{kind:"personal", bucket:"dat-prod-user-space", prefix:($u+"/partfix/"), database:$u}}')"
 ```
+
+**Two things about that body are load-bearing, and both fail quietly.** The verb is **`mode`**, not
+`action` — this plane has no unknown-field check, so an `action` key is silently ignored and
+`_validate_mode(None)` returns **`"create"`**: a contention run built that way starts two *creates*
+and never claims the refresh lock at all. And `space` needs all four of
+`{kind, bucket, prefix, database}` — `{kind, name}` is refused as `forbidden` before the mode is
+ever read, because `_authorize_space` compares `database` against the actor.
 
 **Refresh-lock contention (SPEC-157).** The lock is claimed by the *execution*, so two messages are
 two executions. Send both at once — same group is enough (the Pipe starts the second while the
@@ -188,7 +200,23 @@ containing `/` are refused as **malformed before any bucket is touched** (no lis
 lowercased. A nonexistent id and a real id in a space you are a member of both return the *same*
 `archive_not_found` — the second must not hint that the archive exists elsewhere.
 
-### 2.3 Reading the archive audit trail
+### 2.3 The data-quality state order, including the poll
+
+The one recipe that proves the `WaitForQuery → CheckQuery → Choice` loop iterates. Drive a check
+from the UI, take its execution ARN, then:
+
+```bash
+aws stepfunctions get-execution-history --execution-arn "$EXEC_ARN" \
+  --query "events[?type=='TaskStateEntered' || type=='WaitStateEntered'].stateEnteredEventDetails.name" \
+  --output text
+```
+
+Expect, in order: `ValidateAuthorize InspectSource CreateTempTables StartProfileQuery WaitForQuery
+CheckQuery WaitForQuery CheckQuery ByteScan AssembleReport DropTempTables`. **`WaitForQuery` and
+`CheckQuery` must each appear twice** — a single pass is a poll that never polled, and it reads as a
+pass.
+
+### 2.4 Reading the archive audit trail
 
 `RestoreObject` is a **data** event, invisible in CloudTrail Event history — SPEC-186 FR-004 added a
 dedicated trail. **Prove the trail is logging first.** A trail that is off returns an empty result,
@@ -218,7 +246,7 @@ would touch.
 - **After a refused restore: expect NO OUTPUT.** That is the assertion.
 - **During a real retrieval: expect exactly the archive's object count** (`| sort -u | wc -l`).
 
-### 2.4 EventBridge timeout doors, and share-at-scale reads
+### 2.5 EventBridge timeout doors, and share-at-scale reads
 
 ```bash
 # The rule matches TIMED_OUT only — a FAILED in the pattern double-notifies every caught failure.
@@ -259,7 +287,7 @@ aws glue get-table --database-name "<recipient-db>" --name "<result-name>" \
   --query 'length(StorageDescriptor.Columns[?Comment!=`null`])'      # expect 100
 ```
 
-### 2.5 The verification role
+### 2.6 The verification role
 
 **Do not apply it locally.** No human identity here can `tofu apply` from a laptop: the IAM user is
 not on the data buckets' policy allowlists, so tofu reads them as **absent** and plans to destroy
@@ -282,7 +310,7 @@ The role is audit-shaped, not a data grant: no `SELECT`, no `DATA_LOCATION_ACCES
 `verification_principal_arns` names a principal, because delegating to the account root was
 rejected by the plan scan (`CKV_AWS_61`) for the right reason.
 
-### 2.6 The `username` principal tag, from the audit record
+### 2.7 The `username` principal tag, from the audit record
 
 The tag is stamped **server-side** from the verified claim, which is the whole isolation model —
 and it is unobservable from the app. Sign in on a **fresh** session (credentials are issued at token
@@ -303,7 +331,7 @@ Expect `"username":"<the signed-in username>"`. In the browser, `GetId` and
 `GetCredentialsForIdentity` both return **200** on the `cognito-identity` host — that is the
 User-Pool-token → AWS-credentials exchange, and without it there is no STS event to find.
 
-### 2.7 IAM policy simulation
+### 2.8 IAM policy simulation
 
 The pattern, whenever a grant is tightened or widened. **Every denial needs an `allowed` control on
 the same bucket** — an `implicitDeny` alone cannot tell an ungranted action from a wrong resource

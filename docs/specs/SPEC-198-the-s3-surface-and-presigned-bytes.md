@@ -851,7 +851,7 @@ start (SPEC-137 shipped instrumented code whose attachment was missing while eve
 - A same-folder copy: **one** free-name call, and the proposed name is `{name} (1)`.
 - The SPEC-159 sequence: corrupt `query-history.json` by hand, load the Query workspace, confirm the
   quarantine object appears with its random token and the app recovers.
-- **`e2e.md` check 2**, still owed since SPEC-186: delete `{root}saved_queries/DO_NOT_DELETE.txt`
+- **`owed.md` §2.1**, still owed since SPEC-186: delete `{root}saved_queries/DO_NOT_DELETE.txt`
   through the API with `curl` and confirm the bucket-policy `AccessDenied`. It needs portal-role
   credentials, which the API now holds — this is the first time the check is runnable.
 - FR-013, in order: the two foreign-space `GET /v1/objects` refusals (403 `AccessDenied`, envelope-shaped,

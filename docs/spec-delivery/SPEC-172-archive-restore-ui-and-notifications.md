@@ -151,5 +151,5 @@ producer routes are asserted. The failure that guard really exists for is `"$.ac
 ## Live check owed
 
 The whole flow, in Safari, at 400px and desktop — appended to
-`docs/testing/e2e.md` as *SPEC-172*. It is the arc's fourth owed check and the only
+`docs/testing/e2e.md` §4.11. It is the arc's fourth owed check and the only
 one that exercises the browser at all.

@@ -120,10 +120,8 @@ regenerated copy silently changes the row counts the checks assert. It builds th
 
 ```bash
 cd "$SCRATCH" && python3 - <<'PY'
-import csv, random
-random.seed(7)
+import csv
 regions = ["north","south","east","west"]
-owners  = ["Smith","Jones","O'Brien","Nakamura","Okafor"]
 def w(name, header, rows):
     with open(name,"w",newline="") as f:
         wr = csv.writer(f, lineterminator="\n")   # LF, NOT csv's default CRLF

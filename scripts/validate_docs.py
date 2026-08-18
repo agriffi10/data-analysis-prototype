@@ -20,7 +20,9 @@ Attributes:
   TESTING_PERMANENT: The three files ``docs/testing/`` always holds. Anything else there must
     be the ONE script an arc in flight is allowed, or a subdirectory.
   TESTING_INFLIGHT_MAX: How many temporary per-arc scripts may exist at once. One. An arc
-    folds its script into ``e2e.md`` when it closes (``docs/process.md`` §5 step 8).
+    folds its script into ``e2e.md`` when it closes (``docs/process.md`` §5 step 8). Only a
+    ``*-e2e.md`` name counts as one — a dated session file is refused on its name alone, and
+    does not merely consume the slot, because the slot may be free.
   CLAUDE_MAX_BYTES: The always-loaded file's budget. It was 121,098 bytes before the cut.
   DIGEST_MAX_CHARS: The longest a single Key Decisions line may be. The digest is a reminder
     with the reasoning in ``decisions.md``; past this length it has become the reasoning.
@@ -83,8 +85,16 @@ def check_testing_layout() -> list[str]:
     """
     found = {p.name for p in (ROOT / "docs" / "testing").glob("*.md")}
     missing = sorted(TESTING_PERMANENT - found)
-    inflight = sorted(found - TESTING_PERMANENT)
+    others = sorted(found - TESTING_PERMANENT)
+    inflight = [name for name in others if name.endswith("-e2e.md")]
     errors = [f"docs/testing/{name} is missing" for name in missing]
+    for name in others:
+        if not name.endswith("-e2e.md"):
+            errors.append(
+                f"docs/testing/{name} is neither the guide, the ledger, the log, nor an arc "
+                "script. A session write-up is a dated SECTION at the top of sessions.md, never "
+                "its own file — that is what made this directory sixteen files."
+            )
     if len(inflight) > TESTING_INFLIGHT_MAX:
         errors.append(
             f"docs/testing/ holds {len(inflight)} arc scripts ({', '.join(inflight)}); "
@@ -277,6 +287,36 @@ def check_links() -> list[str]:
     return errors
 
 
+def check_section_pointers() -> list[str]:
+    """Refuse a ``§N.N`` pointer into ``owed.md`` that names no section.
+
+    Renumbering is what breaks these, and it breaks them silently: a reader following
+    "the recipe is in §2.6" lands on the wrong procedure rather than on nothing, which is
+    worse than a 404. Inserting one section shifted five references in a single pass.
+
+    Args:
+      None.
+
+    Returns:
+      One message per pointer naming a section that does not exist.
+
+    Raises:
+      None.
+    """
+    ledger = ROOT / "docs" / "testing" / "owed.md"
+    sections = set(re.findall(r"^### (\d+\.\d+) ", ledger.read_text(), re.MULTILINE))
+    errors = []
+    for path in [ROOT / "CLAUDE.md", *sorted((ROOT / "docs").rglob("*.md"))]:
+        text = path.read_text()
+        for match in re.finditer(r"(owed\.md`?[^.\n]{0,40}?|^)§(\d+\.\d+)", text, re.MULTILINE):
+            cites_ledger = "owed.md" in match.group(1) or path == ledger
+            if cites_ledger and match.group(2) not in sections:
+                errors.append(
+                    f"{path.relative_to(ROOT)}: §{match.group(2)} names no section of owed.md"
+                )
+    return errors
+
+
 def check_doc_paths_everywhere() -> list[str]:
     """Refuse a reference to a missing ``docs/`` file from ANY tracked source file.
 
@@ -285,9 +325,9 @@ def check_doc_paths_everywhere() -> list[str]:
     only ``*.md`` reported the tree clean. A path in a comment is read by whoever is standing in
     that file, which is exactly when it is trusted most.
 
-    Scoped to ``.md`` targets and skipping test files: a fixture's fake S3 key (`docs/2024/q1.csv`
-    in the file-browser suite) is not a documentation pointer, and a checker that cries wolf on one
-    gets switched off.
+    Scoped to ``.md`` targets, which is enough on its own — the fixture keys that look like doc
+    paths (`docs/2024/q1.csv` in the file-browser suite) carry data extensions and cannot match. A
+    skip for test files was tried and removed: it hid two valid references and bought no accuracy.
 
     Args:
       None.
@@ -304,8 +344,6 @@ def check_doc_paths_everywhere() -> list[str]:
     errors = []
     for path in sorted(ROOT.rglob("*")):
         if path.suffix not in suffixes or any(part in skip for part in path.parts):
-            continue
-        if "test" in path.name:
             continue
         try:
             text = path.read_text()
@@ -340,6 +378,7 @@ def main() -> int:
         check_spec_status,
         check_delivery_size,
         check_links,
+        check_section_pointers,
         check_doc_paths_everywhere,
     ):
         errors.extend(check())
