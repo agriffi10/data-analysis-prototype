@@ -456,7 +456,7 @@ a different principal, and LF filters its catalog to empty (SPEC-186 FR-004's ow
       `SELECT` run through `athena.start` against the caller's own database reaches `SUCCEEDED` and
       returns rows — the observation the arc's central claim rests on, and the discharge of SPEC-196
       Phase 5 item 4. It is recorded against **both** specs by date, in
-      `docs/testing/api-catalog-e2e.md`, and SPEC-196's delivery doc gains a pointer to it. An offline
+      `docs/testing/arc-b-api-container-e2e.md`, and SPEC-196's delivery doc gains a pointer to it. An offline
       test cannot stand in: every one of them supplies its own botocore fixture and can only prove what
       it was told.
 - [ ] **The route adds no membership or existence check of its own.** It passes the path's database
@@ -797,8 +797,9 @@ apps/portal/src/
 
 ### Phase 5: Verification
 
-Real invocations against the deployed API, written as a runnable script at
-`docs/testing/api-catalog-e2e.md`. **What nothing offline can prove:** that Lake Formation authorizes
+Real invocations against the deployed API, as a new section of
+`docs/testing/arc-b-api-container-e2e.md`. **What nothing offline can prove:** that Lake Formation
+authorizes
 the assumed-role session at all (LF is not modelled by the IAM simulator, and every offline test here
 supplies its own botocore fixture); that a real Athena engine message still matches the wording rules
 after a JSON round trip; and that the browser has genuinely stopped talking to Athena and Glue.

@@ -18,7 +18,7 @@ Deliver the complete journey from "I don't have an account" to "I'm signed in lo
 - First-login experience: a newly confirmed user lands authenticated on `/files`
 - Handled failure paths: abandoned signup, expired/wrong verification code, duplicate username/email — app never breaks on return
 - Username guidance: surface the constraint that usernames become S3 prefixes/session tags (≤64 chars, `a-z A-Z 0-9 = , . @ - _`)
-- A written end-to-end test script (`docs/testing/auth-e2e.md`) covering signup → verify → login → gated access → logout → re-login
+- A written end-to-end test script (`docs/testing/e2e.md`) covering signup → verify → login → gated access → logout → re-login
 
 ### Out of Scope
 
@@ -94,7 +94,7 @@ A repeatable manual test script proves the whole auth stack (SPEC-006→009) wor
 
 #### Acceptance Criteria:
 
-- [ ] `docs/testing/auth-e2e.md` exists with numbered steps and expected results for: fresh signup with a real email → receive code → confirm → land on `/files` → refresh → logout → login → access `/files` directly while signed out (redirected) → forgot-password smoke test
+- [ ] `docs/testing/e2e.md` exists with numbered steps and expected results for: fresh signup with a real email → receive code → confirm → land on `/files` → refresh → logout → login → access `/files` directly while signed out (redirected) → forgot-password smoke test
 - [ ] The script includes cleanup steps (delete test user via `aws cognito-idp admin-delete-user`)
 - [ ] The script has been executed once against the deployed CloudFront environment with all steps passing, and the execution date is recorded in the doc
 
@@ -142,7 +142,7 @@ infra/modules/auth/
 └── cognito.tf                     ← + verification_message_template
 
 docs/testing/
-└── auth-e2e.md                    ← NEW: end-to-end acceptance script
+└── e2e.md                    ← NEW: end-to-end acceptance script
 ```
 
 ## Implementation Phases
@@ -159,7 +159,7 @@ docs/testing/
 ### Phase 2: Journey hardening + E2E script
 
 - Walk and fix all failure paths (FR-004); confirm first-login behavior (FR-003)
-- Write `docs/testing/auth-e2e.md` and execute it fully against the deployed environment (FR-005)
+- Write `docs/testing/e2e.md` and execute it fully against the deployed environment (FR-005)
 
 #### Checkpoint
 
@@ -168,5 +168,5 @@ The full E2E script passes against CloudFront with a real email address, every s
 ## Open Questions
 
 - [x] **Resolved (2026-06-10):** username constraints are enforced server-side by a pre-signup trigger Lambda — SPEC-012. Guidance here (FR-001) mirrors that rule.
-- [x] **Resolved (2026-06-11):** the Hosted UI does **not** auto-sign-in after code confirmation — one explicit login is required before reaching `/files`. Verified in the SPEC-009 E2E run against deployed CloudFront; reflected in FR-003 and `docs/testing/auth-e2e.md`.
+- [x] **Resolved (2026-06-11):** the Hosted UI does **not** auto-sign-in after code confirmation — one explicit login is required before reaching `/files`. Verified in the SPEC-009 E2E run against deployed CloudFront; reflected in FR-003 and `docs/testing/e2e.md`.
 - [x] **Resolved (2026-06-10):** no signup monitoring for MVP; revisit before any public exposure.

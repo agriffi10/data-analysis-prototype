@@ -167,7 +167,7 @@ prevent for `athenaresults/`.
       > bucket's name out of the SPA entirely and a test enforces the absence — and the bucket adds
       > no discrimination, since it is one constant across every restore. The archive ROOT alone is
       > used, and its `personal/`/`shared/` segment already makes it unique. `decisions.md` carries
-      > the reasoning; `docs/testing/archive-restore-e2e.md` was corrected to match.
+      > the reasoning; `docs/testing/e2e.md` was corrected to match.
 - [ ] The body carries the ID token and **never a username**; the actor is derived server-side.
 - [ ] Success means *enqueued*, not done — the hooks expose a pending state and never a completion.
 - [ ] The feature lives at `src/features/archive/` with the standard barrel, and imports nothing from

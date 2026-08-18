@@ -26,8 +26,9 @@ drifting patterns one home each.
   `ENV_NAME` now ships on **every** Lambda (was two modules).
 - **`infra/modules/verification/`** — a CloudTrail trail over the archive vault's object-level
   events and a read-only role, with its Lake Formation half granted in `modules/analytics`.
-- **`docs/testing/saved-queries-e2e.md`** (new), and corrections to `archive-restore-e2e.md` and
-  `table-builder-e2e.md`.
+- **Three corrected live-check scripts** — the saved-queries one (new) and corrections to the
+  table-builder and Data Explorer ones. All three were folded into `docs/testing/e2e.md` and
+  `docs/testing/owed.md` on 2026-08-18.
 
 ## The decisions worth carrying
 
@@ -112,14 +113,15 @@ written down in `components/dialogChrome.ts`, which also holds the class strings
 **Owed, and this spec's own additions to the pile are small.** FR-004 built the access that unblocks
 five previously-unrunnable assertions rather than running them:
 
-- **`docs/testing/saved-queries-e2e.md`** — both checks. Check 1 (the client-side refusal, personal
+- **Saved queries, both layers** (`docs/testing/e2e.md` §4.7 and `docs/testing/owed.md` §2.1).
+  Check 1 (the client-side refusal, personal
   and shared) is a two-minute browser pass; check 2 (the bucket-policy Deny) needs portal-role
   credentials via the CLI and is the layer SPEC-173's original check was actually about.
-- **`docs/testing/archive-restore-e2e.md`** — SPEC-170's negative assertion now reads from
+- **Archive and restore** (`docs/testing/e2e.md` §4.11) — SPEC-170's negative assertion now reads from
   `dat-prod-archive-audit`. **Confirm `get-trail-status` reports `IsLogging: true` first**: an empty
   result from a trail that is off reads exactly like a `RestoreObject` that never happened. Data
   events arrive in batches — wait ~10 minutes.
-- **`docs/testing/table-builder-e2e.md`** — the add-a-column fixture must name the new file so it
+- **Table refresh** (`docs/testing/e2e.md` §4.4) — the add-a-column fixture must name the new file so it
   **sorts first** (`part0.csv`), and SPEC-157's contention needs an SQS double-send or a
   several-hundred-object folder; two UI submits 2 s apart are measured not to contend.
 - **SPEC-149's preservation check and SPEC-153's foreign projection fixture** are now makeable, from
@@ -140,7 +142,7 @@ five previously-unrunnable assertions rather than running them:
   > corroborates and does not discharge them: **Safari is still owed**, as is **400px** (not
   > reachable by window resize on macOS — Chrome's minimum is 606px) and the **ninth dialog**
   > (`SaveQueryDialog`'s "nowhere to save" state, which needs the personal space unavailable).
-  > FR-005 **is** discharged. Evidence: `docs/testing/2026-08-15-data-explorer-live-check.md`.
+  > FR-005 **is** discharged. Evidence: `docs/testing/sessions.md`.
 
 **Not verifiable offline:** that CloudTrail actually records `RestoreObject` for this bucket's
 object-level calls (the selector is built from the documented shape), that the DESCRIBE tag grant is

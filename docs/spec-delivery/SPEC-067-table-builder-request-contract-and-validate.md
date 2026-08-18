@@ -7,7 +7,7 @@ The **request envelope**, the browser's one new grant, and the first **real** pi
 statements to existing roles + a new CI layer, no new resource type, so no deploy-IAM-first split
 (the SPEC-061 precedent).
 
-- **Request contract** (documented in `docs/testing/table-builder-e2e.md`): `{ idToken, space:
+- **Request contract** (documented in `docs/testing/e2e.md`): `{ idToken, space:
   {kind,bucket,prefix,database}, tableName, partitionKeys[], requestId }`. Sent FIFO,
   `MessageGroupId` = `space.database`, `MessageDeduplicationId` = `requestId`. `partitionKeys` empty
   = flat.

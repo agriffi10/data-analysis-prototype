@@ -83,7 +83,7 @@ Recorded because the shapes recur:
 
 ## Owed live check
 
-**`docs/testing/file-send-e2e.md` → *SPEC-164*.** Nothing here has run against AWS. A shared
+**`docs/testing/e2e.md` §4.9 Send files.** Nothing here has run against AWS. A shared
 layer's import-time failure only appears at **cold start**, which no test and no deploy can see
 (PR #196), so this must be a real invocation.
 

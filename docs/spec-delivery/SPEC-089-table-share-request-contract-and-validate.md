@@ -22,4 +22,4 @@ In-session decisions (reversible, documented):
 
 ## Verification
 
-15 validate unit tests (direct-run + pytest-compatible), full vitest suite 1011 (8 new `enqueueTableShare` tests incl. dedup-id stability/order-insensitivity), `tofu fmt`/`validate`, ASL + policy templates render valid. Live post-merge check: forged/absent token → execution `Failed` with `RecordFailure.reason = unauthorized…` (documented in `docs/testing/table-share-e2e.md`); the valid path isn't CLI-testable (no CLI-mintable ID token — same as SPEC-051/067). No Help change (no user-facing surface until SPEC-093).
+15 validate unit tests (direct-run + pytest-compatible), full vitest suite 1011 (8 new `enqueueTableShare` tests incl. dedup-id stability/order-insensitivity), `tofu fmt`/`validate`, ASL + policy templates render valid. Live post-merge check: forged/absent token → execution `Failed` with `RecordFailure.reason = unauthorized…` (documented in `docs/testing/e2e.md`); the valid path isn't CLI-testable (no CLI-mintable ID token — same as SPEC-051/067). No Help change (no user-facing surface until SPEC-093).

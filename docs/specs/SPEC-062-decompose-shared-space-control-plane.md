@@ -61,7 +61,7 @@ identical — this is structure, observable behavior is preserved.
   provisioner row**; deploy-role IAM (`infra/modules/base/policies/`) expands for the new functions/roles
   (incl. the new `iam:PassRole` targets); the old `shared-space-provisioner` function + role + tests are
   **removed** at cutover.
-- **Behavior parity + e2e** — `docs/testing/shared-spaces-e2e.md` re-validated: create/add/remove/leave/
+- **Behavior parity + e2e** — `docs/testing/e2e.md` re-validated: create/add/remove/leave/
   delete produce the same end state as before; per-verb Python test suites replace the monolith's single
   suite.
 - **Architecture record update** — `docs/shared-spaces-architecture.md` §2/§7 + CLAUDE.md Key Decision
@@ -199,7 +199,7 @@ Creating a space provisions only the creator; members are added afterward from t
   membership slots, per-user caches, notifications) as before.
 - [ ] The old `lambdas/shared-space-provisioner/` function, its IAM role, and its single test suite are
   **removed** at cutover; `deploy-lambdas.yml` drops the provisioner matrix row and adds the new ones.
-- [ ] `docs/testing/shared-spaces-e2e.md` is re-run/updated to prove parity across create/add/remove/leave/
+- [ ] `docs/testing/e2e.md` is re-run/updated to prove parity across create/add/remove/leave/
   delete.
 
 ### FR-008: Tests + lint
@@ -260,7 +260,7 @@ infra/modules/shared-spaces/
 
 infra/modules/base/policies/        ← deploy-role IAM for the new functions + roles + PassRole (FR-005)
 .github/workflows/deploy-lambdas.yml← matrix rows per new function; drop provisioner row (FR-007)
-docs/testing/shared-spaces-e2e.md   ← parity re-validation (FR-007)
+docs/testing/e2e.md   ← parity re-validation (FR-007)
 docs/shared-spaces-architecture.md  ← §2/§7 updated to multi-Lambda orchestration
 ```
 

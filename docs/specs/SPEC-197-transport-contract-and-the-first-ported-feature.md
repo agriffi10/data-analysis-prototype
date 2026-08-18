@@ -857,7 +857,8 @@ apps/portal/src/
 
 ### Phase 5: Verification
 
-Written as a runnable script at `docs/testing/api-transport-e2e.md`. What nothing offline can prove:
+Written as a new section of `docs/testing/arc-b-api-container-e2e.md`. What nothing offline can
+prove:
 that the `cpcommon` layer attaches at **cold start** (SPEC-137 shipped instrumented code whose
 attachment was missing while every offline gate passed), that a real browser's preflight is satisfied
 by the deployed CORS block, and that an assumed-role credential minted inside a Lambda actually reaches

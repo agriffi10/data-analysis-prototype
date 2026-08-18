@@ -12,46 +12,157 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 
 ## Contents
 
+149 entries, one heading each. **Jump to the one you need — never read this file whole.**
+
 - [Auth](#auth)
 - [Hosted UI = Managed Login v2](#hosted-ui--managed-login-v2)
 - [No backend](#no-backend)
 - [State](#state)
 - [File ops = filesystem UX](#file-ops--filesystem-ux)
-- [Analytics (032→036)](#analytics-spec-032036)
+- [Analytics (SPEC-032→036)](#analytics-spec-032036)
 - [Usernames](#usernames)
-- [Query workspace has NO active database (077)](#query-workspace-has-no-active-database-spec-077)
-- [Multi-statement scripts (078)](#multi-statement-scripts-spec-078)
+- [Query workspace has NO active database (SPEC-077)](#query-workspace-has-no-active-database-spec-077)
+- [Multi-statement scripts (SPEC-078)](#multi-statement-scripts-spec-078)
 - [Bucket 2 (shared-space)](#bucket-2-shared-space)
-- [Member join status (073)](#member-join-status-spec-073)
-- [Member roster for members (075)](#member-roster-for-members-spec-075)
-- [Table Builder (066→072)](#table-builder-spec-066072)
-- [Table Share (088→094)](#table-share-spec-088094)
-- [Data-quality report view (113)](#data-quality-report-view-spec-113)
-- [Data-quality outcome notifications (114)](#data-quality-outcome-notifications-spec-114)
-- [Data-quality runs index + dashboard (123)](#data-quality-runs-index--dashboard-spec-123)
-- [Control-plane DLQ drain → user notification (126)](#control-plane-dlq-drain--user-notification-spec-126)
-- [Structured-logging pipe (127→129)](#structured-logging-pipe-spec-127129)
-- [Structured-logging narrative primitives & the one-door rule (130/131)](#structured-logging-narrative-primitives--the-one-door-rule-spec-130131)
-- [The field rule — what may be logged (130)](#the-field-rule--what-may-be-logged-spec-130)
-- [Per-plane instrumentation rules (132→137)](#per-plane-instrumentation-rules-spec-132137)
-- [Control-plane table creation = TBAC (070/111 correction)](#control-plane-table-creation--tbac-spec-070111-correction)
-- [No ASL state decodes an error Cause (PR #252)](#no-asl-state-decodes-an-error-cause-pr-252-control-plane-wide)
+- [Member join status (SPEC-073)](#member-join-status-spec-073)
+- [Member roster for members (SPEC-075)](#member-roster-for-members-spec-075)
+- [Table Builder (SPEC-066→072)](#table-builder-spec-066072)
+- [Table Share (SPEC-088→094)](#table-share-spec-088094)
+- [Everything unbounded on the state travels by pointer — including the definition (SPEC-161, extending SPEC-090/160)](#everything-unbounded-on-the-state-travels-by-pointer--including-the-definition-spec-161-extending-spec-090160)
+- [Every control-plane machine that can run for hours declares a TimeoutSeconds (SPEC-161)](#every-control-plane-machine-that-can-run-for-hours-declares-a-timeoutseconds-spec-161)
+- [Data-quality report view (SPEC-113)](#data-quality-report-view-spec-113)
+- [Data-quality outcome notifications (SPEC-114)](#data-quality-outcome-notifications-spec-114)
+- [Data-quality runs index + dashboard (SPEC-123)](#data-quality-runs-index--dashboard-spec-123)
+- [Control-plane DLQ drain → user notification (SPEC-126)](#control-plane-dlq-drain--user-notification-spec-126)
+- [Structured-logging pipe (SPEC-127→129)](#structured-logging-pipe-spec-127129)
+- [Structured-logging narrative primitives & the one-door rule (SPEC-130/131)](#structured-logging-narrative-primitives--the-one-door-rule-spec-130131)
+- [The field rule — what may be logged (SPEC-130)](#the-field-rule--what-may-be-logged-spec-130)
+- [Per-plane instrumentation rules (SPEC-132→137)](#per-plane-instrumentation-rules-spec-132137)
+- [Control-plane table creation = TBAC (SPEC-070/111 correction)](#control-plane-table-creation--tbac-spec-070111-correction)
+- [No ASL state decodes an error Cause (PR #252, control-plane-wide)](#no-asl-state-decodes-an-error-cause-pr-252-control-plane-wide)
 - [IaC](#iac)
 - [Dev-unauth path](#dev-unauth-path)
-- [Notifications (058→061)](#notifications-spec-058061)
-- [Responsive (095)](#responsive-spec-095)
-- [Help & guides (074)](#help--guides-spec-074)
-- [User-facing error messaging (106)](#user-facing-error-messaging-spec-106)
-- [Security scanning (138)](#security-scanning-spec-138)
-- [IAM policy scanning = the rendered plan, not the templates (139)](#iam-policy-scanning--the-rendered-plan-not-the-templates-spec-139)
+- [Notifications (SPEC-058→061)](#notifications-spec-058061)
+- [Responsive (SPEC-095)](#responsive-spec-095)
+- [Help & guides (SPEC-074)](#help--guides-spec-074)
+- [User-facing error messaging (SPEC-106)](#user-facing-error-messaging-spec-106)
+- [Security scanning (SPEC-138)](#security-scanning-spec-138)
+- [IAM policy scanning = the rendered plan, not the templates (SPEC-139)](#iam-policy-scanning--the-rendered-plan-not-the-templates-spec-139)
+- [A scanner gate blocks on a narrowed count, never a total (2026-08-09, completes SPEC-138)](#a-scanner-gate-blocks-on-a-narrowed-count-never-a-total-2026-08-09-completes-spec-138)
 - [Deploy-role refresh deadlock has an in-repo lever (`skip_refresh`)](#deploy-role-refresh-deadlock-has-an-in-repo-lever-skip_refresh)
-- [Response headers / CSP (140)](#response-headers--csp-spec-140)
-- [Static-asset caching = three prefix-scoped sync passes (141)](#static-asset-caching--three-prefix-scoped-sync-passes-spec-141)
-- [The username directory is built from S3, not Cognito (146)](#the-username-directory-is-built-from-s3-not-cognito-spec-146)
-- [Every authenticated user can read the username directory (146)](#every-authenticated-user-can-read-the-username-directory-spec-146)
-- [Compiler and coverage defaults are declared, never inherited (150)](#compiler-and-coverage-defaults-are-declared-never-inherited-spec-150)
-- [A partial teardown never frees the space name (151)](#a-partial-teardown-never-frees-the-space-name-spec-151)
-- [Every DDL literal goes through `literal()` (151)](#every-ddl-literal-goes-through-literal-spec-151)
+- [Response headers / CSP (SPEC-140)](#response-headers--csp-spec-140)
+- [Static-asset caching = three prefix-scoped sync passes (SPEC-141)](#static-asset-caching--three-prefix-scoped-sync-passes-spec-141)
+- [Refresh eligibility turns on SHAPE, never on a marker (SPEC-143)](#refresh-eligibility-turns-on-shape-never-on-a-marker-spec-143)
+- [Removing a column requires an explicit opt-in, and the refusal IS the warning (SPEC-144)](#removing-a-column-requires-an-explicit-opt-in-and-the-refusal-is-the-warning-spec-144)
+- [The refresh apply replaces the definition in place (SPEC-149, supersedes SPEC-144's apply)](#the-refresh-apply-replaces-the-definition-in-place-spec-149-supersedes-spec-144s-apply)
+- [A per-table lock serializes refresh, because the catalog cannot (SPEC-157)](#a-per-table-lock-serializes-refresh-because-the-catalog-cannot-spec-157)
+- [The username directory is built from S3, not Cognito (SPEC-146)](#the-username-directory-is-built-from-s3-not-cognito-spec-146)
+- [Every authenticated user can read the username directory (SPEC-146)](#every-authenticated-user-can-read-the-username-directory-spec-146)
+- [Compiler and coverage defaults are declared, never inherited (SPEC-150)](#compiler-and-coverage-defaults-are-declared-never-inherited-spec-150)
+- [A partial teardown never frees the space name (SPEC-151)](#a-partial-teardown-never-frees-the-space-name-spec-151)
+- [Every DDL literal goes through `literal()` (SPEC-151)](#every-ddl-literal-goes-through-literal-spec-151)
+- [Every plane notifies on a pre-verb failure, and `failure_reason` is the only decoder (SPEC-152)](#every-plane-notifies-on-a-pre-verb-failure-and-failure_reason-is-the-only-decoder-spec-152)
+- [A layer gate must check the copy list, not the flag map (SPEC-153)](#a-layer-gate-must-check-the-copy-list-not-the-flag-map-spec-153)
+- [`ACCEPTED_` tripwires: what the project knows it has not verified (SPEC-153)](#accepted_-tripwires-what-the-project-knows-it-has-not-verified-spec-153)
+- [`components/` may not import from `features/` (SPEC-155)](#components-may-not-import-from-features-spec-155)
+- [Dialog Enter-to-submit fires from ONE field, never from the form (SPEC-155)](#dialog-enter-to-submit-fires-from-one-field-never-from-the-form-spec-155)
+- [Escape dispatches by tree depth, not per-component opt-out (SPEC-155, supersedes `closeOnEscape`)](#escape-dispatches-by-tree-depth-not-per-component-opt-out-spec-155-supersedes-closeonescape)
+- [The byte formatters share a unit ceiling, and it goes to TB (SPEC-155 FR-007)](#the-byte-formatters-share-a-unit-ceiling-and-it-goes-to-tb-spec-155-fr-007)
+- [The deliberate twins are discharged: one implementation per cross-plane helper (SPEC-156)](#the-deliberate-twins-are-discharged-one-implementation-per-cross-plane-helper-spec-156)
+- [No shared-space directory is published; suggestions come from your own cache (SPEC-158)](#no-shared-space-directory-is-published-suggestions-come-from-your-own-cache-spec-158)
+- [An unreadable settings document is quarantined, never deleted and never overwritten (SPEC-159)](#an-unreadable-settings-document-is-quarantined-never-deleted-and-never-overwritten-spec-159)
+- [The copy is a top-level Distributed Map, and attribution is a verb (SPEC-160)](#the-copy-is-a-top-level-distributed-map-and-attribution-is-a-verb-spec-160)
+- [A feature flag is presentation, never authorization — and it lives beside the username directory (SPEC-162)](#a-feature-flag-is-presentation-never-authorization--and-it-lives-beside-the-username-directory-spec-162)
+- [Gating is by REGISTRY, not per-component opt-in (SPEC-163)](#gating-is-by-registry-not-per-component-opt-in-spec-163)
+- [The file-send plane is its own, and its front door is bounded by a chain (SPEC-164)](#the-file-send-plane-is-its-own-and-its-front-door-is-bounded-by-a-chain-spec-164)
+- [A received file lands in `shared_files/{sender}/`, and one function builds every key (SPEC-165)](#a-received-file-lands-in-shared_filessender-and-one-function-builds-every-key-spec-165)
+- [The file-send exclusion rule is anchored at the space root, not the listing prefix (SPEC-165)](#the-file-send-exclusion-rule-is-anchored-at-the-space-root-not-the-listing-prefix-spec-165)
+- [The expansion caps are sized by memory and makespan, and the obvious models miss both (SPEC-165)](#the-expansion-caps-are-sized-by-memory-and-makespan-and-the-obvious-models-miss-both-spec-165)
+- [A post-identity failure needs its own seed, and the fleet guard cannot see it (SPEC-165)](#a-post-identity-failure-needs-its-own-seed-and-the-fleet-guard-cannot-see-it-spec-165)
+- [An expected refusal is a return value, and a conflict is per item NAME (SPEC-166)](#an-expected-refusal-is-a-return-value-and-a-conflict-is-per-item-name-spec-166)
+- [The transfer caps are three, and each is measured against a different budget (SPEC-166)](#the-transfer-caps-are-three-and-each-is-measured-against-a-different-budget-spec-166)
+- [The machine's ceiling cannot notify on its own, and this plane's timeout door needs a fallback (SPEC-166)](#the-machines-ceiling-cannot-notify-on-its-own-and-this-planes-timeout-door-needs-a-fallback-spec-166)
+- [One producer says every per-recipient outcome, and the link carries the recipient's own root (SPEC-167)](#one-producer-says-every-per-recipient-outcome-and-the-link-carries-the-recipients-own-root-spec-167)
+- [A saved query is a FILE, and the folder holding it is ordinary except in one respect (SPEC-173)](#a-saved-query-is-a-file-and-the-folder-holding-it-is-ordinary-except-in-one-respect-spec-173)
+- [Every `DO_NOT_DELETE.txt` is hidden by BASENAME, and the whole arc needs no IaC change (SPEC-173)](#every-do_not_deletetxt-is-hidden-by-basename-and-the-whole-arc-needs-no-iac-change-spec-173)
+- [`saved_queries/` is gated on `query`, and the gate is not the refusal (SPEC-173)](#saved_queries-is-gated-on-query-and-the-gate-is-not-the-refusal-spec-173)
+- [A display page is not a listing page, and the space selector is gated (SPEC-174)](#a-display-page-is-not-a-listing-page-and-the-space-selector-is-gated-spec-174)
+- [A save chooses its space, and one KEY rule decides what that replaces (SPEC-175)](#a-save-chooses-its-space-and-one-key-rule-decides-what-that-replaces-spec-175)
+- [The archive vault, and the four choices that shape the whole arc (SPEC-168)](#the-archive-vault-and-the-four-choices-that-shape-the-whole-arc-spec-168)
+- [`GLACIER`, and why the other two were rejected](#glacier-and-why-the-other-two-were-rejected)
+- [Retention is a CEILING, not a WORM floor — and the lifecycle rule is unfiltered on purpose](#retention-is-a-ceiling-not-a-worm-floor--and-the-lifecycle-rule-is-unfiltered-on-purpose)
+- [The bucket the browser has no relationship with](#the-bucket-the-browser-has-no-relationship-with)
+- [The key layout: the archived key carries its own origin, partitioned by space kind](#the-key-layout-the-archived-key-carries-its-own-origin-partitioned-by-space-kind)
+- [One plane, one `mode` branch, and no grant this spec did not need](#one-plane-one-mode-branch-and-no-grant-this-spec-did-not-need)
+- [Two things the fleet's own guards caught while this was being written](#two-things-the-fleets-own-guards-caught-while-this-was-being-written)
+- [The commit gate, and the four choices that make a deletion safe (SPEC-169)](#the-commit-gate-and-the-four-choices-that-make-a-deletion-safe-spec-169)
+- [The source is deleted only when EVERY object is confirmed copied](#the-source-is-deleted-only-when-every-object-is-confirmed-copied)
+- [The rollback deletes what is THERE, not what it was told about](#the-rollback-deletes-what-is-there-not-what-it-was-told-about)
+- [The delete grant is the one this role could not inherit](#the-delete-grant-is-the-one-this-role-could-not-inherit)
+- [The request id is browser-supplied, so a reused one is refused twice over](#the-request-id-is-browser-supplied-so-a-reused-one-is-refused-twice-over)
+- [An object this plane could copy but could not delete is refused, not archived](#an-object-this-plane-could-copy-but-could-not-delete-is-refused-not-archived)
+- [The artifacts are ordered most durable to least, and the receipt's failure is terminal](#the-artifacts-are-ordered-most-durable-to-least-and-the-receipts-failure-is-terminal)
+- [Three caps, and the one the spec does not name](#three-caps-and-the-one-the-spec-does-not-name)
+- [The ceiling ships with its rule, again](#the-ceiling-ships-with-its-rule-again)
+- [The receipt's paths name the ROOTS, and the expansion keeps what every other plane drops](#the-receipts-paths-name-the-roots-and-the-expansion-keeps-what-every-other-plane-drops)
+- [The restore guard, and the four choices that make it safe to start a bill (SPEC-170)](#the-restore-guard-and-the-four-choices-that-make-it-safe-to-start-a-bill-spec-170)
+- [The guard is absolute, and it runs before the retrieval](#the-guard-is-absolute-and-it-runs-before-the-retrieval)
+- [The bound is botocore's connection pool, not the thread count](#the-bound-is-botocores-connection-pool-not-the-thread-count)
+- [The lookup reads the KEYS; the record is a cross-check it can do without](#the-lookup-reads-the-keys-the-record-is-a-cross-check-it-can-do-without)
+- [The space comes from the request, and the two ids are different things](#the-space-comes-from-the-request-and-the-two-ids-are-different-things)
+- [One front door, one `Validated` Pass, and two message prefixes](#one-front-door-one-validated-pass-and-two-message-prefixes)
+- [This spec adds no IAM, and that is asserted rather than assumed](#this-spec-adds-no-iam-and-that-is-asserted-rather-than-assumed)
+- [Review closed two holes, and one of them was a silent, unrecoverable deletion](#review-closed-two-holes-and-one-of-them-was-a-silent-unrecoverable-deletion)
+- [Retrieval as the point of no return, and the four asymmetries the restore introduces (SPEC-171)](#retrieval-as-the-point-of-no-return-and-the-four-asymmetries-the-restore-introduces-spec-171)
+- [The destination guard runs TWICE, because this spec turned a guarantee into a promise](#the-destination-guard-runs-twice-because-this-spec-turned-a-guarantee-into-a-promise)
+- [The retrieval Map tolerates NO failure, and the copy tolerates every one](#the-retrieval-map-tolerates-no-failure-and-the-copy-tolerates-every-one)
+- [Completion is the `Restore` header, and an ABSENT header is a failure](#completion-is-the-restore-header-and-an-absent-header-is-a-failure)
+- [The retrieval budget has deliberate headroom, and the ceiling moved for the whole plane](#the-retrieval-budget-has-deliberate-headroom-and-the-ceiling-moved-for-the-whole-plane)
+- [The restore's gate is the commit gate's MIRROR IMAGE, not its twin](#the-restores-gate-is-the-commit-gates-mirror-image-not-its-twin)
+- [The receipt is rewritten, never re-rendered, and the counts come from the run](#the-receipt-is-rewritten-never-re-rendered-and-the-counts-come-from-the-run)
+- [The metadata fix: a latent bug on all three planes, surfaced by a round trip](#the-metadata-fix-a-latent-bug-on-all-three-planes-surfaced-by-a-round-trip)
+- [The archive surface: a confirm that is not a confirm, folder names as identity, and the first prefix write gate (SPEC-172)](#the-archive-surface-a-confirm-that-is-not-a-confirm-folder-names-as-identity-and-the-first-prefix-write-gate-spec-172)
+- [The one dialog in this app where the confirm is not the default, and Enter does nothing](#the-one-dialog-in-this-app-where-the-confirm-is-not-the-default-and-enter-does-nothing)
+- [The folder names ARE the archive ids, so the folder must stay visible](#the-folder-names-are-the-archive-ids-so-the-folder-must-stay-visible)
+- [The write gate mirrors each bucket's own Deny, and averaging them gets one case wrong](#the-write-gate-mirrors-each-buckets-own-deny-and-averaging-them-gets-one-case-wrong)
+- [Only three outcomes needed a producer, and one of them had to be invented](#only-three-outcomes-needed-a-producer-and-one-of-them-had-to-be-invented)
+- [The restore's FIFO group id hashes the archive ROOT, not the bucket and the root](#the-restores-fifo-group-id-hashes-the-archive-root-not-the-bucket-and-the-root)
+- [The shared layer is extracted before its second consumer exists, and the rule that guards it had to be verified by violating it (SPEC-176)](#the-shared-layer-is-extracted-before-its-second-consumer-exists-and-the-rule-that-guards-it-had-to-be-verified-by-violating-it-spec-176)
+- [The key namespace moves with the module, and a prefix is not cosmetic](#the-key-namespace-moves-with-the-module-and-a-prefix-is-not-cosmetic)
+- [The producer decides where a type lives, not the consumer](#the-producer-decides-where-a-type-lives-not-the-consumer)
+- [`no-restricted-imports` matches the SOURCE STRING, so a sibling rule needs relative patterns](#no-restricted-imports-matches-the-source-string-so-a-sibling-rule-needs-relative-patterns)
+- [What did not move, and why](#what-did-not-move-and-why)
+- [A generalized signature is the whole point of the second extraction, and one moved constant must not be renamed (SPEC-177)](#a-generalized-signature-is-the-whole-point-of-the-second-extraction-and-one-moved-constant-must-not-be-renamed-spec-177)
+- [The renderer's signature is the rule, and the browser's first SQL value interpolation is two gates wide (SPEC-178)](#the-renderers-signature-is-the-rule-and-the-browsers-first-sql-value-interpolation-is-two-gates-wide-spec-178)
+- [A space maps to ONE database, so the picker has no database step — and a deep link resolves without asking (SPEC-179)](#a-space-maps-to-one-database-so-the-picker-has-no-database-step--and-a-deep-link-resolves-without-asking-spec-179)
+- [Geometry is keyed by NAME, NULL is kept apart from empty, and a page nobody watched is not "no rows" (SPEC-180)](#geometry-is-keyed-by-name-null-is-kept-apart-from-empty-and-a-page-nobody-watched-is-not-no-rows-spec-180)
+- [One `apply` per gesture, a numeric refusal at the INPUT, and a failure that keeps the rows (SPEC-181)](#one-apply-per-gesture-a-numeric-refusal-at-the-input-and-a-failure-that-keeps-the-rows-spec-181)
+- [Calc computes what only the browser has, grouping computes what only Athena can, and the percentage says which page it is of (SPEC-182)](#calc-computes-what-only-the-browser-has-grouping-computes-what-only-athena-can-and-the-percentage-says-which-page-it-is-of-spec-182)
+- [A saved exploration follows the flag that owns the STORE, not the one that owns the screen (SPEC-183)](#a-saved-exploration-follows-the-flag-that-owns-the-store-not-the-one-that-owns-the-screen-spec-183)
+- [A palette is measured, not chosen; a link's encoding depends on where the value lands (SPEC-184)](#a-palette-is-measured-not-chosen-a-links-encoding-depends-on-where-the-value-lands-spec-184)
+- [The palette is a bounded token set, because the contrast criterion is otherwise unassertable](#the-palette-is-a-bounded-token-set-because-the-contrast-criterion-is-otherwise-unassertable)
+- [The URL transformer's encoding is position-dependent, and both simple rules are wrong](#the-url-transformers-encoding-is-position-dependent-and-both-simple-rules-are-wrong)
+- [A rule's `scope` is a field the spec's model did not have](#a-rules-scope-is-a-field-the-specs-model-did-not-have)
+- [The raw value drives everything, and the transform lives at the cell](#the-raw-value-drives-everything-and-the-transform-lives-at-the-cell)
+- [A link in a grid is not a tab stop, and the app must not manufacture backtracking](#a-link-in-a-grid-is-not-a-tab-stop-and-the-app-must-not-manufacture-backtracking)
+- [A hidden column is still part of the row](#a-hidden-column-is-still-part-of-the-row)
+- [A stored formatting block is discarded WHOLE](#a-stored-formatting-block-is-discarded-whole)
+- [Copy is the selection-shaped tool and export is the result-shaped one, and reusing the save path meant moving it (SPEC-185)](#copy-is-the-selection-shaped-tool-and-export-is-the-result-shaped-one-and-reusing-the-save-path-meant-moving-it-spec-185)
+- [The two ways out divide on the line the whole arc divides on](#the-two-ways-out-divide-on-the-line-the-whole-arc-divides-on)
+- [A NULL and an empty string stay apart in all six formats, and quoting is what disambiguates the WORD](#a-null-and-an-empty-string-stay-apart-in-all-six-formats-and-quoting-is-what-disambiguates-the-word)
+- [A discontiguous selection copies as a rectangle, and a SQL INSERT names a placeholder](#a-discontiguous-selection-copies-as-a-rectangle-and-a-sql-insert-names-a-placeholder)
+- [Reuse required a MOVE, and the move closed a live flag defect](#reuse-required-a-move-and-the-move-closed-a-live-flag-defect)
+- [Every guide row before this spec lived in the section the Help page opens on](#every-guide-row-before-this-spec-lived-in-the-section-the-help-page-opens-on)
+- [A default that an empty string can defeat is not a default (SPEC-186)](#a-default-that-an-empty-string-can-defeat-is-not-a-default-spec-186)
+- [`??` does not fall back on `''`, and a helper returning `''` is a trap for every consumer](#-does-not-fall-back-on--and-a-helper-returning--is-a-trap-for-every-consumer)
+- [A refusal announced after the confirm is worse than no affordance at all](#a-refusal-announced-after-the-confirm-is-worse-than-no-affordance-at-all)
+- [jsdom has no layout, so a containment property must be arithmetic](#jsdom-has-no-layout-so-a-containment-property-must-be-arithmetic)
+- [The roster contradicted the connections list because a fan-out list was missing one verb](#the-roster-contradicted-the-connections-list-because-a-fan-out-list-was-missing-one-verb)
+- [A build stamp belongs to the artefact; an environment name belongs to the environment](#a-build-stamp-belongs-to-the-artefact-an-environment-name-belongs-to-the-environment)
+- [A verification principal is read-only, or it is a back door](#a-verification-principal-is-read-only-or-it-is-a-back-door)
+- [Consolidation is worth doing against a SWEEP, not against a list](#consolidation-is-worth-doing-against-a-sweep-not-against-a-list)
+- [A procedure that cannot produce its claimed outcome invites a false bug report](#a-procedure-that-cannot-produce-its-claimed-outcome-invites-a-false-bug-report)
+- [Results are read only at SUCCEEDED, and `isPending` is not a substitute (2026-08-16)](#results-are-read-only-at-succeeded-and-ispending-is-not-a-substitute-2026-08-16)
 
 ---
 
@@ -1556,9 +1667,15 @@ ONE worker at 25 MB/s, so the makespan test certifies the **distributed** case a
 object is **43,980 s** — four times over the ceiling it compares against. That is table-share's
 recorded shape word for word ("while `SHARE_MAX_TOTAL_BYTES` was 20 GiB the bound was implicit …
 raising the total to 1 TiB removed it without anything replacing it"), and this plane *starts* at
-1 TiB. Both gaps now carry a `hasattr` tripwire that **fails the day SPEC-166 adds the cap**, and
-the arithmetic is kept as an assertion so 166 inherits the size of the problem rather than
+1 TiB. Both gaps carried a `hasattr` tripwire that **failed the day SPEC-166 added the cap**, and
+the arithmetic was kept as an assertion so 166 inherited the size of the problem rather than
 re-deriving it.
+
+> **SUPERSEDED in part by SPEC-166.** The caps arrived — `SEND_MAX_OBJECT_BYTES`,
+> `SEND_MAX_TRANSFER_ITEMS`, `SEND_MAX_TRANSFER_BYTES` — with the `TimeoutSeconds` they are
+> measured against, and the `hasattr` tripwires were removed by the computed bounds that replaced
+> them. Full entry: *The three transfer caps are each measured against a DIFFERENT budget
+> (SPEC-166)*.
 
 ### A post-identity failure needs its own seed, and the fleet guard cannot see it (SPEC-165)
 
@@ -1960,7 +2077,7 @@ directions**.
 
 ---
 
-## The archive vault, and the four choices that shape the whole arc (SPEC-168)
+### The archive vault, and the four choices that shape the whole arc (SPEC-168)
 
 ### `GLACIER`, and why the other two were rejected
 
@@ -2102,7 +2219,7 @@ then crashes at **cold start**, where no test and no deploy can see it (PR #196)
 gained a public `require()` so a domain layer reaches for the fleet's one fail-fast reader rather
 than writing a second.
 
-## The commit gate, and the four choices that make a deletion safe (SPEC-169)
+### The commit gate, and the four choices that make a deletion safe (SPEC-169)
 
 ### The source is deleted only when EVERY object is confirmed copied
 
@@ -2290,7 +2407,7 @@ root folders. An empty expansion is a REFUSAL, never a success: a receipt claimi
 archived is worse than a refusal, and an empty archive prefix is indistinguishable at restore time
 from one whose objects have vanished.
 
-## The restore guard, and the four choices that make it safe to start a bill (SPEC-170)
+### The restore guard, and the four choices that make it safe to start a bill (SPEC-170)
 
 ### The guard is absolute, and it runs before the retrieval
 
@@ -2463,7 +2580,7 @@ exactly where they were" says nothing true about a restore.
 
 ---
 
-## Retrieval as the point of no return, and the four asymmetries the restore introduces (SPEC-171)
+### Retrieval as the point of no return, and the four asymmetries the restore introduces (SPEC-171)
 
 ### The destination guard runs TWICE, because this spec turned a guarantee into a promise
 
@@ -2668,7 +2785,7 @@ fail.
 
 ---
 
-## The archive surface: a confirm that is not a confirm, folder names as identity, and the first prefix write gate (SPEC-172)
+### The archive surface: a confirm that is not a confirm, folder names as identity, and the first prefix write gate (SPEC-172)
 
 ### The one dialog in this app where the confirm is not the default, and Enter does nothing
 
@@ -2779,11 +2896,11 @@ added precisely because nothing checks a space name against the User Pool — al
 globally unique. The bucket is one constant across every restore this app can make.
 
 So the canonical string is `{kind}/{name}/archive/{archiveId}/`, mirroring `arcommon.paths.
-archive_root`, and `docs/testing/archive-restore-e2e.md`'s hand-crafted command was corrected to
+archive_root`, and `docs/testing/e2e.md`'s hand-crafted command was corrected to
 match so the live check exercises the rule the browser reproduces. A test pins the derivation and
 names SPEC-168's browser isolation — not the test — as the decision to re-open if it ever fails.
 
-## The shared layer is extracted before its second consumer exists, and the rule that guards it had to be verified by violating it (SPEC-176)
+### The shared layer is extracted before its second consumer exists, and the rule that guards it had to be verified by violating it (SPEC-176)
 
 `features/query/` had become the portal's catalog layer by accident: the Glue reader, the Athena
 start/poll/results/cancel layer, the space list, the results pager, the background row-count walk and
@@ -2846,7 +2963,7 @@ move the *domain*, not every consumer. The display page-size constants stay too 
 went to `lib/format.ts` rather than into `catalog/`: it is a pure formatter with no catalog domain,
 and both features render the same scanned-bytes figure.
 
-## A generalized signature is the whole point of the second extraction, and one moved constant must not be renamed (SPEC-177)
+### A generalized signature is the whole point of the second extraction, and one moved constant must not be renamed (SPEC-177)
 
 `features/saved-queries/` is the arc's second extraction and it follows SPEC-176's shape exactly:
 the `.sql` store — the service, the space memory, the pager, the save flow — came out of
@@ -2893,7 +3010,7 @@ have made the new feature's own test suite the rule's first violation. The three
 with the dialog; the confirm pass became `features/query/queryDialogs.a11y.test.tsx`, assertions
 byte-identical.
 
-## The renderer's signature is the rule, and the browser's first SQL value interpolation is two gates wide (SPEC-178)
+### The renderer's signature is the rule, and the browser's first SQL value interpolation is two gates wide (SPEC-178)
 
 The Data Explorer reduces to one idea: a user's grid gestures are a *description of a query*, and
 the app renders that description and runs it. SPEC-178 builds that engine with no route, no grid
@@ -2967,7 +3084,7 @@ parser, so SPEC-183's loaded file is a **source**, not a view state; filters, or
 compose over either arm without knowing which. Retrofitting the union at 183 would have touched
 every spec in between.
 
-## A space maps to ONE database, so the picker has no database step — and a deep link resolves without asking (SPEC-179)
+### A space maps to ONE database, so the picker has no database step — and a deep link resolves without asking (SPEC-179)
 
 The Data Explorer's front door. FR-005 specified the picker as *space → database → table*, and the
 middle step does not exist in this codebase: a space maps to exactly **one** Glue database — the
@@ -3039,7 +3156,7 @@ a non-focusable `role="presentation"` span and **Delete on the focused tab** is 
 (WCAG 2.1.1). The feature had **no axe assertion at all** while 19 other feature suites have one;
 that absence is what let a violation ship past a review of the markup.
 
-## Geometry is keyed by NAME, NULL is kept apart from empty, and a page nobody watched is not "no rows" (SPEC-180)
+### Geometry is keyed by NAME, NULL is kept apart from empty, and a page nobody watched is not "no rows" (SPEC-180)
 
 The grid replaces SPEC-179's placeholder wholesale, and three of its decisions reach outside the
 feature.
@@ -3112,7 +3229,7 @@ cross-block drag — an unpinned column dropped onto the pinned block — is **r
 coerced into a pin**, because inferring a pin from where a drag ended is a mutation the user did not
 ask for and pinning has its own control.
 
-## One `apply` per gesture, a numeric refusal at the INPUT, and a failure that keeps the rows (SPEC-181)
+### One `apply` per gesture, a numeric refusal at the INPUT, and a failure that keeps the rows (SPEC-181)
 
 This is the spec the Data Explorer exists for, and the only place in it where a user gesture spends
 money. Four decisions are worth keeping.
@@ -3207,7 +3324,7 @@ way, which is why the first version of that test could not fail). And a `Modal` 
 context and painted under the sticky headers, which nothing in jsdom can see — the region raises it
 and the header menu asks.
 
-## Calc computes what only the browser has, grouping computes what only Athena can, and the percentage says which page it is of (SPEC-182)
+### Calc computes what only the browser has, grouping computes what only Athena can, and the percentage says which page it is of (SPEC-182)
 
 Two panels that look like siblings and are the opposite of one another. The split is not a
 compromise between fidelity and cost — it falls out of what each panel *is*, and everything else in
@@ -3315,7 +3432,7 @@ state: it describes a selection, and a selection does not survive a page change,
 
 ---
 
-## A saved exploration follows the flag that owns the STORE, not the one that owns the screen (SPEC-183)
+### A saved exploration follows the flag that owns the STORE, not the one that owns the screen (SPEC-183)
 
 An exploration can be saved as a `.sql` file through SPEC-177's generalized flow. The body written
 is the **rendered** SQL — the exact string `useExploration` handed `StartQueryExecution`, not a
@@ -3372,7 +3489,7 @@ rules rather than feature domain — not to write a second one.
 
 ---
 
-## A palette is measured, not chosen; a link's encoding depends on where the value lands (SPEC-184)
+### A palette is measured, not chosen; a link's encoding depends on where the value lands (SPEC-184)
 
 Everything this spec adds changes how a value *looks* and nothing about what is *fetched*. That is
 SPEC-178's rule seen from the other side, and it is now asserted twice rather than promised: a
@@ -3502,7 +3619,7 @@ the palette is measured for would no longer hold for it. A rule naming a column 
 lacks is **kept and shown as inapplicable**: a grouping change replaces the column set wholesale, so
 that is the ordinary case, and un-grouping brings the column back.
 
-## Copy is the selection-shaped tool and export is the result-shaped one, and reusing the save path meant moving it (SPEC-185)
+### Copy is the selection-shaped tool and export is the result-shaped one, and reusing the save path meant moving it (SPEC-185)
 
 ### The two ways out divide on the line the whole arc divides on
 
@@ -3606,7 +3723,7 @@ loading half, so a guide promising otherwise would document a spec that has not 
 
 ---
 
-## A default that an empty string can defeat is not a default (SPEC-186)
+### A default that an empty string can defeat is not a default (SPEC-186)
 
 **Context.** A live-check session on 2026-08-14 discharged several long-owed checks and, in doing
 so, found that a number of *other* owed checks could not be performed at all — not because the
@@ -3792,7 +3909,7 @@ must not be pasted into a shell command — it is a live credential and it lands
 
 ---
 
-## Results are read only at SUCCEEDED, and `isPending` is not a substitute (2026-08-16)
+### Results are read only at SUCCEEDED, and `isPending` is not a substitute (2026-08-16)
 
 **Found by running the live-check script against deployed prod, not by review.** Opening a table in
 the Data Explorer occasionally showed *"Something went wrong. Contact the Administrator."* on an

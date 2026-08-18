@@ -617,7 +617,7 @@ infra/modules/base/policies/github-actions-deploy-platform.json.tftpl
 infra/certificates.tf                       # the two ACM certificates + validation, at root
 lambdas/api/                  {handler.py, router.py, test_handler.py, test_router.py}
 apps/portal/Dockerfile.placeholder          # deleted by SPEC-194, which writes the real one
-docs/testing/platform-apply-e2e.md
+docs/testing/arc-b-api-container-e2e.md
 ```
 
 ## Implementation Phases
@@ -667,7 +667,8 @@ docs/testing/platform-apply-e2e.md
 
 ### Phase 6: Verification — a real apply, not a plan
 
-The script is `docs/testing/platform-apply-e2e.md`. **A plan proves nothing here**: every trap in
+The script is the relevant section of `docs/testing/arc-b-api-container-e2e.md`. **A plan proves
+nothing here**: every trap in
 FR-001 and FR-007 plans and applies green and fails at runtime.
 
 1. `Deploy Infrastructure` on the branch, watched to green. A first-run `AccessDenied` on a

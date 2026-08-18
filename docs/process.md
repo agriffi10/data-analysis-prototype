@@ -28,6 +28,7 @@ paragraph in the always-loaded file.
 | Reuse | `docs/component-inventory.md` → `component-inventory/<area>.md` | the area(s) you need | services/hooks/components already built |
 | Rulebooks | `docs/best-practices/INDEX.md` → domain doc | the section(s) you need | domain coding rules (React, a11y, …) |
 | History | `docs/spec-delivery/SPEC-XXX-*.md` | when a dependency points to one | what a past spec shipped |
+| Validation | `docs/testing/e2e.md` + `owed.md` | when running live checks | how to validate the deployed app, and what is still owed |
 | Method | `docs/process.md` (this file) | once | how we work |
 
 **Context discipline (the user cares about session-start token cost):**
@@ -254,7 +255,27 @@ When a spec is done, in the same pass:
    and move on. (This step exists because help content silently drifts as features land; SPEC-073's join status
    and the table-builder arc, for instance, shipped after SPEC-074 was authored and had to be folded in.)
 
-**Anti-regrowth & doc hygiene** (each rule below was earned by a defect the 2026-08-03 doc sweep found):
+8. **Live checks fold into the one guide.** A spec that owes a live check adds its steps to the
+   matching feature section of `docs/testing/e2e.md` — **not** a new per-spec or per-arc file, which is
+   how that directory grew to sixteen. A spec whose check cannot be run from a signed-in browser
+   session adds a row to `docs/testing/owed.md` saying why and what it would take. An arc still in
+   flight may keep one temporary script of its own (`docs/testing/<arc>-e2e.md`); it is folded into
+   `e2e.md` and deleted when the arc closes.
+
+**Anti-regrowth & doc hygiene** (each rule below was earned by a defect the 2026-08-03 doc sweep found).
+
+> **`scripts/validate_docs.py` enforces the structural half of these rules and runs on every PR**
+> (`ci.yml` → *Validate the documentation layout*). It holds: `docs/testing/` to the guide, the
+> ledger, the log and at most **one** in-flight arc script; `CLAUDE.md` to a byte budget and each
+> Key Decisions line to a length; every `decisions.md` entry to one heading level and a resolving
+> Contents entry; every `ARCS.md` arc to a status-free heading that is in the arc list; every spec
+> header to agreeing with its `INDEX.md` row and every Completed spec to having a delivery doc;
+> every delivery doc to a line cap; and every relative markdown link to resolving. **The budgets
+> are ratchets at the measured level** (SPEC-150's convention for the coverage floors) — raising
+> one so a growing doc passes is the failure mode the gate exists to catch. Move the detail down a
+> tier instead. Every rule it holds existed in prose first and was violated anyway; that is why it
+> is a gate.
+
 
 - If a memory or doc disagrees with the code, fix or delete it — don't let stale state accumulate.
   Don't add prose to the always-loaded tier.
@@ -288,6 +309,17 @@ These pass locally and fail later — check them as part of the work, not as an 
 - **New `VITE_*` vars need deploy wiring.** Any var the app reads must be added to `deploy-app.yml`'s
   build env **and** set as a GitHub Actions repo variable, or production ships it `undefined` (IAM
   being correct won't save you).
+- **`lambdas/` has a second CI-only gate beside ruff: `mypy` is BLOCKING** over the five shared
+  layers at zero errors. The ratchet path — which package widens next, and at what strictness — is
+  recorded in `pyproject.toml`'s `[tool.mypy]` block and nowhere else.
+- **A `rate()` EventBridge rule fires on creation**, so a new singleton Lambda's first scheduled
+  invocation can hit the placeholder zip before `Deploy Lambdas` lands. The async retry fixes it —
+  **a red first invocation is expected, not a defect.**
+- **Never `tofu apply` from a laptop.** The deploy role is GitHub-OIDC-only and the local CLI
+  identity is an IAM *user* that is on no data bucket's policy allowlist, so tofu reads those
+  buckets as **absent** and plans to destroy and recreate them (measured: `25 to add, 3 to change,
+  13 to destroy`). The same isolation is why `get-object` on the user-space bucket returns
+  `AccessDenied` from a laptop — that is the model working, not a fault.
 - **Adding a new AWS resource type to `infra/`** trips a recurring set of deploy-role IAM traps
   (self-grant propagation, non-scopable actions, refresh deadlocks, unknown-ARN-in-list). Read
   `architecture.md` → *Deploy-role IAM — adding a new resource type* and *Lambda code/infra split*

@@ -117,7 +117,7 @@ Refresh-connections, SPEC-052) and idempotent.
 - [ ] Pipeline (Python): leave authorizes member-not-owner, clears slot/registry/cache, leaves data intact, idempotent;
   delete authorizes owner, cascades files+tables+DB+all-members+registry in the safe order, idempotent/partial-safe,
   frees the name; non-owner delete + owner leave both fail with no effect — in `lambdas/shared-space-provisioner/`
-  tests + `docs/testing/shared-spaces-e2e.md`
+  tests + `docs/testing/e2e.md`
 
 ---
 

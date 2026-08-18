@@ -81,7 +81,7 @@ spec is done, a message placed on the queue invokes the Lambda and produces/upda
 - **Deploy-role IAM** expanded for every new resource type (FIFO SQS queue + DLQ, the SQS event-source
   mapping, the new Lambda + its writer role incl. scoped `iam:PassRole`, the log group). **No Pipes / Step
   Functions** to grant for.
-- A **smoke test** (`docs/testing/notifications-e2e.md`): a `create` message on the queue invokes the writer
+- A **smoke test** (`docs/testing/e2e.md`): a `create` message on the queue invokes the writer
   and produces the correct user's `notifications.json` (CloudWatch shows the Lambda invocation + the write).
 
 ### Out of Scope
@@ -163,7 +163,7 @@ One envelope shape for every mutation, with an `action` discriminator.
   (or content-based dedup) so an accidental duplicate send is collapsed by FIFO.
 - [ ] A message that fails schema validation is rejected by the writer (logged → the invocation fails so the
   message retries and, after `maxReceiveCount`, lands in the DLQ); it never partially writes the document.
-- [ ] The contract is documented in `docs/testing/notifications-e2e.md` (or a sibling doc) so SPEC-059's
+- [ ] The contract is documented in `docs/testing/e2e.md` (or a sibling doc) so SPEC-059's
   send-helpers and any system producer build to the same shape.
 
 ### FR-004: Writer read-modify-write + cap
@@ -244,7 +244,7 @@ The browser (portal role) must be able to enqueue user-action messages.
 
 #### Acceptance Criteria:
 
-- [ ] `docs/testing/notifications-e2e.md` documents: placing a `create` message (with `MessageGroupId` =
+- [ ] `docs/testing/e2e.md` documents: placing a `create` message (with `MessageGroupId` =
   username) on the FIFO queue invokes the writer Lambda and produces `{username}/user_settings/notifications.json`
   with the expected `Notification` (CloudWatch shows the invocation + the write); a `markRead` then flips
   `read` on that id; a `markAllRead` flips all; two rapid messages for one user both land in order (no lost
@@ -325,7 +325,7 @@ lambdas/notifications-writer/
 infra/modules/base/policies/          # deploy-role expansion (FR-007)
 infra/modules/<portal-role module>/   # portal-role sqs:SendMessage statement (FR-006)
 .github/workflows/deploy-lambdas.yml  # + notifications-writer matrix row
-docs/testing/notifications-e2e.md     # contract + control-plane smoke test (FR-003/FR-008)
+docs/testing/e2e.md     # contract + control-plane smoke test (FR-003/FR-008)
 ```
 
 ## Implementation Phases

@@ -56,7 +56,7 @@ a table.
   architecture.md "unknown ARN in list" trap).
 - **Deploy-role IAM** expanded for every new resource type introduced here (FIFO SQS queue + DLQ, Pipes, Step
   Functions, the five Lambdas + their roles incl. scoped `iam:PassRole`, the **Lambda layer**, the log groups).
-- A **control-plane smoke test** (`docs/testing/table-builder-e2e.md`): a message placed on the queue reaches the
+- A **control-plane smoke test** (`docs/testing/e2e.md`): a message placed on the queue reaches the
   Step Function and drives the five (stub) Lambdas in order, observable in CloudWatch.
 
 ### Out of Scope
@@ -118,7 +118,7 @@ a table.
 - [ ] The layer is attached **only** to the `infer-schema` function; the other four functions do not carry it
   (lean cold starts).
 - [ ] The packaged layer is within the Lambda **250 MB unzipped** limit together with the function code (verified
-  at build); document the measured size in `docs/testing/table-builder-e2e.md`.
+  at build); document the measured size in `docs/testing/e2e.md`.
 
 ### FR-004: Log groups + deploy-role IAM + standalone module
 
@@ -140,7 +140,7 @@ a table.
 
 #### Acceptance Criteria:
 
-- [ ] `docs/testing/table-builder-e2e.md` documents: a message placed on the FIFO queue (with a `MessageGroupId`)
+- [ ] `docs/testing/e2e.md` documents: a message placed on the FIFO queue (with a `MessageGroupId`)
   drives the Pipe → Step Function and runs the five stub Lambdas in order, observable in CloudWatch (each echoes);
   no table is created. The measured polars-layer size is recorded (FR-003).
 
@@ -200,7 +200,7 @@ lambdas/table-builder-common/                                    # shared module
 
 infra/modules/base/policies/          # deploy-role expansion (FR-004) — deploy-policy-table-builder
 .github/workflows/deploy-lambdas.yml  # + 5 matrix rows + polars layer build step
-docs/testing/table-builder-e2e.md     # control-plane smoke test (FR-005)
+docs/testing/e2e.md     # control-plane smoke test (FR-005)
 ```
 
 ## Implementation Phases

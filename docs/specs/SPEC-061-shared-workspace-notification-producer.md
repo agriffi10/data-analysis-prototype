@@ -69,7 +69,8 @@ change to the notifications storage or writer are involved.
   reason.
 - **Tests** — verb-Lambda unit tests asserting each terminal path emits the **correct recipient + message**
   (and emits **nothing** on non-terminal/retryable steps); an emit failure does not change the action's
-  result. The e2e doc (`docs/testing/shared-spaces-e2e.md` / `notifications-e2e.md`) gains the producer flow.
+  result. The e2e docs (the notifications and shared-space acceptance scripts, both folded into
+  `docs/testing/e2e.md` §4.8 and §4.12 on 2026-08-18) gain the producer flow.
 
 ### Out of Scope
 
@@ -210,7 +211,7 @@ The control plane is replay-safe; notification emission is at-least-once and may
   succeeds/fails as before).
 - [ ] IaC: `tofu -chdir=infra validate` + `plan` clean; the emitting roles' SendMessage statement is
   present and scoped to the notifications queue ARN; the verb Lambdas' env has `NOTIFICATIONS_QUEUE_URL`.
-- [ ] `docs/testing/shared-spaces-e2e.md` (and/or `notifications-e2e.md`) documents the end-to-end producer
+- [ ] The acceptance scripts document the end-to-end producer
   flow: a real create/add/leave/delete drives the control plane and a `create` lands on the notifications
   queue → the writer appends the row → the recipient(s) see it in their notifications page (SPEC-060).
 
@@ -273,7 +274,7 @@ lambdas/shared-space-<verb>/               ← create / add-members / remove-mem
 ├── <verb>.py                              ← + inline emit_notification call(s) at the terminal outcome (FR-002–007)
 └── test_<verb>.py                         ← + emit assertions per event incl. delete fan-out (FR-008)
 
-docs/testing/shared-spaces-e2e.md          ← + producer flow (FR-008)
+docs/testing/e2e.md          ← + producer flow (FR-008)
 ```
 
 ## Implementation Phases

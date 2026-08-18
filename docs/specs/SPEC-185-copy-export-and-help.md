@@ -118,7 +118,7 @@ labels, expected numbers.
 
 #### Acceptance Criteria:
 
-- [ ] `docs/testing/data-explorer-e2e.md` exists, with one section per spec that owes a check.
+- [ ] `docs/testing/e2e.md` exists, with one section per spec that owes a check.
 - [ ] It records, at minimum: that a filter apply produces a **new** Athena execution and a
       changed bytes-scanned figure, observed in the network panel rather than inferred from the
       grid; that paging produces **none**; that a value containing a single quote filters
@@ -182,7 +182,7 @@ apps/portal/src/features/data-explorer/
 ├── renderCopy.test.ts
 └── copyExport.test.tsx
 
-docs/testing/data-explorer-e2e.md      # NEW
+docs/testing/e2e.md      # NEW
 ```
 
 ---

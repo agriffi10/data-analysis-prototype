@@ -486,7 +486,7 @@ lambdas/api/
 └── test_{principal,router_auth,stack_scrub,whoami}.py
 
 apps/portal/src/lib/{apiClient.ts,apiClient.test.ts}
-docs/testing/api-auth-boundary-e2e.md
+docs/testing/arc-b-api-container-e2e.md
 ```
 
 ## Implementation Phases
@@ -520,7 +520,8 @@ docs/testing/api-auth-boundary-e2e.md
 
 ### Phase 5: Verification
 
-Real invocations against real Cognito, written as a runnable script at `docs/testing/api-auth-boundary-e2e.md`.
+Real invocations against real Cognito, as a new section of
+`docs/testing/arc-b-api-container-e2e.md`.
 **A signed-in pass never tests sign-in** — a request carrying a genuine token succeeds against a correct
 implementation and against one that does not verify at all — so every load-bearing check below is negative.
 

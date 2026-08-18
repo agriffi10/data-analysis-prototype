@@ -149,7 +149,7 @@ scoped as tightly as the model allows.
   `StartQueryExecution` is issued — assert exactly one query runs); an Athena `FAILED` → `ddl_execution_failed`
   (reason carried); a transient Athena error is **raised** (retry); a timeout → `ddl_timeout`; a replay of an
   existing table → no-op `created`.
-- [ ] `docs/testing/table-builder-e2e.md`: a real end-to-end run (flat-Parquet **and** partitioned-CSV via
+- [ ] `docs/testing/e2e.md`: a real end-to-end run (flat-Parquet **and** partitioned-CSV via
   projection) creates a queryable table in the target DB (visible in the schema rail / `SHOW TABLES`), and a
   partition-filtered `SELECT` returns rows **without** any load step; a deliberately bad DDL records
   `ddl_execution_failed`. `simulate-custom-policy` output for the execute-ddl role is captured.
@@ -185,7 +185,7 @@ infra/modules/table-builder/
 └── state-machine.asl.json.tftpl    # execute-ddl Task + succeed/recorded-failure terminal states (FR-004)
 
 infra/modules/base/policies/        # deploy-policy-table-builder: execute-ddl grants + LF + PassRole (FR-005)
-docs/testing/table-builder-e2e.md   # end-to-end create (flat + partitioned) (FR-006)
+docs/testing/e2e.md   # end-to-end create (flat + partitioned) (FR-006)
 ```
 
 ## Implementation Phases

@@ -107,6 +107,6 @@ Every one of these was live, and none was visible to the suite as written:
 
 ## Live check (owed)
 
-`docs/testing/file-send-e2e.md`, *SPEC-167* — the Safari pass. It is the only thing that exercises
+`docs/testing/e2e.md` §4.9 and §4.15 — the Safari pass. It is the only thing that exercises
 the browser half against the real plane, and the notification link is the half that cannot be
 checked offline: the producer mints it in Python and a route rule in TypeScript honours it.

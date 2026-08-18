@@ -103,7 +103,11 @@ steps further from the upload. `cancel-in-progress` is **false**, unlike `securi
 cancelling a deploy mid-sync leaves a new `index.html` pointing at chunks the cancelled job never
 uploaded, which is worse than the queueing it saves.
 
-**Not covered:** the `--delete` pass's deletion behaviour was not exercised — this build was
-byte-identical to the previous one, so there was nothing stale to remove. The next deploy that
-changes a bundle hash is the first real test of it. Signed-in `/query` was not re-checked here;
+**Not covered at the time; DISCHARGED 2026-08-07.** The `--delete` pass had not been exercised —
+that build was byte-identical to the previous one, so there was nothing stale to remove. SPEC-155's
+merge (run `31142729286`) was the first deploy to change bundle hashes, and `Reconcile deletions`
+removed exactly **5** superseded chunks — `index`, `QueryPage`, `ConnectionsPage`, `shared-spaces`,
+`CollapsibleRail` — **every one under `assets/`, none at the root.** That is the prefix scoping
+working rather than a lucky diff, and the pass is now exercised rather than merely configured. The
+stale-root-object orphan class it leaves is a spec choice, and is recorded in `docs/testing/owed.md`. Signed-in `/query` was not re-checked here;
 SPEC-140 already exercised it and this change touches no application code.

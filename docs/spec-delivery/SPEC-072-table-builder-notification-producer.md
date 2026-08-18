@@ -57,7 +57,7 @@ message map, and each verb suite gained emit assertions (actor recipient + mappe
 `ruff check lambdas/` clean; `tofu fmt`/`validate` clean; all five verb policy templates
 render valid JSON with the scoped `sqs:SendMessage`. End-to-end producer flow (a real create
 that succeeds/fails → the actor sees the ready/failure message on the SPEC-060 `/notifications`
-page) documented in `docs/testing/table-builder-e2e.md` for execution against the deployed
+page) documented in `docs/testing/e2e.md` for execution against the deployed
 environment.
 
 **This completes the table-builder arc (SPEC-066→072).**

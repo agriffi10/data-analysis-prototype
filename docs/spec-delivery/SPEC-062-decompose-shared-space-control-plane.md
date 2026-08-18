@@ -47,4 +47,4 @@ request contract (SPEC-056), membership-tag model, and registry/cache shapes are
 `tofu -chdir=infra validate` clean; rendered IAM/state-machine JSON parse-checked; deploy-lambdas YAML
 parsed; all 48 Python unit tests pass locally (`python3 test_*.py` per function — JS CI does not run
 Python). End-to-end parity (a real create/add/remove/leave/delete via the live pipeline) is deferred to
-deploy and tracked in `docs/testing/shared-spaces-e2e.md`.
+deploy and tracked in `docs/testing/e2e.md`.

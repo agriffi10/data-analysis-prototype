@@ -226,7 +226,7 @@ here rather than left to be discovered.
 
 ## Owed
 
-- **The live check** — the runnable script is in `docs/testing/table-share-e2e.md` → *SPEC-161*:
+- **The live check** — the runnable script is in `docs/testing/e2e.md` §4.10 Table share:
   the >20 GiB several-hundred-object share, the deliberate over-cap refusal naming the count and the
   cap, and a `GetTable` read-back confirming a 100-column commented definition survived the pointer.
 - **Nothing user-facing to document.** `helpContent.ts` names no cap numbers and no size limits, so

@@ -78,7 +78,7 @@ reason carried), transient start/poll → `TransientError`, `ddl_timeout`, repla
 table-builder Lambda tests still pass (infer-schema's polars tests need the layer, run in
 CI). `tofu -chdir=infra validate` clean; rendered ASL is valid JSON with no dangling
 transitions. Live e2e (flat-Parquet + partitioned-CSV via projection, bad-DDL failure,
-`simulate-custom-policy`) is the runbook in `docs/testing/table-builder-e2e.md` — run
+`simulate-custom-policy`) is the runbook in `docs/testing/e2e.md` — run
 post-deploy.
 
 ## Next

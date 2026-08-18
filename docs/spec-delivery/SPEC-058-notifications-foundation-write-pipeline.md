@@ -11,7 +11,7 @@ The **write side** of the per-user notifications inbox — no UI (read service/h
   - `variables.tf` / `locals.tf` / `outputs.tf` (queue url/arn + writer role arn).
 - **Writer Lambda** `lambdas/notifications-writer/notifications_writer.py` — thin handler → `action`-switch read-modify-write (`create` | `markRead` | `markAllRead`; **no delete**), server-assigned `id`/`timestamp`, cap to `NOTIFICATIONS_MAX` (200) by timestamp, missing/corrupt doc → `[]`. Offline-JWKS ID-token verification for user actions (username derived from `cognito:username`; `create` uses body username). 14 unit tests (`test_notifications_writer.py`). `deploy-lambdas.yml` matrix row added.
 - **Deploy-role IAM** — shipped **first, in its own PR** ([#124](https://github.com/agriffi10/data-analysis-prototype/pull/124)) as a customer-managed policy `dat-deploy-notifications` (off the inline aggregate, like `dat-deploy-shared-spaces`): SQS/Lambda/writer-role+`PassRole`/logs scoped to `*-notifications-*`, with the non-scopable **event-source-mapping** actions (incl. `lambda:ListTags`) isolated to a `"*"` statement.
-- Root `main.tf` wiring + `outputs.tf`; message contract + smoke test in `docs/testing/notifications-e2e.md`.
+- Root `main.tf` wiring + `outputs.tf`; message contract + smoke test in `docs/testing/e2e.md`.
 
 ## What changed from earlier specs?
 

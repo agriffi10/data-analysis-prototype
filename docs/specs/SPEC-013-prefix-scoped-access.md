@@ -85,7 +85,7 @@ The core security property is proven, not assumed.
 
 - [ ] With two test users (alice, bob): alice uploads via CLI to `alice/`, signs in and sees it; alice's session, via hand-crafted SDK call (dev console) against `bob/`, receives `AccessDenied` for Get, Put, and List
 - [ ] A raw `ListObjectsV2` on the bucket root (no prefix) with alice's credentials is denied
-- [ ] These steps are appended to `docs/testing/auth-e2e.md` (SPEC-009) as the isolation section, executed and dated
+- [ ] These steps are appended to the auth acceptance script (SPEC-009) as the isolation section, executed and dated
 
 ---
 
@@ -138,7 +138,7 @@ After apply: CLI-simulated check with `aws iam simulate-principal-policy` (or a 
 
 #### Checkpoint
 
-Full pass: sign in → see own files → cross-user attempts denied (FR-004 executed and recorded in `docs/testing/auth-e2e.md`). `npm run test`, `npm run lint` pass. Deployed CloudFront app works end to end with a real user.
+Full pass: sign in → see own files → cross-user attempts denied (FR-004 executed and recorded in `docs/testing/e2e.md`). `npm run test`, `npm run lint` pass. Deployed CloudFront app works end to end with a real user.
 
 ## Open Questions
 

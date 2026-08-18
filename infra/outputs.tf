@@ -96,7 +96,7 @@ output "shared_space_orchestrator_role_arn" {
 }
 
 output "shared_space_state_machine_arn" {
-  description = "ARN of the shared-space orchestrator Step Function (SPEC-050). Used by the control-plane smoke test (docs/testing/shared-spaces-e2e.md)."
+  description = "ARN of the shared-space orchestrator Step Function (SPEC-050). Used by the control-plane bring-up checks (docs/testing/owed.md)."
   value       = module.shared_spaces.state_machine_arn
 }
 

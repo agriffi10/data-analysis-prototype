@@ -117,7 +117,7 @@ Unlike the shared-spaces producer, every event here has a **single recipient —
   does not change the verb's result; the FIFO `MessageGroupId`/dedup are set.
 - [ ] IaC: `tofu -chdir=infra validate` + `plan` clean; each emitting role's SendMessage statement is scoped to
   the notifications queue ARN; the verb Lambdas' env has `NOTIFICATIONS_QUEUE_URL`.
-- [ ] `docs/testing/table-builder-e2e.md` (+ `notifications-e2e.md`): a real create that **succeeds** lands a
+- [ ] The table-builder and notifications acceptance scripts: a real create that **succeeds** lands a
   ready notification in the actor's inbox; a create that **fails** (e.g. mixed formats, name taken) lands the
   matching failure notification — both visible on the notifications page (SPEC-060).
 
@@ -181,7 +181,7 @@ infra/modules/table-builder/
 └── variables.tf                           ← + notifications_queue_arn/_url (constructed-string locals)
 
 infra/modules/base/policies/               ← deploy-policy-table-builder: SendMessage grants (FR-001)
-docs/testing/table-builder-e2e.md          ← + producer flow (FR-005)
+docs/testing/e2e.md          ← + producer flow (FR-005)
 ```
 
 ## Implementation Phases

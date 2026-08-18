@@ -399,7 +399,7 @@ count is 0). For each: perform the gesture, wait for the notification, and confi
 - [ ] `logs/` records for all eight carry `env` and a real sha.
 
 > The **archive** direction only. A restore is 3–5 billed, uncancellable hours and belongs to
-> `archive-restore-e2e.md`, not here.
+> `e2e.md`, not here.
 
 ## 9. Safari, and 400px — BLOCKING
 
@@ -552,7 +552,7 @@ Record these as **owed**, not discharged:
   Identity Center ships in Arc B, so nothing here says anything about them.
 - The container under real concurrency, a task failure mid-request, or an AZ loss. Autoscaling and
   the availability work `transition_plan.md` §4.6 names are deferred.
-- The archive **restore** direction (3–5 billed hours) — `archive-restore-e2e.md` owns it.
+- The archive **restore** direction (3–5 billed hours) — `e2e.md` owns it.
 - **Other arcs' owed live checks are not absorbed by this script.** Classify each before closing:
   anything asserting a URL, a CSP, a browser AWS call or a bucket-CORS behaviour is **invalidated by
   the origin change and must be re-run**; anything asserting a Lambda, a state machine, an IAM

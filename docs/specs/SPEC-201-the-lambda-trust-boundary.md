@@ -623,7 +623,7 @@ deploy job and the instrumentation harness all went green — for nine days, on 
 change pointed the other way: `conftest.py` puts every layer on `sys.path`, so a module that still reads a
 deleted `config` attribute imports fine under test and raises on its first real invocation.
 
-A runnable script at `docs/testing/lambda-trust-boundary-e2e.md`, in two passes because the spec deploys
+A new section of `docs/testing/arc-b-api-container-e2e.md`, in two passes because the spec deploys
 twice. **Steps 1–5 run after step one's deploy, with the token still travelling; steps 6–7 run after step
 two's.** Running the whole list once, after both, loses the only observation that distinguishes "the
 planes read the block" from "the planes still read the token".
