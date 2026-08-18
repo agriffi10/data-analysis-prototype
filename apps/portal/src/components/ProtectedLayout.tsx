@@ -60,7 +60,7 @@ export function ProtectedLayout() {
   // tree-shaken out of the production bundle, and then the `_config/*` grant, the
   // bucket-policy allowlist, the CORS preflight, the CSP `connect-src` entry, the key
   // spelling and the credential timing are all UNEXERCISED in production while every
-  // gate is green. That is SPEC-137's shape exactly. The read is also what FR-009's live
+  // gate is green — the shape a missing layer attachment takes. The read is also what FR-009's live
   // check observes, and it cannot observe a request nothing issues.
   //
   // Session-scoped for the same reason the upload queue is: one fetch per sign-in,

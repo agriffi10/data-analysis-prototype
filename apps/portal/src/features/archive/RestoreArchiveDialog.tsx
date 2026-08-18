@@ -27,7 +27,7 @@ type Props = {
  * hours after they stopped thinking about it.
  *
  * **It restores into the space the user is browsing, and says which one.** The space comes from
- * the route (SPEC-113's rule), never from the archive — an archive belonging to
+ * the route, never from the archive — an archive belonging to
  * another space is then simply not found, rather than an oracle for what exists elsewhere.
  */
 export function RestoreArchiveDialog({spaceLabel, busy = false, submitError, onSubmit, onCancel}: Props) {

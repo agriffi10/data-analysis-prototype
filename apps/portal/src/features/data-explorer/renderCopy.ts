@@ -8,7 +8,7 @@ import type {GridColumn} from './useColumnGeometry';
 // because everything here reads rows that are already on screen.
 //
 // **The values are RAW.** Not `cellText`, which renders a NULL as the word NULL for a human
-// to read, and not SPEC-184's `transformCell`, which can turn a value into an anchor's label
+// to read, and not `transformCell`, which can turn a value into an anchor's label
 // — a URL-transformed column pasted into a spreadsheet has to carry the underlying value or
 // the paste is of the presentation rather than of the data. The two are formatted here, per
 // format, and the formatting is the part worth asserting directly.
@@ -236,7 +236,7 @@ function markdown(block: CopyBlock, options: CopyOptions): string {
  * honest thing a clipboard format can offer here.
  *
  * Values go through `sqlLiteral` — the TRINO/DML escaper that doubles the quote, never
- * `cpcommon.ddl`'s backslash form (SPEC-178's rule, and the wrong one fails silently). A
+ * `cpcommon.ddl`'s backslash form (the rule, and the wrong one fails silently). A
  * NULL is the keyword and an empty string is `''`, which is the distinction FR-001 AC4 asks
  * for, native to the format. A hole is NULL too; see `json` above.
  */

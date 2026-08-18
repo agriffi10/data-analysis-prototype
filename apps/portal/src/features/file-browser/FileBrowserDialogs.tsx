@@ -28,7 +28,7 @@ type Props = {
   /**
    * the per-item Archive action in each details panel. Absent when the space
    * can't be resolved, the `files` flag is off, or the user is inside the read-only `archive/`
-   * folder — removed rather than disabled, which is SPEC-163's rule.
+   * folder — removed rather than disabled, which is the rule.
    */
   onRequestArchiveFile?: (file: S3FileItem) => void;
   onRequestArchiveFolder?: (folder: S3FolderItem) => void;

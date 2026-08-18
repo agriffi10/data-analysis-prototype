@@ -99,7 +99,7 @@ variable "data_quality_execution_role_arn" {
 }
 
 variable "verification_role_arn" {
-  description = "SPEC-186 FR-004: ARN of the read-only verification role (modules/verification), granted DESCRIBE via the portal-managed LF-Tag so an owed catalog read-back (SPEC-149's Description/comment preservation, SPEC-153's foreign projection fixture) can finally be made. DESCRIBE ONLY and never DATA_LOCATION_ACCESS — it reads definitions, never data. Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
+  description = "SPEC-186 FR-004: ARN of the read-only verification role (modules/verification), granted DESCRIBE via the portal-managed LF-Tag so an owed catalog read-back (the Description/comment preservation, the foreign projection fixture) can finally be made. DESCRIBE ONLY and never DATA_LOCATION_ACCESS — it reads definitions, never data. Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
   type        = string
   default     = ""
 }

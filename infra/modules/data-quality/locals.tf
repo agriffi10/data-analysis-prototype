@@ -44,8 +44,8 @@ locals {
   # the uniform name on the grounds that "the verb directory already disambiguates"; that
   # is true for Lambda (each function is its own zip) and FALSE for pytest, which flattens
   # every verb dir into ONE module namespace. With nine `handler.py` files the first
-  # `import handler` wins for the whole session, so SPEC-109's tests silently imported
-  # SPEC-110's handler and asserted against the wrong module. Reversed in SPEC-110 (user
+  # `import handler` wins for the whole session, so the tests silently imported
+  # the handler and asserted against the wrong module. Reversed in SPEC-110 (user
   # decision, 2026-07-16) before the remaining seven verbs — and the file-converter arc's
   # eight — inherited it.
   #
@@ -125,7 +125,7 @@ locals {
   # The SHARED portal Athena workgroup every verb runs in (var.athena_workgroup) — the
   # same one table-builder/table-share use. SPEC-108 gave this arc its OWN workgroup to
   # escape the portal workgroup's scan cutoff, but a dedicated workgroup fails Lake
-  # Formation's Create/Describe checks (Athena ties LF to the workgroup); SPEC-111's live
+  # Formation's Create/Describe checks (Athena ties LF to the workgroup); The live
   # run proved it. The ARN scopes the execution role's athena:StartQueryExecution etc.
   athena_workgroup_arn = "arn:aws:athena:${var.aws_region}:${var.account_id}:workgroup/${var.athena_workgroup}"
 

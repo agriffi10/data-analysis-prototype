@@ -16,7 +16,7 @@ Attributes:
   SPACE_KINDS: The two source-space kinds. The kind decides which bucket the source resolves
     in and which authorization question is asked, so it is validated rather than inferred.
   SEND_MAX_RECIPIENTS: Recipient cap. **What sizes it is the Step Functions state payload**,
-    exactly as it does for table-share's identical cap, and not the fan-out: SPEC-166's guard
+    exactly as it does for table-share's identical cap, and not the fan-out: The guard
     Map records a per-recipient outcome, each failed item carrying the raw Step Functions
     error bounded by ``cpcommon.errors.MAX_DETAIL_CHARS``, and breaching 256 KB raises
     ``States.DataLimitExceeded`` ON THE MAP — destroying every per-recipient outcome the Map

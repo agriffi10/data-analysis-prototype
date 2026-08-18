@@ -119,7 +119,7 @@ export function AdvancedCopyDialog({selectedCount, onCopy, onCancel}: AdvancedCo
 
       {/* Refused rather than silently inert: in JSON, SQL and XML every value is already
           delimited by the format, so a quoting toggle would change nothing about the output.
-          **`aria-disabled`, not `disabled`** — SPEC-172's fleet-wide rule, so the control
+          **`aria-disabled`, not `disabled`** — the fleet-wide rule, so the control
           stays in the tab order and the reason beside it is reachable rather than something
           a keyboard user tabs straight past. The handler ignores the change, since
           `aria-disabled` alone does not stop a checkbox toggling. */}

@@ -18,7 +18,7 @@ export type ExplorationGridHeaderProps = {
   onDropColumn: (name: string, target: string) => void;
   /**
    * The column a drag is carrying, or null when it ends — for drop targets OUTSIDE the
-   * header (SPEC-182's Grouping panel).
+   * header (the Grouping panel).
    *
    * A callback rather than the panel reading `dataTransfer`, for the reason the local ref
    * below already exists: `DataTransfer` is not implemented everywhere, and a drop handler
@@ -42,7 +42,7 @@ export type ExplorationGridHeaderProps = {
  * payload it could be confused with. `dataTransfer` is still populated where it exists, so
  * the browser draws its own drag image.
  *
- * A column header is NOT a button: it carries SPEC-181's menu and SPEC-180's own
+ * A column header is NOT a button: it carries the menu and the own
  * selection model gives clicking it a meaning, so it stays a `columnheader` with controls
  * inside it rather than becoming one control.
  */

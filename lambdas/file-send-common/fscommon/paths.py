@@ -4,7 +4,7 @@ Containment is the one place on this plane where a bug is a cross-tenant read, s
 enforces is written as **two independent checks** rather than one, and each has its own test.
 
 **Those two checks moved to ``cpcommon.paths`` with SPEC-168** and are re-exported here, so
-every call site and every test on this plane is unchanged. The move is SPEC-156's rule applied
+every call site and every test on this plane is unchanged. The move is the rule applied
 to the third plane that needed the rule: containment is an ALGORITHM, and the archive plane
 asking the identical question would otherwise have been a second copy of it — in the one place
 where a copy that drifts is a cross-tenant read. What stays here is what is genuinely
@@ -91,7 +91,7 @@ def inbox_prefix(target_root: str, sender: str) -> str:
 
     ``{targetRoot}shared_files/{sender}/`` — everything that sender has ever sent to that
     recipient, and nothing anyone else sent. It is factored out of ``destination_key`` below
-    rather than written twice because SPEC-166's conflict guard needs the prefix without a key:
+    rather than written twice because the conflict guard needs the prefix without a key:
     it asks what item names the inbox ALREADY holds, which is one listing at this prefix rather
     than a probe per selected item. A guard that composed the prefix itself would be the second
     builder the sweep in ``test_paths_fscommon`` exists to forbid.

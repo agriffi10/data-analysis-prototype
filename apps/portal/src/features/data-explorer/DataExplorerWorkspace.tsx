@@ -28,7 +28,7 @@ const EMPTY_PRESENTATION = emptyExplorationPresentation();
  * The Data Explorer's shell: the source picker, the tab strip, and one
  * exploration's rows.
  *
- * The engine is SPEC-178's — this mounts it. The results table below is explicitly a
+ * The engine is the — this mounts it. The results table below is explicitly a
  * placeholder that SPEC-180 replaces with the real grid.
  *
  * **A denied deep link renders the refusal ALONE**, with no picker and no active

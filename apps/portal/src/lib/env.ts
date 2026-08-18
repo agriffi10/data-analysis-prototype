@@ -71,7 +71,7 @@ export type PortalEnvVar = RequiredEnvVar | OptionalEnvVar;
  * mistake this whole module exists to name.
  *
  * The dev-unauth variables are deliberately absent from `PortalEnvVar`: they are read
- * behind an `import.meta.env.DEV` guard at their own call sites, and SPEC-153's bypass
+ * behind an `import.meta.env.DEV` guard at their own call sites, and the bypass
  * guard asserts that the set of modules naming that flag is exactly those sites — so
  * this module must not name it either.
  */

@@ -77,7 +77,7 @@ export function useTableActions({
     // Hand the table to the Data Explorer. `space` and `db` are BOTH the
     // node's own database, which is exact rather than convenient — a shared space's database
     // IS its space id, and the personal database is the username, which `/explore` resolves
-    // to the personal space by SPEC-113's precedence rule. The route re-resolves both against
+    // to the personal space by the precedence rule. The route re-resolves both against
     // the spaces this user can reach, so a stale link opens the picker rather than failing.
     onExploreData: (database: string, table: GlueTableSummary) => {
       const params = new URLSearchParams({space: database, db: database, table: table.name});

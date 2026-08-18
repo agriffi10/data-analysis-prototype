@@ -5,7 +5,7 @@ import {CATALOG_IDENTIFIER_RE} from '../../lib/catalogIdentifier';
 import type {ServiceResult} from '../../types/service.types';
 import type {UserDirectory} from './userDirectory.types';
 
-/** Where SPEC-146's daily builder publishes. The portal role holds `GetObject` here and nothing else. */
+/** Where the daily builder publishes. The portal role holds `GetObject` here and nothing else. */
 export const DIRECTORY_KEY = '_directory/usernames.json';
 
 /** The only document shape this reader understands. A different one is refused, not guessed at. */
@@ -52,7 +52,7 @@ function parseDirectory(body: string | undefined): UserDirectory {
 /**
  * Validate a parsed document into a `UserDirectory`, degrading to empty rather than throwing.
  *
- * Every entry is re-checked against `CATALOG_IDENTIFIER_RE` even though SPEC-146's builder
+ * Every entry is re-checked against `CATALOG_IDENTIFIER_RE` even though the builder
  * already guarantees it. That is not belt-and-braces for its own sake: this array is rendered
  * into the DOM and used to build React keys, and a producer guarantee is not a runtime
  * guarantee — the object is one `aws s3 cp` away from holding anything at all.

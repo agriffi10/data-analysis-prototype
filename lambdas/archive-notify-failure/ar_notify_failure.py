@@ -112,7 +112,7 @@ def _actor_from_raw_request(raw) -> str:
     cold-start import error, a task that could not be invoked — all happen before any verb
     produced an actor, so the recorded-failure object carries ``actor: null`` every time.
     Without this the notifier would take its no-recipient branch on every single failure, and
-    SPEC-152's guarantee would read as satisfied while telling nobody anything.
+    The guarantee would read as satisfied while telling nobody anything.
 
     The token is the ONLY acceptable source of the username; the body asserts nothing about who
     sent it. Expiry is deliberately not enforced, through the separately-named entry point the

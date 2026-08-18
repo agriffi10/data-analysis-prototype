@@ -8,7 +8,7 @@ import type {ArchiveRequest, ArchiveSpace, RestoreRequest} from '../../types/arc
  *
  * The mirror is not belt-and-braces. `validate-authorize` enforces these in the machine's first
  * task, but a request too large for `StartExecution` never reaches it: the Pipe cannot start the
- * execution at all, the message dead-letters, and the user learns about it from SPEC-126's drain
+ * execution at all, the message dead-letters, and the user learns about it from the drain
  * minutes later rather than from a refusal now. Below the caps the verb is still the authority.
  *
  * `test_config_arcommon.py` reads these two names back out of this file, because a restatement

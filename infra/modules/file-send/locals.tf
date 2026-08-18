@@ -37,7 +37,7 @@ locals {
   # "file-send-<suffix>"); value = the handler + the task's real timeout/memory need
   # (a small validator is not a long parallel S3 copy — lambdas.md §4).
   #
-  # SEVEN VERBS: SPEC-164's front door, SPEC-165's source resolution, and SPEC-166's
+  # SEVEN VERBS: The front door, the source resolution, and SPEC-166's
   # guard, manifest, batch copy and attribution. Only the copy runs inside the
   # Distributed Map; the guard runs per recipient in an inline Map, and the other four
   # once per request.
@@ -104,7 +104,7 @@ locals {
     # notifier on the fleet — the work is network-bound and small, and it must not be
     # the reason a delivered send reports failure.
     "notify" = { handler = "file_send_notify.handler", timeout = 60, memory = 256 }
-    # SPEC-152's notification of last resort: one decode + one SQS send, reached only
+    # the notification of last resort: one decode + one SQS send, reached only
     # on a whole-request failure path.
     #
     # SPEC-166 raised it 15s -> 60s, WITH the second door that made 15s wrong. The
@@ -188,7 +188,7 @@ locals {
   # execution failures: this timeout terminates the run outright, so no state runs and
   # no Catch fires. The sender is told by the EventBridge TIMED_OUT rule in
   # stepfunction.tf, which is the documented remedy and is what actually discharges
-  # SPEC-152's "it just never came back" guarantee here.
+  # "it just never came back" guarantee here.
   #
   # 3 hours, and the arithmetic is SEND_MAX_TRANSFER_BYTES (3 TiB) — the RECIPIENT
   # PRODUCT, not SEND_MAX_TOTAL_BYTES. Every manifest item is a full copy, so the Map

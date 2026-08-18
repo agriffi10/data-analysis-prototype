@@ -3,7 +3,7 @@
 # (SPEC-011). Trust ONLY — no permission policy is attached here; SPEC-013 adds
 # the prefix-scoped S3 policy. Per-user isolation is enforced by the `username`
 # principal tag the Identity Pool stamps server-side (auth module), evaluated by
-# SPEC-013's policy via ${aws:PrincipalTag/username}. One role for all users.
+# the policy via ${aws:PrincipalTag/username}. One role for all users.
 
 # IAM propagation guard: this spec grants the deploy role iam:CreateRole/PassRole
 # on this role name (modules/base) in the same apply that creates the role. Fresh

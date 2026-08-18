@@ -14,7 +14,7 @@ archive belonging to a different space simply is not found — which is also why
 encodes its own origin (``paths.origin_key``), so one ``ListObjectsV2`` over the archive prefix
 yields both the objects and their destinations with no record required. The manifest is a
 cross-check only: a restore still works when it is missing, and refuses when it disagrees. That
-is the whole reason SPEC-169's manifest is described as a report rather than a record, and
+is the whole reason the manifest is described as a report rather than a record, and
 ``test_no_restore_verb_requires_the_manifest`` holds it open from the other side.
 
 Attributes:

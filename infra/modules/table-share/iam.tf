@@ -26,7 +26,7 @@ resource "aws_iam_role_policy" "execution" {
   # copies the whole state into every item — at the shipped caps (1000 objects, ordinary
   # Hive keys) that put the Map's output state at 95% of the 256 KB payload limit, where
   # States.DataLimitExceeded fires ON THE MAP and destroys every per-recipient outcome the
-  # Map exists to preserve. Same fix and same reason as SPEC-110's data-quality manifest.
+  # Map exists to preserve. Same fix and same reason as the data-quality manifest.
   #
   # THE ADMIN BUCKET, not a user space: the SPA never browses it, so the plan needs no
   # hidden-folder convention, and a user cannot delete it out from under a running

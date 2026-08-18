@@ -2,7 +2,7 @@
  * The one Node API a test needs, declared rather than enabled.
  *
  * `tsconfig.app.json` deliberately lists only `vite/client` and `vitest/globals`, so app
- * code cannot reach for a Node API that would not exist in the browser. SPEC-184's palette
+ * code cannot reach for a Node API that would not exist in the browser. The palette
  * has to be checked against `src/index.css` itself — Vitest does not process CSS, so both
  * `import '…?raw'` and a raw `import.meta.glob` of a stylesheet resolve to an empty string
  * (measured), and an empty string makes that check pass by finding nothing.

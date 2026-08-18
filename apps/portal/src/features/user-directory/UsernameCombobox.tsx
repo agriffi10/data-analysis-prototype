@@ -46,7 +46,7 @@ export type UsernameComboboxProps = SuggestionSource & {
    * The neutral note shown after committing names the source does not list. Called only with a
    * non-empty list, and only while `status === 'ready'`.
    *
-   * A prop because the sentence has to name what was searched: SPEC-158's space entry must say
+   * A prop because the sentence has to name what was searched: The space entry must say
    * the space may exist and simply not be one of yours, since targeting a space you are not a
    * member of is PERMITTED — the username wording would imply the name is wrong. The default is
    * the username sentence this component has shown since SPEC-147.

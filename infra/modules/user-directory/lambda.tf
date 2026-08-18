@@ -97,7 +97,7 @@ resource "aws_cloudwatch_event_target" "schedule" {
 
 # Resource-based grant so the rule (events.amazonaws.com) may invoke the function — this is
 # why the schedule needs no separate invoke role, unlike EventBridge Scheduler. Scoped to this
-# rule's ARN. Same shape as SPEC-126's sweep and SPEC-127's log sweep.
+# rule's ARN. Same shape as the sweep and the log sweep.
 resource "aws_lambda_permission" "schedule" {
   statement_id  = "AllowEventBridgeSchedule"
   action        = "lambda:InvokeFunction"

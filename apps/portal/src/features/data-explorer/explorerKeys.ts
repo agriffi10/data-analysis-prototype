@@ -2,7 +2,7 @@
  * Single source of truth for Data Explorer TanStack Query keys. Never hand-build a key
  * array — use these so consumers and the invalidation helpers stay in sync.
  *
- * Rooted at `['data-explorer']`, not `['query']` or `['catalog']` (SPEC-176's precedent):
+ * Rooted at `['data-explorer']`, not `['query']` or `['catalog']` (the rule):
  * a namespace naming a feature the module does not belong to lets one feature's blanket
  * invalidation reach another's caches.
  *

@@ -26,7 +26,7 @@ must not cost everybody else the send. The whole-request failures on this plane 
 before any recipient runs.
 
 It notifies nobody, and that is deliberate rather than an omission. Every per-recipient outcome
-on this plane — this refusal included — is told to the sender ONCE, by SPEC-167's producer
+on this plane — this refusal included — is told to the sender ONCE, by the producer
 reading the terminal summary. Table-share notifies from its own guard verb because it has no
 such producer; reproducing that here would send two messages about one conflict.
 

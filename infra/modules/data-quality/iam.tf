@@ -25,7 +25,7 @@
 # are created in the ACTOR'S OWN database (personal) or the shared space's (shared) —
 # both DYNAMIC, one per user and one per space — so they cannot be statically LF-granted
 # in Terraform, which is why the role is an LF ADMIN rather than a grantee. Identical
-# reasoning to SPEC-070's table-builder execute-ddl role and SPEC-092's table-share role.
+# reasoning to the table-builder execute-ddl role and the table-share role.
 #
 # What still bounds it: glue is CreateTable/GetTable/DeleteTable/GetDatabase only — no
 # DeleteDatabase, no catalog-wide data grant beyond lakeformation:GetDataAccess (which is

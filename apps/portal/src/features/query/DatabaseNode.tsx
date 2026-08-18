@@ -116,7 +116,7 @@ function TableRow({
                   ]
                 : []),
               // Base tables only — a view has no folder to re-read. The
-              // browser runs NO other eligibility check: SPEC-143's rules (a
+              // browser runs NO other eligibility check: The rules (a
               // reconstructable partition scheme, a location inside the space) are
               // the server's to enforce, and its refusals come back as user-facing
               // notifications. A client-side gate here would only drift from them.

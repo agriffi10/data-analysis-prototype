@@ -48,7 +48,7 @@ resource "aws_s3_bucket_ownership_controls" "archive" {
 # 2026-08-03). It is worth saying explicitly here because the obvious next thought on an
 # archive bucket is S3 Object Lock — which REQUIRES versioning, and which is out of
 # scope for a second, independent reason: in compliance mode nothing can delete an
-# object, not even root, so SPEC-171's cleanup of a restored archive would be impossible.
+# object, not even root, so the cleanup of a restored archive would be impossible.
 resource "aws_s3_bucket_versioning" "archive" {
   bucket = aws_s3_bucket.archive.id
 
@@ -59,7 +59,7 @@ resource "aws_s3_bucket_versioning" "archive" {
 
 # ── Retention is a CEILING, not a WORM floor (FR-001) ────────────────────────
 # Every object expires 7 years after creation. Nothing here prevents an earlier delete —
-# SPEC-171's restore deletes the archived copy once it has been put back, and it must be
+# the restore deletes the archived copy once it has been put back, and it must be
 # able to.
 #
 # THE EXPIRY RULE IS DELIBERATELY BUCKET-WIDE WITH NO PREFIX FILTER, and it is the exact

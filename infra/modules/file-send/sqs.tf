@@ -15,7 +15,7 @@
 #
 # ITS OWN QUEUE AND ITS OWN DLQ, which is half the reason this plane is not a mode of
 # table share: a malformed send must never dead-letter someone's table share. The DLQ
-# is registered with SPEC-126's drain sweep (root main.tf drained_dlq_names +
+# is registered with the drain sweep (root main.tf drained_dlq_names +
 # dlq_drain.py SOURCES), so a dead-lettered send becomes a user notification rather
 # than silence.
 #

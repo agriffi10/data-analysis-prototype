@@ -27,10 +27,10 @@ export type SaveExplorationDialogProps = {
 };
 
 /**
- * The Data Explorer's save flow: SPEC-177's dialog, its collision confirm, and the write.
+ * The Data Explorer's save flow: The dialog, its collision confirm, and the write.
  *
  * A thin host by design. Every rule about naming, destinations, collisions and in-place
- * replacement is SPEC-175's and lives in `useSaveQuery` — this feature is the second
+ * replacement is the and lives in `useSaveQuery` — this feature is the second
  * caller, not a second implementation, which is the whole point of SPEC-177 having taken
  * `{sql, link}` instead of a `QueryTab`.
  *

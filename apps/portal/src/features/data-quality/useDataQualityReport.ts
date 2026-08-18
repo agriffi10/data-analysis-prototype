@@ -28,7 +28,7 @@ export type UseDataQualityReportResult = {
  * shared names are consulted only when the segment differs from it. A user whose
  * username happens to match a shared space they belong to would otherwise resolve to
  * the shared bucket and read a stranger's report — or, more likely, 403 on their own.
- * SPEC-114's link builder pins the same rule from the producer side.
+ * the link builder pins the same rule from the producer side.
  *
  * Returns `undefined` for a space the user cannot reach, which is what keeps this
  * function from becoming an existence oracle: the caller does not fetch, so an

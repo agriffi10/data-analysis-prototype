@@ -9,7 +9,7 @@ FR-006 names nine; ``archive_not_found``, ``archive_incomplete``, ``destination_
 ``restore_incomplete``, ``restore_timed_out`` and every other refusal are reason codes in
 ``messages._BODIES``, emitted once from ``notifies_on_failure`` or from the machine's
 ``NotifyFailure``. Adding a second producer for them would be the duplicate-notification bug
-SPEC-114's one-token-per-outcome rule exists to prevent.
+The one-token-per-outcome rule exists to prevent.
 
 A missed notification must never change or fail the outcome, so every emit goes through
 ``cpcommon.notify.emit_notification``, which catches, logs and never raises.
@@ -26,7 +26,7 @@ started back to back render **identical** text, and the queue's five-minute wind
 them into one inbox row — the user sees a response to one of two requests and cannot tell which.
 ``cpcommon.notify.dedup_id(requestId, outcome)`` is per RUN and per OUTCOME, so it keeps the
 retry-safety content dedup was providing (a re-invocation composes the same token) without
-letting two runs share one. This is SPEC-114's rule read literally: one token per outcome.
+letting two runs share one. This is the rule read literally: one token per outcome.
 """
 
 import logging

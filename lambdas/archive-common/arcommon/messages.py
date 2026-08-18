@@ -43,7 +43,7 @@ Attributes:
     against the files that DID land**. Without that sentence the obvious next action produces a
     refusal that reads like a new bug, on a run that already went wrong.
 
-    ``restore_archive_incomplete`` is SPEC-170's manifest-disagreement refusal, and it does NOT
+    ``restore_archive_incomplete`` is the manifest-disagreement refusal, and it does NOT
     reuse the ``archive_incomplete`` name FR-005 proposed: that code was already registered by
     SPEC-169 for a copy that fell short, its body promises "nothing was deleted and your files
     are exactly where they were", and the ASL seeds the literal in ``RollbackReturnedSeed``. One
@@ -57,7 +57,7 @@ Attributes:
     a restore — while the codes both modes CAN reach (``forbidden``, ``malformed_event``,
     ``invalid_request``) are exactly the ones a single prefix would get wrong. A user who
     clicked Restore and reads "Couldn't archive that" is being told about an operation they did
-    not ask for, which is the same class of defect SPEC-144's refusal wording exists to avoid.
+    not ask for, which is the same class of defect the refusal wording exists to avoid.
 """
 
 from cpcommon import messages as _cpmessages

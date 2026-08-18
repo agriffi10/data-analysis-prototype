@@ -35,14 +35,14 @@ Attributes:
 
     **The 90-day minimum storage duration is a property of this class, not a defect, and the
     user has to be told.** An object archived on Monday and restored the following week is still
-    billed for 90 days. SPEC-172's confirm dialog says so in user-facing wording; it is recorded
+    billed for 90 days. The confirm dialog says so in user-facing wording; it is recorded
     here because this constant is where someone would come looking.
   GLACIER_CLASSES: The three archival classes, for the guard that keeps
     ``ARCHIVE_STORAGE_CLASS`` one of them. The restore path is **unconditional** whatever this
     is set to — a class that needs no restore still tolerates one being requested, and making
     the machinery conditional on a constant is how a config change silently deletes a code path.
   ARCHIVE_MODES: The two things this ONE plane does. A single machine branches on ``mode``
-    rather than a sixth module being stood up (SPEC-143's create/refresh branch is the
+    rather than a sixth module being stood up (the create/refresh branch is the
     precedent): the two verbs share the bucket, the execution role, the key layout and the
     receipt, and a restore is meaningless without the archive that produced it.
   SPACE_KINDS: The two source-space kinds. The kind decides which bucket the source resolves in
@@ -95,7 +95,7 @@ Attributes:
     worker**, so a single object's copy time is bounded by nothing else: S3 accepts objects up to
     5 TiB, which at the conservative rate is ~220,000s — 240x the batch verb's own timeout and
     20x the whole machine's ceiling. Without this the makespan model certifies the DISTRIBUTED
-    case only, which is SPEC-166's recorded finding inherited rather than rediscovered.
+    case only, which is the recorded finding inherited rather than rediscovered.
 
     10 GiB matches the two shipped planes, and at the conservative rate it is 429s inside
     ``COPY_TIMEOUT_SECONDS``' 900.

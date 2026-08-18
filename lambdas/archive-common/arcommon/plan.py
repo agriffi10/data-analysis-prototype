@@ -9,7 +9,7 @@ bucket and its KEY is threaded onward, with the count and the byte total beside 
 
 This module owns **every** admin-bucket key layout on this plane — the two plans, the two
 transfer manifests, the poll's progress record and the three Map Run result exports — for
-SPEC-161's reason: one module, one place a key can be wrong. Where they live is this plane's
+The reason: one module, one place a key can be wrong. Where they live is this plane's
 business; a manifest's BYTES and an export's reader belong to ``cpcommon.transfer``, which is
 shared with table-share and file-send.
 
@@ -455,7 +455,7 @@ def _assert_deletable_folder(root: str, key: str) -> None:
     part way through the deletion with "contact an administrator" — the exact shape
     ``assert_not_protected_marker`` refuses a marker up front to avoid.
 
-    It is a WHOLE-REQUEST refusal rather than an exclusion, and that direction is SPEC-165's rule:
+    It is a WHOLE-REQUEST refusal rather than an exclusion, and that direction is the rule:
     the alternative silently drops the user's own data out of an archive that reports success. The
     user can rename the folder or select around it.
 
@@ -495,7 +495,7 @@ def _assert_not_the_record(relative: str) -> str:
     than the record claims, and refuses ``restore_archive_incomplete`` for every object archived
     alongside it. Alone, it restores as ``archive_not_found`` against a receipt the user is holding.
 
-    It is a WHOLE-REQUEST refusal rather than an exclusion, which is SPEC-165's direction: silently
+    It is a WHOLE-REQUEST refusal rather than an exclusion, which is the direction: silently
     dropping the file would archive everything else and delete the one object it could not carry.
 
     Only the space root collides — a ``reports/_manifest.json`` three folders down has a relative

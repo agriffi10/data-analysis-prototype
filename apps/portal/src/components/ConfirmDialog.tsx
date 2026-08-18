@@ -22,7 +22,7 @@ type ConfirmDialogProps = {
    */
   confirmDisabled?: boolean;
   /**
-   * WHY confirm is unavailable (SPEC-186 FR-002, on SPEC-172's `Button.disabledReason`).
+   * WHY confirm is unavailable (SPEC-186 FR-002, on `Button.disabledReason`).
    * Supplied alongside `confirmDisabled`, it swaps the native `disabled` for `aria-disabled`
    * so the reason keeps its place in the tab order — a `disabled` button with no title is
    * "greyed out and I can't find out why". `busy` still wins and stays natively disabled:

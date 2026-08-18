@@ -215,7 +215,7 @@ def rewrite(text: str, restore: dict) -> str:
 
     A label the document does not carry is APPENDED rather than dropped. That case is not
     reachable from anything this plane wrote — every receipt has carried both fields since
-    SPEC-169's first version, deliberately, so the format would never be conditional on the
+    The first version, deliberately, so the format would never be conditional on the
     file's own history — and it is handled because the alternative is a rewrite that silently
     records nothing.
 
@@ -246,10 +246,10 @@ def rewrite(text: str, restore: dict) -> str:
 def write(bucket: str, key: str, record: dict) -> str:
     """Writes the receipt into the space's own bucket and returns its key.
 
-    **The key is passed in rather than derived here**, and that is SPEC-168's design being
+    **The key is passed in rather than derived here**, and that is the design being
     honoured rather than a convenience: validate-authorize resolves the archive prefix and the
     receipt key once, because they are pure functions of the request, so that the copier, the
-    receipt writer and SPEC-170's restore read ONE string instead of three agreeing constructions
+    receipt writer and the restore read ONE string instead of three agreeing constructions
     of it. Deriving it again here made ``archive.receiptKey`` a field nothing read — the
     "placeholder that outlives its placeholder" the machine's own ``Validated`` state warns about.
 

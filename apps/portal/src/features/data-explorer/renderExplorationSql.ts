@@ -67,7 +67,7 @@ const OPERATOR_SQL: Record<Exclude<ColumnFilter['operator'], 'isNull' | 'isNotNu
 /**
  * The column name an aggregate produces, and the name an `ORDER BY` may reference.
  *
- * Exported because SPEC-182's panel must label a grouped column with the name the SQL
+ * Exported because the panel must label a grouped column with the name the SQL
  * actually emits — a second naming scheme at the view would disagree with the result set
  * the moment either changed.
  *
@@ -184,7 +184,7 @@ function assertOrderingIsGroupable(ordering: SortEntry[], grouping: Grouping): v
  * beside the aggregates under their own names, so grouping by a column called `count_all`
  * while `COUNT(*)` is present yields two result columns of one name — which share one
  * geometry entry in the grid and make `groupingOrderingViolation` answer for whichever the
- * reader meant. SPEC-182's panel made that reachable, because any column can be grouped by.
+ * reader meant. The panel made that reachable, because any column can be grouped by.
  *
  * **Exported for the same reason `groupingOrderingViolation` is**: the panel has to turn
  * the collision back at the gesture, and the message thrown below is operator text.

@@ -11,7 +11,7 @@ import type {PendingRemoval, TableRefreshTarget} from './tableRefresh.types';
 type RefreshToast = {variant: 'success' | 'danger'; message: string};
 
 /**
- * A target the caller derived from the URL (SPEC-144's `columns_removed` link) plus
+ * A target the caller derived from the URL (`columns_removed` link) plus
  * the way to retire it. The link-borne dialog is a function of the query string
  * rather than of state set in an effect — React Compiler's `set-state-in-effect`
  * rule forbids the latter, and the derived form is the shape the rulebook asks for
@@ -31,7 +31,7 @@ type LinkedTarget = {
  * A failure keeps the dialog open with `error` set.
  *
  * `linked` is the optional second entry point: a target the caller derived from
- * SPEC-144's notification link. It is passed in rather than opened, because opening
+ * the notification link. It is passed in rather than opened, because opening
  * it would mean setting state in an effect. An explicitly opened target always wins.
  *
  * It also owns FR-005's schema invalidation, because the successful enqueue is the

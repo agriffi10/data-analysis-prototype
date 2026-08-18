@@ -267,7 +267,7 @@ def _validate_and_authorize(event) -> dict:
 
     The actor comes from the verified token in the envelope, never from a body username — the
     token is the top-level ``actor`` field, the same flat shape every plane's envelope uses and
-    the one SPEC-126's drain and its redaction both depend on. From the point the sender is
+    the one the drain and its redaction both depend on. From the point the sender is
     known, a whole-request rejection notifies them before the Catch records it; pre-verification
     failures have no trusted recipient and stay notification-free.
 

@@ -1,4 +1,4 @@
-/** The document SPEC-146's daily builder publishes to `_directory/usernames.json`. */
+/** The document the daily builder publishes to `_directory/usernames.json`. */
 export type UserDirectoryDocument = {
   version: number;
   generatedAt: string;

@@ -153,7 +153,7 @@ def assert_clear(
 ) -> None:
     """Refuses the whole restore if any destination is occupied.
 
-    **It runs TWICE on a restore, and the second time is what closes SPEC-171's window** (see this
+    **It runs TWICE on a restore, and the second time is what closes the window** (see this
     module's docstring). The reason code is a parameter rather than a literal because the two
     passes leave the user in genuinely different positions: before the retrieval nothing has been
     spent, and after it the objects have been retrieved and stay readable for

@@ -20,7 +20,7 @@ wrote that no record mentions. A plan-driven deletion would leave exactly those.
 early-deletion fee.** An archive made on Monday and restored on Friday is still billed for 90
 days of storage, and deleting it on Friday brings that charge forward rather than avoiding it.
 It is recorded here so a later cost investigation does not read the line item as a defect —
-SPEC-168's config docstring is where the 90-day minimum itself is reasoned about.
+The config docstring is where the 90-day minimum itself is reasoned about.
 
 The service name is the control plane, not the function, so one restore's invocations stay one
 queryable set. The per-verb identity rides as the ``verb`` field.

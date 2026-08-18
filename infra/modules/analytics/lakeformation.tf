@@ -7,7 +7,7 @@
 #   (a) the file browser reads the user-space bucket via direct S3 IAM (hybrid mode,
 #       FR-005) — NOT through LF — so removing the Super grant doesn't touch it;
 # (b) no per-user Glue databases exist yet, so there's nothing to lock
-#       out. The end-to-end query path only works once SPEC-033's post-confirmation
+# out. The end-to-end query path only works once the post-confirmation
 #       Lambda creates a user's database AND LF-grants the shared role on it.
 # Until then, FR-006's Glue IAM scoping + this enforcement simply deny catalog
 # access — the correct, safe state.
@@ -168,7 +168,7 @@ resource "aws_lakeformation_permissions" "provisioner_tag_associate" {
   # failure than it looks, and a luckier one.)
   #
   # The grant itself is correct and is doing its job: it is what lets post_confirmation and
-  # create_space call AddLFTagsToResource (SPEC-111's live e2e passed on it). Only the
+  # create_space call AddLFTagsToResource (the live e2e passed on it). Only the
   # read-back diverges. The tag has exactly ONE value, so LF's ["*"] and our ["true"] are
   # the same grant described two ways.
   #

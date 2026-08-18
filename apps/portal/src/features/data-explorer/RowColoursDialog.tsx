@@ -90,7 +90,7 @@ export function RowColoursDialog({columns, formatting, onApply, onCancel}: RowCo
   const submit = () => {
     // Every refusal is raised at once rather than one per attempt, and each is user
     // wording: the engine's own `SyntaxError` names character offsets in a pattern the
-    // user is still writing, which SPEC-106 forbids showing (SPEC-181's precedent).
+    // user is still writing, which the error-wording rule forbids showing (the same reason).
     const bad: Record<string, string> = {};
     for (const rule of draft.rules) {
       const refusal = ruleRefusal(rule);

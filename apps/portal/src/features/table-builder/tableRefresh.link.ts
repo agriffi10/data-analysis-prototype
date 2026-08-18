@@ -31,7 +31,7 @@ function decode(value: string): string | null {
 }
 
 /**
- * Parse SPEC-144's `columns_removed` notification link
+ * Parse `columns_removed` notification link
  * (`/query?refreshTable={database}.{table}&removed={names}`) off the Query route's
  * query string. Returns `null` — meaning "ignore these parameters entirely" — for
  * anything that isn't a pair of catalog-safe identifiers, because the link is

@@ -105,12 +105,12 @@ export function SelectionToolbar({
   onRequestQualityCheck?: () => void;
   /**
    * Absent in the dev-unauth path and while the `files` flag is off — the
-   * action is then omitted rather than disabled, which is SPEC-163's rule: hidden means removed.
+   * action is then omitted rather than disabled, which is the rule: hidden means removed.
    */
   onRequestSend?: () => void;
   /**
    * Absent in the dev-unauth path, while the `files` flag is off, and inside the
-   * read-only `archive/` folder — removed rather than disabled, which is SPEC-163's rule.
+   * read-only `archive/` folder — removed rather than disabled, which is the rule.
    */
   onRequestArchive?: () => void;
   /**

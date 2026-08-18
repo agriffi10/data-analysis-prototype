@@ -4,7 +4,7 @@ One implementation, on the shared layer, for the reason SPEC-156 gives: a domain
 its plane's tables and wording, never its own copy of an algorithm. "Does this user exist?" is
 an algorithm — one API call and a three-way classification of the outcome — and getting the
 third branch wrong is what makes it worth having once. ``tscommon.cognito`` re-exports this
-name; SPEC-164's file-send verbs call it directly rather than adding a third copy.
+name; The file-send verbs call it directly rather than adding a third copy.
 
 ``shared-space-common.membership`` is deliberately NOT folded in here: its lookup is embedded
 in slot bookkeeping rather than being the same function under another name, and SPEC-156's

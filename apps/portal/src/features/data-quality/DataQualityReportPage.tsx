@@ -389,7 +389,7 @@ function ApproximateSection({ragged, encoding}: {ragged: RaggedRowsFigure; encod
  * The space is IN THE ROUTE and not derived, because the report lives at
  * `{space}/_data-quality-reports/{requestId}/report.json` and the request id alone does
  * not say which space holds it. A `/data-quality/:requestId` route could not locate a
- * shared-space report at all, so SPEC-114's deep link would land on a permanent
+ * shared-space report at all, so the deep link would land on a permanent
  * not-found for exactly the reports that are hardest to find another way.
  *
  * Everything on this page reads; nothing mutates. The two header actions are the

@@ -105,7 +105,7 @@ export function usableSpaceTargets(
 // from `useConnections` and synced to the `?space=` route param.
 // Selection flows through the URL so a deep-link (`/files?space=…&prefix=…`) and a
 // sidebar click are one mechanism, and a vanished/unusable space reconciles to the
-// personal space purely during render (mirrors SPEC-047's `useActiveDatabase`).
+// personal space purely during render (mirrors `useActiveDatabase`).
 export function useFileSpace({
   username,
   connections,

@@ -90,7 +90,7 @@ resource "aws_cloudwatch_event_target" "sweep" {
 }
 
 # No invoke role is needed — EventBridge invokes Lambda through a resource policy on the
-# function, scoped to this rule's ARN. Same mechanism as SPEC-126's sweep.
+# function, scoped to this rule's ARN. Same mechanism as the sweep.
 resource "aws_lambda_permission" "sweep" {
   statement_id  = "AllowExecutionFromEventBridge"
   action        = "lambda:InvokeFunction"

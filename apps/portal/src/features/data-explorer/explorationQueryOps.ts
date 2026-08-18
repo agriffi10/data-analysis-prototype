@@ -85,7 +85,7 @@ export function filterValueKind(type: string): FilterValueKind {
 /**
  * A description with nothing to clear: no filters, no expression, no ordering, no grouping.
  *
- * Grouping counts from SPEC-182 (FR-006 AC3), superseding SPEC-181's deliberate exclusion:
+ * Grouping counts from SPEC-182 (FR-006 AC3), superseding the deliberate exclusion:
  * Clear all now clears the grouping too, so a grouped view with no filters is no longer
  * "empty" — a control that refused there would refuse the only thing left to clear.
  */

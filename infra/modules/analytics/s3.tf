@@ -114,7 +114,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
   }
 
   # The file-send copy plan — the expanded object list inspect-source hands to
-  # SPEC-166's manifest builder. Same reasoning as the table-share rule above and the same
+  # the manifest builder. Same reasoning as the table-share rule above and the same
   # retention: execution-scoped, read minutes after it is written, kept only so an operator
   # can inspect the plan of a failed send. It is a SEPARATE rule rather than a widened
   # filter because S3 lifecycle takes one prefix per rule, and a prefix broad enough to

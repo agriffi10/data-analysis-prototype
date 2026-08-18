@@ -154,7 +154,7 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
 
   const clearAll = useCallback(() => {
     if (isEmptyQuery(query)) return;
-    // Grouping goes too, superseding SPEC-181's preservation — and
+    // Grouping goes too, superseding the preservation — and
     // the control SAYS so, because "Remove all filters" silently un-grouping a view would
     // be the change nobody asked for that the earlier decision was protecting against.
     apply(emptyExplorationQuery());

@@ -49,7 +49,7 @@ export type DatabaseSchema = {database: string; tables: GlueTableSummary[]};
 
 /**
  * A space a saved query (or a saved result) can live in: the user's own space, or a
- * shared space they are an active member of. Replaces SPEC-049's `DestinationSpace`,
+ * shared space they are an active member of. Replaces `DestinationSpace`,
  * so the catalog layer has ONE definition of what a space is.
  */
 export type QuerySpace = {

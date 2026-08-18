@@ -94,7 +94,7 @@ def require(name: str) -> str:
     ``_REQUIRED_VARS`` above is the set every control plane needs, and a domain layer must not
     add to it: that set is a fleet-wide contract, asserted per plane by
     ``test_the_common_environment_satisfies_every_import_time_require``, so a variable only one
-    plane sets would fail every other plane's guard. SPEC-168's ``ARCHIVE_BUCKET`` is the first
+    plane sets would fail every other plane's guard. ``ARCHIVE_BUCKET`` is the first
     such value and this is what it uses instead.
 
     Exported rather than left private so a domain layer reaches for it instead of writing its

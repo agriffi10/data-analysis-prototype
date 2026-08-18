@@ -42,13 +42,13 @@ export type ExplorationGridProps = {
 };
 
 /**
- * The results grid, replacing SPEC-179's placeholder table.
+ * The results grid, replacing the placeholder table.
  *
  * A cell is addressed by its column's NAME and its row's position on the page, so the
  * display order the geometry resolves is free to differ from the execution's — every cell
  * reads `row[column.index]` rather than assuming the two agree.
  *
- * `role="grid"` is explicit on the table and on its cells: SPEC-180's cursor makes this a
+ * `role="grid"` is explicit on the table and on its cells: The cursor makes this a
  * composite widget rather than a static table, and the roles have to be in place before
  * the selection model lands on them.
  */

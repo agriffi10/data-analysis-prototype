@@ -5,7 +5,7 @@ import type {Member} from './sharedSpaces.types';
  *
  * `Pending` means "invited but hasn't signed in yet"; a reader looking at their
  * own row demonstrably has, so their row reads `Active` whatever the cached projection says.
- * SPEC-073's acknowledge now fans the roster out (`cache.write_roster_to_all`) so every copy
+ * the acknowledge now fans the roster out (`cache.write_roster_to_all`) so every copy
  * converges — this closes the window between that sign-in and the fan-out landing, which is
  * exactly when a member is most likely to open the roster.
  *

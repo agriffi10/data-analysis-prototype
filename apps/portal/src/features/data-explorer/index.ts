@@ -1,4 +1,4 @@
-// The Data Explorer (SPEC-178's engine's shell): the exploration model, the one
+// The Data Explorer (the engine's shell): the exploration model, the one
 // SQL builder, the execution cache, the tab state, and the surfaces that mount them.
 //
 // The Glue reader, the Athena execution/results layer and the space list are

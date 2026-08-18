@@ -16,7 +16,7 @@ type Props = {
   items: TableMenuItem[];
 };
 
-// SPEC-044's kebab (⋮) + popover, now composed from the shared `Menu` primitive
+// the kebab (⋮) + popover, now composed from the shared `Menu` primitive
 // (SPEC-095) — behavior/a11y unchanged. Clicks stop propagation so opening the
 // menu never toggles the table row.
 export function TableActionsMenu({tableName, items}: Props) {

@@ -33,7 +33,7 @@ function clamp(value: number, max: number): number {
 /**
  * The grid's cell cursor and rectangular selection.
  *
- * The substrate SPEC-182's Calc panel aggregates over and SPEC-185's copy reads, so the
+ * The substrate the Calc panel aggregates over and the copy reads, so the
  * model is deliberately explicit rather than emergent: `ranges` is a list of inclusive
  * rectangles in selection order, and **the last one is always the live one** — its `from`
  * is the anchor a Shift gesture extends from and its `to` is the cursor. A discontiguous

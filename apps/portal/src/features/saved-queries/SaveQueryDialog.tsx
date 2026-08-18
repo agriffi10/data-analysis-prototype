@@ -15,7 +15,7 @@ export type SaveQueryRequest = {
 type Props = {
   /** '' for a new save; the linked file's name on re-save (pre-filled and selected). */
   initialName: string;
-  /** Every space the user may write into, personal first (SPEC-174's list). */
+  /** Every space the user may write into, personal first (the list). */
   spaces: QuerySpace[];
   /** The space the control opens on — the tab's own, else the remembered one. */
   initialSpace: QuerySpace | null;
@@ -32,7 +32,7 @@ type Props = {
 /**
  * Name-and-destination prompt for saving the active tab's SQL as a `.sql` file.
  *
- * EVERY save asks, a linked tab's included — a change from SPEC-043's silent write-back
+ * EVERY save asks, a linked tab's included — a change from the silent write-back
  * to the query it was opened from. A user about to overwrite a file should be told which
  * file, in which space, before it happens.
  *

@@ -150,7 +150,7 @@ export function OrderFilterDialog({columns, queryRefusalOf, query, onApply, onCa
                   type="checkbox"
                   aria-label={`Show ${column.name}`}
                   checked={!hidden}
-                  // The grid needs a column to draw; the same refusal SPEC-180's panel
+                  // The grid needs a column to draw; the same refusal the panel
                   // makes, over the STAGED state rather than the applied one.
                   disabled={!hidden && visibleCount <= 1}
                   title={!hidden && visibleCount <= 1 ? LAST_COLUMN_REFUSAL : undefined}

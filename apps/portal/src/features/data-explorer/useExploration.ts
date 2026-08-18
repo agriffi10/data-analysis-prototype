@@ -120,7 +120,7 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
   const cost = useMemo((): ExecutionCost | null => {
     // TERMINAL states only. A QUEUED or RUNNING poll carries no `Statistics`, so it reports
     // a perfectly confident 0 B — and a consumer that captures the FIRST cost it sees for an
-    // execution (SPEC-181's per-apply figure does, deliberately, so that a cache hit is
+    // execution (the per-apply figure does, deliberately, so that a cache hit is
     // detected before the ledger is written) would then freeze that 0 forever. Every real
     // query takes more than one poll, so the surface said "This query scanned 0 B" beside a
     // running total that disagreed with it.

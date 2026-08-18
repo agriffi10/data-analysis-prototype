@@ -1,6 +1,6 @@
 // a named principal that can read the catalog back, and nothing else.
 //
-// SPEC-149's `Description`/column-comment preservation check and SPEC-153's owed foreign
+// `Description`/column-comment preservation check and the owed foreign
 // projection fixture both fail today with `Insufficient Lake Formation permission(s): Required
 // Describe`, from every principal a human has. The role below closes that with a READ-ONLY
 // grant that touches no data bucket: `glue:GetTable`/`GetTableVersions` on the catalog, the
@@ -12,7 +12,7 @@
 // The first version delegated to the account root (`arn:aws:iam::{account}:root`), which is the
 // standard AWS idiom and grants nothing by itself — an account principal still needs its own
 // `sts:AssumeRole`. **Checkov's plan scan rejected it (`CKV_AWS_61`), and rejecting it was
-// right.** SPEC-139's rule for the accept list is that it holds findings with *no scopable
+// right.** the rule for the accept list is that it holds findings with *no scopable
 // alternative* — CloudFront and Cognito creation have no ARN before the resource exists, and no
 // applicable condition key. That is not true here: naming the principal IS the alternative, so
 // accepting the finding would have been suppressing a fixable one.

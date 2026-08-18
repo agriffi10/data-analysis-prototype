@@ -140,7 +140,7 @@ locals {
   # catchers cover Task, Parallel and Map states but NOT top-level execution failures: this
   # timeout terminates the run outright, so no state runs and no Catch fires. The sender is
   # told by the EventBridge TIMED_OUT rule in stepfunction.tf, which is the documented remedy
-  # and is what actually discharges SPEC-152's "it just never came back" guarantee here.
+  # and is what actually discharges "it just never came back" guarantee here.
   #
   # 3 hours, and the arithmetic is SHARE_MAX_TRANSFER_BYTES (3 TiB) — NOT SHARE_MAX_TOTAL_BYTES.
   # That distinction is the whole of it and two review rounds missed it: the manifest carries one

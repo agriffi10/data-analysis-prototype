@@ -1,6 +1,6 @@
 """Turning a validated selection into the concrete, bounded object list a send will copy.
 
-This is the whole of SPEC-165's first requirement. A selection is a mix of files and folders;
+This is the whole of the first requirement. A selection is a mix of files and folders;
 a folder expands recursively and can hold thousands of objects, so the expansion happens here —
 once, in one verb — and everything downstream reads the copy plan rather than listing again.
 
@@ -286,7 +286,7 @@ def expand(source: dict) -> tuple[list, int]:
 
     Returns:
       ``(objects, total_bytes)``, each object carrying its owning item name, its relative key,
-      its absolute source key and its size — everything SPEC-166's manifest builder needs
+      its absolute source key and its size — everything the manifest builder needs
       without a second listing.
 
     Raises:

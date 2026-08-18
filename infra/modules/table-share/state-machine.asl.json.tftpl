@@ -67,7 +67,7 @@
     },
     "StampExecution": {
       "Type": "Pass",
-      "Comment": "SPEC-160 FR-001. Puts the EXECUTION NAME on the state so the transfer manifest's key is unique to this run. The copy plan beside it is deliberately NOT execution-unique — two overlapping executions describe the same object set, so either plan is correct for either run. That argument does not carry to the manifest: its lines depend on which recipients the guard Map accepted, which is time- and destination-dependent, so a shared key would let one run's Map Run copy for a recipient the other's guard had just refused as a conflict. A Pass rather than the task's own Parameters, for SPEC-157's measured reason: reading $$ there means building an object, which WRAPS the payload, and every notification path in this plane reads the request at the TOP level. ResultPath adds a key and disturbs nothing.",
+      "Comment": "SPEC-160 FR-001. Puts the EXECUTION NAME on the state so the transfer manifest's key is unique to this run. The copy plan beside it is deliberately NOT execution-unique — two overlapping executions describe the same object set, so either plan is correct for either run. That argument does not carry to the manifest: its lines depend on which recipients the guard Map accepted, which is time- and destination-dependent, so a shared key would let one run's Map Run copy for a recipient the other's guard had just refused as a conflict. A Pass rather than the task's own Parameters, for the measured reason: reading $$ there means building an object, which WRAPS the payload, and every notification path in this plane reads the request at the TOP level. ResultPath adds a key and disturbs nothing.",
       "Parameters": {
         "name.$": "$$.Execution.Name"
       },
@@ -300,7 +300,7 @@
     },
     "FinishRecipients": {
       "Type": "Map",
-      "Comment": "SPEC-160 FR-005. create-table for the recipients that copied cleanly. It iterates EVERY outcome rather than only the clear ones, and carries the others through untouched, because ASL has no array concatenation — one Map over all of them is what keeps the summary a single flat per-recipient array of the shape SPEC-092's terminals and SPEC-094's notifications already read.",
+      "Comment": "SPEC-160 FR-005. create-table for the recipients that copied cleanly. It iterates EVERY outcome rather than only the clear ones, and carries the others through untouched, because ASL has no array concatenation — one Map over all of them is what keeps the summary a single flat per-recipient array of the shape the terminals and the notifications already read.",
       "ItemsPath": "$.outcomes",
       "MaxConcurrency": 5,
       "ItemSelector": {
@@ -408,7 +408,7 @@
     },
     "ShapeSummary": {
       "Type": "Pass",
-      "Comment": "The whole-request success outcome: identity + the per-recipient summary array collected from the finish Map ({kind, name, status:'ok'|'failed', error?} each — `error` is the RAW Step Functions {Error, Cause}; decode it with cpcommon.errors.failure_reason, never in ASL). The Succeed state passes this through as the execution output — what SPEC-094's sender/recipient notifications read.",
+      "Comment": "The whole-request success outcome: identity + the per-recipient summary array collected from the finish Map ({kind, name, status:'ok'|'failed', error?} each — `error` is the RAW Step Functions {Error, Cause}; decode it with cpcommon.errors.failure_reason, never in ASL). The Succeed state passes this through as the execution output — what the sender/recipient notifications read.",
       "Parameters": {
         "actor.$": "$.actor",
         "source.$": "$.source",

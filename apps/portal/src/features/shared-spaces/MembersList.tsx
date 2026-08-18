@@ -20,7 +20,7 @@ type MembersListProps = {
    *
    * Their own row renders `Active` whatever the projection says, because `Pending` means
    * "invited but hasn't signed in yet" and this reader demonstrably has — they are looking at
-   * the page. SPEC-073's acknowledge now fans the roster out (`cache.write_roster_to_all`), so
+   * the page. The acknowledge now fans the roster out (`cache.write_roster_to_all`), so
    * every copy converges; this closes the window between that sign-in and the fan-out landing,
    * which is exactly the moment a member is most likely to open the roster.
    */

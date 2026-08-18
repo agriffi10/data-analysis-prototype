@@ -159,7 +159,7 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: 'Data quality', kind: 'nav', path: '/data-quality'},
     {name: '/data-quality', kind: 'route', path: '/data-quality'},
     // Its own row: a report deep link must render unavailable and issue NO S3 request, or the
-    // page becomes an existence oracle for someone else's report (SPEC-113's rule).
+    // page becomes an existence oracle for someone else's report (the reason the route resolves before it mounts).
     {name: '/data-quality/:space/:requestId', kind: 'route', path: '/data-quality/:space/:requestId'},
     {name: 'Check data quality of the selected item', kind: 'control', path: '/files'},
     // Named by the contract table and gated by nothing until review said so.

@@ -9,7 +9,7 @@ import {isBareNumeric} from './renderExplorationSql';
 import {resolveUrl} from './urlTransformer';
 import type {ColourRule, ColourToken, FormattingState, SurfaceToken, Transformer} from './dataExplorer.types';
 
-// SPEC-184's arithmetic: which cells a rule paints, what shade a gradient gives them, and
+// the arithmetic: which cells a rule paints, what shade a gradient gives them, and
 // where one band of equal rows ends and the next begins.
 //
 // **Nothing here renders SQL and nothing here can.** That is the whole spec, and it is

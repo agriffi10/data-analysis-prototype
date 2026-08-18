@@ -57,7 +57,7 @@ export type ExploreResolution = {status: 'none'} | {status: 'denied'} | {status:
  *
  * It resolves from the LIST, never by probing: a space absent from `spaces` is refused here
  * and the caller issues no Glue call for it, so an inaccessible database and a nonexistent
- * one are indistinguishable from outside (SPEC-113's rule, applied to the catalog).
+ * one are indistinguishable from outside (the rule, applied to the catalog).
  *
  * @param params - The three search parameters, each null when absent.
  * @param spaces - Spaces the user can reach, as the VIEW has already filtered them.

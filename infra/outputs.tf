@@ -120,7 +120,7 @@ output "notifications_writer_role_arn" {
 # The three values a live check needs by name. `trail_name` is here for a reason worth
 # stating: a trail that is not logging returns an EMPTY result, which reads exactly like a
 # `RestoreObject` that never happened — so the negative assertion has to confirm the trail is
-# on before it trusts the absence (SPEC-138's "did not run is never clean").
+# on before it trusts the absence ("did not run is never clean").
 output "verification_role_arn" {
   description = "SPEC-186 FR-004: the read-only role a live check assumes for catalog read-backs and the archive audit record."
   value       = module.verification.verification_role_arn

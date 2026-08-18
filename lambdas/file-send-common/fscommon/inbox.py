@@ -1,6 +1,6 @@
 """What a recipient's inbox already holds from one sender.
 
-SPEC-166's conflict guard asks one question — *is any of the names this send would create
+The conflict guard asks one question — *is any of the names this send would create
 already taken?* — and this module answers it with a **delimited listing of the inbox prefix**
 rather than a probe per selected item.
 

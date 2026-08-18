@@ -10,7 +10,7 @@ contract of this plane's producer: the copy has already happened by the time it 
 message is the only thing it can add.
 
 **No per-message dedup token is passed, and the queue's content-based dedup is load-bearing
-rather than incidental.** SPEC-114's rule is one token per OUTCOME, not per verb; here every
+rather than incidental.** the rule is one token per OUTCOME, not per verb; here every
 outcome is emitted from exactly one place, so there is no duplicate-emit pair for a token to
 collapse — while the producer's own state carries a ``Retry``, and a re-invocation after a
 transient Lambda fault would otherwise send every message twice. Content dedup is what makes that

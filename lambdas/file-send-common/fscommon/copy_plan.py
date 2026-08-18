@@ -134,7 +134,7 @@ def write(request: dict, source: dict, sender: str, objects: list, total_bytes: 
     """Writes the copy plan to the admin bucket and returns its key.
 
     The plan records the source it was expanded from and the sender it belongs to alongside the
-    objects, so a reader — SPEC-166's manifest builder, or an operator looking at a failed
+    objects, so a reader — the manifest builder, or an operator looking at a failed
     send — does not have to join it back against the execution to know what it describes.
 
     Args:

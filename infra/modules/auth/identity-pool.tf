@@ -33,7 +33,7 @@ resource "aws_cognito_identity_pool" "portal" {
 
 # Attributes for access control — map the `username` principal tag to the user's
 # username claim, asserted by AWS at credential issuance (never by the client).
-# SPEC-013's role policy scopes S3 access with ${aws:PrincipalTag/username}.
+# the role policy scopes S3 access with ${aws:PrincipalTag/username}.
 #
 # Claim key resolved (SPEC-011 FR-002, 2026-06-12): the tag VALUE must be the
 # `cognito:username` claim. A first attempt mapping to `username` produced a
@@ -46,7 +46,7 @@ resource "aws_cognito_identity_pool" "portal" {
 # resource: tag `shared_space_k` reads the `custom:shared_space_k` claim (cognito.tf).
 # A slot the user isn't in carries no claim → the tag isn't stamped → the portal
 # role's templated statement for that slot matches nothing (implicit deny). Grant/
-# revoke takes effect on the NEXT token refresh (forced by SPEC-052's Refresh control),
+# revoke takes effect on the NEXT token refresh (forced by the Refresh control),
 # not instantly (architecture.md, Bucket 2 membership-slot propagation note).
 # `identity_provider_name` is built from `var.aws_region`, NOT `data.aws_region.current.name`,
 # and that is load-bearing rather than stylistic.

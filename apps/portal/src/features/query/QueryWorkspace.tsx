@@ -148,7 +148,7 @@ export function QueryWorkspace() {
   // "Refresh table" dialog + enqueue state, wired the same way. The hook
   // also owns the rail invalidation, since the enqueue is the only signal there is.
   // `/query?refreshTable={db}.{table}&removed={names}` — the link
-  // SPEC-144's `columns_removed` notification carries. Read from the RAW query string
+  // `columns_removed` notification carries. Read from the RAW query string
   // (`location.search`), never through `useSearchParams`: that decodes, and the names
   // are individually percent-encoded around a comma separator, so a column named
   // `a,b` would arrive already split.

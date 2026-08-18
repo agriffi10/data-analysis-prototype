@@ -483,7 +483,7 @@ resource "time_sleep" "wait_for_self_grant" {
 # CreatePolicy, not something `tofu validate` or the plan can see.
 #
 # Granted FIRST and guarded by the same 30s propagation floor the archive grants needed
-# (SPEC-168's apply went red on exactly this and succeeded unchanged on a re-run): IAM is
+# (the apply went red on exactly this and succeeded unchanged on a re-run): IAM is
 # eventually consistent, and this PR creates the bucket, trail and role in the SAME apply that
 # authorizes them. A red FIRST apply of a new plane is expected rather than a defect.
 resource "aws_iam_policy" "deploy_verification" {

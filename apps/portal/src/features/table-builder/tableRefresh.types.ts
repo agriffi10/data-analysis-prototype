@@ -13,7 +13,7 @@ export type TableRefreshRequest = {
 };
 
 /**
- * Parsed from SPEC-144's `columns_removed` notification link. Never stored — the
+ * Parsed from `columns_removed` notification link. Never stored — the
  * opt-in it gates is re-taken on every open.
  */
 export type PendingRemoval = {

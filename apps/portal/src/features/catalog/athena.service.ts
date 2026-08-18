@@ -160,7 +160,7 @@ export async function getQueryResults(p: {
       }));
       // An ABSENT `VarCharValue` is SQL NULL; an empty one is an empty string. Collapsing
       // the two to `''` here destroyed the difference for every caller, and no consumer
-      // can reconstruct it — SPEC-180's Value panel has to show which one a cell holds.
+      // can reconstruct it — the Value panel has to show which one a cell holds.
       let rows: (string | null)[][] = (response.ResultSet?.Rows ?? []).map((r) =>
         (r.Data ?? []).map((d) => d.VarCharValue ?? null)
       );

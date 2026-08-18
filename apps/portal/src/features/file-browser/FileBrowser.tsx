@@ -157,7 +157,7 @@ function FileBrowserContent({
   // `username` — which carries the same value but is named for the marker guard — because the
   // control plane's question is "which space is this FROM", and the prefix is that answer.
   //
-  // SPEC-172's two flows take the same value: an archive reads from this space, and a restore
+  // the two flows take the same value: an archive reads from this space, and a restore
   // writes back into it — the space the user is standing in, never one derived from an archive.
   const space = username ? ({kind: spaceKind ?? 'personal', name: rootPrefix.replace(/\/$/, '')} as const) : null;
   const send = useFileSend(space, (t) => toast.push(t));

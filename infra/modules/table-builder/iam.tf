@@ -9,7 +9,7 @@
 #   - registry read (validate-authorize) + source S3 read/list (inspect/infer/execute)
 #   - Glue Describe + CREATE + UPDATE on the account catalog (check-table-absent +
 #     execute-ddl; GetTable for load-table-definition, which only READS; and UpdateTable
-#     for apply-refresh, SPEC-149's in-place rebuild — scoped to the SAME catalog +
+# for apply-refresh, the in-place rebuild — scoped to the SAME catalog +
 #     database/* + table/*/* as the other Glue actions, not wider)
 #
 # `glue:DeleteTable` WAS HERE AND IS DELETED (SPEC-149, replacing SPEC-144). The refresh no

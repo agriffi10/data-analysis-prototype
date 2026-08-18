@@ -37,7 +37,7 @@ export function isArchiveId(value: string): boolean {
  * THE REQUEST ID IS MINTED PER SUBMIT, not per open, and here it is doing two jobs: it is the
  * queue's `MessageDeduplicationId` and it becomes the archive's permanent identity. Keeping one
  * id across a failed attempt would make the queue swallow the retry — the user sees an error,
- * presses the button again, and nothing at all happens (SPEC-167's recorded finding). The trade
+ * presses the button again, and nothing at all happens. The trade
  * is a submit whose response was lost being retried as a new request; the plane refuses that as
  * `request_id_reused` only if the first one actually got far enough to write, and otherwise it
  * is simply a second archive.
@@ -67,7 +67,7 @@ export function useArchive(space: ArchiveSpace | null, notify: (toast: ArchiveTo
    * THE RETURN VALUE IS LOAD-BEARING: the caller clears the selection and invalidates the
    * listing only after a successful enqueue, and reading `error` from the enclosing render to
    * decide would read the value from BEFORE the submit — clearing the selection under a dialog
-   * whose retry then has nothing to archive (SPEC-167's journey test caught exactly that).
+   * whose retry then has nothing to archive (the journey test caught exactly that).
    */
   const submit = async (): Promise<boolean> => {
     if (!items || !space || inFlight.current) return false;

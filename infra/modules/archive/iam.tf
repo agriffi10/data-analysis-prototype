@@ -46,7 +46,7 @@
 #     the failure would be an AccessDenied at the point of no return rather than at plan
 #     time.
 #   * s3:PutObject on the two SPACE buckets, unrestricted by prefix within the space root
-#     (SpaceDataWrite, replacing SPEC-169's ReceiptWrite). SPEC-169 needed only `*/archive/*`
+# (SpaceDataWrite, replacing the ReceiptWrite). SPEC-169 needed only `*/archive/*`
 #     because the only thing it wrote into a user's space was a receipt. A RESTORE writes
 #     wherever the data came from, which is anywhere in the space, so the narrow grant cannot
 #     stand. The multipart pair joins it because an archived object may be up to

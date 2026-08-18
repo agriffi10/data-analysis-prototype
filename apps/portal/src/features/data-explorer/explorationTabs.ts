@@ -33,7 +33,7 @@ function tabsKey(username: string): string | null {
  *
  * Deliberately unlike `initialTabsState()` in the Query workspace, which seeds "Query 1"
  * with boilerplate SQL. An exploration cannot exist without a source, and there is no
- * table to guess — SPEC-179's empty state asks the user to pick one.
+ * table to guess — the empty state asks the user to pick one.
  *
  * @returns An empty, valid tabs state.
  */
@@ -88,7 +88,7 @@ function isValidGrouping(value: unknown): boolean {
   if (typeof value !== 'object') return false;
   const grouping = value as Record<string, unknown>;
   if (!Array.isArray(grouping.columns) || !grouping.columns.every((c) => typeof c === 'string')) return false;
-  // SPEC-182's two flags are accepted ABSENT as well as boolean, and normalised to false on
+  // the two flags are accepted ABSENT as well as boolean, and normalised to false on
   // the way out. Requiring them would discard the whole document — every tab, not just the
   // grouping — over a field that did not exist when it was written.
   if (grouping.duplicatesOnly !== undefined && typeof grouping.duplicatesOnly !== 'boolean') return false;
@@ -108,7 +108,7 @@ function isValidGrouping(value: unknown): boolean {
  *
  * Absent is the ordinary case — every document written before SPEC-183, and every tab that
  * has never been saved — so a missing or malformed link restores the tab WITHOUT one rather
- * than discarding the session, on SPEC-182's precedent for an added field. All four fields
+ * than discarding the session, on the precedent for an added field. All four fields
  * are required together: a half link would name a bucket with no key, and the write path
  * would resolve `overwrite` from it.
  *

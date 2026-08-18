@@ -6,7 +6,7 @@
 # (Control Planes -> Archive).
 #
 # ONE PLANE SERVES BOTH ARCHIVE AND RESTORE, branching on `mode` in the request. That
-# mirrors SPEC-143's create/refresh branch on the table-builder machine rather than
+# mirrors the create/refresh branch on the table-builder machine rather than
 # standing up a sixth module: the two verbs share the bucket, the execution role, the
 # key layout and the receipt, and a restore is meaningless without the archive that
 # produced it.
@@ -44,7 +44,7 @@ variable "archive_bucket_name" {
 }
 
 variable "archive_retention_days" {
-  description = "SPEC-168 FR-001: days after creation at which EVERY object in the archive bucket expires. 2557 = 7 years. A CEILING, not a WORM floor — Object Lock is out of scope (it requires versioning, deferred by decision 2026-08-03, and in compliance mode would make SPEC-171's archive cleanup impossible)."
+  description = "SPEC-168 FR-001: days after creation at which EVERY object in the archive bucket expires. 2557 = 7 years. A CEILING, not a WORM floor — Object Lock is out of scope (it requires versioning, deferred by decision 2026-08-03, and in compliance mode would make the archive cleanup impossible)."
   type        = number
   default     = 2557
 }
@@ -62,7 +62,7 @@ variable "execution_role_arn" {
 }
 
 variable "dlq_max_receive_count" {
-  description = "Redrive maxReceiveCount on the FIFO request queue → DLQ (a poison request lands in the DLQ after this many failed deliveries, where SPEC-126's drain turns it into a user notification)."
+  description = "Redrive maxReceiveCount on the FIFO request queue → DLQ (a poison request lands in the DLQ after this many failed deliveries, where the drain turns it into a user notification)."
   type        = number
   default     = 3
 }

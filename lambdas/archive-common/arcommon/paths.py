@@ -31,7 +31,7 @@ Attributes:
     two buckets, so anything that is not exactly a UUID v4 — a slash, a ``..``, an empty string —
     is refused here rather than normalised into something that resolves.
 
-    **SPEC-170's pasted archive id is held to the SAME pattern, deliberately, and this is the
+    **the pasted archive id is held to the SAME pattern, deliberately, and this is the
     one regex either mode may use.** A restore's ``archiveId`` is the more dangerous of the two
     — the user types it, where a request id is minted by the browser — so a second, laxer copy
     of the rule would be a second door into the same key. ``validated_archive_id`` differs from

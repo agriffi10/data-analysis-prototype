@@ -21,7 +21,7 @@ type Props = {
  *
  * The opt-in is always present and always unchecked: a user who knows a column is
  * going away should not have to trigger a refusal to be offered the option. When the
- * dialog was opened from SPEC-144's `columns_removed` notification link it
+ * dialog was opened from `columns_removed` notification link it
  * additionally names the columns that link carried, and confirm stays disabled until
  * the box is ticked — arriving here means a removal is already pending, so
  * proceeding without acknowledging it is not a meaningful action.

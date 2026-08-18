@@ -23,7 +23,7 @@ export type GeneratedSqlDisclosureProps = {
  *
  * `sql` is null in three states and the wording has to be true in all of them: nothing has
  * run yet, the description was REFUSED before it could render, and a history step is being
- * held back (SPEC-181's suspension). Two of those keep the previous rows on screen, so
+ * held back (the suspension). Two of those keep the previous rows on screen, so
  * "nothing has been run" would be read as a claim about them.
  * The statement sits in a read-only `<textarea>` (the `ValuePanel` precedent) so it is
  * selectable and copyable with the platform's own shortcuts — a copy CONTROL is SPEC-185's.

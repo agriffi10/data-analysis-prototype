@@ -24,7 +24,7 @@
 # EventBridge rule below, notify-failure's second door and the raise from 15s to 60s that
 # door needs, because a timeout that cannot notify is SPEC-152 satisfied on paper and
 # silent in practice. The deploy-role `events:` grant that manages the rule shipped one PR
-# ahead of it (SPEC-168's merge apply went red for exactly that ordering). The arithmetic
+# ahead of it (the merge apply went red for exactly that ordering). The arithmetic
 # behind the number is in locals.tf, where a test computes it from the caps.
 
 resource "aws_cloudwatch_log_group" "orchestrator" {

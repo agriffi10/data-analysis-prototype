@@ -5,7 +5,7 @@
  *
  * Rooted at `['saved-queries']` rather than under `['query']`: a namespace naming the
  * wrong feature lets one feature's blanket invalidation reach another's caches
- * (SPEC-176's reasoning for `catalogKeys`).
+ * (the reasoning for `catalogKeys`).
  */
 export const savedQueryKeys = {
   all: ['saved-queries'] as const,

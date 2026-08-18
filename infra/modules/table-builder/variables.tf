@@ -2,7 +2,7 @@
 # Bounded-context module for the "create table from a folder" control plane: a
 # DEDICATED FIFO SQS → EventBridge Pipe → Step Function pipeline that orchestrates
 # single-task verb Lambdas (validate-authorize → {check-table-absent |
-# load-table-definition} → inspect-source → infer-schema → execute-ddl, SPEC-143's two
+# load-table-definition} → inspect-source → infer-schema → execute-ddl, the two
 # branches over one shared spine). Mirrors the shared-spaces control
 # plane PATTERN (not its resources), but with PER-VERB least-privilege roles.
 #

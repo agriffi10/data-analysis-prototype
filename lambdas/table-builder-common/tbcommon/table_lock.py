@@ -3,7 +3,7 @@
 Two refreshes of one table can overlap. ``MessageGroupId`` on the request queue is the target
 database, so SQS serializes *delivery* per database, but the Pipe starts the state machine
 ``FIRE_AND_FORGET`` and returns immediately — so it is free to deliver the next message while the
-previous execution is still running. SPEC-149's in-place ``glue:UpdateTable`` reduced the damage
+previous execution is still running. The in-place ``glue:UpdateTable`` reduced the damage
 (neither run can see a missing table) but could not close it, because Glue offers no
 compare-and-set on ``UpdateTable``. This module is the serialization the catalog cannot provide:
 the second refresh is refused rather than raced.

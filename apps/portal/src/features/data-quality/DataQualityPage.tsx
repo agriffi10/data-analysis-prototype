@@ -228,7 +228,7 @@ export function DataQualityPage() {
  * a failure of the delivery channel, not of the check — if it breaks, no wording on this page
  * is reaching the user anyway.
  *
- * This is the STANDING explanation; SPEC-124's post-enqueue banner is the MOMENTARY one.
+ * This is the STANDING explanation; The post-enqueue banner is the MOMENTARY one.
  * Together they are what keeps a completed-only list honest: the banner covers the check the
  * user just started and cannot yet see, this line covers every check that will never appear.
  */

@@ -46,7 +46,7 @@ export type ProviderOptions = {
   /** Reuse a QueryClient (e.g. to seed or assert cache); a fresh one otherwise. */
   queryClient?: QueryClient;
   /**
-   * Pre-resolve SPEC-162's feature flags to the compiled-in defaults (everything on).
+   * Pre-resolve the feature flags to the compiled-in defaults (everything on).
    *
    * ON BY DEFAULT, because SPEC-163 made every gated surface wait on a fetch: without a
    * seeded answer, `useFeature` reports `false` while the query is pending and a test that

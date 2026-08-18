@@ -38,7 +38,7 @@ variable "account_id" {
 }
 
 variable "dlq_max_receive_count" {
-  description = "Redrive maxReceiveCount on the FIFO request queue → DLQ (a poison request lands in the DLQ after this many failed deliveries, where SPEC-126's drain turns it into a user notification)."
+  description = "Redrive maxReceiveCount on the FIFO request queue → DLQ (a poison request lands in the DLQ after this many failed deliveries, where the drain turns it into a user notification)."
   type        = number
   default     = 3
 }
