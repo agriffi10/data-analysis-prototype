@@ -2,7 +2,9 @@
 
 **Status:** Single source of truth for the client transition. Living document; update it in place
 rather than writing a competing one.
-**Last updated:** 2026-08-03 (reconciled against the folded `architecture.md` — control-plane
+**Last updated:** 2026-08-18 (§3.5 gains the unverified step-3 caveat and gate G7 — the Athena
+docs do not confirm that a plain `StartQueryExecution` on an identity-enhanced session is supported;
+§5.5, Phase 0 and §8 updated with it). Previously 2026-08-03 (reconciled against the folded `architecture.md` — control-plane
 records now live there; SPEC-140/141 header and caching facts updated in §4.6, §6.3, §9)
 **Strategy revision (2026-08-01):** the client environment is itself moving to a **successor
 account** this year. The portal will be **built fresh in that account as its first tenant**, and
@@ -249,6 +251,28 @@ planes. Confirm this is acceptable; the expectation is yes, and they remain sepa
    → Athena propagates the identity to Lake Formation
    → LF resolves THIS user's grants and applies the data cell filter for their level
 ```
+
+**Step 3 is UNVERIFIED, and the whole flow rests on it (2026-08-18).** The Athena documentation for
+IAM Identity Center enabled workgroups says queries in a trusted-identity-propagation workgroup
+*"cannot be run directly from the Athena console"*, and names **EMR Studio** and **SageMaker Unified
+Studio** as the interfaces through which Athena SQL supports TIP. Neither statement settles whether a
+plain `StartQueryExecution` issued with identity-enhanced credentials — from this app's SPA, or from
+its backend — is supported at all. It is not documented as unsupported either; it is simply unaddressed,
+and every other TIP consumer AWS documents is a studio product rather than a bespoke application. **Prove
+it in Phase 0 — gate G7 (§5.5).** If it fails, Phase 5 needs a different query surface and §3's design
+is in question, so this is the cheapest possible thing to discover early.
+
+The same page carries three facts to design around regardless:
+
+- An IdC-enabled workgroup requires Lake Formation configured for IdC identities **and**
+  *"Amazon S3 Access Grants must be configured to use Trusted identity propagation identities."*
+  **S3 Access Grants appears nowhere in this architecture today** — it is new infrastructure, not a
+  configuration flip, and it is the reason §3.6's allowlist policy carries only the three Access
+  Grants operations and no plain `GetObject`.
+- A workgroup's **authentication method cannot be changed after creation**, and an existing workgroup
+  cannot be converted to an IdC-enabled one. The choice is made once, at create time.
+- **Entitlement changes can take up to an hour to take effect**, which sets a floor under the
+  reconciler's lag (§3.8) that no amount of running it more often will lower.
 
 **Steps 1 and 2 run in a backend. This is not optional.** AWS states that the application "must
 have a backend server component that can securely store credentials. Browser-based applications,
@@ -719,6 +743,7 @@ Independent of P1 and P2, these belong to Phase 5 and are still worth proving:
 | G4 | A user with no grant is denied | Default-deny or propagation broken — blocker |
 | G5 | A JOIN across two granted datasets returns in one query | The single-session-spans-grants assumption is wrong |
 | G6 | Session lifetime is workable and silent refresh exists | UX churn; needs a refresh strategy |
+| G7 | A plain `StartQueryExecution` on an IdC-enabled workgroup, issued with identity-enhanced credentials from our own code, runs and is enforced per user (§3.5) | **Blocker.** Phase 5 needs a different query surface — a studio product, or a broker that re-implements masking (§3.2 point 4). **Run it in Phase 0, not Phase 5** |
 
 ---
 
@@ -930,6 +955,9 @@ they already were.
 - **Run the §5.4 permission-set experiment.** Unchanged and still first: gates P2 and P3
   together decide whether Phase 1 needs the Cognito Identity Pool and the custom username
   attribute at all, and §6.4's membership ceiling turns on the same result.
+- **Run gate G7 (§5.5) alongside it.** It is a single query against a throwaway IdC-enabled
+  workgroup, and it is the one experiment that can invalidate §3 outright. Standing the workgroup up
+  also surfaces the S3 Access Grants prerequisite while it is still cheap.
 - Do **not** run the retired spike's G1 experiment. It is settled (§3.5).
 - Confirm the successor account: does it exist yet, is it in the **same organization** (same
   Identity Center organization instance — load-bearing, §4.5), who else is scheduled to land in
@@ -1088,7 +1116,9 @@ on any IAM role. The design is §3; the work items are here.
   (§3.8) pointed at the successor account — a re-run of the existing grant matrix against
   unchanged Identity Center principals (§4.1). No dual-granting: there are no bespoke roles to
   grant alongside.
-- Prove gates G2 through G6 (§5.5).
+- Stand up S3 Access Grants for the workgroup's identities — a prerequisite of the IdC-enabled
+  workgroup, and new infrastructure for this repo (§3.5).
+- Prove gates G2 through G6 (§5.5). G7 should already be settled from Phase 0.
 
 **Verification:** two users on the same carrier role see different data; a user with no grant is
 denied. Confirm with raw credentials, not through the UI. Separately, confirm no Identity Center
@@ -1175,6 +1205,11 @@ freeze. This is the whole reason the old account survives the quiet period.
 
 **Gating Phase 5:**
 
+- **Gate G7 (§3.5, §5.5) — settled in Phase 0 or not?** If a plain `StartQueryExecution` on an
+  identity-enhanced session turns out to be unsupported, everything below is moot and §3 is reopened.
+- Who owns **S3 Access Grants** in the successor account — another account-wide singleton to name in
+  the coordination contract (§4.4), and one this repo does not touch today.
+
 - Does the successor account already have a Lake Formation Identity Center configuration by the
   time Phase 5 starts, and if so who created it (§4.4)?
 - Who administers the organization's Identity Center, and what is their process (§4.5)?
@@ -1245,6 +1280,10 @@ Lake Formation:
 [Registering an S3 location in another AWS account](https://docs.aws.amazon.com/lake-formation/latest/dg/register-cross-account.html) ·
 [Prerequisites for Identity Center integration](https://docs.aws.amazon.com/lake-formation/latest/dg/prerequisites-identity-center.html) ·
 [CreateLakeFormationIdentityCenterConfiguration](https://docs.aws.amazon.com/lake-formation/latest/APIReference/API_CreateLakeFormationIdentityCenterConfiguration.html)
+
+Athena:
+[Use IAM Identity Center enabled Athena workgroups](https://docs.aws.amazon.com/athena/latest/ug/workgroups-identity-center.html) ·
+[Use Lake Formation and JDBC or ODBC drivers for federated access to Athena](https://docs.aws.amazon.com/athena/latest/ug/security-athena-lake-formation-jdbc.html)
 
 IAM Identity Center:
 [Enable AWS account access for customer managed applications](https://docs.aws.amazon.com/singlesignon/latest/userguide/enable-account-access-customer-managed-apps.html) ·

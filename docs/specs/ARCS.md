@@ -1771,8 +1771,12 @@ backs the tag, so there is nothing a user could edit to assume someone else's ac
 Keep the same tag keys and values and **no IAM policy changes at all** — only where the tag comes from.
 
 Where IdC still matters for shared spaces is the **catalog plane**: Lake Formation grants against the
-IdC user for a shared space's database. Since IdC groups cannot be created either, that is per-user
-grants driven by the registry — §3.8's reconciler.
+IdC user for a shared space's database. IdC groups cannot be **authored** — but SCIM syncs them from
+Entra, so groups do exist and are perfectly good grant targets. The distinction is worth stating,
+because it decides where a grant is keyed: **team-level** data sharing grants to an Entra-sourced
+group and needs nothing from our registry, whereas a **shared space** is this app's own construct with
+no Entra group behind it, so its grants stay per-user and registry-driven — §3.8's reconciler.
+Do not model shared spaces as directory groups.
 
 ### Other applications acting on behalf of users
 
@@ -1792,12 +1796,44 @@ flattening the two would be wrong.
 the registry; they never see a token. A delegated request and a browser request produce byte-identical
 messages apart from those two fields, so delegation costs the planes nothing.
 
-**One real limitation, probably not binding.** A delegated call whose user identity was *asserted*
+**One real limitation, and it IS binding.** A delegated call whose user identity was *asserted*
 carries no IdC identity context, so it cannot make a Lake Formation-enforced query on that user's
-behalf. The operations other teams want are the **enqueue** paths, which run inside a control plane
-under its own execution role with LF grants to that role — the user identity is used for authorization
-and attribution, not for data-plane enforcement. Confirm with the consuming teams that they want to
-*trigger processes* rather than *read data as the user*; only the latter needs IdC integration.
+behalf. **Triggering** is unaffected — the enqueue paths run inside a control plane under its own
+execution role with LF grants to that role, so the user identity is used for authorization and
+attribution, never for data-plane enforcement. But **reading data as the user is not delegation
+through this API at all**, and the earlier reading — that consuming teams only want to trigger
+processes — is wrong: teams may want Lake Formation permissions of their own.
+
+It is a separate integration that **bypasses the BFF entirely**, in one of two shapes: **(a)** we grant
+Lake Formation permissions in **our** account, RAM-share the resource, and the other team queries from
+**their** account under their own propagated identity; or **(b)** they run against an **IdC-enabled
+Athena workgroup in our account**, with their users assigned through Identity Center. Either way our
+API is out of the path — which is cleaner than routing data reads through a BFF that could not
+propagate identity anyway.
+
+Three facts fence that off, each confirmed against the live AWS docs:
+
+- **RAM sharing carries trusted identity propagation only inside one organization instance.** Grantor
+  and grantee must be in the same **Region**, the same **AWS Organization**, and the same
+  **organization instance** of IAM Identity Center. An account instance forecloses shape (a) outright —
+  hence the new open question below.
+- **The grants stay ours.** Lake Formation refuses to grant to IdC users or groups on Data Catalog
+  resources in an external account — the literal error is *"Cross-account grants are not supported for
+  the principal."* Permissions are granted only on resources in the **owning** account; an
+  external-account IAM role acts as a **carrier role** on behalf of an IdC user or group.
+- **Shape (b) is new infrastructure, not a config flip.** An IdC-enabled Athena workgroup requires
+  **both** Lake Formation configured for IdC identities **and** S3 Access Grants — *"Amazon S3 Access
+  Grants must be configured to use Trusted identity propagation identities."* Access Grants is nowhere
+  in this architecture today. It also explains `transition_plan.md` §3.6: the
+  `AWSIAMIdentityCenterAllowListForIdentityContext` policy permits only the three S3 Access Grants
+  operations, which is why plain `GetObject` is denied on that plane.
+
+**One thing that page leaves unresolved, and it reaches our own Path B.** The same source says queries
+in a TIP workgroup *"cannot be run directly from the Athena console"* and names EMR Studio and
+SageMaker Unified Studio as the Athena SQL interfaces for TIP. Whether a direct `StartQueryExecution`
+from our own identity-enhanced credentials is supported is therefore **not settled by the docs** —
+settle it before committing to shape (b), and note that `transition_plan.md` §3.5's whole flow rests
+on the same assumption.
 
 ### Was open — all four settled 2026-08-18, when the specs were written
 
@@ -1832,6 +1868,24 @@ the browser, which is the thing this arc removes, and keeping it would mean the 
 `@aws-sdk/client-s3` for one dev-only branch nobody tests against the real one. Local work points the
 SPA at a locally-run or deployed API. This supersedes a CLAUDE.md Key Decision and needs a
 `decisions.md` entry plus a superseded marker at every site still stating the old claim.
+
+### Still open — and it is NOT a spec decision
+
+**Which Identity Center instance the portal lands on: the organization instance, or an account
+instance.** This does not belong in the settled list above, and no spec can close it — it is the
+client platform team's call, and with the successor-account move it has a long lead time. It needs to
+reach them **before Phase 1**.
+
+It is here because of what it forecloses. AWS's own prerequisite is explicit: with an **account
+instance**, *"all AWS services that you want users to access with trusted identity propagation must
+reside in the same AWS account where you enable IAM Identity Center."* So an account instance rules
+out shape (a) above — RAM-shared data read from another team's account under their propagated
+identity — because Lake Formation's RAM sharing carries trusted identity propagation only when
+grantor and grantee are in the same **Region**, the same **AWS Organization**, and the same
+**organization instance**. AWS recommends the organization instance for exactly this reason.
+
+Nothing in Arc B depends on the answer; everything in Phase 5 and any future team-level data sharing
+does.
 
 ### The shape
 
