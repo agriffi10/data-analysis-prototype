@@ -138,8 +138,9 @@ src/
   Break work into phases that map to discrete, reviewable units. Each phase
   should be completable in one session. Do NOT write per-phase checkpoints
   here — when this spec is picked up for build, the implementing session
-  generates an implementation plan and validates it against this spec before
-  writing code (see process.md §3). The phases below are the input to that plan.
+  generates an implementation plan, validates it against this spec and sends it
+  to a fresh-context reviewer before writing code (see process.md §3, *The
+  reviewer contract*). The phases below are the input to that plan.
 -->
 
 ### Phase 1: [Name — e.g. "Data layer and types"]

@@ -46,9 +46,10 @@ paragraph in the always-loaded file.
 Specs move **Draft → In Progress → Completed** (the status in each spec's header is authoritative; the
 `INDEX.md` row mirrors it).
 
-- **Draft** — written and refined, but **do not build until told.** The user authors spec files
-  incrementally, sometimes well ahead of implementation. A Draft spec being in the repo is not a
-  signal to start it.
+- **Draft** — written, **reviewed by a fresh-context reviewer (§3, *The reviewer contract*)** and
+  refined, but **do not build until told.** The user authors spec files incrementally, sometimes well
+  ahead of implementation. A Draft spec being in the repo is not a signal to start it. A spec that has
+  not been through the gate is not Draft-ready, whatever its header says.
 - **In Progress** — exactly one spec at a time is in flight. Set when you branch to build it.
 - **Completed** — merged on green CI, delivery doc written (see §5).
 
@@ -73,9 +74,11 @@ session you notice it (two hand-synced copies of one procedure is how numbering 
 4. **Branch from fresh `main`:** `git fetch && git switch -c <branch> origin/main`.
 5. **Generate and validate a plan before writing code.** Turn the spec's Implementation Phases into a
    concrete implementation plan, then validate it against the spec (every FR + acceptance criterion is
-   covered, reuse from the component inventory is used, no out-of-scope work crept in). Confirm the
-   plan before building. The plan — not per-phase checkpoints baked into the spec — is what gates the
-   work.
+   covered, reuse from the component inventory is used, no out-of-scope work crept in). The plan —
+   not per-phase checkpoints baked into the spec — is what gates the work.
+6. **Put the plan through the reviewer gate before the first line of code** (*The reviewer contract*,
+   below). A plan is reviewed for the same reason a PR is: the author cannot see what they assumed.
+   Confirm the reviewed plan with the user, then build.
 
 **During the build — one spec, in phases**
 - Every file-changing task is done on its **own branch** and opened as a **PR** — automatically, without
@@ -84,8 +87,10 @@ session you notice it (two hand-synced copies of one procedure is how numbering 
   and get them green. These quality gates are a pre-PR step — don't push red and leave CI to discover
   it. **`build` (`tsc -b`) is the only one that typechecks** — the test run does not, and
   `tsc -p tsconfig.json` silently checks nothing (see §6).
-- Work the validated plan's phases in order. After each phase, **stop and summarize** what was built
-  and how it maps back to the plan before continuing.
+- Work the **reviewed** plan's phases in order. After each phase, **stop and summarize** what was
+  built and how it maps back to the plan before continuing. Re-review the plan only if the phase
+  changed it — a phase that revises the plan has produced a new artifact, and it goes through the
+  gate as one.
 - Before writing code in a domain that has a rulebook (React, accessibility, …), route through
   `docs/best-practices/INDEX.md` and load only the relevant section(s). Apply the rules as you write;
   flag (don't silently break) any that conflict with existing code.
@@ -98,6 +103,39 @@ session you notice it (two hand-synced copies of one procedure is how numbering 
     with no clearly-right answer): **stop and escalate to the human.** Don't silently pick — surface the
     options with a recommendation. Auto-deciding these is how an autonomous run drifts away from what
     was actually wanted.
+
+**The reviewer contract — three artifacts, one gate**
+
+Nothing reaches the next stage on its author's own judgement. A **spec**, an **implementation plan**
+and a **diff** each go to a reviewer in a **fresh context** — a subagent or a new session, never the
+context that produced the artifact. An author reviewing their own work assumes its output was
+intended and rubber-stamps it; that is as true of a plan as of code, and a wrong plan is the more
+expensive of the two because the code that follows will faithfully implement it.
+
+- **The gate is blocking.** A spec is not Draft-ready, and a plan does not start code, until it has
+  been through a review round and every finding is either **fixed** or **explicitly rejected in
+  writing** — in the spec/plan itself, or in the session summary, saying which finding and why. A
+  finding that is silently dropped is a finding that was not reviewed.
+- **The reviewer gets the artifact and its sources, never the author's reasoning.** For a spec: the
+  spec file, its arc entry in `ARCS.md`, the `decisions.md` entries it claims to follow, and the
+  specs it depends on. For a plan: the plan, the spec, and the `component-inventory/<area>.md` files
+  the spec touches. Handing over the authoring rationale tells the reviewer what to conclude.
+- **What each review is for.** A **spec** review asks: is every FR testable and binary; does any
+  acceptance criterion pass vacuously; is anything in Out of Scope actually required by an FR; does
+  it contradict a settled `decisions.md` entry or silently supersede one without saying so; are there
+  Open Questions wearing declarative clothes. A **plan** review asks: does every FR and acceptance
+  criterion have a phase that delivers it; is existing reuse used rather than re-built; has
+  out-of-scope work crept in; is a phase resting on a premise nobody has checked. A **diff** review is
+  the rules below.
+- **Cap same-frame rounds at two, then rotate the frame** — the rule the next block earns, and it
+  applies to specs and plans as much as to code. A second round of the same reviewer on the same
+  artifact converges on wording. Rotate instead: for a spec, a reviewer briefed only on the
+  *dependencies* it claims, or one asked to build the thing from the spec alone and report what it
+  could not determine; for a plan, one asked to find the phase that will be discovered impossible.
+- **Exit on a new frame finding nothing**, never on a round count.
+- **A reviewer finding is not an instruction.** The author decides; the record of the decision is
+  what the gate requires. A rejected finding that turns out right is a cheap lesson with a written
+  trail; a fixed finding that was wrong is a silent regression.
 
 **Reviewing the work — in a fresh context**
 - Code review and verification run in a **fresh context** (a new session or a subagent), **never the
@@ -179,6 +217,10 @@ Specs are written from `docs/templates/spec-template.md`. What makes a spec *bui
 - **No Open Questions.** Resolve every decision while authoring — a spec doesn't move to Draft-ready
   with unanswered questions. Issues that only surface during the build are handled in-session (§3),
   not parked in the spec.
+- **Then the reviewer gate** (§3, *The reviewer contract*). A freshly-authored spec goes to a
+  fresh-context reviewer before it is Draft-ready, and its findings are fixed or rejected in writing.
+  The commonest thing this catches is not a wrong requirement — it is an acceptance criterion that
+  cannot fail, and an Out of Scope bullet that an FR quietly needs.
 
 ---
 

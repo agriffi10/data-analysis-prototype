@@ -1615,7 +1615,71 @@ criterion that forbade it, and would have silently removed the ability to copy *
 `athenaresults/`, which is picker-locked and undeletable but deliberately copy-able. State the rule
 per (side × operation), enumerated against the real constants, and read that file's own note first.
 
-## API-layer & containerisation arc (SPEC-192 → 202 — scoped 2026-08-17, specs not yet written)
+## API-layer & containerisation arc (SPEC-192 → 202 — scoped 2026-08-17, specs written 2026-08-18)
+
+> **RE-SCOPED 2026-08-18, after the first five specs were drafted — read this before the entry below.**
+> **This arc is PREP WORK, and it keeps the current Cognito authentication exactly as it is** (user
+> decision). The BFF, Entra ID and Identity Center are **target-environment** work in a later arc; Arc
+> B does everything that can be done ahead of that move without touching how anyone signs in.
+>
+> - **Sign-in is unchanged** — Cognito User Pool, Managed Login v2, Amplify in the browser, the Hosted
+>   UI round trip and `lib/returnPath.ts` all stay. No session cookie, no DynamoDB session store, no
+>   `/auth/*` routes, no code exchange of our own. Open question 3 below is therefore **void**:
+>   `lib/returnPath.ts` is not replaced in this arc.
+> - **The API authorizes with the Cognito ID token as a BEARER** — the trust model the seven control
+>   planes already have. No cookie means **no CSRF surface and no `SameSite` requirement**, so the
+>   *two-origins-one-registrable-domain* decision relaxes from a requirement to a preference.
+> - **The Identity Pool keeps minting browser credentials until SPEC-202**, and that is what removes
+>   the degraded window the BFF ordering created: every un-ported feature keeps working through the
+>   arc, so the live checks owed on the archive, table-builder and Data Explorer arcs stay runnable.
+>   SPEC-202 retires it once nothing in the browser needs AWS credentials — **which is not a change to
+>   how anyone signs in.**
+> - **`connect-src` keeps the Cognito hosts** (open question 2's answer, amended): API host + S3 +
+>   `'self'` **+ the User Pool and Hosted UI hosts**, because Amplify is still running in the browser.
+>   SPEC-140's recorded outage was exactly an omitted Hosted UI host.
+> - **Provider-agnosticism survives in reduced form** — the API's token verification takes its issuer
+>   and JWKS from configuration rather than hard-coding Cognito, so the later arc swaps the provider
+>   rather than the verifier. It is a verifier, not an OIDC client.
+> - **SPEC-195 is rewritten** as *the API's auth boundary*; **SPEC-196** takes the verified username
+>   from the token rather than from a session record.
+>
+> Everything the entry below says about a BFF, a session, a cookie, a code exchange or Identity Center
+> is retained **for the later arc to inherit** — not to build here.
+
+### What the review gate caught, and why the arc entry says so
+
+The eleven specs were written in parallel and then put through `process.md`'s reviewer gate — three
+per-spec passes plus one framed on **the arc as a whole rather than any one spec**. That fourth frame
+is the one that earned its place: every defect below was invisible to the spec that contained it,
+because each spec was internally consistent and pinned its own version with its own test.
+
+- **The queue contract did not agree with itself.** SPEC-200 wrote `{"identity": {…}}` nested with
+  `assurance: "verified-id-token"`; SPEC-201 read the fields flat and accepted only `"interactive"`.
+  Both suites passed in isolation, and all eight control planes would have failed closed on SPEC-201's
+  first deploy. Settled: nested permanently, `"interactive"`, and SPEC-201 owns the API-side token drop.
+- **A queue resource policy would have silenced every notification in the product.** SPEC-201's
+  blanket `Deny` on all but the API role denies `sqs:SendMessage` to the **seven** other execution
+  roles that write to the notifications request queue — verified against `infra/main.tf` and the
+  policy templates. It presents silently, because every notify path is best-effort by design: archives
+  and shares would complete and users would simply never be told. FR-005 withdrawn; the identity grant
+  stays the only path.
+- **`tmpfs` is rejected on the Fargate launch type**, and SPEC-193's mount set disagreed with the paths
+  SPEC-194 actually writes — with `readonlyRootFilesystem: true` the container would never have started.
+- **The runtime-config accessor threw before the app's own module-load reads** (`lib/s3Client.ts` and
+  `fileBrowser.types.ts` both read at import), so a production build would have thrown before
+  rendering. The bootstrap is now a dynamic import of the provider tree.
+- **No origin worked for five specs.** Nobody added the container origin to the Cognito app client
+  until the arc's last spec, so between SPEC-197 and SPEC-202 CloudFront was blocked by its own CSP
+  and the API's CORS while the container could not complete a sign-in. The three additive changes
+  moved to **SPEC-193**; SPEC-202 only narrows.
+- **Two live checks could not have failed.** SPEC-198's credential-layer isolation proof was refused by
+  its own route before IAM ever saw it, and the CloudTrail evidence three specs leaned on does not
+  exist — the only trail records archive-bucket data events, single-region, no management events. The
+  proof stays with SPEC-196's probe; the trail assertions are gone, and the slot-tag half is recorded
+  as **owed and not dischargeable in this arc**.
+- **SPEC-202 planned to destroy its own rollback.** One merge bundled the narrowing, the Identity Pool
+  retirement and CloudFront's destruction, then ran the fresh-sign-in check afterwards. It is two
+  merges now, and the spec says which one cannot be rolled back.
 
 **This entry exists to hand the arc to a session that was not in the room when it was scoped.** Read
 it before writing SPEC-192. It carries the decisions, the open questions and the traps; the reasoning
@@ -1681,15 +1745,39 @@ Two further constraints on that flow, both settled and both easy to lose: the jw
 an expired-but-undeleted item is still returned by reads — so session expiry is checked on read, and
 TTL is storage hygiene rather than the security boundary.
 
-### Still open — decide these when writing SPEC-192, do not assume
+### Was open — all four settled 2026-08-18, when the specs were written
 
-1. **Whether the machine-facing surface ships in this arc or the next.** Scoped as "later", but the
-   contract change lands here either way.
-2. **The `connect-src` derivation.** It becomes the API host plus S3 (for presigned bytes), not the
-   enumeration of AWS service hosts SPEC-140 built. It must still be derived from Terraform variables
-   rather than frozen as a string.
-3. **What replaces `lib/returnPath.ts`.** With a BFF the return path can travel server-side beside
-   `state`, which survives private browsing where the current `sessionStorage` approach degrades.
+1. **The machine-facing surface is DEFERRED to a later arc; only its contract lands here.**
+   `{actor, delegated_by, assurance}` enters the control-plane message contract in **SPEC-200** and
+   every plane accepts it (`delegated_by` null for a human at a keyboard). No non-human authorizer, no
+   credential issuance, no may-this-client-act-as-X model and no rate limiting ships. The reason to
+   land the contract anyway is that the alternative re-opens seven planes' message contracts, their
+   parsers, SPEC-126's DLQ-drain redaction and their log records later; the reason to defer the door
+   is that the human path has not run live until **SPEC-202**, and this repo's record (SPEC-137, and
+   SPEC-140's `connect-src`) is that an auth surface fails in the state nobody exercised.
+2. **The `connect-src` derivation** is the API host + the S3 endpoint (for presigned bytes) + `'self'`,
+   **not** SPEC-140's enumeration of AWS service hosts — still derived from Terraform variables, never
+   frozen as a string, and rendered into the nginx config at container start. **SPEC-194** owns it;
+   **SPEC-202** asserts the final state.
+3. **`lib/returnPath.ts` is replaced by a server-side return path**, held beside `state` in the BFF's
+   login transaction, which survives private browsing where `sessionStorage` degrades. The module is
+   deleted. **SPEC-195** owns it.
+4. **The API is Python, and it is ONE Lambda function.** Python because every other Lambda here is —
+   it reuses `cpcommon.observability` (so API records land in `logs/` beside the seven planes), the
+   Lambda deploy matrix, the layer packaging and the blocking `ruff`/`mypy` gates. The cost is that
+   the transport contract exists in two languages, so **SPEC-197** must ship a mechanism holding them
+   in agreement rather than two hand-edited copies. One function behind a proxy integration, not one
+   per route: the API is thin, and per-plane privilege is expressed by which role a request assumes
+   (**SPEC-196**), never by which function ran.
+
+### One more decision the arc took, because it supersedes a Key Decision
+
+**The dev-unauth path is retired** (`VITE_S3_DEV_UNAUTH`, the read-only public test bucket and its
+`/files` auth-gate bypass) in **SPEC-198**, with the browser's S3 client — it works by calling S3 from
+the browser, which is the thing this arc removes, and keeping it would mean the SPA still ships
+`@aws-sdk/client-s3` for one dev-only branch nobody tests against the real one. Local work points the
+SPA at a locally-run or deployed API. This supersedes a CLAUDE.md Key Decision and needs a
+`decisions.md` entry plus a superseded marker at every site still stating the old claim.
 
 ### The shape
 
