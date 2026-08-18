@@ -1,4 +1,4 @@
-# ── Control-plane Lambdas (SPEC-088 skeleton) ────────────────────────────────
+# ── Control-plane Lambdas (skeleton) ────────────────────────────────
 # Single-task verb Lambdas — validate-authorize / inspect-source /
 # check-target-absent / build-transfer-manifest / copy-objects /
 # collect-transfer-results / create-table / notify-failure — orchestrated by the

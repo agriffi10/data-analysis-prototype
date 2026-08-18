@@ -40,7 +40,7 @@ resource "aws_lambda_function" "sweep" {
       ENV_NAME       = var.environment
 
       # ADMIN_BUCKET is genuinely used (the sweep writes under logs/); the rest are the
-      # cpcommon layer's required union. SPEC-156 FR-004 moved that requirement from import to
+      # cpcommon layer's required union. That requirement moved from import to
       # FIRST READ, so omitting one no longer crashes this function at COLD START —
       # it fails on whichever branch reads it. Still set them; the union is what any code path
       # in the layer may demand.

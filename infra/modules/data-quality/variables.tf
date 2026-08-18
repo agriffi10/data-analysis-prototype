@@ -4,7 +4,7 @@
 # orchestrating nine single-task verb Lambdas around ONE Athena profile query.
 # Mirrors the table-builder/table-share control-plane PATTERN (not their resources).
 #
-# SPEC-108 is FOUNDATION ONLY — plumbing + Lambda stubs; no request contract, no
+# FOUNDATION ONLY — plumbing + Lambda stubs; no request contract, no
 # authorization, no DDL/query logic. Cross-module ARNs are CONSTRUCTED
 # STRINGS (passed from root locals), never another module's output, so they are known
 # at plan time (architecture.md "unknown ARN in list" trap) and this module plans
@@ -33,7 +33,7 @@ variable "account_id" {
 # ── Buckets (env for every verb; grants land in SPEC-109/111) ─────────────────
 # NOTE: these are wired into the COMMON Lambda env now, not because the SPEC-108 stubs
 # use them, but because every verb attaches the cpcommon layer and cpcommon/config.py
-# requires them. SPEC-156 FR-004 moved that requirement from import to
+# requires them. That requirement moved from import to
 # FIRST READ, so a verb missing one no longer crashes at cold start (the table-builder
 # production break, PR #196) — it fails on whichever branch reads it. The union is still
 # what must be set; do not prune one as "unused". No bucket is created here.

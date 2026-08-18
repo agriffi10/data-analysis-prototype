@@ -6,7 +6,7 @@
 # branches over one shared spine). Mirrors the shared-spaces control
 # plane PATTERN (not its resources), but with PER-VERB least-privilege roles.
 #
-# SPEC-066 is FOUNDATION ONLY — plumbing + Lambda stubs, no request contract and no
+# FOUNDATION ONLY — plumbing + Lambda stubs, no request contract and no
 # action semantics (those land in SPEC-067→070). Cross-module ARNs are CONSTRUCTED
 # STRINGS (passed from root locals), never another module's output, so they are known
 # at plan time (architecture.md "unknown ARN in list" trap) and this module plans

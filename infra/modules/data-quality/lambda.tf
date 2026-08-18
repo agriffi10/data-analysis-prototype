@@ -1,4 +1,4 @@
-# ── Control-plane Lambdas (SPEC-108 skeleton) ────────────────────────────────
+# ── Control-plane Lambdas (skeleton) ────────────────────────────────
 # Nine single-task verb Lambdas — validate-authorize / inspect-source /
 # create-temp-tables / start-profile-query / check-query / byte-scan / assemble-report /
 # drop-temp-tables / notify-failure — orchestrated by the Step Function
@@ -64,7 +64,7 @@ resource "aws_lambda_function" "functions" {
   # table-builder/table-share use. SPEC-108 originally gave this arc its own workgroup to
   # escape the portal workgroup's 10 GiB scan cutoff, but Athena ties Lake Formation to the
   # workgroup: a dedicated one fails LF's Create/Describe checks even for an LF-admin role
-  # (SPEC-111 live finding). The cutoff tradeoff is documented in the architecture doc — a
+  # (measured live). The cutoff tradeoff is documented in the architecture doc — a
   # data-quality check over a source larger than the cutoff fails until it is raised.
   environment {
     variables = merge(

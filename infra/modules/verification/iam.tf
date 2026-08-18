@@ -20,7 +20,7 @@
 // `verification_principal_arns` is empty by default and the role is then **not created**, which
 // is deliberate on two counts. The ARNs are operator identities that do not belong in git — and
 // a role nobody has named is a role nobody needs. **The TRAIL is unconditional**: it is the half
-// that unblocks SPEC-170's negative assertion, and it depends on no principal at all.
+// that unblocks The restore's negative assertion, and it depends on no principal at all.
 //
 // THE ARNs COME FROM A REPO VARIABLE, NOT FROM A LOCAL `terraform.tfvars`. This comment used to
 // say tfvars, and that was wrong in a way that could have destroyed production. A local apply is

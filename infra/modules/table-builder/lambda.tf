@@ -1,4 +1,4 @@
-# ── Control-plane Lambdas (SPEC-066 skeleton) ────────────────────────────────
+# ── Control-plane Lambdas (skeleton) ────────────────────────────────
 # Single-task verb Lambdas — validate-authorize / check-table-absent /
 # load-table-definition / inspect-source / infer-schema / diff-schema / execute-ddl —
 # orchestrated by

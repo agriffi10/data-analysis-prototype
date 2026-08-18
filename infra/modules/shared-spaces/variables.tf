@@ -5,7 +5,7 @@
 # buckets) and passed in, so naming lives in one place and base's deploy policy
 # can be scoped to the same ARNs without a dependency cycle.
 #
-# SPEC-050 is FOUNDATION ONLY — the plumbing, no access model and no action
+# FOUNDATION ONLY — the plumbing, no access model and no action
 # semantics. Cross-module ARNs are CONSTRUCTED STRINGS (passed from root locals),
 # never another module's output, so they are known at plan time (architecture.md
 # "unknown ARN in list" trap) and this module plans standalone.

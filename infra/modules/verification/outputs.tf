@@ -9,7 +9,7 @@ output "verification_role_name" {
 }
 
 output "trail_bucket_name" {
-  description = "Where the archive plane's object-level events land. SPEC-170's negative assertion is read from here. UNCONDITIONAL — it needs no principal."
+  description = "Where the archive plane's object-level events land. The restore's negative assertion is read from here. UNCONDITIONAL — it needs no principal."
   value       = aws_s3_bucket.trail.id
 }
 
