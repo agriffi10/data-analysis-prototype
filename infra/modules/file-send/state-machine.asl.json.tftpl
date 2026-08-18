@@ -47,7 +47,7 @@
     },
     "InspectSource": {
       "Type": "Task",
-      "Comment": "SPEC-165. Expands every selected item under the authorized root — folders through their pagination boundary — applies this plane's exclusions, refuses an overlapping or name-colliding selection, enforces the object and byte caps, and writes the copy plan to the admin bucket. NEITHER THE OBJECT LIST NOR ANY KEY RETURNS TO THE STATE: at SEND_MAX_OBJECTS the plan is tens of megabytes against a 256 KB payload limit, so what comes back is the plan's KEY plus the count and byte total. Unlike ValidateAuthorize its input IS the request object, so its Catch can carry a ResultPath and merge the error alongside rather than replacing the state.",
+      "Comment": "Expands every selected item under the authorized root — folders through their pagination boundary — applies this plane's exclusions, refuses an overlapping or name-colliding selection, enforces the object and byte caps, and writes the copy plan to the admin bucket. NEITHER THE OBJECT LIST NOR ANY KEY RETURNS TO THE STATE: at SEND_MAX_OBJECTS the plan is tens of megabytes against a 256 KB payload limit, so what comes back is the plan's KEY plus the count and byte total. Unlike ValidateAuthorize its input IS the request object, so its Catch can carry a ResultPath and merge the error alongside rather than replacing the state.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${inspect_source_function_arn}",
@@ -79,7 +79,7 @@
     },
     "GuardRecipients": {
       "Type": "Map",
-      "Comment": "SPEC-166 FR-001. The conflict guard, per recipient, INLINE — one delimited listing of that recipient's inbox each, whose refusal must not abort a sibling. Its per-item Catch is deliberately NOT the refusal path: check-target-absent returns the two refusals it EXPECTS (an unresolved recipient, a name conflict) as a record, because a conflict has to name the colliding item and a TerminalError cannot carry one to a user. The Catch is left for the faults nobody predicted, which the collector decodes with cpcommon.errors.failure_reason.",
+      "Comment": "The conflict guard, per recipient, INLINE — one delimited listing of that recipient's inbox each, whose refusal must not abort a sibling. Its per-item Catch is deliberately NOT the refusal path: check-target-absent returns the two refusals it EXPECTS (an unresolved recipient, a name conflict) as a record, because a conflict has to name the colliding item and a TerminalError cannot carry one to a user. The Catch is left for the faults nobody predicted, which the collector decodes with cpcommon.errors.failure_reason.",
       "ItemsPath": "$.recipients",
       "MaxConcurrency": ${guard_map_max_concurrency},
       "ItemSelector": {
@@ -150,7 +150,7 @@
     },
     "BuildTransferManifest": {
       "Type": "Task",
-      "Comment": "SPEC-166 FR-002. Writes the JSONL manifest the Distributed Map reads: one line per (accepted recipient x planned object), each destination built by fscommon.paths.destination_key. A refused recipient contributes nothing and is carried forward untouched. Emits $.transfer with the manifest location, the results prefix and the item count the Choice below gates on.",
+      "Comment": "Writes the JSONL manifest the Distributed Map reads: one line per (accepted recipient x planned object), each destination built by fscommon.paths.destination_key. A refused recipient contributes nothing and is carried forward untouched. Emits $.transfer with the manifest location, the results prefix and the item count the Choice below gates on.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${build_transfer_manifest_function_arn}",
@@ -182,7 +182,7 @@
     },
     "HasTransferItems": {
       "Type": "Choice",
-      "Comment": "SPEC-166 FR-002. Skips the Distributed Map when every recipient was refused: an ItemReader pointed at a manifest that was never written fails the state, and there is nothing to copy anyway. IsPresent is tested BEFORE the numeric comparison and is not optional — a Choice on an ABSENT path raises States.Runtime, which is uncatchable and which `Default` does NOT cover.",
+      "Comment": "Skips the Distributed Map when every recipient was refused: an ItemReader pointed at a manifest that was never written fails the state, and there is nothing to copy anyway. IsPresent is tested BEFORE the numeric comparison and is not optional — a Choice on an ABSENT path raises States.Runtime, which is uncatchable and which `Default` does NOT cover.",
       "Choices": [
         {
           "And": [
@@ -196,7 +196,7 @@
     },
     "TransferObjects": {
       "Type": "Map",
-      "Comment": "SPEC-166 FR-002. The copy, as a TOP-LEVEL Distributed Map over a flat (recipient x object) manifest — deliberately NOT nested inside the guard Map, so one fan-out covers every recipient and the nesting question never arises. Child executions are STANDARD, not EXPRESS: a batch may hold a multi-GiB object whose multipart copy would blow EXPRESS's 5-minute ceiling, and EXPRESS's at-least-once semantics would re-run whole batches. ToleratedFailurePercentage is 100 so an item failure never fails the Map Run and never aborts a sibling — the run MUST finish for collect-transfer-results to attribute it. ResultWriter exports to S3 so this state's own output is the small {MapRunArn, ResultWriterDetails} pointer rather than an array that would breach the 256 KB state limit at the scale this Map exists for. Its states:/S3 permissions belong to the STATE MACHINE role, not the Lambda execution role.",
+      "Comment": "The copy, as a TOP-LEVEL Distributed Map over a flat (recipient x object) manifest — deliberately NOT nested inside the guard Map, so one fan-out covers every recipient and the nesting question never arises. Child executions are STANDARD, not EXPRESS: a batch may hold a multi-GiB object whose multipart copy would blow EXPRESS's 5-minute ceiling, and EXPRESS's at-least-once semantics would re-run whole batches. ToleratedFailurePercentage is 100 so an item failure never fails the Map Run and never aborts a sibling — the run MUST finish for collect-transfer-results to attribute it. ResultWriter exports to S3 so this state's own output is the small {MapRunArn, ResultWriterDetails} pointer rather than an array that would breach the 256 KB state limit at the scale this Map exists for. Its states:/S3 permissions belong to the STATE MACHINE role, not the Lambda execution role.",
       "ItemReader": {
         "Resource": "arn:aws:states:::s3:getObject",
         "ReaderConfig": {
@@ -265,7 +265,7 @@
     },
     "CollectTransferResults": {
       "Type": "Task",
-      "Comment": "SPEC-166 FR-003. Reads the Map Run's export and turns item-level failures back into per-recipient outcomes, because the fan-out is no longer per recipient. Reached on BOTH branches of the Choice: on the skip branch there is no run to read and it carries the guard's refusals forward, which keeps one shaping verb rather than two paths that can disagree. It also derives the item NAMES the summary reports, which is the last state holding the selection they come from.",
+      "Comment": "Reads the Map Run's export and turns item-level failures back into per-recipient outcomes, because the fan-out is no longer per recipient. Reached on BOTH branches of the Choice: on the skip branch there is no run to read and it carries the guard's refusals forward, which keeps one shaping verb rather than two paths that can disagree. It also derives the item NAMES the summary reports, which is the last state holding the selection they come from.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${collect_transfer_results_function_arn}",
@@ -309,7 +309,7 @@
     },
     "NotifyOutcomes": {
       "Type": "Task",
-      "Comment": "SPEC-167 FR-004/FR-005. The plane's ONLY outcome producer: one message to the sender per recipient outcome, and one to each recipient who actually received something (a user directly, a space through its registered owner). It runs on the summary rather than inside the Maps because that is what makes it possible to say each thing once — and it is why no verb upstream emits. ResultPath is null so the execution's output stays the terminal the machine shaped: the notifier threads the summary back, but the state is what ShapeSummary decided. Its Catch goes straight to Succeeded, and that direction is deliberate: the copy has already happened, so a missed notification must never turn a delivered send into a failed execution.",
+      "Comment": "The plane's ONLY outcome producer: one message to the sender per recipient outcome, and one to each recipient who actually received something (a user directly, a space through its registered owner). It runs on the summary rather than inside the Maps because that is what makes it possible to say each thing once — and it is why no verb upstream emits. ResultPath is null so the execution's output stays the terminal the machine shaped: the notifier threads the summary back, but the state is what ShapeSummary decided. Its Catch goes straight to Succeeded, and that direction is deliberate: the copy has already happened, so a missed notification must never turn a delivered send into a failed execution.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${notify_function_arn}",
@@ -374,7 +374,7 @@
     },
     "NotifyFailure": {
       "Type": "Task",
-      "Comment": "SPEC-152 FR-001. Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error, a state timeout, a task that could not be invoked — where @notifies_on_failure never ran and the sender would otherwise be told nothing at all. WHOLE-REQUEST ONLY. The duplicate it has to avoid is the whole-request verb's own decorator emit, which the verb suppresses in Python by reading Lambda's Error name. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
+      "Comment": "Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error, a state timeout, a task that could not be invoked — where @notifies_on_failure never ran and the sender would otherwise be told nothing at all. WHOLE-REQUEST ONLY. The duplicate it has to avoid is the whole-request verb's own decorator emit, which the verb suppresses in Python by reading Lambda's Error name. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${notify_failure_function_arn}",

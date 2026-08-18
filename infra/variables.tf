@@ -79,7 +79,7 @@ variable "archive_bucket_name" {
 }
 
 variable "max_shared_memberships" {
-  description = "SPEC-056: number of shared-space membership slots per user (Cognito custom attributes custom:shared_space_1..N + Identity-Pool principal tags shared_space_1..N + portal-role policy slots). Single source for the slot count across auth/data/shared-spaces. Bounded because a Cognito Identity Pool maps each claim to exactly one single-valued principal tag; raising it enlarges the portal-role policy (see docs/architecture.md, Bucket 2 membership slots)."
+  description = "Number of shared-space membership slots per user (Cognito custom attributes custom:shared_space_1..N + Identity-Pool principal tags shared_space_1..N + portal-role policy slots). Single source for the slot count across auth/data/shared-spaces. Bounded because a Cognito Identity Pool maps each claim to exactly one single-valued principal tag; raising it enlarges the portal-role policy (see docs/architecture.md, Bucket 2 membership slots)."
   type        = number
   default     = 10
 }
@@ -97,7 +97,7 @@ variable "principal_tag_key" {
 # still plans standalone before auth exists.
 
 variable "verification_principal_arns" {
-  description = "SPEC-186 FR-004: IAM principals allowed to assume the read-only verification role (catalog read-backs + the archive audit record). Set as the TF_VAR_verification_principal_arns repo variable and applied by deploy-infra.yml — NOT in a local terraform.tfvars, which would require a local apply, and no human identity here can apply locally without tofu proposing to destroy the data buckets it cannot read. Empty (the default) means the role is not created at all; the CloudTrail trail ships either way, since it needs no principal."
+  description = "IAM principals allowed to assume the read-only verification role (catalog read-backs + the archive audit record). Set as the TF_VAR_verification_principal_arns repo variable and applied by deploy-infra.yml — NOT in a local terraform.tfvars, which would require a local apply, and no human identity here can apply locally without tofu proposing to destroy the data buckets it cannot read. Empty (the default) means the role is not created at all; the CloudTrail trail ships either way, since it needs no principal."
   type        = list(string)
   default     = []
 }

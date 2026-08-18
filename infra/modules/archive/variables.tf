@@ -39,24 +39,24 @@ variable "account_id" {
 }
 
 variable "archive_bucket_name" {
-  description = "SPEC-168 FR-001: name of the archive bucket (Bucket 5) THIS MODULE CREATES. Computed in root locals so the deploy policy can be scoped to its ARN without a cycle, and overridable there because S3 bucket names are globally unique. It is the one bucket the browser has no relationship with at all: no CORS, absent from the CSP connect-src, and the portal role holds zero statements naming it."
+  description = "Name of the archive bucket (Bucket 5) THIS MODULE CREATES. Computed in root locals so the deploy policy can be scoped to its ARN without a cycle, and overridable there because S3 bucket names are globally unique. It is the one bucket the browser has no relationship with at all: no CORS, absent from the CSP connect-src, and the portal role holds zero statements naming it."
   type        = string
 }
 
 variable "archive_retention_days" {
-  description = "SPEC-168 FR-001: days after creation at which EVERY object in the archive bucket expires. 2557 = 7 years. A CEILING, not a WORM floor — Object Lock is out of scope (it requires versioning, deferred by decision 2026-08-03, and in compliance mode would make the archive cleanup impossible)."
+  description = "Days after creation at which EVERY object in the archive bucket expires. 2557 = 7 years. A CEILING, not a WORM floor — Object Lock is out of scope (it requires versioning, deferred by decision 2026-08-03, and in compliance mode would make the archive cleanup impossible)."
   type        = number
   default     = 2557
 }
 
 variable "deploy_role_arn" {
-  description = "SPEC-168 FR-001: ARN of the GitHub Actions deploy role, excluded from the archive bucket policy's Deny. Without the exclusion the deploy role cannot HeadBucket, `tofu refresh` sees the bucket as deleted, and every plan proposes a destructive recreate (the recorded user-space-bucket lesson)."
+  description = "ARN of the GitHub Actions deploy role, excluded from the archive bucket policy's Deny. Without the exclusion the deploy role cannot HeadBucket, `tofu refresh` sees the bucket as deleted, and every plan proposes a destructive recreate (the recorded user-space-bucket lesson)."
   type        = string
   default     = ""
 }
 
 variable "execution_role_arn" {
-  description = "SPEC-168 FR-001: ARN of THIS module's shared execution role, as a CONSTRUCTED STRING from root locals rather than the resource attribute. The bucket policy is a StringNotLike condition, which only needs the ARN string — and taking the resource attribute would make the policy depend on the role, which is fine, while taking it from root keeps ONE construction of the name shared with the user-space allowlist entry."
+  description = "ARN of THIS module's shared execution role, as a CONSTRUCTED STRING from root locals rather than the resource attribute. The bucket policy is a StringNotLike condition, which only needs the ARN string — and taking the resource attribute would make the policy depend on the role, which is fine, while taking it from root keeps ONE construction of the name shared with the user-space allowlist entry."
   type        = string
   default     = ""
 }
@@ -68,36 +68,36 @@ variable "dlq_max_receive_count" {
 }
 
 variable "portal_role_name" {
-  description = "SPEC-168 FR-007: name of the shared portal role this module attaches the browser's sqs:SendMessage (archive queue only) inline policy to, by name — mirrors the file-send/table-share/notifications modules. THE BROWSER'S ONLY POSITIVE ARCHIVE PRIVILEGE. It is never granted anything on the archive bucket."
+  description = "Name of the shared portal role this module attaches the browser's sqs:SendMessage (archive queue only) inline policy to, by name — mirrors the file-send/table-share/notifications modules. THE BROWSER'S ONLY POSITIVE ARCHIVE PRIVILEGE. It is never granted anything on the archive bucket."
   type        = string
 }
 
 variable "user_pool_id" {
-  description = "SPEC-168 FR-005: Cognito User Pool ID — passed to validate-authorize (env COGNITO_USER_POOL_ID) for offline ID-token verification."
+  description = "Cognito User Pool ID — passed to validate-authorize (env COGNITO_USER_POOL_ID) for offline ID-token verification."
   type        = string
   default     = ""
 }
 
 variable "app_client_id" {
-  description = "SPEC-168 FR-005: Cognito SPA app client ID — the ID-token audience validate-authorize checks (env COGNITO_APP_CLIENT_ID)."
+  description = "Cognito SPA app client ID — the ID-token audience validate-authorize checks (env COGNITO_APP_CLIENT_ID)."
   type        = string
   default     = ""
 }
 
 variable "admin_bucket_name" {
-  description = "SPEC-168 FR-005: name of the existing analytics admin bucket. The shared-spaces registry read for source authorization lives here, read-only. No bucket of this name is created by this module."
+  description = "Name of the existing analytics admin bucket. The shared-spaces registry read for source authorization lives here, read-only. No bucket of this name is created by this module."
   type        = string
   default     = ""
 }
 
 variable "user_space_bucket_name" {
-  description = "SPEC-168: name of the user-space bucket (Bucket 1). A personal source resolves here and its receipt is written here by SPEC-169. Set as USER_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage."
+  description = "Name of the user-space bucket (Bucket 1). A personal source resolves here and its receipt is written here by SPEC-169. Set as USER_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage."
   type        = string
   default     = ""
 }
 
 variable "shared_space_bucket_name" {
-  description = "SPEC-168: name of the shared-space bucket (Bucket 2). A shared source resolves here and its receipt is written here by SPEC-169. Set as SHARED_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage."
+  description = "Name of the shared-space bucket (Bucket 2). A shared source resolves here and its receipt is written here by SPEC-169. Set as SHARED_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage."
   type        = string
   default     = ""
 }
@@ -115,13 +115,13 @@ variable "logs_queue_url" {
 }
 
 variable "notifications_queue_arn" {
-  description = "SPEC-152: ARN of the SPEC-058 notifications FIFO queue — scopes the shared execution role's sqs:SendMessage to that queue ONLY (the pre-verb failure notification, best-effort). Constructed string from root (known at plan time); empty keeps this module standalone."
+  description = "ARN of the SPEC-058 notifications FIFO queue — scopes the shared execution role's sqs:SendMessage to that queue ONLY (the pre-verb failure notification, best-effort). Constructed string from root (known at plan time); empty keeps this module standalone."
   type        = string
   default     = ""
 }
 
 variable "notifications_queue_url" {
-  description = "SPEC-152: URL of the SPEC-058 notifications FIFO queue — the verbs' NOTIFICATIONS_QUEUE_URL env (optional in cpcommon.config: unset makes every emit a logged no-op)."
+  description = "URL of the SPEC-058 notifications FIFO queue — the verbs' NOTIFICATIONS_QUEUE_URL env (optional in cpcommon.config: unset makes every emit a logged no-op)."
   type        = string
   default     = ""
 }

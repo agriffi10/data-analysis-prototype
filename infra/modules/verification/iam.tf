@@ -38,7 +38,7 @@ resource "aws_iam_role" "verification" {
   count = length(var.verification_principal_arns) > 0 ? 1 : 0
 
   name        = "${var.project_name}-${var.environment}-verification"
-  description = "SPEC-186 FR-004: read-only catalog and archive-audit access for live checks. No write action, and no grant on any data bucket."
+  description = "Read-only catalog and archive-audit access for live checks. No write action, and no grant on any data bucket."
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"

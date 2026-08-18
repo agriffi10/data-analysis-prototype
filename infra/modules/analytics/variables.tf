@@ -75,31 +75,31 @@ variable "lambda_provisioner_role_arn" {
 }
 
 variable "shared_space_orchestrator_role_arn" {
-  description = "SPEC-056: ARN of the shared-space orchestrator role (SPEC-050), added as a Lake Formation admin so it can GrantPermissions on shared DBs + DATA_LOCATION_ACCESS on the shared location. Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
+  description = "ARN of the shared-space orchestrator role (SPEC-050), added as a Lake Formation admin so it can GrantPermissions on shared DBs + DATA_LOCATION_ACCESS on the shared location. Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
   type        = string
   default     = ""
 }
 
 variable "table_builder_execution_role_arn" {
-  description = "SPEC-070: ARN of the table-builder shared execution role (all five verbs run under it), added as a Lake Formation admin so check-table-absent can Describe and execute-ddl can CREATE tables in the dynamic per-user + per-shared-space target databases (they can't be enumerated in static Terraform). Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
+  description = "ARN of the table-builder shared execution role (all five verbs run under it), added as a Lake Formation admin so check-table-absent can Describe and execute-ddl can CREATE tables in the dynamic per-user + per-shared-space target databases (they can't be enumerated in static Terraform). Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
   type        = string
   default     = ""
 }
 
 variable "table_share_execution_role_arn" {
-  description = "SPEC-092: ARN of the table-share shared execution role (all five verbs run under it), added as a Lake Formation admin so check-target-absent can Describe and create-table can CREATE tables in the dynamic recipient databases (per-user + per-shared-space — not enumerable in static Terraform), and so inspect-source can read LF-gated source tables. Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
+  description = "ARN of the table-share shared execution role (all five verbs run under it), added as a Lake Formation admin so check-target-absent can Describe and create-table can CREATE tables in the dynamic recipient databases (per-user + per-shared-space — not enumerable in static Terraform), and so inspect-source can read LF-gated source tables. Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
   type        = string
   default     = ""
 }
 
 variable "data_quality_execution_role_arn" {
-  description = "SPEC-111: ARN of the data-quality shared execution role (all nine verbs run under it), added as a Lake Formation admin so create-temp-tables can CREATE and drop-temp-tables can DELETE the throwaway dq_tmp_* external tables in the dynamic target databases (the actor's own for a personal check, the shared space's for a shared one — not enumerable in static Terraform). Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
+  description = "ARN of the data-quality shared execution role (all nine verbs run under it), added as a Lake Formation admin so create-temp-tables can CREATE and drop-temp-tables can DELETE the throwaway dq_tmp_* external tables in the dynamic target databases (the actor's own for a personal check, the shared space's for a shared one — not enumerable in static Terraform). Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
   type        = string
   default     = ""
 }
 
 variable "verification_role_arn" {
-  description = "SPEC-186 FR-004: ARN of the read-only verification role (modules/verification), granted DESCRIBE via the portal-managed LF-Tag so an owed catalog read-back (the Description/comment preservation, the foreign projection fixture) can finally be made. DESCRIBE ONLY and never DATA_LOCATION_ACCESS — it reads definitions, never data. Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
+  description = "ARN of the read-only verification role (modules/verification), granted DESCRIBE via the portal-managed LF-Tag so an owed catalog read-back (the Description/comment preservation, the foreign projection fixture) can finally be made. DESCRIBE ONLY and never DATA_LOCATION_ACCESS — it reads definitions, never data. Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
   type        = string
   default     = ""
 }

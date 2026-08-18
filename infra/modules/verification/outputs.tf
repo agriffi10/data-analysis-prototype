@@ -1,5 +1,5 @@
 output "verification_role_arn" {
-  description = "SPEC-186 FR-004: the read-only role a live check assumes, or \"\" when no principal has been named (`verification_principal_arns`). Consumed by modules/analytics, whose compact() drops the empty string rather than granting Lake Formation DESCRIBE to a role that does not exist."
+  description = "The read-only role a live check assumes, or \"\" when no principal has been named (`verification_principal_arns`). Consumed by modules/analytics, whose compact() drops the empty string rather than granting Lake Formation DESCRIBE to a role that does not exist."
   value       = try(aws_iam_role.verification[0].arn, "")
 }
 

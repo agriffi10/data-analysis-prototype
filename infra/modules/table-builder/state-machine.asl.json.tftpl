@@ -36,7 +36,7 @@
     },
     "RouteByMode": {
       "Type": "Choice",
-      "Comment": "SPEC-143. A refresh is a re-run of inspect-source + infer-schema against a table that already EXISTS, so it takes the mirror image of check-table-absent: load-table-definition, which reads the live Glue table, decides whether it is refreshable, and rewrites space.prefix to the table's own location so the two shared verbs need no mode branch. THE IsPresent CONJUNCT IS NOT DECORATION: a Choice rule whose Variable path is absent raises States.Runtime, which no Catch anywhere can catch, so a bare StringEquals would KILL an execution rather than fall through to Default on the very input Default exists for — an envelope written before this spec, or one in flight while the two deploy workflows land out of order.",
+      "Comment": "A refresh is a re-run of inspect-source + infer-schema against a table that already EXISTS, so it takes the mirror image of check-table-absent: load-table-definition, which reads the live Glue table, decides whether it is refreshable, and rewrites space.prefix to the table's own location so the two shared verbs need no mode branch. THE IsPresent CONJUNCT IS NOT DECORATION: a Choice rule whose Variable path is absent raises States.Runtime, which no Catch anywhere can catch, so a bare StringEquals would KILL an execution rather than fall through to Default on the very input Default exists for — an envelope written before this spec, or one in flight while the two deploy workflows land out of order.",
       "Choices": [
         {
           "And": [
@@ -50,7 +50,7 @@
     },
     "StampExecution": {
       "Type": "Pass",
-      "Comment": "SPEC-157. Puts the EXECUTION ARN on the state so the lock's holder identifies the execution rather than the request. The distinction is the whole point: requestId is a property of the MESSAGE, and Pipes delivery is at-least-once, so two executions of one redelivered message would carry the same request id — and the re-entrancy branch in table_lock (which exists for an SFN Task retry, where the ARN is genuinely the same) would then let both hold the lock, silently and with no refusal event. A Pass is used rather than the Task's own Parameters because reading $$ there means building an object, which WRAPS the payload — and every notification path in this plane reads the request at the TOP level of the event. ResultPath adds a key and disturbs nothing.",
+      "Comment": "Puts the EXECUTION ARN on the state so the lock's holder identifies the execution rather than the request. The distinction is the whole point: requestId is a property of the MESSAGE, and Pipes delivery is at-least-once, so two executions of one redelivered message would carry the same request id — and the re-entrancy branch in table_lock (which exists for an SFN Task retry, where the ARN is genuinely the same) would then let both hold the lock, silently and with no refusal event. A Pass is used rather than the Task's own Parameters because reading $$ there means building an object, which WRAPS the payload — and every notification path in this plane reads the request at the TOP level of the event. ResultPath adds a key and disturbs nothing.",
       "Parameters": {
         "arn.$": "$$.Execution.Id"
       },
@@ -59,7 +59,7 @@
     },
     "AcquireRefreshLock": {
       "Type": "Task",
-      "Comment": "SPEC-157 FR-002. Takes the per-table lock BEFORE load-table-definition, so it spans the whole read-modify-write rather than only the write — the point being that run A's GetTable and run A's UpdateTable are not separated by run B's UpdateTable. It sits AFTER ValidateAuthorize for the other half of the reason: an unauthorized request must not be able to touch another user's lock at all. A refusal is TerminalError refresh_already_running, which the decorator notifies and this Catch records; refresh_already_running appears in NO Retry list, because a held lock is an answer and not a transient fault. The holder written into the lock is the EXECUTION ARN, stamped onto the state by StampExecution — see that state's comment for why a Pass rather than this task's own Parameters.",
+      "Comment": "Takes the per-table lock BEFORE load-table-definition, so it spans the whole read-modify-write rather than only the write — the point being that run A's GetTable and run A's UpdateTable are not separated by run B's UpdateTable. It sits AFTER ValidateAuthorize for the other half of the reason: an unauthorized request must not be able to touch another user's lock at all. A refusal is TerminalError refresh_already_running, which the decorator notifies and this Catch records; refresh_already_running appears in NO Retry list, because a held lock is an answer and not a transient fault. The holder written into the lock is the EXECUTION ARN, stamped onto the state by StampExecution — see that state's comment for why a Pass rather than this task's own Parameters.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${acquire_refresh_lock_function_arn}",
@@ -215,7 +215,7 @@
     },
     "RouteTailByMode": {
       "Type": "Choice",
-      "Comment": "SPEC-143. The two branches share everything up to here and diverge on what they do with the inferred schema: a create executes its CREATE, a refresh must DIFF the new columns against the ones the table already declares and ALTER. That tail is SPEC-144: diff-schema classifies the change and enforces the removal opt-in, and apply-refresh rebuilds the table behind it.",
+      "Comment": "The two branches share everything up to here and diverge on what they do with the inferred schema: a create executes its CREATE, a refresh must DIFF the new columns against the ones the table already declares and ALTER. That tail is SPEC-144: diff-schema classifies the change and enforces the removal opt-in, and apply-refresh rebuilds the table behind it.",
       "Choices": [
         {
           "And": [
@@ -229,7 +229,7 @@
     },
     "DiffSchema": {
       "Type": "Task",
-      "Comment": "SPEC-144. Classifies the change into added/removed/retyped/unchanged and enforces the removal opt-in. A removal without allowRemovals is a TERMINAL failure that changes nothing and names the columns in its notification — the refusal IS the warning. This verb also emits the no-change notification itself: the machine has no notification state, and on the unchanged path no Lambda runs after this one.",
+      "Comment": "Classifies the change into added/removed/retyped/unchanged and enforces the removal opt-in. A removal without allowRemovals is a TERMINAL failure that changes nothing and names the columns in its notification — the refusal IS the warning. This verb also emits the no-change notification itself: the machine has no notification state, and on the unchanged path no Lambda runs after this one.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${diff_schema_function_arn}",
@@ -356,7 +356,7 @@
     },
     "ReleaseRefreshLock": {
       "Type": "Task",
-      "Comment": "SPEC-157 FR-002. Frees the lock on the SUCCESS paths. It sits on a path the create branch shares and is invoked for creates too, which is deliberate: the alternative is a Choice guarding the insertion point, and a Choice whose Variable path is ABSENT raises the uncatchable States.Runtime (the SPEC-143 trap). Passing the whole state and deciding in Python means no JSONPath is ever evaluated against a key that may not be there. A request with no $.lock is a no-op. ResultPath keeps the running request object intact so RecordSuccess reads the same fields it always did, and the Catch goes STRAIGHT ON rather than to a failure: a release that cannot be written must never turn a successful refresh into a failed one — the lock is recoverable by the staleness steal.",
+      "Comment": "Frees the lock on the SUCCESS paths. It sits on a path the create branch shares and is invoked for creates too, which is deliberate: the alternative is a Choice guarding the insertion point, and a Choice whose Variable path is ABSENT raises the uncatchable States.Runtime (the SPEC-143 trap). Passing the whole state and deciding in Python means no JSONPath is ever evaluated against a key that may not be there. A request with no $.lock is a no-op. ResultPath keeps the running request object intact so RecordSuccess reads the same fields it always did, and the Catch goes STRAIGHT ON rather than to a failure: a release that cannot be written must never turn a successful refresh into a failed one — the lock is recoverable by the staleness steal.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${release_refresh_lock_function_arn}",
@@ -387,7 +387,7 @@
     },
     "ReleaseRefreshLockOnFailure": {
       "Type": "Task",
-      "Comment": "SPEC-157 FR-002. The same verb on the FAILURE paths, so a refusal in diff-schema, a TerminalError in any verb and a caught Lambda fault all release. A separate state rather than a shared one because ASL gives a state exactly one Next, and these two continue to different terminal shaping states. ResultPath is load-bearing here: without it the Task result would REPLACE the state and discard $.error, which RecordFailure reads and which the NotifyFailure decodes — the same mistake the shared-space catches made. Its own Catch continues to RecordFailure for the same reason the success twin's does: the execution has already failed, and a missed release must not change the recorded outcome.",
+      "Comment": "The same verb on the FAILURE paths, so a refusal in diff-schema, a TerminalError in any verb and a caught Lambda fault all release. A separate state rather than a shared one because ASL gives a state exactly one Next, and these two continue to different terminal shaping states. ResultPath is load-bearing here: without it the Task result would REPLACE the state and discard $.error, which RecordFailure reads and which the NotifyFailure decodes — the same mistake the shared-space catches made. Its own Catch continues to RecordFailure for the same reason the success twin's does: the execution has already failed, and a missed release must not change the recorded outcome.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${release_refresh_lock_function_arn}",
@@ -458,7 +458,7 @@
     },
     "NotifyFailure": {
       "Type": "Task",
-      "Comment": "SPEC-152 FR-001. Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error, a state timeout, a task that could not be invoked — where @notifies_on_failure never ran and the user would otherwise be told nothing at all. It sits on EVERY failure path rather than a selected one, because the paths where no verb ran are exactly the ones that cannot be selected for in ASL; the verb suppresses the duplicate in Python instead, by reason code. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
+      "Comment": "Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error, a state timeout, a task that could not be invoked — where @notifies_on_failure never ran and the user would otherwise be told nothing at all. It sits on EVERY failure path rather than a selected one, because the paths where no verb ran are exactly the ones that cannot be selected for in ASL; the verb suppresses the duplicate in Python instead, by reason code. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${notify_failure_function_arn}",

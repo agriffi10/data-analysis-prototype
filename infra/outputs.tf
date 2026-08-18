@@ -122,16 +122,16 @@ output "notifications_writer_role_arn" {
 # `RestoreObject` that never happened — so the negative assertion has to confirm the trail is
 # on before it trusts the absence ("did not run is never clean").
 output "verification_role_arn" {
-  description = "SPEC-186 FR-004: the read-only role a live check assumes for catalog read-backs and the archive audit record."
+  description = "The read-only role a live check assumes for catalog read-backs and the archive audit record."
   value       = module.verification.verification_role_arn
 }
 
 output "verification_trail_bucket" {
-  description = "SPEC-186 FR-004: where the archive vault's object-level CloudTrail events land."
+  description = "Where the archive vault's object-level CloudTrail events land."
   value       = module.verification.trail_bucket_name
 }
 
 output "verification_trail_name" {
-  description = "SPEC-186 FR-004: the trail itself, so a check can prove it is logging before reading an absence as evidence."
+  description = "The trail itself, so a check can prove it is logging before reading an absence as evidence."
   value       = module.verification.trail_name
 }

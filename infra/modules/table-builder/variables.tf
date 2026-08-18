@@ -62,18 +62,18 @@ variable "dlq_max_receive_count" {
 # ── SPEC-067: request contract + validate-authorize ──────────────────────────
 
 variable "portal_role_name" {
-  description = "SPEC-067: name of the shared portal role this module attaches the browser's sqs:SendMessage (table-build queue only) inline policy to, by name — mirrors the notifications/shared-spaces modules."
+  description = "Name of the shared portal role this module attaches the browser's sqs:SendMessage (table-build queue only) inline policy to, by name — mirrors the notifications/shared-spaces modules."
   type        = string
 }
 
 variable "user_pool_id" {
-  description = "SPEC-067: Cognito User Pool ID — passed to validate-authorize (env COGNITO_USER_POOL_ID) so it can verify caller ID tokens against the pool JWKS (offline trusted-actor binding)."
+  description = "Cognito User Pool ID — passed to validate-authorize (env COGNITO_USER_POOL_ID) so it can verify caller ID tokens against the pool JWKS (offline trusted-actor binding)."
   type        = string
   default     = ""
 }
 
 variable "app_client_id" {
-  description = "SPEC-067: Cognito SPA app client ID — the ID-token audience validate-authorize checks (env COGNITO_APP_CLIENT_ID)."
+  description = "Cognito SPA app client ID — the ID-token audience validate-authorize checks (env COGNITO_APP_CLIENT_ID)."
   type        = string
   default     = ""
 }
@@ -81,25 +81,25 @@ variable "app_client_id" {
 # ── SPEC-072: outcome notifications (trusted producer of the SPEC-058 inbox) ──
 
 variable "logs_queue_arn" {
-  description = "SPEC-135: ARN of the structured-logging queue — scopes the execution role's sqs:SendMessage for log events."
+  description = "ARN of the structured-logging queue — scopes the execution role's sqs:SendMessage for log events."
   type        = string
   default     = ""
 }
 
 variable "logs_queue_url" {
-  description = "SPEC-135: URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda. Optional BY CONSTRUCTION on the Lambda side (cpcommon.observability uses os.environ.get, never config._require), so a verb missing it logs to stdout rather than crashing the plane at cold start."
+  description = "URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda. Optional BY CONSTRUCTION on the Lambda side (cpcommon.observability uses os.environ.get, never config._require), so a verb missing it logs to stdout rather than crashing the plane at cold start."
   type        = string
   default     = ""
 }
 
 variable "notifications_queue_arn" {
-  description = "SPEC-072: ARN of the SPEC-058 notifications FIFO queue. Scopes each verb role's sqs:SendMessage grant (the ONLY notifications-pipeline action they get). Constructed-string local from root; default \"\" keeps the module standalone-plannable."
+  description = "ARN of the SPEC-058 notifications FIFO queue. Scopes each verb role's sqs:SendMessage grant (the ONLY notifications-pipeline action they get). Constructed-string local from root; default \"\" keeps the module standalone-plannable."
   type        = string
   default     = ""
 }
 
 variable "notifications_queue_url" {
-  description = "SPEC-072: URL of the SPEC-058 notifications FIFO queue — every verb Lambda's NOTIFICATIONS_QUEUE_URL env (best-effort emit target; unset ⇒ emit is a logged no-op)."
+  description = "URL of the SPEC-058 notifications FIFO queue — every verb Lambda's NOTIFICATIONS_QUEUE_URL env (best-effort emit target; unset ⇒ emit is a logged no-op)."
   type        = string
   default     = ""
 }

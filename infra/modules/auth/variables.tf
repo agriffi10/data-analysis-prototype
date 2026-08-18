@@ -40,7 +40,7 @@ variable "portal_role_arn" {
 # ── SPEC-056 shared-space membership slots ───────────────────────────────────
 
 variable "max_shared_memberships" {
-  description = "SPEC-056: number of shared-space membership slots — the user pool gains custom:shared_space_1..N (mutable string) and the Identity Pool maps each to principal tag shared_space_1..N. Single source is the root variable of the same name."
+  description = "Number of shared-space membership slots — the user pool gains custom:shared_space_1..N (mutable string) and the Identity Pool maps each to principal tag shared_space_1..N. Single source is the root variable of the same name."
   type        = number
   default     = 10
 }

@@ -70,13 +70,13 @@ variable "app_client_id" {
 # ── Notifications (SPEC-114 producer; optional by design) ─────────────────────
 
 variable "notifications_queue_arn" {
-  description = "SPEC-114: ARN of the SPEC-058 notifications FIFO queue — scopes the execution role's sqs:SendMessage when the producer lands. Constructed-string local from root; default \"\" keeps the module standalone-plannable."
+  description = "ARN of the SPEC-058 notifications FIFO queue — scopes the execution role's sqs:SendMessage when the producer lands. Constructed-string local from root; default \"\" keeps the module standalone-plannable."
   type        = string
   default     = ""
 }
 
 variable "notifications_queue_url" {
-  description = "SPEC-114: URL of the SPEC-058 notifications FIFO queue — every verb's NOTIFICATIONS_QUEUE_URL env. OPTIONAL in cpcommon.config by design (unset ⇒ every emit is a logged no-op), so it never fails a cold start."
+  description = "URL of the SPEC-058 notifications FIFO queue — every verb's NOTIFICATIONS_QUEUE_URL env. OPTIONAL in cpcommon.config by design (unset ⇒ every emit is a logged no-op), so it never fails a cold start."
   type        = string
   default     = ""
 }
@@ -90,7 +90,7 @@ variable "dlq_max_receive_count" {
 # ── SPEC-109: the browser's enqueue grant ────────────────────────────────────
 
 variable "portal_role_name" {
-  description = "SPEC-109 FR-003: name of the shared portal role this module attaches the browser's sqs:SendMessage (data-quality queue ONLY) inline policy to, by name — mirrors the notifications/shared-spaces/table-builder/table-share modules."
+  description = "Name of the shared portal role this module attaches the browser's sqs:SendMessage (data-quality queue ONLY) inline policy to, by name — mirrors the notifications/shared-spaces/table-builder/table-share modules."
   type        = string
 }
 
