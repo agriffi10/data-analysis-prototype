@@ -46,7 +46,7 @@ Attributes:
     the copy-back reads all of them — because they run over the same object set in the same
     order, and a second dataset would be a second thing that could disagree with the plan.
   PROGRESS_BASENAME: The poll's progress record. It lives in the admin bucket rather than on the
-    state for FR-002 AC5's reason: the loop runs for hours and a per-object status list on the
+    state for the reason: the loop runs for hours and a per-object status list on the
     state is the 256 KB failure whose overflow escapes every ``Catch``. What rides is the small
     scalar block the ``Choice`` branches on.
   RESULTS_FOLDER: The folder under the request's prefix that the Distributed Map's

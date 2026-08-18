@@ -107,7 +107,7 @@ export async function getQueryStatus(queryExecutionId: string): Promise<ServiceR
 
 /**
  * Cancel a running query. `StopQueryExecution` transitions the execution to
- * `CANCELLED`, which the FR-003 poller then observes as a terminal state.
+ * `CANCELLED`, which the poller then observes as a terminal state.
  */
 export async function stopQuery(queryExecutionId: string): Promise<ServiceResult<void>> {
   return withCredentialRetry(getAthenaClient, async (client) => {

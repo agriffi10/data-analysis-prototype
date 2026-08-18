@@ -97,7 +97,7 @@ export function useDataQualityRuns(): UseDataQualityRunsResult {
       }
       if (failed.length === settled.length) {
         // Everything failed, so there is no partial list to show. Throwing here is what
-        // puts the FR-005 banner up; resolving with [] would render "no checks yet", which
+        // puts the banner up; resolving with [] would render "no checks yet", which
         // would tell the user their history is empty when it is merely unreachable.
         throw failed[0].result.success ? new Error('unreachable') : failed[0].result.error;
       }

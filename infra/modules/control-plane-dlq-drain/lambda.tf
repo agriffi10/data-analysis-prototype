@@ -91,7 +91,7 @@ resource "aws_lambda_function" "drain" {
 # NOTHING re-drives a message here (there is still no DLQ on the drain, and the sweep deletes
 # every message it reads whether or not it could notify about it): a redelivery would only
 # re-run a decision already made about a terminal message — the invisibility this module ends
-# (FR-005). Trade-off vs the mappings: a dead-lettered request now surfaces within one interval
+# Trade-off vs the mappings: a dead-lettered request now surfaces within one interval
 # (~10 min) instead of seconds. Nothing watches these queues in real time, so that is immaterial.
 resource "aws_cloudwatch_event_rule" "sweep" {
   name                = "${local.function_name}-sweep"

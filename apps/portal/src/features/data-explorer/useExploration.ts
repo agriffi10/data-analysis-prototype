@@ -72,7 +72,7 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
     //
     // `gcTime` is as load-bearing as `staleTime` and is the half that is easy to omit.
     // Changing a filter detaches the previous statement's observer, and under TanStack's
-    // 5-minute default its entry is then collected — so FR-006 AC2's "changing a filter
+    // 5-minute default its entry is then collected — so the "changing a filter
     // and changing it back is a cache hit" would hold for five minutes and silently
     // become a second execution, and a second bill, after that. An exploration session
     // lasts longer than five minutes; the cache is a few dozen strings.

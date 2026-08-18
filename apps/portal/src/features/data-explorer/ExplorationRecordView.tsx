@@ -25,7 +25,7 @@ export type ExplorationRecordViewProps = {
  * One row, transposed: a line per column, name beside value.
  *
  * The natural way to read a wide row, and below `tablet` the natural way to read any row —
- * which is why FR-007 opens there rather than shipping a horizontally-scrolling grid onto
+ * which is why this view is the default there rather than shipping a horizontally-scrolling grid onto
  * a 400px screen. Next/Previous walk the loaded page without going back to the grid; the
  * pager below still owns moving between pages.
  */

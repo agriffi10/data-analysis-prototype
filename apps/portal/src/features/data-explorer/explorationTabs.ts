@@ -132,7 +132,7 @@ function isValidLedger(value: unknown): boolean {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   // The VALUES matter as much as the shape: `tabBytesScanned` sums them, so one string
   // turns a total into `"0x"` and one NaN turns it into NaN — breaking the never-NaN
-  // invariant FR-007 AC4 exists to hold, from the only untrusted input this model has.
+  // invariant the rule exists to hold, from the only untrusted input this model has.
   return Object.values(value).every((bytes) => typeof bytes === 'number' && Number.isFinite(bytes));
 }
 
@@ -268,7 +268,7 @@ function isValidTransformer(value: unknown): boolean {
 
 /**
  * Reads a stored formatting block, discarding it WHOLE if any part of it is wrong
- * (FR-007 AC2).
+ *
  *
  * Deliberately unlike the field-by-field normalisation around it, and the difference is
  * what the requirement asks for: a partially-applied colour set is a rule list the user
@@ -408,7 +408,7 @@ export function writeExplorationTabsState(username: string, state: ExplorationTa
  * Total bytes this tab has scanned, across every DISTINCT execution it has run.
  *
  * Summed from a map keyed by execution id rather than accumulated as a running total,
- * which is what makes FR-007's "a cache hit adds nothing" true by construction: a
+ * which is what makes the "a cache hit adds nothing" true by construction: a
  * re-rendered identical statement resolves to an id already in the map, so recording it
  * again changes no total. A running sum would have to DETECT a cache hit, and a detector
  * can be wrong in the direction that overcharges.

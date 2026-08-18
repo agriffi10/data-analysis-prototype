@@ -5,7 +5,7 @@ actor-addressed failure, and the three outcomes a FAILURE table cannot
 carry — an archive that completed, a restore that has started, and a restore that finished.
 
 **Only three, because the other six terminal outcomes are already told by the decorator.**
-FR-006 names nine; ``archive_not_found``, ``archive_incomplete``, ``destination_occupied``,
+the rule names nine; ``archive_not_found``, ``archive_incomplete``, ``destination_occupied``,
 ``restore_incomplete``, ``restore_timed_out`` and every other refusal are reason codes in
 ``messages._BODIES``, emitted once from ``notifies_on_failure`` or from the machine's
 ``NotifyFailure``. Adding a second producer for them would be the duplicate-notification bug

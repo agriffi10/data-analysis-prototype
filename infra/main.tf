@@ -1030,7 +1030,7 @@ module "user_directory" {
 #     foreign projection fixture — which fail with `Insufficient Lake Formation permission(s):
 #     Required Describe`.
 #
-# Both answers are READ-ONLY and neither widens the data path, which FR-004 puts out of scope
+# Both answers are READ-ONLY and neither widens the data path, which the rule puts out of scope
 # explicitly: the trail records calls it does not authorize, and the role reads table
 # DEFINITIONS with no SELECT and no DATA_LOCATION_ACCESS anywhere in its grants.
 module "verification" {

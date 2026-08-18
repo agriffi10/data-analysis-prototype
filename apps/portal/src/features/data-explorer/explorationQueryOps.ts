@@ -245,7 +245,7 @@ export function moveSortPriority(query: ExplorationQuery, column: string, direct
 /**
  * Applies a grouping to a description, or leaves grouping mode.
  *
- * **Grouping mode is exactly "at least one grouping column"** (AC6). A grouping with no
+ * **Grouping mode is exactly "at least one grouping column"** A grouping with no
  * columns is legal SQL — a global aggregate over the whole table — but it is not what the
  * panel is for, and expressing "no columns left" as anything other than "not grouped"
  * would leave the user in a mode with nothing in it.
@@ -253,7 +253,7 @@ export function moveSortPriority(query: ExplorationQuery, column: string, direct
  * Leaving grouping mode **drops any sort on an aggregate's output column**, which is the
  * half that is easy to miss: `count_all` exists only while the grouping does, so an
  * ORDER BY carrying it onto the ungrouped table is a query Athena rejects — and it would
- * also miss the cached ungrouped execution AC6 promises to return to.
+ * also miss the cached ungrouped execution the rule promises to return to.
  *
  * @param query - The description to edit.
  * @param grouping - The grouping to apply, or null to leave grouping mode.

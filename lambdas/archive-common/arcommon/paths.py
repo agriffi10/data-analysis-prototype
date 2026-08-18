@@ -27,7 +27,7 @@ second copy of it is a second place a cross-tenant read can be introduced.
 
 Attributes:
   _UUID_V4: The request-id form accepted before any concatenation. **Validated BEFORE the id is
-    ever put into an S3 key** (FR-004): the id is browser-supplied and becomes a path segment in
+    ever put into an S3 key** the id is browser-supplied and becomes a path segment in
     two buckets, so anything that is not exactly a UUID v4 — a slash, a ``..``, an empty string —
     is refused here rather than normalised into something that resolves.
 

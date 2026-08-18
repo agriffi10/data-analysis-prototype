@@ -59,7 +59,7 @@ export function RowColoursDialog({columns, formatting, onApply, onCancel}: RowCo
   // The gradient bounds AS TYPED, keyed `${rule.id}:min|max`. A number-only round trip
   // through `Number()` cannot be typed into: `-` is NaN and renders as empty, so the minus
   // is erased, and `1.` renders as `1`, so the point is. Both make a range like `-10..40`
-  // or `0..1.5` unreachable — FR-002 AC4 asks for a numeric range, not a whole positive one.
+  // or `0..1.5` unreachable — the rule asks for a numeric range, not a whole positive one.
   // The parsed value still rides on the rule, so a half-typed bound is refused at Apply.
   const [bounds, setBounds] = useState<Record<string, string>>({});
 

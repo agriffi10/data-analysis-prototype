@@ -51,7 +51,7 @@ def validate(req: dict, request_id: str, actor: str) -> dict:
     anything, and the archive root is then built by ``paths.archive_root`` — the same function
     The archive uses the same builder to WRITE it, so the read and the write cannot drift.
 
-    **``requestId`` and ``archiveId`` must be different values** (FR-001 AC2). Conflating them was
+    **``requestId`` and ``archiveId`` must be different values** Conflating them was
     the obvious shortcut and is wrong in both directions: a refused restore must be re-submittable
     under a new run id, and a second attempt at one archive is a new request rather than a
     duplicate of the first. It is refused rather than tolerated, because a producer that has
@@ -178,7 +178,7 @@ def derive_destinations(bucket: str, archive_root: str, space_root: str) -> tupl
 def read_recorded_count(bucket: str, archive_root: str) -> int | None:
     """Reads the object count ``_manifest.json`` recorded, or None when there is no record.
 
-    **Absent is not a failure** (FR-003 AC5). The manifest is not load-bearing, and a restore
+    **Absent is not a failure** The manifest is not load-bearing, and a restore
     that refused for want of a convenience record would be exactly the failure mode the
     self-describing key layout exists to prevent. Unreadable and malformed are treated the same
     way as absent and for the same reason — the cross-check can only add confidence, so its own

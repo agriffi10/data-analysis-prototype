@@ -40,7 +40,7 @@ def item_name(key: str) -> str:
     The last path segment, with a folder's trailing slash removed first — so ``alice/reports/``
     and ``alice/reports`` both name ``reports``, and ``alice/deep/nested/q1.csv`` names
     ``q1.csv``. **This is what makes the destination independent of the sender's own folder
-    depth** (FR-003): a recipient sees what was sent, not where it lived.
+    depth** a recipient sees what was sent, not where it lived.
 
     Args:
       key: The selected item's key, already confirmed inside the authorized root.

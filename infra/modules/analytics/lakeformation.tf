@@ -8,7 +8,7 @@
 # (b) no per-user Glue databases exist yet, so there's nothing to lock
 # out. The end-to-end query path only works once the post-confirmation
 #       Lambda creates a user's database AND LF-grants the shared role on it.
-# Until then, FR-006's Glue IAM scoping + this enforcement simply deny catalog
+# Until then, the Glue IAM scoping + this enforcement simply deny catalog
 # access — the correct, safe state.
 resource "aws_lakeformation_data_lake_settings" "this" {
   # Admins can grant/revoke and register locations:
@@ -249,7 +249,7 @@ resource "aws_lakeformation_permissions" "control_plane_user_data_location" {
 #
 # WHAT IS DELIBERATELY ABSENT: `SELECT` and `DATA_LOCATION_ACCESS`. This role reads a table's
 # DEFINITION and cannot read a byte of what the table points at, which is what makes it a
-# verification principal rather than a widening of the data path (FR-004's own Out of Scope).
+# verification principal rather than a widening of the data path (the own Out of Scope).
 locals {
   verification_role_arns = toset(compact([var.verification_role_arn]))
 }

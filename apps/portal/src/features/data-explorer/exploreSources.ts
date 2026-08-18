@@ -75,7 +75,7 @@ export function resolveExploreParams(
 ): ExploreResolution {
   const spaceParam = sharedEnabled ? params.space : null;
   // A link is a triple. Two thirds of one names no table, and the picker is the honest
-  // answer to it — FR-006 AC3 is explicit that a malformed parameter is not an error state.
+  // answer to it — the rule is explicit that a malformed parameter is not an error state.
   if (!params.db || !params.table) return {status: 'none'};
 
   const space = resolveSpace(spaceParam, spaces, username);

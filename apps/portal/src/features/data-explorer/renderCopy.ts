@@ -237,7 +237,7 @@ function markdown(block: CopyBlock, options: CopyOptions): string {
  *
  * Values go through `sqlLiteral` — the TRINO/DML escaper that doubles the quote, never
  * `cpcommon.ddl`'s backslash form (the rule, and the wrong one fails silently). A
- * NULL is the keyword and an empty string is `''`, which is the distinction FR-001 AC4 asks
+ * NULL is the keyword and an empty string is `''`, which is the distinction the rule asks
  * for, native to the format. A hole is NULL too; see `json` above.
  */
 function sqlInsert(block: CopyBlock, options: CopyOptions): string {

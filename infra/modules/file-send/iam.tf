@@ -27,7 +27,7 @@
 #
 # AdminGetUser ALONE, deliberately: table-share's twin statement also carries
 # cognito-idp:ListUsers, which nothing in this repo calls — every existence check in the
-# fleet is admin_get_user, and FR-004 AC4 makes that a rule rather than a habit. ListUsers
+# fleet is admin_get_user, and the rule makes that a rule rather than a habit. ListUsers
 # would let this role enumerate the whole pool (every username, email and attribute), and
 # this is a role on the user-space bucket's principal allowlist. Copying it over would have
 # widened the blast radius for no functionality.

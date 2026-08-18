@@ -6,7 +6,7 @@ are in a bucket the browser has no relationship with, and the reports folder tha
 is the one place the id appears outside a notification.
 
 **Its failure is a terminal failure of the run even though the data is safely archived**, and that
-is FR-006's decision rather than an oversight: a user with no receipt has no id, and therefore no
+is the decision rather than an oversight: a user with no receipt has no id, and therefore no
 route to a restore. The failure message says the data IS archived and names the request id, so the
 run is recoverable by hand rather than merely reported.
 

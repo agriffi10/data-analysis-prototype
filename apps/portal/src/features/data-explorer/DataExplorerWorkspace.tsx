@@ -151,7 +151,7 @@ export function DataExplorerWorkspace() {
   }, [tabs.activeTab?.id, exploration.queryExecutionId, exploration.cost]);
 
   // A statement that failed is remembered so history never walks back into it unasked
-  // (FR-006 AC4). In memory and per tab — see `useExplorationQuery`.
+  // In memory and per tab — see `useExplorationQuery`.
   useEffect(() => {
     if (exploration.error != null && exploration.sql !== null) queryControls.noteFailure(exploration.sql);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `queryControls` is re-created each render; noteFailure is idempotent per statement.

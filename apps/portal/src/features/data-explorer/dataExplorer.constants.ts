@@ -115,7 +115,7 @@ export const CALC_PRECISION = 12;
 // the palette. Nothing here is a NEW design token: these are the tokens `index.css`
 // already defines, and this map exists because two of the spec's requirements need their
 // VALUES rather than their names — a gradient has to interpolate between two of them, and
-// FR-002 AC8's contrast has to be computed from them. `formatting.test.ts` pins every entry
+// the contrast has to be computed from them. `formatting.test.ts` pins every entry
 // against `index.css` itself, so the copy cannot drift from the source.
 // ---------------------------------------------------------------------------------------
 

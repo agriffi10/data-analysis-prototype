@@ -177,7 +177,7 @@ function FileBrowserContent({
   const archiveEnabled = !!username && filesEnabled && !writeLockReason;
   // A RESTORE is not: it writes into the space root, never into the folder being browsed — and
   // gating it on the write lock removed the button from `archive/`, which is the one place the
-  // dialog itself tells the user to go and look for an id (FR-003 AC1 says `writable`).
+  // dialog itself tells the user to go and look for an id (the rule says `writable`).
   const restoreEnabled = !!username && filesEnabled;
 
   // Per-file download. Tracks the key being signed so its row

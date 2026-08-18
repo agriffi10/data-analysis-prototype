@@ -172,7 +172,7 @@ function likeExpression(pattern: string, caseInsensitive: boolean): RegExp {
       return character.replace(LIKE_META_RE, '\\$&');
     })
     .join('');
-  // The pattern IS the feature: FR-002 offers LIKE/ILIKE/REGEX over the user's own loaded
+  // The pattern IS the feature: the rule offers LIKE/ILIKE/REGEX over the user's own loaded
   // rows. Every metacharacter above is escaped, so the only expression this can build is
   // the one the wildcards describe; `FORMATTING_PATTERN_MAX` bounds its size.
   // eslint-disable-next-line security/detect-non-literal-regexp
@@ -200,7 +200,7 @@ export function ruleRefusal(rule: ColourRule): string | null {
     if (rule.value.length > FORMATTING_PATTERN_MAX) return PATTERN_TOO_LONG_REFUSAL;
     if (rule.operator === 'regex') {
       try {
-        // A user-authored pattern over their own loaded rows is what FR-002 asks for.
+        // A user-authored pattern over their own loaded rows is what asks for.
         // Compiled here so an invalid one is refused at the input rather than thrown from
         // a render.
         // eslint-disable-next-line security/detect-non-literal-regexp
@@ -334,7 +334,7 @@ export function bandsOf(
  *
  * Precedence runs weakest to strongest — the type tint, then the band, then the rules in
  * their own order — and each layer overrides only the PROPERTY it sets, so a rule that
- * chooses a background leaves a type tint's foreground alone. That is what AC5's "a later
+ * chooses a background leaves a type tint's foreground alone. That is what "a later
  * matching rule overrides an earlier one on the same property" means, and it is also what
  * makes FR-003 AC2 and FR-004 AC4 ("conditional rules win") true without a special case.
  *
@@ -457,7 +457,7 @@ function toBase64(bytes: Uint8Array): string {
 /**
  * How one cell is rendered under a transformer, or null where it is rendered as itself.
  *
- * **A transformer changes only the rendering** (FR-005 AC4). Nothing calls this on the way
+ * **A transformer changes only the rendering** Nothing calls this on the way
  * into a filter, a colour rule, a Calc selection or a copy — those all read the raw row,
  * and a transformed value reaching any of them would be a silent wrong answer rather than
  * a visible one.

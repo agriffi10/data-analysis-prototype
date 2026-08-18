@@ -174,7 +174,7 @@ def append(bucket: str, report_prefix: str, summary: dict) -> bool:
     current document byte for byte still writes, where the shared default would return early.
     Invisible in the index, but a different set of S3 calls than this ever made.
 
-    FR-001 widened what is swallowed, in the direction of the contract below rather
+    the rule widened what is swallowed, in the direction of the contract below rather
     than against it. The entry-replacement transform used to run outside the guard, so a
     malformed index — ``{"entries": ["x"]}`` survives the read's ``isinstance(…, list)`` check
     and then meets ``e.get(…)`` — raised out of here and failed a check that had already

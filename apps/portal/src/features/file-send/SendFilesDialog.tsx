@@ -98,7 +98,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
   const canSubmit = recipients.length > 0 && !busy;
 
   const attempt = () => {
-    // The Send control stays ENABLED with no recipients, deliberately: FR-002 AC7 asks for the
+    // The Send control stays ENABLED with no recipients, deliberately: the rule asks for the
     // send to be refused INLINE, and a disabled button explains nothing — the user who typed a
     // name and forgot to commit it presses Send and is told what is missing. `submitDisabled`
     // would make the banner below unreachable, which is what the first version of this dialog

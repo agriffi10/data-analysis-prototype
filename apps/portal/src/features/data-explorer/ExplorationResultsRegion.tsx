@@ -122,7 +122,7 @@ export const NOTHING_TO_SAVE = 'There’s no query to save yet — nothing has r
  * Its own wording because its own state: there IS a statement here, and it is the one
  * Athena rejected. The rows under the banner are the LAST GOOD execution's, so saving would
  * write one query while the grid showed another's rows — and the file would fail to open in
- * the Query workspace, which is the surface FR-005 promises it opens in.
+ * the Query workspace, which is the surface a saved exploration promises it opens in.
  */
 export const FAILED_NOT_SAVEABLE = 'This query didn’t run, so there’s nothing to save. Fix it and try again.';
 /** Copy takes a SELECTION, and an empty one has no rectangle to take. */
@@ -373,7 +373,7 @@ export function ExplorationResultsRegion({
 
   // Record and the grid share ONE focused row, and the sync runs in BOTH directions —
   // entering Record from the cursor, and moving the cursor to the row Record left off at
-  // (FR-004 AC3). Only the first half shipped at first, so "switch back" landed on
+  // Only the first half shipped at first, so "switch back" landed on
   // whatever the cursor last touched (found in review).
   const setView = (next: GridPresentation) => {
     if (next !== 'record' && view === 'record') {
@@ -400,7 +400,7 @@ export function ExplorationResultsRegion({
   // `failed` is checked FIRST and is the one that is easy to miss: a failed
   // apply still has a rendered `sql` — the statement Athena rejected — while `shownExecutionId`
   // has fallen back to the last good one, so the grid is showing a DIFFERENT query's rows. A
-  // save there writes a file that fails to open in the workspace FR-005 promises it opens in.
+  // save there writes a file that fails to open in the workspace it promises it opens in.
   // A suspended description needs no clause of its own: the workspace passes `useExploration`
   // nothing while suspended, so `sql` is already null.
   const saveRefusal = failed ? FAILED_NOT_SAVEABLE : sql === null ? NOTHING_TO_SAVE : null;

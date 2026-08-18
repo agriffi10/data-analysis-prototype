@@ -30,7 +30,7 @@ export type SaveQueryPayload = {
 export type SaveQueryCollision = {space: QuerySpace; name: string};
 
 export type UseSaveQueryResult = {
-  /** The destinations the dialog offers, personal first. Empty drives FR-007's banner. */
+  /** The destinations the dialog offers, personal first. Empty drives the banner. */
   spaces: QuerySpace[];
   /** The payload's link, if any — what an unchanged re-save replaces. */
   linked: SavedQueryLink | undefined;
@@ -173,7 +173,7 @@ export function useSaveQuery({spaces, defaultSpace, payload, onSaved, toast}: Pa
     initialName: pending?.name ?? linked?.name ?? '',
     initialSpace: pending?.space ?? linkedSpace ?? defaultSpace,
     // The in-place re-save writes through, because the file it replaces is the one
-    // the user is looking at the name of. Any other key takes FR-003's HEAD-and-confirm.
+    // the user is looking at the name of. Any other key takes the HEAD-and-confirm.
     save: (request) => write(request, isLinkedSavedQuery(linked, request.space, request.name)),
     confirmReplace: () => {
       if (collision) write({space: collision.space, name: collision.name}, true);

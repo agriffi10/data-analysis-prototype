@@ -62,7 +62,7 @@ export function useFeatureFlags(): UseFeatureFlagsResult {
   //
   // Only auth STILL RESOLVING is `'loading'`. Treating that as fallback instead would show
   // every gated surface and then take them away a tick later once the real read began —
-  // the flicker FR-007 exists to prevent, arriving by the other door.
+  // the flicker the rule exists to prevent, arriving by the other door.
   const status: FeatureFlagsStatus =
     authStatus === 'loading'
       ? 'loading'

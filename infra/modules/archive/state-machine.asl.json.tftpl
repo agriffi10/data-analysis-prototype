@@ -143,7 +143,7 @@
     },
     "HasTransferItems": {
       "Type": "Choice",
-      "Comment": "An ItemReader pointed at a manifest that was never written fails the state, so the Map is skipped when there is nothing to copy. IsPresent is tested BEFORE the numeric comparison and is not optional — a Choice on an ABSENT path raises States.Runtime, which is uncatchable and which `Default` does NOT cover. THE DEFAULT ARM IS A REFUSAL, NOT A SKIP-TO-SUCCESS: FR-001 already makes zero unreachable (inspect-source refuses an empty expansion), and the alternative reading would write a receipt claiming zero files archived and an archive prefix indistinguishable at restore time from one that had vanished. An unreachable branch is specified rather than omitted because a branch that raises States.Runtime when it is reached is a worse outcome than one that refuses.",
+      "Comment": "An ItemReader pointed at a manifest that was never written fails the state, so the Map is skipped when there is nothing to copy. IsPresent is tested BEFORE the numeric comparison and is not optional — a Choice on an ABSENT path raises States.Runtime, which is uncatchable and which `Default` does NOT cover. THE DEFAULT ARM IS A REFUSAL, NOT A SKIP-TO-SUCCESS: the rule already makes zero unreachable (inspect-source refuses an empty expansion), and the alternative reading would write a receipt claiming zero files archived and an archive prefix indistinguishable at restore time from one that had vanished. An unreachable branch is specified rather than omitted because a branch that raises States.Runtime when it is reached is a worse outcome than one that refuses.",
       "Choices": [
         {
           "And": [
@@ -693,7 +693,7 @@
         "States": {
           "InitiateRestore": {
             "Type": "Task",
-            "Comment": "One batch of retrieval requests per invocation, on the same bounded pool the destination guard uses. No Catch: a batch that fails after its retries must FAIL its child execution, and with ToleratedFailurePercentage 0 that fails the Map Run and the run — which is exactly the outcome FR-001 asks for, because nothing has been copied and the archive is untouched.",
+            "Comment": "One batch of retrieval requests per invocation, on the same bounded pool the destination guard uses. No Catch: a batch that fails after its retries must FAIL its child execution, and with ToleratedFailurePercentage 0 that fails the Map Run and the run — which is exactly the outcome the rule asks for, because nothing has been copied and the archive is untouched.",
             "Resource": "arn:aws:states:::lambda:invoke",
             "Parameters": {
               "FunctionName": "${initiate_restore_function_arn}",
@@ -1000,7 +1000,7 @@
     },
     "DeleteArchived": {
       "Type": "Task",
-      "Comment": "The archive prefix and its _manifest.json, removed now that every object is back — reachable from exactly one arm of the gate above. It lists rather than taking keys from the plan, the rollback's reason: the prefix is this archive's alone, so everything under it belongs to this archive. ITS CATCH DOES NOT FAIL THE RUN, which is the exact inverse of delete-source's discipline and is FR-005's decision: the user's data is back, which is the outcome they asked for, and residue in a bucket the browser cannot reach costs storage the 7-year expiry sweeps. The failure is carried as a flag on a SUCCESSFUL run instead. Deleting inside the GLACIER 90-day minimum is expected and is charged as an early-deletion fee — a cost line, not a defect.",
+      "Comment": "The archive prefix and its _manifest.json, removed now that every object is back — reachable from exactly one arm of the gate above. It lists rather than taking keys from the plan, the rollback's reason: the prefix is this archive's alone, so everything under it belongs to this archive. ITS CATCH DOES NOT FAIL THE RUN, which is the exact inverse of delete-source's discipline and is the decision: the user's data is back, which is the outcome they asked for, and residue in a bucket the browser cannot reach costs storage the 7-year expiry sweeps. The failure is carried as a flag on a SUCCESSFUL run instead. Deleting inside the GLACIER 90-day minimum is expected and is charged as an early-deletion fee — a cost line, not a defect.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${delete_archived_function_arn}",

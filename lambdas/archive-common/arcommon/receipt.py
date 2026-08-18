@@ -265,7 +265,7 @@ def write(bucket: str, key: str, record: dict) -> str:
       TransientError: On a retryable S3 fault, so the caller's Retry re-runs the verb — safe,
         because the key is a pure function of the request and the write is a whole-object PUT.
       ClientError: Any deterministic fault propagates, and the verb turns it into the terminal
-        failure FR-006 requires: a user with no receipt has no UUID and therefore no route to a
+        failure the rule requires: a user with no receipt has no UUID and therefore no route to a
         restore, even though their data is safely archived.
     """
     return write_text(bucket, key, render(record))

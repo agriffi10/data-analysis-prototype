@@ -51,7 +51,7 @@ def is_ignored(key: str, size: int, prefix: str) -> bool:
     """Reports whether an object is something other than source data.
 
     Public for its own test's benefit, and NOT dead — ``list_data_objects`` calls it below.
-    FR-006 looked at making it private and kept public: the ignore rule is the one
+    the rule looked at making it private and kept public: the ignore rule is the one
     part of listing worth asserting case by case, and a test reaching through a leading
     underscore to do that is worse than a name that says it may be read.
 

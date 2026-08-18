@@ -233,7 +233,7 @@ export type ExplorationPresentation = {
   /**
    * The chosen presentation, or **null for "the user has not chosen"**.
    *
-   * Null is what makes FR-007's mobile default expressible: below `tablet` an unchosen
+   * Null is what makes the mobile default expressible: below `tablet` an unchosen
    * tab opens in Record and above it in Grid, while a tab whose user HAS chosen keeps that
    * choice at every width. A non-null default would have to be picked when the tab is
    * created — by `useExplorationTabs`, which has no business reading the viewport.
@@ -295,7 +295,7 @@ export type ExplorationTab = {
   /**
    * Bytes scanned per DISTINCT execution this tab has run, keyed by execution id.
    *
-   * Keyed rather than summed because that is what makes FR-007's "a cache hit adds
+   * Keyed rather than summed because that is what makes the "a cache hit adds
    * nothing" true by construction: a re-rendered identical SQL resolves to the execution
    * id already recorded, so re-adding it changes no total. A running sum would need to
    * detect a cache hit, and a detector can be wrong.

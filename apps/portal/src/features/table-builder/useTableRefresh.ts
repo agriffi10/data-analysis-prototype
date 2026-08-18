@@ -34,7 +34,7 @@ type LinkedTarget = {
  * the notification link. It is passed in rather than opened, because opening
  * it would mean setting state in an effect. An explicitly opened target always wins.
  *
- * It also owns FR-005's schema invalidation, because the successful enqueue is the
+ * It also owns the schema invalidation, because the successful enqueue is the
  * only signal there is: the rail is invalidated once on submit and once more the
  * next time the window regains focus — the refresh is asynchronous, so the columns
  * usually land while the user is elsewhere. The second pass is armed by a submit

@@ -22,7 +22,7 @@ export function reportKey(space: string, requestId: string): string {
  * Checked STRUCTURALLY, on the fields every render path indexes into. The report is
  * machine-written so a partial document should be impossible — but the alternative to
  * this check is a page that throws mid-render on `report.exact.columns.map`, which is a
- * blank screen rather than the friendly empty state FR-005 requires.
+ * blank screen rather than the friendly empty state the rule requires.
  */
 function isReport(doc: unknown): doc is DataQualityReport {
   const r = doc as Partial<DataQualityReport> | null;

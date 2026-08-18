@@ -20,7 +20,7 @@ export type FeatureRouteProps = {
  *
  * It is `LoadingState` and not `null` because a route is the whole viewport: an empty frame
  * for a beat reads as a broken page, where an absent tab reads as a tab that was never there.
- * That difference is why FR-007's "render nothing while loading" applies to the nav and the
+ * That difference is why the "render nothing while loading" applies to the nav and the
  * controls and not here.
  *
  * The offered fallback is the first ENABLED feature in flag order, so the link never points

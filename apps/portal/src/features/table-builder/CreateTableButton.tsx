@@ -51,7 +51,7 @@ export function CreateTableButton({spaceKind, bucket, database, prefix}: Props) 
         message: `Creating table “${tableName}”… you’ll be notified when it’s ready.`
       });
     } else {
-      // Keep the dialog open so the user can retry (FR-004 — no silent failure).
+      // Keep the dialog open so the user can retry ( — no silent failure).
       setSubmitError(toUserText(result.error));
     }
   };

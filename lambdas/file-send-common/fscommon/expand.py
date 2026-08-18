@@ -97,7 +97,7 @@ def _excluder(root: str):
 def _collapse(items: list) -> list:
     """Drops repeats of the same item, preserving the order the sender gave.
 
-    A repeat is a duplicate, not an overlap: FR-002 says the same item listed twice collapses
+    A repeat is a duplicate, not an overlap: the rule says the same item listed twice collapses
     rather than being refused, because there is exactly one right answer and no ambiguity about
     what the user meant.
 
@@ -108,7 +108,7 @@ def _collapse(items: list) -> list:
     first and dropped the other — so a request naming both silently sent one zero-byte
     placeholder and none of the folder's contents, reporting success, with the outcome depending
     on the order of the list. Keyed on the pair, both survive to the overlap rule, which refuses
-    them; a silent drop is the thing FR-002 exists to prevent.
+    them; a silent drop is the thing the rule exists to prevent.
 
     Args:
       items: The normalised selection.
@@ -237,7 +237,7 @@ def _expand_item(bucket: str, root: str, entry: dict):
     listing.** A ``file`` item is not filtered by anything upstream — validate-authorize
     normalises a *folder* key to a trailing slash and leaves a file key untouched — so naming
     ``{root}/DO_NOT_DELETE.txt`` as a file copied the prefix marker into someone's inbox, and
-    naming a folder AS a file copied its zero-byte placeholder as a file. FR-001 AC4 says these
+    naming a folder AS a file copied its zero-byte placeholder as a file. the rule says these
     are excluded from the copy set; it does not say "when they turn up in a listing". A selection
     of nothing but excluded objects then lands on the zero-object refusal, which is the right
     outcome and the same one an empty folder gets.

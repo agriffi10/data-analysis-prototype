@@ -20,7 +20,7 @@ export type UseFeatureSetResult = {
  *   * `LandingPage` picks the first enabled destination for its signed-in call to action.
  *
  * Exposing this deliberately keeps `useFeatureFlags` internal to the feature, which is what
- * FR-001 asks for: one sanctioned surface, so a fifth consumer cannot quietly gate on a
+ * the rule asks for: one sanctioned surface, so a fifth consumer cannot quietly gate on a
  * slightly different condition. A tripwire test enforces it.
  *
  * `isEnabled` is stable across renders and reports `false` while loading, so a caller that

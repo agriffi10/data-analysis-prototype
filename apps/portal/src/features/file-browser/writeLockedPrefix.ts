@@ -40,7 +40,7 @@ export function isWriteLockedPrefix(prefix: string, rootPrefix: string, spaceKin
 /**
  * The user-facing reason writes are unavailable here, or null when they are available.
  *
- * A disabled control with no reason is the thing FR-004 exists to replace, so the gate and its
+ * A disabled control with no reason is the thing the rule exists to replace, so the gate and its
  * explanation are one function rather than a boolean the caller has to find words for.
  *
  * @param prefix - The folder currently being viewed.

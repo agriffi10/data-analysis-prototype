@@ -181,7 +181,7 @@ def release(database: str, table: str, etag: str | None) -> None:
     Never raises and never retries a lost compare-and-swap. Losing it means the lock was stolen by
     a later execution, and re-writing would clobber the new holder — so the loss is
     recorded and left alone. A request that did its work and then reported failure because of its
-    own bookkeeping would be a worse outcome than a lock that FR-004 can recover anyway.
+    own bookkeeping would be a worse outcome than a lock that the rule can recover anyway.
 
     Args:
       database: The target Glue database name.

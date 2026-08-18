@@ -53,7 +53,7 @@ resource "aws_lambda_function" "functions" {
 
   # EVERY variable cpcommon/config.py requires must be COMMON to all nine verbs: every verb
   # attaches the cpcommon layer, and any of them may reach any of those values. The config
-  # FR-004 moved the fail-fast from import to FIRST READ, so a verb missing
+  # the rule moved the fail-fast from import to FIRST READ, so a verb missing
   # one no longer crashes at COLD START
   # (check-table-absent, RuntimeError COGNITO_USER_POOL_ID unset) — it fails on whichever
   # branch reads it, which is narrower and no less broken. The per-verb map

@@ -241,7 +241,7 @@ export function DatabaseNode({
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   // Group expansion: Tables defaults open; Views defaults open iff there are views
-  // (FR-002). `null` = "use the default"; an explicit toggle pins a boolean.
+  // `null` = "use the default"; an explicit toggle pins a boolean.
   const [tablesOpen, setTablesOpen] = useState<boolean | null>(null);
   const [viewsOpen, setViewsOpen] = useState<boolean | null>(null);
   const [openTables, setOpenTables] = useState<Set<string>>(new Set());

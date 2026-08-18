@@ -4,7 +4,7 @@ Three outcomes, three states, one verb: an archive that completed, a restore tha
 requested and is now waiting hours, and a restore that finished.
 
 **Every other terminal outcome is already told by somebody else, and that is why this verb is
-small.** FR-006 names nine; the six refusals — ``archive_not_found``, ``archive_incomplete``,
+small.** the rule names nine; the six refusals — ``archive_not_found``, ``archive_incomplete``,
 ``destination_occupied``, ``restore_incomplete``, ``restore_timed_out`` and the rest — are reason
 codes in ``arcommon.messages``, emitted once by ``notifies_on_failure`` on the verb that raised or
 by the machine's own ``NotifyFailure``. A second producer for them would be the duplicate the

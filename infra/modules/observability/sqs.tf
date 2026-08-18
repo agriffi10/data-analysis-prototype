@@ -32,7 +32,7 @@ resource "aws_sqs_queue" "logs" {
 
   # No redrive_policy, and no DLQ, deliberately. The only failure the sweep can suffer on a
   # message is a failed S3 write, which is not the message's fault — a maxReceiveCount would
-  # move perfectly good events onto a second queue that nothing reads. FR-005 makes every
+  # move perfectly good events onto a second queue that nothing reads. the rule makes every
   # message routable (an unparseable body goes to logs/service=_unrouted/) and therefore
   # deletable, so there is no poison message for a DLQ to isolate.
 }
