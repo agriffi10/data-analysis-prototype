@@ -1,5 +1,5 @@
 # ── Request Queue + DLQ ────────────────────────────────────
-# The control-plane entry point. The browser (SPEC-056+) enqueues a request
+# The control-plane entry point. The browser enqueues a request
 # message; an EventBridge Pipe (pipe.tf) drains it into the Step Function.
 #
 # FIFO with a single, constant MessageGroupId (a producer convention) so

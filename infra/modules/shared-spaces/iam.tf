@@ -1,8 +1,8 @@
-# ── Control-plane IAM roles (SPEC-050 FR-003; SPEC-062) ──────────────────────
+# ── Control-plane IAM roles ────────────────────────────────────────────────
 # Two roles:
 #   - orchestrator role: the single privileged role the Step Function AND every verb/
-#     validator Lambda run under (trust = states + lambda). SPEC-062 decomposes the
-#     monolith into six Lambdas but keeps ONE shared role (user decision; SPEC-062
+#     validator Lambda run under (trust = states + lambda). The plane decomposes into
+#     monolith into six Lambdas but keeps ONE shared role (user decision
 #     FR-005 note) — so the policy carries the union of all verbs' permissions (Glue,
 #     Lake Formation, S3 on the shared bucket + admin registry prefix, user-space
 #     cache, Cognito admin, invoke the verb Lambdas, states/logs).
@@ -55,7 +55,7 @@ resource "aws_iam_role_policy" "orchestrator" {
 # request queue only. An unset slot stamps no tag → the statement matches nothing
 # (implicit deny); verified with aws iam simulate-custom-policy.
 #
-# SPEC-168 FR-006 adds a third deny — SharedArchiveReceiptsAreNotUserWritable — using the
+# A third deny — SharedArchiveReceiptsAreNotUserWritable — using the
 # WILDCARD SPACE SEGMENT form the two existing denies already use
 # (${shared_space_bucket_arn}/*/archive/*) rather than a per-slot loop. That is not a
 # shortcut: a Deny needs no tag to be correct, so one wildcard statement covers every

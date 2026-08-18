@@ -25,8 +25,8 @@ variable "admin_bucket_arn" {
 
 # ── The cpcommon layer's required union ──────────────────────────────────────
 # The sweep attaches the cpcommon layer, and that layer's config requires all of these. Until
-# SPEC-156 FR-004 it required them AT IMPORT, so a function missing one crashed at COLD START
-# with an error naming neither the layer nor the variable (the table-builder break, PR #196);
+# The config once required them AT IMPORT, so a function missing one crashed at COLD START
+# with an error naming neither the layer nor the variable;
 # it resolves on FIRST READ now, so the failure lands on whichever branch reads it instead.
 # The sweep uses none of them, and that is not a reason to remove one — the union is what any
 # code path in the layer may demand.

@@ -1,4 +1,4 @@
-# ── Constructed names + ARNs ──────────────────────────────────────
+# ── Constructed names + ARNs ──────────────────────────────────────────────────────────────────────
 # All resource names derive from {project_name}-{environment} so the deploy policy
 # (modules/base, the SPEC-088 PR1 grant) scopes to the same {project}-*-table-share-*
 # patterns, and so cross-resource ARNs referenced inside IAM policy templates are

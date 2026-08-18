@@ -1,4 +1,4 @@
-# ── Constructed names + ARNs ──────────────────────────────────────
+# ── Constructed names + ARNs ──────────────────────────────────────────────────────────────────────
 # Names derive from {project_name}-{environment} so the deploy policy (modules/base, the
 # drain grant) scopes to the same {project}-*-control-plane-dlq-drain patterns, and
 # so ARNs referenced inside IAM policy templates are KNOWN AT PLAN TIME — the

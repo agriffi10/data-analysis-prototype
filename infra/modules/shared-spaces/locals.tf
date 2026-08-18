@@ -1,4 +1,4 @@
-# ── Constructed names + ARNs (SPEC-050; SPEC-062 decomposition) ───────────────
+# ── Constructed names + ARNs ───────────────────────────────────────────────
 # All resource names are derived from {project_name}-{environment} so the deploy
 # policy can scope to the same patterns (modules/base) and so cross-resource ARNs
 # referenced inside IAM policy templates are KNOWN AT PLAN TIME (constructed
@@ -17,7 +17,7 @@ locals {
   # lambdas/ subdir suffix + the deploy-lambdas.yml matrix name); value = the Python
   # handler. The Step Function orchestrates them (validate -> Choice(action) -> verb);
   # all run under the single shared orchestrator role (no per-verb roles — user
-  # decision, see SPEC-062 FR-005 note). `forget` = durable "clear from my list".
+  # decision). `forget` = durable "clear from my list".
   shared_space_functions = {
     "validate"               = "validate.handler"
     "create"                 = "create_space.handler"
@@ -26,8 +26,8 @@ locals {
     "leave"                  = "leave.handler"
     "delete"                 = "delete_space.handler"
     "forget"                 = "forget_space.handler"
-    "acknowledge-membership" = "acknowledge_membership.handler" # SPEC-073 join-status ack
-    "notify-failure"         = "ss_notify_failure.handler"      # SPEC-152 last-resort notify
+    "acknowledge-membership" = "acknowledge_membership.handler" # join-status ack
+    "notify-failure"         = "ss_notify_failure.handler"      # last-resort notify
   }
 
   shared_space_function_names = {
@@ -60,7 +60,7 @@ locals {
   admin_bucket_arn        = "arn:aws:s3:::${var.athena_admin_bucket_name}"
   user_space_bucket_arn   = "arn:aws:s3:::${var.user_space_bucket_name}"
 
-  # The shared portal role (SPEC-011, created in module.data) — the LF grant target
+  # The shared portal role (created in module.data) — the LF grant target
   # the create/delete verbs target per shared DB, and the env var passed to the verbs.
   # Constructed from the role name (known at plan; no cross-module resource dependency).
   portal_role_arn = "arn:aws:iam::${var.account_id}:role/${var.portal_role_name}"

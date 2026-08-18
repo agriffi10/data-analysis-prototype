@@ -1,4 +1,4 @@
-# ── Control-plane IAM roles ───────────────────────────────────────
+# ── Control-plane IAM roles ─────────────────────────────────────────────────────────────────
 # ONE shared execution role for every verb Lambda (user decision,
 # docs/architecture.md (Control Planes -> Table Share) — mirrors the table-builder's consolidated
 # model; per-verb roles are NOT used), plus the Step Function role and the Pipe

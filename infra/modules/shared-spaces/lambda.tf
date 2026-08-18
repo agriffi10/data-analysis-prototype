@@ -3,7 +3,7 @@
 # Lambda + five single-task verb Lambdas (create / add-members / remove-members /
 # leave / delete), orchestrated by the Step Function (stepfunction.tf): validate ->
 # Choice(action) -> verb. All six run under the shared ORCHESTRATOR role (iam.tf) —
-# one role for the Step Function AND every Lambda (user decision; SPEC-062 FR-005
+# one role for the Step Function AND every Lambda (user decision
 # note) — so each already holds every privileged permission its verb needs.
 #
 # Code-ownership split (architecture.md): Terraform owns the function
@@ -68,7 +68,7 @@ resource "aws_lambda_function" "functions" {
       ENV_NAME = var.environment
       # NOT used by any shared-space verb — set because the cpcommon layer's
       # config requires it, and any code path may read it. (SPEC-156 FR-004 moved that from
-      # import to first read, so this is no longer a cold-start crash — PR #196 — but it is
+      # import to first read, so this is no longer a cold-start crash — but it is
       # still a failure, and this variable must still be set.) Landed and applied BEFORE the
       # code that imports cpcommon deploys, so the layer attach can never arrive at a
       # function whose env can't satisfy it.

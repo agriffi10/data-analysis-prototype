@@ -1,4 +1,4 @@
-# ── Orchestrator Step Function (SPEC-050 FR-003; SPEC-062 decomposition) ──────
+# ── Orchestrator Step Function ─────────────────────────────────────────────
 # Standard state machine — the orchestration that routes by action: a
 # Validate task (verify token + authorize), a Choice state that routes on the
 # validated `action`, then exactly one single-task verb Lambda. Retry on transient

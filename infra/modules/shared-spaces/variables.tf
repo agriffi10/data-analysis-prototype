@@ -41,7 +41,7 @@ variable "athena_admin_bucket_name" {
 }
 
 variable "athena_workgroup" {
-  description = "The shared portal Athena workgroup name. The shared-space verbs never call Athena — this is here because the cpcommon layer they attach requires ATHENA_WORKGROUP. SPEC-156 FR-004 moved that from import to FIRST READ, so a verb missing it no longer crashes at COLD START (the table-builder break, PR #196) but fails on whichever branch reads it. \"No verb calls Athena\" is not a reason to remove it — the union is what any code path in the layer may demand."
+  description = "The shared portal Athena workgroup name. The shared-space verbs never call Athena — this is here because the cpcommon layer they attach requires ATHENA_WORKGROUP. That read happens on FIRST ACCESS rather than at import, so a verb missing it no longer crashes at COLD START but fails on whichever branch reads it. \"No verb calls Athena\" is not a reason to remove it — the union is what any code path in the layer may demand."
   type        = string
 }
 
@@ -91,11 +91,11 @@ variable "logs_queue_arn" {
 
 variable "logs_queue_url" {
   description = <<-EOT
-    SPEC-134: URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda.
+    URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda.
 
     Optional BY CONSTRUCTION on the Lambda side: cpcommon.observability reads it with
     os.environ.get and never config._require, so a verb deployed without it logs to stdout
-    rather than crashing a whole control plane at cold start (PR #196 — the exact break this
+    rather than crashing a whole control plane at cold start (the exact break this
     plane suffered when a shared layer's import-time _require went unmet).
   EOT
   type        = string

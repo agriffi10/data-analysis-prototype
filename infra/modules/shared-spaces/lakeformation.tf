@@ -6,10 +6,10 @@
 #
 # The LF data-lake-settings singleton (admins + IAMAllowedPrincipals removal) lives
 # in the analytics module and is already applied account-wide; the
-# orchestrator role is added to its admins list there (SPEC-056, root-wired). This
+# orchestrator role is added to its admins list there (root-wired). This
 # file only adds the per-bucket registration, which is independent of those settings.
 # Per-shared-DB LF grants + the DATA_LOCATION_ACCESS grant on this location are issued
-# by the orchestrator (now an LF admin) at create time (SPEC-051+).
+# by the orchestrator (now an LF admin) at create time.
 
 resource "aws_iam_role" "lf_registration" {
   name               = "${var.project_name}-${var.environment}-shared-space-lf-registration-role"

@@ -1,12 +1,12 @@
 # ── table-share module outputs ────────────────────────────────────
 # Exported for later wiring: the browser learns the queue URL to enqueue share
-# requests (sqs:SendMessage granted to the portal role in SPEC-089 →
+# requests (sqs:SendMessage granted to the portal role →
 # VITE_TABLE_SHARE_QUEUE_URL); the queue ARN scopes that grant; the state-machine
 # ARN is for ops/observability; the execution-role ARN feeds the SPEC-092 LF-admin
 # wiring (root passes a constructed twin — this output is for reference/ops).
 
 output "table_share_queue_url" {
-  description = "URL of the FIFO request queue (ends in .fifo). The browser enqueues share-table requests here (sqs:SendMessage, granted to the portal role in SPEC-089). Maps to VITE_TABLE_SHARE_QUEUE_URL."
+  description = "URL of the FIFO request queue (ends in .fifo). The browser enqueues share-table requests here (sqs:SendMessage, granted to the portal role). Maps to VITE_TABLE_SHARE_QUEUE_URL."
   value       = aws_sqs_queue.requests.url
 }
 

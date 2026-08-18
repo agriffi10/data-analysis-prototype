@@ -1,4 +1,4 @@
-# ── Constructed names + ARNs ──────────────────────────────────────
+# ── Constructed names + ARNs ──────────────────────────────────────────────────────────────────────
 # All resource names derive from {project_name}-{environment} so the deploy policy in
 # modules/base scopes to the same
 # {project}-*-archive-* patterns, and so cross-resource ARNs referenced inside IAM

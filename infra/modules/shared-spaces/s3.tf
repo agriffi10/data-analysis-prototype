@@ -6,7 +6,7 @@
 #
 # Is plumbing only — this bucket is created with NO access grants and NO
 # bucket policy. The membership-tag portal-role statements, the shared-results
-# delete-denies, and the Lake Formation hybrid registration all arrive in SPEC-056;
+# delete-denies, and the Lake Formation hybrid registration arrive with the access model;
 # the per-space provisioning (prefix marker, Glue DB) in SPEC-051+.
 
 # IAM propagation guard — same rationale as data/s3.tf and auth/lambda.tf. The
@@ -68,7 +68,7 @@ resource "aws_s3_bucket_versioning" "shared_space" {
   }
 }
 
-# Lifecycle — abort incomplete multipart uploads after 7 days (mirrors SPEC-016).
+# Lifecycle — abort incomplete multipart uploads after 7 days.
 # Shared-space uploads use the same managed lib-storage multipart path as the
 # user-space bucket; a browser killed mid-upload leaves billable, invisible parts.
 resource "aws_s3_bucket_lifecycle_configuration" "shared_space" {

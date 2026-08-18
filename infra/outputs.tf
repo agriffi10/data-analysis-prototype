@@ -91,7 +91,7 @@ output "shared_space_request_queue_url" {
 }
 
 output "shared_space_orchestrator_role_arn" {
-  description = "ARN of the privileged shared-space orchestrator role (Step Function + provisioner Lambda). Added as a Lake Formation admin in SPEC-056."
+  description = "ARN of the privileged shared-space orchestrator role (Step Function + provisioner Lambda). Added as a Lake Formation admin."
   value       = module.shared_spaces.orchestrator_role_arn
 }
 

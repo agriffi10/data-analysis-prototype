@@ -11,7 +11,7 @@
 # Role boundary: this PIPE role only needs states:StartExecution (+ SQS consume) —
 # it starts the execution but does NOT run it. The state machine then runs under the
 # ORCHESTRATOR role (stepfunction.tf role_arn), which is what holds lambda:InvokeFunction
-# and the Glue/LF/S3/Cognito grants used once SPEC-051+ fill in the action bodies.
+# and the Glue/LF/S3/Cognito grants the action bodies use.
 
 resource "aws_pipes_pipe" "requests" {
   name     = local.pipe_name

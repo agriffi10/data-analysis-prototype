@@ -1,4 +1,4 @@
-# ── Constructed names + ARNs ──────────────────────────────────────
+# ── Constructed names + ARNs ──────────────────────────────────────────────────────────────────────
 # All resource names derive from {project_name}-{environment} so the deploy policy
 # (the modules/base grant) scopes to the same {project}-*-data-quality-*
 # patterns, and so cross-resource ARNs referenced inside IAM policy templates are KNOWN

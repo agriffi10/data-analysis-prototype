@@ -312,7 +312,7 @@
     },
     "NotifyFailure": {
       "Type": "Task",
-      "Comment": "Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error (the shape of PR #196, where one missing env var crashed this very plane at cold start), a state timeout, a task that could not be invoked. This plane's verbs notify from INSIDE their handlers, so a verb that never ran notified nothing. The duplicate for the two verbs that DO emit their own failure message (create, delete) is collapsed by the FIFO dedup token, which the verb reproduces exactly — not by a Python guard, because the other five verbs emit no failure message at all and a guard would restore their silence. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
+      "Comment": "Emit the friendly failure notification for the failures NO VERB CAN CATCH — a cold-start import error (one missing env var once crashed this very plane at cold start), a state timeout, a task that could not be invoked. This plane's verbs notify from INSIDE their handlers, so a verb that never ran notified nothing. The duplicate for the two verbs that DO emit their own failure message (create, delete) is collapsed by the FIFO dedup token, which the verb reproduces exactly — not by a Python guard, because the other five verbs emit no failure message at all and a guard would restore their silence. Its Catch goes straight to Failed: a missed notification must never change the recorded outcome, and the execution has already failed.",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${notify_failure_function_arn}",

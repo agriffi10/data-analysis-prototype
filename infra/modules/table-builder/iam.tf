@@ -1,7 +1,7 @@
-# ── Control-plane IAM roles ──────────────────────────────────────────────────
+# ── Control-plane IAM roles ────────────────────────────────────────────────────────────────────────────
 # ONE shared execution role for every verb Lambda (user decision — reverses the
 # Per-verb roles, mirroring the shared-spaces single-orchestrator model in
-# SPEC-062), plus the Step Function role and the Pipe role. Trust + permission policies
+# every plane uses), plus the Step Function role and the Pipe role. Trust + permission policies
 # are .tftpl templates rendered with templatefile() (no inline jsonencode IAM, per
 # architecture.md Lambda code/infra split).
 #
@@ -12,7 +12,7 @@
 # for apply-refresh, the in-place rebuild — scoped to the SAME catalog +
 #     database/* + table/*/* as the other Glue actions, not wider)
 #
-# `glue:DeleteTable` WAS HERE AND IS DELETED (SPEC-149, replacing SPEC-144). The refresh no
+# `glue:DeleteTable` WAS HERE AND IS DELETED. The refresh no
 # longer drops and recreates the table; it replaces the definition in place, so NO verb on
 # this plane deletes a table any more. The old comment argued a drop was SAFE because these
 # tables are EXTERNAL — true, and now beside the point: the stronger statement is that the
@@ -67,7 +67,7 @@ resource "aws_iam_role_policy" "execution" {
 # A small inline policy on the shared portal role, attached BY NAME like
 # the notifications / shared-spaces modules do (the role is created in module.data;
 # the root module-level depends_on guarantees it exists first). No Lambda invoke, no
-# DLQ, no Step Function — just enqueue. The send helper that uses it lands in SPEC-071.
+# DLQ, no Step Function — just enqueue. The send helper that uses it lives in the browser.
 resource "aws_iam_role_policy" "portal_table_builder" {
   name = "table-build-enqueue"
   role = var.portal_role_name

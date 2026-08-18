@@ -1,4 +1,4 @@
-# ── Control-plane IAM roles ───────────────────────────────────────
+# ── Control-plane IAM roles ─────────────────────────────────────────────────────────────────
 # ONE shared execution role for all nine verb Lambdas (matching table-builder and
 # table-share), plus the Step Function role and the Pipe role. Trust + permission
 # policies are .tftpl templates rendered with templatefile() (no inline jsonencode IAM,

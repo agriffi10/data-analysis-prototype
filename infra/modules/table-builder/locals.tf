@@ -1,6 +1,6 @@
-# ── Constructed names + ARNs ──────────────────────────────────────
+# ── Constructed names + ARNs ──────────────────────────────────────────────────────────────────────
 # All resource names derive from {project_name}-{environment} so the deploy policy
-# (modules/base, the SPEC-066 PR1 grant) scopes to the same {project}-*-table-builder-*
+# (the modules/base grant) scopes to the same {project}-*-table-builder-*
 # patterns, and so cross-resource ARNs referenced inside IAM policy templates are
 # KNOWN AT PLAN TIME (constructed strings, not resource attributes) — the
 # architecture.md "unknown ARN in list" discipline. This module plans standalone.
@@ -14,8 +14,8 @@ locals {
   sfn_role_name       = "${var.project_name}-${var.environment}-table-builder-sfn-role"
 
   # ONE shared execution role for every verb Lambda (user decision — reverses the
-  # SPEC-066 per-verb roles, mirroring the shared-spaces single-orchestrator model in
-  # SPEC-062). Its permission policy is the UNION of the verbs' needs (execution.json.tftpl),
+  # per-verb roles, mirroring the shared-spaces single-orchestrator model in
+  # role. Its permission policy is the UNION of the verbs' needs (execution.json.tftpl),
   # and it is the table-builder Lake Formation admin (analytics data_lake_settings) so
   # check-table-absent + execute-ddl can Describe/CREATE in the DYNAMIC per-user +
   # per-shared-space target databases (they can't be statically LF-granted). ARN is a

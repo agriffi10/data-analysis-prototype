@@ -1,10 +1,10 @@
-# The structured-logging transport (SPEC-127 FR-002, converted to FIFO by SPEC-129).
+# The structured-logging transport, a FIFO queue.
 #
 # FIFO, like every other queue in this repo. It was STANDARD when it shipped, for a concrete
 # reason: log-foundry's SQSSink built its batch entries as {"Id", "MessageBody"} and nothing
 # else, and a FIFO queue REJECTS a SendMessageBatch that omits MessageGroupId — every batch
 # would have failed and the events would have been abandoned to stderr. log-foundry 0.5.0
-# (log-forge SPEC-016) added FIFO support, which removed that constraint.
+# added FIFO support, which removed that constraint.
 #
 # `.fifo` is not decoration: AWS requires a FIFO queue's name to end in it, and the name is a
 # ForceNew attribute — so this rename is a DESTROY-AND-CREATE. The deploy role was granted
