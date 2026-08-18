@@ -28,7 +28,7 @@ resource "aws_lambda_function" "sweep" {
   # the next one fires) and below the queue's 360s visibility timeout (so in-flight messages
   # cannot become visible to the next sweep and be written to S3 twice).
   timeout = 300
-  # 512 MB, not 256: SPEC-129 made each sweep read the day's whole object back before appending
+  # 512 MB, not 256: each sweep reads the day's whole object back before appending
   # to it (S3 has no append), so peak memory now tracks a day's log volume rather than one
   # batch. LARGE_OBJECT_WARN_BYTES in the handler warns long before this becomes the binding
   # limit.
@@ -80,7 +80,7 @@ resource "aws_lambda_function" "sweep" {
 # running when the next one fires — with 600s there is now twice the headroom there was at 5.
 resource "aws_cloudwatch_event_rule" "sweep" {
   name                = local.schedule_name
-  description         = "Fires the SPEC-127 structured-logging sweep every 10 minutes."
+  description         = "Fires the structured-logging sweep every 10 minutes."
   schedule_expression = "rate(10 minutes)"
 }
 

@@ -4,7 +4,7 @@
 # root, sqs.tf) ordering is preserved.
 #
 # FIRE_AND_FORGET, and REQUEST_RESPONSE is not merely unused — it is IMPOSSIBLE for a
-# Standard state machine (settled in SPEC-157). The Pipe calls StartExecution and
+# Standard state machine. The Pipe calls StartExecution and
 # returns immediately; the outcome reaches the user as a notification, never as a
 # response.
 #

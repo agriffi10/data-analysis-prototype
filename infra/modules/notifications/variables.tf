@@ -36,7 +36,7 @@ variable "user_space_bucket_name" {
 }
 
 variable "portal_role_name" {
-  description = "Name of the shared portal role (SPEC-011, created in module.data) this module attaches the sqs:SendMessage inline policy to, by name — mirrors how the analytics / shared-spaces modules attach their portal policies."
+  description = "Name of the shared portal role (created in module.data) this module attaches the sqs:SendMessage inline policy to, by name — mirrors how the analytics / shared-spaces modules attach their portal policies."
   type        = string
 }
 

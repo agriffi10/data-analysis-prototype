@@ -46,7 +46,7 @@ resource "aws_lambda_function" "functions" {
   # EVERY variable fscommon/config.py _require()s at import must be COMMON to all
   # verbs: the shared layer's fail-fast runs on any `from fscommon import …` chain, so
   # a verb missing ANY required var crashes at cold start (the table-builder
-  # production break, PR #196). The per-verb map (locals.tf) is reserved for OPTIONAL
+  # start. The per-verb map (locals.tf) is reserved for OPTIONAL
   # action env only.
   environment {
     variables = merge(

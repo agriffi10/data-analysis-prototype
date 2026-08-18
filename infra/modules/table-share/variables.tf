@@ -38,7 +38,7 @@ variable "dlq_max_receive_count" {
   default     = 3
 }
 
-# ── SPEC-089: request contract + validate-authorize ──────────────────────────
+# ── Request contract + validate-authorize ──────────────────────────
 
 variable "portal_role_name" {
   description = "Name of the shared portal role this module attaches the browser's sqs:SendMessage (table-share queue only) inline policy to, by name — mirrors the table-builder/notifications modules."
@@ -63,7 +63,7 @@ variable "admin_bucket_name" {
   default     = ""
 }
 
-# ── SPEC-090: source resolution + copy plan ───────────────────────────────────
+# ── Source resolution + copy plan ───────────────────────────────────
 
 variable "user_space_bucket_name" {
   description = "Name of the user-space bucket (Bucket 1). A personal source table's LOCATION resolves here; inspect-source lists it and the copy verbs read/write it. No bucket is created here."
@@ -77,7 +77,7 @@ variable "shared_space_bucket_name" {
   default     = ""
 }
 
-# ── SPEC-092: recipient table creation (create-table) ─────────────────────────
+# ── Recipient table creation (create-table) ─────────────────────────
 
 variable "athena_workgroup" {
   description = "Name of the shared analytics workgroup create-table runs the recipient CREATE EXTERNAL TABLE in — the same LF-enforced path the table-builder and app queries use. Scopes the execution role's athena:* grant and feeds the verbs' ATHENA_WORKGROUP env."
@@ -85,7 +85,7 @@ variable "athena_workgroup" {
   default     = ""
 }
 
-# ── SPEC-094: notification producer (sender + recipients) ─────────────────────
+# ── Notification producer (sender + recipients) ─────────────────────
 
 variable "logs_queue_arn" {
   description = "ARN of the structured-logging queue — scopes the execution role's sqs:SendMessage for log events."

@@ -40,7 +40,7 @@ resource "aws_iam_role_policy" "writer" {
 # messages (markRead/markAllRead). It gets no Lambda invoke, no DLQ, no writer-role
 # access, and cannot enqueue a `create` for another user (the writer ignores the body
 # username for user actions and derives it from the verified token; `create` is reserved
-# for trusted producers granted SendMessage separately — SPEC-061).
+# for trusted producers granted SendMessage separately).
 resource "aws_iam_role_policy" "portal_notifications" {
   name = "notifications-enqueue"
   role = var.portal_role_name

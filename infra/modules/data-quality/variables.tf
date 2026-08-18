@@ -53,10 +53,10 @@ variable "admin_bucket_name" {
   type        = string
 }
 
-# ── Cognito (env for every verb; used by cpcommon.auth from SPEC-109) ─────────
+# ── Cognito (env for every verb; used by cpcommon.auth) ─────────────────────
 
 variable "user_pool_id" {
-  description = "Cognito User Pool ID — env COGNITO_USER_POOL_ID (required by cpcommon.config). validate-authorize verifies caller ID tokens against the pool JWKS from SPEC-109."
+  description = "Cognito User Pool ID — env COGNITO_USER_POOL_ID (required by cpcommon.config). validate-authorize verifies caller ID tokens against the pool JWKS."
   type        = string
   default     = ""
 }
@@ -67,7 +67,7 @@ variable "app_client_id" {
   default     = ""
 }
 
-# ── Notifications (SPEC-114 producer; optional by design) ─────────────────────
+# ── Notifications ─────────────────────
 
 variable "notifications_queue_arn" {
   description = "ARN of the notifications FIFO queue — scopes the execution role's sqs:SendMessage when the producer lands. Constructed-string local from root; default \"\" keeps the module standalone-plannable."
@@ -87,7 +87,7 @@ variable "dlq_max_receive_count" {
   default     = 3
 }
 
-# ── SPEC-109: the browser's enqueue grant ────────────────────────────────────
+# ── The browser's enqueue grant ────────────────────────────────────
 
 variable "portal_role_name" {
   description = "Name of the shared portal role this module attaches the browser's sqs:SendMessage (data-quality queue ONLY) inline policy to, by name — mirrors the notifications/shared-spaces/table-builder/table-share modules."
@@ -99,14 +99,14 @@ variable "athena_workgroup" {
   type        = string
 }
 
-# ── SPEC-128: structured logging ─────────────────────────────────────────────
+# ── Structured logging ─────────────────────────────────────────────
 
 variable "logs_queue_arn" {
-  description = "ARN of the SPEC-127 logs queue. The execution role gains sqs:SendMessage on this and nothing else."
+  description = "ARN of the logs queue. The execution role gains sqs:SendMessage on this and nothing else."
   type        = string
 }
 
 variable "logs_queue_url" {
-  description = "URL of the SPEC-127 logs queue, set as LOGS_QUEUE_URL on all nine verbs. Optional by construction (cpcommon.observability reads it with os.environ.get), so a function that somehow misses it logs to stdout rather than crashing at cold start."
+  description = "URL of the logs queue, set as LOGS_QUEUE_URL on all nine verbs. Optional by construction (cpcommon.observability reads it with os.environ.get), so a function that somehow misses it logs to stdout rather than crashing at cold start."
   type        = string
 }

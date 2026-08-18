@@ -38,7 +38,7 @@ resource "aws_lakeformation_resource" "shared_space" {
 }
 
 # DATA_LOCATION_ACCESS for the shared portal role on the registered shared location
-# (SPEC-051) — a single location-level grant (mirrors analytics' user-space grant)
+# — a single location-level grant (mirrors analytics' user-space grant)
 # so members can CREATE tables / CTAS over dat-prod-shared-space. Per-space isolation
 # is still IAM (the membership-tag Glue DB + S3 prefix scoping), not this
 # grant; the per-DB LF grant is issued by the provisioner at create time. Granted by

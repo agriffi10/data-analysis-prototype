@@ -18,7 +18,7 @@
 # there is no self-grant race for this apply (the two-PR split is exactly what removes
 # the need for the in-module propagation pause the shared-spaces module carries).
 
-# THIS DLQ IS DELIBERATELY UNDRAINED, AND IT IS THE ONE HOLE SPEC-126 CANNOT CLOSE.
+# THIS DLQ IS DELIBERATELY UNDRAINED, AND IT IS THE ONE HOLE THE DRAIN CANNOT CLOSE.
 #
 # Every OTHER control plane's request DLQ is drained back into a user notification
 # (modules/control-plane-dlq-drain): a request that never started still reaches the person
@@ -28,7 +28,7 @@
 # construction; a drain here would fail exactly when it was needed.
 #
 # What is actually needed here is an OPERATOR-facing signal, which is a different mechanism
-# from the user-facing one SPEC-126 built, and out of its scope. Until that exists, a message
+# from the user-facing one the drain sends, and out of its scope. Until that exists, a message
 # in this queue is visible only to someone who looks. The 14-day retention is what buys that
 # someone the time to look.
 resource "aws_sqs_queue" "requests_dlq" {

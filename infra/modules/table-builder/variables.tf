@@ -59,7 +59,7 @@ variable "dlq_max_receive_count" {
   default     = 3
 }
 
-# ── SPEC-067: request contract + validate-authorize ──────────────────────────
+# ── Request contract + validate-authorize ──────────────────────────
 
 variable "portal_role_name" {
   description = "Name of the shared portal role this module attaches the browser's sqs:SendMessage (table-build queue only) inline policy to, by name — mirrors the notifications/shared-spaces modules."
@@ -78,7 +78,7 @@ variable "app_client_id" {
   default     = ""
 }
 
-# ── SPEC-072: outcome notifications (trusted producer of the SPEC-058 inbox) ──
+# ── Outcome notifications (trusted producer of the SPEC-058 inbox) ──
 
 variable "logs_queue_arn" {
   description = "ARN of the structured-logging queue — scopes the execution role's sqs:SendMessage for log events."

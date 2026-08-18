@@ -1,4 +1,4 @@
-# ── Notifications-writer Lambda + trigger (SPEC-058 FR-001/FR-004/FR-005) ─────
+# ── Notifications-writer Lambda and its trigger ───────────────────────────
 # The single writer of every user's notifications.json. The request queue triggers it
 # directly via an SQS event-source mapping (batch size 1 → one message = one
 # invocation). The handler is an action-switch read-modify-write; for user-originated
@@ -21,7 +21,7 @@ data "archive_file" "writer_placeholder" {
 }
 
 # Explicit log group so retention is managed (Lambda would otherwise create one with
-# infinite retention on first invoke). 14-day retention (matches SPEC-012/033).
+# infinite retention on first invoke). 14-day retention (matches the other singleton Lambdas).
 resource "aws_cloudwatch_log_group" "writer" {
   name              = local.lambda_log_group_name
   retention_in_days = 14

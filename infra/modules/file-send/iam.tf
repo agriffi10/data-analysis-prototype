@@ -1,13 +1,13 @@
 # ── Control-plane IAM roles ───────────────────────────────────────
 # ONE shared execution role for every verb Lambda (the consolidated model every plane
-# has used since SPEC-062), plus the Step Function role and the Pipe role. Trust +
+# uses), plus the Step Function role and the Pipe role. Trust +
 # permission policies are .tftpl templates rendered with templatefile() (no inline
 # jsonencode IAM, per architecture.md).
 #
 # The execution policy grants exactly what the shipped verbs need and nothing this arc
 # does not yet provision: the registry read that authorizes a shared source, the Cognito
 # check that resolves a `user` recipient, the notifications queue, the logs queue, its
-# own log group, and — since SPEC-165 — the source listing/read plus the copy plan write.
+# own log group, the source listing and read, and the copy plan write.
 #
 # THE SOURCE GRANTS ARE BUCKET-WIDE, AND THE ISOLATION IS NOT IN THEM. A per-user
 # condition is not expressible here: the sender is a runtime value from a verified token,
@@ -101,7 +101,7 @@ resource "aws_iam_role_policy" "sfn" {
   role = aws_iam_role.sfn.id
 
   # InvokeFunction on the verbs + log delivery, plus the Distributed Map's
-  # own permissions — which belong HERE and not on the execution role (SPEC-160
+  # own permissions — which belong HERE and not on the execution role (
   # FR-006): the state machine is what calls StartExecution for each child and what
   # reads the ItemReader object / writes the ResultWriter export. Putting them on the
   # Lambda role renders, applies and unit-tests green, then fails on the first real

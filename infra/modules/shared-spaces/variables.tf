@@ -56,7 +56,7 @@ variable "user_space_bucket_name" {
   type        = string
 }
 
-# ── SPEC-056 access model ────────────────────────────────────────────────────
+# ── Access model ────────────────────────────────────────────────────
 
 variable "max_shared_memberships" {
   description = "Number of membership slots — drives the portal-role policy's ten templated S3/Glue statements scoped to the shared_space_k principal tag. Single source is the root variable of the same name."
@@ -81,7 +81,7 @@ variable "app_client_id" {
   default     = ""
 }
 
-# ── SPEC-061: notifications producer (the first trusted producer) ─────────────
+# ── Notifications producer (the first trusted producer) ─────────────
 
 variable "logs_queue_arn" {
   description = "ARN of the structured-logging queue — scopes the orchestrator role's sqs:SendMessage for log events. Empty = the grant resolves to nothing and events fall back to stdout."

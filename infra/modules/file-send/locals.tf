@@ -1,6 +1,6 @@
 # ── Constructed names + ARNs ──────────────────────────────────────
 # All resource names derive from {project_name}-{environment} so the deploy policy
-# (modules/base, the SPEC-164 PR1 grant) scopes to the same {project}-*-file-send-*
+# (the modules/base grant) scopes to the same {project}-*-file-send-*
 # patterns, and so cross-resource ARNs referenced inside IAM policy templates are
 # KNOWN AT PLAN TIME (constructed strings, not resource attributes) — the
 # architecture.md "unknown ARN in list" discipline. This module plans standalone.
@@ -21,10 +21,10 @@ locals {
   sfn_role_name       = "${var.project_name}-${var.environment}-file-send-sfn-role"
 
   # ONE shared execution role for every verb Lambda, matching every plane since
-  # SPEC-062 consolidated the per-verb roles away. Its permission policy
+  # Every plane uses one role rather than one per verb. Its permission policy
   # (execution.json.tftpl) grows with the arc: logs + notifications + the registry
   # read and Cognito check validate-authorize needs (164); the source listing lands
-  # with SPEC-165 and the destination writes with SPEC-166.
+  # and the destination writes.
   #
   # NO execution_role_arn LOCAL HERE. Root constructs its own twin for the user-space
   # bucket-policy allowlist (FR-006), and a second construction of the same string in
@@ -37,7 +37,7 @@ locals {
   # "file-send-<suffix>"); value = the handler + the task's real timeout/memory need
   # (a small validator is not a long parallel S3 copy — lambdas.md §4).
   #
-  # SEVEN VERBS: The front door, the source resolution, and SPEC-166's
+  # SEVEN VERBS: The front door, the source resolution, and the transfer's
   # guard, manifest, batch copy and attribution. Only the copy runs inside the
   # Distributed Map; the guard runs per recipient in an inline Map, and the other four
   # once per request.
@@ -84,7 +84,7 @@ locals {
     # VERSION. It is table-share's shipped sizing for the identical pair of verbs at a
     # 20,000-item cap. This plane has no transfer-item cap yet — the manifest is
     # (recipients x objects), so today's caps permit 50 x 20,000 = 1M items, which this
-    # memory does NOT hold. SPEC-166 PR2 adds SEND_MAX_TRANSFER_ITEMS with a test that
+    # memory does NOT hold. SEND_MAX_TRANSFER_ITEMS carries a test that
     # READS THIS ROW and computes the cap against it, the way
     # test_the_worst_case_copy_plan_fits_in_the_verbs_memory already reads
     # inspect-source's. Until then the bound is prose, which is what the cap is for.
@@ -107,7 +107,7 @@ locals {
     # the notification of last resort: one decode + one SQS send, reached only
     # on a whole-request failure path.
     #
-    # SPEC-166 raised it 15s -> 60s, WITH the second door that made 15s wrong. The
+    # 60s rather than 15s, because of the second door that made 15s wrong. The
     # EventBridge TIMED_OUT rule (stepfunction.tf) invokes this same function with an
     # event of a different shape, and that path does strictly more work than the ASL
     # one: a cold-start JWKS fetch over the network plus a JWT verify before the send,
@@ -121,7 +121,7 @@ locals {
   # action env only: everything fscommon/config.py _require()s must live in the COMMON
   # env instead — the shared layer's import-time fail-fast runs for every verb, so a
   # verb missing any required var crashes at COLD START, where no test and no deploy
-  # can see it (the table-builder production break, PR #196).
+  # can see it.
   file_send_verb_env = {}
 
   # ARNs for the execution role's grants (constructed, known at plan).
@@ -177,7 +177,7 @@ locals {
   guard_map_max_concurrency = 5
 
   # A TOP-LEVEL ASL field, not a resource argument and not a task field
-  # (SPEC-157 settled that distinction for the table-builder). Without it a Standard
+  # — the same distinction the table-builder's lock settled. Without it a Standard
   # workflow's ceiling is Step Functions' own default of ONE YEAR, so a wedged run
   # simply never ends — and this is the first version of this machine that can wedge,
   # because it is the first with a Map, a manifest and a copy in it.
@@ -211,7 +211,7 @@ locals {
   # role: it is the state machine that calls StartExecution for each child and that
   # reads the ItemReader object and writes the ResultWriter export. Granting these to
   # the Lambda execution role renders, applies and unit-tests green, then fails on the
-  # first real send with AccessDenied at the ItemReader — SPEC-160 FR-006's finding,
+  # first real send with AccessDenied at the ItemReader,
   # inherited here rather than rediscovered.
   child_execution_arn_wildcard = "arn:aws:states:${var.aws_region}:${var.account_id}:execution:${local.state_machine_name}:*"
 

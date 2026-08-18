@@ -20,7 +20,7 @@
 # than silence.
 #
 # No time_sleep guard here: the deploy-role grants these resource types need were
-# applied in the SPEC-164 PR1 (modules/base deploy-file-send policy) BEFORE this
+# applied in modules/base (deploy-file-send policy) BEFORE this
 # module's resources land (the deploy-perms-before-resources rule), so there is no
 # self-grant propagation race to wait out.
 

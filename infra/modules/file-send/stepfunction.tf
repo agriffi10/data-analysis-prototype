@@ -1,4 +1,4 @@
-# ── File-send Step Function (SPEC-164 FR-001, completed by SPEC-166) ─────────
+# ── File-send Step Function ────────────────────────────────────────────────
 # Standard state machine — validate-authorize and inspect-source once per request,
 # then the guard Map, the top-level Distributed-Map transfer, the collector and the
 # per-recipient summary. The whole-request failure path (a seed → RecordFailure →
@@ -7,13 +7,13 @@
 # The state machine runs under its OWN role (iam.tf, sfn-permissions: InvokeFunction
 # on the verbs + log delivery); the verb Lambdas run under the ONE shared execution
 # role. Standard (over Express) keeps per-execution history for debugging and allows
-# the long per-recipient copies SPEC-166 adds — and Express is doubly rejected here,
+# the long per-recipient copies — and Express is doubly rejected here,
 # since a Pipe cannot use REQUEST_RESPONSE against a Standard machine and
 # this plane's outcome is a notification, not a response.
 #
-# THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY. SPEC-165
+# THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY. Source resolution alone
 # recorded that this machine could not wedge for hours because nothing in it WAITED: no
-# Map, no poll loop, no copy. SPEC-166 adds all three, so it adds the timeout — and with
+# Map, no poll loop, no copy. The transfer adds all three, so it adds the timeout — and with
 # it the EventBridge rule below and the deploy-role events: grant that manages that
 # rule, because a timeout that cannot notify is a failure path satisfied on paper and silent
 # in practice. The arithmetic behind the number is in locals.tf, where a test computes
@@ -60,7 +60,7 @@ resource "aws_sfn_state_machine" "file_send" {
   ]
 }
 
-# ── SPEC-166 FR-005: the timed-out run's only route to a notification ─────────
+# ── The timed-out run's only route to a notification ─────────
 # A top-level TimeoutSeconds expiry terminates the execution OUTRIGHT. Step Functions catchers
 # cover Task, Parallel and Map states but NOT top-level execution failures, so the machine's own
 # RecordFailure -> NotifyFailure path is unreachable on this one failure and the sender would be

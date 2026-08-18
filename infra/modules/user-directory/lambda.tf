@@ -83,7 +83,7 @@ resource "aws_lambda_function" "build" {
 # reconciles and a missed run costs staleness, never correctness. A user provisioned just
 # after a run is absent from the suggestions for up to a day; they can still be added by
 # typing the name, because every consumer accepts a name that is not in the list
-# (SPEC-147 FR-005). That bound is the whole reason a daily schedule is sufficient.
+#. That bound is the whole reason a daily schedule is sufficient.
 resource "aws_cloudwatch_event_rule" "schedule" {
   name                = "${local.function_name}-schedule"
   description         = "Rebuild the username directory from the user-space bucket's workspace prefixes, once a day."

@@ -67,13 +67,13 @@ variable "admin_bucket_name" {
 }
 
 variable "user_space_bucket_name" {
-  description = "Name of the user-space bucket (Bucket 1). A personal source resolves here, and a `user` recipient's inbox is written here by SPEC-166. Set as USER_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage. No bucket is created by this module."
+  description = "Name of the user-space bucket (Bucket 1). A personal source resolves here, and a `user` recipient's inbox is written here. Set as USER_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage. No bucket is created by this module."
   type        = string
   default     = ""
 }
 
 variable "shared_space_bucket_name" {
-  description = "Name of the shared-space bucket (Bucket 2). A shared source resolves here, and a `space` recipient's inbox is written here by SPEC-166. Set as SHARED_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage. No bucket is created by this module."
+  description = "Name of the shared-space bucket (Bucket 2). A shared source resolves here, and a `space` recipient's inbox is written here. Set as SHARED_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage. No bucket is created by this module."
   type        = string
   default     = ""
 }
