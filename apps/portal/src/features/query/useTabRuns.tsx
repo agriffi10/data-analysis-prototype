@@ -10,7 +10,7 @@ import type {ParsedStatement, QueryTab, ResultTab, RunScope} from './query.types
 import type {QueryStatus} from '../catalog/catalog.types';
 
 // Per-tab in-memory run state (not persisted — results re-fetch on a
-// fresh Run). SPEC-078 extends it to a sequential batch: the statements in
+// fresh Run). A run is a sequential batch: the statements in
 // scope, the in-flight statement's execution, and the result tabs accumulated
 // as result-producing statements succeed. `submittedSql` is the CURRENT
 // statement's text, kept so the background finalizer can decide whether a
@@ -125,7 +125,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
       const ddlDb = status.state === 'SUCCEEDED' ? schemaChangingDatabase(sql) : null;
       if (ddlDb) void invalidateSchema(queryClient, ddlDb);
 
-      // ── SPEC-078: batch bookkeeping + advancement ─────────────────────────
+      // ── Batch bookkeeping and advancement ────────────────────────────────
       const run = runsRef.current[tabId];
       // Stale finalize (tab closed, or a new run replaced this one) — history
       // above is still recorded; there is no batch to advance.
@@ -256,7 +256,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     submittingTabsRef.current.add(tabId);
 
     // a run from a tab linked to a saved query records that query in
-    // history. Read off the TAB at submit time — SPEC-173 put the whole link there, so
+    // history. Read off the TAB at submit time — the whole link lives there, so
     // there is no list to look the query up in.
     const linkedSaved = tabs.find((t) => t.id === tabId)?.savedQuery;
 

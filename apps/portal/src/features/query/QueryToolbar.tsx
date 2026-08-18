@@ -28,8 +28,8 @@ type Props = {
 };
 
 /**
- * The editor toolbar: the SPEC-079 layout preset on the left, then Clear, Save
- * and Create view, and the SPEC-078 run split button — which is replaced by a
+ * The editor toolbar: the layout preset on the left, then Clear, Save
+ * and Create view, and the run split button — which is replaced by a
  * single Stop while a batch is in flight.
  */
 export function QueryToolbar({

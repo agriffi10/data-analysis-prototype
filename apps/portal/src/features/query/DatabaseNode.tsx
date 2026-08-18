@@ -30,7 +30,7 @@ function Chevron({open, className}: {open: boolean; className?: string}) {
   );
 }
 
-// Each object row: expand to reveal its columns (inspection only — SPEC-077
+// Each object row: expand to reveal its columns (inspection only — the rail is browse-only
 // drops click-to-insert) and a per-row (view-aware) actions menu. The "View"
 // badge is dropped inside the Views group (membership conveys the type).
 function TableRow({
@@ -277,7 +277,7 @@ export function DatabaseNode({
         </p>
       );
     } else if (isError) {
-      // getDatabase NotFound = the per-user DB isn't provisioned yet (SPEC-033
+      // getDatabase NotFound = the per-user DB isn't provisioned yet (the post-confirmation Lambda creates it
       // backfill window) — present it as "setting up", not an error.
       const message = (error as Error)?.message ?? '';
       body = /does not exist/i.test(message) ? (
@@ -338,7 +338,7 @@ export function DatabaseNode({
           <span className="min-w-0 truncate">{connection.label}</span>
         </button>
         {/* per-node refresh — only on an expanded (loaded) node; re-reads
-            just this database's tables/views, never toggling expansion. SPEC-155 FR-006:
+            just this database's tables/views, never toggling expansion:
             it shares the app's one refresh glyph now, where it used to draw its own
             two-path variant — a deliberate (small) visual change. */}
         {expanded && (

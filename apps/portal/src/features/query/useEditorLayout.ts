@@ -62,7 +62,7 @@ export function clampEditorHeight(preset: EditorLayoutPreset, containerHeight: n
 }
 
 /**
- * Owns the SPEC-079 editor/results layout preset: the selection (per-user
+ * Owns the editor/results layout preset: the selection (per-user
  * sessionStorage persistence, degrade-safe, default `even`) and the editor
  * pane's derived pixel height within `containerHeight` (the measured
  * editor+results column). The caller applies `editorHeight` to the editor

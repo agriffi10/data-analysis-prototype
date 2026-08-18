@@ -98,7 +98,7 @@ type SqlEditorProps = {
   onRunScriptTabs?: () => void;
   /**
    * The accessible databases' schemas feeding the schema-aware completion
-   * provider (SPEC-077 — fully-qualified `database.table` suggestions across
+   * provider — fully-qualified `database.table` suggestions across
    * every accessible database). Undefined/empty while no schema is loaded —
    * completions then fall back to Monaco's built-in keywords only.
    */

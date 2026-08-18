@@ -49,7 +49,7 @@ export function isSchemaChangingSql(sql: string): boolean {
   // backtracking. Each optional group is anchored by a literal (`or`, `replace`,
   // `external`), so a failing alternative is rejected in O(1) and there is no ambiguous
   // split to explore. Measured linear: 200k chars of whitespace, or of repeated `or `,
-  // matches in <0.3ms. The input IS user-typed SQL (SPEC-035 editor), so this was
+  // matches in <0.3ms. The input IS user-typed SQL, so this was
   // verified rather than argued.
   // eslint-disable-next-line security/detect-unsafe-regex
   return /^(create|drop|alter)\s+(or\s+replace\s+)?(external\s+|temporary\s+)?(table|view)\b/i.test(
@@ -73,7 +73,7 @@ const DDL_QUALIFIED_TARGET = /\b(?:table|view)\s+(?:if\s+(?:not\s+)?exists\s+)?(
 
 /**
  * The database a schema-changing statement targets, taken from its
- * fully-qualified `database.object` (SPEC-077 — there's no active database to
+ * fully-qualified `database.object` — there's no active database to
  * assume). Returns null when the statement isn't schema-changing or its target
  * isn't database-qualified. Used to refresh the right database's schema after a
  * user-typed DDL run succeeds.
@@ -110,7 +110,7 @@ export function deriveViewTargetDatabase(body: string): ViewTarget {
   };
 }
 
-// ── SPEC-078: multi-statement support ─────────────────────────────────────
+// ── Multi-statement support ──────────────────────────────────────────────
 
 // Advances past a quoted region starting at `i` (buffer[i] is the opening
 // quote) and returns the index just after the closing quote. Doubled quotes
@@ -169,7 +169,7 @@ function hasSqlContent(segment: string): boolean {
 }
 
 /**
- * Parses an editor buffer into its individual SQL statements (SPEC-078
+ * Parses an editor buffer into its individual SQL statements (
  * FR-001). A semicolon terminates a statement only outside single-/double-
  * quoted strings, backtick identifiers, and line/block comments; empty
  * (whitespace/comment-only) segments are dropped. Each statement's `range`
@@ -246,7 +246,7 @@ export function resolveRunStatements(
 /**
  * True for a statement that returns a result set worth a grid — SELECT/WITH/
  * SHOW/DESCRIBE/VALUES/EXPLAIN. DDL/DML (CREATE/INSERT/DROP/…) are false: their
- * outcome lives in history + the status bar, never a result tab (SPEC-078
+ * outcome lives in history + the status bar, never a result tab (
  * FR-007). Leading comments/whitespace are skipped.
  */
 export function isResultProducingSql(sql: string): boolean {

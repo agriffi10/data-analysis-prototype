@@ -9,7 +9,7 @@ const ROW_NUMBER_COLUMN_WIDTH = 56; // px (matches the old w-14)
 type QueryResultsTableProps = {
   columns: QueryColumn[];
   // Current page only (≤ page size). A null cell is SQL NULL and renders blank here —
-  // this surface makes nothing of the distinction (SPEC-180 does, in the Data Explorer).
+  // this surface makes nothing of the distinction (the Data Explorer's grid does).
   rows: (string | null)[][];
   pageIndex: number; // 0-based
   rangeStart: number; // 1-based row number of the first row on this page
@@ -30,7 +30,7 @@ type QueryResultsTableProps = {
 
 // Results table reusing the file-table visual
 // language (surface, border, rounded-lg, surface-2 uppercase header, monospace
-// rows, hover). SPEC-064: columns are user-resizable — a <colgroup> of explicit
+// rows, hover). Columns are user-resizable — a <colgroup> of explicit
 // widths drives table-layout:fixed, each data-column header carries a drag/keyboard
 // resize handle, cells/headers truncate with an ellipsis (full text on hover via
 // `title`), and the body scrolls horizontally for wide (20+ column) results.

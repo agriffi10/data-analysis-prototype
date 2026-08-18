@@ -33,7 +33,7 @@ type Params = {
 };
 
 /**
- * The SPEC-044 per-table rail actions — View source files, View DDL, View data,
+ * The per-table rail actions — View source files, View DDL, View data,
  * Refresh, Share, Drop — plus the mobile nav-rail registration that has to be
  * fed the same handlers.
  *

@@ -30,14 +30,14 @@ export function NotificationRow({notification, onMarkRead}: NotificationRowProps
   // one that does not. Notifications themselves are never gated: the record of what happened
   // outlives the surface that would show it.
   //
-  // SPEC-167 generalised this from one hard-coded prefix to a map, because a second producer
+  // A map rather than one hard-coded prefix, because a second producer
   // arrived and the single-prefix form silently did nothing for it. A file-send notification
   // deep-links into `/files`, and with `files` off that route swaps its element — so the link was
   // a live anchor into the unavailable page. The space-owner variant is worse than a dead end:
   // with `sharedWorkspaces` off the route does not READ `?space=`, resolves the personal space,
   // and then discards a prefix that does not start with it — landing the owner in their own
   // files with no banner, while the message says where to look. That is the "link that silently
-  // lands someone at their space root" SPEC-167 FR-005 exists to prevent.
+  // lands someone at their space root" this rule exists to prevent.
   const flags = {
     files: useFeature('files'),
     dataQuality: useFeature('dataQuality'),

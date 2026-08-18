@@ -15,7 +15,7 @@ export type QueryHistoryEntry = {
   status?: QueryState;
   dataScannedBytes?: number;
   durationMs?: number;
-  /** Set when the run originated from a tab linked to a saved query (SPEC-173: the
+  /** Set when the run originated from a tab linked to a saved query (the
    * file's KEY, which is its identity, replacing the retired store's id). Recorded but
    * never rendered — `savedQueryName` is what the history row shows. */
   savedQueryKey?: string;
@@ -70,7 +70,7 @@ export type QueryTab = {
   label: string;
   /** This tab's editor text (the persisted, durable field). */
   sql: string;
-  /** Set when opened from a saved query (SPEC-173, replaces `savedQueryId`). */
+  /** Set when opened from a saved query (replaces `savedQueryId`). */
   savedQuery?: SavedQueryLink;
 };
 

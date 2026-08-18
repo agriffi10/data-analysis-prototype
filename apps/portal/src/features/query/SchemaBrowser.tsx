@@ -48,7 +48,7 @@ function UnusableNode({connection}: {connection: Connection}) {
  * on-page inside `CollapsibleRail` (≥ tablet) and inside the mobile
  * `AppNavDrawer` contextual slot — one source, no forked
  * logic. Each accessible database is a collapsible node that, when expanded,
- * loads and groups its own Tables and Views (SPEC-077: browse-only).
+ * loads and groups its own Tables and Views (browse-only).
  *
  * @example
  * <SchemaTree connections={connections} actions={tableActions} />
@@ -84,7 +84,7 @@ export function SchemaTree({connections = [], actions}: {connections?: Connectio
 }
 
 /**
- * The schema rail (SPEC-077: browse-only) — `SchemaTree` in the shared rail
+ * The schema rail (browse-only) — `SchemaTree` in the shared rail
  * chrome. There is no active-database selection; queries fully-qualify their own
  * tables. Loading / empty / "setting up" / error states render per node. The
  * panel narrows to 220px in the tablet band and is hidden below

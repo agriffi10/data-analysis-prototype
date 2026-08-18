@@ -66,7 +66,7 @@ export function QueryDialogs({clear, save, closing, tabLimit, createView, drop, 
       )}
       {/* the collision is a HEAD on the exact key, so the confirm is
           raised by the WRITE's failure rather than by a scan of the loaded list. It names
-          the SPACE as well as the query — SPEC-175 made the destination a choice, so
+          the SPACE as well as the query — the destination is a choice, so
           "already exists" without a where is half an answer. */}
       {save.collision && (
         <ConfirmDialog

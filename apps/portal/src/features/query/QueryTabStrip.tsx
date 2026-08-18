@@ -6,11 +6,11 @@ import type {QueryTab} from './query.types';
 type Props = {
   tabs: QueryTab[];
   activeTabId: string;
-  dirtyTabIds: Set<string>; // SPEC-043: linked tabs whose SQL differs from the saved query
+  dirtyTabIds: Set<string>; // Linked tabs whose SQL differs from the saved query
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onNew: () => void;
-  onOpenSaved: () => void; // SPEC-043 FR-010: global (all-tabs) workspace buttons
+  onOpenSaved: () => void; // Global (all-tabs) workspace buttons
   onOpenHistory: () => void;
 };
 

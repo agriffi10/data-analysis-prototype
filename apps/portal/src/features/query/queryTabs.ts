@@ -38,7 +38,7 @@ export function initialTabsState(): QueryTabsState {
   };
 }
 
-// A tab's saved-query link, or nothing. SPEC-173 kept `version: 1` deliberately: a
+// A tab's saved-query link, or nothing. `version: 1` is kept deliberately: a
 // state persisted by an older build carries `savedQueryId`, which this reader simply
 // does not look at — the tabs and their SQL survive a reload, and only the link is
 // lost. Bumping the version would have thrown the user's open buffers away to

@@ -25,7 +25,7 @@ const VIEW_TABLE_TYPE = 'VIRTUAL_VIEW';
  * Builds schema completion descriptors across every accessible database
  *. Tables/views are suggested **fully-qualified**
  * (`database.table`) since there is no active-database context; columns keep
- * their SPEC-065 form — bare name, de-duplicated across all databases, with
+ * their short form — bare name, de-duplicated across all databases, with
  * type + owning table as detail. Returns [] when there is no schema.
  */
 export function buildSqlCompletions(schemas: DatabaseSchema[] | undefined): SqlCompletion[] {

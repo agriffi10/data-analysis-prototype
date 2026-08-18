@@ -45,7 +45,7 @@ type Props = {
 
 /**
  * Everything below the editor pane: the status bar, the failure banner, and the
- * results region — the SPEC-078 result-tab strip, the SPEC-087 page-size control,
+ * results region — the result-tab strip, the page-size control,
  * and either the grid or the empty state that explains why there is none.
  */
 export function QueryResultsRegion({
