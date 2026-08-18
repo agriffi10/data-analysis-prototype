@@ -57,7 +57,8 @@ export const OPTIONAL_ENV = [
   'VITE_TABLE_BUILD_QUEUE_URL',
   'VITE_TABLE_SHARE_QUEUE_URL',
   'VITE_DATA_QUALITY_QUEUE_URL',
-  'VITE_FILE_SEND_QUEUE_URL'
+  'VITE_FILE_SEND_QUEUE_URL',
+  'VITE_ARCHIVE_QUEUE_URL'
 ] as const;
 
 export type RequiredEnvVar = (typeof REQUIRED_ENV)[number];
@@ -111,7 +112,8 @@ function readEnv(): Record<PortalEnvVar, string | undefined> {
     VITE_TABLE_BUILD_QUEUE_URL: import.meta.env.VITE_TABLE_BUILD_QUEUE_URL as string | undefined,
     VITE_TABLE_SHARE_QUEUE_URL: import.meta.env.VITE_TABLE_SHARE_QUEUE_URL as string | undefined,
     VITE_DATA_QUALITY_QUEUE_URL: import.meta.env.VITE_DATA_QUALITY_QUEUE_URL as string | undefined,
-    VITE_FILE_SEND_QUEUE_URL: import.meta.env.VITE_FILE_SEND_QUEUE_URL as string | undefined
+    VITE_FILE_SEND_QUEUE_URL: import.meta.env.VITE_FILE_SEND_QUEUE_URL as string | undefined,
+    VITE_ARCHIVE_QUEUE_URL: import.meta.env.VITE_ARCHIVE_QUEUE_URL as string | undefined
   };
 }
 
