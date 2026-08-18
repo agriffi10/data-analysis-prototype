@@ -1828,12 +1828,26 @@ Three facts fence that off, each confirmed against the live AWS docs:
   `AWSIAMIdentityCenterAllowListForIdentityContext` policy permits only the three S3 Access Grants
   operations, which is why plain `GetObject` is denied on that plane.
 
-**One thing that page leaves unresolved, and it reaches our own Path B.** The same source says queries
-in a TIP workgroup *"cannot be run directly from the Athena console"* and names EMR Studio and
-SageMaker Unified Studio as the Athena SQL interfaces for TIP. Whether a direct `StartQueryExecution`
-from our own identity-enhanced credentials is supported is therefore **not settled by the docs** —
-settle it before committing to shape (b), and note that `transition_plan.md` §3.5's whole flow rests
-on the same assumption.
+**And the same page reaches our own Path B — harder than "unresolved" (re-read against the live doc,
+2026-08-18).** It was tempting to record this as something the documentation simply does not address.
+It is worse than that. The considerations list names *"Federated access to the Athena API"* among the
+features trusted identity propagation is **not compatible with**, and says queries in a TIP workgroup
+*"cannot be run directly from the Athena console. They must be run from the Athena interface in an
+EMR Studio that has IAM Identity Center enabled."* Athena SQL support for TIP is stated to be
+available *"in both EMR Studio and SageMaker Unified Studio"* — both studio products.
+
+Calling the Athena API with federated, identity-enhanced credentials from our own code is precisely
+what that incompatibility names. So the default assumption must be **unsupported**, not unverified:
+`transition_plan.md` §3.5's step 3 — and with it the whole catalog-plane design — rests on a shape AWS
+documents as out of scope, and a spike (gate G7) is how you would *challenge* that reading, not
+confirm it. If G7 fails, Phase 5 needs a different query surface.
+
+Four more constraints from the same list, each of which bites this design independently of G7:
+**IdC-enabled workgroups cannot be modified to support resource-level IAM permissions or identity-based
+IAM policies** (this portal's entire isolation model is identity-based policy); a workgroup's
+**authentication method is fixed at creation** and an existing workgroup cannot be converted;
+**entitlement changes take up to an hour**, which floors the reconciler's lag no matter how often it
+runs; and queries **time out at 30 minutes, one hour maximum** in a TIP workgroup.
 
 ### Was open — all four settled 2026-08-18, when the specs were written
 

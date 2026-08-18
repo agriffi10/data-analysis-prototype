@@ -2,9 +2,10 @@
 
 **Status:** Single source of truth for the client transition. Living document; update it in place
 rather than writing a competing one.
-**Last updated:** 2026-08-18 (§3.5 gains the unverified step-3 caveat and gate G7 — the Athena
-docs do not confirm that a plain `StartQueryExecution` on an identity-enhanced session is supported;
-§5.5, Phase 0 and §8 updated with it). Previously 2026-08-03 (reconciled against the folded `architecture.md` — control-plane
+**Last updated:** 2026-08-18 (§3.5 gains the step-3 caveat and gate G7 — the Athena docs list
+*federated access to the Athena API* among the features trusted identity propagation is **not
+compatible with**, so the flow's third step is documented as out of scope rather than merely
+unverified; §5.5, Phase 0 and §8 updated with it). Previously 2026-08-03 (reconciled against the folded `architecture.md` — control-plane
 records now live there; SPEC-140/141 header and caching facts updated in §4.6, §6.3, §9)
 **Strategy revision (2026-08-01):** the client environment is itself moving to a **successor
 account** this year. The portal will be **built fresh in that account as its first tenant**, and
@@ -252,17 +253,37 @@ planes. Confirm this is acceptable; the expectation is yes, and they remain sepa
    → LF resolves THIS user's grants and applies the data cell filter for their level
 ```
 
-**Step 3 is UNVERIFIED, and the whole flow rests on it (2026-08-18).** The Athena documentation for
-IAM Identity Center enabled workgroups says queries in a trusted-identity-propagation workgroup
-*"cannot be run directly from the Athena console"*, and names **EMR Studio** and **SageMaker Unified
-Studio** as the interfaces through which Athena SQL supports TIP. Neither statement settles whether a
-plain `StartQueryExecution` issued with identity-enhanced credentials — from this app's SPA, or from
-its backend — is supported at all. It is not documented as unsupported either; it is simply unaddressed,
-and every other TIP consumer AWS documents is a studio product rather than a bespoke application. **Prove
-it in Phase 0 — gate G7 (§5.5).** If it fails, Phase 5 needs a different query surface and §3's design
-is in question, so this is the cheapest possible thing to discover early.
+**Step 3 is documented as OUT OF SCOPE, and the whole flow rests on it (2026-08-18).** The Athena
+documentation for IAM Identity Center enabled workgroups lists *"Federated access to the Athena API"*
+among the features trusted identity propagation is **not compatible with**. It also says queries in a
+TIP workgroup *"cannot be run directly from the Athena console. They must be run from the Athena
+interface in an EMR Studio that has IAM Identity Center enabled"*, and states that Athena SQL support
+for TIP is available *"in both EMR Studio and SageMaker Unified Studio"* — both studio products.
 
-The same page carries three facts to design around regardless:
+A plain `StartQueryExecution` issued with identity-enhanced credentials from our own code **is**
+federated access to the Athena API. So the honest reading is not "undocumented, prove it" but
+**"documented as unsupported, and a spike is how you would challenge that"**. Gate G7 (§5.5) stays,
+and stays in Phase 0 — it is cheap and the answer is load-bearing — but plan on the assumption that it
+comes back negative. If it does, Phase 5 needs a different query surface: a studio product, or a
+broker that re-implements masking (§3.2 point 4), and §3's design is reopened.
+
+> **SUPERSEDED (2026-08-18):** an earlier draft of this passage read *"it is not documented as
+> unsupported either; it is simply unaddressed."* That was wrong — the incompatibility list names
+> federated API access explicitly. Do not restore the softer reading without re-reading the live page.
+
+The same page carries five more facts to design around regardless, and two of them are as
+consequential as G7:
+
+- **An IdC-enabled workgroup cannot be modified to support resource-level IAM permissions or
+  identity-based IAM policies.** This portal's entire isolation model — `${aws:PrincipalTag/username}`
+  on identity-based policy — is what that rules out inside such a workgroup.
+- **Queries time out after 30 minutes by default, one hour maximum**, in a TIP workgroup. The limit is
+  not raisable past an hour.
+- **Users must be assigned to the `IdentityCenterApplicationArn`** returned by `GetWorkGroup`, not
+  merely to the account or the Lake Formation application.
+- TIP with Athena is available in a **fixed Region list** (`us-east-1` is on it).
+- `aws:CalledVia` context keys, Athena for Spark workgroups, and federated access through the Athena
+  JDBC/ODBC drivers are all incompatible with TIP as well.
 
 - An IdC-enabled workgroup requires Lake Formation configured for IdC identities **and**
   *"Amazon S3 Access Grants must be configured to use Trusted identity propagation identities."*
@@ -743,7 +764,7 @@ Independent of P1 and P2, these belong to Phase 5 and are still worth proving:
 | G4 | A user with no grant is denied | Default-deny or propagation broken — blocker |
 | G5 | A JOIN across two granted datasets returns in one query | The single-session-spans-grants assumption is wrong |
 | G6 | Session lifetime is workable and silent refresh exists | UX churn; needs a refresh strategy |
-| G7 | A plain `StartQueryExecution` on an IdC-enabled workgroup, issued with identity-enhanced credentials from our own code, runs and is enforced per user (§3.5) | **Blocker.** Phase 5 needs a different query surface — a studio product, or a broker that re-implements masking (§3.2 point 4). **Run it in Phase 0, not Phase 5** |
+| G7 | A plain `StartQueryExecution` on an IdC-enabled workgroup, issued with identity-enhanced credentials from our own code, runs and is enforced per user (§3.5) | **Blocker, and expected to FAIL** — the docs list *federated access to the Athena API* as incompatible with TIP, so this gate challenges the documentation rather than confirming a gap in it. Phase 5 then needs a different query surface: a studio product, or a broker that re-implements masking (§3.2 point 4). **Run it in Phase 0, not Phase 5** |
 
 ---
 
@@ -956,8 +977,11 @@ they already were.
   together decide whether Phase 1 needs the Cognito Identity Pool and the custom username
   attribute at all, and §6.4's membership ceiling turns on the same result.
 - **Run gate G7 (§5.5) alongside it.** It is a single query against a throwaway IdC-enabled
-  workgroup, and it is the one experiment that can invalidate §3 outright. Standing the workgroup up
-  also surfaces the S3 Access Grants prerequisite while it is still cheap.
+  workgroup, and it is the one experiment that can invalidate §3 outright. **Expect it to fail** — the
+  docs name federated Athena API access as incompatible with TIP — so budget for the alternative
+  surface rather than for a confirmation. Standing the workgroup up also surfaces the S3 Access Grants
+  prerequisite while it is still cheap, and the workgroup's authentication method cannot be changed
+  afterwards, so throwaway means throwaway.
 - Do **not** run the retired spike's G1 experiment. It is settled (§3.5).
 - Confirm the successor account: does it exist yet, is it in the **same organization** (same
   Identity Center organization instance — load-bearing, §4.5), who else is scheduled to land in
