@@ -1,4 +1,4 @@
-# ── The archive bucket (SPEC-168 FR-001) ─────────────────────────────────────
+# ── The archive bucket ─────────────────────────────────────
 # Bucket 5, holding nothing but archived objects at the GLACIER storage class, reachable
 # by nothing but this control plane.
 #

@@ -5,7 +5,7 @@
  */
 export type FeatureFlagKey = 'files' | 'query' | 'sharedWorkspaces' | 'dataQuality' | 'dataExplorer';
 
-/** Every flag, always. No consumer ever handles `undefined` (SPEC-162 FR-004). */
+/** Every flag, always. No consumer ever handles `undefined`. */
 export type FeatureFlags = Record<FeatureFlagKey, boolean>;
 
 /**

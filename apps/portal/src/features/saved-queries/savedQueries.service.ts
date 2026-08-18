@@ -17,13 +17,13 @@ import type {ServiceResult} from '../../types/service.types';
 import type {SavedQuery, SavedQueryLink, SavedQueryPage} from './savedQueries.types';
 import type {QuerySpace} from '../catalog/catalog.types';
 
-// SPEC-173: a saved query is a `.sql` OBJECT in a space's `saved_queries/` folder,
+// a saved query is a `.sql` OBJECT in a space's `saved_queries/` folder,
 // not a row in a private JSON document. Its KEY is its identity, its FILENAME is its
 // name and its LastModified is when it changed — there is nothing else to store,
 // because a `.sql` file cannot carry a record without a sidecar this feature
 // deliberately does not have.
 //
-// The folder itself is ORDINARY (SPEC-173 FR-002): anyone with access to the space may
+// The folder itself is ORDINARY: anyone with access to the space may
 // upload a CSV into it, copy a folder tree in, or make a subfolder. What keeps the load
 // list coherent is the filter below — top-level `.sql` files and nothing else — not a
 // write lock, which is why the filter is a requirement with tests rather than a
@@ -42,7 +42,7 @@ export function savedQueriesPrefix(rootPrefix: string): string {
 // The basename a name maps to. A user who types `report.sql` gets `report.sql`, never
 // `report.sql.sql` — matched case-insensitively, because `REPORT.SQL` is one too.
 //
-// A TYPED extension is lowercased (SPEC-175 FR-002 AC4), and the reason is that
+// A TYPED extension is lowercased, and the reason is that
 // `savedQueryName` strips it case-insensitively: left alone, `report.SQL` and `report.sql`
 // are two distinct objects that BOTH render as `report` in the load list and on a tab, and
 // a re-save from a tab linked to one resolves to the other and replaces the wrong file.
@@ -61,7 +61,7 @@ export function savedQueryKey(rootPrefix: string, name: string): string {
  * The name a key carries: its basename, with a trailing `.sql` removed.
  *
  * The single source of a saved query's name, so a tab label and a list row can never
- * disagree about what a file is called (SPEC-173 FR-006).
+ * disagree about what a file is called.
  */
 export function savedQueryName(key: string): string {
   const basename = key.slice(key.lastIndexOf('/') + 1);
@@ -71,7 +71,7 @@ export function savedQueryName(key: string): string {
 /**
  * Whether saving under this name, into this space, targets the file a tab is linked to.
  *
- * The ONE rule behind two behaviours that must agree (SPEC-175 FR-004): the dialog says
+ * The ONE rule behind two behaviours that must agree: the dialog says
  * "replacing the file this tab was opened from", and the host writes with `overwrite`
  * and raises no second confirm. Judged on the KEY the save resolves to — a different
  * name in the tab's own space, or the same name in another, is a different file.

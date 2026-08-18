@@ -37,7 +37,7 @@ type Params = {
  * Refresh, Share, Drop — plus the mobile nav-rail registration that has to be
  * fed the same handlers.
  *
- * SPEC-077 FR-007: each action takes the database from the rail node the table
+ * each action takes the database from the rail node the table
  * was invoked from (a table under `db_a` acts on `db_a.<table>`); there is no
  * active-database selection to source it from.
  */
@@ -74,7 +74,7 @@ export function useTableActions({
       if (!key) return;
       navigate(`/files?prefix=${encodeURIComponent(key)}`);
     },
-    // SPEC-179 FR-007: hand the table to the Data Explorer. `space` and `db` are BOTH the
+    // Hand the table to the Data Explorer. `space` and `db` are BOTH the
     // node's own database, which is exact rather than convenient — a shared space's database
     // IS its space id, and the personal database is the username, which `/explore` resolves
     // to the personal space by SPEC-113's precedence rule. The route re-resolves both against
@@ -101,7 +101,7 @@ export function useTableActions({
           return;
         }
         toast.dismiss();
-        // SPEC-100: the drawer puts these actions on a phone too, where there is
+        // The drawer puts these actions on a phone too, where there is
         // no editor to open a tab into — show the DDL in the read-only view.
         if (isMobile) {
           mobile.viewSql(result.data, `DDL: ${table.name}`);
@@ -114,10 +114,10 @@ export function useTableActions({
     },
     // Open a "{table}" tab pre-filled with an unbounded, fully-qualified SELECT *
     // + auto-run — the results pager (at the user's page size) walks the whole
-    // table; the workgroup bytes-scanned cutoff is the cost guard (SPEC-105).
+    // table; the workgroup bytes-scanned cutoff is the cost guard.
     onViewData: (database: string, table: GlueTableSummary) => {
       const sql = `SELECT * FROM ${database}.${table.name}`;
-      // SPEC-100: on a phone the run goes to the mobile results view; opening a
+      // on a phone the run goes to the mobile results view; opening a
       // tab there would run a query with nothing able to display it.
       if (isMobile) {
         mobile.runSql(sql, table.name);
@@ -131,18 +131,18 @@ export function useTableActions({
       focusEditor();
       submitBatch(splitSqlStatements(sql), 'script-single', id); // auto-run into the just-opened tab
     },
-    // SPEC-145: open the Refresh dialog for this rail table. Unlike Share, `open`
+    // Open the Refresh dialog for this rail table. Unlike Share, `open`
     // takes the whole summary — the request's space is derived from the table's own
     // `location`, the only thing in the workspace that knows where its files live.
     onRefreshTable: (database: string, table: GlueTableSummary) => onRefreshTable(database, table),
-    // SPEC-093: open the Share dialog for this rail table (base tables only — the
+    // Open the Share dialog for this rail table (base tables only — the
     // menu omits the item for views); submission + toasts live in useTableShare.
     onShareTable: (database: string, table: GlueTableSummary) => onShareTable(database, table.name),
     // Confirm, then drop in the background (handled on confirm) — carries the node's db.
     onDropTable: (database: string, table: GlueTableSummary) => onDropTable({database, table})
   };
 
-  // SPEC-100 FR-005: below `tablet` the inline rail is gone, so the same tree is
+  // Below `tablet` the inline rail is gone, so the same tree is
   // fed into the mobile AppNavDrawer's contextual slot. The registered node must
   // keep a stable identity (useProvideNavRail registers it in an effect), so the
   // drawer's copy delegates through a ref to the current handlers rather than

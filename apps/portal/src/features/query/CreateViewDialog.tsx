@@ -6,7 +6,7 @@ import {CATALOG_IDENTIFIER_RE, CATALOG_IDENTIFIER_RULE} from '../../lib/catalogI
 type Props = {
   /** In-flight while the CREATE VIEW runs in the background — locks Create + dismiss. */
   busy?: boolean;
-  /** The database the view will be created in — derived from the query body (SPEC-077 FR-008), shown read-only. */
+  /** The database the view will be created in — derived from the query body, shown read-only. */
   targetDatabase: string;
   onCreate: (name: string) => void;
   onCancel: () => void;

@@ -1,4 +1,4 @@
-# ── table-builder module variables (SPEC-066) ────────────────────────────────
+# ── table-builder module variables ────────────────────────────────
 # Bounded-context module for the "create table from a folder" control plane: a
 # DEDICATED FIFO SQS → EventBridge Pipe → Step Function pipeline that orchestrates
 # single-task verb Lambdas (validate-authorize → {check-table-absent |
@@ -33,17 +33,17 @@ variable "account_id" {
 }
 
 variable "user_space_bucket_name" {
-  description = "Name of the user-space bucket (Bucket 1, SPEC-013). Source data for personal-space tables; the inspect-source / infer-schema / execute-ddl roles read it (env USER_SPACE_BUCKET). No bucket is created here."
+  description = "Name of the user-space bucket (Bucket 1). Source data for personal-space tables; the inspect-source / infer-schema / execute-ddl roles read it (env USER_SPACE_BUCKET). No bucket is created here."
   type        = string
 }
 
 variable "shared_space_bucket_name" {
-  description = "Name of the shared-space bucket (Bucket 2, SPEC-050). Source data for shared-space tables; the inspect-source / infer-schema / execute-ddl roles read it (env SHARED_SPACE_BUCKET). No bucket is created here."
+  description = "Name of the shared-space bucket (Bucket 2). Source data for shared-space tables; the inspect-source / infer-schema / execute-ddl roles read it (env SHARED_SPACE_BUCKET). No bucket is created here."
   type        = string
 }
 
 variable "admin_bucket_name" {
-  description = "Name of the existing analytics admin bucket (SPEC-032). The shared-spaces registry (for shared authorization, SPEC-067) and the Athena results prefix (SPEC-070) live here. No bucket is created here."
+  description = "Name of the existing analytics admin bucket. The shared-spaces registry (for shared authorization) and the Athena results prefix live here. No bucket is created here."
   type        = string
 }
 
@@ -62,7 +62,7 @@ variable "dlq_max_receive_count" {
 # ── SPEC-067: request contract + validate-authorize ──────────────────────────
 
 variable "portal_role_name" {
-  description = "SPEC-067: name of the shared portal role (SPEC-011) this module attaches the browser's sqs:SendMessage (table-build queue only) inline policy to, by name — mirrors the notifications/shared-spaces modules."
+  description = "SPEC-067: name of the shared portal role this module attaches the browser's sqs:SendMessage (table-build queue only) inline policy to, by name — mirrors the notifications/shared-spaces modules."
   type        = string
 }
 
@@ -87,7 +87,7 @@ variable "logs_queue_arn" {
 }
 
 variable "logs_queue_url" {
-  description = "SPEC-135: URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda. Optional BY CONSTRUCTION on the Lambda side (cpcommon.observability uses os.environ.get, never config._require), so a verb missing it logs to stdout rather than crashing the plane at cold start (PR #196)."
+  description = "SPEC-135: URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda. Optional BY CONSTRUCTION on the Lambda side (cpcommon.observability uses os.environ.get, never config._require), so a verb missing it logs to stdout rather than crashing the plane at cold start."
   type        = string
   default     = ""
 }

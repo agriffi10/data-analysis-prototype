@@ -53,7 +53,7 @@ export type UsernameChipsFieldProps = SuggestionSource & {
  * The component owns NO submission logic: it reports `string[]` and the caller decides what to
  * do with it.
  *
- * The suggestion source is passed STRAIGHT THROUGH to the combobox (SPEC-158): this component
+ * The suggestion source is passed STRAIGHT THROUGH to the combobox: this component
  * adds chips, not a data source, and a hook call here would make it the second place that decides
  * what a field suggests.
  *

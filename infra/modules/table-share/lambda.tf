@@ -7,10 +7,10 @@
 # timeout/memory (locals.tf; a small validator ≠ a long parallel S3 copy,
 # lambdas.md §4).
 #
-# Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
+# Code-ownership split (architecture.md): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python
 # code (lambdas/table-share-<suffix>/) AND publishes + attaches the layers to all
-# five: the tscommon domain layer PLUS the shared cpcommon layer (SPEC-107).
+# five: the tscommon domain layer PLUS the shared cpcommon layer.
 # `ignore_changes` keeps `tofu apply` from reverting CI's code OR layers.
 
 # One placeholder package per function so each is valid at create time. CI replaces
@@ -65,7 +65,7 @@ resource "aws_lambda_function" "functions" {
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
         # SPEC-136. Deliberately NOT mirrored by a config._require — see variables.tf.
         LOGS_QUEUE_URL = var.logs_queue_url
-        # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+        # `env` shipped empty on every record. Same source of truth as the
         # feature-flag document's `environments` keys (`var.environment`, default "prod").
         ENV_NAME = var.environment
       },

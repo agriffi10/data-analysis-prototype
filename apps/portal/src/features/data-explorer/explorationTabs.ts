@@ -104,7 +104,7 @@ function isValidGrouping(value: unknown): boolean {
 }
 
 /**
- * Reads a stored saved-query link, dropping anything it cannot trust (SPEC-183 FR-003).
+ * Reads a stored saved-query link, dropping anything it cannot trust.
  *
  * Absent is the ordinary case — every document written before SPEC-183, and every tab that
  * has never been saved — so a missing or malformed link restores the tab WITHOUT one rather

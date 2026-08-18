@@ -9,7 +9,7 @@
  */
 export const savedQueryKeys = {
   all: ['saved-queries'] as const,
-  // Keyed by SPACE, not by user (SPEC-173): saved queries are files in a space's
+  // Keyed by SPACE, not by user: saved queries are files in a space's
   // `saved_queries/` folder, and the same user reads a different list per space.
   list: (spaceId: string) => [...savedQueryKeys.all, 'list', spaceId] as const
 };

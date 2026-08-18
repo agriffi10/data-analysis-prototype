@@ -19,7 +19,7 @@ type Props = {
   batchDone: boolean;
   /**
    * The editor shell may narrate this run — false for a run the mobile surface
-   * submitted, which leaves the editor buffer untouched by design (SPEC-100).
+   * submitted, which leaves the editor buffer untouched by design.
    */
   editorOwnsRun: boolean;
   /** Non-null once the editor's own run has an execution — gates the status bar. */

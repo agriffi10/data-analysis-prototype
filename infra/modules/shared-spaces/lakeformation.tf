@@ -1,11 +1,11 @@
-# ── Lake Formation registration of the shared bucket (SPEC-056 FR-003) ───────
+# ── Lake Formation registration of the shared bucket ───────
 # Register dat-prod-shared-space as an LF location in HYBRID mode (as the user-space
-# bucket, SPEC-032) so the file browser keeps direct-IAM S3 (SPEC-057) while Athena
+# bucket) so the file browser keeps direct-IAM S3 while Athena
 # reads shared tables via LF. LF assumes a custom registration role (below) to vend
 # temporary S3 creds for the location; the role is scoped to the shared bucket only.
 #
 # The LF data-lake-settings singleton (admins + IAMAllowedPrincipals removal) lives
-# in the analytics module and is already applied account-wide (SPEC-032); the
+# in the analytics module and is already applied account-wide; the
 # orchestrator role is added to its admins list there (SPEC-056, root-wired). This
 # file only adds the per-bucket registration, which is independent of those settings.
 # Per-shared-DB LF grants + the DATA_LOCATION_ACCESS grant on this location are issued
@@ -40,7 +40,7 @@ resource "aws_lakeformation_resource" "shared_space" {
 # DATA_LOCATION_ACCESS for the shared portal role on the registered shared location
 # (SPEC-051) — a single location-level grant (mirrors analytics' user-space grant)
 # so members can CREATE tables / CTAS over dat-prod-shared-space. Per-space isolation
-# is still IAM (the membership-tag Glue DB + S3 prefix scoping, SPEC-056), not this
+# is still IAM (the membership-tag Glue DB + S3 prefix scoping), not this
 # grant; the per-DB LF grant is issued by the provisioner at create time. Granted by
 # the deploy role (an LF admin via analytics' data_lake_settings).
 resource "aws_lakeformation_permissions" "portal_shared_location" {
@@ -54,7 +54,7 @@ resource "aws_lakeformation_permissions" "portal_shared_location" {
   depends_on = [aws_lakeformation_resource.shared_space]
 }
 
-# TBAC fix (SPEC-070/111): DATA_LOCATION_ACCESS on the shared bucket for each
+# TBAC fix: DATA_LOCATION_ACCESS on the shared bucket for each
 # control-plane execution role (table-builder / table-share / data-quality), so a
 # verb can CREATE tables over any shared-space prefix. This is the location half the
 # `portal-managed` LF-Tag can't express (tags cover DB/table resources, not S3

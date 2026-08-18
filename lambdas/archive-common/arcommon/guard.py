@@ -11,7 +11,7 @@ as its own spec.** Glacier retrieval is billed and irreversible once initiated: 
 conflict afterwards would charge the user for hours of retrieval that cannot land, and there is
 no way to give it back.
 
-**AND IT RUNS AGAIN, IMMEDIATELY BEFORE THE COPY (SPEC-171).** Every other plane's conflict
+**AND IT RUNS AGAIN, IMMEDIATELY BEFORE THE COPY.** Every other plane's conflict
 guard carries a residual TOCTOU of a few seconds, which is an unlikely double-submit. This one
 would have carried a window of **three to five hours** — the retrieval — during which the user is
 explicitly told a restore is in flight and invited to go and do something else. Re-creating a

@@ -33,7 +33,7 @@ type ChipTone = 'danger' | 'warning' | 'success';
 type ChipLabel = 'Exact' | 'Approximate' | 'Sampled' | 'Skipped' | 'Not computed';
 
 /**
- * The shared `StatusPill` (SPEC-186 FR-010), which now owns the shape this file used to
+ * The shared `StatusPill`, which now owns the shape this file used to
  * reproduce: a dot PLUS a text label, never colour alone. The label is what carries the
  * meaning — the tone is decoration, and a user who cannot distinguish the tones loses nothing.
  */

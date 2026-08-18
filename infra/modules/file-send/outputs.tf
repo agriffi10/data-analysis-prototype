@@ -1,4 +1,4 @@
-# ── file-send module outputs (SPEC-164) ──────────────────────────────────────
+# ── file-send module outputs ──────────────────────────────────────
 # The browser learns the queue URL to enqueue send requests (sqs:SendMessage granted
 # to the portal role above → VITE_FILE_SEND_QUEUE_URL); the queue ARN scopes that
 # grant; the state-machine ARN is for ops/observability. The execution-role ARN is

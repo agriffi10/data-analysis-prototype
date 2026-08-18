@@ -1,4 +1,4 @@
-# ── Request Queue + DLQ (SPEC-058 FR-001) ────────────────────────────────────
+# ── Request Queue + DLQ ────────────────────────────────────
 # The write-path entry point. Producers enqueue an action-discriminated envelope
 # (create | markRead | markAllRead); an SQS event-source mapping (lambda.tf) invokes
 # the notifications-writer Lambda directly, batch size 1 — NO EventBridge Pipe and NO
@@ -14,7 +14,7 @@
 # MessageDeduplicationId (FR-003).
 #
 # No time_sleep guard here: the deploy-role grants these resource types need
-# (modules/base, SPEC-058 PR 1/2) were applied and propagated in an earlier deploy, so
+# (modules/base PR 1/2) were applied and propagated in an earlier deploy, so
 # there is no self-grant race for this apply (the two-PR split is exactly what removes
 # the need for the in-module propagation pause the shared-spaces module carries).
 

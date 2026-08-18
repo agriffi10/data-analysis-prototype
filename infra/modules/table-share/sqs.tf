@@ -1,5 +1,5 @@
-# ── Request Queue + DLQ (SPEC-088 FR-001) ────────────────────────────────────
-# The control-plane entry point. The browser (SPEC-089/093) enqueues a share-table
+# ── Request Queue + DLQ ────────────────────────────────────
+# The control-plane entry point. The browser enqueues a share-table
 # request; an EventBridge Pipe (pipe.tf) drains it into the Step Function.
 #
 # FIFO with MessageGroupId = the SOURCE `database.table` (set by the producer,
@@ -9,7 +9,7 @@
 #
 # content_based_deduplication is OFF (SPEC-088 FR-001, unlike the table-builder
 # queue): the producer sends an explicit MessageDeduplicationId = requestId
-# (SPEC-089) as the double-submit guard, and two byte-identical share requests a
+# as the double-submit guard, and two byte-identical share requests a
 # user genuinely repeats (e.g. re-share after deleting the copy) must NOT be
 # silently absorbed by a 5-minute content-dedup window.
 #

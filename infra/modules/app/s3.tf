@@ -21,7 +21,7 @@ resource "aws_s3_bucket_public_access_block" "static_assets" {
 # CKV_AWS_300. The only lifecycle rule this bucket has or needs: `deploy-app.yml` syncs `dist/`
 # on every deploy, and an interrupted sync leaves orphaned multipart parts that are billed and
 # invisible to every listing. NOTHING here expires objects — the deploy's own `--delete` pass
-# owns reconciliation (SPEC-141), and a lifecycle expiry would race it.
+# owns reconciliation, and a lifecycle expiry would race it.
 resource "aws_s3_bucket_lifecycle_configuration" "static_assets" {
   bucket = aws_s3_bucket.static_assets.id
 

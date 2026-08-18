@@ -1,5 +1,5 @@
 /**
- * Types for the static Help & guides content (SPEC-074). All UI-local — nothing
+ * Types for the static Help & guides content. All UI-local — nothing
  * outside `features/help/` consumes them, so they live here rather than in
  * `src/types/`. There is no runtime/user data: the content ships in the bundle.
  */

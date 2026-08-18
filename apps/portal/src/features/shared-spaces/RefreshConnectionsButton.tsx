@@ -6,7 +6,7 @@ import {RefreshIconButton} from '../../components/RefreshIconButton';
  * lives in `useConnections().refresh`; this is just the affordance. Disabled and
  * spinning while in flight; a failed refresh is non-destructive.
  *
- * SPEC-155 FR-006: this used to draw its own two-path refresh glyph. It now shares the
+ * this used to draw its own two-path refresh glyph. It now shares the
  * app's one refresh icon, which is a deliberate (small) visual change.
  */
 export function RefreshConnectionsButton({refreshing, onRefresh}: {refreshing: boolean; onRefresh: () => void}) {

@@ -1,4 +1,4 @@
-# ── Archive Step Function (SPEC-168 FR-003, SPEC-169's transfer, SPEC-170's restore arm) ──
+# ── Archive Step Function (SPEC-168 FR-003's transfer's restore arm) ──
 # Standard state machine, TWO ARMS off one mode Choice. The archive arm: validate-authorize
 # and inspect-source once per request, then the transfer manifest, the top-level
 # Distributed-Map copy into the vault, the collector, the COMMIT GATE and, on its one
@@ -15,7 +15,7 @@
 # the ONE shared execution role. Standard (over Express) keeps per-execution history for
 # debugging and allows the long copies SPEC-169 adds and the Glacier retrieval wait
 # SPEC-171 will — and Express is doubly rejected here, since a Pipe cannot use
-# REQUEST_RESPONSE against a Standard machine (SPEC-157) and this plane's outcome is a
+# REQUEST_RESPONSE against a Standard machine and this plane's outcome is a
 # notification, not a response.
 #
 # THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY. SPEC-168
@@ -49,11 +49,11 @@ resource "aws_sfn_state_machine" "archive" {
     write_manifest_function_arn           = aws_lambda_function.functions["write-manifest"].arn
     delete_source_function_arn            = aws_lambda_function.functions["delete-source"].arn
     write_receipt_function_arn            = aws_lambda_function.functions["write-receipt"].arn
-    # SPEC-170 — the restore arm's two verbs. The guard is the LAST state before SPEC-171 starts
+    # The restore arm's two verbs. The guard is the LAST state before SPEC-171 starts
     # spending money it cannot get back, which is why both live on this side of the split.
     inspect_archive_function_arn         = aws_lambda_function.functions["inspect-archive"].arn
     check_destination_clear_function_arn = aws_lambda_function.functions["check-destination-clear"].arn
-    # SPEC-171 — the billed half. update-receipt is fed to THREE states, which is deliberate
+    # The billed half. update-receipt is fed to THREE states, which is deliberate
     # rather than a saving: the receipt records a restore at three stages (requested, restored,
     # incomplete) and the ASL SEEDS which one, so the verb never infers its own stage from what
     # else happens to be lying on the state. copy-objects and collect-transfer-results are the
@@ -64,7 +64,7 @@ resource "aws_sfn_state_machine" "archive" {
     poll_restore_function_arn           = aws_lambda_function.functions["poll-restore"].arn
     delete_archived_function_arn        = aws_lambda_function.functions["delete-archived"].arn
     update_receipt_function_arn         = aws_lambda_function.functions["update-receipt"].arn
-    # SPEC-172 — the SUCCESS producer, fed to THREE states for the same reason update-receipt is
+    # The SUCCESS producer, fed to THREE states for the same reason update-receipt is
     # fed to three: the outcome is a property of WHERE the machine is, not of what is on the
     # state, and the three points carry identical keys. The ASL seeds the outcome; the verb never
     # infers it.

@@ -1,4 +1,4 @@
-# ── Constructed names + ARNs (SPEC-168) ──────────────────────────────────────
+# ── Constructed names + ARNs ──────────────────────────────────────
 # All resource names derive from {project_name}-{environment} so the deploy policy
 # (modules/base, the SPEC-168 deploy_archive grant) scopes to the same
 # {project}-*-archive-* patterns, and so cross-resource ARNs referenced inside IAM

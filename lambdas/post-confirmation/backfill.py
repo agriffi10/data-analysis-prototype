@@ -1,4 +1,4 @@
-"""Backfill the per-user Glue database for an already-confirmed user (SPEC-033 FR-004).
+"""Backfill the per-user Glue database for an already-confirmed user.
 
 The post-confirmation Lambda (post_confirmation.py) provisions a user's Glue database
 + Lake Formation grant the moment they confirm sign-up. Users confirmed BEFORE that

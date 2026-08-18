@@ -28,7 +28,7 @@ function sourceBucket(space: SendSourceSpace): string {
 }
 
 /**
- * FIFO group id: the SHA-256 hex digest of `{bucket}/{sourceSpaceRoot}` (SPEC-164 FR-002), so
+ * FIFO group id: the SHA-256 hex digest of `{bucket}/{sourceSpaceRoot}`, so
  * repeated sends OUT OF one space serialize while sends from different spaces run in parallel.
  *
  * A HASH, NEVER THE RAW PATH. SQS caps `MessageGroupId` at 128 characters where an S3 key

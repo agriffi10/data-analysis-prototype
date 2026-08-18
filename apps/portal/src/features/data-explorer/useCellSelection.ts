@@ -31,7 +31,7 @@ function clamp(value: number, max: number): number {
 }
 
 /**
- * The grid's cell cursor and rectangular selection (SPEC-180 FR-002).
+ * The grid's cell cursor and rectangular selection.
  *
  * The substrate SPEC-182's Calc panel aggregates over and SPEC-185's copy reads, so the
  * model is deliberately explicit rather than emergent: `ranges` is a list of inclusive

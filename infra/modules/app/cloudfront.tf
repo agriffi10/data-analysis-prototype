@@ -88,7 +88,7 @@ locals {
 
 resource "aws_cloudfront_response_headers_policy" "portal" {
   name    = "${var.project_name}-security-headers"
-  comment = "Security response headers for the ${var.project_name} SPA (SPEC-140)"
+  comment = "Security response headers for the ${var.project_name} SPA"
 
   security_headers_config {
     strict_transport_security {

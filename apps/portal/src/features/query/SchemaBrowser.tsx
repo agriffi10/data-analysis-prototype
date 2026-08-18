@@ -8,7 +8,7 @@ import {connectionStatusLabel} from '../connections/connectionStatus';
 
 /**
  * Per-table actions, wired in QueryWorkspace. Each carries the `database` of the
- * rail node the table was invoked from (SPEC-077 FR-007) — there is no active
+ * rail node the table was invoked from — there is no active
  * database to source it from.
  */
 export type TableActions = {
@@ -17,9 +17,9 @@ export type TableActions = {
   onViewData: (database: string, table: GlueTableSummary) => void;
   /** SPEC-179: leaves the Query workspace for `/explore`, carrying the node's own database. */
   onExploreData: (database: string, table: GlueTableSummary) => void;
-  /** Base tables only — a view has no folder to re-read (SPEC-145), so their menu omits the item. */
+  /** Base tables only — a view has no folder to re-read, so their menu omits the item. */
   onRefreshTable: (database: string, table: GlueTableSummary) => void;
-  /** Base tables only — views can't be shared (SPEC-093), so their menu omits the item. */
+  /** Base tables only — views can't be shared, so their menu omits the item. */
   onShareTable: (database: string, table: GlueTableSummary) => void;
   onDropTable: (database: string, table: GlueTableSummary) => void;
   /** True when the table's S3 location is within the user's own space; View source files is disabled otherwise. */
@@ -46,7 +46,7 @@ function UnusableNode({connection}: {connection: Connection}) {
 /**
  * The database tree itself, decoupled from the rail chrome so it can render both
  * on-page inside `CollapsibleRail` (≥ tablet) and inside the mobile
- * `AppNavDrawer` contextual slot (SPEC-100 FR-005) — one source, no forked
+ * `AppNavDrawer` contextual slot — one source, no forked
  * logic. Each accessible database is a collapsible node that, when expanded,
  * loads and groups its own Tables and Views (SPEC-077: browse-only).
  *
@@ -87,7 +87,7 @@ export function SchemaTree({connections = [], actions}: {connections?: Connectio
  * The schema rail (SPEC-077: browse-only) — `SchemaTree` in the shared rail
  * chrome. There is no active-database selection; queries fully-qualify their own
  * tables. Loading / empty / "setting up" / error states render per node. The
- * panel narrows to 220px in the tablet band (SPEC-100 FR-002) and is hidden below
+ * panel narrows to 220px in the tablet band and is hidden below
  * it, where the drawer carries the tree instead.
  */
 export function SchemaBrowser({

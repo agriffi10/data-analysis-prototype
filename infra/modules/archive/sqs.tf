@@ -1,4 +1,4 @@
-# ── Request Queue + DLQ (SPEC-168 FR-003) ────────────────────────────────────
+# ── Request Queue + DLQ ────────────────────────────────────
 # The control-plane entry point. The browser enqueues an archive request; an EventBridge
 # Pipe (pipe.tf) drains it into the Step Function.
 #
@@ -13,7 +13,7 @@
 # reaches 1024, so the raw form would be a length failure that only appears for deeply
 # nested sources (the reason first recorded for data quality).
 #
-# A RESTORE KEYS ON THE ARCHIVE, NOT THE SPACE (SPEC-170 FR-001): MessageGroupId is the
+# A RESTORE KEYS ON THE ARCHIVE, NOT THE SPACE: MessageGroupId is the
 # SHA-256 of "{archiveBucket}/{archiveRoot}", so two restores OF ONE ARCHIVE serialize
 # while restores of different archives in the same space proceed in parallel. Without it a
 # double-submitted restore can pass the destination guard twice before either copy lands —

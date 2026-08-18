@@ -10,7 +10,7 @@ export const STRIPING_SCOPE_TEXT = 'Bands are worked out from the rows on this p
 export const STRIPING_OFF_TEXT = 'No columns chosen, so nothing is banded.';
 
 /**
- * Which columns define a band of consecutive equal rows (SPEC-184 FR-004).
+ * Which columns define a band of consecutive equal rows.
  *
  * A checkbox list rather than a single select, because a band is defined over ALL the
  * chosen columns together — an order line is one band per (order, product), not per order.

@@ -15,7 +15,7 @@ import type {SaveQueryRequest} from './SaveQueryDialog';
 /**
  * What is being saved: the body, and the file it would replace in place.
  *
- * SPEC-177 FR-002 — this was the Query workspace's `QueryTab`, which is a shape no other
+ * this was the Query workspace's `QueryTab`, which is a shape no other
  * caller can produce. Two fields is what the flow actually reads, so the collision-and-
  * confirm path SPEC-175 spent a spec getting right is reusable rather than reimplemented.
  */
@@ -68,7 +68,7 @@ type Params = {
 
 /**
  * The whole save path for a saved query: the prompt, the destination, the write, the
- * collision round-trip and the toast (SPEC-175).
+ * collision round-trip and the toast.
  *
  * EVERY save prompts — a linked buffer's included — so there is exactly one way a `.sql`
  * file is written and it always passes through the dialog. The one thing a linked

@@ -1,4 +1,4 @@
-# ── notifications module outputs (SPEC-058) ──────────────────────────────────
+# ── notifications module outputs ──────────────────────────────────
 # The integration surface for the read/UI specs and any trusted producer. The browser
 # learns the queue URL to enqueue user-action messages (sqs:SendMessage granted to the
 # portal role here); SPEC-059 wires the URL into the app as VITE_NOTIFICATIONS_QUEUE_URL.

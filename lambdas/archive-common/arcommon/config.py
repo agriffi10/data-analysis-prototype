@@ -4,7 +4,7 @@ The shared core — region, user pool identifiers, the two space buckets — liv
 ``cpcommon.config``. Only archive's own constants live here, and **not one of them reads the
 environment at import**: this module cannot fail at import, which matters because a shared
 layer's import-time failure surfaces at COLD START, where no test and no deploy can see it
-(PR #196).
+.
 
 ``archive_bucket()`` is the one env-derived value, and it is a FUNCTION for exactly that reason.
 It does **not** belong in ``cpcommon.config._REQUIRED_VARS``: that set is a fleet-wide contract

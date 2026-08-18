@@ -25,7 +25,7 @@ export type UseFileUploadResult = {
   dismissError: () => void;
 };
 
-// SPEC-016 Phase 3: orchestrates single-file upload + create-folder against the
+// Orchestrates single-file upload + create-folder against the
 // service, tracking progress, surfacing collisions for warn-and-confirm, and
 // invalidating the current prefix's listing on success so the new item appears.
 //

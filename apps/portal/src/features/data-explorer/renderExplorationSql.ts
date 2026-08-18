@@ -14,7 +14,7 @@ import type {
  * signature promises a `string` and there is no half-rendered SQL worth handing back.
  *
  * Every case is a caller bug rather than a user typo — the panels that build a
- * description (SPEC-181, SPEC-182) refuse the gesture before it reaches here. The message
+ * description refuse the gesture before it reaches here. The message
  * is operator text: it names the offending column so a failing test says which one, and
  * SPEC-106 forbids rendering it to a user.
  */
@@ -150,7 +150,7 @@ function renderWhere(filters: ColumnFilter[], expression: string | null): string
  * rejects it at ANALYSIS, so nothing is scanned and AWS does not bill a failed query —
  * what refusing buys is not money but immediacy: the gesture is refused where the user
  * made it, instead of surfacing seconds later as an engine error the app is forbidden to
- * render (SPEC-106).
+ * render.
  *
  * **Exported so the Grouping panel refuses exactly what the renderer refuses** (SPEC-182
  * FR-004 AC3), on the `isBareNumeric` precedent. It returns the offending COLUMN rather
@@ -228,7 +228,7 @@ function renderOrderBy(ordering: SortEntry[]): string | null {
 }
 
 /**
- * The ONE SQL builder for the Data Explorer (SPEC-178 FR-002).
+ * The ONE SQL builder for the Data Explorer.
  *
  * Takes the source and the query description **and nothing else**. That parameter list is
  * the feature's central rule made structural: column visibility, order, pinning, width,

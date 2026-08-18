@@ -51,7 +51,7 @@ const FORMATS = Object.keys(COPY_FORMAT_LABELS) as CopyFormat[];
 const QUOTING_NOTE_ID = 'advanced-copy-quoting-note';
 
 /**
- * Copy, in the shape the destination wants (SPEC-185 FR-001).
+ * Copy, in the shape the destination wants.
  *
  * Staged rather than applied per control, for the reason every dialog in this feature is:
  * the copy is a single clipboard write, and writing on each keystroke would leave whatever

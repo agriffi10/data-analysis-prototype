@@ -10,7 +10,7 @@ export type ColumnsPanelProps = {
 };
 
 /**
- * Hide/show, pin and reorder, away from the header row (SPEC-180 FR-001).
+ * Hide/show, pin and reorder, away from the header row.
  *
  * It is a panel rather than a header menu because SPEC-181 owns the per-column header
  * menu, and because these are the gestures a keyboard user needs an alternative for: drag

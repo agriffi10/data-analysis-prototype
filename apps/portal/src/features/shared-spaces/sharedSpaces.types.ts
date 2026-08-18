@@ -5,7 +5,7 @@ export type SharedConnectionRole = 'owner' | 'member';
 export type SharedConnectionStatus = 'provisioning' | 'active' | 'failed' | 'leaving' | 'deleting';
 
 /**
- * Per-member join status (SPEC-073): `pending` = invited by the owner but not yet
+ * Per-member join status: `pending` = invited by the owner but not yet
  * signed in to pick up the space; `active` = signed in since being added, so their
  * scoped credentials now carry the membership tag.
  */
@@ -30,7 +30,7 @@ export type SharedConnectionEntry = {
    * per-member join status) into the OWNER's entry only, so the Manage drawer can
    * render it without reading the admin-bucket registry. Absent on member entries.
    * Normalized to `Member[]` by the read service — a legacy bare-string member reads
-   * as `{username, status: 'active'}` (SPEC-073 FR-005).
+   * as `{username, status: 'active'}`.
    */
   members?: Member[];
   /** When the space was created (ISO 8601, immutable); absent on older cache entries. */
@@ -46,7 +46,7 @@ export type SharedConnectionsCache = {
 
 /**
  * Shared-space request actions. `forget` = durable "clear this entry from my list";
- * `acknowledge_membership` = a member confirming they've picked up the space (SPEC-073).
+ * `acknowledge_membership` = a member confirming they've picked up the space.
  */
 export type SharedSpaceAction =
   | 'create'

@@ -1,4 +1,4 @@
-// SPEC-186 FR-004 — the archive plane's audit record.
+// The archive plane's audit record.
 //
 // Two owed live assertions could not be made by ANY principal. SPEC-170's is the load-bearing
 // one: that a `destination_occupied` refusal did NOT already initiate retrieval. Making it

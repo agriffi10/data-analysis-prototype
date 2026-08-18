@@ -1,4 +1,4 @@
-# ── EventBridge Pipe: request queue → Step Function (SPEC-066 FR-001) ─────────
+# ── EventBridge Pipe: request queue → Step Function ─────────
 # Drains the FIFO request queue into the orchestrator. Batch size 1 so each message
 # starts its own execution and the FIFO per-MessageGroupId (= target database)
 # ordering (sqs.tf) is preserved.

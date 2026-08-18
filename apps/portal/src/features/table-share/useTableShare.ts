@@ -9,10 +9,10 @@ export type ShareTarget = {database: string; table: string};
 type ShareToast = {variant: 'success' | 'danger'; message: string};
 
 /**
- * Dialog + enqueue state for "Share table" (SPEC-093). `open(database, table)`
+ * Dialog + enqueue state for "Share table". `open(database, table)`
  * targets a rail table; `submit` enqueues via `enqueueTableShare` — on success the
  * dialog closes and `notify` gets the transient "Sharing…" toast (outcomes arrive
- * as notifications, SPEC-094); on failure the dialog stays open with `error` set
+ * as notifications); on failure the dialog stays open with `error` set
  * and the entered values intact (FR-003).
  */
 export function useTableShare(notify: (toast: ShareToast) => void) {

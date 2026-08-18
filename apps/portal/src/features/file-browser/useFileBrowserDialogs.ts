@@ -69,7 +69,7 @@ type Params = {
 
 /**
  * Every dialog and drawer the file browser can raise, and the handlers that
- * resolve one into an operation (SPEC-155 FR-009).
+ * resolve one into an operation.
  *
  * The selection-clearing rules live here because they belong to the dialog's
  * outcome, not to the row: delete, move, rename, a different-folder copy and a
@@ -117,7 +117,7 @@ export function useFileBrowserDialogs({bucket, currentPrefix, del, move, copy}: 
     },
 
     renaming,
-    // Rename from a details panel (SPEC-097): open the rename dialog pre-scoped to
+    // Rename from a details panel: open the rename dialog pre-scoped to
     // that object and close the panel.
     openRenameFile: (file) => {
       setRenaming({item: {type: 'file', key: file.key}, name: file.name, kind: 'file'});

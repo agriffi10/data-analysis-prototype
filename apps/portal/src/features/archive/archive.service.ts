@@ -48,7 +48,7 @@ async function digest(canonical: string): Promise<string> {
 }
 
 /**
- * The ARCHIVE group id: the digest of `{spaceBucket}/{spaceRoot}` (SPEC-168 FR-004), so two
+ * The ARCHIVE group id: the digest of `{spaceBucket}/{spaceRoot}`, so two
  * archives out of one space serialize — they may select overlapping folders — while archives
  * from different spaces run in parallel.
  */
@@ -65,7 +65,7 @@ function archiveGroupId(space: ArchiveSpace): Promise<string> {
  *
  * **The archive BUCKET is deliberately not part of it**, which is where this differs from
  * SPEC-170 FR-001's literal wording. The browser has no relationship with that bucket by
- * decision (SPEC-168): its name is absent from the CSP, from every portal-role statement and
+ * decision: its name is absent from the CSP, from every portal-role statement and
  * from this app's build env, and `test_archive_bucket_isolation.py` enforces that absence. It
  * would also add no discrimination — it is one constant across every restore this app can make
  * — and the `personal/`/`shared/` segment already makes the archive root globally unique, which
@@ -123,7 +123,7 @@ export async function enqueueArchive(req: ArchiveRequest): Promise<ServiceResult
 
 /**
  * Enqueue a restore request onto the same FIFO queue — one plane serves both modes, branching on
- * `mode` (SPEC-168 FR-003).
+ * `mode`.
  *
  * The body's field set is the RESTORE contract and not a superset of the archive one: unknown
  * top-level fields are rejected rather than ignored by `validate-authorize`, per mode, so a

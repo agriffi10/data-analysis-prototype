@@ -25,7 +25,7 @@ import type {ExploreTarget} from './exploreSources';
 const EMPTY_PRESENTATION = emptyExplorationPresentation();
 
 /**
- * The Data Explorer's shell (SPEC-179): the source picker, the tab strip, and one
+ * The Data Explorer's shell: the source picker, the tab strip, and one
  * exploration's rows.
  *
  * The engine is SPEC-178's — this mounts it. The results table below is explicitly a
@@ -33,7 +33,7 @@ const EMPTY_PRESENTATION = emptyExplorationPresentation();
  *
  * **A denied deep link renders the refusal ALONE**, with no picker and no active
  * exploration: the page must ask nothing of Glue or Athena about a space this user cannot
- * reach, or the route becomes an existence oracle for someone else's catalog (SPEC-113).
+ * reach, or the route becomes an existence oracle for someone else's catalog.
  */
 export function DataExplorerWorkspace() {
   const {user} = useAuth();
@@ -81,7 +81,7 @@ export function DataExplorerWorkspace() {
   // Glue nothing at all, and this hook reads a database.
   const schemaColumns = useSourceColumns(linkUnsettled ? null : (tabs.activeTab?.exploration.source ?? null));
 
-  // SPEC-185 FR-002: export. The Query workspace's own save path, mounted here — it copies
+  // Export. The Query workspace's own save path, mounted here — it copies
   // the EXECUTION's results object, so what leaves is every row the statement returned
   // rather than the page in the grid, and the copy is server-side (zero executions).
   //
@@ -198,7 +198,7 @@ export function DataExplorerWorkspace() {
           onClose={tabs.closeTab}
           // A state read is honest for ONE human click — the picker's choice still goes
           // through `openTab`, which is the authority and refuses on its own synchronous
-          // count (SPEC-178). What this buys is the refusal arriving at the gesture that
+          // count. What this buys is the refusal arriving at the gesture that
           // asked for it, rather than one table-click later.
           onNew={() => (tabs.tabs.length >= EXPLORATION_TABS_MAX ? setLimitReached(true) : setPicking(true))}
         />
@@ -221,7 +221,7 @@ export function DataExplorerWorkspace() {
           className="flex min-h-0 flex-1 flex-col">
           <ExplorationResultsRegion
             tabId={tabs.activeTabId}
-            // The statement that RAN, so the disclosure (SPEC-182 FR-005) shows the string
+            // The statement that RAN, so the disclosure shows the string
             // handed to StartQueryExecution rather than a second rendering of it.
             sql={exploration.sql}
             queryExecutionId={exploration.queryExecutionId}
@@ -259,7 +259,7 @@ export function DataExplorerWorkspace() {
         </div>
       )}
 
-      {/* Mounting IS the open state (SPEC-183) — see the dialog's own note. */}
+      {/* Mounting IS the open state — see the dialog's own note. */}
       {saving && (
         <SaveExplorationDialog
           sql={saving.sql}

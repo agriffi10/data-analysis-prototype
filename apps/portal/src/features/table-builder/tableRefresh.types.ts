@@ -1,4 +1,4 @@
-// The refresh half of the table-builder request contract (SPEC-143/144), from the
+// The refresh half of the table-builder request contract, from the
 // browser's side. As with a create, the browser only SENDS this: eligibility, the
 // schema diff and the in-place rebuild are all server-side.
 

@@ -18,7 +18,7 @@ opposite: it raises, because the whole batch retrying is both correct and cheap 
 idempotent, and the conflict guard already ran).
 
 **A copy carries the source object's metadata, and the two paths do that DIFFERENTLY**
-(SPEC-171). ``CopyObject`` takes ``MetadataDirective: COPY``, which is also its default and is
+. ``CopyObject`` takes ``MetadataDirective: COPY``, which is also its default and is
 now passed explicitly. A multipart copy has no such directive: ``UploadPartCopy`` moves bytes
 and nothing else, so the destination's content type and user metadata are whatever
 ``CreateMultipartUpload`` was told — and it was told nothing, so **every object over

@@ -1,4 +1,4 @@
-# ── notifications module variables (SPEC-058) ────────────────────────────────
+# ── notifications module variables ────────────────────────────────
 # Bounded-context module for the per-user notifications inbox WRITE side: a FIFO
 # SQS queue that triggers a single notifications-writer Lambda directly (SQS
 # event-source mapping — no Pipe, no Step Function). The writer is the only writer
@@ -31,7 +31,7 @@ variable "account_id" {
 }
 
 variable "user_space_bucket_name" {
-  description = "Name of the user-space bucket (Bucket 1, SPEC-010). The writer reads/writes each user's {username}/user_settings/notifications.json here (env USER_SPACE_BUCKET + scoped in the writer policy). No new bucket is created."
+  description = "Name of the user-space bucket (Bucket 1). The writer reads/writes each user's {username}/user_settings/notifications.json here (env USER_SPACE_BUCKET + scoped in the writer policy). No new bucket is created."
   type        = string
 }
 
@@ -67,7 +67,7 @@ variable "dlq_max_receive_count" {
 # ── SPEC-137 structured logging ──────────────────────────────────────────────
 
 variable "logs_queue_arn" {
-  description = "Structured-logging queue ARN — the writer's ONLY sqs:SendMessage scope (SPEC-137 FR-005). The writer imports only `observability` from the cpcommon layer, so no cpcommon.config variable joins this pair."
+  description = "Structured-logging queue ARN — the writer's ONLY sqs:SendMessage scope. The writer imports only `observability` from the cpcommon layer, so no cpcommon.config variable joins this pair."
   type        = string
 }
 
@@ -77,7 +77,7 @@ variable "logs_queue_url" {
 
     Optional BY CONSTRUCTION on the Lambda side: cpcommon.observability reads it with
     os.environ.get and never config._require, so a writer deployed without it logs to
-    stdout instead of failing at cold start (PR #196). Passed here so it is set in
+    stdout instead of failing at cold start. Passed here so it is set in
     practice.
   EOT
   type        = string

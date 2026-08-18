@@ -17,7 +17,7 @@ type PageLayoutProps = {
    * line, then the `actions` cluster on its own full-width row beneath it. At
    * `≥ tablet` the header is the usual single inline row (title left, actions
    * right). Default false — other hosts (Connections/Help) are unaffected unless
-   * they opt in (SPEC-102).
+   * they opt in.
    */
   stackActionsOnMobile?: boolean;
   children: ReactNode;

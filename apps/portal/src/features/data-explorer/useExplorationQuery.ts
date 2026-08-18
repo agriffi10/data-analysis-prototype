@@ -53,7 +53,7 @@ function cap(entries: ExplorationQuery[]): ExplorationQuery[] {
 }
 
 /**
- * The one door through which a tab's query description changes (SPEC-181).
+ * The one door through which a tab's query description changes.
  *
  * Every gesture that renders SQL — a header menu, a cell filter, the expression bar, the
  * settings dialog, Remove all — lands here, which is what makes "one apply is one
@@ -154,7 +154,7 @@ export function useExplorationQuery(tabs: UseExplorationTabsResult, tabId: strin
 
   const clearAll = useCallback(() => {
     if (isEmptyQuery(query)) return;
-    // Grouping goes too (SPEC-182 FR-006 AC3), superseding SPEC-181's preservation — and
+    // Grouping goes too, superseding SPEC-181's preservation — and
     // the control SAYS so, because "Remove all filters" silently un-grouping a view would
     // be the change nobody asked for that the earlier decision was protecting against.
     apply(emptyExplorationQuery());

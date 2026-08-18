@@ -19,7 +19,7 @@ type QueryMobileViewProps = {
   /** Which list is showing; owned by the workspace so Back returns to it. */
   tab: MobileHomeTab;
   onTabChange: (tab: MobileHomeTab) => void;
-  /** Every space the user may load saved queries from, personal first (SPEC-174). */
+  /** Every space the user may load saved queries from, personal first. */
   spaces: QuerySpace[];
   space: QuerySpace | null;
   onSelectSpace: (spaceId: string) => void;
@@ -52,7 +52,7 @@ const TABS: ReadonlyArray<{value: MobileHomeTab; label: string}> = [
   {value: 'history', label: 'History'}
 ];
 
-// ≥44px touch target on a phone (SPEC-100 Phase 4).
+// ≥44px touch target on a phone.
 const cardAction =
   'inline-flex min-h-11 items-center rounded-sm px-2 py-1 text-sm font-semibold text-accent-text hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
@@ -99,7 +99,7 @@ export function QueryMobileView({
   runDisabled
 }: QueryMobileViewProps) {
   // Client-side Prev/Next over the in-memory newest-first history, mirroring the
-  // desktop drawer's pager (SPEC-042) — replace-style, never infinite scroll.
+  // desktop drawer's pager — replace-style, never infinite scroll.
   const [pageIndex, setPageIndex] = useState(0);
   const pageCount = Math.max(1, Math.ceil(history.length / QUERY_HISTORY_PAGE_SIZE));
   const safeIndex = Math.min(pageIndex, pageCount - 1);
@@ -113,8 +113,8 @@ export function QueryMobileView({
     if (history.length > prevLen) setPageIndex(0);
   }
 
-  // SPEC-174 FR-007: the same rows, the same hook and the same pager as the drawer —
-  // one tree that reflows, never a `*Mobile` twin of the list (SPEC-095).
+  // The same rows, the same hook and the same pager as the drawer —
+  // one tree that reflows, never a `*Mobile` twin of the list.
   const savedPager = useSavedQueriesPager({
     queries: savedQueries,
     hasMore: savedHasMore,
@@ -203,7 +203,7 @@ export function QueryMobileView({
                   </span>
                 </div>
                 {/* No SQL preview: a `.sql` file carries no body until it is read, and a
-                    preview per row would be a GetObject per row (SPEC-173 FR-006). */}
+                    preview per row would be a GetObject per row. */}
                 <p className="text-sm text-text-3">{formatBytes(q.size)}</p>
                 <div className="mt-2 flex items-center gap-3">
                   <div className="flex-1" />
@@ -274,7 +274,7 @@ export function QueryMobileView({
       )}
 
       {/* Follows the ROWS, not the error: a failed page keeps what is loaded and Prev
-          stays reachable (SPEC-174 FR-002 AC5). */}
+          stays reachable. */}
       {tab === 'saved' && !savedLoading && savedPager.page.length > 0 && (
         <Pager
           className="flex-none border-t border-border bg-surface px-4 py-3"

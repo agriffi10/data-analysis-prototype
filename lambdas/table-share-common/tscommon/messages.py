@@ -6,7 +6,7 @@ the source for a whole-request failure; success-target messages address the reci
 the recipient space's owner. Kept ASCII — no smart quotes.
 
 This module is the table and its wording; the resolution itself is ``cpcommon.messages``
-(SPEC-156 FR-002), which also marks these codes valid so they pass ``TerminalError``'s
+, which also marks these codes valid so they pass ``TerminalError``'s
 raise-time validation. ``unexpected_error`` is deliberately absent from the table below — it
 was declared here byte-identically to ``cpcommon``'s own and resolves through the base table
 now, rendering the same sentence.

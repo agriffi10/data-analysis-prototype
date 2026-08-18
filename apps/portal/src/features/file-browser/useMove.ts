@@ -42,7 +42,7 @@ export type UseMoveResult = BulkOperationState & {
 
 type Acc = {moved: number; errors: MoveSummary['errors']};
 
-// SPEC-019 Phase 2: orchestrates rename + move (single + multi-select) on top of
+// Orchestrates rename + move (single + multi-select) on top of
 // the moveObject/moveFolder service primitives. Mirrors useFileUpload's collision
 // warn-and-confirm and useDelete's aggregation. `sourcePrefix` is the current view
 // (the items' common parent); both it and any destination prefix are invalidated

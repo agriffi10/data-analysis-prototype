@@ -1,4 +1,4 @@
-# ── table-share module variables (SPEC-088) ──────────────────────────────────
+# ── table-share module variables ──────────────────────────────────
 # Bounded-context module for the "share a table across databases" control plane: a
 # DEDICATED FIFO SQS → EventBridge Pipe → Step Function pipeline that orchestrates
 # five single-task verb Lambdas (validate-authorize → inspect-source → Map(recipients):
@@ -41,7 +41,7 @@ variable "dlq_max_receive_count" {
 # ── SPEC-089: request contract + validate-authorize ──────────────────────────
 
 variable "portal_role_name" {
-  description = "SPEC-089: name of the shared portal role (SPEC-011) this module attaches the browser's sqs:SendMessage (table-share queue only) inline policy to, by name — mirrors the table-builder/notifications modules."
+  description = "SPEC-089: name of the shared portal role this module attaches the browser's sqs:SendMessage (table-share queue only) inline policy to, by name — mirrors the table-builder/notifications modules."
   type        = string
 }
 
@@ -58,7 +58,7 @@ variable "app_client_id" {
 }
 
 variable "admin_bucket_name" {
-  description = "SPEC-089: name of the existing analytics admin bucket (SPEC-032). The shared-spaces registry read for source authorization + recipient-space existence lives here. No bucket is created here."
+  description = "SPEC-089: name of the existing analytics admin bucket. The shared-spaces registry read for source authorization + recipient-space existence lives here. No bucket is created here."
   type        = string
   default     = ""
 }
@@ -66,13 +66,13 @@ variable "admin_bucket_name" {
 # ── SPEC-090: source resolution + copy plan ───────────────────────────────────
 
 variable "user_space_bucket_name" {
-  description = "SPEC-090: name of the user-space bucket (Bucket 1, SPEC-013). A personal source table's LOCATION resolves here; inspect-source lists it and the copy verbs read/write it (SPEC-091). No bucket is created here."
+  description = "SPEC-090: name of the user-space bucket (Bucket 1). A personal source table's LOCATION resolves here; inspect-source lists it and the copy verbs read/write it. No bucket is created here."
   type        = string
   default     = ""
 }
 
 variable "shared_space_bucket_name" {
-  description = "SPEC-090: name of the shared-space bucket (Bucket 2, SPEC-050). A shared source/recipient's LOCATION resolves here; inspect-source lists it and the copy verbs read/write it (SPEC-091). No bucket is created here."
+  description = "SPEC-090: name of the shared-space bucket (Bucket 2). A shared source/recipient's LOCATION resolves here; inspect-source lists it and the copy verbs read/write it. No bucket is created here."
   type        = string
   default     = ""
 }
@@ -80,7 +80,7 @@ variable "shared_space_bucket_name" {
 # ── SPEC-092: recipient table creation (create-table) ─────────────────────────
 
 variable "athena_workgroup" {
-  description = "SPEC-092: name of the shared analytics workgroup (SPEC-032) create-table runs the recipient CREATE EXTERNAL TABLE in — the same LF-enforced path the table-builder and app queries use. Scopes the execution role's athena:* grant and feeds the verbs' ATHENA_WORKGROUP env."
+  description = "SPEC-092: name of the shared analytics workgroup create-table runs the recipient CREATE EXTERNAL TABLE in — the same LF-enforced path the table-builder and app queries use. Scopes the execution role's athena:* grant and feeds the verbs' ATHENA_WORKGROUP env."
   type        = string
   default     = ""
 }
@@ -94,7 +94,7 @@ variable "logs_queue_arn" {
 }
 
 variable "logs_queue_url" {
-  description = "SPEC-136: URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda. Optional BY CONSTRUCTION on the Lambda side (os.environ.get, never config._require), so a verb missing it logs to stdout rather than crashing the plane at cold start (PR #196)."
+  description = "SPEC-136: URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda. Optional BY CONSTRUCTION on the Lambda side (os.environ.get, never config._require), so a verb missing it logs to stdout rather than crashing the plane at cold start."
   type        = string
   default     = ""
 }

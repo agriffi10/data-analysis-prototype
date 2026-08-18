@@ -99,12 +99,12 @@ def require(name: str) -> str:
 
     Exported rather than left private so a domain layer reaches for it instead of writing its
     own three-line ``os.environ`` check — one reader means one error sentence and one place the
-    fail-fast behaviour is decided (SPEC-156).
+    fail-fast behaviour is decided.
 
     **It is a FUNCTION, not a module attribute, and that is what keeps a domain config
     import-safe.** A constant resolved at import time in a layer module runs for every
     attaching function whether or not it uses the value, and an unset variable then crashes at
-    COLD START, where no test and no deploy can see it (PR #196).
+    COLD START, where no test and no deploy can see it.
 
     Args:
       name: The environment variable to read.

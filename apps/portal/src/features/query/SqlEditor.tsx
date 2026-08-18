@@ -53,7 +53,7 @@ function defineTheme(m: typeof monaco) {
 // registered when the first editor mounts and disposed only when the LAST unmounts.
 // Tying the lifetime to the ref-count — not a single component instance's unmount —
 // keeps autocomplete alive across query-tab switches and StrictMode's dev
-// mount→unmount→remount (SPEC-084): no disposed-then-never-re-registered gap, and no
+// mount→unmount→remount: no disposed-then-never-re-registered gap, and no
 // stacked duplicate providers. The provider reads the accessible databases' schemas
 // through this module-level ref, so it always sees the latest tables without rebinding.
 const completionSchemaRef: {current: DatabaseSchema[] | undefined} = {current: undefined};
@@ -81,9 +81,9 @@ function releaseSqlCompletions() {
 export type SqlEditorHandle = {
   /** Focuses the editor (used after re-opening a history entry / a table action). */
   focus: () => void;
-  /** The selection as buffer offsets, or null when empty (SPEC-078 FR-006). */
+  /** The selection as buffer offsets, or null when empty. */
   getSelectionRange: () => {start: number; end: number} | null;
-  /** The cursor position as a buffer offset (SPEC-078 FR-006). */
+  /** The cursor position as a buffer offset. */
   getCursorOffset: () => number;
 };
 
@@ -92,9 +92,9 @@ type SqlEditorProps = {
   onChange: (value: string) => void;
   /** ⌘/Ctrl+Enter in the editor triggers Run Statement; optional so the shell can mount the editor before the run handler is wired. */
   onRun?: () => void;
-  /** ⌘/Ctrl+Shift+Enter — Run Query Tab: every statement, single result (SPEC-078 FR-005). */
+  /** ⌘/Ctrl+Shift+Enter — Run Query Tab: every statement, single result. */
   onRunScriptSingle?: () => void;
-  /** ⌘/Ctrl+Alt+Enter — Run Multiple Queries: every statement, one result tab each (SPEC-078 FR-005). */
+  /** ⌘/Ctrl+Alt+Enter — Run Multiple Queries: every statement, one result tab each. */
   onRunScriptTabs?: () => void;
   /**
    * The accessible databases' schemas feeding the schema-aware completion
@@ -162,7 +162,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, SqlEditorProps>(function Sq
     editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.Enter, () => {
       onRunRef.current?.();
     });
-    // SPEC-078 FR-005: the two whole-script scopes' shortcuts.
+    // The two whole-script scopes' shortcuts.
     editor.addCommand(m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.Enter, () => {
       onRunScriptSingleRef.current?.();
     });

@@ -12,7 +12,7 @@ export type CostIndicatorProps = {
 export const CACHE_HIT_TEXT = 'Loaded from an earlier run in this tab — nothing more scanned';
 
 /**
- * What the last apply cost, and what this tab has cost (SPEC-181 FR-008).
+ * What the last apply cost, and what this tab has cost.
  *
  * Reported after the fact, always: Athena will not say what a query will scan before it
  * runs it, so there is no pre-flight estimate to warn on and no honest "this looks

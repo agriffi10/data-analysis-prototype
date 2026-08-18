@@ -20,16 +20,16 @@ export type ExplorationGridProps = {
   rangeStart: number;
   geometry: UseColumnGeometryResult;
   selection: UseCellSelectionResult;
-  /** Ordering and filtering, for each column header's menu (SPEC-181). */
+  /** Ordering and filtering, for each column header's menu. */
   actions: ColumnQueryActions;
-  /** Resolved colours and bands for this page (SPEC-184). Costs nothing and changes no rows. */
+  /** Resolved colours and bands for this page. Costs nothing and changes no rows. */
   formatting: PageFormatting;
   /** A comparison was chosen and needs a value; the REGION raises the dialog, not the header. */
   onRequestFilterValue: (column: string, operator: FilterOperator) => void;
   /** A header drag started (the column) or ended (null) — for drop targets outside the grid. */
   onColumnDrag?: (name: string | null) => void;
   /**
-   * Ctrl/Cmd+C over the grid (SPEC-185 FR-001 AC1).
+   * Ctrl/Cmd+C over the grid.
    *
    * Handled here rather than inside `useCellSelection` because copying is not a selection
    * gesture: the hook answers what is selected, and the region owns what a selection is
@@ -42,7 +42,7 @@ export type ExplorationGridProps = {
 };
 
 /**
- * The results grid (SPEC-180), replacing SPEC-179's placeholder table.
+ * The results grid, replacing SPEC-179's placeholder table.
  *
  * A cell is addressed by its column's NAME and its row's position on the page, so the
  * display order the geometry resolves is free to differ from the execution's — every cell

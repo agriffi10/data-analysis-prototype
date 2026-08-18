@@ -1,7 +1,7 @@
 // Node's experimental `localStorage` (--localstorage-file) shadows jsdom's and is
 // non-functional in this runner, so tests that touch localStorage install a fresh
 // in-memory Storage. Used by test-setup (a baseline install) and by prefs specs that
-// stub a clean store per test (e.g. useRailCollapsed / CollapsibleRail, SPEC-085).
+// stub a clean store per test (e.g. useRailCollapsed / CollapsibleRail).
 
 class MemoryStorage {
   private store = new Map<string, string>();

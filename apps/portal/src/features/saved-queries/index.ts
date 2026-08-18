@@ -1,4 +1,4 @@
-// The `.sql` store (SPEC-173/174/175), extracted from `features/query/` by SPEC-177 so
+// The `.sql` store, extracted from `features/query/` by SPEC-177 so
 // the Query workspace and the Data Explorer can both save and load a saved query without
 // either importing the other. The space a query lives in is a `QuerySpace` from
 // `features/catalog/`; the Query workspace's own rail panel (`SavedQueriesPanel`) stays

@@ -57,7 +57,7 @@ export type ExplorationResultsRegionProps = {
   /** The tab these rows belong to — what the fallback execution below is scoped by. */
   tabId: string;
   /**
-   * The statement that was run, straight from `useExploration` (SPEC-182 FR-005).
+   * The statement that was run, straight from `useExploration`.
    *
    * Passed down rather than rendered here, so the disclosure shows the string the
    * execution used and the two cannot drift.
@@ -84,11 +84,11 @@ export type ExplorationResultsRegionProps = {
   /** The active tab's presentation state — the grid's geometry lives here. */
   presentation: ExplorationPresentation;
   onPresentationChange: (update: (presentation: ExplorationPresentation) => ExplorationPresentation) => void;
-  /** The query description and every operation over it (SPEC-181). */
+  /** The query description and every operation over it. */
   queryControls: UseExplorationQueryResult;
-  /** Raises the save dialog (SPEC-183). The host owns the write; this owns the gesture. */
+  /** Raises the save dialog. The host owns the write; this owns the gesture. */
   onSaveQuery: () => void;
-  /** Raises the export dialog (SPEC-185 FR-002). The host owns the copy; this owns the gesture. */
+  /** Raises the export dialog. The host owns the copy; this owns the gesture. */
   onExport: () => void;
   /**
    * Why export is unavailable, or null when it is.
@@ -102,7 +102,7 @@ export type ExplorationResultsRegionProps = {
 
 export const NO_CELL_TO_FILTER = 'Select a cell first.';
 /**
- * Why the percentage column takes no filter and no sort (SPEC-182 FR-004 AC2).
+ * Why the percentage column takes no filter and no sort.
  *
  * It is computed in the browser and appended to the result, so there is no such column in
  * the SQL: an `ORDER BY` on it is a description `renderExplorationSql` REFUSES — which
@@ -117,7 +117,7 @@ export const SUSPENDED_TEXT = 'This set of filters failed last time it ran. Noth
 /** No statement exists yet: nothing rendered, or a suspended description was held back. */
 export const NOTHING_TO_SAVE = 'There’s no query to save yet — nothing has run.';
 /**
- * Why a FAILED exploration cannot be saved (SPEC-183 FR-002).
+ * Why a FAILED exploration cannot be saved.
  *
  * Its own wording because its own state: there IS a statement here, and it is the one
  * Athena rejected. The rows under the banner are the LAST GOOD execution's, so saving would
@@ -158,7 +158,7 @@ export const NOTHING_TO_EXPORT = 'Run a query first — export saves the results
  * banner rather than emptying the grid. `useQueryResults` is pointed at that execution
  * while the current one is failed; paging it costs nothing, as paging never does.
  *
- * Errors go through `ErrorBanner` (SPEC-106): Athena's own text never reaches a user, and
+ * Errors go through `ErrorBanner`: Athena's own text never reaches a user, and
  * neither does an `ExplorationRenderError`, whose message names a column for an operator.
  */
 export function ExplorationResultsRegion({
@@ -252,13 +252,13 @@ export function ExplorationResultsRegion({
     setLastGood({tabId, executionId: shownExecutionId});
   }
 
-  // SPEC-180 FR-006: a `table` source knows its columns from Glue before anything runs, a
+  // a `table` source knows its columns from Glue before anything runs, a
   // `sql` source only from the execution. The execution's own metadata WINS once it lands
   // — grouping changes the column set entirely, and Glue would still be describing the
   // table underneath it.
   const executionColumns = results.columns.length > 0 ? results.columns : schemaColumns;
 
-  // SPEC-182 FR-004 AC2: the percentage is computed HERE, from rows already fetched, and
+  // The percentage is computed HERE, from rows already fetched, and
   // appended as a real column so it sizes, hides and pins like any other. It is deliberately
   // not in the SQL — a windowed total would be a second scan of the same data for a column
   // the user asked to SEE.
@@ -363,7 +363,7 @@ export function ExplorationResultsRegion({
 
   // FR-007: below `tablet` an UNCHOSEN tab opens in Record — a horizontally-scrolling grid
   // on a 400px screen is not a data explorer. `useIsMobile` decides which view MOUNTS,
-  // never how anything is styled (SPEC-095 FR-008), and a tab whose user HAS chosen keeps
+  // never how anything is styled, and a tab whose user HAS chosen keeps
   // that choice at every width, which is what `presentation: null` exists to express.
   const isMobile = useIsMobile();
   const view: GridPresentation = presentation.presentation ?? (isMobile ? 'record' : 'grid');
@@ -391,7 +391,7 @@ export function ExplorationResultsRegion({
   const cursorRow = view === 'record' ? recordRow : selection.selection.cursor.row;
   // THE RAW CELL VALUE, never `cellText` and never a formatted rendering (FR-002 AC2): a
   // NULL reads as "NULL" on screen and a transformed URL will not look like its value at
-  // all (SPEC-184), and either one as a predicate matches nothing.
+  // all, and either one as a predicate matches nothing.
   const cursorValue = cursorColumn ? rows[cursorRow]?.[cursorColumn.index] : undefined;
 
   // Suspended is not loading: nothing is in flight, deliberately. Without this the status
@@ -415,7 +415,7 @@ export function ExplorationResultsRegion({
       valueKindOf(cursorColumn.name) === 'number' &&
       !isBareNumeric(cursorValue) /* a numeric column's value is emitted BARE, so one
         the renderer would refuse has to be refused at the gesture instead — the refusal
-        it throws is operator text (SPEC-106). */
+        it throws is operator text. */
         ? UNFILTERABLE_VALUE
         : null));
 

@@ -47,7 +47,7 @@ Attributes:
     knows. Substitution is a plain replace on named markers, never string formatting, so a
     literal brace in an S3 key cannot raise.
   resolver: The domain-scoped resolver over the shared base table, carrying this plane's
-    prefix and access-denied clause as well as its bodies (SPEC-156 FR-002).
+    prefix and access-denied clause as well as its bodies.
 """
 
 from cpcommon import messages as _cpmessages

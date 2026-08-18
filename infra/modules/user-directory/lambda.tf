@@ -1,9 +1,9 @@
-# ── The username-directory builder + its daily schedule (SPEC-146 FR-006) ────
+# ── The username-directory builder + its daily schedule ────
 # One function, one schedule, one published object. It lists the user-space bucket's
 # top-level common prefixes and publishes them as a sorted JSON document the browser reads to
-# suggest usernames (SPEC-147/148).
+# suggest usernames.
 #
-# Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
+# Code-ownership split (architecture.md): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml owns the Python code and attaches
 # the cpcommon layer. `ignore_changes` keeps `tofu apply` from reverting CI's deployed code.
 
@@ -54,7 +54,7 @@ resource "aws_lambda_function" "build" {
       # cpcommon.observability reads it with os.environ.get, so a builder that somehow loses
       # this variable logs to stdout and still publishes rather than crashing at cold start.
       LOGS_QUEUE_URL = var.logs_queue_url
-      # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+      # `env` shipped empty on every record. Same source of truth as the
       # feature-flag document's `environments` keys (`var.environment`, default "prod").
       ENV_NAME = var.environment
     }

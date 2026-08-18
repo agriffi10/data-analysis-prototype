@@ -74,7 +74,7 @@ export function useDataQualityCheck(): UseDataQualityCheckResult {
           // `toast: false` suppresses the SUCCESS toast only. A caller opts out because it
           // has a better receipt of its own (the dashboard's banner), never because it wants
           // a silent failure — and no caller re-implements the failure wording, which is
-          // `toUserMessage`'s and lives here (SPEC-124 FR-004).
+          // `toUserMessage`'s and lives here.
           if (opts?.toast !== false) {
             toast.push({
               variant: 'success',

@@ -42,7 +42,7 @@ type Params = {
 };
 
 /**
- * The below-`tablet` query surface (SPEC-100): a browse-first home over saved
+ * The below-`tablet` query surface: a browse-first home over saved
  * queries and history, and a read-only results view. There is no editor here,
  * so a run started from this surface is tracked by a token rather than by the
  * tab's editor buffer.
@@ -74,7 +74,7 @@ export function useMobileQuerySurface({isMobile, activeTabId, runs, submitBatch}
     }
   }
 
-  // SPEC-100 FR-004/006: run a saved/history entry from the mobile home through
+  // Run a saved/history entry from the mobile home through
   // the SAME run path the editor uses, then show the results view.
   // The tab's SQL is deliberately NOT set here: submitBatch takes the statements
   // explicitly, and writing the editor buffer would overwrite (and persist over)

@@ -22,7 +22,7 @@ function splitFileName(name: string): {base: string; ext: string} {
   return {base: name.slice(0, dot), ext: name.slice(dot)};
 }
 
-// SPEC-019 FR-002: rename a file or folder. The new name is validated with the
+// Rename a file or folder. The new name is validated with the
 // same rules as create-folder/upload (non-empty trimmed, no `/`, no
 // leading/trailing whitespace, no control chars). Modal; Escape cancels; the input
 // is prefilled with the current name and the Rename action is disabled until the

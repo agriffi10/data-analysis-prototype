@@ -1,4 +1,4 @@
-# ── Builder execution role (SPEC-146 FR-005) ─────────────────────────────────
+# ── Builder execution role ─────────────────────────────────
 # It lists one bucket, writes one object, and emits log events. No Cognito (the source is S3,
 # deliberately — see build_directory.py's module docstring), no Glue, no Athena, no
 # notifications queue: nobody is told when the directory is rebuilt.

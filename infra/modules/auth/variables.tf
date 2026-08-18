@@ -23,17 +23,17 @@ variable "cognito_domain_prefix" {
 # ── SPEC-033 post-confirmation provisioning Lambda inputs ────────────────────
 
 variable "aws_region" {
-  description = "AWS region — used to scope the post-confirmation Lambda exec role's Glue ARNs (SPEC-033)."
+  description = "AWS region — used to scope the post-confirmation Lambda exec role's Glue ARNs."
   type        = string
 }
 
 variable "account_id" {
-  description = "AWS account ID — used to build the Glue catalog/database ARNs in the post-confirmation Lambda exec role policy (SPEC-033)."
+  description = "AWS account ID — used to build the Glue catalog/database ARNs in the post-confirmation Lambda exec role policy."
   type        = string
 }
 
 variable "portal_role_arn" {
-  description = "ARN of the shared portal IAM role (SPEC-011). The post-confirmation Lambda receives this via env var and targets it in the per-database Lake Formation grant (SPEC-033 FR-002)."
+  description = "ARN of the shared portal IAM role. The post-confirmation Lambda receives this via env var and targets it in the per-database Lake Formation grant."
   type        = string
 }
 
@@ -53,7 +53,7 @@ variable "max_shared_memberships" {
 # at import — PR #196; it is now enforced by a source scan and an import probe.)
 
 variable "logs_queue_arn" {
-  description = "Structured-logging queue ARN — the ONLY sqs:SendMessage scope granted to either trigger's exec role (SPEC-137 FR-005). A CONSTRUCTED string from the root locals, not module.observability's output: module.observability consumes this module's user_pool_id, so a real reference here is a module cycle."
+  description = "Structured-logging queue ARN — the ONLY sqs:SendMessage scope granted to either trigger's exec role. A CONSTRUCTED string from the root locals, not module.observability's output: module.observability consumes this module's user_pool_id, so a real reference here is a module cycle."
   type        = string
 }
 
@@ -63,7 +63,7 @@ variable "logs_queue_url" {
 
     Optional BY CONSTRUCTION on the Lambda side: cpcommon.observability reads it with
     os.environ.get and never config._require, so a trigger deployed without it logs to
-    stdout instead of failing at cold start (PR #196). Passed here so it is set in
+    stdout instead of failing at cold start. Passed here so it is set in
     practice. Constructed at the root for the cycle reason in logs_queue_arn.
   EOT
   type        = string

@@ -1,4 +1,4 @@
-# ── Lake Formation bootstrap (SPEC-032 FR-004) ───────────────────────────────
+# ── Lake Formation bootstrap ───────────────────────────────
 # Make LF the enforcing authority for the Glue Data Catalog: designate admins and
 # remove the default IAMAllowedPrincipals "Super" grants, so new databases/tables
 # get NO automatic catalog-wide access and LF genuinely gates the catalog.
@@ -6,7 +6,7 @@
 # SAFE TO ENABLE NOW because:
 #   (a) the file browser reads the user-space bucket via direct S3 IAM (hybrid mode,
 #       FR-005) — NOT through LF — so removing the Super grant doesn't touch it;
-#   (b) no per-user Glue databases exist yet (SPEC-033), so there's nothing to lock
+# (b) no per-user Glue databases exist yet, so there's nothing to lock
 #       out. The end-to-end query path only works once SPEC-033's post-confirmation
 #       Lambda creates a user's database AND LF-grants the shared role on it.
 # Until then, FR-006's Glue IAM scoping + this enforcement simply deny catalog
@@ -20,14 +20,14 @@ resource "aws_lakeformation_data_lake_settings" "this" {
   # removed once confirmed.) All ARNs are KNOWN at plan time (constructed strings);
   # an unknown element inside this compact() silently drops the admins change.
   # compact() also drops any empty ARN so the module still plans standalone.
-  #   - shared-space orchestrator (SPEC-056) — grants on shared DBs + the shared
+  # - shared-space orchestrator — grants on shared DBs + the shared
   #     location; constructed string, ordered after module.shared_spaces so it exists.
   #   - table-builder execution role (SPEC-070; shared by all five verbs) — Describes
   #     (check-table-absent) + CREATEs (execute-ddl) tables in the dynamic per-user +
   #     per-shared-space target DBs (can't be statically enumerated → catalog-wide
   #     Describe/create via LF admin). Constructed string; the role is created by
   #     module.table_builder (which depends_on this module), so a from-scratch first
-  #     apply may need a re-run once the role exists (SPEC-070 FR-005).
+  # apply may need a re-run once the role exists.
   #   - table-share execution role (SPEC-092; same model) — reads LF-gated source
   #     tables (inspect-source), Describes recipient DBs (check-target-absent) and
   #     CREATEs the clone tables (create-table) in the dynamic recipient DBs.
@@ -55,10 +55,10 @@ resource "aws_lakeformation_data_lake_settings" "this" {
   depends_on = [time_sleep.wait_for_deploy_policy]
 }
 
-# ── Hybrid-mode registration of the user-space bucket (SPEC-032 FR-005) ──────
+# ── Hybrid-mode registration of the user-space bucket ──────
 # Register the user-space bucket as an LF location in HYBRID access mode so the
 # same data is reachable two ways:
-#   - NON-opted-in principals (the file browser, SPEC-013 direct S3 IAM) — unchanged
+# - NON-opted-in principals (the file browser direct S3 IAM) — unchanged
 #   - opted-in principals (the portal role for analytics) — via LF credential vending
 # LF assumes the custom registration role (iam.tf) to vend creds for this location.
 #
@@ -72,7 +72,7 @@ resource "aws_lakeformation_resource" "user_space" {
   depends_on = [aws_iam_role_policy.lf_registration]
 }
 
-# Data-location grant (SPEC-032 FR-005): the shared portal role needs
+# Data-location grant: the shared portal role needs
 # DATA_LOCATION_ACCESS on the registered location to CREATE any table over it —
 # both CREATE EXTERNAL TABLE (read-only) and CTAS / INSERT INTO (writes). This is a
 # single location-level grant (not per-user); per-user gating still comes from IAM
@@ -119,7 +119,7 @@ locals {
 }
 
 # NOTE `portal-managed` (this, a Lake Formation tag on DATABASES, hyphenated) is NOT
-# `portal.managed` (a table TBLPROPERTY, dotted — cpcommon/ddl.py, SPEC-143 FR-007). This
+# `portal.managed` (a table TBLPROPERTY, dotted — cpcommon/ddl.py). This
 # one GRANTS: it is how the control-plane roles get CREATE_TABLE in dynamic databases.
 # That one only RECORDS that the portal created a table, and nothing reads it to decide
 # anything. One character apart, unrelated jobs.

@@ -1,4 +1,4 @@
-# ── Constructed names + ARNs (SPEC-088) ──────────────────────────────────────
+# ── Constructed names + ARNs ──────────────────────────────────────
 # All resource names derive from {project_name}-{environment} so the deploy policy
 # (modules/base, the SPEC-088 PR1 grant) scopes to the same {project}-*-table-share-*
 # patterns, and so cross-resource ARNs referenced inside IAM policy templates are
@@ -19,7 +19,7 @@ locals {
   # (execution.json.tftpl) grows with the arc: logs (088) + registry/Cognito/Glue
   # reads (089) + source-bucket listing (090); the copy/create + LF-admin grants
   # land with SPEC-091/092. ARN is a constructed string (known at plan time) for
-  # the later cycle-free LF-admin wiring from root (SPEC-092).
+  # the later cycle-free LF-admin wiring from root.
   execution_role_name = "${var.project_name}-${var.environment}-table-share-execution-role"
   execution_role_arn  = "arn:aws:iam::${var.account_id}:role/${var.project_name}-${var.environment}-table-share-execution-role"
 
@@ -30,7 +30,7 @@ locals {
   # validate-authorize / inspect-source / build-transfer-manifest /
   # collect-transfer-results run once per request; check-target-absent and
   # create-table run per recipient in the guard and finish Maps; copy-objects runs
-  # once per BATCH inside the Distributed Map (stepfunction.tf, SPEC-160).
+  # once per BATCH inside the Distributed Map (stepfunction.tf).
   # Module names carry the table_share_ prefix so they can't collide with the
   # table-builder's identically-named verbs on sys.modules under one
   # `pytest lambdas/` process (the tbcommon-package lesson, applied to verb modules).
@@ -122,7 +122,7 @@ locals {
   # for the batch verb. A test asserts the pair still match, because two homes for one number is
   # how a batch quietly grows past the limit it was sized against.
   #
-  # SPEC-161: the batch equals COPY_CONCURRENCY (8) on purpose. copy_batch gives one WHOLE object
+  # The batch equals COPY_CONCURRENCY (8) on purpose. copy_batch gives one WHOLE object
   # to each worker and copy_one part-copies serially, so a batch costs ceil(items/workers) rounds
   # of its slowest object — a makespan, not bytes over a bandwidth. At 8 that ceiling is one
   # round, so a batch costs one object's time. At 10 it was two rounds and 859s against a 900s

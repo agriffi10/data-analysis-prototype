@@ -11,7 +11,7 @@ type Props = {
 };
 
 /**
- * SPEC-087 FR-002: the "Rows per page" control above the results grid. Free-form
+ * the "Rows per page" control above the results grid. Free-form
  * integer entry, committed on blur or Enter (never per keystroke); invalid input
  * reverts to the last committed value, out-of-range input is clamped (FR-003);
  * Escape abandons the draft. The label is programmatically associated, so the

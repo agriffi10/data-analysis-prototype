@@ -27,7 +27,7 @@ export type ExplorationGridHeaderProps = {
   onColumnDrag?: (name: string | null) => void;
   /** Clicking the header selects the whole column (FR-002 AC3). */
   onSelectColumn: (name: string) => void;
-  /** Ordering and filtering, for each column's own menu (SPEC-181 FR-001). */
+  /** Ordering and filtering, for each column's own menu. */
   actions: ColumnQueryActions;
   /** A comparison needs a value; the region raises the dialog (`Modal` does not portal). */
   onRequestFilterValue: (column: string, operator: FilterOperator) => void;

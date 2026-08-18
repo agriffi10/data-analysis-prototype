@@ -72,7 +72,7 @@ def _parse_request(event):
 
     The envelope handling is ``cpcommon.events.parse_sqs_request``, which this plane had its
     own copy of — identical bar the exception type, which the shared one now takes as a factory
-    (SPEC-156 FR-005). ``AuthorizationError`` is what this plane's Standard Step Function's
+    . ``AuthorizationError`` is what this plane's Standard Step Function's
     Catch is written against, so it stays the type that leaves here.
 
     Args:

@@ -22,7 +22,7 @@ import, the failure below raises a validation error in any process that has not 
 imported it — true of a process importing only this module, and the same class of import-order
 trap that once shipped three unraisable reason codes.
 
-This module also owns the transfer manifest's KEY LAYOUT (SPEC-160). The manifest's bytes and
+This module also owns the transfer manifest's KEY LAYOUT. The manifest's bytes and
 its reader belong to ``cpcommon.transfer`` — the engine is shared with the file-send and
 archive planes — but where table-share puts it, and what makes that key unique, is this
 plane's business and belongs beside the plan it sits next to.

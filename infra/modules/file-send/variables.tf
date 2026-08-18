@@ -1,4 +1,4 @@
-# ── file-send module variables (SPEC-164) ────────────────────────────────────
+# ── file-send module variables ────────────────────────────────────
 # Bounded-context module for the "send files to another person or space" control
 # plane: a DEDICATED FIFO SQS → EventBridge Pipe → Step Function pipeline running
 # single-task verb Lambdas on ONE shared execution role. Mirrors the table-share
@@ -6,13 +6,13 @@
 # (Control Planes -> Send Files).
 #
 # ITS OWN PLANE, NOT A MODE OF TABLE SHARE. The two features share an ALGORITHM
-# (cpcommon.transfer, SPEC-160) and nothing else — different request contract,
+# (cpcommon.transfer) and nothing else — different request contract,
 # different authorization question, different failure vocabulary. Folding them
 # together would put one queue and one DLQ under two unrelated user features, and a
 # malformed send would dead-letter someone's table share.
 #
 # SPEC-164 is FOUNDATION + THE FRONT DOOR: plumbing, the request contract and
-# validate-authorize. Nothing is listed, planned or copied (SPEC-165/166). Cross-module
+# validate-authorize. Nothing is listed, planned or copied. Cross-module
 # ARNs are CONSTRUCTED STRINGS (passed from root locals), never another module's
 # output, so they are known at plan time (architecture.md "unknown ARN in list" trap)
 # and this module plans standalone.
@@ -44,7 +44,7 @@ variable "dlq_max_receive_count" {
 }
 
 variable "portal_role_name" {
-  description = "SPEC-164 FR-005: name of the shared portal role (SPEC-011) this module attaches the browser's sqs:SendMessage (file-send queue only) inline policy to, by name — mirrors the table-builder/table-share/notifications modules. No cross-prefix S3 write is ever granted to a user."
+  description = "SPEC-164 FR-005: name of the shared portal role this module attaches the browser's sqs:SendMessage (file-send queue only) inline policy to, by name — mirrors the table-builder/table-share/notifications modules. No cross-prefix S3 write is ever granted to a user."
   type        = string
 }
 
@@ -61,19 +61,19 @@ variable "app_client_id" {
 }
 
 variable "admin_bucket_name" {
-  description = "SPEC-164 FR-003/FR-004: name of the existing analytics admin bucket (SPEC-032). The shared-spaces registry read for source authorization + recipient-space existence lives here. No bucket is created by this module."
+  description = "SPEC-164 FR-003/FR-004: name of the existing analytics admin bucket. The shared-spaces registry read for source authorization + recipient-space existence lives here. No bucket is created by this module."
   type        = string
   default     = ""
 }
 
 variable "user_space_bucket_name" {
-  description = "SPEC-164: name of the user-space bucket (Bucket 1, SPEC-013). A personal source resolves here, and a `user` recipient's inbox is written here by SPEC-166. Set as USER_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage. No bucket is created by this module."
+  description = "SPEC-164: name of the user-space bucket (Bucket 1). A personal source resolves here, and a `user` recipient's inbox is written here by SPEC-166. Set as USER_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage. No bucket is created by this module."
   type        = string
   default     = ""
 }
 
 variable "shared_space_bucket_name" {
-  description = "SPEC-164: name of the shared-space bucket (Bucket 2, SPEC-050). A shared source resolves here, and a `space` recipient's inbox is written here by SPEC-166. Set as SHARED_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage. No bucket is created by this module."
+  description = "SPEC-164: name of the shared-space bucket (Bucket 2). A shared source resolves here, and a `space` recipient's inbox is written here by SPEC-166. Set as SHARED_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage. No bucket is created by this module."
   type        = string
   default     = ""
 }
@@ -85,7 +85,7 @@ variable "logs_queue_arn" {
 }
 
 variable "logs_queue_url" {
-  description = "SPEC-136 parity: URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda. Optional BY CONSTRUCTION on the Lambda side (os.environ.get, never config._require), so a verb missing it logs to stdout rather than crashing the plane at cold start (PR #196)."
+  description = "SPEC-136 parity: URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda. Optional BY CONSTRUCTION on the Lambda side (os.environ.get, never config._require), so a verb missing it logs to stdout rather than crashing the plane at cold start."
   type        = string
   default     = ""
 }

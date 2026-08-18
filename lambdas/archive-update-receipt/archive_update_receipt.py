@@ -54,7 +54,7 @@ def _fallback_record(event) -> dict:
     ordinary path rewrites rather than re-renders.
 
     ``Request ID`` is the ARCHIVE's id and not this restore's. They are deliberately different
-    values (SPEC-170 FR-001), and the one that belongs on this document is the one that opened it.
+    values, and the one that belongs on this document is the one that opened it.
 
     Args:
       event: The validated restore request.

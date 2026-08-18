@@ -10,7 +10,7 @@ type HelpSidebarProps = {
   onSelect: (id: HelpSectionId) => void;
 };
 
-// Presentation-only compact labels for the narrowed tablet rail (SPEC-103 FR-002).
+// Presentation-only compact labels for the narrowed tablet rail.
 // Full labels are shown at desktop; not part of the content model (`helpContent.ts`).
 const SHORT_SECTION_LABELS: Partial<Record<HelpSectionId, string>> = {
   'shared-connections': 'Shared'

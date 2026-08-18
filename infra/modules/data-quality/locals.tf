@@ -1,4 +1,4 @@
-# ── Constructed names + ARNs (SPEC-108) ──────────────────────────────────────
+# ── Constructed names + ARNs ──────────────────────────────────────
 # All resource names derive from {project_name}-{environment} so the deploy policy
 # (modules/base, the SPEC-108 PR1 grant) scopes to the same {project}-*-data-quality-*
 # patterns, and so cross-resource ARNs referenced inside IAM policy templates are KNOWN
@@ -26,7 +26,7 @@ locals {
   # lambdas/data-quality-<suffix>/ subdir AND the deploy-lambdas.yml matrix name
   # "data-quality-<suffix>"); value = the handler + the task's real timeout/memory.
   #
-  # BOTH timeout AND memory_size are set explicitly for every verb (SPEC-108 FR-002).
+  # BOTH timeout AND memory_size are set explicitly for every verb.
   # The precedent this fixes, precisely: the shared-space verbs set `timeout = 60` but
   # NEVER set `memory_size` (infra/modules/shared-spaces/lambda.tf:46), leaving it at
   # the AWS default of 128 MB. It is the MEMORY default that was left implicit there,
@@ -77,7 +77,7 @@ locals {
   # Per-verb extra env, merged over the common env (lambda.tf). RESERVED FOR OPTIONAL
   # action env only: everything cpcommon/config.py _require()s must live in the COMMON
   # env instead — the shared layer's import-time fail-fast runs for every verb that
-  # imports it, so a verb missing any required var crashes at cold start (PR #196).
+  # imports it, so a verb missing any required var crashes at cold start.
   data_quality_verb_env = {}
 
   # Constructed function ARNs (known at plan time) — fed to the SFN role's
@@ -109,7 +109,7 @@ locals {
   # an EXPLICIT COLUMN LIST for a Parquet or JSON external table and does NOT auto-detect
   # a Parquet schema, so that list must come from inspect-source's per-file probe — and
   # reading a Parquet footer needs a Parquet reader. "This arc needs no polars" would
-  # make its own Parquet support (SPEC-110 FR-002) impossible to build. No fastexcel:
+  # make its own Parquet support impossible to build. No fastexcel:
   # this arc does not support Excel (convert it first, then check the Parquet).
   polars_layer_name = "${var.project_name}-${var.environment}-data-quality-polars"
 
@@ -117,7 +117,7 @@ locals {
   sfn_log_group_arn  = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:${local.sfn_log_group_name}"
   state_machine_arn  = "arn:aws:states:${var.aws_region}:${var.account_id}:stateMachine:${local.state_machine_name}"
 
-  # Bucket ARNs for the execution role's S3 statements (SPEC-109 FR-006).
+  # Bucket ARNs for the execution role's S3 statements.
   user_space_bucket_arn   = "arn:aws:s3:::${var.user_space_bucket_name}"
   shared_space_bucket_arn = "arn:aws:s3:::${var.shared_space_bucket_name}"
   admin_bucket_arn        = "arn:aws:s3:::${var.admin_bucket_name}"
@@ -129,7 +129,7 @@ locals {
   # run proved it. The ARN scopes the execution role's athena:StartQueryExecution etc.
   athena_workgroup_arn = "arn:aws:athena:${var.aws_region}:${var.account_id}:workgroup/${var.athena_workgroup}"
 
-  # Glue catalog ARNs for the temp-table grants (SPEC-111 FR-006). WILDCARD database and
+  # Glue catalog ARNs for the temp-table grants. WILDCARD database and
   # table on purpose: the temp table is created in the actor's own database (personal) or
   # the shared space's (shared), so the target is only known at request time and cannot be
   # enumerated in static Terraform. Same shape as table-builder/locals.tf:92-94.

@@ -1,4 +1,4 @@
-# ── Table-builder Step Function (SPEC-066 FR-001) ────────────────────────────
+# ── Table-builder Step Function ────────────────────────────
 # Standard state machine — TWO branches over one shared spine since SPEC-143:
 # validate-authorize → {check-table-absent | load-table-definition} → inspect-source →
 # infer-schema → {execute-ddl → Succeed | the refresh tail}. Each Task retries only transient Lambda

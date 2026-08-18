@@ -4,7 +4,7 @@ One place maps each stable terminal reason code to friendly text, so every verb 
 agree on the wording. Kept ASCII — no smart quotes.
 
 This module is the table and its wording; the resolution itself is ``cpcommon.messages``
-(SPEC-156 FR-002), which also marks these codes valid so they pass ``TerminalError``'s
+, which also marks these codes valid so they pass ``TerminalError``'s
 raise-time validation. ``unexpected_error`` is deliberately absent — it resolves through the
 base table and renders the same sentence everywhere.
 

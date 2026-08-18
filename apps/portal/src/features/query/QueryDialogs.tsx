@@ -53,7 +53,7 @@ export function QueryDialogs({clear, save, closing, tabLimit, createView, drop, 
       )}
       {save.open && (
         <SaveQueryDialog
-          // Remounted per open, so the space control re-defaults each time (SPEC-175 FR-001).
+          // Remounted per open, so the space control re-defaults each time.
           initialName={save.initialName}
           spaces={save.spaces}
           initialSpace={save.initialSpace}

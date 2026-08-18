@@ -24,7 +24,7 @@ variable "dlq_arns" {
 }
 
 variable "logs_queue_arn" {
-  description = "Structured-logging queue ARN — the drain sends its events here (SPEC-133 FR-007)."
+  description = "Structured-logging queue ARN — the drain sends its events here."
   type        = string
 }
 
@@ -34,7 +34,7 @@ variable "logs_queue_url" {
 
     Optional BY CONSTRUCTION on the Lambda side: cpcommon.observability reads it with
     os.environ.get and never config._require, so a drain deployed without it logs to stdout
-    instead of failing at cold start (PR #196). Passed here so it is set in practice.
+    instead of failing at cold start. Passed here so it is set in practice.
   EOT
   type        = string
 }
@@ -60,7 +60,7 @@ variable "app_client_id" {
 }
 
 variable "user_space_bucket_name" {
-  description = "Not used by the drain. Required by the cpcommon layer's config, which resolves on first READ rather than at import (SPEC-156 FR-004) — so a missing value is no longer a cold-start crash (PR #196) but a failure on whichever branch reads it first. STILL SET IT: the union is what any code path in the layer may demand, and 'the function does not use it' is not a reason to remove it."
+  description = "Not used by the drain. Required by the cpcommon layer's config, which resolves on first READ rather than at import — so a missing value is no longer a cold-start crash but a failure on whichever branch reads it first. STILL SET IT: the union is what any code path in the layer may demand, and 'the function does not use it' is not a reason to remove it."
   type        = string
 }
 

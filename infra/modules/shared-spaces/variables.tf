@@ -1,4 +1,4 @@
-# ── shared-spaces module variables (SPEC-050) ────────────────────────────────
+# ── shared-spaces module variables ────────────────────────────────
 # Bounded-context module for Bucket 2 (the shared-space bucket) and the async
 # provisioning control plane (SQS → EventBridge Pipe → Step Function → Lambda).
 # Resource names are computed in the root module (like the user-space / admin
@@ -36,7 +36,7 @@ variable "shared_space_bucket_name" {
 }
 
 variable "athena_admin_bucket_name" {
-  description = "Name of the existing analytics admin bucket (SPEC-032). The registry lives under its shared-spaces/ prefix; the orchestrator role is scoped to that prefix only. No new bucket is created here."
+  description = "Name of the existing analytics admin bucket. The registry lives under its shared-spaces/ prefix; the orchestrator role is scoped to that prefix only. No new bucket is created here."
   type        = string
 }
 
@@ -65,12 +65,12 @@ variable "max_shared_memberships" {
 }
 
 variable "portal_role_name" {
-  description = "SPEC-056: name of the shared portal role (SPEC-011) this module attaches the membership inline policy (slots + sqs:SendMessage + shared delete-denies) to, by name — mirrors how the analytics module attaches its portal policy."
+  description = "SPEC-056: name of the shared portal role this module attaches the membership inline policy (slots + sqs:SendMessage + shared delete-denies) to, by name — mirrors how the analytics module attaches its portal policy."
   type        = string
 }
 
 variable "user_pool_id" {
-  description = "SPEC-056: Cognito User Pool ID — passed to the control-plane Lambdas (env COGNITO_USER_POOL_ID) so the validate-authorize Lambda can verify caller ID tokens against the pool JWKS (trusted-actor binding, SPEC-062)."
+  description = "SPEC-056: Cognito User Pool ID — passed to the control-plane Lambdas (env COGNITO_USER_POOL_ID) so the validate-authorize Lambda can verify caller ID tokens against the pool JWKS (trusted-actor binding)."
   type        = string
   default     = ""
 }
@@ -114,7 +114,7 @@ variable "notifications_queue_url" {
   default     = ""
 }
 
-# ── TBAC fix (SPEC-070/111): control-plane data-location on the shared bucket ──
+# ── TBAC fix: control-plane data-location on the shared bucket ──
 
 variable "control_plane_execution_role_arns" {
   description = "ARNs of the shared control-plane execution roles (table-builder / table-share / data-quality) granted DATA_LOCATION_ACCESS on the shared bucket so they can CREATE tables over shared-space prefixes. LF-Tags cover DB/table resources but not S3 locations, so the location grant is here while the `portal-managed` tag + tag-policy grants live in the analytics module. Constructed strings from root; empty keeps the module standalone-plannable."

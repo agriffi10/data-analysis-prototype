@@ -31,7 +31,7 @@ export function useSchema(databaseName: string | null) {
 }
 
 /**
- * Loads the schemas of every accessible database at once (SPEC-077) so the
+ * Loads the schemas of every accessible database at once so the
  * editor's autocomplete can offer fully-qualified table names across all of
  * them. Shares the per-database query keys with {@link useSchema}, so a schema
  * already loaded by an expanded rail node is reused (and vice versa), and DDL

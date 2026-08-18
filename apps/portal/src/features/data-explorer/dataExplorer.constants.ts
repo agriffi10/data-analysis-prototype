@@ -1,5 +1,5 @@
 // Named constants for the Data Explorer. The Athena polling cadence and the result page
-// sizing are `features/catalog/` (SPEC-176) — this feature adds no second pager.
+// sizing are `features/catalog/` — this feature adds no second pager.
 
 import type {CalcFunction, ColourOperator, ColourToken, CopyOptions, SurfaceToken} from './dataExplorer.types';
 
@@ -11,7 +11,7 @@ import type {CalcFunction, ColourOperator, ColourToken, CopyOptions, SurfaceToke
 export const EXPLORATION_TABS_MAX = 10;
 
 /**
- * Rows fetched per page of results (SPEC-179 FR-009).
+ * Rows fetched per page of results.
  *
  * A fixed size, unlike the Query workspace's user-controlled one: paging a result set costs
  * no additional bytes scanned (the `NextToken` walk reads an execution that has already run),
@@ -50,7 +50,7 @@ export const TEXT_VIEW_MAX_COLUMN_CHARS = 48;
 export const EXPLORATION_TABS_STORAGE_PREFIX = 's3portal.dataExplorer.tabs.';
 
 /**
- * How many previous query descriptions one tab remembers (SPEC-181 FR-006).
+ * How many previous query descriptions one tab remembers.
  *
  * A cap on a list of DESCRIPTIONS, not of result sets — each is a few hundred bytes and
  * the whole cursor is persisted with the tab, so the cap is about keeping a session's
@@ -59,7 +59,7 @@ export const EXPLORATION_TABS_STORAGE_PREFIX = 's3portal.dataExplorer.tabs.';
 export const EXPLORER_FILTER_HISTORY_MAX = 25;
 
 /**
- * The Calc panel's functions, in the ONE order they are ever listed (SPEC-182 FR-001).
+ * The Calc panel's functions, in the ONE order they are ever listed.
  *
  * A fixed order rather than the order they were added: the panel is read repeatedly during
  * a selection gesture, and a list that reshuffles as functions come and go is a list nobody

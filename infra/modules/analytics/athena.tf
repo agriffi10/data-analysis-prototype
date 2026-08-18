@@ -1,4 +1,4 @@
-# ── Shared Athena Workgroup (SPEC-032 FR-002) ────────────────────────────────
+# ── Shared Athena Workgroup ────────────────────────────────
 # One workgroup every authenticated user queries through. Per-user isolation is
 # NOT at the workgroup layer — it's the Glue database/table ARN scoped by the
 # `username` principal tag (FR-006) plus the per-user results prefix. Athena has

@@ -39,13 +39,13 @@ export function DataQualityPage() {
   usePageTitle('Data quality');
   const {runs, isLoading, error, refresh} = useDataQualityRuns();
 
-  // The second entry point into a check (SPEC-124). Spaces are REUSED from
+  // The second entry point into a check. Spaces are REUSED from
   // `usableSpaceTargets`, not re-derived: `useConnections` carries no bucket and no root
   // prefix, and a third derivation of that mapping would be the one that drifts.
   const {user} = useAuth();
   const {connections} = useConnections(user?.username ?? null);
   const buckets = spaceBuckets();
-  // Same shared-workspace surface as the move/copy picker (SPEC-163): with shared workspaces
+  // Same shared-workspace surface as the move/copy picker: with shared workspaces
   // off, this dialog must not be the remaining way to reach a shared space by name.
   const sharedSpacesEnabled = useFeature('sharedWorkspaces');
   const spaces = usableSpaceTargets(connections, user?.username ?? null, buckets.user, buckets.shared).filter(

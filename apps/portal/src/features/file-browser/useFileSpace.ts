@@ -4,7 +4,7 @@ import {isConnectionUsable} from '../connections/connection.types';
 import type {Connection} from '../connections/connection.types';
 
 // SPEC-057 Data Model: the file browser's active "space" — derived from a
-// `Connection` (SPEC-047/052). Selecting a space points the browser at that
+// `Connection`. Selecting a space points the browser at that
 // space's bucket + root prefix; personal → the user-space bucket at `{username}/`,
 // shared → `dat-prod-shared-space/{name}/`. `label` is the root breadcrumb crumb
 // AND the marker-owner segment (the personal marker lives at `{username}/…`, a
@@ -29,7 +29,7 @@ export type UseFileSpaceParams = {
   userSpaceBucket: string | undefined;
   sharedSpaceBucket: string | undefined;
   /**
-   * Resolve to the personal space and ignore `?space=` entirely (SPEC-163 FR-005).
+   * Resolve to the personal space and ignore `?space=` entirely.
    *
    * Set while the `sharedWorkspaces` flag is off. Deliberately NOT the same thing as a
    * space that cannot be resolved: this reports `fellBack: false`, so no banner claims the
@@ -102,7 +102,7 @@ export function usableSpaceTargets(
 }
 
 // SPEC-057 FR-002/FR-004/FR-005: the file browser's active-space state, derived
-// from `useConnections` (SPEC-052) and synced to the `?space=` route param.
+// from `useConnections` and synced to the `?space=` route param.
 // Selection flows through the URL so a deep-link (`/files?space=…&prefix=…`) and a
 // sidebar click are one mechanism, and a vanished/unusable space reconciles to the
 // personal space purely during render (mirrors SPEC-047's `useActiveDatabase`).
@@ -115,7 +115,7 @@ export function useFileSpace({
   ignoreSpaceParam = false
 }: UseFileSpaceParams): UseFileSpaceResult {
   const [searchParams, setSearchParams] = useSearchParams();
-  // SPEC-163 FR-005: with shared workspaces off the parameter is not resolved-and-refused,
+  // With shared workspaces off the parameter is not resolved-and-refused,
   // it is NOT READ. That distinction is the whole requirement — routing it through the
   // `fellBack` path below would raise "That shared space is no longer available", which is a
   // false statement about a space that is perfectly fine and that the user will see again

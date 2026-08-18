@@ -54,17 +54,17 @@ resource "aws_iam_role_policy" "execution" {
     glue_catalog_arn        = local.glue_catalog_arn
     glue_database_any       = local.glue_database_any
     glue_table_any          = local.glue_table_any
-    # SPEC-072 — every verb emits an outcome notification (SendMessage, this queue only).
+    # Every verb emits an outcome notification (SendMessage, this queue only).
     notifications_queue_arn = var.notifications_queue_arn
-    # SPEC-135 — structured-logging producer, same Sid and shape as data-quality's, the drain's
+    # Structured-logging producer, same Sid and shape as data-quality's, the drain's
     # and shared-space's, so all four read as one pattern.
     logs_queue_arn = var.logs_queue_arn
   })
 }
 
-# ── Portal role — table-build enqueue policy (SPEC-067 FR-002) ────────────────
+# ── Portal role — table-build enqueue policy ────────────────
 # The browser's ONLY table-builder privilege: sqs:SendMessage to the request queue.
-# A small inline policy on the shared portal role (SPEC-011), attached BY NAME like
+# A small inline policy on the shared portal role, attached BY NAME like
 # the notifications / shared-spaces modules do (the role is created in module.data;
 # the root module-level depends_on guarantees it exists first). No Lambda invoke, no
 # DLQ, no Step Function — just enqueue. The send helper that uses it lands in SPEC-071.

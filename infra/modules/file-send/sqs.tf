@@ -1,4 +1,4 @@
-# ── Request Queue + DLQ (SPEC-164 FR-001) ────────────────────────────────────
+# ── Request Queue + DLQ ────────────────────────────────────
 # The control-plane entry point. The browser enqueues a send request; an EventBridge
 # Pipe (pipe.tf) drains it into the Step Function.
 #

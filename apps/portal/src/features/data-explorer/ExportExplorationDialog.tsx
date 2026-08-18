@@ -8,7 +8,7 @@ export type ExportExplorationDialogProps = {
 };
 
 /**
- * Export this exploration's rows into a space (SPEC-185 FR-002).
+ * Export this exploration's rows into a space.
  *
  * **Nothing here is new.** It is the Query workspace's own destination picker, overwrite
  * warn-and-confirm and cross-bucket copy, mounted on the other workspace — which is why

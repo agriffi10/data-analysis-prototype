@@ -189,6 +189,14 @@ Document components with a JSDoc block so usage, prop meaning, and examples surf
 
 - ✅ Put a JSDoc block above every exported component, hook, and non-trivial function: a one-line summary, then prop/param descriptions and (for components/hooks) at least one `@example`. This is what shows on hover.
 - ✅ When code needs explaining, prefer expanding the JSDoc block over adding narrative comments — the doc block is discoverable (hover, IDE, generated docs); a comment buried mid-function is not.
+- 🔴 **A comment names no spec, PR or issue number.** Not `SPEC-166`, not `(#252)`, not "since
+  SPEC-158". A reader hitting a comment is standing in the file, not in the project's history: a
+  number tells them a decision was made somewhere else and leaves them to find it, where a sentence
+  tells them what is true. Write the *reason* instead — "a third copy of this would fork the
+  lookup" beats "the fork SPEC-156 exists to prevent". The decision's full entry lives in
+  `docs/decisions.md`, findable by what it says rather than by when it happened, and a comment that
+  cannot be written without citing a spec is a sign the reasoning never made it there. Enforced by
+  `scripts/validate_docs.py`.
 - 🔴 No verbose or paragraph-length inline comments. Keep inline comments short, sparse, and reserved for the genuinely non-obvious *why* (a tricky workaround, a non-obvious ordering requirement) — never restate *what* the next line does.
 - ✅ **Types come from TS, docs from JSDoc.** Define props as a TS `interface`/`type` (repo convention: `ComponentNameProps` in `component.types.ts` or co-located); annotate meaning with `@property`/inline JSDoc on the interface members, not with typed `@param` tags that repeat the type.
 - ✅ Use **`@example`** (optionally with `<caption>`) to show real usage — the highest-value part for consumers; multiple examples are fine.

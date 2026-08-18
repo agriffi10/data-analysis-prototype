@@ -1,21 +1,21 @@
 // Named constants for the query workspace. The Athena polling cadence, the service-level
-// page sizes and the result-column sizing live in `features/catalog/` (SPEC-176); the
-// saved-query page size and space memory in `features/saved-queries/` (SPEC-177).
+// page sizes and the result-column sizing live in `features/catalog/`; the
+// saved-query page size and space memory in `features/saved-queries/`.
 
 /**
  * Default data rows per query-results page when the user hasn't chosen a
- * value (SPEC-087). Drives GetQueryResults MaxResults (the first page
+ * value. Drives GetQueryResults MaxResults (the first page
  * requests +1 to absorb the Athena SELECT header row, see getQueryResults)
  * and the Prev/Next pager. One display page = one fetch.
  */
 export const DEFAULT_RESULTS_PAGE_SIZE = 100;
 
-/** Smallest accepted "Rows per page" value (SPEC-087 FR-003). */
+/** Smallest accepted "Rows per page" value. */
 export const MIN_RESULTS_PAGE_SIZE = 1;
 
 /**
  * Largest accepted "Rows per page" value — Athena's GetQueryResults returns at
- * most 1000 rows per call and one display page stays one fetch (SPEC-087).
+ * most 1000 rows per call and one display page stays one fetch.
  */
 export const MAX_RESULTS_PAGE_SIZE = 1000;
 
@@ -49,7 +49,7 @@ export const QUERY_TABS_STORAGE_PREFIX = 's3portal.query.tabs.';
 export const QUERY_TABS_MAX = 10;
 
 /**
- * Editor/results layout presets (SPEC-079): the vertical split snaps to one of
+ * Editor/results layout presets: the vertical split snaps to one of
  * three fixed proportions — no continuous drag.
  */
 export type EditorLayoutPreset = 'editor' | 'even' | 'results';
@@ -64,7 +64,7 @@ export const LAYOUT_PRESET_EDITOR_FRACTION: Record<EditorLayoutPreset, number> =
 };
 
 // Minimum-height floors so the extreme presets never collapse a pane to an
-// unusable size (SPEC-079 FR-002). When a short viewport can't honor both,
+// unusable size. When a short viewport can't honor both,
 // the editor floor wins (see useEditorLayout).
 export const MIN_EDITOR_HEIGHT = 96; // px — editor floor (Results preset clamp)
 export const MIN_RESULTS_HEIGHT = 120; // px — results-region floor (Editor preset clamp)

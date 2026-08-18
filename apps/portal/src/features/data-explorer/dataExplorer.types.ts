@@ -1,6 +1,6 @@
 import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
 
-// The exploration model (SPEC-178 FR-001). An exploration is a SOURCE plus a QUERY
+// The exploration model. An exploration is a SOURCE plus a QUERY
 // DESCRIPTION plus PRESENTATION STATE, and the split is the feature's central rule: the
 // first two determine the SQL, the third never does. They are three separate fields
 // rather than one flattened bag precisely so `renderExplorationSql`'s parameter list can
@@ -97,7 +97,7 @@ export type ExplorationQuery = {
 };
 
 /**
- * The aggregates the Calc panel offers over a cell selection (SPEC-182 FR-001).
+ * The aggregates the Calc panel offers over a cell selection.
  *
  * Named apart from `AggregateFunction` above, and the difference is the whole point of
  * the spec: that one is a `GROUP BY` clause rendered into SQL and billed, this one runs in
@@ -119,11 +119,11 @@ export type CalcResult = {
   skipped: number;
 };
 
-/** How the current page's rows are drawn (SPEC-180). None of these render SQL. */
+/** How the current page's rows are drawn. None of these render SQL. */
 export type GridPresentation = 'grid' | 'record' | 'text';
 
 /**
- * A colour a rule may paint text in (SPEC-184 FR-002).
+ * A colour a rule may paint text in.
  *
  * A bounded set of design tokens rather than the spec's free-form `string`, and the
  * narrowing is what makes FR-002 AC8 assertable at all: "every pairing meets contrast
@@ -140,7 +140,7 @@ export type SurfaceToken = 'accent-soft' | 'success-soft' | 'warning-soft' | 'da
 export type ColourOperator = '=' | '<>' | '>' | '>=' | '<' | '<=' | 'like' | 'ilike' | 'regex';
 
 /**
- * What a matching rule paints (SPEC-184 FR-002 AC3).
+ * What a matching rule paints.
  *
  * Beyond the spec's Data Model, which carries only `column?` and reads an absent column as
  * "across the row". That conflates two independent choices — what a rule TESTS and what it
@@ -171,7 +171,7 @@ export type ColourRule = {
 };
 
 /**
- * A per-column rendering change (SPEC-184 FR-005).
+ * A per-column rendering change.
  *
  * **Rendering only.** The raw value continues to drive filtering, colouring, Calc and copy
  * — a transformed value reaching any of those is a silent wrong answer, which is why the
@@ -200,7 +200,7 @@ export type CellRef = {row: number; column: string};
 export type CellRange = {from: CellRef; to: CellRef};
 
 /**
- * The grid's cursor and selection (SPEC-180 FR-002).
+ * The grid's cursor and selection.
  *
  * Named `CellSelection` rather than the spec's `Selection`: that name is a DOM global
  * (`window.getSelection()`), and a same-named export shadows it wherever both are in
@@ -242,7 +242,7 @@ export type ExplorationPresentation = {
   valuePanelOpen: boolean;
   /** The Record view's focused row index within the current page. */
   recordRowIndex: number;
-  /** Colours, striping and transformers (SPEC-184). Restored whole or not at all. */
+  /** Colours, striping and transformers. Restored whole or not at all. */
   formatting: FormattingState;
 };
 
@@ -260,7 +260,7 @@ export type ExecutionCost = {
 };
 
 /**
- * This tab's undo/redo over its own query DESCRIPTIONS (SPEC-181 FR-006).
+ * This tab's undo/redo over its own query DESCRIPTIONS.
  *
  * Descriptions, never result sets: a description is a few hundred bytes and re-renders to
  * the same SQL, so stepping back resolves to the execution already cached (SPEC-178
@@ -281,7 +281,7 @@ export type ExplorationTab = {
   label: string;
   exploration: Exploration;
   /**
-   * The `.sql` file this tab was last saved to (SPEC-183 FR-003).
+   * The `.sql` file this tab was last saved to.
    *
    * What a re-save replaces, and the only reason `isLinkedSavedQuery` can ever be true
    * here — nothing else in this feature mints a link, because loading a `.sql` file as a
@@ -301,7 +301,7 @@ export type ExplorationTab = {
    * detect a cache hit, and a detector can be wrong.
    */
   scannedByExecution: Record<string, number>;
-  /** Back/forward over this tab's previous query descriptions (SPEC-181 FR-006). */
+  /** Back/forward over this tab's previous query descriptions. */
   history: QueryHistoryCursor;
 };
 
@@ -314,7 +314,7 @@ export type ExplorationTabsState = {
 };
 
 /**
- * A clipboard shape (SPEC-185 FR-001).
+ * A clipboard shape.
  *
  * `tsv` is what Ctrl/Cmd+C uses and what a spreadsheet expects from a paste; the other five
  * exist because a selection's next destination is as often a document, a script or an API

@@ -1,4 +1,4 @@
-// SPEC-186 FR-004 AC3 — a named principal that can read the catalog back, and nothing else.
+// a named principal that can read the catalog back, and nothing else.
 //
 // SPEC-149's `Description`/column-comment preservation check and SPEC-153's owed foreign
 // projection fixture both fail today with `Insufficient Lake Formation permission(s): Required
@@ -87,7 +87,7 @@ resource "aws_iam_role_policy" "verification" {
 // Describe` — is the exact error the owed read-backs hit.
 //
 // The LF half is granted in `modules/analytics`, NOT here, because it hangs off the
-// `portal-managed` LF-Tag that module owns (SPEC-070/111): the databases are created at
+// `portal-managed` LF-Tag that module owns: the databases are created at
 // runtime, one per username and one per shared space, so nothing static can enumerate them and
 // a tag policy is the only expression that covers them all. This module outputs the role ARN
 // and analytics grants DESCRIBE against it — deliberately DESCRIBE alone, and deliberately no

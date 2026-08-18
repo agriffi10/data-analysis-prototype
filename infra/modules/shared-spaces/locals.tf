@@ -12,7 +12,7 @@ locals {
   state_machine_name     = "${var.project_name}-${var.environment}-shared-space-orchestrator"
   pipe_name              = "${var.project_name}-${var.environment}-shared-space-pipe"
 
-  # SPEC-062: the single provisioner monolith is decomposed into a validate-authorize
+  # The single provisioner monolith is decomposed into a validate-authorize
   # Lambda + the single-task verb Lambdas. Keyed by the function suffix (= the
   # lambdas/ subdir suffix + the deploy-lambdas.yml matrix name); value = the Python
   # handler. The Step Function orchestrates them (validate -> Choice(action) -> verb);

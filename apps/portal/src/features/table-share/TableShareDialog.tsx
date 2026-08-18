@@ -44,7 +44,7 @@ function unlistedSpaceNote(names: string[]): string {
 }
 
 /**
- * The "Share table" modal (SPEC-093): recipient-kind toggle (users / shared
+ * The "Share table" modal: recipient-kind toggle (users / shared
  * spaces), multi-entry recipient chips, and a catalog-safe result table name
  * defaulted to the source name. Submit stays disabled until there is at least
  * one recipient and the name is valid; the server re-validates authoritatively
@@ -57,7 +57,7 @@ function unlistedSpaceNote(names: string[]): string {
  * notifications.
  */
 export function TableShareDialog({source, busy = false, submitError, onSubmit, onCancel}: Props) {
-  // SPEC-163 FR-005: with shared workspaces off there is one recipient kind and no toggle.
+  // With shared workspaces off there is one recipient kind and no toggle.
   // `kind` stays state rather than becoming a constant so the space branch is exercised by
   // the same code path when the flag is on — and it can never LEAVE 'user' while off, because
   // the only thing that sets it is the control that no longer renders.

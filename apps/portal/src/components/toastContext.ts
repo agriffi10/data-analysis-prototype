@@ -1,7 +1,7 @@
 import {createContext, useContext} from 'react';
 import type {ToastState} from './Toast';
 
-// SPEC-106 FR-003 — context + hook for the app-level toast host. Kept separate
+// Context + hook for the app-level toast host. Kept separate
 // from ToastProvider.tsx so that component file only exports a component
 // (react-refresh/only-export-components), mirroring uploadQueueContext.ts.
 

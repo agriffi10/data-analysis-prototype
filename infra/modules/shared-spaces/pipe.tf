@@ -1,11 +1,11 @@
-# ── EventBridge Pipe: request queue → Step Function (SPEC-050 FR-003) ─────────
+# ── EventBridge Pipe: request queue → Step Function ─────────
 # Drains the FIFO request queue into the orchestrator. Batch size 1 so each message
 # starts its own execution and the FIFO single-MessageGroupId ordering (sqs.tf) is
 # preserved — strictly serial intake.
 #
 # FIRE_AND_FORGET: the Pipe calls StartExecution on the Standard state machine and
 # returns immediately (Standard machines can run longer than a synchronous call
-# allows). Serial *intake* + the registry conditional-put (SPEC-051) is what makes
+# allows). Serial *intake* + the registry conditional-put is what makes
 # duplicate names impossible; see the sqs.tf header.
 #
 # Role boundary: this PIPE role only needs states:StartExecution (+ SQS consume) —

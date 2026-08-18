@@ -1,4 +1,4 @@
-# The scheduled log sweep (SPEC-127 FR-004).
+# The scheduled log sweep.
 #
 # Terraform owns the function and a placeholder zip; CI deploys the real code and attaches the
 # cpcommon layer. `ignore_changes` keeps `tofu apply` from reverting CI's deployed code.
@@ -41,7 +41,7 @@ resource "aws_lambda_function" "sweep" {
 
       # ADMIN_BUCKET is genuinely used (the sweep writes under logs/); the rest are the
       # cpcommon layer's required union. SPEC-156 FR-004 moved that requirement from import to
-      # FIRST READ, so omitting one no longer crashes this function at COLD START (PR #196) —
+      # FIRST READ, so omitting one no longer crashes this function at COLD START —
       # it fails on whichever branch reads it. Still set them; the union is what any code path
       # in the layer may demand.
       ADMIN_BUCKET          = var.admin_bucket_name

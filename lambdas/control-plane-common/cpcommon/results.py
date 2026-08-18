@@ -14,7 +14,7 @@ differently is a grant that does not apply, discovered on the least-travelled pa
 The three copies were not identical, and the differences are parameters rather than accidents:
 the table-builder and table-share prefixes end at the actor and carry a trailing slash, while
 data-quality routes a whole request under a fixed ``data-quality`` actor segment and appends
-the request id. ``sub`` is that difference (SPEC-156 FR-003).
+the request id. ``sub`` is that difference.
 
 ``ddl_output`` is a second, unrelated shape kept in the same module because it answers the same
 question for the temp-table verbs: their DDL writes beside the report rather than into an

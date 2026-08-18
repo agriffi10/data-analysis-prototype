@@ -44,7 +44,7 @@ function unlistedSpaceNote(names: string[]): string {
 }
 
 /**
- * The "Send to…" modal (SPEC-167): a read-only summary of the selection, a Users / Shared spaces
+ * The "Send to…" modal: a read-only summary of the selection, a Users / Shared spaces
  * toggle driving ONE combobox, and a combined removable chip list.
  *
  * It is `TableShareDialog` with the table name taken out, deliberately: both kinds suggest as you
@@ -53,7 +53,7 @@ function unlistedSpaceNote(names: string[]): string {
  * outcome comes back as a notification.
  */
 export function SendFilesDialog({items, busy = false, submitError, onSubmit, onCancel}: Props) {
-  // SPEC-163 FR-005: with shared workspaces off there is one recipient kind and no toggle, and
+  // With shared workspaces off there is one recipient kind and no toggle, and
   // `kind` can never leave 'user' because the only thing that sets it no longer renders.
   const sharedSpacesEnabled = useFeature('sharedWorkspaces');
   const [kind, setKind] = useState<SendRecipient['kind']>('user');
@@ -186,7 +186,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
         <div className="min-w-0 flex-1">
           {/* ONE field for both kinds, differing only in what it suggests and what it calls
               things. `key={kind}` REMOUNTS on a toggle so a note raised under one kind cannot
-              linger over the other. The source is a PROP (SPEC-158): this dialog calls neither
+              linger over the other. The source is a PROP: this dialog calls neither
               suggestion hook from inside the field. */}
           <UsernameCombobox
             {...(kind === 'space' ? spaceSuggestions : userSuggestions)}

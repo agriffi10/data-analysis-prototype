@@ -8,7 +8,7 @@
 # on the verbs + log delivery); the verb Lambdas run under the ONE shared execution
 # role. Standard (over Express) keeps per-execution history for debugging and allows
 # the long per-recipient copies SPEC-166 adds — and Express is doubly rejected here,
-# since a Pipe cannot use REQUEST_RESPONSE against a Standard machine (SPEC-157) and
+# since a Pipe cannot use REQUEST_RESPONSE against a Standard machine and
 # this plane's outcome is a notification, not a response.
 #
 # THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY. SPEC-165

@@ -16,7 +16,7 @@ export type ExplorationTabStripProps = {
  * The strip of open explorations, above the results (FR-008).
  *
  * Mirrors the Query workspace's tab strip in shape and keyboard model rather than sharing
- * it: `features/query/` is a sibling this feature may not import (SPEC-176), and the two
+ * it: `features/query/` is a sibling this feature may not import, and the two
  * differ where it counts — an exploration tab has no dirty state, and closing the last one
  * is legal here, so the close control is never hidden.
  *

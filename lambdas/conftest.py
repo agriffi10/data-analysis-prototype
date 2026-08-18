@@ -1,7 +1,7 @@
 """Pytest baseline for the Lambda suites.
 
 The DOMAIN ``config.py`` modules fail fast at import when a required env var is unset
-(SPEC-083 FR-001); ``cpcommon.config``'s six moved to first access in SPEC-156 FR-004,
+; ``cpcommon.config``'s six moved to first access in SPEC-156 FR-004,
 so they fail at the read instead. Either way the suites need the values present — the
 tests patch ``config.X`` attributes (via ``fakes.install()`` etc.) but the code under
 test still reads the unpatched ones — so this conftest stamps dummy values before any
@@ -10,7 +10,7 @@ test module is collected. Both fail-fast paths are exercised directly by
 
 It also puts the shared Lambda-LAYER package roots on ``sys.path`` so ``from cpcommon
 import …`` (and the domain layers) resolve everywhere under ``pytest lambdas/`` without
-each test re-inserting them (SPEC-107). Tests that also run directly (``python3
+each test re-inserting them. Tests that also run directly (``python3
 test_x.py``) keep their own per-file ``sys.path.insert`` for that mode.
 """
 
@@ -143,7 +143,7 @@ class _CapturingSink:
 
 @pytest.fixture
 def captured_events():
-    """Capture one test's structured events (SPEC-132 FR-001).
+    """Capture one test's structured events.
 
     Lives here rather than in each verb's test file because all nine data-quality verbs need
     it, and SPEC-133→137 will need it for four more control planes — nine copies of a sink

@@ -20,7 +20,7 @@ variable "identity_pool_id" {
 }
 
 variable "portal_role_name" {
-  description = "Name of the shared portal IAM role (SPEC-011). Computed by the root module (default {project_name}-portal-user-role)."
+  description = "Name of the shared portal IAM role. Computed by the root module (default {project_name}-portal-user-role)."
   type        = string
 }
 
@@ -30,12 +30,12 @@ variable "deploy_role_arn" {
 }
 
 variable "lf_registration_role_arn" {
-  description = "ARN of the analytics Lake Formation registration role (modules/analytics, SPEC-032), constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny: LF assumes this role to read the registered location when serving Athena queries, so the explicit Deny would otherwise block its s3:ListBucket/GetObject and queries fail with PERMISSION_DENIED."
+  description = "ARN of the analytics Lake Formation registration role (modules/analytics), constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny: LF assumes this role to read the registered location when serving Athena queries, so the explicit Deny would otherwise block its s3:ListBucket/GetObject and queries fail with PERMISSION_DENIED."
   type        = string
 }
 
 variable "shared_space_orchestrator_role_arn" {
-  description = "SPEC-051: ARN of the shared-space orchestrator role (SPEC-050), constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny so the privileged pipeline can write each member's per-user cache ({username}/user_settings/shared-connections.json); without the exclusion the resource-policy Deny would override the orchestrator's identity-policy Allow."
+  description = "SPEC-051: ARN of the shared-space orchestrator role, constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny so the privileged pipeline can write each member's per-user cache ({username}/user_settings/shared-connections.json); without the exclusion the resource-policy Deny would override the orchestrator's identity-policy Allow."
   type        = string
   default     = ""
 }
@@ -87,7 +87,7 @@ variable "archive_execution_role_arn" {
 }
 
 variable "user_directory_build_role_arn" {
-  description = "SPEC-146: ARN of the daily username-directory builder, constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny so it can ListBucket the workspace prefixes and PutObject _directory/usernames.json; without the exclusion the Deny overrides its identity-policy Allow and the write fails with an opaque AccessDenied that looks like an IAM problem and is not (#241)."
+  description = "SPEC-146: ARN of the daily username-directory builder, constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny so it can ListBucket the workspace prefixes and PutObject _directory/usernames.json; without the exclusion the Deny overrides its identity-policy Allow and the write fails with an opaque AccessDenied that looks like an IAM problem and is not."
   type        = string
   default     = ""
 }

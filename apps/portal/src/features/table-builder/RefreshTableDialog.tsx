@@ -15,9 +15,9 @@ type Props = {
 };
 
 /**
- * The "Refresh table" confirmation (SPEC-145). It explains what a refresh does and
+ * The "Refresh table" confirmation. It explains what a refresh does and
  * does not do — the dialog cannot *predict* the outcome, because there is no
- * synchronous inference path (SPEC-144 FR-003) — and carries the removals opt-in.
+ * synchronous inference path — and carries the removals opt-in.
  *
  * The opt-in is always present and always unchecked: a user who knows a column is
  * going away should not have to trigger a refusal to be offered the option. When the

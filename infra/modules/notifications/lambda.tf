@@ -5,7 +5,7 @@
 # actions it verifies the caller's Cognito ID token against the pool JWKS (offline — no
 # Cognito IAM needed) and derives the target username from the verified claim.
 #
-# Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
+# Code-ownership split (architecture.md): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml owns the Python code (builds
 # lambdas/notifications-writer, uploads it, update-function-code). `ignore_changes`
 # keeps `tofu apply` from reverting CI's deployed code.
@@ -44,7 +44,7 @@ resource "aws_lambda_function" "writer" {
       # reads it with os.environ.get and never config._require — so a writer deployed without
       # it logs to stdout instead of failing at cold start.
       #
-      # SPEC-156 FR-004: the writer now also imports cpcommon.auth and cpcommon.clients, which
+      # The writer now also imports cpcommon.auth and cpcommon.clients, which
       # it could not before — cpcommon.config _require'd six variables AT IMPORT and only three
       # of them are set here, so the layer's auth was unimportable and the function carried a
       # second copy of the fleet's JWKS verifier. config resolves on first ACCESS now, so the
@@ -52,7 +52,7 @@ resource "aws_lambda_function" "writer" {
       # (ADMIN_BUCKET, SHARED_SPACE_BUCKET, ATHENA_WORKGROUP) are absent on purpose; a probe
       # imports this module without them (test_layer_import_safety.py).
       LOGS_QUEUE_URL = var.logs_queue_url
-      # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+      # `env` shipped empty on every record. Same source of truth as the
       # feature-flag document's `environments` keys (`var.environment`, default "prod").
       ENV_NAME = var.environment
     }

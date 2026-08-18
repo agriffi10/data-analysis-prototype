@@ -1,16 +1,16 @@
-# ── Request Queue + DLQ (SPEC-108 FR-001) ────────────────────────────────────
-# The control-plane entry point. The browser (SPEC-109/113) enqueues a check-data-quality
+# ── Request Queue + DLQ ────────────────────────────────────
+# The control-plane entry point. The browser enqueues a check-data-quality
 # request; an EventBridge Pipe (pipe.tf) drains it into the Step Function.
 #
 # FIFO with MessageGroupId = the SHA-256 HEX DIGEST of the canonical target location
-# (set by the producer, SPEC-109), so two checks of the SAME location serialize while
+# (set by the producer), so two checks of the SAME location serialize while
 # checks of different locations run in parallel. The digest — not the raw location — is
 # deliberate: SQS caps MessageGroupId at 128 characters and S3 keys reach 1024, so a raw
 # location would be rejected outright. The other producers get away with raw ids only
 # because they group by a bounded catalog identifier (a database name).
 #
 # content_based_deduplication is OFF (FR-001): the producer sends an explicit
-# MessageDeduplicationId = requestId (SPEC-109), which is the real double-submit guard.
+# MessageDeduplicationId = requestId, which is the real double-submit guard.
 # Content dedup would be actively wrong here — two DIFFERENT requestIds checking the same
 # location within the 5-minute window are byte-different anyway, but a re-check of the
 # same location with the same body is a legitimate re-run the user asked for.

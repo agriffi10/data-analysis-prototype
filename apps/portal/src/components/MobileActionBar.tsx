@@ -12,7 +12,7 @@ export type MobileActionBarProps = {
  * safe-area-inset aware so controls clear the home indicator. Surfaces mount
  * their primary mobile actions here (Files → New folder + Upload). This is the
  * shell only — the consuming page pads its scroll region by the bar height so
- * the bar never occludes the last row (SPEC-095).
+ * the bar never occludes the last row.
  *
  * @example
  * <MobileActionBar ariaLabel="File actions">

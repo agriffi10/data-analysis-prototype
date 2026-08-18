@@ -3,7 +3,7 @@
 The shared core — region, user pool identifiers, buckets, the notifications queue — lives in
 ``cpcommon.config``. Only file-send's own constants live here, and **none of them reads the
 environment**: this module cannot fail at import, which matters because a shared layer's
-import-time failure surfaces at COLD START, where no test and no deploy can see it (PR #196).
+import-time failure surfaces at COLD START, where no test and no deploy can see it.
 
 Every cap below is a whole-request terminal in validate-authorize, raised before any AWS call
 that costs anything, so a refused send leaves nothing behind.
@@ -158,7 +158,7 @@ Attributes:
     browser without a metadata lookup. Named here because it is the one layout constant
     validate-authorize and the SPEC-166 verbs must agree on.
   USER_SETTINGS_FOLDER: The space's own portal-managed settings folder — the notification inbox
-    and the shared-space connections cache. Excluded from an EXPANSION (SPEC-165), anchored at
+    and the shared-space connections cache. Excluded from an EXPANSION, anchored at
     the space root, not refused as a selected item: the browser hides it everywhere, so a user
     cannot select it, and the exclusion is what keeps a root-level walk from carrying it out.
   ATHENA_RESULTS_FOLDER: The space's own Athena results folder, refused as a send source.

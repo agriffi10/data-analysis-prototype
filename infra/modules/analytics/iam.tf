@@ -1,4 +1,4 @@
-# ── Lake Formation registration role (SPEC-032 FR-005) ───────────────────────
+# ── Lake Formation registration role ───────────────────────
 # A CUSTOM role (deliberately NOT the LF service-linked role) that Lake Formation
 # assumes to vend temporary S3 credentials for the registered user-space location.
 # Using our own role keeps the trust and the S3 scope explicit and auditable; it is
@@ -20,7 +20,7 @@ resource "aws_iam_role_policy" "lf_registration" {
   })
 }
 
-# ── Portal role — analytics permissions (SPEC-032 FR-006) ────────────────────
+# ── Portal role — analytics permissions ────────────────────
 # A SECOND inline policy on the shared portal role (the first, "user-space-access",
 # is attached by module.data / SPEC-013). Glue is scoped to database/<username> and
 # table/<username>/* via the `username` principal tag — THIS is the per-user

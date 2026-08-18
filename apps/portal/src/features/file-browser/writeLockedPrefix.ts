@@ -10,7 +10,7 @@ import type {FileSpaceKind} from './useFileSpace';
  * toolbar because the next read-only prefix will want it.
  *
  * IAM denies `PutObject` / `DeleteObject` / `AbortMultipartUpload` under `archive/` in both space
- * buckets (SPEC-168 FR-006), so without this every attempt produces a bare `AccessDenied` for a
+ * buckets, so without this every attempt produces a bare `AccessDenied` for a
  * rule this application wrote — the situation `isUndeletableRootFolder` exists to prevent for
  * `athenaresults/`.
  *

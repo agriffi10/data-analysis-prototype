@@ -13,7 +13,7 @@ export type UseExploreDeepLinkResult = {
 };
 
 /**
- * Resolve `/explore?space=&db=&table=` into a source to open (SPEC-179 FR-006).
+ * Resolve `/explore?space=&db=&table=` into a source to open.
  *
  * **IT WAITS FOR THE CONNECTIONS LIST, and that is not a nicety.** Resolution consults the
  * shared spaces the user is an active member of; until they load, a link to a shared space

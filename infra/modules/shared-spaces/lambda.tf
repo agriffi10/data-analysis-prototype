@@ -6,7 +6,7 @@
 # one role for the Step Function AND every Lambda (user decision; SPEC-062 FR-005
 # note) — so each already holds every privileged permission its verb needs.
 #
-# Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
+# Code-ownership split (architecture.md): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python code
 # (lambdas/shared-space-<suffix>/) AND publishes + attaches the shared-code Lambda
 # layer. `ignore_changes` keeps `tofu apply` from reverting CI's code OR layer.
@@ -57,16 +57,16 @@ resource "aws_lambda_function" "functions" {
       USER_SPACE_BUCKET      = var.user_space_bucket_name
       PORTAL_ROLE_ARN        = local.portal_role_arn
       MAX_SHARED_MEMBERSHIPS = tostring(var.max_shared_memberships)
-      # SPEC-061: target for `create` notifications emitted at each lifecycle terminal
+      # Target for `create` notifications emitted at each lifecycle terminal
       # outcome (notify.emit_notification). Empty until notifications is wired -> no-op.
       NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
       # SPEC-134. Deliberately NOT mirrored by a config._require: a verb that loses this must
-      # log to stdout and keep working, never crash the plane at cold start (PR #196).
+      # log to stdout and keep working, never crash the plane at cold start.
       LOGS_QUEUE_URL = var.logs_queue_url
-      # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+      # `env` shipped empty on every record. Same source of truth as the
       # feature-flag document's `environments` keys (`var.environment`, default "prod").
       ENV_NAME = var.environment
-      # SPEC-125: NOT used by any shared-space verb — set because the cpcommon layer's
+      # NOT used by any shared-space verb — set because the cpcommon layer's
       # config requires it, and any code path may read it. (SPEC-156 FR-004 moved that from
       # import to first read, so this is no longer a cold-start crash — PR #196 — but it is
       # still a failure, and this variable must still be set.) Landed and applied BEFORE the

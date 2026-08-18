@@ -1,4 +1,4 @@
-# ── Data-quality Step Function (SPEC-108 FR-001) ─────────────────────────────
+# ── Data-quality Step Function ─────────────────────────────
 # Standard state machine — a linear pipeline AROUND AN ATHENA QUERY:
 # validate-authorize → inspect-source → create-temp-tables → start-profile-query →
 # [WaitForQuery → CheckQuery → Choice] → byte-scan → assemble-report →

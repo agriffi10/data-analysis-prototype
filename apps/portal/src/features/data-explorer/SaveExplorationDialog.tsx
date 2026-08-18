@@ -15,7 +15,7 @@ export type SaveExplorationDialogProps = {
    * save. The parent mounts this component only when there IS one (FR-002).
    */
   sql: string;
-  /** Writable destinations, personal first — ALREADY view-gated by the caller (SPEC-163). */
+  /** Writable destinations, personal first — ALREADY view-gated by the caller. */
   spaces: QuerySpace[];
   /** The space remembered by `useSavedQuerySpace`, for a tab with no link. */
   defaultSpace: QuerySpace | null;

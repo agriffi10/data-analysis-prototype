@@ -60,7 +60,7 @@ export function ConnectionsPage() {
   // reflected in the open drawer without reopening it (FR-006).
   const [managingName, setManagingName] = useState<string | null>(null);
   // Same NAME-tracked pattern as `managingName`, for a member's read-only roster view
-  // (SPEC-075) so a Refresh keeps the open drawer in sync.
+  // so a Refresh keeps the open drawer in sync.
   const [viewingName, setViewingName] = useState<string | null>(null);
   const [leaving, setLeaving] = useState<ConnectionRow | null>(null);
   const [deleting, setDeleting] = useState<ConnectionRow | null>(null);
@@ -112,7 +112,7 @@ export function ConnectionsPage() {
     [managingName, rows]
   );
 
-  // Same for the member roster drawer (SPEC-075).
+  // Same for the member roster drawer.
   const viewing = useMemo(
     () => (viewingName ? (rows.find((r) => r.name === viewingName) ?? null) : null),
     [viewingName, rows]
@@ -233,7 +233,7 @@ export function ConnectionsPage() {
         subtitle={
           <>
             Spaces you own or belong to.
-            {/* Full sentence at desktop; trimmed below (SPEC-101 FR-002). One
+            {/* Full sentence at desktop; trimmed below. One
                 span (display:none removes it from the a11y tree), so the subtitle
                 is never read doubled. */}
             <span className="hidden desktop:inline"> Files, tables, and the database are shared by all members.</span>
@@ -253,7 +253,7 @@ export function ConnectionsPage() {
               className="w-full tablet:w-auto"
               onClick={() => setDialogOpen(true)}>
               {/* "New" below desktop, full label at desktop; aria-label carries
-                  the full intent at every width (SPEC-101 FR-002). */}
+                  the full intent at every width. */}
               <span className="desktop:hidden">New</span>
               <span className="hidden desktop:inline">New shared connection</span>
             </Button>
@@ -465,7 +465,7 @@ function ConnectionRowItem({
 
   return (
     // Stacked on mobile (name / pills / meta then a full-width action row); a
-    // single horizontal row with right-aligned actions at ≥ tablet (SPEC-101).
+    // single horizontal row with right-aligned actions at ≥ tablet.
     <li className="flex flex-col gap-3 rounded-lg border border-border bg-surface px-5 py-4 tablet:flex-row tablet:items-center">
       <div className="min-w-0 flex-1">
         {/* Name on line 1, pills wrap under it on mobile; all inline (wrapping

@@ -20,7 +20,7 @@ function describe(item: SelectableItem): {name: string; isFolder: boolean} {
 
 const MAX_NAMES = 5;
 
-// SPEC-018 FR-004: explicit confirmation before any delete. Names the item(s),
+// Explicit confirmation before any delete. Names the item(s),
 // states the count, warns that deletion is irreversible (no versioning/undo), and
 // makes clear that folders are removed with all of their contents. Nothing is
 // deleted unless the user confirms. Modal: Escape cancels and focus defaults to

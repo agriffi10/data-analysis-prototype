@@ -1,4 +1,4 @@
-# ── Notifications-writer role (SPEC-058 FR-002) ──────────────────────────────
+# ── Notifications-writer role ──────────────────────────────
 # The single privileged role the writer Lambda runs under. It may read+write ANY
 # user's notifications.json (the `*` is the per-user prefix segment) and nothing else
 # app-relevant: no DeleteObject anywhere (the doc is only ever read-modify-rewritten via
@@ -32,8 +32,8 @@ resource "aws_iam_role_policy" "writer" {
   })
 }
 
-# ── Portal role — notifications enqueue policy (SPEC-058 FR-006) ──────────────
-# A small inline policy on the shared portal role (SPEC-011), attached BY NAME like the
+# ── Portal role — notifications enqueue policy ──────────────
+# A small inline policy on the shared portal role, attached BY NAME like the
 # analytics / shared-spaces modules do (the role is created in module.data; the
 # module-level depends_on = [module.data] guarantees it exists first). The browser's
 # ONLY notifications privilege: sqs:SendMessage to the request queue — for user-action

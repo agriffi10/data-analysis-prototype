@@ -45,7 +45,7 @@ export default function FilesPage() {
 
   // Hooks run unconditionally; the dev-unauth path below overrides the targets.
   const {connections, isLoading: connectionsLoading} = useConnections(user?.username ?? null);
-  // SPEC-163 FR-005: the spaces rail and the `?space=` parameter are shared-workspace
+  // The spaces rail and the `?space=` parameter are shared-workspace
   // surfaces. With the flag off the page shows no rail and resolves to the personal space
   // with NO notice — the deep link is ignored, not refused.
   const {isEnabled, status: flagsStatus} = useFeatureSet();
@@ -63,7 +63,7 @@ export default function FilesPage() {
     // the feature is ON.
     ignoreSpaceParam: flagsStatus !== 'loading' && !sharedSpacesEnabled
   });
-  // SPEC-073: a member resolving a shared space they belong to acks their membership
+  // a member resolving a shared space they belong to acks their membership
   // (once per session), flipping them Pending → Active in the owner's projection.
   useAcknowledgeMembership(user?.username ?? null, connections, activeSpaceId);
 
@@ -120,7 +120,7 @@ export default function FilesPage() {
   // would leave the write path open: the picker renders a space selector whenever it has more
   // than one option, so a user could still browse into `marketing_data` and paste a file there
   // with the feature switched off. Filtered here, at the view — `useConnections` still resolves
-  // every space, and the IAM grants are untouched (SPEC-162 FR-006).
+  // every space, and the IAM grants are untouched.
   const destinations: FileSpaceTarget[] | undefined = devUnauthenticated
     ? undefined
     : usableSpaceTargets(connections, user?.username ?? null, userSpaceBucket, sharedSpaceBucket).filter(
@@ -128,7 +128,7 @@ export default function FilesPage() {
       );
 
   // Below `tablet` the on-page Spaces rail is hidden; feed the same list into the
-  // mobile AppNavDrawer's contextual slot so it stays reachable (SPEC-099 FR-001) — and take
+  // mobile AppNavDrawer's contextual slot so it stays reachable — and take
   // the SAME gate there, because a rail hidden on desktop and present in the hamburger is
   // the feature still being one tap away.
   const spacesRail = useMemo(

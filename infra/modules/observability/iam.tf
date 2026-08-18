@@ -1,4 +1,4 @@
-# The producer fragment (SPEC-127 FR-006).
+# The producer fragment.
 #
 # sqs:SendMessage on the logs queue ARN and nothing else — no other action, no other queue. This
 # spec attaches it to the sweep's OWN role (the sweep instruments itself, which is what makes the

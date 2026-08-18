@@ -9,7 +9,7 @@ export const dataQualityKeys = {
   all: ['data-quality'] as const,
   report: (space: string, requestId: string) => [...dataQualityKeys.all, 'report', space, requestId] as const,
   /**
-   * The runs list (SPEC-123). Keyed by the JOINED SPACE NAMES, not by username: the list is
+   * The runs list. Keyed by the JOINED SPACE NAMES, not by username: the list is
    * merged across every space the user can see, so leaving or joining a shared space must
    * produce a different key — otherwise the cache would keep serving a list that still
    * contains a space the user no longer belongs to.

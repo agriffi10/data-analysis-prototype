@@ -408,7 +408,7 @@
     },
     "ShapeSummary": {
       "Type": "Pass",
-      "Comment": "The whole-request success outcome (SPEC-092 FR-003): identity + the per-recipient summary array collected from the finish Map ({kind, name, status:'ok'|'failed', error?} each — `error` is the RAW Step Functions {Error, Cause}; decode it with cpcommon.errors.failure_reason, never in ASL). The Succeed state passes this through as the execution output — what SPEC-094's sender/recipient notifications read.",
+      "Comment": "The whole-request success outcome: identity + the per-recipient summary array collected from the finish Map ({kind, name, status:'ok'|'failed', error?} each — `error` is the RAW Step Functions {Error, Cause}; decode it with cpcommon.errors.failure_reason, never in ASL). The Succeed state passes this through as the execution output — what SPEC-094's sender/recipient notifications read.",
       "Parameters": {
         "actor.$": "$.actor",
         "source.$": "$.source",

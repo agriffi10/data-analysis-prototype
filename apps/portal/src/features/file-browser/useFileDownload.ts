@@ -19,7 +19,7 @@ export type UseFileDownloadResult = {
  * The file list and the metadata panel had each written this out, down to the same
  * error sentence — so a change to the wording, or to the re-entrancy guard, was two
  * edits. The guard matters: `download` is a no-op while the SAME key is in flight, so
- * a rapid double-click cannot mint two presigned URLs (SPEC-081 FR-002).
+ * a rapid double-click cannot mint two presigned URLs.
  *
  * Never throws — the service returns a `ServiceResult` and the failure lands in
  * `error`, where the caller renders it.

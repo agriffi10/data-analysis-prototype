@@ -1,4 +1,4 @@
-# ── Constructed names + ARNs (SPEC-066) ──────────────────────────────────────
+# ── Constructed names + ARNs ──────────────────────────────────────
 # All resource names derive from {project_name}-{environment} so the deploy policy
 # (modules/base, the SPEC-066 PR1 grant) scopes to the same {project}-*-table-builder-*
 # patterns, and so cross-resource ARNs referenced inside IAM policy templates are
@@ -30,7 +30,7 @@ locals {
   # All share ONE execution role (execution_role above); the Step Function orchestrates
   # them as two branches over one shared spine (stepfunction.tf).
   #
-  # load-table-definition (SPEC-143) is the refresh branch's entry verb and mirrors
+  # load-table-definition is the refresh branch's entry verb and mirrors
   # check-table-absent in the negative — one Glue GetTable, no S3 — so it takes the same
   # 15 s / 256 MB. lambda.tf needs no edit for a new entry: it is entirely for_each over
   # this map, so the function, its log group and its placeholder zip all follow.
@@ -105,7 +105,7 @@ locals {
   shared_space_bucket_arn = "arn:aws:s3:::${var.shared_space_bucket_name}"
   admin_bucket_arn        = "arn:aws:s3:::${var.admin_bucket_name}"
 
-  # Athena/Glue ARNs for the execution role's DDL statements (SPEC-070). The workgroup
+  # Athena/Glue ARNs for the execution role's DDL statements. The workgroup
   # + the catalog it creates tables in are scoped in execution.json.tftpl. Target
   # databases are DYNAMIC (one per user + per shared space), so Glue/table are scoped to
   # the account catalog's database/* + table/*/* — Lake Formation (the execution role is

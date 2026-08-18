@@ -1,7 +1,7 @@
-# ── shared-spaces module outputs (SPEC-050) ──────────────────────────────────
+# ── shared-spaces module outputs ──────────────────────────────────
 # Exported for later app wiring (VITE_* in SPEC-056+) and ops. The browser learns
 # the queue URL to enqueue requests (sqs:SendMessage granted in SPEC-056); the
-# bucket name maps to a VITE_* once shared-space file ops land (SPEC-057).
+# bucket name maps to a VITE_* once shared-space file ops land.
 
 output "shared_space_bucket_name" {
   description = "Name of the shared-space bucket (Bucket 2). Maps to a VITE_* in SPEC-057."
@@ -19,7 +19,7 @@ output "request_queue_url" {
 }
 
 output "request_queue_arn" {
-  description = "ARN of the FIFO request queue — the portal-role sqs:SendMessage scope (SPEC-056)."
+  description = "ARN of the FIFO request queue — the portal-role sqs:SendMessage scope."
   value       = aws_sqs_queue.requests.arn
 }
 

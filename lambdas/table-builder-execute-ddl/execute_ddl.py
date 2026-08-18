@@ -15,7 +15,7 @@ one queryable set. The per-verb identity rides as the ``verb`` field.
 Attributes:
   athena_run: The table-builder's DDL runner, with this plane's reason codes bound. Held at
     module level so a timing test can replace its ``_now`` and ``_sleep`` seams, which is the
-    whole reason the per-plane wrapper it replaced existed (SPEC-156 FR-005).
+    whole reason the per-plane wrapper it replaced existed.
 """
 
 import logging

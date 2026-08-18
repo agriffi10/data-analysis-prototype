@@ -90,7 +90,7 @@ export type PrimaryNavProps = {
  * on auth status.
  *
  * **Gating arrives as a PREDICATE, not as a hook call** (SPEC-163 FR-001): this file lives in
- * `components/`, which may not import from `features/` (SPEC-155), and the rule is worth more
+ * `components/`, which may not import from `features/`, and the rule is worth more
  * than the convenience — `Header` is the one place that knows both the auth state and the
  * flags, so it is the one place that decides.
  *

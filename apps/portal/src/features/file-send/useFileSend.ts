@@ -9,7 +9,7 @@ import type {SendItem, SendRecipient, SendSourceSpace} from './fileSend.types';
 type SendToast = {variant: 'success'; message: string};
 
 /**
- * Dialog + enqueue state for "Send to…" (SPEC-167).
+ * Dialog + enqueue state for "Send to…".
  *
  * `open(items)` targets the current selection; `submit` enqueues via `enqueueFileSend` — on
  * success the dialog closes and `notify` gets a transient toast, and on failure the dialog stays

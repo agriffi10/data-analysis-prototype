@@ -107,8 +107,8 @@ function clippingRect(from: HTMLElement): {top: number; bottom: number} {
 
 /**
  * An accessible single-value typeahead over catalog-safe identifiers, suggested by whatever
- * {@link SuggestionSource} the caller supplies — the published username directory (SPEC-146) or
- * the signed-in user's own shared spaces (SPEC-158).
+ * {@link SuggestionSource} the caller supplies — the published username directory or
+ * the signed-in user's own shared spaces.
  *
  * **Every source here is ADVISORY and this component never blocks a name it does not know.** The
  * directory is up to a day stale and misses users not yet provisioned; the space list covers only
@@ -214,9 +214,9 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
       : '';
 
   // Flip above the field when there is not room below, and CAP the list at the room there
-  // actually is — measured against the box that clips it (SPEC-186 FR-003), which inside a
+  // actually is — measured against the box that clips it, which inside a
   // dialog is the panel and not the viewport. A bounded max-height plus this flip is
-  // sufficient — no positioning library, which would be a Tech Stack change (SPEC-147 FR-008).
+  // sufficient — no positioning library, which would be a Tech Stack change.
   //
   // Re-measured on scroll and resize, both captured: the field moves within the dialog's own
   // scroll box, and that scroll event does not bubble to `window`.
@@ -245,7 +245,7 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
     };
   }, [listOpen]);
 
-  // Keep the virtual cursor's option inside the list's VISIBLE region (SPEC-186 FR-003 AC2).
+  // Keep the virtual cursor's option inside the list's VISIBLE region.
   // DOM focus never leaves the input in a combobox, so nothing scrolls the list on its own —
   // arrowing past the last visible option used to move an `aria-activedescendant` the sighted
   // user could not see.

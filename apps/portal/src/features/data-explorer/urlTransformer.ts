@@ -13,7 +13,7 @@ export type ResolvedUrl = {href: string; reason?: undefined} | {href?: undefined
 // the data is.
 //
 // **`isSafeInAppPath` is deliberately not used here, and this is the note recording why.**
-// That rule (SPEC-061/167) governs IN-APP paths: it asks whether a notification's link is a
+// That rule governs IN-APP paths: it asks whether a notification's link is a
 // route inside this application, and it answers by refusing anything that is not root-
 // relative. Every URL in this file is by definition external and absolute, so that rule
 // would reject all of them — and if it were loosened to admit them it would be answering a

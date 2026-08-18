@@ -22,7 +22,7 @@ type CollapsibleRailProps = {
 
 /**
  * Shared chrome for the two authenticated left rails (Files `Sidebar` + Query
- * `SchemaBrowser`, SPEC-085): the 248px panel (`widthClass` narrows it per host;
+ * `SchemaBrowser`): the 248px panel (`widthClass` narrows it per host;
  * hidden below `tablet` as before) plus a header **collapse** control and, when
  * collapsed, a slim **reopen** handle at the content's left edge.
  *

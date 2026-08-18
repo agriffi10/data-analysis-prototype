@@ -6,7 +6,7 @@ import {EditorLayoutControl} from './EditorLayoutControl';
 import {FeatureGate} from '../feature-flags';
 import type {EditorLayoutPreset} from './query.constants';
 
-// SPEC-100 FR-003: the editor toolbar is icon-only in the tablet band so its
+// The editor toolbar is icon-only in the tablet band so its
 // actions fit the narrower main column; each button keeps its `aria-label`.
 const TOOLBAR_LABEL = 'hidden desktop:inline';
 
@@ -105,7 +105,7 @@ export function QueryToolbar({
           <span className={TOOLBAR_LABEL}>Stop</span>
         </Button>
       ) : (
-        // SPEC-078 FR-005: three distinct run scopes as a split button.
+        // Three distinct run scopes as a split button.
         // Run Statement stays the primary action (⌘⏎); the two whole-script
         // scopes — which differ only in how results are shown — live in an
         // attached dropdown so the toolbar stays compact.

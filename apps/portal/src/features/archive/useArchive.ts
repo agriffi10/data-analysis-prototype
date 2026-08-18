@@ -28,7 +28,7 @@ export function isArchiveId(value: string): boolean {
 }
 
 /**
- * Dialog + enqueue state for Archive (SPEC-172 FR-002).
+ * Dialog + enqueue state for Archive.
  *
  * `open(items)` targets a selection or a single item; `submit()` enqueues via `enqueueArchive` —
  * on success the dialog closes and `notify` gets a transient toast, and on failure the dialog
@@ -109,14 +109,14 @@ export function useArchive(space: ArchiveSpace | null, notify: (toast: ArchiveTo
 }
 
 /**
- * Dialog + enqueue state for Restore Archived Data (SPEC-172 FR-003).
+ * Dialog + enqueue state for Restore Archived Data.
  *
  * Beside `useArchive` rather than in its own file because the two are one plane's two modes and
  * share every rule that matters here — the per-submit request id, the in-flight ref, the busy
  * lock, and "success means enqueued". What differs is the shape of what is submitted, and that
  * is the whole of the difference.
  *
- * `requestId` and `archiveId` are DIFFERENT values (SPEC-170 FR-001): this run's id, and the
+ * `requestId` and `archiveId` are DIFFERENT values: this run's id, and the
  * archive it names. A refused restore must be re-submittable, so the run id is minted per submit
  * exactly as the archive's is.
  */

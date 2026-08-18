@@ -9,7 +9,7 @@ export type LandingNavMenuProps = {
 /**
  * Mobile-only (`< tablet`) hamburger disclosure for the landing page's section
  * anchors (Features / Security), so they stay reachable below `tablet` where the
- * inline link group is hidden (SPEC-104). Composes the shared `Menu` primitive —
+ * inline link group is hidden. Composes the shared `Menu` primitive —
  * each anchor navigates via the URL hash and closes the panel; Escape /
  * outside-click close are inherited.
  *

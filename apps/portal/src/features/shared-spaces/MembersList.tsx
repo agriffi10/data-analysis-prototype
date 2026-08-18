@@ -11,12 +11,12 @@ type MembersListProps = {
   members: Member[];
   /**
    * When provided, each non-owner member shows a Remove button (owner's Manage view).
-   * Omit for the read-only member roster (SPEC-075).
+   * Omit for the read-only member roster.
    */
   onRemove?: (username: string) => void;
   busy?: boolean;
   /**
-   * The signed-in user reading this list, when known (SPEC-186 FR-008).
+   * The signed-in user reading this list, when known.
    *
    * Their own row renders `Active` whatever the projection says, because `Pending` means
    * "invited but hasn't signed in yet" and this reader demonstrably has — they are looking at
@@ -81,7 +81,7 @@ export function MembersList({owner, members, onRemove, busy = false, viewer}: Me
   );
 }
 
-// Per-member join status (SPEC-073), through the shared pill (SPEC-186 FR-010): the text label
+// Per-member join status, through the shared pill: the text label
 // always carries the meaning, so the colour and dot are never the only signal (WCAG AA).
 function MemberStatusBadge({status}: {status: Member['status']}) {
   const active = status === 'active';

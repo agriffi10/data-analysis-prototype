@@ -1,6 +1,6 @@
 // The Glue reader, the Athena execution/results layer, the space list and the
-// column-width store are `features/catalog/` (SPEC-176), and the `.sql` store is
-// `features/saved-queries/` (SPEC-177) — consumers import them from there, not through
+// column-width store are `features/catalog/`, and the `.sql` store is
+// `features/saved-queries/` — consumers import them from there, not through
 // this barrel.
 export {getQueryHistory, appendQueryHistory, updateQueryHistoryEntry} from './queryHistory.service';
 export {useResultsPageSize, clampPageSize} from './useResultsPageSize';

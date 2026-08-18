@@ -26,7 +26,7 @@ Attributes:
   MACHINE_TIMEOUT_SECONDS: The table-builder state machine's ``TimeoutSeconds``, mirrored here
     because a steal threshold is only meaningful against a bounded execution — a Standard machine
     with no timeout may run for a year, and no age threshold could be justified against it.
-    Derived (SPEC-157 FR-004 AC1) from the refresh path's worst case: every Task retries 3 times
+    Derived from the refresh path's worst case: every Task retries 3 times
     over 2/4/8-second intervals, so a state costs ``4 * timeout + 14`` seconds, and the path sums
     to ≈2400 s (validate 74, acquire 74, load-definition 74, inspect-source 254, infer-schema 494,
     diff-schema 74, apply-refresh 1214, release 74, notify 74). The create path is ≈2260 s, so

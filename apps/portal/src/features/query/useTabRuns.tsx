@@ -9,7 +9,7 @@ import type {UseQueryHistoryResult} from './useQueryHistory';
 import type {ParsedStatement, QueryTab, ResultTab, RunScope} from './query.types';
 import type {QueryStatus} from '../catalog/catalog.types';
 
-// SPEC-041: per-tab in-memory run state (not persisted — results re-fetch on a
+// Per-tab in-memory run state (not persisted — results re-fetch on a
 // fresh Run). SPEC-078 extends it to a sequential batch: the statements in
 // scope, the in-flight statement's execution, and the result tabs accumulated
 // as result-producing statements succeed. `submittedSql` is the CURRENT
@@ -36,7 +36,7 @@ export type TabRun = {
   failure?: {statementIndex: number; reason: string};
   /** Saved-query link captured at submit, recorded on every statement's history entry. */
   savedQuery?: {key: string; name: string};
-  /** Submitter-supplied identity, so a caller can tell ITS run from a later one (SPEC-100). */
+  /** Submitter-supplied identity, so a caller can tell ITS run from a later one. */
   token?: number;
 };
 
@@ -100,7 +100,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
   const [runErrors, setRunErrors] = useState<Record<string, string | null>>({});
   const [dismissed, setDismissed] = useState<Record<string, boolean>>({});
 
-  // Tabs whose run has been submitted but not yet recorded in `runs` (SPEC-083 FR-009).
+  // Tabs whose run has been submitted but not yet recorded in `runs`.
   // The de-dupe guard reads this ref so a rapid double-trigger de-dupes before the
   // async setRuns commits, which the runs/statuses render snapshot alone can miss.
   const submittingTabsRef = useRef<Set<string>>(new Set());
@@ -120,7 +120,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
         }
       }).catch((e) => logBackgroundFailure('query-history', e));
 
-      // SPEC-077: a user-typed DDL fully-qualifies its own target; refresh that
+      // a user-typed DDL fully-qualifies its own target; refresh that
       // database's schema (there's no active database to assume).
       const ddlDb = status.state === 'SUCCEEDED' ? schemaChangingDatabase(sql) : null;
       if (ddlDb) void invalidateSchema(queryClient, ddlDb);
@@ -170,7 +170,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
           done: true,
           ...(status.state === 'FAILED' && {
             // Store friendly text for display; the raw stateChangeReason stays in
-            // the QueryStatus/history record for developers (SPEC-106 FR-004).
+            // the QueryStatus/history record for developers.
             failure: {
               statementIndex: cur.currentIndex,
               reason: toUserText({code: status.state, message: status.stateChangeReason})
@@ -232,12 +232,12 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
 
   // Submit a batch of statements into a tab (defaults to the active tab),
   // starting the FIRST statement; the finalizer advances through the rest
-  // sequentially (SPEC-078 FR-002). An explicit tabId lets a just-opened tab
-  // (View data, SPEC-044) auto-run into itself before the activeTabId state
+  // sequentially. An explicit tabId lets a just-opened tab
+  // (View data) auto-run into itself before the activeTabId state
   // change has committed. A new run replaces the tab's prior run wholesale, so
   // the previous batch's result tabs are cleared (FR-007). Returns whether the
   // submit began, so a caller that tracks its own run (the mobile results view)
-  // doesn't start waiting on a run the guards below refused (SPEC-100).
+  // doesn't start waiting on a run the guards below refused.
   const submitBatch = (
     statements: ParsedStatement[],
     scope: RunScope,
@@ -255,7 +255,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     if (existing && !existing.done) return false;
     submittingTabsRef.current.add(tabId);
 
-    // SPEC-043 FR-009: a run from a tab linked to a saved query records that query in
+    // a run from a tab linked to a saved query records that query in
     // history. Read off the TAB at submit time — SPEC-173 put the whole link there, so
     // there is no list to look the query up in.
     const linkedSaved = tabs.find((t) => t.id === tabId)?.savedQuery;
@@ -267,9 +267,9 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     void (async () => {
       try {
         const first = statements[0];
-        // SPEC-077: no execution database context — the query fully-qualifies its
+        // no execution database context — the query fully-qualifies its
         // own tables. Results land in the personal prefix (runQuery's default); a
-        // shared destination is chosen explicitly at Save time (SPEC-049/055).
+        // shared destination is chosen explicitly at Save time.
         const result = await runQuery({
           sql: first.sql,
           username
@@ -294,7 +294,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
         await appendEntry({
           queryExecutionId: id,
           sql: first.sql,
-          // SPEC-077 FR-006: informational only (there's no active database). The
+          // Informational only (there's no active database). The
           // personal database is the fixed default context recorded for display.
           database: username,
           submittedAt: new Date().toISOString(),

@@ -38,7 +38,7 @@ type Props = {
  * time, with Open (→ new linked tab) and Delete (→ confirm). The delete confirm owns
  * Escape while open.
  *
- * SPEC-174 FR-006: the selector renders ABOVE every body state, so a space the user can
+ * the selector renders ABOVE every body state, so a space the user can
  * no longer reach is an error about *that space* — they pick another and carry on —
  * rather than a broken drawer.
  *

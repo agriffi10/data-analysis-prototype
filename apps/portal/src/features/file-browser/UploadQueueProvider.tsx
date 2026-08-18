@@ -74,7 +74,7 @@ export function UploadQueueProvider({children}: {children: ReactNode}) {
         dispatch({type: 'collision', id: item.id});
       } else {
         // Map to friendly text here (the code is in scope) so UploadList never
-        // renders the raw AWS message (SPEC-106 FR-003).
+        // renders the raw AWS message.
         dispatch({type: 'fail', id: item.id, error: toUserText(result.error)});
       }
     },

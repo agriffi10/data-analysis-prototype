@@ -3,8 +3,8 @@
 # Sign-in is by username; email is a required, verified standard attribute.
 #
 # Username constraint: the username becomes the user's S3 prefix, the value of the
-# `username` IAM principal tag stamped by the Identity Pool (SPEC-011), AND the
-# user's Glue database name (SPEC-033). An IAM RoleSessionName / tag value allows at
+# `username` IAM principal tag stamped by the Identity Pool, AND the
+# user's Glue database name. An IAM RoleSessionName / tag value allows at
 # most 64 chars from the set `a-z A-Z 0-9 = , . @ - _` (see docs/architecture.md).
 # Signup additionally enforces `^[a-z][a-z0-9_]{2,62}$` via the SPEC-012 pre-signup
 # Lambda (tightened to a catalog-safe identifier by SPEC-033 so the Glue DB name is
@@ -23,8 +23,8 @@ resource "aws_cognito_user_pool" "portal" {
   auto_verified_attributes = ["email"]
 
   # Trigger Lambdas (defined in lambda.tf; invoke permission granted there):
-  #   pre_sign_up       — enforce the username rule server-side (SPEC-012)
-  #   post_confirmation — provision the user's Glue database + LF grant (SPEC-033)
+  # pre_sign_up — enforce the username rule server-side
+  # post_confirmation — provision the user's Glue database + LF grant
   lambda_config {
     pre_sign_up       = aws_lambda_function.pre_signup.arn
     post_confirmation = aws_lambda_function.post_confirmation.arn
@@ -32,7 +32,7 @@ resource "aws_cognito_user_pool" "portal" {
 
   # Email verification uses a 6-digit code (not a link), so the user can enter it
   # on the Hosted UI. Customise the email so recipients recognise it. `{####}` is
-  # the Cognito placeholder for the generated code (SPEC-009 FR-002).
+  # the Cognito placeholder for the generated code.
   verification_message_template {
     default_email_option = "CONFIRM_WITH_CODE"
     email_subject        = "Your S3 Portal verification code"
@@ -71,7 +71,7 @@ resource "aws_cognito_user_pool" "portal" {
     }
   }
 
-  # Tightened for bot/credential-stuffing resistance (SPEC-030 FR-002). All flags
+  # Tightened for bot/credential-stuffing resistance. All flags
   # were already on; temporary_password_validity_days is added to complete the block.
   password_policy {
     minimum_length                   = 12
@@ -142,7 +142,7 @@ resource "aws_cognito_user_pool_client" "spa" {
   supported_identity_providers = ["COGNITO"]
 
   # Return an identical generic error for "user not found" and "wrong password"
-  # so sign-in attempts can't enumerate registered accounts (SPEC-030 FR-001).
+  # so sign-in attempts can't enumerate registered accounts.
   # This is a free Cognito feature and does NOT require Advanced Security Features.
   prevent_user_existence_errors = "ENABLED"
 

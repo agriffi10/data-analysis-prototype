@@ -216,7 +216,7 @@ export function splitSqlStatements(buffer: string): ParsedStatement[] {
 }
 
 /**
- * Resolves what "Run Statement" executes (SPEC-078 FR-006): a non-empty
+ * Resolves what "Run Statement" executes: a non-empty
  * selection wins (re-split per FR-001, ranges mapped back into the buffer);
  * otherwise the statement whose range contains the cursor; a cursor in the
  * whitespace between statements falls back to the nearest preceding statement

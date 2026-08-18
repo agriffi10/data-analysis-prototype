@@ -19,12 +19,12 @@ output "identity_pool_id" {
 }
 
 output "pre_signup_function_name" {
-  description = "Name of the pre-signup validation Lambda (SPEC-012). The deploy-lambdas workflow targets this for update-function-code."
+  description = "Name of the pre-signup validation Lambda. The deploy-lambdas workflow targets this for update-function-code."
   value       = aws_lambda_function.pre_signup.function_name
 }
 
 output "post_confirmation_function_name" {
-  description = "Name of the post-confirmation provisioning Lambda (SPEC-033). The deploy-lambdas workflow targets this for update-function-code."
+  description = "Name of the post-confirmation provisioning Lambda. The deploy-lambdas workflow targets this for update-function-code."
   value       = aws_lambda_function.post_confirmation.function_name
 }
 

@@ -1,4 +1,4 @@
-# ── Control-plane IAM roles (SPEC-168) ───────────────────────────────────────
+# ── Control-plane IAM roles ───────────────────────────────────────
 # ONE shared execution role for every verb Lambda (the consolidated model every plane has
 # used since SPEC-062), plus the Step Function role and the Pipe role. Trust + permission
 # policies are .tftpl templates rendered with templatefile() (no inline jsonencode IAM,
@@ -64,7 +64,7 @@
 # IT ALSO COVERS `_config/` AND `_directory/`, WHICH ARE AT THE BUCKET ROOT AND NOT INSIDE ANY
 # SPACE. A `*/x/*` pattern cannot match a key with one segment before the folder, so the two
 # documents that are arguably the most dangerous things in that bucket — the feature-flag
-# document that decides what every user can see (SPEC-162) and the username directory
+# document that decides what every user can see and the username directory
 # (SPEC-146) — were outside a statement whose name claims to cover portal-managed state. They
 # are unreachable from code, because every restore destination is built by paths.origin_key
 # under an authorized space root, but the widening is what made naming them cheap and correct.
@@ -76,7 +76,7 @@
 # NOTE FOR ANYONE ADDING A STATEMENT: IAM rejects a "//" comment key inside a statement
 # ("Policy input list item 1 has invalid content" — verified with simulate_custom_policy),
 # so rationale goes HERE, not in the .tftpl.
-# states:DescribeExecution (SPEC-169 FR-003) is the ONE grant the timeout door needs, and
+# states:DescribeExecution is the ONE grant the timeout door needs, and
 # it is on THIS role rather than the state machine's because it is the notify-failure
 # LAMBDA that makes the call — invoked by EventBridge, outside any execution. It reads back
 # the input of a run whose event omitted it, which on this plane is the ordinary case for a
@@ -106,14 +106,14 @@ resource "aws_iam_role_policy" "execution" {
   })
 }
 
-# ── Portal role — archive enqueue policy (SPEC-168 FR-007) ───────────────────
+# ── Portal role — archive enqueue policy ───────────────────
 # THE BROWSER'S ONLY POSITIVE ARCHIVE PRIVILEGE: sqs:SendMessage to the request queue.
 # It is granted NOTHING on the archive bucket — not GetObject, not ListBucket, nothing —
 # and a rendered-policy test asserts the portal role has no statement of any kind naming
 # that ARN. The browser's only relationship with that bucket is that it has none, and the
 # only route to archived bytes is a restore request through this plane.
 #
-# A small inline policy on the shared portal role (SPEC-011), attached BY NAME like the
+# A small inline policy on the shared portal role, attached BY NAME like the
 # file-send / table-builder / table-share / notifications modules (the role is created in
 # module.data; the root module-level depends_on guarantees it exists first). The two
 # `archive/` write DENIES that go with this live in the space buckets' own portal
@@ -138,7 +138,7 @@ resource "aws_iam_role_policy" "sfn" {
   name = "permissions"
   role = aws_iam_role.sfn.id
 
-  # InvokeFunction on the verbs + log delivery, plus (SPEC-169) the Distributed Map's own
+  # InvokeFunction on the verbs + log delivery, plus the Distributed Map's own
   # permissions — which belong HERE and not on the execution role: the state machine is
   # what calls StartExecution for each child and what reads the ItemReader object and
   # writes the ResultWriter export. Putting them on the Lambda role renders, applies and

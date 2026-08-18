@@ -26,7 +26,7 @@ type Props = {
   destinations: FileSpaceTarget[] | undefined;
   canModify: boolean;
   /**
-   * SPEC-172 FR-001: the per-item Archive action in each details panel. Absent when the space
+   * the per-item Archive action in each details panel. Absent when the space
    * can't be resolved, the `files` flag is off, or the user is inside the read-only `archive/`
    * folder — removed rather than disabled, which is SPEC-163's rule.
    */
@@ -34,7 +34,7 @@ type Props = {
   onRequestArchiveFolder?: (folder: S3FolderItem) => void;
   /** Why THIS item can't be archived (a portal-managed root), if it can't. */
   archiveRefusalFor: (key: string, kind: 'file' | 'folder') => string | undefined;
-  /** Why nothing in the current folder can be written (SPEC-172 FR-004). */
+  /** Why nothing in the current folder can be written. */
   writeLockReason?: string;
   /** The current selection, for the delete confirmation's item list. */
   selectedItems: SelectableItem[];
@@ -69,7 +69,7 @@ export function FileBrowserDialogs({
 }: Props) {
   return (
     <>
-      {/* Metadata drawer (SPEC-017) — shared Drawer; closes via button, Escape, or backdrop */}
+      {/* Metadata drawer — shared Drawer; closes via button, Escape, or backdrop */}
       {dialogs.detailsFile && (
         <MetadataPanel
           bucket={bucket}
@@ -95,7 +95,7 @@ export function FileBrowserDialogs({
           onRequestArchive={onRequestArchiveFolder}
           archiveDisabledReason={archiveRefusalFor(dialogs.detailsFolder.prefix, 'folder')}
           writeLockReason={
-            // SPEC-186 FR-002: a portal-managed root refuses a rename for its OWN reason, which
+            // a portal-managed root refuses a rename for its OWN reason, which
             // is not the current folder's write lock — but Rename carries one reason, and the
             // folder-specific one is the more useful of the two where both apply.
             writeLockReason ??
@@ -106,7 +106,7 @@ export function FileBrowserDialogs({
         />
       )}
 
-      {/* Delete confirmation (SPEC-018 FR-004) — modal; nothing deleted until confirmed */}
+      {/* Delete confirmation — modal; nothing deleted until confirmed */}
       {dialogs.confirmDeleteOpen && (
         <DeleteConfirmDialog
           items={selectedItems}
@@ -116,7 +116,7 @@ export function FileBrowserDialogs({
         />
       )}
 
-      {/* Rename dialog (SPEC-019 FR-002) — modal */}
+      {/* Rename dialog — modal */}
       {dialogs.renaming && (
         <RenameDialog
           kind={dialogs.renaming.kind}
@@ -127,7 +127,7 @@ export function FileBrowserDialogs({
         />
       )}
 
-      {/* Move dialog (SPEC-019 FR-003) — destination-folder picker */}
+      {/* Move dialog — destination-folder picker */}
       {dialogs.moving && (
         <MoveDialog
           bucket={bucket}
@@ -142,7 +142,7 @@ export function FileBrowserDialogs({
         />
       )}
 
-      {/* Copy dialog (SPEC-039 FR-004) — destination picker + same-folder name
+      {/* Copy dialog — destination picker + same-folder name
           field. Stays open across the same-folder auto-number prompt (FR-003);
           the prompt's confirm/cancel close the dialog (and clear the selection). */}
       {dialogs.copying && (

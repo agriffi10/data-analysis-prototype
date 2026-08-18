@@ -138,7 +138,7 @@ export function FormDialog({
     <Modal
       ariaLabel={ariaLabel}
       dismissible={!busy}
-      // THE WIDTH IS SUPPLIED HERE, not left to `Modal`'s default (SPEC-186 FR-007). Fixing
+      // THE WIDTH IS SUPPLIED HERE, not left to `Modal`'s default. Fixing
       // only `Modal`'s empty-string fallback closed half the trap: with `scrollBody` and no
       // `className` this `cx` returns a TRUTHY string, `Modal`'s `className || 'max-w-md'`
       // never fires, and the panel takes `w-full` — the identical failure one branch over, and

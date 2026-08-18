@@ -26,7 +26,7 @@ function badgeFor(status?: QueryState): {label: string; tone: StatusTone} {
  * single-line SQL preview, scanned/duration stats, Open + Re-run actions.
  *
  * The action labels are overridable because the mobile workspace has no editor
- * to open into: there the same row reads View + Run (SPEC-100 FR-004).
+ * to open into: there the same row reads View + Run.
  */
 export function QueryHistoryRow({
   entry,

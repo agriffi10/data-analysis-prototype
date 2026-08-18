@@ -4,7 +4,7 @@
 # fifth control plane is one map entry and one more ARN in DLQ_ARNS — not a fifth copy of
 # this file.
 #
-# Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
+# Code-ownership split (architecture.md): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml owns the Python code and attaches
 # the cpcommon layer. `ignore_changes` keeps `tofu apply` from reverting CI's deployed code.
 
@@ -23,7 +23,7 @@ data "archive_file" "placeholder" {
 #
 # THIS LOG GROUP IS NOW THE ONLY COPY OF A DEAD-LETTERED BODY. Consuming a DLQ message
 # deletes it, so the 14-day queue retention the arcs kept "for inspection" is traded for
-# this group's 14-day retention (SPEC-126 FR-004) — a deliberate cost, paid so the user
+# this group's 14-day retention — a deliberate cost, paid so the user
 # hears about the failure at all. Shortening this retention shortens the forensic window.
 resource "aws_cloudwatch_log_group" "drain" {
   name              = local.log_group_name
@@ -61,7 +61,7 @@ resource "aws_lambda_function" "drain" {
       # side: cpcommon.observability reads it with os.environ.get, so a drain that somehow
       # loses this variable logs to stdout and still drains rather than crashing at cold start.
       LOGS_QUEUE_URL = var.logs_queue_url
-      # SPEC-186 FR-005: `env` shipped empty on every record. Same source of truth as the
+      # `env` shipped empty on every record. Same source of truth as the
       # feature-flag document's `environments` keys (`var.environment`, default "prod").
       ENV_NAME = var.environment
     }

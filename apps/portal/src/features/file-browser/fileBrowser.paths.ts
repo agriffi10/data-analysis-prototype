@@ -40,7 +40,7 @@ export function lastSegment(keyOrPrefix: string): string {
 
 /**
  * Whether `currentPrefix` is the space root — the point at which the parent-folder
- * (`..`) row is hidden (SPEC-098). `rootPrefix` is the navigation floor (personal
+ * (`..`) row is hidden. `rootPrefix` is the navigation floor (personal
  * `{username}/`, a shared space's root prefix, or `''` when unclamped).
  */
 export function isAtRoot(currentPrefix: string, rootPrefix: string): boolean {
@@ -50,7 +50,7 @@ export function isAtRoot(currentPrefix: string, rootPrefix: string): boolean {
 /**
  * Immediate parent of `currentPrefix` (its last path segment dropped), never above
  * the space root: `alice/docs/reports/` → `alice/docs/`, and one level below root →
- * `rootPrefix`. Used to navigate up from the `..` row (SPEC-098).
+ * `rootPrefix`. Used to navigate up from the `..` row.
  */
 export function parentPrefix(currentPrefix: string, rootPrefix: string): string {
   const trimmed = currentPrefix.replace(/\/$/, '');

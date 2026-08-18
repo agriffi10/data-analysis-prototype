@@ -1,4 +1,4 @@
-# ── Lambda Deployment Artifacts Bucket (SPEC-012) ────────────────────────────
+# ── Lambda Deployment Artifacts Bucket ────────────────────────────
 # Staging bucket for Lambda code packages. GitHub Actions
 # (.github/workflows/deploy-lambdas.yml) builds each function's zip, uploads it
 # here under {function}/{git-sha}.zip, then calls update-function-code referencing

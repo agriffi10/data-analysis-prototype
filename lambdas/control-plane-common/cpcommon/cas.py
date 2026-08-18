@@ -11,7 +11,7 @@ conditioned on that tag or on absence, and on a precondition failure re-read, re
 **It was written three times.** ``dqcommon/index_store.py`` called its copy "a deliberate twin,
 not drift" and named SPEC-125 as the point where they would converge; SPEC-125 shipped and they
 drifted anyway — two copies handled the racing 409 and one did not, and the caps were 6, 5 and
-5. This is that convergence, one spec late (SPEC-156 FR-001).
+5. This is that convergence, one spec late.
 
 Callers supply the read and write closures, because each owns its key layout, serialization
 and absent-detection — the registry treats only a missing key as absent, the cache also treats

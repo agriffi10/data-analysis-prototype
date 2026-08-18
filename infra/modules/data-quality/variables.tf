@@ -1,11 +1,11 @@
-# ── data-quality module variables (SPEC-108) ─────────────────────────────────
+# ── data-quality module variables ─────────────────────────────────
 # Bounded-context module for the "check data quality on a file or folder" control
 # plane: a DEDICATED FIFO SQS → EventBridge Pipe → Standard Step Function pipeline
 # orchestrating nine single-task verb Lambdas around ONE Athena profile query.
 # Mirrors the table-builder/table-share control-plane PATTERN (not their resources).
 #
 # SPEC-108 is FOUNDATION ONLY — plumbing + Lambda stubs; no request contract, no
-# authorization, no DDL/query logic (SPEC-109→112). Cross-module ARNs are CONSTRUCTED
+# authorization, no DDL/query logic. Cross-module ARNs are CONSTRUCTED
 # STRINGS (passed from root locals), never another module's output, so they are known
 # at plan time (architecture.md "unknown ARN in list" trap) and this module plans
 # standalone.
@@ -33,23 +33,23 @@ variable "account_id" {
 # ── Buckets (env for every verb; grants land in SPEC-109/111) ─────────────────
 # NOTE: these are wired into the COMMON Lambda env now, not because the SPEC-108 stubs
 # use them, but because every verb attaches the cpcommon layer and cpcommon/config.py
-# requires them (SPEC-107 FR-001). SPEC-156 FR-004 moved that requirement from import to
+# requires them. SPEC-156 FR-004 moved that requirement from import to
 # FIRST READ, so a verb missing one no longer crashes at cold start (the table-builder
 # production break, PR #196) — it fails on whichever branch reads it. The union is still
 # what must be set; do not prune one as "unused". No bucket is created here.
 
 variable "user_space_bucket_name" {
-  description = "Name of the user-space bucket (Bucket 1, SPEC-013). Personal-space sources + the report destination; env USER_SPACE_BUCKET (required by cpcommon.config). Grants land in SPEC-109."
+  description = "Name of the user-space bucket (Bucket 1). Personal-space sources + the report destination; env USER_SPACE_BUCKET (required by cpcommon.config). Grants land in SPEC-109."
   type        = string
 }
 
 variable "shared_space_bucket_name" {
-  description = "Name of the shared-space bucket (Bucket 2, SPEC-050). Shared-space sources + report destination; env SHARED_SPACE_BUCKET (required by cpcommon.config). Grants land in SPEC-109."
+  description = "Name of the shared-space bucket (Bucket 2). Shared-space sources + report destination; env SHARED_SPACE_BUCKET (required by cpcommon.config). Grants land in SPEC-109."
   type        = string
 }
 
 variable "admin_bucket_name" {
-  description = "Name of the existing analytics admin bucket (SPEC-032). Holds the shared-spaces registry (shared authorization, SPEC-109) and this workgroup's FALLBACK Athena result location; env ADMIN_BUCKET (required by cpcommon.config). No bucket is created here."
+  description = "Name of the existing analytics admin bucket. Holds the shared-spaces registry (shared authorization) and this workgroup's FALLBACK Athena result location; env ADMIN_BUCKET (required by cpcommon.config). No bucket is created here."
   type        = string
 }
 
@@ -90,7 +90,7 @@ variable "dlq_max_receive_count" {
 # ── SPEC-109: the browser's enqueue grant ────────────────────────────────────
 
 variable "portal_role_name" {
-  description = "SPEC-109 FR-003: name of the shared portal role (SPEC-011) this module attaches the browser's sqs:SendMessage (data-quality queue ONLY) inline policy to, by name — mirrors the notifications/shared-spaces/table-builder/table-share modules."
+  description = "SPEC-109 FR-003: name of the shared portal role this module attaches the browser's sqs:SendMessage (data-quality queue ONLY) inline policy to, by name — mirrors the notifications/shared-spaces/table-builder/table-share modules."
   type        = string
 }
 

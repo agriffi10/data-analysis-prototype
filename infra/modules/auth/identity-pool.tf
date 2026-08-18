@@ -1,4 +1,4 @@
-# ── Cognito Identity Pool (SPEC-011) ─────────────────────────────────────────
+# ── Cognito Identity Pool ─────────────────────────────────────────
 # Exchanges the User Pool token for scoped AWS credentials (enhanced flow),
 # authenticated identities only. Amplify v6 performs this exchange natively, so
 # `fetchAuthSession()` returns credentials with no STS SDK in the app.
@@ -61,7 +61,7 @@ resource "aws_cognito_identity_pool" "portal" {
 #         # forces replacement -> (known after apply) # forces replacement
 #
 # Every apply therefore destroyed and recreated the principal-tag mapping that the whole ABAC
-# isolation model depends on (SPEC-011), on PRs that touched no auth code at all. It failed
+# isolation model depends on, on PRs that touched no auth code at all. It failed
 # CLOSED, not open — the portal policy interpolates the tag into a Resource ARN
 # (`${bucket_arn}/${aws:PrincipalTag/username}/*`), so an unstamped tag leaves the ARN
 # unresolved and matches nothing — but a brief window where a fresh sign-in gets credentials

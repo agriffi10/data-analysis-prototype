@@ -61,7 +61,7 @@ const NUMERIC_TYPES = new Set([
 ]);
 
 /**
- * How a value filtered against this column must be rendered into SQL (SPEC-178 FR-004).
+ * How a value filtered against this column must be rendered into SQL.
  *
  * Trino does not coerce: `WHERE "qty" > '5'` against a `bigint` is a query-time error
  * rather than a comparison, so a numeric column's value has to reach the SQL bare. The
@@ -243,7 +243,7 @@ export function moveSortPriority(query: ExplorationQuery, column: string, direct
 }
 
 /**
- * Applies a grouping to a description, or leaves grouping mode (SPEC-182 FR-003).
+ * Applies a grouping to a description, or leaves grouping mode.
  *
  * **Grouping mode is exactly "at least one grouping column"** (AC6). A grouping with no
  * columns is legal SQL — a global aggregate over the whole table — but it is not what the

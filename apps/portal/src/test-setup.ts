@@ -9,7 +9,7 @@ import {memoryStorage} from './test/storage';
 
 expect.extend(axeMatchers);
 
-// jsdom has no `matchMedia`; the responsive hook (`useBreakpoint`, SPEC-095)
+// jsdom has no `matchMedia`; the responsive hook (`useBreakpoint`)
 // needs it. Back it by `window.innerWidth` so a test can set the viewport width
 // before render to drive breakpoint-gated mounts. Default jsdom width is 1024
 // (≥ tablet, < desktop) → non-mobile, so existing tests keep desktop behavior.
@@ -36,7 +36,7 @@ if (typeof window.matchMedia !== 'function') {
 // Baseline working `localStorage` for every test (Node's experimental one is broken
 // here). Defined ONCE (redefining the global property before every test can destabilise
 // the jsdom global proxy), then cleared before each test so page-level specs that read
-// persisted UI prefs through the real hooks (e.g. the rail collapse state, SPEC-085) get
+// persisted UI prefs through the real hooks (e.g. the rail collapse state) get
 // a clean, functional store; prefs specs that assert persistence stub their own via
 // `vi.stubGlobal`. sessionStorage is jsdom's and left alone.
 const baselineLocalStorage = memoryStorage();

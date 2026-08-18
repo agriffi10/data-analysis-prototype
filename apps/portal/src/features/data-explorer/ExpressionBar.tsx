@@ -10,7 +10,7 @@ export type ExpressionBarProps = {
 };
 
 /**
- * A free-text `WHERE` fragment, applied on an explicit gesture (SPEC-181 FR-003).
+ * A free-text `WHERE` fragment, applied on an explicit gesture.
  *
  * **Never on change.** Every apply here is an Athena execution and a bill, so a keystroke
  * cannot be one — the bar holds its own text and hands it over on Enter or on Apply, and

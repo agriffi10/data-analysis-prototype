@@ -37,10 +37,10 @@ resource "aws_cognito_identity_pool_roles_attachment" "portal" {
   }
 }
 
-# ── Prefix-Scoped Permission Policy (SPEC-013 FR-001, SPEC-016 FR-005) ───────
+# ── Prefix-Scoped Permission Policy ───────
 # Turns on real S3 access: each session may read/write/delete only under its own
 # {username}/ prefix, where {username} is the `username` principal tag the Identity
-# Pool stamps server-side (SPEC-011) — never asserted by the client. A session
+# Pool stamps server-side — never asserted by the client. A session
 # without the tag matches nothing, so it gets an implicit deny (no access). The
 # tag variable is escaped as $${aws:PrincipalTag/username} in the template so
 # templatefile() emits it literally instead of interpolating it.
@@ -66,8 +66,8 @@ resource "aws_cognito_identity_pool_roles_attachment" "portal" {
 #
 # The disclosure this creates is intended and accepted, not incidental: the document is
 # readable by EVERY authenticated portal user. A username is already the S3 prefix, the
-# principal tag and the Glue database name (SPEC-033), it is already visible on every
-# shared-space roster (SPEC-075), and a prefix-search feature discloses the set by
+# principal tag and the Glue database name, it is already visible on every
+# shared-space roster, and a prefix-search feature discloses the set by
 # construction. Recorded in docs/decisions.md rather than left implicit here.
 #
 # SPEC-162 added the SECOND such statement, ReadTheFeatureFlags: s3:GetObject on
@@ -84,7 +84,7 @@ resource "aws_cognito_identity_pool_roles_attachment" "portal" {
 # admin bucket has none of the three. `lambdas/test_feature_flags_config.py` asserts all three
 # rather than assuming them, because a broken read here falls back silently to all-on.
 #
-# ── ArchiveReceiptsAreNotUserWritable (SPEC-168 FR-006) ──────────────────────
+# ── ArchiveReceiptsAreNotUserWritable ──────────────────────
 # A Deny on PutObject/DeleteObject/AbortMultipartUpload under the user's own `archive/`
 # prefix. The receipt is written by the archive execution role and must not be editable,
 # forgeable or deletable by the browser: a user who can rewrite a receipt can misreport

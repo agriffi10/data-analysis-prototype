@@ -29,19 +29,19 @@ resource "aws_iam_role_policy" "orchestrator" {
     shared_space_bucket_arn = local.shared_space_bucket_arn
     admin_bucket_arn        = local.admin_bucket_arn
     user_space_bucket_arn   = local.user_space_bucket_arn
-    # SPEC-062: invoke every verb/validator Lambda (constructed ARNs, known at plan).
+    # Invoke every verb/validator Lambda (constructed ARNs, known at plan).
     function_arns_json    = jsonencode(local.shared_space_function_arns)
     lambda_log_groups_arn = local.lambda_log_groups_arn
     sfn_log_group_arn     = local.sfn_log_group_arn
-    # SPEC-061: trusted notifications producer — sqs:SendMessage scoped to this ARN only.
+    # Trusted notifications producer — sqs:SendMessage scoped to this ARN only.
     notifications_queue_arn = var.notifications_queue_arn
-    # SPEC-134: structured-logging producer, same Sid and shape as data-quality's and the
+    # Structured-logging producer, same Sid and shape as data-quality's and the
     # drain's, so all three read as one pattern rather than three inventions.
     logs_queue_arn = var.logs_queue_arn
   })
 }
 
-# ── Portal role — shared-space membership policy (SPEC-056 FR-002) ────────────
+# ── Portal role — shared-space membership policy ────────────
 # A THIRD inline policy on the shared portal role (after data's "user-space-access"
 # and analytics' "analytics-access"), attached BY NAME like the analytics module does
 # (the role is created in module.data; module-level depends_on = [module.data]

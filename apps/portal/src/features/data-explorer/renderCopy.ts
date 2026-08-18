@@ -307,7 +307,7 @@ export function formatUsesQuoting(format: CopyFormat): boolean {
 }
 
 /**
- * A selection as clipboard text (SPEC-185 FR-001).
+ * A selection as clipboard text.
  *
  * Pure, and issues nothing: the rows are the page already fetched, so copying — in any
  * format, with any options, however many times — starts no execution and scans no bytes.

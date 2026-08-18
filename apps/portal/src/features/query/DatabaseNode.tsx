@@ -12,7 +12,7 @@ import type {TableActions} from './SchemaBrowser';
 import {useFeature} from '../feature-flags';
 import {SECTION_CAPTION} from '../../components/fieldStyles';
 
-// SPEC-063: a single database in the schema rail — a disclosure node that, when
+// a single database in the schema rail — a disclosure node that, when
 // expanded, loads its own schema (`useSchema`, decoupled from the active target)
 // and splits its objects into two collapsible groups: Tables and Views.
 
@@ -47,7 +47,7 @@ function TableRow({
   actions: TableActions;
 }) {
   const isView = table.tableType === 'VIRTUAL_VIEW';
-  // SPEC-163: belt to the `/query` route's braces. The flag already removes the route these
+  // Belt to the `/query` route's braces. The flag already removes the route these
   // items live inside, so this can only matter if a later spec surfaces the table menu from
   // somewhere else — which is precisely the class of miss the registry exists to catch.
   const queryEnabled = useFeature('query');
@@ -102,7 +102,7 @@ function TableRow({
                 label: 'View data',
                 onSelect: () => actions.onViewData(database, table)
               },
-              // SPEC-179: base tables AND views — a view is a perfectly good thing to
+              // Base tables AND views — a view is a perfectly good thing to
               // explore. Gated by BOTH flags, which is what makes it the mirror image of
               // "Create table": the capability is the Data Explorer's, the surface is the
               // Query workspace's, and either flag being off must remove it.
@@ -115,7 +115,7 @@ function TableRow({
                     }
                   ]
                 : []),
-              // SPEC-145: base tables only — a view has no folder to re-read. The
+              // Base tables only — a view has no folder to re-read. The
               // browser runs NO other eligibility check: SPEC-143's rules (a
               // reconstructable partition scheme, a location inside the space) are
               // the server's to enforce, and its refusals come back as user-facing
@@ -131,7 +131,7 @@ function TableRow({
                       disabled: !table.location
                     }
                   ]),
-              // SPEC-093: base tables only — the server rejects views, so no item.
+              // Base tables only — the server rejects views, so no item.
               ...(isView || !queryEnabled
                 ? []
                 : [
@@ -157,7 +157,7 @@ function TableRow({
           {table.columns.length === 0 ? (
             <li className="px-2 py-1 text-xs text-text-3">No columns</li>
           ) : (
-            // SPEC-077: columns are shown for inspection only — no click-to-insert.
+            // Columns are shown for inspection only — no click-to-insert.
             table.columns.map((column) => (
               <li
                 key={column.name}
@@ -249,7 +249,7 @@ export function DatabaseNode({
   // FR-004: a node fetches its schema only when expanded (disabled while collapsed).
   const {data, isPending, isError, error, isFetching} = useSchema(expanded ? connection.database : null);
 
-  // SPEC-086: re-read only THIS database's schema on demand (invalidate its query key;
+  // re-read only THIS database's schema on demand (invalidate its query key;
   // the expanded node is an active observer so it refetches). `isFetching` drives the
   // button's disabled/spinner state and blocks overlapping refetches for this node.
   const queryClient = useQueryClient();

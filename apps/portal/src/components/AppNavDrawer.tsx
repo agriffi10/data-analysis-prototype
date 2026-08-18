@@ -121,7 +121,7 @@ const DESTS: NavDest[] = [
  * active state, then a divider and a page-supplied contextual rail. Reuses the
  * `Drawer` mechanics (focus trap + Escape/scrim dismiss) plus a background
  * scroll lock; activating a link navigates and closes. Header mounts this only
- * on mobile (SPEC-095).
+ * on mobile.
  *
  * @example
  * <AppNavDrawer open={navOpen} onClose={() => setNavOpen(false)} contextualRail={rail} />

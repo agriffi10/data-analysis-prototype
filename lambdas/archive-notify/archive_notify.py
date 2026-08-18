@@ -8,7 +8,7 @@ small.** FR-006 names nine; the six refusals — ``archive_not_found``, ``archiv
 ``destination_occupied``, ``restore_incomplete``, ``restore_timed_out`` and the rest — are reason
 codes in ``arcommon.messages``, emitted once by ``notifies_on_failure`` on the verb that raised or
 by the machine's own ``NotifyFailure``. A second producer for them would be the duplicate the
-one-token-per-outcome rule (SPEC-114) exists to prevent.
+one-token-per-outcome rule exists to prevent.
 
 **THE ASL SEEDS WHICH OUTCOME THIS IS**, rather than the verb inferring it from the state's shape.
 The three call sites are distinguishable only by where they sit in the machine — the same keys are

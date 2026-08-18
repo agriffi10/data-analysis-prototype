@@ -38,7 +38,7 @@ export type UseExplorationTabsResult = {
   /** Records what one execution scanned, keyed by execution id so a repeat is free. */
   recordScan: (tabId: string, queryExecutionId: string, bytesScanned: number) => void;
   /**
-   * Links a tab to the `.sql` file a save just wrote (SPEC-183 FR-003).
+   * Links a tab to the `.sql` file a save just wrote.
    *
    * By id rather than "the active tab", for the reason `updateTab` is: the write is async
    * and the user may have switched tabs while it was in flight, and linking the wrong tab
@@ -50,7 +50,7 @@ export type UseExplorationTabsResult = {
 };
 
 /**
- * Owns the Data Explorer's tabs and their sessionStorage persistence (SPEC-178 FR-008).
+ * Owns the Data Explorer's tabs and their sessionStorage persistence.
  *
  * Mirrors `useQueryTabs` — an ordered list, one active tab, a soft cap enforced by
  * refusal — with two deliberate differences. There is no seeded first tab, because an

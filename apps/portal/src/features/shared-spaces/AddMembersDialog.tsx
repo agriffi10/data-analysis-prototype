@@ -19,7 +19,7 @@ type Props = {
 /**
  * Add one or many members, choosing from existing usernames rather than remembering them.
  *
- * The field suggests names from the published directory (SPEC-146/147) and commits them as
+ * The field suggests names from the published directory and commits them as
  * chips, but it **never blocks a name the directory does not know** — the directory is up to a
  * day stale and is not the authority on who exists. An unrecognised name is reported back by
  * notification, which is what the copy below now says: it previously claimed such names were

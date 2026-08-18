@@ -1,6 +1,6 @@
 import {useCallback, useState} from 'react';
 
-// SPEC-085: one shared preference for BOTH left rails (Files Sidebar + Query
+// One shared preference for BOTH left rails (Files Sidebar + Query
 // SchemaBrowser), persisted per browser so the choice survives reloads and carries
 // across the two pages.
 export const RAIL_COLLAPSED_STORAGE_KEY = 'portal.rail.collapsed';

@@ -4,7 +4,7 @@ One place maps each stable terminal reason code to friendly text, so every verb 
 agree on the wording. Kept ASCII — no smart quotes.
 
 This module is the table and its wording; the resolution itself is ``cpcommon.messages``
-(SPEC-156 FR-002), which also marks these codes valid so they pass ``TerminalError``'s
+, which also marks these codes valid so they pass ``TerminalError``'s
 raise-time validation. ``unexpected_error`` is deliberately absent — it resolves through the
 base table and renders the same sentence everywhere.
 
@@ -221,10 +221,10 @@ def archived_message(request_id: str, object_count: int, total_bytes: int) -> st
     folder the id names, and a user who never opens it has nowhere else to read it.
 
     The size renders through ``receipt.human_bytes``, so one archive reads the same in its receipt,
-    in this message and in the file browser (the shared TB ceiling, SPEC-155 FR-007).
+    in this message and in the file browser (the shared TB ceiling).
 
     Args:
-      request_id: The run's id, which IS the archive's permanent identity (SPEC-168 FR-004).
+      request_id: The run's id, which IS the archive's permanent identity.
       object_count: How many objects were archived.
       total_bytes: Their total size.
 

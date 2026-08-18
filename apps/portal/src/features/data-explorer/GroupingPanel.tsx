@@ -35,7 +35,7 @@ export type GroupingPanelProps = {
 };
 
 /**
- * Grouping columns and aggregates, staged and applied as `GROUP BY` (SPEC-182 FR-003).
+ * Grouping columns and aggregates, staged and applied as `GROUP BY`.
  *
  * The Calc panel beside it looks like a sibling and is the opposite of one: Calc computes
  * in the browser over cells that exist only there, where **this renders SQL and mints an
@@ -49,7 +49,7 @@ export type GroupingPanelProps = {
  *
  * It is a side panel rather than a `Drawer` for a reason that is not stylistic: a header
  * column is added **by dragging it here** (AC1), and a focus-trapping drawer would put the
- * grid out of reach. Escape closes it through the depth-ordered registry (SPEC-155).
+ * grid out of reach. Escape closes it through the depth-ordered registry.
  *
  * Column references reach the SQL through `sqlIdentifier` in the renderer and the function
  * is chosen from a closed list here — nothing in this panel is assembled from user text.
@@ -103,7 +103,7 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
     const next = {...draft, aggregates: [...draft.aggregates, {fn: pendingFn, column: pendingColumn}]};
     // Two projections producing one output name make the result's columns
     // indistinguishable and the ordering rule ambiguous — the renderer refuses it, so the
-    // panel has to refuse it first (its message is operator text, SPEC-106). The renderer's
+    // panel has to refuse it first (its message is operator text). The renderer's
     // OWN rule, which also catches an alias colliding with a grouping COLUMN's name.
     const collision = groupingNameCollision(next);
     if (collision !== null) {

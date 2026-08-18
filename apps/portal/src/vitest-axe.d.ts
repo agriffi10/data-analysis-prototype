@@ -1,4 +1,4 @@
-// SPEC-045: type the `toHaveNoViolations` matcher onto Vitest's assertion.
+// Type the `toHaveNoViolations` matcher onto Vitest's assertion.
 // vitest-axe's own `extend-expect` augments the legacy global `Vi` namespace,
 // which Vitest 4 no longer reads — it merges custom matchers via `declare module
 // 'vitest'`. The runtime registration lives in `src/test-setup.ts`.

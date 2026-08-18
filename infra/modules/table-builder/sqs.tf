@@ -1,15 +1,15 @@
-# ── Request Queue + DLQ (SPEC-066 FR-001) ────────────────────────────────────
-# The control-plane entry point. The browser (SPEC-067/071) enqueues a create-table
+# ── Request Queue + DLQ ────────────────────────────────────
+# The control-plane entry point. The browser enqueues a create-table
 # request; an EventBridge Pipe (pipe.tf) drains it into the Step Function.
 #
-# FIFO with MessageGroupId = the target DATABASE (set by the producer, SPEC-067), so
+# FIFO with MessageGroupId = the target DATABASE (set by the producer), so
 # two concurrent "create table X" requests against the SAME database serialize
 # strictly one-at-a-time (the duplicate-name race is closed by check-table-absent +
 # CREATE … IF NOT EXISTS), while creates in DIFFERENT databases run in parallel. The
 # Pipe reads a batch of 1 (pipe.tf).
 #
 # content_based_deduplication is on, but the producer ALSO sends an explicit
-# MessageDeduplicationId = requestId (SPEC-067): the explicit id is the real
+# MessageDeduplicationId = requestId: the explicit id is the real
 # double-submit guard; content dedup just usefully absorbs a byte-identical retry
 # inside the 5-minute window. Per-DB serialization comes from MessageGroupId, above.
 #

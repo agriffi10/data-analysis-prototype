@@ -5,10 +5,10 @@
 /**
  * Human-readable byte size (e.g. 1234567 → "1.2 MB"). `undefined` → em dash.
  *
- * Kept separate from {@link formatSize} for that `undefined` handling (SPEC-155 FR-007),
+ * Kept separate from {@link formatSize} for that `undefined` handling,
  * but sharing its TB ceiling, so one byte count never reads "3072.0 GB" on one screen
  * and "3.0 TB" on another. Lives here rather than in a feature because the query status
- * bar and the Data Explorer render the same scanned-bytes figure (SPEC-176 FR-004).
+ * bar and the Data Explorer render the same scanned-bytes figure.
  */
 export function formatBytes(bytes?: number): string {
   if (bytes === undefined) return '—';

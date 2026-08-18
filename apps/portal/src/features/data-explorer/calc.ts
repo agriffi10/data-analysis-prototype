@@ -2,7 +2,7 @@ import {CALC_NO_VALUE, CALC_PRECISION} from './dataExplorer.constants';
 import {isBareNumeric} from './renderExplorationSql';
 import type {CalcFunction, CalcPanelState, CalcResult, CellRange} from './dataExplorer.types';
 
-// The Calc panel's arithmetic (SPEC-182 FR-001), kept apart from the panel for the reason
+// The Calc panel's arithmetic, kept apart from the panel for the reason
 // `explorationQueryOps` is kept apart from the surfaces that call it: these answers are
 // asserted about directly, and a median hidden inside a component is a median nobody
 // tests over an even-length selection.
@@ -207,7 +207,7 @@ export function calcScopeText(count: number): string {
 }
 
 /**
- * What a grouped result's percentage column is called (SPEC-182 FR-004 AC2).
+ * What a grouped result's percentage column is called.
  *
  * **"On this page" is not a hedge, it is the truth.** Only the current page of a result is
  * in the browser, so a share computed here is a share of those rows — and a column headed

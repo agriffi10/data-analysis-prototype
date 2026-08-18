@@ -4,7 +4,7 @@ import type {TransformedValue} from './formatting';
 export type CellValueProps = {
   value: string | null;
   className?: string;
-  /** How a transformer renders this cell (SPEC-184 FR-005); absent renders the value itself. */
+  /** How a transformer renders this cell; absent renders the value itself. */
   transformed?: TransformedValue | null;
   /**
    * Whether a resolved URL may render as an anchor here.

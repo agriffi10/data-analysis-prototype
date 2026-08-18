@@ -19,7 +19,7 @@ not correspond to it, and a selection of 200 items has no single original path a
 this way the two lines are exact inverses of each other for every object, for every selection.
 
 The byte size renders through the same rule as the file browser's ``formatSize`` — binary units,
-one decimal, a TB ceiling (SPEC-155 FR-007) — so the receipt and the browser never disagree about
+one decimal, a TB ceiling — so the receipt and the browser never disagree about
 one number. The exact byte count rides beside it because the rounded one is not a number anybody
 can reconcile against a bill.
 

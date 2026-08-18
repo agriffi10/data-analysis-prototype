@@ -23,7 +23,7 @@ export type UseSavedQueriesResult = {
 
 /**
  * A space's saved queries — the `.sql` files in its `saved_queries/` folder — paginated
- * over S3's own listing (SPEC-173 FR-006).
+ * over S3's own listing.
  *
  * Disabled while `space` is null, and keyed by SPACE: the same user reads a different
  * list per space, and SPEC-174 passes the chosen one where this spec always passes the

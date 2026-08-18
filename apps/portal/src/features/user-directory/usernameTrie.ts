@@ -19,7 +19,7 @@ function emptyNode(): TrieNode {
  * the substring band scans.
  *
  * Both structures come out of ONE walk of the input. The published document is a flat sorted
- * array precisely so the browser can choose its own shape here (SPEC-146 FR-002) — shipping a
+ * array precisely so the browser can choose its own shape here — shipping a
  * serialised trie would have made the artifact several times larger, unreadable to a human
  * debugging it, and coupled to this one consumer.
  *

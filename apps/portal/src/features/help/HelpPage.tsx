@@ -19,7 +19,7 @@ function sectionFromHash(hash: string, sections: typeof HELP_SECTIONS): HelpSect
 }
 
 /**
- * The Help & guides page (SPEC-074): a section sidebar beside the active
+ * The Help & guides page: a section sidebar beside the active
  * section's guides as accordion cards. The active section lives in the URL hash
  * (`/help#query`) so it's shareable and back/forward moves between sections
  * (FR-002/003/004). Static content — no loading/error/network states.
@@ -33,7 +33,7 @@ export function HelpPage() {
   const {hash} = useLocation();
   const navigate = useNavigate();
 
-  // SPEC-163 FR-006: a disabled feature's guides are neither listed nor reachable. The
+  // a disabled feature's guides are neither listed nor reachable. The
   // guide→flag mapping lives ONLY in the registry (`hiddenHelpIds`) — `helpContent.ts` knows
   // nothing about flags, so a guide cannot end up gated in the list and ungated by anchor.
   //
@@ -70,7 +70,7 @@ export function HelpPage() {
   };
 
   // Rail at ≥ tablet, horizontal chips on mobile — mount-gated so exactly one
-  // section selector exists in the layout at a time (SPEC-103 FR-004).
+  // section selector exists in the layout at a time.
   const isMobile = useIsMobile();
 
   return (

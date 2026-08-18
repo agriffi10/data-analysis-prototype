@@ -28,7 +28,7 @@ export type FileListRowMobileProps =
 
 /**
  * Mobile (< tablet) two-line list row (56px) — the structural counterpart to the
- * `≥ tablet` table row (SPEC-099 FR-003). Tapping the row body activates it
+ * `≥ tablet` table row. Tapping the row body activates it
  * (download a file / open a folder); a trailing size (file) or chevron (folder);
  * a per-object Details control; and, in writable flows, a selection checkbox with
  * an `accent-soft` + inset-`accent`-bar selected treatment. Driven by the same

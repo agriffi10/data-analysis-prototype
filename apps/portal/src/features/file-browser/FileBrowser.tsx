@@ -52,12 +52,12 @@ type Props = {
   rootPrefix?: string; // navigation floor; defaults to prefix prop value
   rootLabel?: string; // label for the root crumb; hides the raw prefix segment
   // (e.g. "My Files" instead of the username) — SPEC-013
-  writable?: boolean; // show upload + create-folder controls (SPEC-016). Off in
+  writable?: boolean; // show upload + create-folder controls. Off in
   // the dev-unauth path (no scoped write credentials).
   username?: string; // the space's root-prefix owner — the marker guard protects
-  // `{username}/DO_NOT_DELETE.txt` and it gates the modify controls (SPEC-018).
+  // `{username}/DO_NOT_DELETE.txt` and it gates the modify controls.
   // The signed-in username for the personal space; the shared-space name for a
-  // shared space (SPEC-057). Present only in the authenticated flow.
+  // shared space. Present only in the authenticated flow.
   destinations?: FileSpaceTarget[]; // connections move/copy can target (feedback
   // 2026-06-30): personal + active shared spaces. Omitted in the dev-unauth path.
   spaceKind?: FileSpaceKind; // 'shared' enables the "just added → refresh access"
@@ -106,7 +106,7 @@ function FileBrowserContent({
 
   const access = useSharedSpaceAccessRecovery({error, spaceKind, refreshListing});
 
-  // SPEC-163 FR-005: two CROSS-FEATURE entry points live on this page — "Create table" is a
+  // Two CROSS-FEATURE entry points live on this page — "Create table" is a
   // Query capability and "Check quality" is a Data Quality one. Neither belongs to the file
   // browser, which is exactly why a per-component gating pass misses them.
   const queryEnabled = useFeature('query');
@@ -119,7 +119,7 @@ function FileBrowserContent({
   // Hide app-managed root folders (e.g. user_settings/) from the listing so they
   // never surface to users; everything downstream uses the filtered list.
   //
-  // SPEC-173 FR-008: `saved_queries/` is a Query feature wearing a file-browser row, so with
+  // `saved_queries/` is a Query feature wearing a file-browser row, so with
   // the `query` flag off it leaves the listing like the Query tab does. Composed here rather
   // than added to the constant, because the folder is VISIBLE by default — the flag is the
   // only thing that hides it, and its delete/rename refusal is unconditional either way.
@@ -129,7 +129,7 @@ function FileBrowserContent({
   );
   const folders = allFolders.filter((f) => !isRootFolderNamed(f.prefix, rootPrefix, hiddenFolders));
 
-  // Create-folder (SPEC-016) scoped to the folder currently being viewed. File
+  // Create-folder scoped to the folder currently being viewed. File
   // uploads are now owned by the SPEC-020 queue, so useFileUpload is used here
   // only for create-folder (and its folder-name collision / error).
   const currentPrefix = prefix ?? '';
@@ -141,14 +141,14 @@ function FileBrowserContent({
     cancelCollision,
     dismissError
   } = useFileUpload(bucket, currentPrefix);
-  // Multi-file upload queue (SPEC-020) — enqueue from the dropzone; progress,
+  // Multi-file upload queue — enqueue from the dropzone; progress,
   // cancel, and per-file collisions now live in the in-drawer UploadList.
   const {enqueue} = useUploadQueue();
-  // Multi-select + delete (SPEC-018). Selection comes from the surrounding
+  // Multi-select + delete. Selection comes from the surrounding
   // SelectionProvider; delete is only offered in the authenticated, writable flow
   // (a username is required for the marker guard).
   const selection = useSelection();
-  // Mount-gate the table-vs-card list swap (SPEC-099); matchMedia reads correctly
+  // Mount-gate the table-vs-card list swap; matchMedia reads correctly
   // on first paint in the browser, so no flash and only one markup ever mounts.
   const isMobile = useIsMobile();
   const toast = useToast();
@@ -165,12 +165,12 @@ function FileBrowserContent({
   const restore = useRestoreArchive(space, (t) => toast.push(t));
   // `rootPrefix` is the space root, not the browsed folder: it is what tells the
   // delete/move services that a folder is the space's own `athenaresults/` rather
-  // than a user folder that happens to share the name (SPEC-150 FR-007).
+  // than a user folder that happens to share the name.
   const del = useDelete(bucket, currentPrefix, username, rootPrefix);
   const move = useMove(bucket, currentPrefix, username, rootPrefix);
   const copy = useCopy(bucket, currentPrefix, username);
   const canModify = writable && !!username;
-  // SPEC-172 FR-004: the first prefix-based write gate. IAM denies writes beneath `archive/`, so
+  // The first prefix-based write gate. IAM denies writes beneath `archive/`, so
   // every control that would attempt one says why instead of producing a bare AccessDenied.
   const writeLockReason = writeLockRefusal(currentPrefix, rootPrefix, spaceKind ?? 'personal') ?? undefined;
   // Archive is gated by the write lock because an archive DELETES from the current folder.
@@ -180,18 +180,18 @@ function FileBrowserContent({
   // dialog itself tells the user to go and look for an id (FR-003 AC1 says `writable`).
   const restoreEnabled = !!username && filesEnabled;
 
-  // Per-file download (SPEC-015 FR-003). Tracks the key being signed so its row
+  // Per-file download. Tracks the key being signed so its row
   // shows a busy state; surfaces a ServiceResult failure inline rather than
   // throwing. The hidden marker is filtered out, so it never exposes this action.
   const dl = useFileDownload(bucket);
 
-  // SPEC-155 FR-009: every dialog/drawer flag, and the handlers that turn one
+  // Every dialog/drawer flag, and the handlers that turn one
   // into an operation (including who clears the selection).
   const dialogs = useFileBrowserDialogs({bucket, currentPrefix, del, move, copy});
 
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
   const destinationLabel = breadcrumbs[breadcrumbs.length - 1]?.label;
-  // The `..` row shows below the space root only (SPEC-098).
+  // The `..` row shows below the space root only.
   const atRoot = isAtRoot(currentPrefix, rootPrefix);
   const isEmpty = !isLoading && error === null && files.length === 0 && folders.length === 0;
   const hasContent = !isLoading && error === null && (files.length > 0 || folders.length > 0);
@@ -203,7 +203,7 @@ function FileBrowserContent({
   ];
   const selectedItems = [...selection.selected.values()];
 
-  // Same data + handlers for both list surfaces (SPEC-099 FR-002/003); the caller
+  // Same data + handlers for both list surfaces; the caller
   // mount-gates which markup renders.
   const fileListProps: FileListProps = {
     folders,
@@ -222,7 +222,7 @@ function FileBrowserContent({
 
   return (
     // Writable mobile flows get bottom padding so the fixed MobileActionBar never
-    // occludes the last list row (SPEC-099 FR-005).
+    // occludes the last list row.
     <div className={writable ? 'pb-24 tablet:pb-0' : undefined}>
       {/* Toolbar row — breadcrumbs (left) + primary actions (right). FR-002/003 */}
       <div className="mb-4 flex items-center gap-3">
@@ -263,7 +263,7 @@ function FileBrowserContent({
         </nav>
 
         {/* Primary actions on the top toolbar at ≥ tablet; on mobile they move to
-            the fixed MobileActionBar below (SPEC-099 FR-005). Mount-gated (not
+            the fixed MobileActionBar below. Mount-gated (not
             CSS-hidden) so the two never both live in the DOM. */}
         {writable && !isMobile && (
           <div className="flex items-center gap-3">
@@ -301,10 +301,10 @@ function FileBrowserContent({
       </div>
 
       {/* Mobile bottom action bar (writable only) — New folder + Upload, ≥44px
-          (SPEC-099 FR-005). Same handlers as the top-toolbar buttons. */}
+          . Same handlers as the top-toolbar buttons. */}
       {writable && isMobile && (
         <MobileActionBar ariaLabel="File actions">
-          {/* Mount-gated into the bar rather than CSS-hidden (SPEC-099 FR-005), so exactly one
+          {/* Mount-gated into the bar rather than CSS-hidden, so exactly one
               instance of each control exists in the DOM at any width. */}
           {restoreEnabled && (
             <RestoreArchiveButton
@@ -342,7 +342,7 @@ function FileBrowserContent({
         </div>
       )}
 
-      {/* Write controls — create folder (modal dialog, SPEC-016); file uploads go
+      {/* Write controls — create folder (modal dialog); file uploads go
           to the SPEC-020 queue. Hidden in read-only (dev-unauth) mode. */}
       {writable && (
         <>
@@ -356,7 +356,7 @@ function FileBrowserContent({
             />
           )}
 
-          {/* Folder-name collision (SPEC-016) — Overwrite or pick a new name */}
+          {/* Folder-name collision — Overwrite or pick a new name */}
           {pendingCollision && (
             <CollisionPrompt
               kind={pendingCollision.kind}
@@ -367,7 +367,7 @@ function FileBrowserContent({
             />
           )}
 
-          {/* Create-folder error (SPEC-016) */}
+          {/* Create-folder error */}
           {writeError && (
             <Banner
               variant="danger"
@@ -377,7 +377,7 @@ function FileBrowserContent({
             </Banner>
           )}
 
-          {/* Add-files drawer (SPEC-020) — the dropzone enqueues onto the
+          {/* Add-files drawer — the dropzone enqueues onto the
               session-scoped upload queue; the in-progress list sits right below it
               (feedback 2026-06-30) and persists for the session, so the drawer can
               be closed and reopened without losing or interrupting uploads. */}
@@ -391,7 +391,7 @@ function FileBrowserContent({
         </>
       )}
 
-      {/* Download error (SPEC-015) — dismissible, non-blocking */}
+      {/* Download error — dismissible, non-blocking */}
       {dl.error && (
         <Banner
           variant="danger"
@@ -401,7 +401,7 @@ function FileBrowserContent({
         </Banner>
       )}
 
-      {/* Delete / move / copy feedback (SPEC-018 FR-004, SPEC-019 FR-004, SPEC-039 FR-004):
+      {/* Delete / move / copy feedback:
           the systemic error, the result summary, progress and the batch overwrite
           confirmation. One component, three operations — see OperationFeedback. */}
       <OperationFeedback
@@ -414,7 +414,7 @@ function FileBrowserContent({
         pastVerb="Moved"
         failVerb="move"
         progressVerb="Moving">
-        {/* Rename collision (SPEC-019 FR-005) — Overwrite or pick a new name. Not part
+        {/* Rename collision — Overwrite or pick a new name. Not part
             of the shared state: it is single-item, so a new name is offered too. */}
         {move.renameCollision && (
           <CollisionPrompt
@@ -562,7 +562,7 @@ function FileBrowserContent({
       )}
 
       {/* Empty state — at the space root only; a non-root empty folder still
-          renders the list so its `..` row is reachable (SPEC-098). */}
+          renders the list so its `..` row is reachable. */}
       {isEmpty && atRoot && (
         <div className="py-16 text-center">
           <svg
@@ -588,7 +588,7 @@ function FileBrowserContent({
       )}
 
       {/* File and folder list. Also renders for an empty non-root folder so the
-          `..` row stays reachable (SPEC-098). Structural markup swap (SPEC-099
+          `..` row stays reachable. Structural markup swap (SPEC-099
           FR-002/003): a data table at ≥ tablet, a compact two-line card list on
           mobile — same data + handlers. */}
       {(hasContent || (isEmpty && !atRoot)) &&
@@ -627,7 +627,7 @@ function FileBrowserContent({
         copy={copy}
       />
 
-      {/* Load more — only when the current prefix has further pages (SPEC-015) */}
+      {/* Load more — only when the current prefix has further pages */}
       {hasContent && hasMore && (
         <div className="mt-4 flex justify-center">
           <button
@@ -646,7 +646,7 @@ function FileBrowserContent({
 
 // Owns prefix navigation state and provides selection state to the content. The
 // SelectionProvider lives here (above the content) so navigating to a new prefix
-// clears the selection (SPEC-018 FR-001), and so the content can consume
+// clears the selection, and so the content can consume
 // useSelection() as a descendant.
 export function FileBrowser({
   bucket,

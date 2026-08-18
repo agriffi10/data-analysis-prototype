@@ -1,6 +1,6 @@
 // Types for the query workspace. The execution, result-page, Glue and space types
-// it also uses live in `features/catalog/` (SPEC-176), and the saved-query types in
-// `features/saved-queries/` (SPEC-177).
+// it also uses live in `features/catalog/`, and the saved-query types in
+// `features/saved-queries/`.
 
 import type {QueryState} from '../catalog/catalog.types';
 import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
@@ -28,7 +28,7 @@ export type QueryHistory = {
   entries: QueryHistoryEntry[];
 };
 
-/** One statement parsed out of an editor buffer (SPEC-078 FR-001). */
+/** One statement parsed out of an editor buffer. */
 export type ParsedStatement = {
   /** 0-based position in the batch. */
   index: number;
@@ -38,10 +38,10 @@ export type ParsedStatement = {
   range: {start: number; end: number};
 };
 
-/** The three run scopes (SPEC-078 FR-005). */
+/** The three run scopes. */
 export type RunScope = 'statement' | 'script-single' | 'script-tabs';
 
-/** One result set produced by a batch statement — drives a result tab (SPEC-078 FR-007). */
+/** One result set produced by a batch statement — drives a result tab. */
 export type ResultTab = {
   /** Which ParsedStatement produced it. */
   statementIndex: number;
@@ -55,7 +55,7 @@ export type ResultTab = {
 
 /**
  * Which surface the mobile (`< tablet`) browse-first workspace is showing —
- * local UI state, never persisted (SPEC-100 FR-004/006).
+ * local UI state, never persisted.
  */
 export type MobileQueryView = {kind: 'home'} | {kind: 'results'; sql: string; title: string};
 

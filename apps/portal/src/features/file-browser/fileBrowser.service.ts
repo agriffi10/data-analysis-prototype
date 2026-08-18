@@ -84,7 +84,7 @@ async function listWithClient(
       ContinuationToken: continuationToken
     });
 
-    // SPEC-155 FR-006: the SDK aborts the in-flight request, not just the promise —
+    // The SDK aborts the in-flight request, not just the promise —
     // navigating out of a folder mid-listing stops the request on the wire. TanStack
     // Query hands the caller a signal per query; this is where it lands.
     const response = await client.send(command, {abortSignal});
@@ -331,7 +331,7 @@ async function deleteInBatches(client: S3Client, bucket: string, keys: string[])
       for (const e of response.Errors ?? []) {
         if (e.Key) {
           // e.Message/e.Code are raw S3 fields (technical); the surface maps
-          // the code (e.g. AccessDenied) to friendly text (SPEC-106 FR-002).
+          // the code (e.g. AccessDenied) to friendly text.
           errors.push({
             key: e.Key,
             message: e.Message ?? e.Code ?? 'Failed to delete object',

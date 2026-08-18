@@ -33,7 +33,7 @@ export function useFileBrowser(bucket: string, prefix?: string): UseFileBrowserR
   const queryClient = useQueryClient();
   const normalizedPrefix = prefix ?? '';
 
-  // Server state via TanStack Query (SPEC-015 FR-002). Each page is a
+  // Server state via TanStack Query. Each page is a
   // ListObjectsV2 call (MaxKeys = LISTING_PAGE_SIZE, 25 — SPEC-037) threading the
   // continuation token; pages accumulate in query.data.pages.
   const query = useInfiniteQuery({

@@ -210,7 +210,7 @@ resource "aws_iam_role_policy_attachment" "deploy_control_plane_common" {
 # NOTE: the data-quality verbs run in the SHARED portal Athena workgroup (SPEC-111 fix —
 # a dedicated workgroup breaks Lake Formation), so there is no data-quality-specific
 # workgroup to grant on. The cpcommon layer that every DQ verb attaches is covered by
-# deploy_control_plane_common (SPEC-107).
+# deploy_control_plane_common.
 # Granted FIRST (this PR) and applied before the data-quality module's resources land in a
 # later PR (the deploy-perms-before-resources rule), so no self-grant race.
 resource "aws_iam_policy" "deploy_data_quality" {
@@ -354,7 +354,7 @@ resource "aws_iam_role_policy_attachment" "deploy_user_directory" {
 # all scoped by {project_name}-*-file-send-* name patterns. The module creates no S3
 # buckets (a send copies between the existing user/shared-space buckets), so there is no
 # S3-bucket-manage statement, and the cpcommon layer every verb also attaches is covered
-# by deploy_control_plane_common (SPEC-107).
+# by deploy_control_plane_common.
 # states:ValidateStateMachineDefinition is not resource-scopable, so it is isolated to its
 # own "*" statement per the architecture.md "new resource type" traps.
 #
@@ -474,7 +474,7 @@ resource "time_sleep" "wait_for_self_grant" {
 #
 # `TrailGlobalReads` is the one `Resource: "*"` here. `cloudtrail:DescribeTrails` and
 # `ListTrails` are account-wide APIs with no ARN to scope to — the same shape as the two
-# permanent rows on the plan-scan accept list (SPEC-139) — and both are read-only.
+# permanent rows on the plan-scan accept list — and both are read-only.
 #
 # THE REASONING LIVES HERE, NOT IN THE JSON. The first version carried `"//"` keys inside the
 # policy document, which no other policy in this repo does, and the apply rejected it:

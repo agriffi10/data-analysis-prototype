@@ -14,10 +14,10 @@ import {normalizeColumnType} from './catalog.format';
 import type {QueryColumn, QueryResultPage, QueryState, QueryStatus} from './catalog.types';
 
 // The caller's own protected results prefix. The app supplies this OutputLocation
-// per query, but it is enforced server-side: IAM (SPEC-032 FR-006) restricts
+// per query, but it is enforced server-side: IAM restricts
 // writes to `{username}/athenaresults/*` and explicitly DENIES delete there, so a
 // query pointed at another user's prefix is denied. The workgroup deliberately
-// does not enforce a fixed output location (SPEC-032).
+// does not enforce a fixed output location.
 function outputLocation(username: string): string {
   return `s3://${userSpaceBucket()}/${username}/athenaresults/`;
 }
@@ -39,12 +39,12 @@ export function isTerminalState(state: QueryState): boolean {
 export async function runQuery(p: {
   sql: string;
   username: string;
-  // SPEC-077: no execution database context by default — every base table must be
+  // no execution database context by default — every base table must be
   // fully-qualified `database.table`. `database` is optional and, when omitted (the
   // default), `QueryExecutionContext.Database` is not sent at all.
   database?: string;
-  // SPEC-055: where results land. Omitted → the personal prefix (SPEC-034); a shared
-  // path is chosen explicitly at Save time (SPEC-049/055), no longer per run.
+  // Where results land. Omitted → the personal prefix; a shared
+  // path is chosen explicitly at Save time, no longer per run.
   outputLocation?: string;
 }): Promise<ServiceResult<{queryExecutionId: string}>> {
   const {sql, database, username, outputLocation: outLoc} = p;
@@ -213,7 +213,7 @@ export function isAbandoned(result: ServiceResult<unknown>): boolean {
 
 /**
  * Run a statement and poll it to a terminal state, returning the final
- * {@link QueryStatus} (SPEC-044). Succeeds for ANY terminal state — the caller inspects
+ * {@link QueryStatus}. Succeeds for ANY terminal state — the caller inspects
  * `.state`. Used by internal/background runs (View DDL, Drop table) that aren't driven
  * by the per-tab UI poller. Never throws.
  */

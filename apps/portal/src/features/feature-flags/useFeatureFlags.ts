@@ -81,7 +81,7 @@ export function useFeatureFlags(): UseFeatureFlagsResult {
 }
 
 /**
- * Say out loud, in dev only, which way the read went (SPEC-162 FR-009).
+ * Say out loud, in dev only, which way the read went.
  *
  * FR-005 is deliberately silent, which means a permanently-blocked fetch is
  * indistinguishable from a healthy all-on environment — there is no banner and no toast,

@@ -16,7 +16,7 @@ export type UseExplorationResult = {
   queryExecutionId: string | null;
   state: QueryState | null;
   /**
-   * Where Athena wrote this execution's CSV, once it has SUCCEEDED (SPEC-185 FR-002).
+   * Where Athena wrote this execution's CSV, once it has SUCCEEDED.
    *
    * The whole of export: a server-side `CopyObject` of that object captures every row the
    * statement returned, filters, ordering and grouping included, without a second query and
@@ -137,7 +137,7 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
   // A query Athena REFUSES is not an error anywhere in the plumbing: `getQueryStatus`
   // resolves, and the reason arrives as a field on a successful poll. So the state has to
   // be turned into one here, in the shape `toUserMessage` maps engine text from — a syntax
-  // error in the expression bar (SPEC-181 FR-003 AC4) is a `stateChangeReason` and nothing
+  // error in the expression bar is a `stateChangeReason` and nothing
   // else. Without this the failure surfaced one layer later as "could not read results",
   // which is a true sentence about the wrong thing.
   const executionFailure = useMemo(() => {

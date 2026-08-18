@@ -6,7 +6,7 @@ type Props = {
   onCancel: () => void;
 };
 
-// SPEC-019/039 FR-005: one Overwrite-all / Cancel confirmation covering a whole
+// One Overwrite-all / Cancel confirmation covering a whole
 // batch whose destination already has matching items. Shared between Move and
 // Copy (react-best-practices abstraction pass).
 export function BatchOverwritePrompt({count, onOverwriteAll, onCancel}: Props) {

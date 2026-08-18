@@ -29,6 +29,9 @@ Attributes:
   DELIVERY_MAX_LINES: A delivery doc is "what shipped + what changed", typically under a page.
   STATUS_WORDS: Words that must not appear in an ``ARCS.md`` arc heading. Status lives in
     ``INDEX.md``, which is the only place it can be kept true.
+  SOURCE_TREES: Where source lives, per language, for the citation check.
+  CITATION_RE: A spec, PR or issue citation in a comment. Matched on the whole line rather than on
+    comment syntax, because four languages' comment markers is four ways to miss one.
 """
 
 import pathlib
@@ -43,6 +46,8 @@ CLAUDE_MAX_BYTES = 52_000
 DIGEST_MAX_CHARS = 900
 DELIVERY_MAX_LINES = 260
 STATUS_WORDS = ("shipped", "complete", "active", "draft", "in progress", "filed", "scoped")
+SOURCE_TREES = (("apps/portal/src", (".ts", ".tsx")), ("lambdas", (".py",)), ("infra", (".tf", ".tftpl")))
+CITATION_RE = re.compile(r"SPEC-\d{3}|(?<![\w#])#\d{3}(?![\w])")
 
 
 class DocsError(Exception):
@@ -260,6 +265,44 @@ def check_delivery_size() -> list[str]:
     return errors
 
 
+def check_source_citations() -> list[str]:
+    """Refuse a spec, PR or issue number in source.
+
+    A number tells a reader that a decision was made somewhere else and leaves them to go and find
+    it; a sentence tells them what is true. The reasoning belongs in the comment, and its full entry
+    in ``docs/decisions.md`` — findable by what it says rather than by when it happened. A comment
+    that cannot be written without citing a spec is a sign the reasoning never reached the register.
+
+    Test files are excluded for now: 163 test NAMES carry the requirement they cover, and renaming
+    them is its own change with its own blast radius.
+
+    Args:
+      None.
+
+    Returns:
+      One message per file still carrying citations, with the count and the first example.
+
+    Raises:
+      None.
+    """
+    errors = []
+    for tree, suffixes in SOURCE_TREES:
+        for path in sorted((ROOT / tree).rglob("*")):
+            if path.suffix not in suffixes or ".test." in path.name or path.name.startswith("test_"):
+                continue
+            hits = [
+                (number, line.strip())
+                for line in path.read_text().split("\n")
+                for number in CITATION_RE.findall(line)
+            ]
+            if hits:
+                errors.append(
+                    f"{path.relative_to(ROOT)}: {len(hits)} spec/PR citation(s), first is "
+                    f"{hits[0][0] or hits[0][1][:60]!r} — say what is true, not where it was decided"
+                )
+    return errors
+
+
 def check_links() -> list[str]:
     """Refuse a relative markdown link that points at nothing.
 
@@ -377,6 +420,7 @@ def main() -> int:
         check_arcs,
         check_spec_status,
         check_delivery_size,
+        check_source_citations,
         check_links,
         check_section_pointers,
         check_doc_paths_everywhere,

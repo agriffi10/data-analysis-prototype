@@ -1,4 +1,4 @@
-# ── data-quality module outputs (SPEC-108) ───────────────────────────────────
+# ── data-quality module outputs ───────────────────────────────────
 # Exported for later wiring: the browser learns the queue URL to enqueue checks
 # (sqs:SendMessage granted to the portal role in SPEC-109 → VITE_DATA_QUALITY_QUEUE_URL);
 # the queue ARN scopes that grant; the state-machine ARN is for ops/observability; the
@@ -10,7 +10,7 @@ output "data_quality_queue_url" {
 }
 
 output "data_quality_queue_arn" {
-  description = "ARN of the FIFO request queue — the portal-role sqs:SendMessage scope (SPEC-109)."
+  description = "ARN of the FIFO request queue — the portal-role sqs:SendMessage scope."
   value       = aws_sqs_queue.requests.arn
 }
 

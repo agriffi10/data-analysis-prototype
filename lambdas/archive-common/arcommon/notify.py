@@ -1,7 +1,7 @@
 """Best-effort outcome notifications for the archive pipeline.
 
 The shared primitives live in ``cpcommon.notify``; this module keeps the archive specifics: the
-actor-addressed failure (SPEC-168), and since SPEC-172 the three outcomes a FAILURE table cannot
+actor-addressed failure, and since SPEC-172 the three outcomes a FAILURE table cannot
 carry — an archive that completed, a restore that has started, and a restore that finished.
 
 **Only three, because the other six terminal outcomes are already told by the decorator.**

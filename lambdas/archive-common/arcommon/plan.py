@@ -17,7 +17,7 @@ shared with table-share and file-send.
 results prefix are execution-stable, so a ``Retry`` of inspect-source rewrites the same object
 rather than leaving a second one behind. The manifest is keyed by the EXECUTION as well, because
 two overlapping executions of one request must not clobber each other's dataset while a Map is
-reading it (SPEC-160). Nothing else on this plane needs that distinction, and stating it here is
+reading it. Nothing else on this plane needs that distinction, and stating it here is
 cheaper than re-deriving it at three call sites.
 
 ``messages`` is imported for its side effect as well as tidiness: it registers this domain's
@@ -38,7 +38,7 @@ Attributes:
   BASENAME: The copy plan's basename — an ARCHIVE's object list.
   RESTORE_BASENAME: The restore plan's basename — a RESTORE's object list, keyed under the
     RESTORE run's own request id and not the archive's. The two ids are deliberately different
-    values (SPEC-170 FR-001), so two restores of one archive write two plans and neither
+    values, so two restores of one archive write two plans and neither
     collides with the copy plan the archive itself wrote.
   MANIFEST_BASENAME: The transfer manifest's basename.
   RESTORE_MANIFEST_BASENAME: The restore transfer manifest's basename. **One manifest feeds BOTH
@@ -277,7 +277,7 @@ def _execution_folder(request: dict, execution_name, what: str) -> str:
       request: The validated request.
       execution_name: The execution's name, stamped onto the state by a ``Pass`` — never read
         from ``$$`` inside the task's own ``Parameters``, which wraps the payload and would put
-        the request one level below where every notify path reads it (SPEC-157).
+        the request one level below where every notify path reads it.
       what: The artifact being keyed, for the refusal's detail.
 
     Returns:

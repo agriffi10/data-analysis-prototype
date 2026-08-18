@@ -1,7 +1,7 @@
 import {useRef, useState} from 'react';
 
 type Props = {
-  onFiles: (files: File[]) => void; // enqueue all selected/dropped files (SPEC-020)
+  onFiles: (files: File[]) => void; // enqueue all selected/dropped files
   disabled?: boolean;
 };
 

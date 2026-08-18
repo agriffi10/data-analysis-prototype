@@ -1,4 +1,4 @@
-# ── Control-plane IAM roles (SPEC-108) ───────────────────────────────────────
+# ── Control-plane IAM roles ───────────────────────────────────────
 # ONE shared execution role for all nine verb Lambdas (matching table-builder and
 # table-share), plus the Step Function role and the Pipe role. Trust + permission
 # policies are .tftpl templates rendered with templatefile() (no inline jsonencode IAM,
@@ -40,7 +40,7 @@
 #      its cleanup was an authenticated cross-user file-delete primitive.)
 #   2. The explicit Deny on s3:PutObject to */user_settings/* and */DO_NOT_DELETE.txt.
 #
-# WHY THAT DENY IS NOT OPTIONAL (SPEC-109 FR-006): the user-space policy denies
+# WHY THAT DENY IS NOT OPTIONAL: the user-space policy denies
 # s3:DeleteObject on user_settings/* (analytics/policies/portal-role-analytics.json.tftpl)
 # but leaves s3:PutObject WIDE OPEN. So any role that can write in a user's space can
 # overwrite user_settings/notifications.json and PERMANENTLY DESTROY the notification
@@ -49,7 +49,7 @@
 # destination validation is defence in depth. Shape copied from
 # table-share/policies/execution.json.tftpl's cross-bucket deny.
 #
-# Note ReadWriteReports grants GetObject as well as PutObject: assemble-report (SPEC-112)
+# Note ReadWriteReports grants GetObject as well as PutObject: assemble-report
 # READS BACK the intermediate results it wrote, so a write-only grant would fail at the
 # very last verb, after all the work was done.
 
@@ -77,9 +77,9 @@ resource "aws_iam_role_policy" "execution" {
   })
 }
 
-# ── Portal role — data-quality enqueue policy (SPEC-109 FR-003) ──────────────
+# ── Portal role — data-quality enqueue policy ──────────────
 # The browser's ONLY data-quality privilege: sqs:SendMessage to the request queue. A small
-# inline policy on the shared portal role (SPEC-011), attached BY NAME like the other
+# inline policy on the shared portal role, attached BY NAME like the other
 # control planes do (the role is created in module.data; the root module-level depends_on
 # guarantees it exists first). No Lambda invoke, no DLQ, no Step Function — just enqueue.
 resource "aws_iam_role_policy" "portal_data_quality" {

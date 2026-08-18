@@ -3,7 +3,7 @@ type CxArg = string | false | null | undefined;
 /**
  * Joins truthy class names with spaces — a dependency-free stand-in for clsx.
  *
- * RETURNS `undefined`, NOT `''`, WHEN NOTHING IS TRUTHY (SPEC-186 FR-007). The empty
+ * RETURNS `undefined`, NOT `''`, WHEN NOTHING IS TRUTHY. The empty
  * string is a value `??` does not fall back on, so a component applying its default as
  * `className ?? 'max-w-md'` silently lost that default whenever a caller passed it a
  * `cx()` of all-falsy arguments — which is how nine dialogs came to render at full

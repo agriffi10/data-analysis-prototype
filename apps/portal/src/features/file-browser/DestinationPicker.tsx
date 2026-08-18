@@ -22,10 +22,10 @@ type BaseProps = {
   // connection's bucket. Defaults to source-only (no selector) when omitted.
   destinations?: FileSpaceTarget[];
   // Whether the items' current parent is a valid destination. Move forbids it
-  // (a no-op); Copy allows it (→ same-folder auto-number, SPEC-039 FR-003). Only
+  // (a no-op); Copy allows it (→ same-folder auto-number). Only
   // meaningful when the destination is the source space (same bucket).
   allowCurrentParent?: boolean;
-  // SPEC-049: an extra gate the host controls (e.g. an invalid filename) — when
+  // an extra gate the host controls (e.g. an invalid filename) — when
   // true the confirm button is disabled regardless of the destination validity.
   confirmDisabled?: boolean;
   confirmLabel: string; // e.g. "Move here" / "Copy here"
@@ -33,14 +33,14 @@ type BaseProps = {
   // Message shown when the confirm action is blocked inside an operated folder's
   // own subtree (the verb differs: "move" vs "copy").
   selfMessage?: string;
-  // SPEC-124 FR-003: the list's aria-label. "Destination folders" is wrong in a
+  // The list's aria-label. "Destination folders" is wrong in a
   // mode where files are selectable and nothing is a "destination".
   listLabel?: string;
-  // SPEC-155 FR-002: claim initial focus once the listing settles. For a dialog whose
+  // Claim initial focus once the listing settles. For a dialog whose
   // ENTIRE content is this picker (Move, Copy) — never where it is one section among
   // others the user may already be operating (Save results), because it remounts there.
   autoFocus?: boolean;
-  // SPEC-124 FR-003: fired on mount and on EVERY navigation/selection change, so
+  // Fired on mount and on EVERY navigation/selection change, so
   // the caller can render the resolved target and compute a confirm label without
   // the picker giving up ownership of its browse state. Must be referentially
   // stable (useCallback) — it is an effect dependency.
@@ -66,7 +66,7 @@ type Props = BaseProps & {
 
 // Is this folder prefix an app-managed root folder (athenaresults/ results or
 // user_settings/), which is never a valid move/copy destination? Only the
-// user-root instance is locked (SPEC-032/043).
+// user-root instance is locked.
 //
 // `locked` is composed by the caller rather than read from the constant, because
 // SPEC-173 FR-008 adds one entry the FLAG decides: `saved_queries/` is an
@@ -79,8 +79,8 @@ function isProtectedFolder(folderPrefix: string, rootPrefix: string, locked: rea
 // Parent of a browse prefix, clamped to the navigation floor so the picker can
 // never climb above the user's own space: `alice/a/b/` → `alice/a/`, and
 // `alice/a/` → `alice/` (the root). Used by the ".." up-navigation row.
-// SPEC-039 FR-006: the shared destination-folder picker used by both Move
-// (SPEC-019) and Copy. Lists only folders within the user's own space
+// The shared destination-folder picker used by both Move
+// And Copy. Lists only folders within the user's own space
 // (navigable), excludes the folders being operated on (can't descend into them)
 // and the protected `athenaresults/` folder (never a write destination), and
 // disables the confirm button inside an operated folder's own subtree (no
@@ -128,7 +128,7 @@ export function DestinationPicker({
   // don't apply across buckets.
   const crossBucket = active.bucket !== bucket;
 
-  // SPEC-173 FR-008: with `query` off the saved-queries folder is not offered as a
+  // With `query` off the saved-queries folder is not offered as a
   // destination, alongside leaving the listing. Read here rather than drilled from
   // four dialogs — every picker in the app inherits the rule from one place.
   const queryEnabled = useFeature('query');
@@ -188,7 +188,7 @@ export function DestinationPicker({
 
   // Folders being operated on can't be navigated into (you can't move/copy a
   // folder inside itself), so hide them from the picker. The protected results
-  // folder is also hidden — it is never a valid write destination (SPEC-032).
+  // folder is also hidden — it is never a valid write destination.
   const operatedFolderPrefixes = new Set(items.filter((i) => i.type === 'folder').map((i) => i.prefix));
   const navigableFolders = folders.filter(
     (f) => !operatedFolderPrefixes.has(f.prefix) && !isProtectedFolder(f.prefix, active.rootPrefix, lockedFolders)
@@ -200,7 +200,7 @@ export function DestinationPicker({
   const intoOwnSubtree = !crossBucket && [...operatedFolderPrefixes].some((p) => browsePrefix.startsWith(p));
   const atCurrentParent = !crossBucket && browsePrefix === currentPrefix;
   const currentParentBlocked = atCurrentParent && !allowCurrentParent;
-  // The one invalid target the picker can detect for free (SPEC-124 FR-003) —
+  // The one invalid target the picker can detect for free —
   // scoped to selectable-files mode, since an empty folder is a perfectly good
   // move/copy/save destination. Everything deeper (format, readability) stays
   // server-side. Not applied while the listing is still loading or errored, or an
@@ -310,7 +310,7 @@ export function DestinationPicker({
           <ul
             ref={listRef}
             aria-label={listLabel}>
-            {/* Parent-folder row (SPEC-026 FR-008): climb back up toward the
+            {/* Parent-folder row: climb back up toward the
                 root. Shown only below the navigation floor. */}
             {browsePrefix !== active.rootPrefix && (
               <li>
@@ -355,7 +355,7 @@ export function DestinationPicker({
             {/* Files in the browsed folder are shown so the destination's existing
                 contents are visible. By DEFAULT they are non-interactive, muted rows
                 — you pick a folder, not a file (feedback 2026-06-30). Under
-                `selectableFiles` (SPEC-124) they become toggle buttons: selecting one
+                `selectableFiles` they become toggle buttons: selecting one
                 makes it the target, clicking it again returns the target to the
                 browsed folder. */}
             {files.map((file) => {

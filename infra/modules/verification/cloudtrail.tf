@@ -4,7 +4,7 @@
 // none, so it is neither a general-purpose audit trail nor a cost of any size.
 //
 // KEYED SO ONE RUN CAN BE ISOLATED, which AC1 requires: the archive key layout is
-// `{personal|shared}/{space}/{archiveId}/…` (SPEC-168), so `requestParameters.key` in each
+// `{personal|shared}/{space}/{archiveId}/…`, so `requestParameters.key` in each
 // record carries the archive id, and a live check greps for the id it was handed. No extra
 // correlation field is needed — and none could be added, since the caller is a Lambda whose
 // request the plane does not tag.

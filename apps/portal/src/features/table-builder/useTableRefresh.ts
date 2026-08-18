@@ -24,10 +24,10 @@ type LinkedTarget = {
 };
 
 /**
- * Dialog + enqueue state for "Refresh table" (SPEC-145), shaped like
+ * Dialog + enqueue state for "Refresh table", shaped like
  * {@link useTableShare} so the two dialogs in the same menu are wired alike:
  * `open` targets a rail table, `submit(allowRemovals)` enqueues, and on success the
- * dialog closes with a transient toast (the outcome is a notification, SPEC-114).
+ * dialog closes with a transient toast (the outcome is a notification).
  * A failure keeps the dialog open with `error` set.
  *
  * `linked` is the optional second entry point: a target the caller derived from
@@ -103,7 +103,7 @@ export function useTableRefresh(notify: (toast: RefreshToast) => void, linked?: 
         setError(null);
         const result = await enqueueTableRefresh({
           space: {
-            // The personal database IS the username (SPEC-033), which is exactly what
+            // The personal database IS the username, which is exactly what
             // the rail's `Connection.kind` encodes and what the control plane
             // re-checks against the verified actor.
             kind: target.database === username ? 'personal' : 'shared',

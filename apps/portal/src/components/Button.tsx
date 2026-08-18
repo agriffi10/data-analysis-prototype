@@ -8,7 +8,7 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
   size?: ButtonSize;
   /**
-   * Unavailable, and SAYING WHY (SPEC-172 FR-004). Renders `aria-disabled` rather than
+   * Unavailable, and SAYING WHY. Renders `aria-disabled` rather than
    * `disabled`, so the control keeps its place in the tab order and the reason is reachable —
    * a `disabled` button is skipped entirely, which is how "it's greyed out and I can't find out
    * why" happens. The click is swallowed here, so a caller cannot forget to guard its handler.

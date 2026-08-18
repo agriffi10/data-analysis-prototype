@@ -2,7 +2,7 @@
 // space a query is written into is a `QuerySpace` from `features/catalog/`.
 
 /**
- * One `.sql` object in a space's `saved_queries/` folder (SPEC-173).
+ * One `.sql` object in a space's `saved_queries/` folder.
  *
  * The key IS the identity and the filename IS the name — there is no id and no record,
  * because a `.sql` file cannot carry one without a sidecar this feature deliberately

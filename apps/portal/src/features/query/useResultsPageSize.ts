@@ -54,7 +54,7 @@ function writeStoredPageSize(username: string | null, pageSize: number): void {
 }
 
 /**
- * SPEC-087: the workspace-global "Rows per page" value — one shared value for
+ * the workspace-global "Rows per page" value — one shared value for
  * every result tab, session-persisted per user (sessionStorage, defensive
  * read), defaulting to DEFAULT_RESULTS_PAGE_SIZE. Owned once at the workspace
  * level so all result tabs re-page together when it changes (FR-004).

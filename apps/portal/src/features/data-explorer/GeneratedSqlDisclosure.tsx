@@ -9,7 +9,7 @@ export type GeneratedSqlDisclosureProps = {
 };
 
 /**
- * The exploration's current SQL, on request (SPEC-182 FR-005).
+ * The exploration's current SQL, on request.
  *
  * The Data Explorer writes SQL the user did not, and that SQL is an invoice — so it has to
  * be readable. What makes it trustworthy is where it comes from: `useExploration` renders

@@ -1,4 +1,4 @@
-# ── Control-plane IAM roles (SPEC-164) ───────────────────────────────────────
+# ── Control-plane IAM roles ───────────────────────────────────────
 # ONE shared execution role for every verb Lambda (the consolidated model every plane
 # has used since SPEC-062), plus the Step Function role and the Pipe role. Trust +
 # permission policies are .tftpl templates rendered with templatefile() (no inline
@@ -17,7 +17,7 @@
 # two modules carry the heaviest tests on this plane. Same shape, same reasoning, as
 # table-share's execution role.
 #
-# THE ONLY WRITE INTO A USER'S SPACE IS UNDER shared_files/ (SPEC-166 FR-004). The
+# THE ONLY WRITE INTO A USER'S SPACE IS UNDER shared_files/. The
 # copy needs PutObject plus the two multipart actions an object over S3's 5 GiB
 # single-copy limit takes, and they are scoped to `*/shared_files/*` in both data
 # buckets — so this role can write into an inbox and NOWHERE ELSE in anybody's prefix.
@@ -42,7 +42,7 @@ resource "aws_iam_role_policy" "execution" {
   name = "permissions"
   role = aws_iam_role.execution.id
 
-  # NoDataObjectDelete (SPEC-164): a Deny, present from the first apply rather than
+  # NoDataObjectDelete: a Deny, present from the first apply rather than
   # added alongside the copy. A SEND IS A COPY — it never deletes the sender's copy
   # (the spec's Out of Scope says so) and it never overwrites at the destination — so
   # nothing on this plane will ever need s3:DeleteObject. Writing the Deny now makes
@@ -55,7 +55,7 @@ resource "aws_iam_role_policy" "execution" {
   # NOTE FOR ANYONE ADDING A STATEMENT: IAM rejects a "//" comment key inside a
   # statement ("Policy input list item 1 has invalid content" — verified with
   # simulate_custom_policy), so rationale goes HERE, not in the .tftpl.
-  # states:DescribeExecution (SPEC-166 FR-005) is the ONE grant the timeout door needs, and it
+  # states:DescribeExecution is the ONE grant the timeout door needs, and it
   # is on THIS role rather than the state machine's because it is the notify-failure LAMBDA that
   # makes the call — invoked by EventBridge, outside any execution. It reads back the input of a
   # run whose event omitted it, which on this plane is the ordinary case for a large send:
@@ -73,11 +73,11 @@ resource "aws_iam_role_policy" "execution" {
   })
 }
 
-# ── Portal role — file-send enqueue policy (SPEC-164 FR-005) ─────────────────
+# ── Portal role — file-send enqueue policy ─────────────────
 # THE BROWSER'S ONLY FILE-SEND PRIVILEGE: sqs:SendMessage to the request queue. No
 # cross-prefix S3 write is granted to any user, ever — that the browser cannot write
 # into another user's prefix is the isolation model working, and is the entire reason
-# this plane exists. A small inline policy on the shared portal role (SPEC-011),
+# this plane exists. A small inline policy on the shared portal role,
 # attached BY NAME like the table-builder / table-share / notifications modules (the
 # role is created in module.data; the root module-level depends_on guarantees it
 # exists first). No Lambda invoke, no DLQ, no Step Function — just enqueue.
@@ -100,7 +100,7 @@ resource "aws_iam_role_policy" "sfn" {
   name = "permissions"
   role = aws_iam_role.sfn.id
 
-  # InvokeFunction on the verbs + log delivery, plus (SPEC-166) the Distributed Map's
+  # InvokeFunction on the verbs + log delivery, plus the Distributed Map's
   # own permissions — which belong HERE and not on the execution role (SPEC-160
   # FR-006): the state machine is what calls StartExecution for each child and what
   # reads the ItemReader object / writes the ResultWriter export. Putting them on the

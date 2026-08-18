@@ -21,7 +21,7 @@ type Props = {
   initialSpace: QuerySpace | null;
   /** The active tab's link, if any. Named so the user knows what a re-save replaces. */
   linked?: SavedQueryLink;
-  /** Inline message from the host: a mapped write failure (SPEC-106). */
+  /** Inline message from the host: a mapped write failure. */
   error?: string | null;
   /** A write is in flight: locks submit and dismissal. */
   busy: boolean;
@@ -36,7 +36,7 @@ type Props = {
  * to the query it was opened from. A user about to overwrite a file should be told which
  * file, in which space, before it happens.
  *
- * SPEC-175 FR-001: the destination is a CHOICE, defaulted to the tab's own space when it
+ * the destination is a CHOICE, defaulted to the tab's own space when it
  * is linked and to the remembered one otherwise — one memory of "the space I am working
  * in", shared with the load surface rather than a second that can disagree with it.
  *

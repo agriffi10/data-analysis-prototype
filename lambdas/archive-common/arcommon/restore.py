@@ -6,7 +6,7 @@ this request well-formed and authorized, and what would come back where.**
 
 **The space comes from the REQUEST, never from the archive.** The route the user is standing in
 names the space and authorization is then a question about *that* space, exactly as the
-data-quality report view takes its space from the route rather than deriving it (SPEC-113). An
+data-quality report view takes its space from the route rather than deriving it. An
 archive belonging to a different space simply is not found — which is also why
 ``archive_not_found`` says nothing about whether the id ever existed.
 
@@ -72,7 +72,7 @@ def validate(req: dict, request_id: str, actor: str) -> dict:
 
       The ``archive`` block carries the RECEIPT's location alongside the vault's, resolved here
       exactly as validate-authorize resolves it for an archive: it is a pure function of the
-      space and the archive id, so it is built once rather than three agreeing times (SPEC-168).
+      space and the archive id, so it is built once rather than three agreeing times.
       **It is keyed on the ARCHIVE id, not this run's**, because the document it names was
       written by the archive and is being rewritten rather than created.
 

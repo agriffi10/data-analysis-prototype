@@ -1,4 +1,4 @@
-# ── Shared-Space Bucket (Bucket 2, SPEC-050 FR-001) ──────────────────────────
+# ── Shared-Space Bucket (Bucket 2) ──────────────────────────
 # Backs every shared connection: objects live under {name}/... and are seen by all
 # members of that space (a single shared copy, not per-user copies). Hygiene mirrors
 # the user-space bucket (data/s3.tf): all public access blocked, SSE-S3,

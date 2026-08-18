@@ -3,7 +3,7 @@
 Parses the SQS record, verifies the caller's Cognito ID token into the trusted actor, authorizes
 the actor's access to the space, and resolves the archive prefix — for an ARCHIVE, checking that
 every selected item sits inside the source and is not one of the portal's own folders and
-enforcing the request-shape caps; for a RESTORE (SPEC-170), validating the pasted archive id
+enforcing the request-shape caps; for a RESTORE, validating the pasted archive id
 before it is concatenated into a key. Read-only in both: nothing is listed, copied or deleted
 here.
 

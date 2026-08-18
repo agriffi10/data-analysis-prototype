@@ -11,7 +11,7 @@
 # deploy-lambdas matrix entry) is the notify-failure-Lambda pattern — the foundation
 # spec provisions the placeholder, the producer spec wires it.
 #
-# Code-ownership split (architecture.md, SPEC-012): Terraform owns the function
+# Code-ownership split (architecture.md): Terraform owns the function
 # INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python code
 # (lambdas/data-quality-<suffix>/) AND publishes + attaches the layers: cpcommon +
 # dqcommon on all nine, plus the polars layer on inspect-source. `ignore_changes` keeps
@@ -53,7 +53,7 @@ resource "aws_lambda_function" "functions" {
 
   # EVERY variable cpcommon/config.py requires must be COMMON to all nine verbs: every verb
   # attaches the cpcommon layer, and any of them may reach any of those values. SPEC-156
-  # FR-004 moved the fail-fast (SPEC-083 FR-001) from import to FIRST READ, so a verb missing
+  # FR-004 moved the fail-fast from import to FIRST READ, so a verb missing
   # one no longer crashes at COLD START (the table-builder production break, PR #196:
   # check-table-absent, RuntimeError COGNITO_USER_POOL_ID unset) — it fails on whichever
   # branch reads it, which is narrower and no less broken. The per-verb map
@@ -76,7 +76,7 @@ resource "aws_lambda_function" "functions" {
         COGNITO_APP_CLIENT_ID   = var.app_client_id
         ATHENA_WORKGROUP        = var.athena_workgroup
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
-        # SPEC-128. Optional by construction (SPEC-127 FR-003) — that is what makes a
+        # SPEC-128. Optional by construction — that is what makes a
         # partial rollout safe: a function that somehow misses it logs to stdout instead
         # of failing at import, which for a shared layer means at COLD START.
         LOGS_QUEUE_URL = var.logs_queue_url

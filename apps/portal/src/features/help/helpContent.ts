@@ -1,16 +1,16 @@
 import type {HelpSection} from './help.types';
 
-// SPEC-074 FR-005 — MAINTENANCE NOTE.
+// MAINTENANCE NOTE.
 // This content describes only the portal behavior that is shipped and reachable
 // by users as of implementation: Files (incl. running a data-quality check and
-// reading its report, SPEC-113/114), Query, Tables (create-from-folder + share,
+// reading its report), Query, Tables (create-from-folder + share,
 // SPEC-066→072 / 088→094), Shared connections (incl. SPEC-073 pending/active
 // join status), and Notifications. Every step below maps to a real, wired
 // affordance in the code.
 //
 // The data-quality guides now cover the whole loop: starting a check from EITHER
 // entry point (Files, or Data quality → New quality check — SPEC-124), the
-// notification that reports it, the report itself, and (SPEC-123) browsing past
+// notification that reports it, the report itself, and browsing past
 // checks from the Data quality tab. Since SPEC-126 drains every control plane's
 // request DLQ back into notifications, the guides may now say a failure ALWAYS
 // reports itself there — they hedged with "usually" until that shipped, because a

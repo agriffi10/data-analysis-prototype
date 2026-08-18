@@ -1,7 +1,7 @@
 # ── User-Space Bucket (Bucket 1) ─────────────────────────────────────────────
 # Holds every user's files under their own username prefix ({username}/...) plus
 # their future .config/connections.json. Private; per-user isolation is enforced
-# by IAM principal tags on the shared portal role (SPEC-011/013), not by anything
+# by IAM principal tags on the shared portal role, not by anything
 # in this module.
 #
 # This module is storage only — the bucket and its hygiene config. The portal
@@ -18,7 +18,7 @@ resource "time_sleep" "wait_for_deploy_policy" {
   create_duration = "30s"
 }
 
-# RESERVED ROOT PREFIX (SPEC-146). This bucket has an invariant worth naming before breaking
+# RESERVED ROOT PREFIX. This bucket has an invariant worth naming before breaking
 # it: EVERY TOP-LEVEL PREFIX IS A USERNAME. `_directory/` is the one deliberate exception — it
 # holds the daily username-directory document the browser reads for typeahead suggestions.
 #
@@ -77,7 +77,7 @@ resource "aws_s3_bucket_versioning" "user_space" {
   }
 }
 
-# Lifecycle — abort incomplete multipart uploads after 7 days (SPEC-016 FR-006).
+# Lifecycle — abort incomplete multipart uploads after 7 days.
 # SPEC-016 uploads via the managed lib-storage Upload, which uses multipart above
 # the 5 MiB part size. A browser killed mid-upload (or a future cancel) can leave
 # in-progress parts that are billable but invisible; this rule sweeps them up.
@@ -121,7 +121,7 @@ resource "aws_s3_bucket_cors_configuration" "user_space" {
 # principal can't read or write user data. Bucket *configuration* actions
 # (PutBucketPolicy, lifecycle, etc.) are intentionally NOT denied.
 #
-# The LF registration role MUST also be excluded (SPEC-032): Lake Formation
+# The LF registration role MUST also be excluded: Lake Formation
 # assumes it to vend credentials for the registered user-space location, so when a
 # user queries a Glue table the S3 read happens AS this role. An explicit Deny in a
 # resource policy overrides the role's identity-policy Allow, so without the

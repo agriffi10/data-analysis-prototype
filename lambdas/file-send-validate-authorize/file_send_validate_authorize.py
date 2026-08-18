@@ -215,7 +215,7 @@ def _annotate_recipients(recipients) -> list:
     access question was about the source.
 
     The username directory is deliberately NOT consulted: it is advisory and never an
-    authorization input (SPEC-146), so existence stays ``admin_get_user``.
+    authorization input, so existence stays ``admin_get_user``.
 
     Args:
       recipients: The normalised recipients.

@@ -1,4 +1,4 @@
-# ── analytics module variables (SPEC-032) ────────────────────────────────────
+# ── analytics module variables ────────────────────────────────────
 # Final resource names are computed in the root module (like user_space_bucket_name)
 # and passed in, so naming lives in one place and base's deploy policy can be scoped
 # to the same ARNs without a dependency cycle.
@@ -43,12 +43,12 @@ variable "account_id" {
 }
 
 variable "user_space_bucket_arn" {
-  description = "ARN of the user-space bucket (SPEC-010). Registered as the LF location and scoped in the portal role's athenaresults/ results statements."
+  description = "ARN of the user-space bucket. Registered as the LF location and scoped in the portal role's athenaresults/ results statements."
   type        = string
 }
 
 variable "portal_role_name" {
-  description = "Name of the shared portal IAM role (SPEC-011) the analytics permission policy is attached to."
+  description = "Name of the shared portal IAM role the analytics permission policy is attached to."
   type        = string
 }
 
@@ -58,7 +58,7 @@ variable "portal_role_arn" {
 }
 
 variable "principal_tag_key" {
-  description = "IAM principal-tag key carrying the username (SPEC-011). Scopes the portal role's Glue database/table and athenaresults/ ARNs. Default 'username'."
+  description = "IAM principal-tag key carrying the username. Scopes the portal role's Glue database/table and athenaresults/ ARNs. Default 'username'."
   type        = string
   default     = "username"
 }

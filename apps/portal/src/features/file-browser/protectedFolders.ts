@@ -6,25 +6,25 @@
 //    the main file browser and the move/copy destination picker.
 //  - `athenaresults/` — Athena query results. Locked out of move/copy
 //    destinations, but still visible in the browser.
-//  - `_data-quality-reports/` — the data-quality reports (SPEC-112). Hidden
+// - `_data-quality-reports/` — the data-quality reports. Hidden
 //    EVERYWHERE, like `user_settings/`.
-//  - `_directory/` — the published username directory (SPEC-146). Hidden
+// - `_directory/` — the published username directory. Hidden
 //    EVERYWHERE. Note this one lives at the BUCKET root, not inside a user's
 //    prefix, so these per-prefix lists cannot actually reach it — the portal
 //    role's `ListBucket` is prefix-conditioned, which is what really keeps it
 //    out of the browser. It is listed anyway because the lists have already
 //    drifted apart from each other (transition_plan.md §6.3), and adding to
 //    both is cheaper than reasoning about which one matters.
-//  - `_config/` — the published feature-flag document (SPEC-162). Hidden
+// - `_config/` — the published feature-flag document. Hidden
 //    EVERYWHERE, and a bucket-root folder for the same reason `_directory/` is,
 //    so the same note applies: IAM is what really keeps it out of the browser,
 //    and these entries are parity with the directory rather than the mechanism.
 //
-//  - `saved_queries/` — the space's saved `.sql` files (SPEC-173). VISIBLE and
+// - `saved_queries/` — the space's saved `.sql` files. VISIBLE and
 //    PASTEABLE — an ordinary folder in every respect a user can see — and only
 //    undestroyable: it appears in UNDELETABLE_ROOT_FOLDERS alone.
 //
-//  - `archive/` — the archive receipts, one folder per archive (SPEC-172). VISIBLE and
+// - `archive/` — the archive receipts, one folder per archive. VISIBLE and
 //    deliberately so: the folder NAMES are the archive ids, and reading one is how a user
 //    finds the id a restore needs, so hiding it would remove the only surface that carries
 //    them. It joins PICKER_LOCKED_FOLDERS and UNDELETABLE_ROOT_FOLDERS and neither of the
@@ -33,7 +33,7 @@
 //    than about a folder's name, and is therefore not one of these lists at all.
 //
 //  - `shared_tables/` — where the table-share pipeline copies tables it has
-//    shared with you (SPEC-088). VISIBLE, because seeing what has been shared
+// shared with you. VISIBLE, because seeing what has been shared
 //    with you is the point of it, but locked out of move/copy destinations:
 //    the pipeline owns the layout, and a table's files acquiring neighbours is
 //    how a later projection read starts returning rows nobody wrote.
@@ -91,14 +91,14 @@ export const PICKER_LOCKED_FOLDERS = [
  * a rule this app itself authored. SPEC-057:97-98 already stated the UI refuses
  * this; SPEC-150 FR-007 is that criterion finally being met.
  *
- * `saved_queries/` (SPEC-173) is the second case, and it is the one that proves
+ * `saved_queries/` is the second case, and it is the one that proves
  * the lists are not a union: it is VISIBLE, it IS a valid paste target, and only
  * the folder itself is undestroyable. Everything inside it is ordinary — files
  * may be uploaded, moved, copied and deleted, and subfolders created — because
  * what keeps the query editor's load list coherent is the store's `.sql` filter,
  * not a write lock.
  *
- * `archive/` (SPEC-172) is the third, and it is the inverse of `saved_queries/`: visible like
+ * `archive/` is the third, and it is the inverse of `saved_queries/`: visible like
  * it, but NOT a valid paste target and read-only inside as well. Deleting the folder would
  * destroy the receipts that carry every archive id — and IAM denies the objects beneath it
  * anyway, so the row here is the browser saying so before the user finds out from S3.
