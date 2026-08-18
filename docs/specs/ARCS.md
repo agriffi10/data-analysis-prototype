@@ -1522,3 +1522,202 @@ already-granted `{username}/athenaresults/` prefix, and the only non-app change 
 > and caught nothing** — `no-restricted-imports` matches the literal import source, and one sibling
 > feature reaches another as `'../query/…'`, which contains no `features/` segment. FR-006's demand
 > that it be verified by violating it in both directions is the only reason it shipped working.
+
+## File-operations control-plane arc (SPEC-187 → 191 — filed 2026-08-17)
+
+Recursive folder copy, move and delete are the last bulk data operations this product performs in
+the **browser**. `copyFolder` issues one `CopyObject` per object in a strictly sequential loop,
+`moveFolder` does that and then deletes, and `deleteFolder` lists the whole subtree before batching
+its deletes. A user renaming a large folder holds a tab open while thousands of round trips run one
+at a time from their laptop; closing it leaves the operation half-done with no record it ever
+started. Six planes already exist for exactly this shape of work. This arc builds the **seventh**,
+and it is the plane whose absence is felt every day rather than one enabling a new feature.
+
+**The arc has a second motive, and it is the reason it comes first.** The next arc moves every AWS
+SDK call out of the browser and behind an API. That API must be *thin* — tokens and service calls,
+no data operations inside it — or the one operation whose cost grows with object count lands in a
+request handler and sets the API's whole shape. Building this plane first means the API arc inherits
+a browser that already enqueues, and the front-door choice (ALB, API Gateway) stops being
+constrained by a 29-second ceiling. It is also independently verifiable **where it stands today**:
+the browser already enqueues to SQS directly, so the whole plane can be proved before anything about
+hosting changes.
+
+**Be precise about that thinness claim, because it is only half true.** What moves is the operations
+whose cost grows with the number of objects *in a folder*. What stays in the browser still includes
+work that grows with object count: the SPEC-020 upload queue (N objects, arbitrary bytes, straight to
+S3), and `firstFreeName`'s **up to 999 sequential `HeadObject` probes** to name a same-folder copy —
+which FR-002 keeps synchronous because it operates on a single file. The API arc should inherit those
+knowingly rather than discover them.
+
+**And the lock protects less than its name suggests.** SPEC-187's per-space lock serialises *this
+plane's* executions. It does not cover the single-file operations FR-002 deliberately leaves in the
+browser, nor upload, nor create-folder, nor `useSaveResults`, nor `savedQueries.service`, nor the
+other six control planes — all of which write the same prefixes. That is why SPEC-189's source
+deletion must remove **only the keys its plan copied** and never a prefix listing, diverging from
+SPEC-169's rollback on purpose: an object written into a folder between expansion and commit was
+never copied, and a prefix-listing delete would remove it silently, unrecoverably, with versioning
+off. The accepted cost is an orphan, which is visible and recoverable where the alternative is
+neither.
+
+The shape is the file-send arc's, one spec per reviewable unit: **187** the plane, the contract, the
+lock and validate-authorize; **188** source expansion, the copy plan and the destination guard;
+**189** the transfer, the source deletion and the terminals; **191** notifications, Help and the live
+checks; **190** the browser's async model and its in-flight state.
+
+**Build 191 BEFORE 190 — the numbering is not the build order, and the arc review is why.** SPEC-190
+consumes 191's extended notification wire shape and its producer: its conflict view is reachable from
+the notification, and it settles an in-flight entry by matching the `requestId` a notification carries.
+Landing 190 first would put a version on `main` where every folder operation acknowledges "you'll get
+a notification" that never arrives, in-flight entries never settle, and the per-space submit gate holds
+until the machine's ceiling. 190 also ships behind a feature flag, which is what makes that window
+survivable if the order is ever forced. It is five rather than
+file-send's four because file-send's UI was one new dialog, where this one rewrites the file
+browser's core interaction model — the biggest UI change in the arc, and not something to share a
+spec with a notification producer.
+
+**Three decisions are settled up front, and two of them were review findings rather than authoring
+choices.**
+
+**The async boundary is "exactly one file", not "is it a folder".** The first draft said an operation
+goes async only when it must LIST to know what it touches — coherent, but measured against the wrong
+quantity: a file-only *copy or move* of K files is a sequential loop of `HeadObject` + `CopyObject` +
+`DeleteObject`, up to 3K round trips, which is precisely the cost the arc exists to remove. The rule
+is now that a selection stays synchronous **if and only if it is exactly one file**. A single folder
+is enqueued too, including a folder **rename** — forced rather than chosen, since a rename is one
+`CopyObject` per contained object.
+
+**FIFO does not serialize executions, so the plane takes a per-space lock.** The draft claimed
+`MessageGroupId` serialized a space's operations against each other. SPEC-157 exists because that is
+false: the Pipe starts the machine `FIRE_AND_FORGET`, so delivery is ordered and execution is not.
+The consequence here is worse than table-builder's, whose loser overwrote a schema — this plane's
+loser **deletes objects a concurrent move has already relocated**, unrecoverably, with versioning
+off. The lock is SPEC-157's: an admin-bucket object under ETag CAS, held by the execution ARN,
+released by overwriting, stealable only because the machine now carries a `TimeoutSeconds`.
+
+**A browser pre-flight cannot bind an async decision, so the conflict answer rides on the envelope
+and the plane re-checks.** `onConflict: 'refuse' | 'overwrite'` is part of the request contract from
+the first spec, because a contract that cannot express "the user already confirmed" forces either a
+contract change mid-arc or a silent semantic choice over buckets with versioning **off**. The
+re-check before copying is SPEC-171's finding one plane over, where a file re-created between the
+guard and the copy would have been overwritten and reported as success.
+
+**One thing this arc gains for free, and it is a security improvement.** Every protected-folder rule
+in this product — `athenaresults/`, `archive/`, `saved_queries/`, the `DO_NOT_DELETE.txt` basename
+rule — is enforced **client-side only** today. Moving these operations onto a plane makes them
+server-side for the first time: the browser's refusals stay as the affordance (SPEC-186 FR-002 —
+refuse before the destructive confirm), and the plane becomes the enforcement, each verified by
+deliberate violation of the other. That is the same gap SPEC-173's still-owed bucket-policy check
+exists for, closed for a different set of rules.
+
+**The one trap to carry into 188.** The three protected-folder lists in `protectedFolders.ts` differ
+on purpose and must not be unioned — the first draft did exactly that in the same acceptance
+criterion that forbade it, and would have silently removed the ability to copy *out of*
+`athenaresults/`, which is picker-locked and undeletable but deliberately copy-able. State the rule
+per (side × operation), enumerated against the real constants, and read that file's own note first.
+
+## API-layer & containerisation arc (SPEC-192 → 202 — scoped 2026-08-17, specs not yet written)
+
+**This entry exists to hand the arc to a session that was not in the room when it was scoped.** Read
+it before writing SPEC-192. It carries the decisions, the open questions and the traps; the reasoning
+behind the settled ones is in `docs/transition_plan.md` §3–§4 (amended 2026-08-17) and in the
+`decisions.md` entries the arc's specs will add.
+
+### Why the arc exists
+
+The portal calls AWS directly from the browser. The client environment will not permit that, so every
+SDK call moves behind an API, and the SPA moves from CloudFront to a container. Seventeen service
+files and ~3,300 lines currently import `@aws-sdk/*`; `infra/` has no VPC, ALB, ECR or ECS.
+
+**Arc A (SPEC-187 → 191) comes first and is the reason this one is tractable.** It moves every
+operation whose cost grows with object count onto a control plane, which is what lets this API be
+*thin* — tokens and service calls, nothing that loops over objects. Do not start this arc before
+Arc A lands; an API built around a synchronous folder copy sets its own shape.
+
+### Settled — do not re-litigate
+
+- **Front door for the API: API Gateway.** The established pattern in the target environment. Every
+  technical objection dissolved once the API became thin: presigned uploads remove the 10 MB payload
+  cap, and with folder work on a plane nothing approaches the 29-second HTTP-API ceiling (which is
+  **not** raisable; only regional/private REST APIs can be raised, at the cost of throttle quota).
+- **SPA: a container on ECS Fargate behind an ALB.** It cannot go through CloudFront. `infra/modules/app`
+  (CloudFront + static site) is retired.
+- **Two origins, one registrable domain.** SPA and API are separate hosts, so they must be subdomains
+  of one parent — *same-site*, so the session cookie is delivered to both under `SameSite=Lax`, with
+  CORS and `credentials: 'include'` on the API.
+- **BFF compute: Lambda.** It meets the Identity Center constraints — `CreateTokenWithIAM` needs
+  SigV4 credentials, which the execution role supplies, and the session state the single-use
+  assertion forces lives in DynamoDB rather than in process.
+- **Session: a BFF.** The server performs the OIDC code exchange and holds the tokens; the browser
+  gets an opaque `httpOnly` cookie and nothing else. **The SPA never constructs an IdP URL** — it
+  navigates to the API's own login endpoint, which mints the redirect and holds the PKCE verifier and
+  `state` server-side.
+- **AWS credentials never reach the browser.** The API assumes a role carrying the user's identity —
+  a `username` session tag now, an Identity Center identity context later — and makes the calls
+  itself. Every existing IAM policy, bucket policy and Lake Formation grant keeps enforcing unchanged.
+- **File bytes: presigned URLs**, both directions. The browser talks to S3 for bytes only, which is
+  why **bucket CORS is still required** for the new origin.
+- **Queue trust:** the API verifies the token, strips it, and writes a verified `actor`. The queues
+  become writable only by the API's role. The control-plane Lambdas drop JWKS verification and keep
+  every authorization check.
+- **Identity provider: Entra ID in the target environment, Cognito today**, and the OIDC layer is
+  provider-agnostic so one image serves both. The current environment keeps Cognito and its two
+  trigger Lambdas exactly as they are.
+- **Machine-facing API: designed for, built later.** `{actor, delegated_by, assurance}` enters the
+  control-plane message contract in this arc so the later door needs no rework. Callers act **on
+  behalf of a named user** and pass the portal username directly.
+
+### The correction most likely to be made again
+
+**Identity Center is not a login provider for a web application.** Its OIDC service implements only
+the device-authorization parts needed for the AWS CLI, and the customer-managed OAuth 2.0 app setup
+*requires* a trusted token issuer — it assumes your app authenticates users elsewhere. So Entra and
+IdC are not alternatives: **Entra authenticates the users; IdC propagates their identity into AWS.**
+Anyone who reads "tie the app to an Identity Center login" as a sign-in flow will build something
+that cannot work.
+
+Two further constraints on that flow, both settled and both easy to lose: the jwt-bearer assertion is
+**single-use** (IdC rejects a second exchange of the same token, so exchange once at login and use the
+`refresh_token` grant after), and **DynamoDB TTL deletes expired items only within a few days** while
+an expired-but-undeleted item is still returned by reads — so session expiry is checked on read, and
+TTL is storage hygiene rather than the security boundary.
+
+### Still open — decide these when writing SPEC-192, do not assume
+
+1. **Whether the machine-facing surface ships in this arc or the next.** Scoped as "later", but the
+   contract change lands here either way.
+2. **The `connect-src` derivation.** It becomes the API host plus S3 (for presigned bytes), not the
+   enumeration of AWS service hosts SPEC-140 built. It must still be derived from Terraform variables
+   rather than frozen as a string.
+3. **What replaces `lib/returnPath.ts`.** With a BFF the return path can travel server-side beside
+   `state`, which survives private browsing where the current `sessionStorage` approach degrades.
+
+### The shape
+
+**192** runtime configuration (`VITE_*` becomes runtime accessors — the prerequisite that lets one
+image promote across environments, and the OIDC provider block lives here); **193** the VPC, ALB, API
+Gateway, ECR and ECS, with the deploy-role IAM expansion as in-scope work; **194** the SPA container
+and its nginx config, which must reproduce every job CloudFront was doing (SPA fallback, SPEC-141's
+per-class cache headers, SPEC-140's security headers, compression, health check); **195** the BFF —
+session, provider-agnostic OIDC, the DynamoDB store; **196** the AWS identity layer, per-plane
+credential providers; **197** the transport contract plus one small feature ported end to end to
+prove the spine; **198** the file browser and presigned URLs; **199** catalog (Athena + Glue); **200**
+the delegated actor contract and the enqueue paths; **201** the Lambda trust boundary; **202**
+retiring CloudFront and the Identity Pool, and the arc's live checks.
+
+Order de-risks: infrastructure early (new resource types trip this repo's recurring IAM traps, so
+prove the pipeline with a placeholder API before porting anything), then the auth and transport spine,
+then the volume.
+
+### Two traps carried from Arc A
+
+**The five `cognito:username` readers collapse to one.** `transition_plan.md` §6.1 calls that claim
+the highest-consequence detail in the migration — three readers in `cpcommon/auth.py`, one in
+`notifications_writer.py` with its own verification path, one in `shared-space-common/auth.py`, plus
+the SPA. After this arc the BFF derives `actor` once and everything downstream reads a field it
+cannot forge. That is a large part of why the API migration should happen **before** the environment
+move rather than after.
+
+**The API stays thin only if it is kept thin.** Arc A moves folder operations, but the browser still
+holds work that grows with object count: the SPEC-020 upload queue, and `firstFreeName`'s up to 999
+sequential `HeadObject` probes. Those are deliberate residuals, recorded so this arc inherits them
+knowingly.

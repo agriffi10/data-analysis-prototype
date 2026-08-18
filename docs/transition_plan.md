@@ -439,6 +439,27 @@ needs re-examination before anything else in this document is acted on.
 
 ### 4.6 Hosting moves from CloudFront to a container
 
+> **AMENDED (2026-08-17) — the topology is settled, and this section's premise that the browser
+> calls AWS directly is now FALSE.** Every AWS SDK call moves behind an API (the arc filed as
+> SPEC-192 → 202). The settled shape:
+> - **SPA:** a container on **ECS Fargate behind an ALB** — as this section describes, and nginx
+>   still has to reproduce every CloudFront job in the table below.
+> - **API:** **API Gateway**, not the ALB. The established pattern in the target environment, and
+>   viable because all bulk data work moves to a control plane first (SPEC-187 → 191), leaving the
+>   API thin enough that the 29-second integration ceiling never binds.
+> - **BFF compute:** **Lambda**, subject to the Identity Center token constraints in §3.5 — which it
+>   meets: `CreateTokenWithIAM` needs SigV4 credentials, which the execution role supplies, and the
+>   session state the single-use assertion forces lives in DynamoDB rather than in process.
+> - **Two origins.** The SPA and the API are separate hosts, so they must be **subdomains of one
+>   registrable domain** — same-site, so the `httpOnly` session cookie is delivered to both under
+>   `SameSite=Lax`, with CORS and `credentials: 'include'` on the API. A single origin was the other
+>   option and was not taken.
+>
+> Two consequences for this section specifically. The **`connect-src`** derivation is now the API
+> host plus the S3 endpoint for presigned uploads — not the enumeration of AWS service hosts this
+> section assumes. And **bucket CORS** is still required for the new origin, because presigned
+> PUT/GET go browser→S3 directly even though every other call does not.
+
 The SPA will be served from Docker rather than CloudFront over an S3 origin. Producing the image
 is trivial — a Vite build served by nginx — but CloudFront was doing more than serving files, and
 each of those jobs now needs an owner. (nginx here means the **web server**, actively maintained
@@ -535,6 +556,22 @@ scaling behaviour and a real failure mode. Combined with §3.5's availability-cr
 backend, the portal acquires genuine uptime work it did not have before. Budget for it.
 
 ### 4.7 The backend, and where its state lives
+
+> **SUPERSEDED IN PART (2026-08-17).** Read *"Settled: it co-locates with the SPA in the same
+> container"* as **reversed**: the BFF is a **Lambda behind API Gateway**, while the SPA is a
+> container behind an ALB (§4.6's amendment). The co-location argument was made when the backend
+> existed only to exchange tokens; it now serves the whole application's AWS surface, and the target
+> environment's established pattern is API Gateway.
+>
+> **Everything this section says about STATE is unchanged and is now more load-bearing, not less** —
+> the opaque `httpOnly` cookie, the Identity Center refresh token in DynamoDB under a
+> customer-managed key with a TTL, the container-is-stateless rule (which a Lambda satisfies by
+> construction), credentials from the execution role rather than static secrets, and the three
+> clocks. Add one mechanism this section predates: **DynamoDB TTL deletes expired items only within
+> a few days and an expired-but-undeleted item is still returned by reads**, so session expiry must
+> be checked on read. TTL is storage hygiene, never the security boundary.
+>
+> The `error.stack` warning below applies unchanged, and now to a Lambda rather than a container.
 
 §3.5 established that a token-exchange backend is mandatory and must hold session state. The move
 to Docker changes the best answer to *where it runs*, and makes it **simpler**, not harder.
