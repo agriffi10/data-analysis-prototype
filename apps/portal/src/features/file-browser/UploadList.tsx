@@ -79,7 +79,7 @@ function UploadRow({item}: {item: UploadItem}) {
   const workspace = workspaceFromKey(item.key);
 
   // Collision (warn-and-confirm): pause the row and reuse CollisionPrompt.
-  // Cancelling it drops the item from the queue (FR-003).
+  // Cancelling it drops the item from the queue.
   if (item.status === 'collision') {
     return (
       <li className="px-3 pt-3">

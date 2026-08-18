@@ -32,7 +32,7 @@ export function ExpressionBar({expression, onApply}: ExpressionBarProps) {
 
   // Re-seeded during render when the APPLIED expression changes underneath the bar —
   // history navigation and Remove all both rewrite it. A failed apply changes nothing
-  // here, which is what leaves the offending text in place to be corrected (AC4).
+  // here, which is what leaves the offending text in place to be corrected.
   const [previousApplied, setPreviousApplied] = useState(applied);
   if (previousApplied !== applied) {
     setPreviousApplied(applied);

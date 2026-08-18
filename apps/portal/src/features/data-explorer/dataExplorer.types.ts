@@ -90,7 +90,7 @@ export type Grouping = {
 /** Everything that renders SQL. Nothing else may. */
 export type ExplorationQuery = {
   filters: ColumnFilter[];
-  /** User-authored WHERE fragment, passed through verbatim (FR-005). */
+  /** User-authored WHERE fragment, passed through verbatim. */
   expression: string | null;
   ordering: SortEntry[];
   grouping: Grouping | null;

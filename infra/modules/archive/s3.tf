@@ -57,7 +57,7 @@ resource "aws_s3_bucket_versioning" "archive" {
   }
 }
 
-# ── Retention is a CEILING, not a WORM floor (FR-001) ────────────────────────
+# ── Retention is a CEILING, not a WORM floor ────────────────────────
 # Every object expires 7 years after creation. Nothing here prevents an earlier delete —
 # the restore deletes the archived copy once it has been put back, and it must be
 # able to.
@@ -104,7 +104,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "archive" {
   }
 }
 
-# ── Bucket policy: this plane and the deploy role, nobody else (FR-001) ──────
+# ── Bucket policy: this plane and the deploy role, nobody else ──────
 # The same `StringNotLike aws:PrincipalArn` shape the user-space bucket policy uses. It
 # is what makes "the browser has no relationship with this bucket" enforced rather than
 # merely true today: an identity policy that grew a statement naming this ARN would still

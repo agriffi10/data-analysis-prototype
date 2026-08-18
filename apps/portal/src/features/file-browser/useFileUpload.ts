@@ -4,7 +4,7 @@ import {invalidateListing} from './invalidateListing';
 import {toUserText} from '../../lib/errorMessages';
 import {uploadFile, createFolder, uploadPercent} from './fileBrowser.service';
 
-// What the user is being asked to confirm when a name already exists (FR-003).
+// What the user is being asked to confirm when a name already exists.
 // `retry` re-runs the write with overwrite, or with a new name on rename.
 type CollisionDecision = {overwrite: true} | {rename: string};
 

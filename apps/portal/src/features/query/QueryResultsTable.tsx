@@ -3,7 +3,7 @@ import {ColumnResizeHandle} from '../catalog/ColumnResizeHandle';
 import type {QueryColumn} from '../catalog/catalog.types';
 import {SECTION_CAPTION} from '../../components/fieldStyles';
 
-// The leading row-number (`#`) column is a fixed, non-resizable width (FR-001).
+// The leading row-number (`#`) column is a fixed, non-resizable width.
 const ROW_NUMBER_COLUMN_WIDTH = 56; // px (matches the old w-14)
 
 type QueryResultsTableProps = {
@@ -147,7 +147,7 @@ export function QueryResultsTable({
             </table>
           </div>
 
-          {/* Prev/Next pager (FR-002), below the scroll region so it stays usable
+          {/* Prev/Next pager, below the scroll region so it stays usable
               with a wide/tall, scrolled result. Range indicator shows "Rows X–Y";
               the definitive total appears only at the last page. */}
           <Pager

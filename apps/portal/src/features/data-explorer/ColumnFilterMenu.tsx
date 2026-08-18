@@ -52,7 +52,7 @@ export type ColumnFilterMenuProps = {
  *
  * A comparison ASKS THE REGION for a value; the null tests apply straight away, because
  * there is nothing to ask for. Either way exactly one description change reaches the tab,
- * so exactly one execution is minted (AC5).
+ * so exactly one execution is minted.
  *
  * The dialog is raised by the region rather than rendered here because `Modal` does not
  * portal: opened from inside a header cell it would be confined to that cell's stacking

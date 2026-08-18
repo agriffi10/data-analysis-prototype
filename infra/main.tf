@@ -123,7 +123,7 @@ locals {
   # (S3 names are globally unique).
   #
   # NOT IN modules/app's CSP INPUTS, and that absence is a requirement rather than an
-  # oversight (FR-001): the browser never reads this bucket, so its host must not appear in
+  # oversight: the browser never reads this bucket, so its host must not appear in
   # the enumerated connect-src. A reviewer should be able to read that list and see no
   # archive host.
   archive_bucket_name = var.archive_bucket_name != "" ? var.archive_bucket_name : "${var.project_name}-prod-archive"
@@ -582,7 +582,7 @@ module "notifications" {
   # The portal role this module attaches the sqs:SendMessage inline policy to, by name.
   portal_role_name = local.portal_role_name
 
-  # Actor binding (FR-005): the writer verifies caller ID tokens against the pool JWKS
+  # Actor binding: the writer verifies caller ID tokens against the pool JWKS
   # for user-originated actions. Module.auth outputs (one-directional dep: auth applies
   # before data, which this module already depends on).
   user_pool_id  = module.auth.user_pool_id

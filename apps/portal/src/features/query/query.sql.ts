@@ -150,7 +150,7 @@ function skipComment(buffer: string, i: number): number {
 }
 
 // True when the segment holds anything besides whitespace and comments — a
-// whitespace/comment-only segment is not a statement (FR-001).
+// whitespace/comment-only segment is not a statement.
 function hasSqlContent(segment: string): boolean {
   let i = 0;
   while (i < segment.length) {
@@ -174,7 +174,7 @@ function hasSqlContent(segment: string): boolean {
  * quoted strings, backtick identifiers, and line/block comments; empty
  * (whitespace/comment-only) segments are dropped. Each statement's `range`
  * is the source offsets of its trimmed text in the buffer, so a cursor or
- * selection can be mapped back to a statement (FR-006).
+ * selection can be mapped back to a statement.
  */
 export function splitSqlStatements(buffer: string): ParsedStatement[] {
   const statements: ParsedStatement[] = [];

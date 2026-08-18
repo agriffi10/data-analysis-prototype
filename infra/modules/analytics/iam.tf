@@ -3,7 +3,7 @@
 # assumes to vend temporary S3 credentials for the registered user-space location.
 # Using our own role keeps the trust and the S3 scope explicit and auditable; it is
 # scoped to read/write the user-space bucket only. The deploy role can create and
-# pass this exact role name (modules/base LakeFormationRegistrationRole, FR-007).
+# pass this exact role name (modules/base LakeFormationRegistrationRole).
 resource "aws_iam_role" "lf_registration" {
   name               = "${var.project_name}-analytics-lf-registration-role"
   assume_role_policy = templatefile("${path.module}/policies/lf-registration-trust.json.tftpl", {})

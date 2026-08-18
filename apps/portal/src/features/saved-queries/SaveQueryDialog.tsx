@@ -60,7 +60,7 @@ export function SaveQueryDialog({initialName, spaces, initialSpace, linked, erro
 
   const space = spaces.find((s) => s.id === spaceId) ?? spaces[0] ?? null;
 
-  // FR-007: no space to write into at all — the user-space bucket is unconfigured. The
+  // no space to write into at all — the user-space bucket is unconfigured. The
   // dialog OPENS and explains itself rather than the toolbar rendering a disabled button
   // with nothing to say. There is genuinely nothing to submit, so submit is unavailable
   // and the banner is the whole content.
@@ -82,7 +82,7 @@ export function SaveQueryDialog({initialName, spaces, initialSpace, linked, erro
   }
 
   // Whether submitting as typed re-saves the file this tab was opened from — the same
-  // key, so the host writes it without a second confirm (FR-004). The predicate is the
+  // key, so the host writes it without a second confirm. The predicate is the
   // service's, shared with the host, so the sentence and the write cannot disagree.
   const replacesLinked = isLinkedSavedQuery(linked, space, name);
 

@@ -61,7 +61,7 @@ resource "aws_iam_role_policy" "pre_signup_logs" {
 }
 
 # Explicit log group so retention is managed (Lambda would otherwise create one
-# with infinite retention on first invoke). 14-day retention (FR-002).
+# with infinite retention on first invoke). 14-day retention.
 resource "aws_cloudwatch_log_group" "pre_signup" {
   name              = "/aws/lambda/${local.pre_signup_function_name}"
   retention_in_days = 14

@@ -77,7 +77,7 @@ resource "aws_lambda_function" "writer" {
 
 # SQS event-source mapping — the queue triggers the writer directly (no Pipe, no Step
 # Function). Batch size 1 so each FIFO message is its own invocation, preserving the
-# per-user one-at-a-time processing the single-writer model relies on (FR-001/FR-004).
+# per-user one-at-a-time processing the single-writer model relies on.
 resource "aws_lambda_event_source_mapping" "writer" {
   event_source_arn = aws_sqs_queue.requests.arn
   function_name    = aws_lambda_function.writer.arn

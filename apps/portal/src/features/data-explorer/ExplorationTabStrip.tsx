@@ -13,7 +13,7 @@ export type ExplorationTabStripProps = {
 };
 
 /**
- * The strip of open explorations, above the results (FR-008).
+ * The strip of open explorations, above the results.
  *
  * Mirrors the Query workspace's tab strip in shape and keyboard model rather than sharing
  * it: `features/query/` is a sibling this feature may not import, and the two

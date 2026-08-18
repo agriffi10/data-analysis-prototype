@@ -32,7 +32,7 @@ export function isArchiveId(value: string): boolean {
  *
  * `open(items)` targets a selection or a single item; `submit()` enqueues via `enqueueArchive` —
  * on success the dialog closes and `notify` gets a transient toast, and on failure the dialog
- * stays open with `error` set and the selection intact (FR-002).
+ * stays open with `error` set and the selection intact.
  *
  * THE REQUEST ID IS MINTED PER SUBMIT, not per open, and here it is doing two jobs: it is the
  * queue's `MessageDeduplicationId` and it becomes the archive's permanent identity. Keeping one

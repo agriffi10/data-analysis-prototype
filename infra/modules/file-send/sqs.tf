@@ -3,13 +3,13 @@
 # Pipe (pipe.tf) drains it into the Step Function.
 #
 # FIFO with MessageGroupId = the SHA-256 hex digest of "{bucket}/{sourceSpaceRoot}"
-# (set by the producer, FR-002), so repeated sends OUT OF one space serialize strictly
+# (set by the producer), so repeated sends OUT OF one space serialize strictly
 # one-at-a-time while sends from different spaces run in parallel. A HASH, never the
 # raw path: SQS caps the group id at 128 characters and an S3 key reaches 1024, so the
 # raw form would be a length failure that only appears for deeply-nested sources.
 #
-# content_based_deduplication is OFF (FR-001): the producer sends an explicit
-# MessageDeduplicationId = requestId (FR-002) as the double-submit guard, and two
+# content_based_deduplication is OFF: the producer sends an explicit
+# MessageDeduplicationId = requestId as the double-submit guard, and two
 # byte-identical sends a user genuinely repeats must NOT be silently absorbed by a
 # 5-minute content-dedup window.
 #

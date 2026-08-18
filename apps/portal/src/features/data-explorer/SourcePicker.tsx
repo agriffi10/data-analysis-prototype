@@ -18,7 +18,7 @@ export type SourcePickerProps = {
 };
 
 /**
- * Pick what to explore: a space on the left, its tables and views on the right (FR-005).
+ * Pick what to explore: a space on the left, its tables and views on the right.
  *
  * **There is no database step**, and its absence is a decision rather than an omission: a
  * space maps to exactly one Glue database here (see `spaceDatabase`), so a database control

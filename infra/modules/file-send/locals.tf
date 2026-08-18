@@ -27,7 +27,7 @@ locals {
   # and the destination writes.
   #
   # NO execution_role_arn LOCAL HERE. Root constructs its own twin for the user-space
-  # bucket-policy allowlist (FR-006), and a second construction of the same string in
+  # bucket-policy allowlist, and a second construction of the same string in
   # this module would be one more place for it to drift from the role that actually
   # exists — with the failure appearing as a runtime AccessDenied, not a plan error.
   execution_role_name = "${var.project_name}-${var.environment}-file-send-execution-role"

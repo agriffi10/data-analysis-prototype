@@ -6,14 +6,14 @@ type Props = {
   pageSize: number;
   /** Called with a valid, clamped integer on commit (blur / Enter). */
   onCommit: (value: number) => void;
-  /** No result set present — rendered but non-interactive (FR-002). */
+  /** No result set present — rendered but non-interactive. */
   disabled?: boolean;
 };
 
 /**
  * the "Rows per page" control above the results grid. Free-form
  * integer entry, committed on blur or Enter (never per keystroke); invalid input
- * reverts to the last committed value, out-of-range input is clamped (FR-003);
+ * reverts to the last committed value, out-of-range input is clamped;
  * Escape abandons the draft. The label is programmatically associated, so the
  * accessible name is "Rows per page".
  */
@@ -31,7 +31,7 @@ export function ResultsPageSizeControl({pageSize, onCommit, disabled = false}: P
 
   const commit = () => {
     // Number() (not parseInt) so trailing garbage ("12abc") and fractions
-    // ("2.5") are rejected as a whole rather than partially parsed (FR-003).
+    // ("2.5") are rejected as a whole rather than partially parsed.
     const parsed = draft.trim() === '' ? Number.NaN : Number(draft);
     const next = clampPageSize(parsed);
     if (next === null) {

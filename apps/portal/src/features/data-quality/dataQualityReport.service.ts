@@ -2,7 +2,7 @@ import {readJsonDocument} from '../../lib/s3Json';
 import type {ServiceResult} from '../../types/service.types';
 import type {DataQualityReport} from './dataQuality.types';
 
-/** The folder `assemble-report` writes into, hidden from the browser (FR-004). */
+/** The folder `assemble-report` writes into, hidden from the browser. */
 export const REPORTS_FOLDER = '_data-quality-reports';
 
 /**

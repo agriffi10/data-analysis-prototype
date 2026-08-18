@@ -173,7 +173,7 @@ function TableRow({
   );
 }
 
-// FR-002: a Tables/Views sub-group — its own disclosure toggle + object count, and
+// a Tables/Views sub-group — its own disclosure toggle + object count, and
 // an empty state so the grouping stays legible rather than disappearing.
 function ObjectGroup({
   database,
@@ -246,7 +246,7 @@ export function DatabaseNode({
   const [viewsOpen, setViewsOpen] = useState<boolean | null>(null);
   const [openTables, setOpenTables] = useState<Set<string>>(new Set());
 
-  // FR-004: a node fetches its schema only when expanded (disabled while collapsed).
+  // a node fetches its schema only when expanded (disabled while collapsed).
   const {data, isPending, isError, error, isFetching} = useSchema(expanded ? connection.database : null);
 
   // re-read only THIS database's schema on demand (invalidate its query key;

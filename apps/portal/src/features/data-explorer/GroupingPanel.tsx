@@ -44,7 +44,7 @@ export type GroupingPanelProps = {
  * designed to avoid.
  *
  * So the panel STAGES: a draft grouping lives here until Apply, and Apply is one
- * `apply` — one execution, however many columns and aggregates changed (AC4). Cancel-by-
+ * `apply` — one execution, however many columns and aggregates changed. Cancel-by-
  * closing discards the draft whole, exactly as the settings dialog's does.
  *
  * It is a side panel rather than a `Drawer` for a reason that is not stylistic: a header
@@ -162,7 +162,7 @@ export function GroupingPanel({columns, query, draggedColumnRef, onApply, onClos
                 className="flex items-center gap-1 rounded-md border border-border px-2 py-1">
                 <span className="min-w-0 flex-1 truncate text-sm text-text">{name}</span>
                 {/* The keyboard path for an order a drag would otherwise own — the
-                    rendered GROUP BY follows this list (AC1). */}
+                    rendered GROUP BY follows this list. */}
                 <Button
                   size="sm"
                   variant="ghost"

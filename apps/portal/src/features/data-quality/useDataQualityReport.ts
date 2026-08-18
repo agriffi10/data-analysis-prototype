@@ -52,7 +52,7 @@ export function resolveSpace(
  * Fetch one data-quality report by space + request id.
  *
  * It does NOT fetch until the space resolves, and never fetches at all for a space the
- * user has no access to (FR-005) — no probing S3 on a guess, and no leaking whether a
+ * user has no access to — no probing S3 on a guess, and no leaking whether a
  * space exists via the difference between a 403 and a 404.
  */
 export function useDataQualityReport(spaceName: string, requestId: string): UseDataQualityReportResult {

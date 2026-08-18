@@ -3,7 +3,7 @@
 # Pipe (pipe.tf) drains it into the Step Function.
 #
 # FIFO with MessageGroupId = the SHA-256 hex digest of "{bucket}/{sourceSpaceRoot}" (set
-# by the producer, FR-004), so repeated archives OUT OF one space serialize strictly
+# by the producer), so repeated archives OUT OF one space serialize strictly
 # one-at-a-time while archives from different spaces run in parallel. THAT SERIALISATION
 # IS WANTED HERE, not merely tolerated: two archives from one space may select
 # overlapping folders, and an archive DELETES its source — so two running at once could
@@ -23,8 +23,8 @@
 # rather than left in a spec file, because this is where its reader will be standing.
 # `docs/testing/owed.md` §2.2 types it correctly so the live check exercises it.
 #
-# content_based_deduplication is OFF (FR-003): the producer sends an explicit
-# MessageDeduplicationId = requestId (FR-004) as the double-submit guard. That id is also
+# content_based_deduplication is OFF: the producer sends an explicit
+# MessageDeduplicationId = requestId as the double-submit guard. That id is also
 # the archive's permanent identity, which makes the two properties one: a resend of the
 # same request cannot open a second archive under a second uuid.
 #

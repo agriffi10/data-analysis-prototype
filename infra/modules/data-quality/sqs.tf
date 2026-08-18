@@ -9,7 +9,7 @@
 # location would be rejected outright. The other producers get away with raw ids only
 # because they group by a bounded catalog identifier (a database name).
 #
-# content_based_deduplication is OFF (FR-001): the producer sends an explicit
+# content_based_deduplication is OFF: the producer sends an explicit
 # MessageDeduplicationId = requestId, which is the real double-submit guard.
 # Content dedup would be actively wrong here — two DIFFERENT requestIds checking the same
 # location within the 5-minute window are byte-different anyway, but a re-check of the
@@ -34,7 +34,7 @@ resource "aws_sqs_queue" "requests" {
   sqs_managed_sse_enabled    = true
 
   # OFF by design — the producer's explicit MessageDeduplicationId (= requestId) is the
-  # dedup key (FR-001). Do not turn this on: it would collapse a deliberate re-check of
+  # dedup key. Do not turn this on: it would collapse a deliberate re-check of
   # an unchanged location into a no-op inside the 5-minute dedup window.
   content_based_deduplication = false
 

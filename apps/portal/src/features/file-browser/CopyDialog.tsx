@@ -7,7 +7,7 @@ import {Input} from '../../components/Input';
 import {Modal} from '../../components/Modal';
 import {DIALOG_PANEL, DIALOG_TITLE} from '../../components/dialogChrome';
 
-// The same-folder editable-name prompt shape, surfaced by useCopy (FR-003).
+// The same-folder editable-name prompt shape, surfaced by useCopy.
 type SameFolderPrompt = {
   kind: 'file' | 'folder';
   proposedName: string;
@@ -24,14 +24,14 @@ type Props = {
   currentPrefix: string; // the items' current parent — valid (→ auto-number)
   isBusy?: boolean;
   destinations?: FileSpaceTarget[]; // connections the copy can target (feedback 2026-06-30)
-  // When set, the copy is into the items' current parent (FR-003): the picker is
+  // When set, the copy is into the items' current parent: the picker is
   // replaced by an editable, pre-filled non-colliding name field.
   sameFolderPrompt?: SameFolderPrompt | null;
   onCopy: (destPrefix: string, destBucket: string) => void;
   onCancel: () => void;
 };
 
-// The editable-name view for a same-folder copy (FR-003). Pre-filled with the
+// The editable-name view for a same-folder copy. Pre-filled with the
 // proposed `{name} (N)`; validated with the create-folder/rename rules; the user
 // can override before confirming. Its own dialog rather than a branch inside the
 // picker's shell, because the two have nothing in common below the title — and it
@@ -73,7 +73,7 @@ function SameFolderCopyDialog({prompt, itemCount}: {prompt: SameFolderPrompt; it
 // Destination-folder picker for Copy — a thin modal shell
 // over the shared `DestinationPicker` (parallels MoveDialog). Unlike Move, Copy
 // allows the items' current parent as a destination (`allowCurrentParent`): that
-// triggers the same-folder auto-number flow (FR-003), which replaces the picker
+// triggers the same-folder auto-number flow, which replaces the picker
 // with an editable name field.
 export function CopyDialog({
   bucket,

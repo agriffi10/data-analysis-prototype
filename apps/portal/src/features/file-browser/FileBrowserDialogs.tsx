@@ -143,7 +143,7 @@ export function FileBrowserDialogs({
       )}
 
       {/* Copy dialog — destination picker + same-folder name
-          field. Stays open across the same-folder auto-number prompt (FR-003);
+          field. Stays open across the same-folder auto-number prompt;
           the prompt's confirm/cancel close the dialog (and clear the selection). */}
       {dialogs.copying && (
         <CopyDialog

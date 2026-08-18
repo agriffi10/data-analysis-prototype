@@ -78,7 +78,7 @@ export type ExplorationResultsRegionProps = {
   /**
    * Columns the SOURCE is known to have before any execution returns — Glue's, for a
    * `table` source. Empty for a `sql` source, whose columns are unknowable until the
-   * first execution reports them (FR-006).
+   * first execution reports them.
    */
   schemaColumns: QueryColumn[];
   /** The active tab's presentation state — the grid's geometry lives here. */
@@ -360,7 +360,7 @@ export function ExplorationResultsRegion({
   const pendingInitialValue =
     pendingExisting && operatorTakesValue(pendingExisting.operator) ? (pendingExisting.value ?? '') : '';
 
-  // FR-007: below `tablet` an UNCHOSEN tab opens in Record — a horizontally-scrolling grid
+  // Below `tablet` an UNCHOSEN tab opens in Record — a horizontally-scrolling grid
   // on a 400px screen is not a data explorer. `useIsMobile` decides which view MOUNTS,
   // never how anything is styled, and a tab whose user HAS chosen keeps
   // that choice at every width, which is what `presentation: null` exists to express.
@@ -421,7 +421,7 @@ export function ExplorationResultsRegion({
   // THE ROWS, not the rendering. `renderCopy` is handed `rows` — the raw page, transformed
   // values and all left behind — because a URL column pasted into a spreadsheet has to carry
   // its value, not its link text (FR-001 AC3). Every argument here is already in memory, so
-  // a copy issues nothing however often it is used (AC7).
+  // a copy issues nothing however often it is used.
   const copySelection = async (options: CopyOptions): Promise<boolean> => {
     const text = renderCopy(selection.selection, geometry.visible, rows, options, results.rangeStart);
     // Nothing selected, or every range names a column this result no longer has. Not a
@@ -611,7 +611,7 @@ export function ExplorationResultsRegion({
         </Button>
         {/* Colours, striping and the type tint change how the rows on screen LOOK and
             nothing about which rows they are — so unlike Grouping beside it, opening this
-            and applying what it stages are both free (FR-001). */}
+            and applying what it stages are both free. */}
         <Button
           size="sm"
           onClick={() => setColoursOpen(true)}>
@@ -772,7 +772,7 @@ export function ExplorationResultsRegion({
             setSettingsOpen(false);
             // Two writes in one handler, so React batches them into one render and one
             // rendered statement — however many criteria changed, the dialog is one
-            // execution (AC2). The presentation half renders no SQL and so adds none (AC4).
+            // execution. The presentation half renders no SQL and so adds none.
             onPresentationChange((p) => ({...p, hiddenColumns, pinnedColumns}));
             apply(staged);
           }}

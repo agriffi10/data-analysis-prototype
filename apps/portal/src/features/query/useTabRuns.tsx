@@ -131,7 +131,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
       // above is still recorded; there is no batch to advance.
       if (!run || run.done || run.executionId !== executionId) return;
 
-      // FR-007: a result-producing statement that succeeded earns a result tab
+      // a result-producing statement that succeeded earns a result tab
       // (accumulated in every scope; display differs by scope).
       const resultTab: ResultTab | null =
         status.state === 'SUCCEEDED' && isResultProducingSql(sql)
@@ -161,7 +161,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
         });
       };
 
-      // FR-002: stop at the first non-SUCCEEDED terminal state, and never
+      // Stop at the first non-SUCCEEDED terminal state, and never
       // advance past a Stop even when the statement outran the cancel.
       const hasNext = run.currentIndex < run.statements.length - 1;
       if (status.state !== 'SUCCEEDED' || !hasNext || run.halted) {
@@ -208,7 +208,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
         // one as running immediately.
         setStatuses((s) => ({...s, [tabId]: undefined}));
         // Same history race guard as the first statement: the entry must land
-        // before the poller's finalizer can read-modify-write it (FR-003).
+        // before the poller's finalizer can read-modify-write it.
         await appendEntry({
           queryExecutionId: nextId,
           sql: next.sql,
@@ -235,7 +235,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
   // sequentially. An explicit tabId lets a just-opened tab
   // (View data) auto-run into itself before the activeTabId state
   // change has committed. A new run replaces the tab's prior run wholesale, so
-  // the previous batch's result tabs are cleared (FR-007). Returns whether the
+  // the previous batch's result tabs are cleared. Returns whether the
   // submit began, so a caller that tracks its own run (the mobile results view)
   // doesn't start waiting on a run the guards below refused.
   const submitBatch = (
@@ -335,7 +335,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     return true;
   };
 
-  // FR-002: Stop cancels the in-flight statement AND halts the remainder. The
+  // Stop cancels the in-flight statement AND halts the remainder. The
   // halted flag is set first so the finalizer never starts the next statement,
   // even when the current one outruns the cancel and SUCCEEDs.
   const handleStop = () => {
@@ -349,7 +349,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
     void stopQuery(run.executionId); // poller observes CANCELLED
   };
 
-  // FR-005: drop the closed tab's in-memory run state (its execution keeps running
+  // Drop the closed tab's in-memory run state (its execution keeps running
   // server-side; history is the durable record).
   const dropRunState = (id: string) => {
     const without = <T,>(m: Record<string, T>) => {
@@ -375,7 +375,7 @@ export function useTabRuns({username, activeTabId, tabs, appendEntry, updateEntr
   );
 
   // Background pollers — one per tab with an execution, so backgrounded
-  // queries finalize concurrently (FR-004). They render nothing.
+  // queries finalize concurrently. They render nothing.
   const pollers = Object.entries(runs).map(([tabId, run]) => (
     <TabExecutionPoller
       key={tabId}

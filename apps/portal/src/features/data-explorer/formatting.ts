@@ -116,7 +116,7 @@ export function gradientShade(from: SurfaceToken, to: SurfaceToken, position: nu
 }
 
 /**
- * The colour family an Athena type is tinted with (FR-003).
+ * The colour family an Athena type is tinted with.
  *
  * Six type families are folded into five colours because the palette has five that stay
  * legible on every surface a cell can have (see `FORMATTING_FOREGROUNDS`) — binary and the
@@ -124,7 +124,7 @@ export function gradientShade(from: SurfaceToken, to: SurfaceToken, position: nu
  * to the default text colour: they are the baseline the other families are read against,
  * and tinting everything tints nothing.
  *
- * Colour is never the only carrier of this (AC3): the type is written under every column
+ * Colour is never the only carrier of this: the type is written under every column
  * header and shown in the Value panel.
  *
  * @param type - The Glue/Athena type, in any case.
@@ -183,7 +183,7 @@ function likeExpression(pattern: string, caseInsensitive: boolean): RegExp {
  * Why a rule cannot be applied, or null when it can.
  *
  * Called at ENTRY by the rules dialog, and again here before evaluation — an invalid
- * pattern must never be applied (AC6), and a rule that reached storage from an older build
+ * pattern must never be applied, and a rule that reached storage from an older build
  * or a hand-edited document has not been through the dialog. Every message is user text:
  * the engine's own `SyntaxError` names character offsets in a pattern the user is still
  * writing, which the error-wording rule forbids showing.
@@ -296,7 +296,7 @@ function compile(rule: ColourRule): Compiled['matches'] {
  *
  * @param rows - The loaded page's rows, in the execution's column order.
  * @param columns - The current columns, for resolving names to row positions.
- * @param stripeColumns - The chosen columns; empty turns striping off (AC3).
+ * @param stripeColumns - The chosen columns; empty turns striping off.
  * @returns One band index per row, or -1 per row when striping is off.
  */
 export function bandsOf(
@@ -330,7 +330,7 @@ export function bandsOf(
 }
 
 /**
- * Every cell's resolved colours for one page (FR-002, FR-003, FR-004).
+ * Every cell's resolved colours for one page.
  *
  * Precedence runs weakest to strongest — the type tint, then the band, then the rules in
  * their own order — and each layer overrides only the PROPERTY it sets, so a rule that
@@ -354,7 +354,7 @@ export function computePageFormatting(
 ): PageFormatting {
   const {bands, bandStarts} = bandsOf(rows, columns, formatting.stripeColumns);
 
-  // An unusable rule is skipped rather than applied loosely (AC6). `ruleRefusal` has
+  // An unusable rule is skipped rather than applied loosely. `ruleRefusal` has
   // already run at the input; this is the second gate, for a rule restored from a document
   // that never went through it.
   const names = columns.map((column) => column.name);
@@ -385,7 +385,7 @@ export function computePageFormatting(
       if (rule.gradient) {
         // A gradient is measured on ONE column (its refusal says so), and paints either
         // that cell or the row. A non-numeric or NULL value is left alone rather than
-        // clamped to an end of the scale (AC4) — a clamp would paint text the colour of
+        // clamped to an end of the scale — a clamp would paint text the colour of
         // the minimum, which reads as a measurement of something that was never measured.
         const value = tested.length === 1 ? row[tested[0].index] : undefined;
         if (value === undefined || value === null || !isBareNumeric(value)) continue;
@@ -428,7 +428,7 @@ export function computePageFormatting(
 }
 
 // ---------------------------------------------------------------------------------------
-// Transformers (FR-005)
+// Transformers
 // ---------------------------------------------------------------------------------------
 
 const HEX_DIGITS = '0123456789abcdef';

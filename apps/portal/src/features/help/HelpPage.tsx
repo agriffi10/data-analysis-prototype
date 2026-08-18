@@ -60,7 +60,7 @@ export function HelpPage() {
   const section = sections.find((s) => s.id === activeId) ?? sections[0] ?? HELP_SECTIONS[0];
 
   // Reset the content panel to the top when the section changes so a long
-  // scroll position doesn't carry over (FR-003).
+  // scroll position doesn't carry over.
   useEffect(() => {
     document.getElementById('main')?.scrollTo?.({top: 0});
   }, [activeId]);

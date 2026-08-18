@@ -157,7 +157,7 @@ export function useFileBrowserDialogs({bucket, currentPrefix, del, move, copy}: 
     confirmCopy: (destPrefix, destBucket) => {
       const items = copying ?? [];
       // A same-folder copy (destination = current parent in the SAME bucket) opens
-      // the editable auto-number prompt inside the dialog (FR-003), so the dialog
+      // the editable auto-number prompt inside the dialog, so the dialog
       // must stay open — only close it for the ordinary different-folder / different-
       // connection case.
       const sameFolder = destBucket === bucket && destPrefix === currentPrefix;

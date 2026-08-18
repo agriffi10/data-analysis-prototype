@@ -41,7 +41,7 @@ variable "portal_role_name" {
 }
 
 variable "user_pool_id" {
-  description = "Cognito User Pool ID — passed to the writer Lambda (env COGNITO_USER_POOL_ID) so it can verify caller ID tokens against the pool JWKS for user-originated actions (actor binding, FR-005)."
+  description = "Cognito User Pool ID — passed to the writer Lambda (env COGNITO_USER_POOL_ID) so it can verify caller ID tokens against the pool JWKS for user-originated actions (actor binding)."
   type        = string
   default     = ""
 }

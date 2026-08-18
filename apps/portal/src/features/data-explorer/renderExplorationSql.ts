@@ -105,7 +105,7 @@ function renderFrom(source: ExplorationSource): string {
     return `${sqlIdentifier(source.database)}.${sqlIdentifier(source.table)}`;
   }
   // Trino requires a subquery in a FROM be aliased. The body is the user's own SQL and is
-  // composed verbatim, exactly as the expression is (FR-005) — the save path owns refusing a
+  // composed verbatim, exactly as the expression is — the save path owns refusing a
   // multi-statement or non-SELECT file before it ever becomes a source.
   //
   // The NEWLINES are not formatting. A saved query ending in a `--` line comment swallows
@@ -116,7 +116,7 @@ function renderFrom(source: ExplorationSource): string {
 }
 
 function renderProjection(grouping: Grouping | null): string {
-  // FR-003: `SELECT *` always, when not grouping. Narrowing to the visible columns would
+  // `SELECT *` always, when not grouping. Narrowing to the visible columns would
   // cut bytes scanned on Parquet — and would make un-hiding a column a billed, several-
   // second re-run, so cost would depend on a gesture users read as cosmetic. The renderer
   // cannot see which columns are visible anyway; that is the point of its signature.

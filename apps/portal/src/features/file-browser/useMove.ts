@@ -8,10 +8,10 @@ import type {SelectableItem} from './selectionContext';
 import type {BulkOperationState} from './fileBrowser.types';
 
 // Aggregated outcome of a rename or (possibly multi-item, recursive) move:
-// how many objects S3 relocated, and any per-item/per-key failures (FR-004).
+// how many objects S3 relocated, and any per-item/per-key failures.
 export type MoveSummary = NonNullable<BulkOperationState['summary']>;
 
-// A rename hit an existing destination (FR-005). The user picks Overwrite or a
+// A rename hit an existing destination. The user picks Overwrite or a
 // new name; either re-runs the rename. Single item, so a new name is offered.
 type RenameCollision = {
   kind: 'file' | 'folder';
@@ -21,7 +21,7 @@ type RenameCollision = {
   onCancel: () => void;
 };
 
-// A move hit existing destination objects (FR-005). One confirmation covers the
+// A move hit existing destination objects. One confirmation covers the
 // whole batch: Overwrite all (re-run just the collided items) or cancel.
 type MoveCollision = {
   count: number;

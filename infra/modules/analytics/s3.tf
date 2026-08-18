@@ -6,13 +6,13 @@
 #
 # User-facing query results and history do NOT live here — they go to
 # {username}/athenaresults/ in the user-space bucket, readable by the
-# user and delete-protected (FR-006). This bucket only ever receives a write when a
+# user and delete-protected. This bucket only ever receives a write when a
 # query omits an explicit OutputLocation (it shouldn't), keeping that data out of
 # any user-readable location.
 #
 # Hygiene mirrors the user-space bucket (data/s3.tf): all public access blocked,
 # SSE-S3, BucketOwnerEnforced, versioning off (MVP). Created by the deploy role,
-# which holds s3:* on this ARN (modules/base S3AthenaAdminBucketManage, FR-007);
+# which holds s3:* on this ARN (modules/base S3AthenaAdminBucketManage);
 # the time_sleep guard in athena.tf covers both this bucket and the workgroup.
 
 resource "aws_s3_bucket" "athena_admin" {

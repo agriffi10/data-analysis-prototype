@@ -57,7 +57,7 @@ export function ConnectionsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   // Track the managed space by NAME (not a row snapshot) so the drawer re-derives
   // from the live `rows` — a Refresh that flips a member Pending → Active is then
-  // reflected in the open drawer without reopening it (FR-006).
+  // reflected in the open drawer without reopening it.
   const [managingName, setManagingName] = useState<string | null>(null);
   // Same NAME-tracked pattern as `managingName`, for a member's read-only roster view
   // so a Refresh keeps the open drawer in sync.

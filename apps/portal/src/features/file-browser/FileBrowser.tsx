@@ -467,7 +467,7 @@ function FileBrowserContent({
             // `archive.error`, which in this closure is the value from before the submit.
             if (await archive.submit()) {
               selection.clear();
-              // `refresh` IS `invalidateListing` for this prefix (FR-002). The archive has only
+              // `refresh` IS `invalidateListing` for this prefix. The archive has only
               // been enqueued, so the listing will not have changed yet — invalidating anyway is
               // the cheapest way to be right whenever the user comes back to the folder.
               refreshListing();

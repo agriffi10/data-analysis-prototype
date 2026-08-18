@@ -12,7 +12,7 @@ export type SaveExplorationDialogProps = {
    * Handed down from `useExploration.sql`, the same string `StartQueryExecution` was given.
    * Re-rendering the description here would be a second rendering of it, and the two would
    * differ the moment either the description or the renderer moved between the run and the
-   * save. The parent mounts this component only when there IS one (FR-002).
+   * save. The parent mounts this component only when there IS one.
    */
   sql: string;
   /** Writable destinations, personal first — ALREADY view-gated by the caller. */

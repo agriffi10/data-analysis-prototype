@@ -11,7 +11,7 @@
 # Different users = different groups = may process concurrently (different files, no
 # contention). Content-based dedup collapses an accidental byte-identical re-send within
 # the 5-minute window (e.g. a double-click); producers may still set an explicit
-# MessageDeduplicationId (FR-003).
+# MessageDeduplicationId.
 #
 # No time_sleep guard here: the deploy-role grants these resource types need
 # (modules/base PR 1/2) were applied and propagated in an earlier deploy, so

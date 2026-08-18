@@ -41,7 +41,7 @@ function clamp(value: number, max: number): number {
  *
  * Everything is addressed by (row within the CURRENT PAGE, column name). Coordinates are
  * therefore meaningless across a page change, which is why paging resets rather than
- * carrying them onto different rows (AC8) — and why Ctrl/Cmd+A can only ever mean "this
+ * carrying them onto different rows — and why Ctrl/Cmd+A can only ever mean "this
  * page", a claim the caller has to make out loud.
  *
  * @param rowCount - Rows on the loaded page.

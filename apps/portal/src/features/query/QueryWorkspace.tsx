@@ -134,7 +134,7 @@ export function QueryWorkspace() {
     [layout]
   );
 
-  // Drawers are mutually exclusive (FR-010): opening one closes the other.
+  // Drawers are mutually exclusive: opening one closes the other.
   const [historyOpen, setHistoryOpen] = useState(false);
   const [savedOpen, setSavedOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -160,7 +160,7 @@ export function QueryWorkspace() {
   const [, setSearchParams] = useSearchParams();
   const link = useMemo(() => parseRefreshLink(location.search), [location.search]);
   // A database the user can't reach resolves to null and is never fetched — no
-  // existence oracle, and the rail is the authority on what exists (FR-005).
+  // existence oracle, and the rail is the authority on what exists.
   const linkDatabase =
     link && !connectionsLoading && connections.some((c) => c.database === link.database && isConnectionUsable(c))
       ? link.database
@@ -227,7 +227,7 @@ export function QueryWorkspace() {
   const savedSpace = useSavedQuerySpace(username || null, savedSpaces);
   const saved = useSavedQueries(savedSpace.space);
 
-  // FR-001: hold the folder open, once per space per session. Best effort — a failure is
+  // Hold the folder open, once per space per session. Best effort — a failure is
   // logged and the workspace renders regardless, because saving a query creates the
   // prefix on its own.
   //
@@ -385,7 +385,7 @@ export function QueryWorkspace() {
     submitBatch(resolveRunStatements(buffer, statements, selection, cursor), 'statement');
   };
 
-  // FR-005: Run Script — every statement in the buffer, sequentially.
+  // Run Script — every statement in the buffer, sequentially.
   const handleRunScript = (scope: 'script-single' | 'script-tabs') =>
     submitBatch(splitSqlStatements(activeTab.sql), scope);
 
@@ -414,7 +414,7 @@ export function QueryWorkspace() {
     const tab = tabs.tabs.find((t) => t.id === id);
     if (!tab) return;
     if (tab.sql.trim()) {
-      setClosing(tab); // non-empty → confirm first (FR-005)
+      setClosing(tab); // non-empty → confirm first
     } else {
       tabs.closeTab(id);
       dropRunState(id);
@@ -428,7 +428,7 @@ export function QueryWorkspace() {
     setClosing(null);
   };
 
-  // FR-008: derive the target database from the view body before opening the
+  // Derive the target database from the view body before opening the
   // dialog; a non-derivable body raises a clear error and never silently picks
   // a database.
   const handleOpenCreateView = () => {
@@ -467,7 +467,7 @@ export function QueryWorkspace() {
         label: query.name,
         savedQuery: {spaceId: query.spaceId, bucket: query.bucket, key: query.key, name: query.name}
       });
-      // FR-001: ONE memory of "the space I am working in" — the next save and the next
+      // ONE memory of "the space I am working in" — the next save and the next
       // load both open where the user last was, rather than two memories that disagree.
       savedSpace.selectSpace(query.spaceId);
       saved.refresh();
@@ -475,7 +475,7 @@ export function QueryWorkspace() {
     }
   });
 
-  // FR-006: open a saved query into a new linked tab (cap dialog honored). Exactly one
+  // Open a saved query into a new linked tab (cap dialog honored). Exactly one
   // GetObject, and only here — a list row never fetches a body.
   const handleOpenSaved = (query: SavedQuery) => {
     // The cap is checked BEFORE the fetch. Reading a body only to
@@ -524,7 +524,7 @@ export function QueryWorkspace() {
     })();
   };
 
-  // FR-007: delete the file and unlink any open tab pointing at it (the tab keeps its
+  // Delete the file and unlink any open tab pointing at it (the tab keeps its
   // SQL; a later Save creates a new file).
   const handleDeleteSaved = (query: SavedQuery) => {
     saved.remove(query).catch((e) => {
@@ -552,7 +552,7 @@ export function QueryWorkspace() {
 
   // Turn the active tab's SQL into a named view, in the background
   // (the editor keeps showing the user's SELECT). The target database is derived
-  // from the view body's fully-qualified base tables (FR-008), captured in
+  // from the view body's fully-qualified base tables, captured in
   // `createViewDb` when the dialog opened.
   const handleCreateView = (name: string) => {
     const database = createViewDb;

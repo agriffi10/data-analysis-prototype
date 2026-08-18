@@ -15,7 +15,7 @@ queryable set. The per-verb identity rides as the ``verb`` field.
 
 Attributes:
   _ALLOWED_FIELDS: The complete set of top-level request fields. Unknown fields are REJECTED
-    rather than ignored (FR-002): a field the producer thinks it is sending and this verb
+    rather than ignored: a field the producer thinks it is sending and this verb
     silently drops is a contract break that shows up as behaviour nobody asked for, and the
     cheapest moment to catch a renamed field is the first one.
   _ITEM_KINDS: The two selection kinds a request may carry. A ``folder`` key is normalised to a
@@ -59,7 +59,7 @@ def _check_contract(req) -> None:
     """Fails the request if its top-level shape is not the one this contract defines.
 
     Both directions, because only one of them is obvious. Unknown fields are REJECTED rather
-    than ignored (FR-002) — a field the producer thinks it is sending and this verb silently
+    than ignored — a field the producer thinks it is sending and this verb silently
     drops is a contract break that surfaces as behaviour nobody asked for. And the required
     fields are type-checked, which the rejection does not imply: an absent ``requestId``
     would flow through as ``None`` and a non-string one would flow through whole, and the transfer

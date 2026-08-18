@@ -57,7 +57,7 @@ export type OrderFilterDialogProps = {
  *
  * The draft is ONE object holding both halves rather than a staged query here and a staged
  * presentation somewhere else, which is what makes "Cancel discards every staged change"
- * (AC3) structural rather than a rule two pieces of state have to keep.
+ * Structural rather than a rule two pieces of state have to keep.
  *
  * **No field submits on Enter.** `FormDialog` suppresses the browser's implicit submission
  * for every input and `<select>`, and this dialog designates no field

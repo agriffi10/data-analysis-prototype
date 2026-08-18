@@ -78,7 +78,7 @@ export function emptyFormattingState(): FormattingState {
  * The empty presentation state. Nothing here reaches the renderer.
  *
  * `presentation: null` means "unchosen", which is not the same as `'grid'` — it is what
- * lets the viewport decide the opening view (FR-007) without a tab being born knowing how
+ * lets the viewport decide the opening view without a tab being born knowing how
  * wide the window is.
  *
  * @returns Presentation state that changes no SQL.

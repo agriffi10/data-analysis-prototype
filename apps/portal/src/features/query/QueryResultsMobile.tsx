@@ -139,7 +139,7 @@ export function QueryResultsMobile({
 
       {displayExecutionId !== null && rows.length > 0 && (
         // A single page holding every row leaves both sides false, so the pager
-        // renders disabled rather than disappearing (FR-006).
+        // renders disabled rather than disappearing.
         <Pager
           className="flex-none border-t border-border bg-surface px-4 py-3"
           hasPrev={results.hasPrev}

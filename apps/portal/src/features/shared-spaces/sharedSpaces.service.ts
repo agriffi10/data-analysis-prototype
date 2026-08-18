@@ -81,7 +81,7 @@ function isValidEntry(e: unknown): boolean {
 }
 
 // Normalize one raw projection member to `Member`. A bare string is a
-// legacy member and reads as `active` (FR-005); a well-formed object is passed
+// legacy member and reads as `active`; a well-formed object is passed
 // through (status other than 'pending' defaults to 'active'). Malformed → null (dropped).
 function normalizeMember(raw: unknown): Member | null {
   if (typeof raw === 'string') {

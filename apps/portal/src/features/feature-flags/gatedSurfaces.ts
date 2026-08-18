@@ -45,7 +45,7 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
   files: [
     {name: 'Files', kind: 'nav', path: '/files'},
     {name: '/files', kind: 'route', path: '/files'},
-    // Signed-in visitors only — the signed-out page gates nothing (FR-007).
+    // Signed-in visitors only — the signed-out page gates nothing.
     {name: 'Go to Dashboard', kind: 'control', path: '/'},
     {name: 'Files help section', kind: 'guide', path: '/help', helpId: 'files'},
     // A received-files notification deep-links into /files, and with this flag off
@@ -111,7 +111,7 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: 'Your spaces navigation', kind: 'control', path: '/files'},
     {name: 'Add members', kind: 'control', path: '/connections'},
     // The recipient-KIND choice, not the dialog: it drops the toggle rather than rendering a
-    // one-option control (FR-005).
+    // one-option control.
     {name: 'Shared spaces', kind: 'control', path: '/query'},
     // The last two are beyond the spec's contract table — see the delivery doc. Hiding the
     // rail alone left both the schema rail and the move/copy WRITE path open.

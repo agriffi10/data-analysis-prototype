@@ -22,16 +22,16 @@ function outputLocation(username: string): string {
   return `s3://${userSpaceBucket()}/${username}/athenaresults/`;
 }
 
-// Athena terminal execution states — polling stops once one is reached (FR-003).
+// Athena terminal execution states — polling stops once one is reached.
 const TERMINAL_STATES: ReadonlySet<QueryState> = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED']);
 
-/** Whether an Athena execution state is terminal — polling stops once reached (FR-003). */
+/** Whether an Athena execution state is terminal — polling stops once reached. */
 export function isTerminalState(state: QueryState): boolean {
   return TERMINAL_STATES.has(state);
 }
 
 /**
- * Start an Athena query for the signed-in user (FR-002). The same path runs both
+ * Start an Athena query for the signed-in user. The same path runs both
  * `SELECT` and DDL (`CREATE TABLE`, `DROP TABLE`, CTAS, `INSERT`) — it does not inspect
  * the query type. Results always land in the caller's own `{username}/athenaresults/`
  * prefix (the IAM-enforced isolation boundary).
@@ -55,7 +55,7 @@ export async function runQuery(p: {
           QueryString: sql,
           WorkGroup: import.meta.env.VITE_ATHENA_WORKGROUP as string,
           // Omit the field entirely when there's no database — Athena then resolves
-          // only fully-qualified names, which is the intended behavior (FR-002).
+          // only fully-qualified names, which is the intended behavior.
           ...(database ? {QueryExecutionContext: {Database: database}} : {}),
           ResultConfiguration: {OutputLocation: outLoc ?? outputLocation(username)}
         })
@@ -78,7 +78,7 @@ export async function runQuery(p: {
 }
 
 /**
- * Fetch a query's current execution status, mapped onto {@link QueryStatus} (FR-003).
+ * Fetch a query's current execution status, mapped onto {@link QueryStatus}.
  * The Athena state strings map 1:1 onto `QueryState`; a missing status defaults to
  * `QUEUED` (the query was just submitted).
  */
@@ -106,7 +106,7 @@ export async function getQueryStatus(queryExecutionId: string): Promise<ServiceR
 }
 
 /**
- * Cancel a running query (FR-005). `StopQueryExecution` transitions the execution to
+ * Cancel a running query. `StopQueryExecution` transitions the execution to
  * `CANCELLED`, which the FR-003 poller then observes as a terminal state.
  */
 export async function stopQuery(queryExecutionId: string): Promise<ServiceResult<void>> {
@@ -121,7 +121,7 @@ export async function stopQuery(queryExecutionId: string): Promise<ServiceResult
 }
 
 /**
- * Read one page of a succeeded query's results (FR-004). Columns come from
+ * Read one page of a succeeded query's results. Columns come from
  * `ResultSetMetadata` (name + type); rows are the string cells (Athena returns every
  * value as a string). Pagination threads `nextToken`. A DDL/CTAS query that produced no
  * result set yields empty columns/rows — not an error.

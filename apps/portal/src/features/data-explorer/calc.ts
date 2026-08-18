@@ -10,7 +10,7 @@ import type {CalcFunction, CalcPanelState, CalcResult, CellRange} from './dataEx
 // **Nothing here renders SQL and nothing here can.** Calc aggregates the cells a user has
 // SELECTED, and a selection exists only in the browser — so the alternative is a query per
 // selection change, for a gesture as cheap as dragging across ten cells. That is why the
-// panel says out loud what it computed over (FR-002): its numbers describe loaded, selected
+// panel says out loud what it computed over: its numbers describe loaded, selected
 // cells and never the result set.
 
 /** What one column contributes: its name, and where its values sit in a row array. */

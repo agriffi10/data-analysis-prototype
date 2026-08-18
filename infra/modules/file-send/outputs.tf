@@ -12,7 +12,7 @@ output "file_send_queue_url" {
 }
 
 output "file_send_queue_arn" {
-  description = "ARN of the FIFO request queue — the portal-role sqs:SendMessage scope (FR-005)."
+  description = "ARN of the FIFO request queue — the portal-role sqs:SendMessage scope."
   value       = aws_sqs_queue.requests.arn
 }
 
@@ -22,7 +22,7 @@ output "state_machine_arn" {
 }
 
 output "execution_role_arn" {
-  description = "ARN of the ONE shared execution role every verb Lambda runs under. Reference/ops only — the user-space bucket-policy allowlist (FR-006) takes a constructed-string twin from root locals."
+  description = "ARN of the ONE shared execution role every verb Lambda runs under. Reference/ops only — the user-space bucket-policy allowlist takes a constructed-string twin from root locals."
   value       = aws_iam_role.execution.arn
 }
 

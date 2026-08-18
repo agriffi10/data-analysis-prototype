@@ -39,7 +39,7 @@ function newRule(): ColourRule {
 
 /**
  * Conditional colouring, colour-by-type and row banding, in one staged form (
- * FR-002, FR-003, FR-004).
+ * FR-002, FR-003).
  *
  * Staged for `OrderFilterDialog`'s reason turned inside out. There it is about cost — many
  * changes becoming one execution. Here **nothing costs anything**, and the staging is about

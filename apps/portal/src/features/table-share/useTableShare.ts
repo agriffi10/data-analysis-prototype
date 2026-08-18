@@ -13,7 +13,7 @@ type ShareToast = {variant: 'success' | 'danger'; message: string};
  * targets a rail table; `submit` enqueues via `enqueueTableShare` — on success the
  * dialog closes and `notify` gets the transient "Sharing…" toast (outcomes arrive
  * as notifications); on failure the dialog stays open with `error` set
- * and the entered values intact (FR-003).
+ * and the entered values intact.
  */
 export function useTableShare(notify: (toast: ShareToast) => void) {
   const [target, setTarget] = useState<ShareTarget | null>(null);

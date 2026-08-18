@@ -179,7 +179,7 @@ def release(database: str, table: str, etag: str | None) -> None:
     """Marks the table's lock free, under the tag the acquire returned.
 
     Never raises and never retries a lost compare-and-swap. Losing it means the lock was stolen by
-    a later execution (FR-004), and re-writing would clobber the new holder — so the loss is
+    a later execution, and re-writing would clobber the new holder — so the loss is
     recorded and left alone. A request that did its work and then reported failure because of its
     own bookkeeping would be a worse outcome than a lock that FR-004 can recover anyway.
 

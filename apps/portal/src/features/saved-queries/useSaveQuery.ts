@@ -94,7 +94,7 @@ export function useSaveQuery({spaces, defaultSpace, payload, onSaved, toast}: Pa
   const [pending, setPending] = useState<SaveQueryRequest | null>(null);
 
   const linked = payload.link;
-  // FR-001: a linked buffer opens on ITS OWN space, even when the remembered one differs;
+  // a linked buffer opens on ITS OWN space, even when the remembered one differs;
   // a link whose space is no longer offered (membership revoked) falls back through the
   // remembered one to personal, exactly as `useSavedQuerySpace` does for a stored id.
   const linkedSpace = linked ? (spaces.find((s) => s.id === linked.spaceId) ?? null) : null;
@@ -172,7 +172,7 @@ export function useSaveQuery({spaces, defaultSpace, payload, onSaved, toast}: Pa
     collision,
     initialName: pending?.name ?? linked?.name ?? '',
     initialSpace: pending?.space ?? linkedSpace ?? defaultSpace,
-    // FR-004: the in-place re-save writes through, because the file it replaces is the one
+    // The in-place re-save writes through, because the file it replaces is the one
     // the user is looking at the name of. Any other key takes FR-003's HEAD-and-confirm.
     save: (request) => write(request, isLinkedSavedQuery(linked, request.space, request.name)),
     confirmReplace: () => {

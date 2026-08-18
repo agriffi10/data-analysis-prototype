@@ -13,7 +13,7 @@ type SendToast = {variant: 'success'; message: string};
  *
  * `open(items)` targets the current selection; `submit` enqueues via `enqueueFileSend` — on
  * success the dialog closes and `notify` gets a transient toast, and on failure the dialog stays
- * open with `error` set and the recipients the user typed still there (FR-003).
+ * open with `error` set and the recipients the user typed still there.
  *
  * THE REQUEST ID IS MINTED PER SUBMIT, not per open — which means the queue's
  * `MessageDeduplicationId` is NOT the double-submit guard on this plane; the in-flight ref below

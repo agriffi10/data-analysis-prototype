@@ -66,7 +66,7 @@ export function UploadQueueProvider({children}: {children: ReactNode}) {
       if (result.success) {
         dispatch({type: 'succeed', id: item.id});
         // Invalidate the destination folder so the finished file appears there,
-        // whether or not the user is still viewing it (FR-001).
+        // whether or not the user is still viewing it.
         await invalidateListing(queryClient, item.bucket, keyPrefix(item.key));
       } else if (result.error.code === 'Cancelled') {
         dispatch({type: 'cancelled', id: item.id});
@@ -82,7 +82,7 @@ export function UploadQueueProvider({children}: {children: ReactNode}) {
   );
 
   // Concurrency gate: whenever the queue changes, fill open slots with the next
-  // queued items, up to UPLOAD_CONCURRENCY in flight (FR-001). Idempotent under
+  // queued items, up to UPLOAD_CONCURRENCY in flight. Idempotent under
   // StrictMode via the `launched` guard.
   useEffect(() => {
     const inFlight = state.items.filter((i) => i.status === 'uploading').length;
@@ -131,7 +131,7 @@ export function UploadQueueProvider({children}: {children: ReactNode}) {
     if (!item) return;
     if (item.status === 'uploading') {
       // Abort the in-flight upload; `launch` resolves to the Cancelled branch and
-      // transitions the item, so no listed object remains (FR-002).
+      // transitions the item, so no listed object remains.
       controllers.current.get(id)?.abort();
     } else {
       // Queued or awaiting a collision decision — nothing was written; drop it.

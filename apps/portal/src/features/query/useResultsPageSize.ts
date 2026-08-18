@@ -25,7 +25,7 @@ function storageKey(username: string | null): string | null {
 }
 
 // Storage access is wrapped so a disabled/quota-exceeded sessionStorage
-// degrades to "not persisted" rather than crashing the workspace (FR-005).
+// degrades to "not persisted" rather than crashing the workspace.
 function readStoredPageSize(username: string | null): number | null {
   const key = storageKey(username);
   if (!key) return null;
@@ -34,7 +34,7 @@ function readStoredPageSize(username: string | null): number | null {
     if (raw === null) return null;
     const parsed = Number(raw);
     // A stored value is only trusted verbatim — out-of-range/malformed falls
-    // back to the default rather than being silently clamped (FR-005).
+    // back to the default rather than being silently clamped.
     return Number.isInteger(parsed) && parsed >= MIN_RESULTS_PAGE_SIZE && parsed <= MAX_RESULTS_PAGE_SIZE
       ? parsed
       : null;
@@ -57,7 +57,7 @@ function writeStoredPageSize(username: string | null, pageSize: number): void {
  * the workspace-global "Rows per page" value — one shared value for
  * every result tab, session-persisted per user (sessionStorage, defensive
  * read), defaulting to DEFAULT_RESULTS_PAGE_SIZE. Owned once at the workspace
- * level so all result tabs re-page together when it changes (FR-004).
+ * level so all result tabs re-page together when it changes.
  */
 export function useResultsPageSize(username: string | null): UseResultsPageSizeResult {
   const [pageSize, setPageSizeState] = useState<number>(
@@ -67,7 +67,7 @@ export function useResultsPageSize(username: string | null): UseResultsPageSizeR
   const setPageSize = useCallback(
     (value: number) => {
       // Non-integer input is rejected outright (the control reverts to the
-      // last valid value, FR-003); out-of-range integers are clamped.
+      // last valid value); out-of-range integers are clamped.
       const next = clampPageSize(value);
       if (next === null) return;
       setPageSizeState((current) => {
