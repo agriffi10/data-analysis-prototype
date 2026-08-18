@@ -40,12 +40,12 @@ variable "logs_queue_url" {
 }
 
 variable "notifications_queue_arn" {
-  description = "SPEC-058 notifications FIFO queue ARN — the drain's ONLY sqs:SendMessage scope."
+  description = "notifications FIFO queue ARN — the drain's ONLY sqs:SendMessage scope."
   type        = string
 }
 
 variable "notifications_queue_url" {
-  description = "SPEC-058 notifications FIFO queue URL — the drain's NOTIFICATIONS_QUEUE_URL."
+  description = "notifications FIFO queue URL — the drain's NOTIFICATIONS_QUEUE_URL."
   type        = string
 }
 

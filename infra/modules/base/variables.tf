@@ -49,12 +49,12 @@ variable "athena_admin_bucket_arn" {
 }
 
 variable "shared_space_bucket_arn" {
-  description = "ARN of the shared-space (Bucket 2) S3 bucket the deploy role manages. Passed as a constructed string from the root module to avoid a dependency cycle with the shared-spaces module. The rest of the SPEC-050 deploy grants (SQS/Pipes/Step Functions/Lambda/roles/logs) are scoped by {project_name}-*-shared-space-* name patterns in the policy template."
+  description = "ARN of the shared-space (Bucket 2) S3 bucket the deploy role manages. Passed as a constructed string from the root module to avoid a dependency cycle with the shared-spaces module. The rest of the shared-space deploy grants (SQS/Pipes/Step Functions/Lambda/roles/logs) are scoped by {project_name}-*-shared-space-* name patterns in the policy template."
   type        = string
 }
 
 variable "archive_bucket_name" {
-  description = "NAME (not ARN) of the archive bucket the deploy role manages (SPEC-168, Bucket 5). Passed as a constructed string from the root module to avoid a dependency cycle with the archive module. A NAME because the policy template builds both the bucket and the object ARN from it, and because this bucket is the one resource in that plane its {project_name}-*-archive-* name patterns cannot cover: the bucket has no trailing segment, so it needs an exact-name statement of its own."
+  description = "NAME (not ARN) of the archive bucket the deploy role manages (Bucket 5). Passed as a constructed string from the root module to avoid a dependency cycle with the archive module. A NAME because the policy template builds both the bucket and the object ARN from it, and because this bucket is the one resource in that plane its {project_name}-*-archive-* name patterns cannot cover: the bucket has no trailing segment, so it needs an exact-name statement of its own."
   type        = string
   default     = ""
 }

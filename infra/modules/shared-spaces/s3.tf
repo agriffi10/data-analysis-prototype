@@ -4,7 +4,7 @@
 # the user-space bucket (data/s3.tf): all public access blocked, SSE-S3,
 # BucketOwnerEnforced, versioning off (MVP), abort-incomplete-multipart lifecycle.
 #
-# SPEC-050 is plumbing only — this bucket is created with NO access grants and NO
+# Is plumbing only — this bucket is created with NO access grants and NO
 # bucket policy. The membership-tag portal-role statements, the shared-results
 # delete-denies, and the Lake Formation hybrid registration all arrive in SPEC-056;
 # the per-space provisioning (prefix marker, Glue DB) in SPEC-051+.

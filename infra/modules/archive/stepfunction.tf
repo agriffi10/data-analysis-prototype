@@ -20,7 +20,7 @@
 #
 # THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY. The front door alone
 # recorded that this machine could not wedge because nothing in it WAITED: no Map, no
-# manifest, no copy. SPEC-169 adds all three, so it adds the ceiling — and with it the
+# manifest, no copy. The transfer adds all three, so it adds the ceiling — and with it the
 # EventBridge rule below, notify-failure's second door and the raise from 15s to 60s that
 # door needs, because a timeout that cannot notify is a failure path satisfied on paper and
 # silent in practice. The deploy-role `events:` grant that manages the rule shipped one PR
@@ -40,7 +40,7 @@ resource "aws_sfn_state_machine" "archive" {
   definition = templatefile("${path.module}/state-machine.asl.json.tftpl", {
     validate_authorize_function_arn = aws_lambda_function.functions["validate-authorize"].arn
     notify_failure_function_arn     = aws_lambda_function.functions["notify-failure"].arn
-    # SPEC-169.
+    #
     inspect_source_function_arn           = aws_lambda_function.functions["inspect-source"].arn
     build_transfer_manifest_function_arn  = aws_lambda_function.functions["build-transfer-manifest"].arn
     copy_objects_function_arn             = aws_lambda_function.functions["copy-objects"].arn

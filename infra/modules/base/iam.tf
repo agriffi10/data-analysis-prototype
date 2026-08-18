@@ -135,7 +135,7 @@ resource "aws_iam_role_policy_attachment" "deploy_table_builder" {
   policy_arn = aws_iam_policy.deploy_table_builder.arn
 }
 
-# SPEC-088 table-share control-plane grants — a SEPARATE customer-managed policy,
+# Table-share control-plane grants — a SEPARATE customer-managed policy,
 # same rationale + shape as deploy_table_builder above (off the role's inline-policy
 # aggregate, separate 6,144-char budget). Covers the table-share module's resource
 # types: the FIFO request queue + DLQ, the EventBridge Pipe, the Standard Step
@@ -151,7 +151,7 @@ resource "aws_iam_role_policy_attachment" "deploy_table_builder" {
 # in a later PR (the deploy-perms-before-resources rule), so no self-grant race.
 resource "aws_iam_policy" "deploy_table_share" {
   name        = "${var.project_name}-deploy-table-share"
-  description = "Deploy-role grants for the SPEC-088 table-share control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, five verb Lambdas + shared execution role, tscommon layer, log groups), kept off the role's inline-policy aggregate limit."
+  description = "Deploy-role grants for the table-share control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, five verb Lambdas + shared execution role, tscommon layer, log groups), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-table-share.json.tftpl", {
     project_name = var.project_name
@@ -166,7 +166,7 @@ resource "aws_iam_role_policy_attachment" "deploy_table_share" {
   policy_arn = aws_iam_policy.deploy_table_share.arn
 }
 
-# SPEC-107 control-plane-common layer grant — a SEPARATE customer-managed policy,
+# Control-plane-common layer grant — a SEPARATE customer-managed policy,
 # same rationale + shape as deploy_table_builder / deploy_table_share above (off the
 # role's inline-policy aggregate, separate 6,144-char budget). This grant is
 # deliberately NARROW: publish/delete/get/list versions of the shared `cpcommon`
@@ -181,7 +181,7 @@ resource "aws_iam_role_policy_attachment" "deploy_table_share" {
 # layer until this applies (the deploy-perms-before-resources rule).
 resource "aws_iam_policy" "deploy_control_plane_common" {
   name        = "${var.project_name}-deploy-control-plane-common"
-  description = "Deploy-role grant to publish/attach the shared SPEC-107 control-plane-common (cpcommon) Lambda layer, kept off the role's inline-policy aggregate limit."
+  description = "Deploy-role grant to publish/attach the shared control-plane-common (cpcommon) Lambda layer, kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-control-plane-common.json.tftpl", {
     project_name = var.project_name
@@ -196,7 +196,7 @@ resource "aws_iam_role_policy_attachment" "deploy_control_plane_common" {
   policy_arn = aws_iam_policy.deploy_control_plane_common.arn
 }
 
-# SPEC-108 data-quality control-plane grants — a SEPARATE customer-managed policy, same
+# Data-quality control-plane grants — a SEPARATE customer-managed policy, same
 # rationale + shape as deploy_table_builder / deploy_table_share above (off the role's
 # inline-policy aggregate, separate 6,144-char budget). Covers the data-quality module's
 # resource types: the FIFO request queue + DLQ, the EventBridge Pipe, the Standard Step
@@ -207,7 +207,7 @@ resource "aws_iam_role_policy_attachment" "deploy_control_plane_common" {
 # user/shared-space buckets), so there is no S3-bucket-manage statement.
 # states:ValidateStateMachineDefinition is not resource-scopable, so it is isolated to
 # its own "*" statement per the architecture.md "new resource type" traps.
-# NOTE: the data-quality verbs run in the SHARED portal Athena workgroup (SPEC-111 fix —
+# NOTE: the data-quality verbs run in the SHARED portal Athena workgroup (
 # a dedicated workgroup breaks Lake Formation), so there is no data-quality-specific
 # workgroup to grant on. The cpcommon layer that every DQ verb attaches is covered by
 # deploy_control_plane_common.
@@ -215,7 +215,7 @@ resource "aws_iam_role_policy_attachment" "deploy_control_plane_common" {
 # later PR (the deploy-perms-before-resources rule), so no self-grant race.
 resource "aws_iam_policy" "deploy_data_quality" {
   name        = "${var.project_name}-deploy-data-quality"
-  description = "Deploy-role grants for the SPEC-108 data-quality control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, nine verb Lambdas + shared execution role, dqcommon + polars layers, log groups), kept off the role's inline-policy aggregate limit."
+  description = "Deploy-role grants for the data-quality control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, nine verb Lambdas + shared execution role, dqcommon + polars layers, log groups), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-data-quality.json.tftpl", {
     project_name = var.project_name
@@ -230,7 +230,7 @@ resource "aws_iam_role_policy_attachment" "deploy_data_quality" {
   policy_arn = aws_iam_policy.deploy_data_quality.arn
 }
 
-# SPEC-126 control-plane DLQ drain grants — a SEPARATE customer-managed policy, same
+# Control-plane DLQ drain grants — a SEPARATE customer-managed policy, same
 # rationale + shape as the per-arc policies above (off the role's inline-policy aggregate,
 # separate 6,144-char budget). The drain module is deliberately small: ONE Lambda, ONE
 # execution role, ONE log group, and four SQS event-source mappings.
@@ -252,7 +252,7 @@ resource "aws_iam_role_policy_attachment" "deploy_data_quality" {
 # PR (the deploy-perms-before-resources rule), so there is no self-grant race.
 resource "aws_iam_policy" "deploy_control_plane_dlq_drain" {
   name        = "${var.project_name}-deploy-control-plane-dlq-drain"
-  description = "Deploy-role grants for the SPEC-126 control-plane DLQ drain (one Lambda + execution role + log group + the EventBridge sweep schedule), kept off the role's inline-policy aggregate limit."
+  description = "Deploy-role grants for the control-plane DLQ drain (one Lambda + execution role + log group + the EventBridge sweep schedule), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-control-plane-dlq-drain.json.tftpl", {
     project_name = var.project_name
@@ -267,13 +267,13 @@ resource "aws_iam_role_policy_attachment" "deploy_control_plane_dlq_drain" {
   policy_arn = aws_iam_policy.deploy_control_plane_dlq_drain.arn
 }
 
-# SPEC-127 observability: the structured-logging pipe — one standard SQS logs queue, one
+# Observability: the structured-logging pipe — one standard SQS logs queue, one
 # scheduled sweep Lambda (+ its execution role and log group), and the EventBridge rule that
 # fires it.
 #
 # No lambda:*EventSourceMapping statement, deliberately: the sweep is pulled by a schedule, not
 # by a managed poll loop, so there is no mapping to create. That is the whole point of the
-# design (#270/#271 — idle long-polling was the bulk of this account's SQS request volume), and
+# design — idle long-polling was the bulk of this account's SQS request volume), and
 # the absence of the grant is what keeps a future "just add an event-source mapping" from
 # applying cleanly without a deliberate decision.
 #
@@ -281,7 +281,7 @@ resource "aws_iam_role_policy_attachment" "deploy_control_plane_dlq_drain" {
 # S3AthenaAdminBucketManage in the main deploy policy already covers with s3:* on the bucket and
 # its contents. A second grant would be a duplicate, not a tightening.
 #
-# The SQS statement names BOTH `-logs` and `-logs.fifo` deliberately. SPEC-129 converts the logs
+# The SQS statement names BOTH `-logs` and `-logs.fifo` deliberately. A later change converts the logs
 # queue to FIFO, and a FIFO queue's name MUST end in `.fifo` — which makes the rename a
 # destroy-and-create, not an update. So the one apply that performs it needs DeleteQueue on the
 # old name and CreateQueue on the new one at the same time. The old ARN stays in the list
@@ -296,7 +296,7 @@ resource "aws_iam_role_policy_attachment" "deploy_control_plane_dlq_drain" {
 # next PR (the deploy-perms-before-resources rule), so there is no self-grant race.
 resource "aws_iam_policy" "deploy_observability" {
   name        = "${var.project_name}-deploy-observability"
-  description = "Deploy-role grants for the SPEC-127 structured-logging foundation (one standard SQS logs queue + one scheduled sweep Lambda, its execution role, log group and EventBridge rule), kept off the role's inline-policy aggregate limit."
+  description = "Deploy-role grants for the structured-logging foundation (one standard SQS logs queue + one scheduled sweep Lambda, its execution role, log group and EventBridge rule), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-observability.json.tftpl", {
     project_name = var.project_name
@@ -311,7 +311,7 @@ resource "aws_iam_role_policy_attachment" "deploy_observability" {
   policy_arn = aws_iam_policy.deploy_observability.arn
 }
 
-# SPEC-146 user directory: the daily builder — one scheduled Lambda (+ its execution role and
+# User directory: the daily builder — one scheduled Lambda (+ its execution role and
 # log group) and the EventBridge rule that fires it. Same shape as the observability grant
 # above, and for the same reason: a singleton function pulled by a schedule, not by a managed
 # poll loop, so there is no lambda:*EventSourceMapping statement here either.
@@ -330,7 +330,7 @@ resource "aws_iam_role_policy_attachment" "deploy_observability" {
 # next PR (the deploy-perms-before-resources rule), so there is no self-grant race.
 resource "aws_iam_policy" "deploy_user_directory" {
   name        = "${var.project_name}-deploy-user-directory"
-  description = "Deploy-role grants for the SPEC-146 username-directory builder (one scheduled Lambda, its execution role, log group and EventBridge rule), kept off the role's inline-policy aggregate limit."
+  description = "Deploy-role grants for the username-directory builder (one scheduled Lambda, its execution role, log group and EventBridge rule), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-user-directory.json.tftpl", {
     project_name = var.project_name
@@ -345,7 +345,7 @@ resource "aws_iam_role_policy_attachment" "deploy_user_directory" {
   policy_arn = aws_iam_policy.deploy_user_directory.arn
 }
 
-# SPEC-164 file-send control-plane grants — a SEPARATE customer-managed policy, same
+# File-send control-plane grants — a SEPARATE customer-managed policy, same
 # rationale + shape as deploy_table_share above (off the role's inline-policy aggregate,
 # separate 6,144-char budget). Covers the file-send module's resource types: the FIFO
 # request queue + DLQ, the EventBridge Pipe, the Standard Step Function (+ its role), the
@@ -358,17 +358,17 @@ resource "aws_iam_role_policy_attachment" "deploy_user_directory" {
 # states:ValidateStateMachineDefinition is not resource-scopable, so it is isolated to its
 # own "*" statement per the architecture.md "new resource type" traps.
 #
-# NO events: STATEMENT, deliberately. Table-share's policy carries one for its SPEC-161
+# NO events: STATEMENT, deliberately. Table-share's policy carries one for its
 # TIMED_OUT rule; this machine validates and stops, so it has no TimeoutSeconds and no rule
 # to manage. The long Distributed-Map copy — and therefore the timeout, the rule and the
-# events: grant it needs — lands with SPEC-166, which must extend this policy FIRST and
+# events: grant it needs — which must extend this policy FIRST and
 # apply it before those resources land.
 #
 # Granted FIRST (this PR) and applied before the file-send module's resources land in the
 # next PR (the deploy-perms-before-resources rule), so there is no self-grant race.
 resource "aws_iam_policy" "deploy_file_send" {
   name        = "${var.project_name}-deploy-file-send"
-  description = "Deploy-role grants for the SPEC-164 file-send control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, fscommon layer, log groups), kept off the role's inline-policy aggregate limit."
+  description = "Deploy-role grants for the file-send control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, fscommon layer, log groups), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-file-send.json.tftpl", {
     project_name = var.project_name
@@ -383,7 +383,7 @@ resource "aws_iam_role_policy_attachment" "deploy_file_send" {
   policy_arn = aws_iam_policy.deploy_file_send.arn
 }
 
-# SPEC-168 archive control-plane grants — a SEPARATE customer-managed policy, same
+# Archive control-plane grants — a SEPARATE customer-managed policy, same
 # rationale + shape as deploy_file_send above (off the role's inline-policy aggregate,
 # separate 6,144-char budget). Covers the archive module's resource types: the FIFO
 # request queue + DLQ, the EventBridge Pipe, the Standard Step Function (+ its role), the
@@ -400,7 +400,7 @@ resource "aws_iam_role_policy_attachment" "deploy_file_send" {
 #
 # NO events: STATEMENT, deliberately, and the same note file-send's policy carried at this
 # stage applies: this machine validates and stops, so it has no TimeoutSeconds and no
-# TIMED_OUT rule to manage. SPEC-169 adds the transfer — and therefore the timeout, the
+# TIMED_OUT rule to manage. The transfer brings the timeout, the
 # rule and the events: grant it needs — and must extend this policy FIRST and apply it
 # before those resources land.
 #
@@ -408,7 +408,7 @@ resource "aws_iam_role_policy_attachment" "deploy_file_send" {
 # deploy-perms-before-resources rule), so there is no self-grant race.
 resource "aws_iam_policy" "deploy_archive" {
   name        = "${var.project_name}-deploy-archive"
-  description = "Deploy-role grants for the SPEC-168 archive control plane (the archive bucket, FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, arcommon layer, log groups), kept off the role's inline-policy aggregate limit."
+  description = "Deploy-role grants for the archive control plane (the archive bucket, FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, arcommon layer, log groups), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-archive.json.tftpl", {
     project_name        = var.project_name
@@ -424,8 +424,8 @@ resource "aws_iam_role_policy_attachment" "deploy_archive" {
   policy_arn = aws_iam_policy.deploy_archive.arn
 }
 
-# ── Propagation guard for the archive grants (SPEC-168 follow-up) ─────────────
-# THE APPLY THAT MERGED SPEC-168 WENT RED HERE, and the mechanism is worth recording
+# ── Propagation guard for the archive grants ───────────────────────────────
+# THE APPLY THAT FIRST ADDED THESE GRANTS WENT RED HERE, and the mechanism is worth recording
 # because it is invisible in a plan. The archive module's resources are created in the
 # SAME apply that attaches the policy authorizing them. `module.archive` carries
 # `depends_on = [module.base]`, so the attachment genuinely happens first — and it is
@@ -436,11 +436,11 @@ resource "aws_iam_role_policy_attachment" "deploy_archive" {
 # Every other plane dodged this by SPLITTING the work across two PRs — grants in one,
 # resources in the next — which is the deploy-perms-before-resources rule and is what
 # their module comments mean by "no time_sleep guard is required here". That rule holds
-# only for as long as somebody remembers to split, and SPEC-168 shipped as one PR.
+# only for as long as somebody remembers to split.
 #
 # So the guard is structural instead. `module.archive` already depends on `module.base`
 # as a whole, so it waits for this too, with no wiring in the child module. It matters
-# again the moment SPEC-169 extends the archive policy (events:, and S3 on the space and
+# again the moment anything extends the archive policy (events:, and S3 on the space and
 # archive buckets) in the same PR as the EventBridge rule and verbs that use them —
 # which is the shape that just failed.
 #
@@ -464,7 +464,7 @@ resource "time_sleep" "wait_for_self_grant" {
   depends_on = [aws_iam_role_policy.github_actions_deploy]
 }
 
-# ── SPEC-186 FR-004: the archive-audit trail + the verification role ──────────
+# ── The archive-audit trail and the verification role ──────────
 # Its own managed policy on the archive's precedent, kept off the role's inline-policy
 # aggregate limit. Two resource kinds are new to the deploy role — a CloudTrail trail and a
 # role nothing assumes but a human — and the grants below are the whole of what either needs.
@@ -488,7 +488,7 @@ resource "time_sleep" "wait_for_self_grant" {
 # authorizes them. A red FIRST apply of a new plane is expected rather than a defect.
 resource "aws_iam_policy" "deploy_verification" {
   name        = "${var.project_name}-deploy-verification"
-  description = "Deploy-role grants for the SPEC-186 FR-004 verification access: the archive-audit trail bucket, the CloudTrail trail over the archive vault's object-level events, and the read-only verification role."
+  description = "Deploy-role grants for the verification access: the archive-audit trail bucket, the CloudTrail trail over the archive vault's object-level events, and the read-only verification role."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-verification.json.tftpl", {
     project_name      = var.project_name

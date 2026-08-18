@@ -51,7 +51,7 @@ variable "notifications_writer_role_arn" {
 # probes + profiles one). SPEC-070/092/109 granted each the identity-side s3:GetObject/
 # ListBucket — but NONE was ever added to THIS bucket's resource-policy allowlist, so the
 # Deny below overrode those Allows and every read 403'd. The gap was invisible until the
-# SPEC-111 live smoke run became the first time any of the three actually read a real
+# Live smoke run became the first time any of the three actually read a real
 # user's files (greenfield, no production users). Constructed cycle-free by the root module
 # (a bucket-policy StringNotLike condition only needs the ARN string, so the role need not
 # exist at apply time); default "" keeps this module planning standalone.

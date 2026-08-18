@@ -1,6 +1,6 @@
 # ── Portal Role (shared, trust only) ─────────────────────────────────────────
 # The single IAM role every authenticated user assumes via the Identity Pool
-# (SPEC-011). Trust ONLY — no permission policy is attached here; SPEC-013 adds
+# Trust ONLY — no permission policy is attached here; SPEC-013 adds
 # the prefix-scoped S3 policy. Per-user isolation is enforced by the `username`
 # principal tag the Identity Pool stamps server-side (auth module), evaluated by
 # the policy via ${aws:PrincipalTag/username}. One role for all users.
@@ -45,7 +45,7 @@ resource "aws_cognito_identity_pool_roles_attachment" "portal" {
 # tag variable is escaped as $${aws:PrincipalTag/username} in the template so
 # templatefile() emits it literally instead of interpolating it.
 #
-# SPEC-016 added the multipart actions for lib-storage uploads:
+# The multipart actions exist for lib-storage uploads:
 #   s3:AbortMultipartUpload + s3:ListMultipartUploadParts (object-level, prefix-scoped).
 # CreateMultipartUpload / UploadPart / CompleteMultipartUpload need NO separate
 # action — they are authorized by the existing s3:PutObject grant.
@@ -54,7 +54,7 @@ resource "aws_cognito_identity_pool_roles_attachment" "portal" {
 # support the s3:prefix condition key, so it cannot be scoped to the user's prefix
 # — granting it bucket-wide would leak other users' in-progress upload keys.
 #
-# SPEC-146 added exactly ONE statement, ReadTheUsernameDirectory: s3:GetObject on
+# Exactly ONE statement covers the username directory, ReadTheUsernameDirectory: s3:GetObject on
 # ${bucket_arn}/_directory/*, and nothing else. Specifically NOT added:
 #
 #   * No ListBucket widening. UserPrefixList stays conditioned on the caller's own prefix, so
@@ -70,7 +70,7 @@ resource "aws_cognito_identity_pool_roles_attachment" "portal" {
 # shared-space roster, and a prefix-search feature discloses the set by
 # construction. Recorded in docs/decisions.md rather than left implicit here.
 #
-# SPEC-162 added the SECOND such statement, ReadTheFeatureFlags: s3:GetObject on
+# The SECOND such statement is ReadTheFeatureFlags: s3:GetObject on
 # ${bucket_arn}/_config/*, published by .github/workflows/deploy-config.yml. It is the same
 # shape as the directory's, for the same reasons, with the same two omissions — no ListBucket
 # widening (so `_config/` is invisible to the file browser) and no write of any kind (the
@@ -102,10 +102,10 @@ resource "aws_cognito_identity_pool_roles_attachment" "portal" {
 # billed and invisible to every listing until the bucket's abort-incomplete rule catches
 # them.
 #
-# THE UI MIRROR IS OWED AND LANDS IN SPEC-172. An IAM Deny with no UI counterpart produces
+# THE UI MIRRORS THIS. An IAM Deny with no UI counterpart produces
 # a bare AccessDenied for a rule this application itself authored — exactly what
 # `isUndeletableRootFolder` exists to prevent for `athenaresults/`. Nothing gates Upload or
-# New folder on the current PREFIX today, so SPEC-172 builds the app's first prefix-based
+# New folder on the current PREFIX, so the browser carries the app's first prefix-based
 # write gate for it.
 resource "aws_iam_role_policy" "portal_permissions" {
   name = "user-space-access"

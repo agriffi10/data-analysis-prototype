@@ -1,4 +1,4 @@
-# ── The drain Lambda + its scheduled sweep (SPEC-126 FR-001/FR-005) ──────────
+# ── The drain Lambda and its scheduled sweep ───────────────────────────────
 # ONE function over FOUR queues. The per-domain differences (the user-facing noun, the field
 # the actor's token lives in) are a table inside the handler keyed off the queue's ARN, so a
 # fifth control plane is one map entry and one more ARN in DLQ_ARNS — not a fifth copy of
@@ -45,8 +45,8 @@ resource "aws_lambda_function" "drain" {
       # The drain needs the Cognito pair, the notifications queue URL to send to, and DLQ_ARNS —
       # the queues it now sweeps itself (the four request DLQs, as a JSON list). The buckets and
       # the workgroup are here because the cpcommon layer's config requires them of every
-      # function that attaches it. SPEC-156 FR-004 moved that from import to FIRST READ, so a
-      # missing one no longer crashes at COLD START (the table-builder break, PR #196) — it
+      # function that attaches it. That read moved from import to FIRST ACCESS, so a
+      # missing one no longer crashes at COLD START — it
       # fails on whichever branch reads it. Still set them; "the drain does not use it" is not
       # a reason to prune one.
       COGNITO_USER_POOL_ID    = var.user_pool_id

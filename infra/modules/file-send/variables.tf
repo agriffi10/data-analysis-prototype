@@ -11,7 +11,7 @@
 # together would put one queue and one DLQ under two unrelated user features, and a
 # malformed send would dead-letter someone's table share.
 #
-# SPEC-164 is FOUNDATION + THE FRONT DOOR: plumbing, the request contract and
+# Is FOUNDATION + THE FRONT DOOR: plumbing, the request contract and
 # validate-authorize. Nothing is listed, planned or copied. Cross-module
 # ARNs are CONSTRUCTED STRINGS (passed from root locals), never another module's
 # output, so they are known at plan time (architecture.md "unknown ARN in list" trap)

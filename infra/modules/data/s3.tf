@@ -78,7 +78,7 @@ resource "aws_s3_bucket_versioning" "user_space" {
 }
 
 # Lifecycle — abort incomplete multipart uploads after 7 days.
-# SPEC-016 uploads via the managed lib-storage Upload, which uses multipart above
+# Uploads via the managed lib-storage Upload, which uses multipart above
 # the 5 MiB part size. A browser killed mid-upload (or a future cancel) can leave
 # in-progress parts that are billable but invisible; this rule sweeps them up.
 # This is the first lifecycle rule on the bucket (SPEC-010 deferred them). The
