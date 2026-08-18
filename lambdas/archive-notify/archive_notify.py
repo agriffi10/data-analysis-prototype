@@ -13,7 +13,7 @@ one-token-per-outcome rule exists to prevent.
 **THE ASL SEEDS WHICH OUTCOME THIS IS**, rather than the verb inferring it from the state's shape.
 The three call sites are distinguishable only by where they sit in the machine — the same keys are
 present at all three — so inferring would mean guessing, and a restore-started message on a
-finished restore is worse than no message. SPEC-171 settled the same question the same way for its
+finished restore is worse than no message. The restore answers the same question the same way for its
 two destination guards.
 
 **Nothing here can fail the run.** By the time any of these states runs the work has happened; a

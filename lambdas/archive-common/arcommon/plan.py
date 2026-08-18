@@ -154,7 +154,7 @@ def write_restore_plan(request: dict, actor: str, objects: list, total_bytes: in
     **Nothing it produces rides on the state**, for the same reason the copy plan does not: at
     ``ARCHIVE_MAX_OBJECTS`` the list is tens of megabytes against a 256 KB payload limit, and
     ``States.DataLimitExceeded`` escapes every ``Catch``. Each entry carries its size so
-    the restore can tell the user how much is coming back and SPEC-171 can bound its wait.
+    the restore can tell the user how much is coming back and the retrieval can bound its wait.
 
     Args:
       request: The validated restore request, which determines the key and names the archive and

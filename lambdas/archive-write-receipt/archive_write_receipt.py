@@ -57,7 +57,7 @@ def _write_receipt(event) -> dict:
     """Renders the receipt from the state and writes it to the space's own bucket.
 
     **The key comes off the state, resolved once by validate-authorize.** Recomputing it here
-    would be a second construction of a string SPEC-168 deliberately resolves in one place — and
+    would be a second construction of a string the plane deliberately resolves in one place — and
     it would leave ``archive.receiptKey`` a field that rides the whole run and is never read.
 
     Args:

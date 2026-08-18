@@ -1,6 +1,6 @@
 """The destination guard: nothing a restore would write over may already exist.
 
-SPEC-170 FR-004, and the rule the feature was asked for explicitly. S3 has no move and no
+and the rule the feature was asked for explicitly. S3 has no move and no
 rename, so a restore is a copy and a copy overwrites. If the user has re-created
 ``reports/q1.csv`` since archiving it, restoring on top would destroy the newer file with no
 trace — so **any** occupied destination refuses the whole restore. There is no skip, no

@@ -101,7 +101,7 @@ class Source:
         would therefore fail to resolve a recipient — swallowed, so the message is deleted and
         the user hears nothing — AND be written to CloudWatch verbatim, where the audience is far
         wider than the queue's and an expired token is still a signed assertion about a real
-        user. SPEC-164 was amended to flatten its envelope for exactly this reason rather than
+        user. The file-send envelope is flat for exactly this reason rather than
         teach this path a second shape.
     """
 

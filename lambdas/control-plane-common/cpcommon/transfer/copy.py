@@ -1,12 +1,12 @@
 """Server-side S3 copy for one batch of transfer items.
 
-Moved from ``tscommon.copy`` by SPEC-160, unchanged in what it does to an object — no data
+Moved from ``tscommon.copy``, unchanged in what it does to an object — no data
 passes through the Lambda, small objects take a single server-side copy and objects over S3's
 single-copy limit take a multipart part-copy — and changed in what a batch means. It used to
 copy a whole recipient's prefix inside one invocation, which is what made the share caps the
 shape of one Lambda's timeout. It now copies whatever items a Distributed Map hands it.
 
-**A destination storage class is per ITEM and optional** (SPEC-169). The archive plane is this
+**A destination storage class is per ITEM and optional**. The archive plane is this
 engine's third caller and the first that does not want S3's default: it writes at ``GLACIER``.
 Absent means the argument is not passed at all, so table share and file send issue byte-identical
 ``CopyObject`` calls — asserted, not assumed.
@@ -126,7 +126,7 @@ def copy_one(
     object over it to ``STANDARD``, silently, at roughly 20x the storage cost and with the
     restore path suddenly unnecessary for exactly the biggest objects.
 
-    **THE METADATA HAS THE SAME SHAPE OF SPLIT, and it was wrong the same way** (SPEC-171).
+    **THE METADATA HAS THE SAME SHAPE OF SPLIT, and it was wrong the same way**.
     ``MetadataDirective: COPY`` is passed explicitly on the single path — it is S3's default,
     and it is stated rather than assumed because the multipart path proves the default is not
     universal. On the multipart path there is no directive at all: the destination gets the

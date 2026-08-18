@@ -19,7 +19,7 @@ Attributes:
     silently drops is a contract break that shows up as behaviour nobody asked for, and the
     cheapest moment to catch a renamed field is the first one.
   _ITEM_KINDS: The two selection kinds a request may carry. A ``folder`` key is normalised to a
-    trailing slash before any rule runs: SPEC-165 expands a folder with a prefix listing, so
+    trailing slash before any rule runs: the expansion walks a folder with a prefix listing, so
     ``alice/athenaresult`` without one would match ``alice/athenaresults/`` and carry the query
     results out through a door the results rule never sees.
   _MAX_RECIPIENT_NAME: Cognito's own limit on a username. A longer name is not "no such user" —

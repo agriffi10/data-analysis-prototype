@@ -33,7 +33,7 @@ caveat are in ``docs/lambda-rationale.md``.
 Import-safety is the point of this module's shape. The cpcommon layer attaches to every
 control-plane verb, including three that set almost none of ``config``'s environment — and
 when ``config._require`` ran at import, one missing variable was a cold-start crash across a
-whole control plane, this fleet's own recorded outage. SPEC-156 FR-004 moved that
+whole control plane, this fleet's own recorded outage. That read moved
 to first read, which narrows the window but does not change this module's obligation: it must
 reach ``config`` for nothing. So ``LOGS_QUEUE_URL`` is read with ``os.environ.get`` and never
 ``_require``: a function that misses it logs to stdout instead of failing to start. It joins
@@ -103,7 +103,7 @@ def _build_version():
             return handle.read().strip() or UNSTAMPED_VERSION
     except OSError:
         # A missing or unreadable stamp must never keep a function from starting: this module
-        # is on the layer that attaches to every control-plane verb, and PR #196 is what an
+        # is on the layer that attaches to every control-plane verb, and a real outage is what an
         # import-time failure there costs.
         return UNSTAMPED_VERSION
 

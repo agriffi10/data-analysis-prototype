@@ -7,7 +7,7 @@ configs.
 
 Importing this module requires nothing. Reading an attribute requires that attribute's
 variable — so a function pays only for what it actually uses, and a missing variable still
-fails loudly, with the same named error, at first use. That is what SPEC-156 FR-004 changed
+fails loudly, with the same named error, at first use. That is what changed
 and why: the eager ``_require`` of six variables at import meant a function setting three of
 them could not import ``cpcommon.auth`` at all, which is how ``notifications-writer`` came to
 carry a second copy of the fleet's JWKS verification path.
@@ -19,7 +19,7 @@ The eight attributes are declared under ``TYPE_CHECKING`` and resolved by ``__ge
 under ``else``, and the branch is what makes the declarations worth writing: a module-level
 ``__getattr__`` typed ``-> str`` makes a checker accept ANY attribute name here, so a
 misspelled ``config.ADMIN_BUKCET`` would typecheck and fail at runtime. Hiding the hook from
-the checker and naming the eight keeps that a type error, as it was before SPEC-156.
+the checker and naming the eight keeps that a type error.
 
 Attributes:
   USER_POOL_ID: Cognito user pool, set by Terraform.

@@ -4,7 +4,7 @@ This exists for the failures no verb can catch. ``@notifies_on_failure`` is a de
 verb handlers: it catches an exception inside a verb and does nothing at all when the failure
 happens where no verb code is running — a Lambda that fails at import, a state timeout, a
 payload-size failure, a task that cannot be invoked. In that window the user is told nothing: no
-notification, no DLQ message, and the request simply never completes. SPEC-152 exists to close
+notification, no DLQ message, and the request simply never completes. This path exists to close
 that, and a plane shipping without it leaves "it just never came back" reachable.
 
 Its input carries the raw Step Functions error rather than a decoded reason, and must stay that
@@ -18,9 +18,9 @@ this state exists for happens before a verb produced an actor, so the recorded o
 function would take its no-recipient branch on every single failure — satisfied on paper, silent
 in practice.
 
-**IT HAS TWO DOORS SINCE SPEC-169, and the second exists because the first cannot reach one
+**IT HAS TWO DOORS, and the second exists because the first cannot reach one
 failure.** The ASL door is a state, so it is reached by a ``Catch`` — and Step Functions catchers
-cover Task, Parallel and Map states but **not top-level execution failures**. SPEC-169 gave this
+cover Task, Parallel and Map states but **not top-level execution failures**. That gave this
 machine a Distributed Map, a copy and a ceiling; a run that exhausts that ceiling is terminated
 outright, so no state runs, no Catch fires and this function is never invoked. The documented
 remedy is the second door: an EventBridge rule on ``Step Functions Execution Status Change`` with
@@ -47,7 +47,7 @@ Attributes:
   _RESTORE_TIMEOUT_REASON: The same for a RESTORE. Two codes rather than one worded generically,
     because what a timeout may PROMISE differs by arm: an archive's deletion is downstream of the
     commit gate, so a timed-out archive has never deleted anything — a sentence that is true, load
-    bearing, and meaningless about a restore. Unreachable until SPEC-171 adds the retrieval wait,
+    bearing, and meaningless about a restore. Reachable once the retrieval wait exists,
     and shipped now because that is the spec that makes the timeout predominantly a restore event.
 """
 
@@ -80,7 +80,7 @@ def _mode_from_raw_request(raw) -> str:
     selects between two prefixes and two timeout sentences, so an untrusted value can only make a
     user's own malformed request read as the other operation.
 
-    **SPEC-171 is what makes this matter.** Today nothing on the restore arm waits, so a restore
+    **The retrieval is what makes this matter.** Nothing else on the restore arm waits, so a restore
     cannot time out; that spec adds a 3-5 hour retrieval wait, which makes the timeout
     predominantly a RESTORE event — and the archive sentence promises "nothing was deleted and your
     files are exactly where they were", which says nothing true or useful about a restore.
@@ -248,7 +248,7 @@ def _verb_already_notified(error) -> bool:
 
     The tempting heuristic — a dotted error name means the engine, a bare one means a handler
     ran — is wrong in the dangerous direction, and this fleet has the outage to prove it: a
-    config module raising a bare ``RuntimeError`` at import is PR #196's own shape, and that
+    config module raising a bare ``RuntimeError`` at import is the shape of a real outage, and that
     rule would have silenced exactly the class of failure this function exists to report.
 
     The price is paid deliberately: an unexpected in-verb exception notifies through the

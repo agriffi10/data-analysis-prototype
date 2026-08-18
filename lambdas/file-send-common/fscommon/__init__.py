@@ -7,7 +7,7 @@ alongside ``cpcommon``.
 The split with ``cpcommon`` is the and is not negotiable per plane: **cpcommon owns
 the algorithm, this layer owns file-send's tables and wording**. Nothing here re-implements a
 CAS loop, a message resolver, an SQS parser or a token verification — a second copy of one of
-those is what SPEC-156 spent a whole spec removing.
+those is the duplication a consolidation pass removed.
 
 This file is deliberately import-free and must stay that way (``test_layer_import_safety``
 pins it for every layer). The reason is cold-start cost: an import here runs for every

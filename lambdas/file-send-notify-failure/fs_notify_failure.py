@@ -182,7 +182,7 @@ def _verb_already_notified(error) -> bool:
 
     The tempting heuristic — a dotted error name means the engine, a bare one means a handler
     ran — is wrong in the dangerous direction, and this fleet has the outage to prove it: a
-    config module raising a bare ``RuntimeError`` at import is PR #196's own shape, and that
+    config module raising a bare ``RuntimeError`` at import is the shape of a real outage, and that
     rule would have silenced exactly the class of failure this function exists to report.
 
     The price is paid deliberately: an unexpected in-verb exception notifies through the

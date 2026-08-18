@@ -12,7 +12,7 @@ Attributes:
     payload size.** The payload bound is the 256 KB execution-input limit, taken at S3's worst
     case rather than a typical key: a 1024-byte source key, a 1024-byte destination key and
     63-byte bucket names put an item near 2.3 KB, so even 50 items sat under half the limit.
-    That is why this was 50 until SPEC-161.
+    That is why this is not the 50 it once was.
 
     The time bound is what moved it off 50, and it is a **makespan, not a bandwidth**.
     ``ItemBatcher`` batches by count and never by bytes, and ``copy_batch`` hands one WHOLE

@@ -1,6 +1,6 @@
 """initiate-restore — the Distributed Map child that asks Glacier for the bytes back.
 
-SPEC-171 FR-001, and **the point of no return for the whole arc.** Everything SPEC-170 does
+and **the point of no return for the whole arc.** Everything the destination guard does
 happens so that this state can be reached safely: a Glacier retrieval is billed the moment it is
 requested and cannot be cancelled, so the destination guard runs on the other side of it and
 refuses a restore that could not land.

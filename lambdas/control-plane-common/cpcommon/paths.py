@@ -1,9 +1,9 @@
 """Key containment, shared by every control plane that reads a user's space.
 
-**This is an ALGORITHM, so it lives here** (SPEC-156): the rule that decides whether a key the
+**This is an ALGORITHM, so it lives here**: the rule that decides whether a key the
 browser supplied sits inside the root the caller was authorized for is the same rule on every
 plane, and a second copy of it is a second place a cross-tenant read can be introduced. It
-arrived on ``fscommon.paths`` with SPEC-164 and moved here with SPEC-168, which is the third
+arrived on ``fscommon.paths`` and moved here on the third
 plane to need it; ``fscommon.paths`` now re-exports these names, so the file-send call sites and
 their tests are unchanged.
 

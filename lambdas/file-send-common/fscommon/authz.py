@@ -35,7 +35,7 @@ def authorize_source(username: str, space) -> dict:
     member of.
 
     **A member whose join chip still reads pending is authorized**, and that is deliberate:
-    SPEC-073 settled that the chip is display and bookkeeping only and that access is granted
+    The chip is display and bookkeeping only and that access is granted
     at add time. Denying a send here would make this the only plane where such a member is
     refused — for files they can already browse, download and share as a table.
 
@@ -118,7 +118,7 @@ def assert_not_results_folder(root: str, key: str) -> str:
 
     **THREE WAYS TO SELECT IT, NOT TWO.** The folder itself and anything beneath it are the
     obvious two. The third is an ANCESTOR: selecting the space root as a folder refuses
-    nothing under the first two rules, and SPEC-165 expands a folder by listing its prefix —
+    nothing under the first two rules, and the expansion walks a folder by listing its prefix —
     so ``{"kind": "folder", "key": "sales/"}`` would carry ``sales/athenaresults/`` out with
     everything else. In a shared space that is other members' query results leaving the space
     to a recipient who is not in it, which is the whole exposure this rule exists to close.

@@ -130,7 +130,7 @@ def derive_destinations(bucket: str, archive_root: str, space_root: str) -> tupl
     Returns:
       ``(objects, total_bytes)``, each object carrying its archive key, its destination key and
       its size. The size rides so the restore can tell the user how much is coming back and
-      SPEC-171 can bound its wait.
+      the retrieval can bound its wait.
 
     Raises:
       TerminalError: ``forbidden`` from the destination reconstruction.

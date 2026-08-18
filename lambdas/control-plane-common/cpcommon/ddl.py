@@ -15,7 +15,7 @@ Attributes:
     clause, because the data-quality raw-line table uses a CSV-ish SerDe and must not skip
     the header — it counts every physical line.
   PORTAL_MANAGED: The "this portal created this table" marker. Not the refresh eligibility
-    test and it must never become one: pre-SPEC-143 tables lack it and TBLPROPERTIES are
+    test and it must never become one: tables predating the marker lack it and TBLPROPERTIES are
     user-writable through ALTER TABLE. Note ``portal.managed`` (this, a table property,
     dotted) is not ``portal-managed`` (the Lake Formation tag on databases, hyphenated).
   SERDE_FORMATS: SerDe library to the format key this repo's inference reports. Both JSON

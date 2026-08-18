@@ -79,7 +79,7 @@ def _parse_location(location: str | None) -> dict:
 def update_time(table: dict) -> str | None:
     """Renders a Glue table's last-modified stamp as a comparable string.
 
-    SPEC-157 FR-005 compares a stamp captured at the start of a refresh against one read
+    The freshness guard compares a stamp captured at the start of a refresh against one read
     immediately before the write, and the two reads happen in DIFFERENT Lambdas — so the
     rendering lives here rather than in each of them. Two copies that disagreed by a
     representation would abandon every refresh while blaming a writer that does not exist, and

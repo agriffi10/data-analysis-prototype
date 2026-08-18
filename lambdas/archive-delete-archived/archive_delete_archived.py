@@ -4,7 +4,7 @@ Reached on the one arm of the restore's gate where every object came back: the
 archive has served its purpose, the user's data is in their space again, and the prefix — its
 ``_manifest.json`` included — is removed.
 
-**A failed cleanup does NOT fail the restore.** This is the exact inverse of SPEC-169's
+**A failed cleanup does NOT fail the restore.** This is the exact inverse of the archive's
 delete-source, and the asymmetry is the point of both. There, a half-deleted source meant a user
 told their archive completed while their files were still half there, so it is a terminal
 failure. Here the outcome the user asked for has already happened: their data is back. Residue in

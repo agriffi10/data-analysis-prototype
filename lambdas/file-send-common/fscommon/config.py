@@ -25,7 +25,7 @@ Attributes:
     number, so raising either cap without re-checking fails the build.
   SEND_MAX_ITEMS: Cap on the NUMBER of selected items — the files and folders the user picked,
     **not** the objects they expand to. What sizes it is the per-item work that follows: two
-    containment checks and, in SPEC-165, one ``ListObjectsV2`` walk per folder. It is
+    containment checks and, one ``ListObjectsV2`` walk per folder. It is
     emphatically NOT a bound on the transfer — a single folder can hold a million objects — and
     the caps that bound *that* belong to SPEC-165 (the expansion) and SPEC-166 (the manifest),
     the same three-way split table-share arrived at.

@@ -287,7 +287,7 @@ def register_reasons(reasons: Iterable[str]) -> None:
 
     The seam for a module that raises codes it does not own the wording for — ``cpcommon.glue``
     raises shape refusals that each plane words for itself. All three domain layers went
-    through ``register`` instead as of SPEC-156 FR-002. Idempotent; re-adding a base code is
+    through ``register`` instead. Idempotent; re-adding a base code is
     harmless.
 
     Args:
