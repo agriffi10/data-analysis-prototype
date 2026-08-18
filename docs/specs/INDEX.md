@@ -197,6 +197,17 @@ Add a row when a spec is created; update its status on completion (status only �
 | 189 — File Operations: the Transfer, the Source Deletion & the Terminals | Draft |
 | 190 — File Operations: the Browser's Async Model & In-Flight State | Draft |
 | 191 — File Operations: Notifications, Help & the Arc's Live Checks | Draft |
+| 192 — Runtime Configuration & the Provider Block | Draft |
+| 193 — The Network, the Compute & the Front Door | Draft |
+| 194 — The SPA Container | Draft |
+| 195 — The API's Auth Boundary: Verifying the Cognito Token | Draft |
+| 196 — The AWS Identity Layer | Draft |
+| 197 — The Transport Contract & the First Ported Feature | Draft |
+| 198 — The S3 Surface & Presigned Bytes | Draft |
+| 199 — The Catalog Surface: Athena & Glue | Draft |
+| 200 — The Enqueue Paths & the Delegated Actor Contract | Draft |
+| 201 — The Lambda Trust Boundary | Draft |
+| 202 — Retiring CloudFront & the Identity Pool, and the Arc's Live Checks | Draft |
 
 ## Arcs
 
