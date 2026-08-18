@@ -14,7 +14,7 @@ export type FeatureRouteProps = {
  *
  * **THE PAGE MUST NOT MOUNT WHILE THE ANSWER IS UNKNOWN.** Every gated page fetches on mount,
  * so rendering it first and swapping to the unavailable state a tick later would issue the
- * very requests FR-004 forbids — and on `/data-quality/:space/:requestId` that request is an
+ * very requests the gate forbids — and on `/data-quality/:space/:requestId` that request is an
  * existence oracle for someone else's report. Hence a neutral `LoadingState` while
  * the flags resolve, rather than the optimistic render a nav item can afford.
  *

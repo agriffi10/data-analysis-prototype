@@ -169,7 +169,7 @@ export function QueryWorkspace() {
   const linkTarget = useMemo(() => {
     if (!link || !linkSchema) return null;
     // A view has no folder to re-read and a table with no location can't be turned
-    // into a request (FR-001 disables the menu item for the same reason), so a link
+    // into a request (the menu item is disabled for the same reason), so a link
     // naming either opens nothing.
     const table = linkSchema.tables.find(
       (t) => t.name === link.tableName && t.tableType !== 'VIRTUAL_VIEW' && !!t.location
@@ -374,7 +374,7 @@ export function QueryWorkspace() {
   // (new execution id) starts from defaults.
   const colWidths = useColumnWidths(displayExecutionId, results.columns.length);
 
-  // FR-005/006: Run Statement — the selection, else the statement under the
+  // Run Statement — the selection, else the statement under the
   // cursor, else the sole statement. When the editor handle isn't available
   // (still lazy-loading), the cursor defaults to the buffer end (last statement).
   const handleRunStatement = () => {
@@ -606,7 +606,7 @@ export function QueryWorkspace() {
   const showError = !!errorMessage && !dismissed[activeTabId];
   const canRun = !!activeTab.sql.trim() && !activeIsInFlight;
   const canClear = activeTab.sql.length > 0 && !activeIsInFlight;
-  const canSave = !!activeTab.sql.trim(); // FR-001: disabled only when empty
+  const canSave = !!activeTab.sql.trim(); // disabled only when empty
 
   // Save results is offered only for a SUCCEEDED, row-returning result
   // (a result object with columns) — not a DDL / no-result statement.

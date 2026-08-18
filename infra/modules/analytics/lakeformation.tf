@@ -75,7 +75,7 @@ resource "aws_lakeformation_resource" "user_space" {
 # DATA_LOCATION_ACCESS on the registered location to CREATE any table over it —
 # both CREATE EXTERNAL TABLE (read-only) and CTAS / INSERT INTO (writes). This is a
 # single location-level grant (not per-user); per-user gating still comes from IAM
-# (the Glue database ARN principal-tag scoping in FR-006 and S3
+# (the Glue database ARN principal-tag scoping and S3
 # ${aws:PrincipalTag/username}/*), so the role can only actually
 # create/write within its own session's prefix. The LF INSERT *table* permission
 # for writes is granted later, per-database, by the post-confirmation Lambda.

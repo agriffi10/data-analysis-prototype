@@ -136,7 +136,7 @@ export function useSaveQuery({spaces, defaultSpace, payload, onSaved, toast}: Pa
         }
         // Clear the confirm too: it was raised by the FIRST attempt's collision, and
         // leaving it up after the replace itself failed offers a retry of a step that has
-        // already happened. FR-006: the dialog stays open with the name and the space the
+        // already happened. The dialog stays open with the name and the space the
         // user chose, so another destination is one control away.
         setCollision(null);
         setOpen(true);

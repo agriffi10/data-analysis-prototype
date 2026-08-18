@@ -22,7 +22,7 @@ const barButton =
 // the sidebar fill. Active tab: an elevated card (surface fill + border + shadow +
 // bold label) — never color-only, and no leading dot so it can't be confused with
 // the dirty-state marker. The last remaining tab hides its close control; the `+`
-// is never disabled (the cap is enforced by a dialog upstream — FR-008).
+// is never disabled (the cap is enforced by a dialog upstream).
 export function QueryTabStrip({
   tabs,
   activeTabId,

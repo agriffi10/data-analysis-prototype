@@ -528,7 +528,7 @@ def _expand_item(bucket: str, root: str, entry: dict):
     assuming one page is the whole folder — S3 returns at most 1,000 keys per page, and treating
     a truncated listing as complete on THIS plane means deleting objects that were never copied.
 
-    **Every key that enters the plan is re-checked against the authorized root** (FR-001 AC2),
+    **Every key that enters the plan is re-checked against the authorized root**,
     and the check is a separate statement rather than an argument to the yield: the ordering is
     security-relevant, and hiding it in Python's argument-evaluation order makes a reader take it
     on faith. The request's keys were checked as strings the browser supplied; these arrive from
@@ -581,7 +581,7 @@ def _expand_item(bucket: str, root: str, entry: dict):
 def expand(source: dict) -> tuple[list, int]:
     """Expands a validated selection into the deduplicated object list an archive will copy.
 
-    **Overlapping selections COLLAPSE here rather than being refused** (FR-001 AC4), which is the
+    **Overlapping selections COLLAPSE here rather than being refused**, which is the
     one place this plane deliberately parts company with file-send. There, two items landing
     under one name is genuinely ambiguous, because the destination is keyed by the item's NAME.
     Here every object keeps its path relative to the space root, so ``reports/`` and

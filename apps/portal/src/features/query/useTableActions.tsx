@@ -58,7 +58,7 @@ export function useTableActions({
   const navigate = useNavigate();
 
   // Derive the in-space S3 key (folder) backing a table from its Glue LOCATION;
-  // null when missing or outside the user's own prefix (FR-002 guard).
+  // null when missing or outside the user's own prefix.
   const tablePrefix = (table: GlueTableSummary): string | null => {
     const parsed = parseS3Url(table.location);
     if (!parsed) return null;

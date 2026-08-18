@@ -34,7 +34,7 @@ export type ParsedStatement = {
   index: number;
   /** The individual statement text (trimmed). */
   sql: string;
-  /** Source offsets of the trimmed statement in the buffer (FR-006 cursor mapping). */
+  /** Source offsets of the trimmed statement in the buffer, for cursor mapping. */
   range: {start: number; end: number};
 };
 

@@ -134,7 +134,7 @@ function quoted(value: string): string {
 /**
  * A value as delimited text.
  *
- * **This is where FR-001 AC4 is paid for in the formats that have no native null.** A NULL
+ * **This is where the NULL distinction is paid for in the formats that have no native null.** A NULL
  * becomes the token, an empty string becomes nothing, and a hole becomes nothing — so NULL
  * and `''` are always distinguishable, while a value whose TEXT is literally `NULL` is
  * distinguishable only once `quoteValues` is on. That is the honest limit of a delimited

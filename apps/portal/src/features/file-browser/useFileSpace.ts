@@ -48,7 +48,7 @@ export type UseFileSpaceResult = {
   selectSpace: (id: string) => void;
   // True when the URL named a space the user can't browse (gone/revoked/not-yet-
   // active) and we fell back to the personal space — drives a non-blocking notice
-  // (FR-004/FR-005). Dismissing clears the stale `?space=` param.
+  // Dismissing clears the stale `?space=` param.
   fellBack: boolean;
   dismissFellBack: () => void;
 };

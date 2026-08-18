@@ -14,7 +14,7 @@ function sectionFromHash(hash: string, sections: typeof HELP_SECTIONS): HelpSect
   const id = hash.replace(/^#/, '');
   const match = sections.find((s) => s.id === id);
   // Falls back to the first VISIBLE section, so `/help#query` with Query off lands somewhere
-  // real instead of on a section the list no longer offers (FR-006: unreachable by anchor).
+  // real instead of on a section the list no longer offers (unreachable by anchor).
   return match ? match.id : sections[0].id;
 }
 
@@ -22,7 +22,7 @@ function sectionFromHash(hash: string, sections: typeof HELP_SECTIONS): HelpSect
  * The Help & guides page: a section sidebar beside the active
  * section's guides as accordion cards. The active section lives in the URL hash
  * (`/help#query`) so it's shareable and back/forward moves between sections
- * (FR-002/003/004). Static content — no loading/error/network states.
+ * Static content — no loading/error/network states.
  *
  * @example
  * <HelpPage />

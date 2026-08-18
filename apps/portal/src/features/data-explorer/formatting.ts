@@ -336,7 +336,7 @@ export function bandsOf(
  * their own order — and each layer overrides only the PROPERTY it sets, so a rule that
  * chooses a background leaves a type tint's foreground alone. That is what "a later
  * matching rule overrides an earlier one on the same property" means, and it is also what
- * makes FR-003 AC2 and FR-004 AC4 ("conditional rules win") true without a special case.
+ * makes "conditional rules win" true without a special case.
  *
  * A rule whose `scope` is `'row'` paints every cell of a row in which its condition held
  * anywhere; a `'cell'` rule paints only the cells that matched. A rule with no `column`

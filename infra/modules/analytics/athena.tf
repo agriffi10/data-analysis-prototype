@@ -22,7 +22,7 @@ resource "aws_athena_workgroup" "portal" {
 
   configuration {
     # OFF on purpose: the client supplies a per-user OutputLocation per query (see
-    # header). The real per-user boundary is the FR-006 IAM scoping, noted here so
+    # header). The real per-user boundary is the IAM scoping, noted here so
     # nobody "hardens" this to true and breaks per-user result routing.
     enforce_workgroup_configuration    = false
     publish_cloudwatch_metrics_enabled = true

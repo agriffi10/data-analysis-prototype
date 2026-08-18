@@ -21,7 +21,7 @@ export type UseExploreDeepLinkResult = {
  * good access — and a link whose space name equals the username would resolve PERSONAL for a
  * beat, which is the one wrong answer that also looks right.
  *
- * The connections read is the user's OWN cache document. It is not the disclosure FR-006
+ * The connections read is the user's OWN cache document. It is not the disclosure the refusal rule
  * guards: nothing is asked of Glue, or of the space named in the link, until a space this
  * user can reach has been found in a list they already had.
  *

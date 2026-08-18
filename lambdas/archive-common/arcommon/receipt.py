@@ -10,7 +10,7 @@ rewrites the whole file when a restore is requested; a field that only appeared 
 make the format conditional on the file's own history, so every reader would need to handle two
 shapes of the same document.
 
-**The paths name the space ROOT and the archive ROOT, which is a deliberate reading of FR-006.**
+**The paths name the space ROOT and the archive ROOT, which is deliberate.**
 The spec's illustrative sample shows a selected folder as the original path, and that would be
 wrong for the key layout this arc actually shipped: ``archived_key`` keeps every object's path
 relative to the SPACE root, so ``alice/reports/q1.csv`` archives to ``{archiveRoot}reports/q1.csv``

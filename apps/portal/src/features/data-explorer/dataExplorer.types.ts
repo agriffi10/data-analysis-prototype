@@ -126,7 +126,7 @@ export type GridPresentation = 'grid' | 'record' | 'text';
  * A colour a rule may paint text in.
  *
  * A bounded set of design tokens rather than the spec's free-form `string`, and the
- * narrowing is what makes FR-002 AC8 assertable at all: "every pairing meets contrast
+ * narrowing is what makes the contrast claim assertable at all: "every pairing meets contrast
  * requirements" is not a claim anyone can make about a colour picker. Every token here
  * clears 4.5:1 against every surface it can land on — `formatting.test.ts` recomputes that
  * from the token values rather than restating it, and `warning` is absent because it does

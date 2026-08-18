@@ -224,7 +224,7 @@ function FileBrowserContent({
     // Writable mobile flows get bottom padding so the fixed MobileActionBar never
     // occludes the last list row.
     <div className={writable ? 'pb-24 tablet:pb-0' : undefined}>
-      {/* Toolbar row — breadcrumbs (left) + primary actions (right). FR-002/003 */}
+      {/* Toolbar row — breadcrumbs (left) + primary actions (right). */}
       <div className="mb-4 flex items-center gap-3">
         <nav
           aria-label="breadcrumb"
@@ -589,7 +589,7 @@ function FileBrowserContent({
 
       {/* File and folder list. Also renders for an empty non-root folder so the
           `..` row stays reachable. Structural markup swap (
-          FR-002/003): a data table at ≥ tablet, a compact two-line card list on
+          ): a data table at ≥ tablet, a compact two-line card list on
           mobile — same data + handlers. */}
       {(hasContent || (isEmpty && !atRoot)) &&
         (isMobile ? (

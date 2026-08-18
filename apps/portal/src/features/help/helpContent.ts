@@ -19,7 +19,7 @@ import type {HelpSection} from './help.types';
 // never promise behavior that isn't shipped — the post-spec ritual in
 // docs/process.md includes a check for exactly this.
 
-/** The authored Help & guides sections, in sidebar order (FR-003/005). */
+/** The authored Help & guides sections, in sidebar order. */
 export const HELP_SECTIONS: HelpSection[] = [
   {
     id: 'files',

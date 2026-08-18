@@ -17,7 +17,7 @@ type Props = {
   isInFlight: boolean;
   canRun: boolean;
   canClear: boolean;
-  /** Gates Save query and Create view alike: FR-001 disables them only when the buffer is empty. */
+  /** Gates Save query and Create view alike: both are disabled only when the buffer is empty. */
   canSave: boolean;
   onClear: () => void;
   onSave: () => void;

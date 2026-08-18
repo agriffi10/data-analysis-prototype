@@ -29,7 +29,7 @@ type Props = {
    * Why THIS file can't be archived (it sits in a portal-managed root), if it can't. Needed here
    * as much as in the folder panel: `athenaresults/` and `shared_tables/` are VISIBLE, so a file
    * inside one is reachable, selectable and openable — and without this the panel offered an
-   * Archive the plane then refused as `reserved_folder`, which is the exact failure FR-001 AC5's
+   * Archive the plane then refused as `reserved_folder`, which is the exact failure the plane's
    * list-equality test exists to prevent, arriving through the entry point it does not walk.
    */
   archiveDisabledReason?: string;

@@ -83,7 +83,7 @@ export function useFeatureFlags(): UseFeatureFlagsResult {
 /**
  * Say out loud, in dev only, which way the read went.
  *
- * FR-005 is deliberately silent, which means a permanently-blocked fetch is
+ * The fallback is deliberately silent, which means a permanently-blocked fetch is
  * indistinguishable from a healthy all-on environment — there is no banner and no toast,
  * because the user is not the audience for that failure. This is the audience. Stripped
  * from production builds by the `DEV` guard, exactly as `warnIfMisconfigured` is, and for

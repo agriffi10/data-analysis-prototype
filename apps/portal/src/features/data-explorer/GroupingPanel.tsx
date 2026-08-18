@@ -48,7 +48,7 @@ export type GroupingPanelProps = {
  * closing discards the draft whole, exactly as the settings dialog's does.
  *
  * It is a side panel rather than a `Drawer` for a reason that is not stylistic: a header
- * column is added **by dragging it here** (AC1), and a focus-trapping drawer would put the
+ * column is added **by dragging it here**, and a focus-trapping drawer would put the
  * grid out of reach. Escape closes it through the depth-ordered registry.
  *
  * Column references reach the SQL through `sqlIdentifier` in the renderer and the function

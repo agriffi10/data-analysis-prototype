@@ -291,7 +291,7 @@ export function ExplorationResultsRegion({
   const geometry = useColumnGeometry(columns, presentation, onPresentationChange);
   const visibleNames = geometry.visible.map((column) => column.name);
   // Paging clears the selection rather than carrying coordinates onto different rows
-  // (FR-002 AC8), and so does a change to the column set — a row/column pair means
+  // and so does a change to the column set — a row/column pair means
   // nothing once either axis has moved underneath it.
   const selection = useCellSelection(
     rows.length,

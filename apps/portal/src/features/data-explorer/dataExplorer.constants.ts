@@ -97,7 +97,7 @@ export const CALC_FUNCTION_LABELS: Record<CalcFunction, string> = {
  * What a function with no answer shows.
  *
  * An average over no numeric cells has no value — and `0` would be a computed-looking
- * answer to a question that was not asked, which is the same lie FR-002 keeps the whole
+ * answer to a question that was not asked, which is the same lie the filters keep the whole
  * panel away from.
  */
 export const CALC_NO_VALUE = '—';

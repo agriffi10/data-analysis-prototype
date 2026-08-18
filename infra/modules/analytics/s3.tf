@@ -1,7 +1,7 @@
 # ── Admin-Only Athena Results Bucket ───────────────────────
 # The Athena workgroup's default/fallback output location and a future admin/audit
 # store. NO end-user access: the portal role is never granted anything on this
-# bucket (FR-006 grants the role only the user-space {username}/athenaresults/
+# bucket (the role holds only the user-space {username}/athenaresults/
 # prefix). Reserved for future admin/audit roles, which are out of scope here.
 #
 # User-facing query results and history do NOT live here — they go to

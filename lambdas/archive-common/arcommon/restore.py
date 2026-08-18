@@ -244,7 +244,7 @@ def assert_complete(found: int, recorded, archive_id: str) -> None:
 def assert_found(objects: list, archive_id: str, space_name: str) -> None:
     """Refuses an archive prefix that holds nothing, without saying why it is empty.
 
-    **It does not distinguish "never existed" from "belongs to someone else"** (FR-003 AC3), the
+    **It does not distinguish "never existed" from "belongs to someone else"**, the
     same no-existence-oracle rule the data-quality report view follows: the archive key's
     leading ``personal/``/``shared/`` segment and the space name are both derived from the
     REQUEST, so an id belonging to another space resolves to an empty prefix here and reads

@@ -48,7 +48,7 @@ function block(column: GridColumn): 'pinned' | 'unpinned' {
  * **None of this renders SQL** (the central rule), so every action here is a state
  * write and never an execution — which is why geometry can be as free as it looks.
  *
- * Geometry is keyed by column NAME rather than position, and that is what makes FR-006 AC3
+ * Geometry is keyed by column NAME rather than position, and that is what makes the discard rule
  * true by construction: a width, a pin or a hide belonging to a column the new result set
  * does not contain simply never resolves — it is not applied to whichever column now
  * occupies that position. Stale entries are left in place rather than pruned, because a

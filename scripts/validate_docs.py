@@ -30,8 +30,11 @@ Attributes:
   STATUS_WORDS: Words that must not appear in an ``ARCS.md`` arc heading. Status lives in
     ``INDEX.md``, which is the only place it can be kept true.
   SOURCE_TREES: Where source lives, per language, for the citation check.
-  CITATION_RE: A spec, PR or issue citation in a comment. Matched on the whole line rather than on
-    comment syntax, because four languages' comment markers is four ways to miss one.
+  CITATION_RE: A spec, PR or issue citation in a comment, including a bare requirement number.
+    Matched on the whole line rather than on comment syntax, because four languages' comment
+    markers is four ways to miss one. ``FR-005`` is in the set because 429 of them survived a
+    sweep that looked only for ``SPEC-``, and a requirement number without its spec is strictly
+    less useful than the citation it hung off.
 """
 
 import pathlib
@@ -47,7 +50,7 @@ DIGEST_MAX_CHARS = 900
 DELIVERY_MAX_LINES = 260
 STATUS_WORDS = ("shipped", "complete", "active", "draft", "in progress", "filed", "scoped")
 SOURCE_TREES = (("apps/portal/src", (".ts", ".tsx")), ("lambdas", (".py",)), ("infra", (".tf", ".tftpl")))
-CITATION_RE = re.compile(r"SPEC-\d{3}|(?<![\w#])#\d{3}(?![\w])")
+CITATION_RE = re.compile(r"SPEC-\d{3}|(?<![\w#])#\d{3}(?![\w])|\b(?:FR|AC)-?\d+\b")
 
 
 class DocsError(Exception):

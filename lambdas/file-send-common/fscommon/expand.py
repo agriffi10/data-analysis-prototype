@@ -196,7 +196,7 @@ def _assert_no_name_collision(items: list) -> None:
 def _checked(root: str, key: str) -> str:
     """Re-runs every containment rule against a key that arrived from S3.
 
-    **The check is not trusted from validate-authorize alone** (FR-001), and the reason is that
+    **The check is not trusted from validate-authorize alone**, and the reason is that
     the two keys have different provenance. The request's keys were checked as strings the
     sender supplied; these arrive from a ``ListObjectsV2`` response, which is the first point in
     the request's life where a key is produced by something other than the request. Nothing

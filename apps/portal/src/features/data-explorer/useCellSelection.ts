@@ -69,7 +69,7 @@ export function useCellSelection(
   // Reset during render (React's "adjust state when a prop changes" pattern, as
   // `useColumnWidths` and `useQueryResults` do) rather than in an effect: an effect would
   // paint one frame of the OLD selection over the new page's rows, which is precisely the
-  // stale-coordinates state AC8 forbids.
+  // stale-coordinates state the grid forbids.
   const [previousKey, setPreviousKey] = useState(resetKey);
   if (previousKey !== resetKey) {
     setPreviousKey(resetKey);

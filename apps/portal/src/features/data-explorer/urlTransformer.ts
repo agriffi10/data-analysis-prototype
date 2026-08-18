@@ -45,7 +45,7 @@ export function templateRefusal(template: string): string | null {
  *    natural template for a column that already holds links) the value IS the URL, so
  *    encoding it would turn every legitimate `https://…` into `https%3A%2F%2F…` — not a
  *    URL, and that column could never link at all. There it is substituted raw and left to
- *    the two steps below, which is exactly the case FR-006 AC2 describes.
+ *    the two steps below, which is exactly the case the worked example describes.
  * 2. The **resolved** URL is parsed, never the template. A template of `${value}` with a
  *    cell holding `javascript:alert(1)` is the case that matters, and a template-only check
  *    passes it happily.
