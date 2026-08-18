@@ -41,7 +41,7 @@ resource "aws_athena_workgroup" "portal" {
       # omits an explicit OutputLocation writes here, never to a user-readable place.
       # Scoped to a fallback-results/ prefix (not the bucket root) so the
       # expire-admin-results lifecycle rule can target ONLY transient fallback output
-      # and leave the SPEC-050 shared-spaces/ registry prefix untouched (s3.tf).
+      # and leave the shared-spaces/ registry prefix untouched (s3.tf).
       output_location = "s3://${var.athena_admin_bucket_name}/fallback-results/"
 
       encryption_configuration {

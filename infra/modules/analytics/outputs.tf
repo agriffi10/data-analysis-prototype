@@ -1,5 +1,5 @@
 output "athena_workgroup_name" {
-  description = "Name of the shared Athena workgroup. Maps to VITE_ATHENA_WORKGROUP (consumed by the app starting SPEC-034)."
+  description = "Name of the shared Athena workgroup. Maps to VITE_ATHENA_WORKGROUP."
   value       = aws_athena_workgroup.portal.name
 }
 

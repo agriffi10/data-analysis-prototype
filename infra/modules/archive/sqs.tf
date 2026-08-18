@@ -18,7 +18,7 @@
 # while restores of different archives in the same space proceed in parallel. Without it a
 # double-submitted restore can pass the destination guard twice before either copy lands —
 # the guard is a read, and two of them see the same empty destinations. **NOTHING ENFORCES
-# THIS YET.** The producer is the browser, which SPEC-172 builds; SPEC-170 could not
+# THIS YET.** The producer is the browser; nothing server-side could
 # enforce a rule about a message nothing in it sends, and the contract is recorded here
 # rather than left in a spec file, because this is where its reader will be standing.
 # `docs/testing/owed.md` §2.2 types it correctly so the live check exercises it.

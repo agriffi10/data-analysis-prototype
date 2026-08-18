@@ -126,7 +126,7 @@ resource "aws_cloudfront_response_headers_policy" "portal" {
       override        = true
     }
 
-    # ENFORCING as of SPEC-140 Phase 4, after a signed-in pass against the
+    # ENFORCING, after a signed-in pass against the
     # report-only deploy reported no violations — sign-in and the Query editor
     # running a statement included, which is the path exercising Monaco's
     # worker, its runtime style injection and the Athena/Glue endpoints.

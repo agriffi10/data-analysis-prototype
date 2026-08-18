@@ -125,7 +125,7 @@ locals {
     # CPU for the pool's threads and holds the plan; no object bytes pass through it.
     "inspect-archive"         = { handler = "archive_inspect_archive.handler", timeout = 120, memory = 1024 }
     "check-destination-clear" = { handler = "archive_check_destination_clear.handler", timeout = 600, memory = 1024 }
-    # SPEC-171 FR-003. build-restore-manifest is build-transfer-manifest's twin and is sized by
+    # build-restore-manifest is build-transfer-manifest's twin and is sized by
     # the same quantity — the whole manifest expanded and serialised in memory, at the object cap
     # — so it takes the same row, and the SAME test computes it against this number.
     "build-restore-manifest" = { handler = "archive_build_restore_manifest.handler", timeout = 300, memory = 2048 }

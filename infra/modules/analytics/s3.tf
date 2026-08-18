@@ -59,10 +59,10 @@ resource "aws_s3_bucket_versioning" "athena_admin" {
 
 # Expire admin/fallback output after the retention window. (The user-facing
 # athenaresults/ prefix in the user-space bucket has NO expiry — kept indefinitely
-# per the SPEC-032 Open Questions decision; this lifecycle applies only here.)
+# by decision; this lifecycle applies only here.)
 #
 # Scoped to the fallback-results/ prefix: the workgroup's fallback
-# OutputLocation now writes under fallback-results/ (athena.tf), and the SPEC-050
+# OutputLocation now writes under fallback-results/ (athena.tf), and the shared-space
 # shared-spaces/ control-object registry also lives in this bucket. S3 lifecycle
 # rules can only INCLUDE a prefix (there is no exclude), so the rule targets only the
 # transient fallback output by prefix — registry objects under shared-spaces/ are
@@ -118,7 +118,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
   # retention: execution-scoped, read minutes after it is written, kept only so an operator
   # can inspect the plan of a failed send. It is a SEPARATE rule rather than a widened
   # filter because S3 lifecycle takes one prefix per rule, and a prefix broad enough to
-  # cover both (`""`) would match `logs/`, which SPEC-127 FR-009 retains indefinitely.
+  # cover both (`""`) would match `logs/`, which is retained indefinitely.
   rule {
     id     = "expire-file-send-copy-plans"
     status = "Enabled"
@@ -140,7 +140,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
   #
   # IT IS A SEPARATE RULE FOR THE SAME REASON THE OTHER TWO ARE: S3 lifecycle takes one prefix
   # per rule, and a prefix broad enough to cover all three ("") would match `logs/`, which
-  # SPEC-127 FR-009 retains indefinitely. The `archive/` prefix here is the ADMIN bucket's
+  # is retained indefinitely. The `archive/` prefix here is the ADMIN bucket's
   # control-plane scratch space and has nothing to do with the `archive/` folder in a user's own
   # space (which holds receipts and is never expired) or with the archive BUCKET (7 years).
   # Three unrelated things named `archive/`, in three buckets, is worth stating once.
@@ -165,7 +165,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
   # Unfiltered is safe here in a way an expiration rule would NOT be: this rule carries no
   # `expiration`, and abort-incomplete-multipart-upload can only discard the PARTS of an upload
   # that never completed. It cannot delete an object, so it cannot reach `logs/`, which
-  # SPEC-127 FR-009 retains indefinitely. The check below now pins exactly that distinction.
+  # is retained indefinitely. The check below pins exactly that distinction.
   rule {
     id     = "abort-incomplete-multipart-uploads"
     status = "Enabled"
@@ -201,6 +201,6 @@ check "admin_lifecycle_rules_are_prefix_scoped" {
       try(one(r.filter).prefix, "") != ""
       if length(r.expiration) > 0 || length(r.noncurrent_version_expiration) > 0
     ])
-    error_message = "Every admin-bucket lifecycle rule that EXPIRES objects must carry a non-empty filter.prefix. An unfiltered expiring rule matches logs/ too, which SPEC-127 FR-009 retains indefinitely — S3 lifecycle can include a prefix but never exclude one. (A rule with no expiration, e.g. abort-incomplete-multipart-upload, is exempt: it cannot delete an object.)"
+    error_message = "Every admin-bucket lifecycle rule that EXPIRES objects must carry a non-empty filter.prefix. An unfiltered expiring rule matches logs/ too, which is retained indefinitely — S3 lifecycle can include a prefix but never exclude one. (A rule with no expiration, e.g. abort-incomplete-multipart-upload, is exempt: it cannot delete an object.)"
   }
 }

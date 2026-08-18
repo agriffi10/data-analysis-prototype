@@ -22,16 +22,16 @@ resource "aws_lakeformation_data_lake_settings" "this" {
   # compact() also drops any empty ARN so the module still plans standalone.
   # - shared-space orchestrator — grants on shared DBs + the shared
   #     location; constructed string, ordered after module.shared_spaces so it exists.
-  #   - table-builder execution role (SPEC-070; shared by all five verbs) — Describes
+  #   - table-builder execution role (shared by all five verbs) — Describes
   #     (check-table-absent) + CREATEs (execute-ddl) tables in the dynamic per-user +
   #     per-shared-space target DBs (can't be statically enumerated → catalog-wide
   #     Describe/create via LF admin). Constructed string; the role is created by
   #     module.table_builder (which depends_on this module), so a from-scratch first
   # apply may need a re-run once the role exists.
-  #   - table-share execution role (SPEC-092; same model) — reads LF-gated source
+  #   - table-share execution role (same model) — reads LF-gated source
   #     tables (inspect-source), Describes recipient DBs (check-target-absent) and
   #     CREATEs the clone tables (create-table) in the dynamic recipient DBs.
-  #   - data-quality execution role (SPEC-111; same model, shared by all nine verbs) —
+  #   - data-quality execution role (same model, shared by all nine verbs) —
   #     CREATEs (create-temp-tables) and DELETEs (drop-temp-tables) the THROWAWAY
   #     dq_tmp_* external tables Athena profiles the source through, in the actor's own
   #     database or the shared space's. Every table it creates is dropped on both the
@@ -77,9 +77,9 @@ resource "aws_lakeformation_resource" "user_space" {
 # both CREATE EXTERNAL TABLE (read-only) and CTAS / INSERT INTO (writes). This is a
 # single location-level grant (not per-user); per-user gating still comes from IAM
 # (the Glue database ARN principal-tag scoping in FR-006 and S3
-# ${aws:PrincipalTag/username}/* from SPEC-013), so the role can only actually
+# ${aws:PrincipalTag/username}/*), so the role can only actually
 # create/write within its own session's prefix. The LF INSERT *table* permission
-# for writes is granted later, per-database, by the SPEC-033 Lambda.
+# for writes is granted later, per-database, by the post-confirmation Lambda.
 resource "aws_lakeformation_permissions" "portal_data_location" {
   principal   = var.portal_role_arn
   permissions = ["DATA_LOCATION_ACCESS"]
@@ -95,7 +95,7 @@ resource "aws_lakeformation_permissions" "portal_data_location" {
 }
 
 # ── TBAC: control-plane create-table access to every managed database ─────────
-# Fixes the SPEC-070/111 error. Being an LF data-lake ADMIN does NOT grant a role
+# Being an LF data-lake ADMIN does NOT grant a role
 # CREATE_TABLE on a database it did not create — so table-builder / table-share /
 # data-quality (all admins) cannot create tables in the dynamic per-user /
 # per-shared-space target DBs. Rather than loop a per-DB named grant onto each of
@@ -107,7 +107,7 @@ resource "aws_lakeformation_permissions" "portal_data_location" {
 #
 # The portal role is deliberately NOT tag-granted: its per-user isolation depends on
 # the named database ARN + IAM principal tag, so it keeps its per-DB named grant
-# (issued by the SPEC-033 Lambda) rather than blanket tag access to every DB.
+# (issued by the post-confirmation Lambda) rather than blanket tag access to every DB.
 locals {
   # The three shared control-plane execution roles that create tables in dynamic
   # managed DBs. compact() drops any empty ARN so the module still plans standalone.
@@ -163,7 +163,7 @@ resource "aws_lakeformation_permissions" "provisioner_tag_associate" {
   # The revoke then FAILS, because the grant it describes was never explicitly made:
   #   InvalidInputException: No permissions revoked. Revoking Tag permissions on Tags
   #   that grantee does not have permissions on.
-  # (Observed 2026-07-21 on the SPEC-112 phase-3 merge, which aborted the apply before it
+  # (Observed once on a merge that aborted the apply before it
   # reached the state machine. Nothing was revoked, so the grants survived — a louder
   # failure than it looks, and a luckier one.)
   #
@@ -238,7 +238,7 @@ resource "aws_lakeformation_permissions" "control_plane_user_data_location" {
   ]
 }
 
-# ── SPEC-186 FR-004: the read-only verification principal ────────────────────
+# ── The read-only verification principal ────────────────────────────────────
 # The catalog half of that role's access. DESCRIBE alone, on the same `portal-managed` tag
 # the control-plane roles hang off — because the databases are created at runtime, one per
 # username and one per shared space, so nothing static can enumerate them.

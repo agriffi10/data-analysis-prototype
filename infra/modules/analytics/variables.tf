@@ -14,7 +14,7 @@ variable "athena_admin_bucket_name" {
 }
 
 variable "admin_results_retention_days" {
-  description = "Lifecycle expiry (days) for objects in the admin-only results bucket. Distinct from the user-facing {username}/athenaresults/ prefix, which is retained indefinitely (SPEC-032 Open Questions)."
+  description = "Lifecycle expiry (days) for objects in the admin-only results bucket. Distinct from the user-facing {username}/athenaresults/ prefix, which is retained indefinitely by decision."
   type        = number
   default     = 30
 }
@@ -69,13 +69,13 @@ variable "deploy_role_arn" {
 }
 
 variable "lambda_provisioner_role_arn" {
-  description = "ARN of the SPEC-033 post-confirmation Lambda execution role, added as a Lake Formation admin so it can issue per-database grants. Optional — empty until SPEC-033 fills it (compact() drops it), keeping this module deployable standalone."
+  description = "ARN of the post-confirmation Lambda execution role, added as a Lake Formation admin so it can issue per-database grants. Optional — empty until the auth module fills it (compact() drops it), keeping this module deployable standalone."
   type        = string
   default     = ""
 }
 
 variable "shared_space_orchestrator_role_arn" {
-  description = "ARN of the shared-space orchestrator role (SPEC-050), added as a Lake Formation admin so it can GrantPermissions on shared DBs + DATA_LOCATION_ACCESS on the shared location. Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
+  description = "ARN of the shared-space orchestrator role, added as a Lake Formation admin so it can GrantPermissions on shared DBs + DATA_LOCATION_ACCESS on the shared location. Constructed string from root (known at plan time → compact()-safe); empty keeps this module standalone."
   type        = string
   default     = ""
 }

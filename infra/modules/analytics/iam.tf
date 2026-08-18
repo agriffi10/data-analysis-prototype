@@ -22,7 +22,7 @@ resource "aws_iam_role_policy" "lf_registration" {
 
 # ── Portal role — analytics permissions ────────────────────
 # A SECOND inline policy on the shared portal role (the first, "user-space-access",
-# is attached by module.data / SPEC-013). Glue is scoped to database/<username> and
+# is attached by module.data). Glue is scoped to database/<username> and
 # table/<username>/* via the `username` principal tag — THIS is the per-user
 # isolation gate: a session tagged username=alice can only address database/alice.
 # Athena is workgroup-scoped (ListQueryExecutions omitted — it would leak other

@@ -4,7 +4,7 @@
 #
 # THE BROWSER HAS NO RELATIONSHIP WITH THIS BUCKET AT ALL, and that is the design rather
 # than an omission: there is NO CORS configuration below (the same explicit absence the
-# admin bucket carries), the host is NOT in the CSP connect-src (modules/app, SPEC-140 —
+# admin bucket carries), the host is NOT in the CSP connect-src (modules/app —
 # a reviewer must be able to read that enumerated list and see no archive host), and the
 # portal role holds ZERO statements naming this ARN. The only route to archived bytes is
 # a restore request through this plane, which is the whole point of archiving being

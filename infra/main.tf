@@ -647,7 +647,7 @@ module "table_builder" {
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  # base grants the deploy role its table-builder perms (SPEC-066 PR1, already
+  # base grants the deploy role its table-builder perms (already
   # applied); data creates the portal role this module attaches the enqueue policy to.
   # Settle those first. NOTE: this module is ordered BEFORE module.analytics (which
   # depends_on it) so the shared execution role EXISTS before analytics adds it to the
@@ -708,7 +708,7 @@ module "table_share" {
   logs_queue_arn = module.observability.logs_queue_arn
   logs_queue_url = module.observability.logs_queue_url
 
-  # base grants the deploy role its table-share perms (SPEC-088 PR1, already
+  # base grants the deploy role its table-share perms (already
   # applied); data creates the portal role this module attaches the enqueue policy
   # to. Settle both first.
   depends_on = [module.base, module.data]
@@ -725,8 +725,7 @@ module "table_share" {
 # different failure vocabulary. One queue and one DLQ under two unrelated user features
 # would let a malformed send dead-letter someone's table share.
 #
-# SPEC-164 is the plane + the front door (validate-authorize); nothing is listed or copied
-# yet. Decision record: docs/architecture.md (Control Planes -> Send Files).
+# The plane and its front door. Nothing is listed or copied by the front door itself. Decision record: docs/architecture.md (Control Planes -> Send Files).
 # Standalone-deployable: names derive from {project}-{environment} inside the module. The
 # deploy-role grants this module needs are already applied, so no in-module
 # time_sleep guard is required. NOT on the analytics LF admins list — this plane creates no
@@ -776,8 +775,7 @@ module "file_send" {
 # branching on `mode`, because the two share the bucket, the role, the key layout and the
 # receipt (the table-builder's create/refresh branch is the precedent).
 #
-# SPEC-168 is the bucket + the plane + the front door (validate-authorize); nothing is
-# listed, copied or deleted yet, and nothing about restore exists. Decision record:
+# The vault bucket, the plane and its front door. Decision record:
 # docs/architecture.md (Control Planes -> Archive).
 #
 # THE BROWSER HAS NO RELATIONSHIP WITH THE ARCHIVE BUCKET, which is why this block passes
@@ -977,7 +975,7 @@ module "observability" {
   depends_on = [module.base]
 }
 
-# SPEC-146 username directory: one scheduled Lambda that lists the user-space bucket's
+# Username directory: one scheduled Lambda that lists the user-space bucket's
 # workspace prefixes once a day and publishes them as _directory/usernames.json, which the
 # browser reads to suggest usernames. Not a control plane — no queue, no state
 # machine, no verbs; the closest sibling is module.observability's sweep.
