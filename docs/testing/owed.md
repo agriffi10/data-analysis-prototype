@@ -282,7 +282,28 @@ The role is audit-shaped, not a data grant: no `SELECT`, no `DATA_LOCATION_ACCES
 `verification_principal_arns` names a principal, because delegating to the account root was
 rejected by the plan scan (`CKV_AWS_61`) for the right reason.
 
-### 2.6 IAM policy simulation
+### 2.6 The `username` principal tag, from the audit record
+
+The tag is stamped **server-side** from the verified claim, which is the whole isolation model —
+and it is unobservable from the app. Sign in on a **fresh** session (credentials are issued at token
+exchange, so a cached one never fires the event), then read the record.
+
+**Look for `AssumeRoleWithWebIdentity` from `sts.amazonaws.com`** — not the `CognitoAuthentication`
+event, which is the Hosted UI login on `cognito-idp` and **never carries the principal tag**. Mixing
+them up reads as a missing tag on a correct system. CloudTrail lags a few minutes.
+
+```bash
+aws cloudtrail lookup-events \
+  --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity \
+  --max-results 5 --query 'Events[].CloudTrailEvent' --output text \
+  | grep -o '"principalTags":{[^}]*}'
+```
+
+Expect `"username":"<the signed-in username>"`. In the browser, `GetId` and
+`GetCredentialsForIdentity` both return **200** on the `cognito-identity` host — that is the
+User-Pool-token → AWS-credentials exchange, and without it there is no STS event to find.
+
+### 2.7 IAM policy simulation
 
 The pattern, whenever a grant is tightened or widened. **Every denial needs an `allowed` control on
 the same bucket** — an `implicitDeny` alone cannot tell an ungranted action from a wrong resource
