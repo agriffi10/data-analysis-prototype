@@ -63,7 +63,7 @@ export type UseTabRunsResult = {
   dropRunState: (id: string) => void;
   /** Clears a tab's error and marks it dismissed, so the banner stays closed. */
   dismissError: (tabId: string) => void;
-  /** SPEC-078 FR-007: switch which result-producing statement the results region shows. */
+  /** switch which result-producing statement the results region shows. */
   selectResultTab: (tabId: string, index: number) => void;
 };
 
@@ -77,7 +77,7 @@ type Params = {
 };
 
 /**
- * The query workspace's batch state machine (SPEC-041 + SPEC-078), extracted
+ * The query workspace's batch state machine, extracted
  * whole from `QueryWorkspace` so the container renders rather than schedules.
  *
  * Owns per-tab run state, the headless pollers that drive it, submission,

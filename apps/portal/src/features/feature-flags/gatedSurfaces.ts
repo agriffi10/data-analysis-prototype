@@ -32,7 +32,7 @@ export type GatedSurface = {
  * lives in the file browser and is a Query feature; "Share table" lives in the Query rail and
  * pushes into Shared Workspaces; "Check data quality" is a button on a file-browser selection.
  * A per-component pass finds three of those and ships the fourth visible — the failure
- * `process.md` records from log-forge's SPEC-033, which is why this is a registry with a
+ * `process.md` records the same finding, which is why this is a registry with a
  * walking test rather than a checklist.
  *
  * Adding a fifth entry point is therefore a registry edit, not a discovery exercise, and
@@ -65,7 +65,7 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // mechanism, already registered twice above, and a row per producer would grow one row per
     // future plane for a clause nobody can change independently.
     {name: 'Archive selected items', kind: 'control', path: '/files'},
-    // The DETAILS-PANEL entry point, and its own row for the reason SPEC-167 gave the send
+    // The DETAILS-PANEL entry point, and its own row for the reason the send plane gave its
     // dialog's recipient kind one: the toolbar row renders the toolbar, so nothing would notice
     // if this one stopped being gated. A single item that has not been selected is reachable
     // only here — there is no context menu in this file browser.
@@ -121,7 +121,7 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // which reads `useQuerySpaces` and would otherwise go on naming a colleague's space in a
     // dropdown after the rest of the app stopped showing it.
     {name: 'Shared spaces in the saved-queries selector', kind: 'control', path: '/query'},
-    // A SECOND instance of the same choice, on the same reasoning SPEC-167 used for
+    // A SECOND instance of the same choice, on the same reasoning the send plane used for
     // the send dialog's recipient kind: the row above renders the DRAWER, so nothing would
     // notice if the save dialog's destination control stopped being gated — and that failure
     // is the worse of the two, because it offers a colleague's space as a WRITE target.
@@ -150,7 +150,7 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // The export destination, on the same footing again — and its TWIN below is
     // the point: `useSaveResults` built its own list from an unfiltered `useQuerySpaces()`,
     // so the Query workspace's Save-results dialog had been offering a colleague's space as
-    // a write target with this flag off, unregistered and unnoticed since SPEC-055. The hook
+    // a write target with this flag off, unregistered and unnoticed for a long time. The hook
     // now takes its destinations as a parameter and both views gate them.
     {name: 'Shared spaces in the Data Explorer export dialog', kind: 'control', path: '/explore'},
     {name: 'Shared spaces in the save-results dialog', kind: 'control', path: '/query'}

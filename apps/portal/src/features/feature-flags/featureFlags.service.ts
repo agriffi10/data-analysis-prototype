@@ -22,7 +22,7 @@ const SUPPORTED_VERSION = 1;
  * its entry points; it revokes no IAM grant, no queue permission and no credential scope,
  * and the portal role's policy is identical either way. Anyone reading this document as a
  * security boundary has misread it — the same rule that governs the username
- * directory, and SPEC-162 FR-006 pins it with a test: no service and nothing in `lib/` may
+ * directory, and a test pins it: no service and nothing in `lib/` may
  * import this module.
  *
  * **AN UNUSABLE DOCUMENT IS A FAILURE RESULT, NOT AN EMPTY SUCCESS**, and that is the one

@@ -38,7 +38,7 @@ function newRule(): ColourRule {
 }
 
 /**
- * Conditional colouring, colour-by-type and row banding, in one staged form (SPEC-184
+ * Conditional colouring, colour-by-type and row banding, in one staged form (
  * FR-002, FR-003, FR-004).
  *
  * Staged for `OrderFilterDialog`'s reason turned inside out. There it is about cost — many

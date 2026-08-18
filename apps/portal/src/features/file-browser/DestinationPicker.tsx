@@ -54,7 +54,7 @@ type BaseProps = {
 
 // The prefix marker used to need a caller-supplied key here, because in
 // selectable-files mode an unfiltered `DO_NOT_DELETE.txt` sat at every space root
-// as a selectable target. SPEC-173 FR-003 made `useFileBrowser` hide every marker
+// as a selectable target. `useFileBrowser` hides every marker
 // by basename, so the rule holds for every caller with nothing to pass.
 type Props = BaseProps & {
   // Opt-in: render file rows as selectable buttons. Deliberately NOT defaulted
@@ -69,7 +69,7 @@ type Props = BaseProps & {
 // user-root instance is locked.
 //
 // `locked` is composed by the caller rather than read from the constant, because
-// SPEC-173 FR-008 adds one entry the FLAG decides: `saved_queries/` is an
+// One entry the FLAG decides: `saved_queries/` is an
 // ordinary paste target, and a destination the user cannot see is not a
 // destination.
 function isProtectedFolder(folderPrefix: string, rootPrefix: string, locked: readonly string[]): boolean {
@@ -88,7 +88,7 @@ function isProtectedFolder(folderPrefix: string, rootPrefix: string, locked: rea
 // valid destination is caller-controlled (`allowCurrentParent`): Move forbids it,
 // Copy allows it (same-folder auto-number).
 //
-// SPEC-124 FR-003 adds an opt-in `selectableFiles` mode for the caller that targets
+// An opt-in `selectableFiles` mode exists for the caller that targets
 // data rather than a destination (the data-quality dialog). There a file row can be
 // selected as the target, the resolved target is reported back via `onTargetChange`
 // (the picker keeps owning the browse state).

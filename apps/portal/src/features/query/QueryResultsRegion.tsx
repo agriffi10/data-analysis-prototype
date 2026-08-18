@@ -33,7 +33,7 @@ type Props = {
   results: UseQueryResultsResult;
   pageSize: UseResultsPageSizeResult;
   colWidths: UseColumnWidthsResult;
-  /** SPEC-078 FR-007: show the tab-per-statement scope's result-tab strip. */
+  /** show the tab-per-statement scope's result-tab strip. */
   showResultTabs: boolean;
   showError: boolean;
   errorMessage: string | null;

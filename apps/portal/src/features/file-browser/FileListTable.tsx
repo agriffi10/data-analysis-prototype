@@ -24,7 +24,7 @@ export type FileListProps = {
   onOpenFolder: (folder: S3FolderItem) => void;
   onFolderDetails: (folder: S3FolderItem) => void;
   onFileDetails: (file: S3FileItem) => void;
-  /** SPEC-081: double-click (table) / tap (mobile) downloads the row. */
+  /** Double-click (table) / tap (mobile) downloads the row. */
   onActivateFile: (file: S3FileItem) => void;
   /** The key currently being signed, so its row shows a busy state. */
   downloadingKey: string | null;

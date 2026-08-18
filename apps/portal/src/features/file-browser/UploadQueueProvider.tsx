@@ -15,9 +15,9 @@ import {
   type UploadQueueContextValue
 } from './uploadQueueContext';
 
-// SPEC-020 FR-001/FR-002 (+ feedback 2026-06-30): drives the upload queue. The
+// Drives the upload queue. The
 // pure reducer (uploadQueueContext) owns the item list; this provider runs the
-// side effects — a concurrency gate that starts queued items via SPEC-016's
+// side effects — a concurrency gate that starts queued items via the uploader's
 // `uploadFile`, wires progress + cancel, and invalidates the listing as each
 // upload finishes.
 //

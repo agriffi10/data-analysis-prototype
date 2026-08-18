@@ -51,7 +51,7 @@ type Props = {
   prefix?: string; // initial prefix; browser starts here on mount
   rootPrefix?: string; // navigation floor; defaults to prefix prop value
   rootLabel?: string; // label for the root crumb; hides the raw prefix segment
-  // (e.g. "My Files" instead of the username) — SPEC-013
+  // (e.g. "My Files" instead of the username) —
   writable?: boolean; // show upload + create-folder controls. Off in
   // the dev-unauth path (no scoped write credentials).
   username?: string; // the space's root-prefix owner — the marker guard protects
@@ -130,7 +130,7 @@ function FileBrowserContent({
   const folders = allFolders.filter((f) => !isRootFolderNamed(f.prefix, rootPrefix, hiddenFolders));
 
   // Create-folder scoped to the folder currently being viewed. File
-  // uploads are now owned by the SPEC-020 queue, so useFileUpload is used here
+  // uploads are now owned by the upload queue, so useFileUpload is used here
   // only for create-folder (and its folder-name collision / error).
   const currentPrefix = prefix ?? '';
   const {
@@ -343,7 +343,7 @@ function FileBrowserContent({
       )}
 
       {/* Write controls — create folder (modal dialog); file uploads go
-          to the SPEC-020 queue. Hidden in read-only (dev-unauth) mode. */}
+          to the upload queue. Hidden in read-only (dev-unauth) mode. */}
       {writable && (
         <>
           {dialogs.creatingFolder && (
@@ -487,7 +487,7 @@ function FileBrowserContent({
         />
       )}
 
-      {/* Selection toolbar (SPEC-018 + SPEC-019 + SPEC-039 + SPEC-113 + SPEC-167) — select all +
+      {/* Selection toolbar — select all +
           bulk send/copy/move/delete + the single-item data-quality check */}
       {canModify && hasContent && (
         <SelectionToolbar
@@ -588,7 +588,7 @@ function FileBrowserContent({
       )}
 
       {/* File and folder list. Also renders for an empty non-root folder so the
-          `..` row stays reachable. Structural markup swap (SPEC-099
+          `..` row stays reachable. Structural markup swap (
           FR-002/003): a data table at ≥ tablet, a compact two-line card list on
           mobile — same data + handlers. */}
       {(hasContent || (isEmpty && !atRoot)) &&

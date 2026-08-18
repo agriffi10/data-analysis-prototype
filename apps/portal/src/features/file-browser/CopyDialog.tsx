@@ -70,7 +70,7 @@ function SameFolderCopyDialog({prompt, itemCount}: {prompt: SameFolderPrompt; it
   );
 }
 
-// SPEC-039 FR-004/FR-006: destination-folder picker for Copy — a thin modal shell
+// Destination-folder picker for Copy — a thin modal shell
 // over the shared `DestinationPicker` (parallels MoveDialog). Unlike Move, Copy
 // allows the items' current parent as a destination (`allowCurrentParent`): that
 // triggers the same-folder auto-number flow (FR-003), which replaces the picker

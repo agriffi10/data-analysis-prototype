@@ -9,15 +9,15 @@ import type {S3FileItem, S3FolderItem} from '../../types/s3.types';
 export type RenameTarget = {item: SelectableItem; name: string; kind: 'file' | 'folder'};
 
 export type UseFileBrowserDialogsResult = {
-  /** SPEC-016: the create-folder dialog. */
+  /** the create-folder dialog. */
   creatingFolder: boolean;
   toggleCreateFolder: () => void;
   closeCreateFolder: () => void;
-  /** SPEC-020: the add-files drawer. */
+  /** the add-files drawer. */
   uploadOpen: boolean;
   openUpload: () => void;
   closeUpload: () => void;
-  /** SPEC-017: the file whose read-only metadata drawer is open (null = closed). */
+  /** the file whose read-only metadata drawer is open (null = closed). */
   detailsFile: S3FileItem | null;
   openFileDetails: (file: S3FileItem) => void;
   closeFileDetails: () => void;
@@ -25,32 +25,32 @@ export type UseFileBrowserDialogsResult = {
   detailsFolder: S3FolderItem | null;
   openFolderDetails: (folder: S3FolderItem) => void;
   closeFolderDetails: () => void;
-  /** SPEC-018 FR-004: nothing is deleted until this is confirmed. */
+  /** nothing is deleted until this is confirmed. */
   confirmDeleteOpen: boolean;
   openConfirmDelete: () => void;
   closeConfirmDelete: () => void;
   confirmDelete: () => Promise<void>;
-  /** SPEC-019 FR-002: rename = move within the same parent. */
+  /** rename = move within the same parent. */
   renaming: RenameTarget | null;
   openRenameFile: (file: S3FileItem) => void;
   openRenameFolder: (folder: S3FolderItem) => void;
   confirmRename: (newName: string) => void;
   cancelRename: () => void;
-  /** SPEC-019 FR-003: the items being moved (null = no move dialog). */
+  /** the items being moved (null = no move dialog). */
   moving: SelectableItem[] | null;
   openMove: () => void;
   cancelMove: () => void;
   confirmMove: (destPrefix: string, destBucket: string) => void;
-  /** SPEC-039 FR-004: the items being copied (null = no copy dialog). */
+  /** the items being copied (null = no copy dialog). */
   copying: SelectableItem[] | null;
   openCopy: () => void;
   cancelCopy: () => void;
   confirmCopy: (destPrefix: string, destBucket: string) => void;
-  /** SPEC-039 FR-003: the same-folder auto-number prompt's confirm closes the dialog. */
+  /** the same-folder auto-number prompt's confirm closes the dialog. */
   finishSameFolderCopy: () => void;
   /** The same-folder prompt's cancel — closes the dialog, keeps the selection. */
   abandonSameFolderCopy: () => void;
-  /** SPEC-113: the one selected item awaiting a data-quality check (null = closed). */
+  /** the one selected item awaiting a data-quality check (null = closed). */
   checkingQuality: SelectableItem | null;
   openQualityCheck: () => void;
   closeQualityCheck: () => void;

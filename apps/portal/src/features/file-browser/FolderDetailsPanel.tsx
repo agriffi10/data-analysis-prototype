@@ -28,7 +28,7 @@ type Props = {
 
 // Read-only details drawer for a folder (prefix). Folders have no HeadObject
 // metadata, so unlike MetadataPanel this renders synchronously from the listing
-// item: name, user-relative path, and the fully-qualified S3 URI. SPEC-097 adds a
+// item: name, user-relative path, and the fully-qualified S3 URI. There is a
 // full-width Rename action (folders aren't downloadable); hidden in read-only mode.
 export function FolderDetailsPanel({
   bucket,

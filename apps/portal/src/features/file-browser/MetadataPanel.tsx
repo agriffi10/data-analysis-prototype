@@ -184,7 +184,7 @@ function MetadataFields({
 // a read-only drawer showing a single file's metadata, rendered
 // in the shared Drawer primitive (blur backdrop + focus trap; dismissible via the
 // close button, Escape, or backdrop click — focus returns to the trigger on
-// close). SPEC-097 adds a Download + Rename action pair at the top. The fetch
+// close). A Download + Rename action pair sits at the top. The fetch
 // state (loading / inline error / data) comes from useObjectMetadata; reopening
 // after an error refetches because a fresh observer mounts on the same query key.
 export function MetadataPanel({

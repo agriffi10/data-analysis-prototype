@@ -3,7 +3,7 @@ import {useSearchParams} from 'react-router';
 import {isConnectionUsable} from '../connections/connection.types';
 import type {Connection} from '../connections/connection.types';
 
-// SPEC-057 Data Model: the file browser's active "space" — derived from a
+// the file browser's active "space" — derived from a
 // `Connection`. Selecting a space points the browser at that
 // space's bucket + root prefix; personal → the user-space bucket at `{username}/`,
 // shared → `dat-prod-shared-space/{name}/`. `label` is the root breadcrumb crumb
@@ -101,7 +101,7 @@ export function usableSpaceTargets(
     .filter((t): t is FileSpaceTarget => t !== null);
 }
 
-// SPEC-057 FR-002/FR-004/FR-005: the file browser's active-space state, derived
+// the file browser's active-space state, derived
 // from `useConnections` and synced to the `?space=` route param.
 // Selection flows through the URL so a deep-link (`/files?space=…&prefix=…`) and a
 // sidebar click are one mechanism, and a vanished/unusable space reconciles to the

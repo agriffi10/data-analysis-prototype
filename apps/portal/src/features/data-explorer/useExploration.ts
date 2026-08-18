@@ -33,7 +33,7 @@ export type UseExplorationResult = {
 };
 
 /**
- * Runs an exploration and reports what it cost (SPEC-178 FR-006 / FR-007).
+ * Runs an exploration and reports what it cost.
  *
  * The rendered SQL is the cache key, so this hook is the feature's cost control as much
  * as its data path: an identical description resolves to the execution already run.

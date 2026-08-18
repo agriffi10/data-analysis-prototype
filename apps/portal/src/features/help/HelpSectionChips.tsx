@@ -9,7 +9,7 @@ type HelpSectionChipsProps = {
 
 /**
  * Mobile (`< tablet`) section selector for the Help page — a horizontal,
- * `overflow-x-auto` single row of chips replacing the vertical rail (SPEC-103
+ * `overflow-x-auto` single row of chips replacing the vertical rail (
  * FR-003). The active section's chip is highlighted; selecting one drives the
  * same URL-hash `onSelect` path the rail uses (FR-004). Mount-gated by `HelpPage`
  * to mobile only, so it and the rail are never both in the layout.

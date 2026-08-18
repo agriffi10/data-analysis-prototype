@@ -58,7 +58,7 @@
 // never a paste target. So membership differs ON PURPOSE, and the divergence
 // §6.3 flags is only a defect where it is ACCIDENTAL. One such gap existed and
 // is closed below — `shared_tables/` was pasteable. `_fc-work` stays
-// dqcommon-only: the SPEC-116 arc was cancelled with nothing built, so nothing
+// dqcommon-only: the file-converter arc was cancelled with nothing built, so nothing
 // ever creates that folder; it is defensive there and would be dead config here.
 
 import type {SelectableItem} from './selectionContext';
@@ -88,8 +88,8 @@ export const PICKER_LOCKED_FOLDERS = [
  * and browsable on purpose — you want to see your query results — but the role
  * policy's `ResultsNoDelete` Sid denies `s3:DeleteObject` beneath it, so
  * offering Delete only ever produced "You don't have permission to do that" for
- * a rule this app itself authored. SPEC-057:97-98 already stated the UI refuses
- * this; SPEC-150 FR-007 is that criterion finally being met.
+ * a rule this app itself authored. The UI has always refused
+ * this, and the guardrail pass is that criterion finally being met.
  *
  * `saved_queries/` is the second case, and it is the one that proves
  * the lists are not a union: it is VISIBLE, it IS a valid paste target, and only
@@ -200,7 +200,7 @@ export function isRootFolderNamed(folderPrefix: string, rootPrefix: string, name
 
 /**
  * Is this folder one the portal refuses to destroy? True only at the SPACE root,
- * which is `rootPrefix` — so it holds identically in a shared space (SPEC-057's
+ * which is `rootPrefix` — so it holds identically in a shared space (the space
  * own framing) and leaves `alice/reports/athenaresults/` an ordinary folder the
  * user may delete.
  */

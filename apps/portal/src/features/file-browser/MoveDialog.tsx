@@ -16,7 +16,7 @@ type Props = {
   onCancel: () => void;
 };
 
-// Destination-folder picker for Move. Refactored in SPEC-039
+// Destination-folder picker for Move. Shares its shell with Copy (
 // FR-006 to be a thin modal shell over the shared `DestinationPicker` (no behavior
 // change to move). Move forbids the items' current parent as a destination (a
 // no-op), so `allowCurrentParent` is left off.

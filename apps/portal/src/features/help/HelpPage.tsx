@@ -43,7 +43,7 @@ export function HelpPage() {
   const query = useFeature('query');
   const sharedWorkspaces = useFeature('sharedWorkspaces');
   const dataQuality = useFeature('dataQuality');
-  // SPEC-185 registered the Data Explorer's section and its five guides, so this flag now
+  // The Data Explorer's section carries five guides, so this flag now
   // hides content like the other four. The map below stays TOTAL over `FeatureFlagKey`
   // regardless: a partial one type-errors here rather than silently answering `undefined`
   // (falsy, so every guide) the day a new flag's first guide row is registered.

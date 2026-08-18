@@ -33,7 +33,7 @@ function itemName(item: SendItem): string {
  * The note shown after committing a space name the user's own space list does not hold.
  *
  * It must NOT read as a rejection: any active space is a valid target whether or not the sender
- * belongs to it, and the suggestions cover only the sender's own spaces. SPEC-158 established
+ * belongs to it, and the suggestions cover only the sender's own spaces. That rule was established
  * this wording for the share dialog and it is the same claim here.
  *
  * @param names - The committed names absent from the suggestions; never empty.
@@ -81,7 +81,7 @@ export function SendFilesDialog({items, busy = false, submitError, onSubmit, onC
 
   const addPending = () => {
     // The Add button drives the combobox's OWN commit so the button and Enter take one path —
-    // otherwise only one of them would surface the invalid tokens SPEC-148 requires to be shown.
+    // otherwise only one of them would surface the invalid tokens the combobox requires to be shown.
     entryRef.current?.commit();
     entryRef.current?.focus();
   };

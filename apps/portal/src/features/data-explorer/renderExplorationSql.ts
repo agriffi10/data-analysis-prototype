@@ -152,7 +152,7 @@ function renderWhere(filters: ColumnFilter[], expression: string | null): string
  * made it, instead of surfacing seconds later as an engine error the app is forbidden to
  * render.
  *
- * **Exported so the Grouping panel refuses exactly what the renderer refuses** (SPEC-182
+ * **Exported so the Grouping panel refuses exactly what the renderer refuses** (
  * FR-004 AC3), on the `isBareNumeric` precedent. It returns the offending COLUMN rather
  * than a message, because the two callers have to word it differently: this file wraps it
  * in operator text naming the column, and the panel wraps it in a sentence a user is
