@@ -8,7 +8,7 @@ import {enqueueSharedSpaceRequest} from '../features/shared-spaces/sharedSpaces.
 import {enqueueTableBuild, enqueueTableRefresh} from '../features/table-builder/tableBuild.service';
 import {enqueueTableShare} from '../features/table-share/tableShare.service';
 import {enqueueFileSend} from '../features/file-send/fileSend.service';
-import {REQUIRED_ENV, envVar, isPortalConfigured, missingRequiredEnv, warnIfMisconfigured} from './env';
+import {OPTIONAL_ENV, REQUIRED_ENV, envVar, isPortalConfigured, missingRequiredEnv, warnIfMisconfigured} from './env';
 import type {ServiceResult} from '../types/service.types';
 import protectedLayoutSource from '../components/ProtectedLayout.tsx?raw';
 import fileBrowserServiceSource from '../features/file-browser/fileBrowser.service.ts?raw';
@@ -357,6 +357,54 @@ describe('enqueueFifo', () => {
 
 // ─── from env.test.ts ───
 describe('env', () => {
+  /**
+   * The registry is only useful if it is COMPLETE, and nothing enforced that until
+   * `VITE_ARCHIVE_QUEUE_URL` shipped read by `archive.service.ts`, wired into
+   * `deploy-app.yml` and absent from this module — so an unset repository variable
+   * made Archive and Restore silently do nothing, which is the exact failure
+   * `warnIfMisconfigured` exists to name. A hand-kept list rots; this one is derived
+   * from the source that reads the variables.
+   */
+  describe('the registry names every VITE_ variable the app reads', () => {
+    /**
+     * Read behind an `import.meta.env.DEV` guard at their own call sites and
+     * deliberately absent from `PortalEnvVar` — see `envVar`'s docstring, and
+     * SPEC-153's bypass guard, which asserts the set of modules naming the flag.
+     */
+    const DEV_ONLY = new Set([
+      'VITE_S3_DEV_UNAUTH',
+      'VITE_S3_BUCKET_NAME',
+      'VITE_S3_ROOT_PREFIX',
+      'VITE_AWS_ACCESS_KEY_ID',
+      'VITE_AWS_SECRET_ACCESS_KEY'
+    ]);
+
+    const SOURCES = import.meta.glob('../**/*.{ts,tsx}', {
+      query: '?raw',
+      import: 'default',
+      eager: true
+    }) as Record<string, string>;
+
+    it('lists every VITE_ name that appears outside a test file', () => {
+      const known = new Set<string>([...REQUIRED_ENV, ...OPTIONAL_ENV, ...DEV_ONLY]);
+      const unregistered = new Map<string, string>();
+
+      for (const [path, source] of Object.entries(SOURCES)) {
+        if (path.includes('.test.') || path.includes('/test/')) continue;
+        // The registry module itself: its docstrings carry placeholder names
+        // (`import.meta.env.VITE_X`) that are not variables, and its own reads go
+        // through the registry by construction.
+        if (path.endsWith('/env.ts')) continue;
+        for (const name of source.match(/VITE_[A-Z0-9_]+/g) ?? []) {
+          if (!known.has(name)) unregistered.set(name, path);
+        }
+      }
+
+      expect(Object.keys(SOURCES).length).toBeGreaterThan(0);
+      expect([...unregistered.entries()]).toEqual([]);
+    });
+  });
+
   /** Set every required variable, so a test can then unset exactly the one it cares about. */
   function stubAllRequired(): void {
     for (const name of REQUIRED_ENV) vi.stubEnv(name, `value-for-${name}`);
