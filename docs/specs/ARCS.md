@@ -1747,12 +1747,29 @@ TTL is storage hygiene rather than the security boundary.
 
 ### Shared-space membership: the tags come from YOUR registry, not from any directory
 
-**Both directories are shut, and that is fine.** Membership is a principal tag today
+> **This section describes the TARGET ENVIRONMENT, not Arc B.** What Arc B actually builds is
+> **SPEC-196**, which stamps `shared_space_1..N` from the **`custom:shared_space_k` claims of the
+> verified Cognito ID token** — byte-identical to what the Identity Pool stamps today, which is the
+> whole argument that no IAM policy is rewritten. Do not source those tags from the registry while
+> building SPEC-196; that would break the equivalence, and SPEC-196 records it as a requirement whose
+> wrong implementation silently succeeds. `useSharedSpaceAccessRecovery` stays for the same reason:
+> claim-sourced tags still carry SPEC-056's propagation delay.
+
+**Both directories are effectively shut, and that is fine.** Membership is a principal tag today
 (`custom:shared_space_1..N`, written by `shared-space-add-members`, mapped by the Identity Pool to
-`${aws:PrincipalTag/shared_space_k}`). In the target environment you cannot write to Entra, and you
-cannot write to Identity Center either: **with an external IdP and SCIM provisioning, the IdC identity
-store is read-only** — no creating or updating users and groups. Anyone who plans to stash membership
-in a directory attribute will hit that wall.
+`${aws:PrincipalTag/shared_space_k}`). In the target environment you cannot write to Entra. Identity
+Center is subtler, and the flat claim that its store is "read-only under SCIM" is **wrong**: what AWS
+documents is that *"after setting up automatic provisioning with SCIM for your IdP, you can no longer
+add or edit users in the IAM Identity Center **console**"*, while *"the Identity Store APIs that allow
+for mutating users and group membership remain accessible"* to principals in the **management account
+and the delegated administrator account**.
+
+That is a stronger argument against stashing membership there, not a weaker one. The door exists but
+it is the wrong door: it needs management-account or delegated-admin privilege this application will
+never hold, and AWS warns in the same breath that using it on a SCIM-provisioned directory causes the
+directory to **drift from the IdP** — "breaking the expectation that the IdP is the single source of
+truth", with unintended privilege escalation and audit gaps named as the consequences, and an SCP
+offered to block it outright. So membership stays ours by design, not by inability.
 
 **The BFF removes the need.** Membership had to live in the IdP only because the *browser* received
 credentials directly and could not be trusted to assert its own. The BFF calls `AssumeRole` itself, so
@@ -1825,7 +1842,11 @@ Three facts fence that off, each confirmed against the live AWS docs:
 - **RAM sharing carries trusted identity propagation only inside one organization instance.** Grantor
   and grantee must be in the same **Region**, the same **AWS Organization**, and the same
   **organization instance** of IAM Identity Center. An account instance forecloses shape (a) outright —
-  hence the new open question below.
+  hence the new open question below. **Source note:** this one is *not* on the limitations page the
+  next two are quoted from — it is in Lake Formation's cross-account sharing material, corroborated by
+  Identity Center's own prerequisite that with an account instance *"all AWS services that you want
+  users to access with trusted identity propagation must reside in the same AWS account."* Do not go
+  looking for it on `identity-center-lf-notes.html` and conclude it is invented.
 - **The grants stay ours.** Lake Formation refuses to grant to IdC users or groups on Data Catalog
   resources in an external account — the literal error is *"Cross-account grants are not supported for
   the principal."* Permissions are granted only on resources in the **owning** account; an
@@ -1837,26 +1858,34 @@ Three facts fence that off, each confirmed against the live AWS docs:
   `AWSIAMIdentityCenterAllowListForIdentityContext` policy permits only the three S3 Access Grants
   operations, which is why plain `GetObject` is denied on that plane.
 
-**And the same page reaches our own Path B — harder than "unresolved" (re-read against the live doc,
-2026-08-18).** It was tempting to record this as something the documentation simply does not address.
-It is worse than that. The considerations list names *"Federated access to the Athena API"* among the
-features trusted identity propagation is **not compatible with**, and says queries in a TIP workgroup
-*"cannot be run directly from the Athena console. They must be run from the Athena interface in an
-EMR Studio that has IAM Identity Center enabled."* Athena SQL support for TIP is stated to be
-available *"in both EMR Studio and SageMaker Unified Studio"* — both studio products.
+**And the same page reaches our own Path B. It is AMBIGUOUS, and both confident readings are wrong.**
+The considerations list names *"Federated access to the Athena API"* among the features TIP is **not
+compatible with**, and says queries in a TIP workgroup *"cannot be run directly from the Athena
+console. They must be run from the Athena interface in an EMR Studio that has IAM Identity Center
+enabled."* Athena SQL support for TIP is stated to be available *"in both EMR Studio and SageMaker
+Unified Studio"* — both studio products. Read one way, our shape is exactly what that bullet excludes.
 
-Calling the Athena API with federated, identity-enhanced credentials from our own code is precisely
-what that incompatibility names. So the default assumption must be **unsupported**, not unverified:
-`transition_plan.md` §3.5's step 3 — and with it the whole catalog-plane design — rests on a shape AWS
-documents as out of scope, and a spike (gate G7) is how you would *challenge* that reading, not
-confirm it. If G7 fails, Phase 5 needs a different query surface.
+But AWS uses *"federated access to Athena"* elsewhere as a **narrow, named feature**: the page titled
+*Use Lake Formation and JDBC or ODBC drivers for federated access to Athena* defines it as *"SAML
+2.0-based federation with Athena using Okta and Microsoft Active Directory Federation Services (AD FS)
+identity providers"*. The sibling bullet in the very same incompatibility list names that driver
+feature, so the two plausibly read as the API half and the driver half of one SAML feature — which our
+shape is not. TIP's own mechanism (`AssumeRole` with `ProvidedContexts`) exists precisely so a caller
+*can* make AWS API calls carrying an identity context, and the console exclusion is explicable by the
+console's session not being identity-enhanced rather than by a ban on API callers.
 
-Four more constraints from the same list, each of which bites this design independently of G7:
-**IdC-enabled workgroups cannot be modified to support resource-level IAM permissions or identity-based
-IAM policies** (this portal's entire isolation model is identity-based policy); a workgroup's
-**authentication method is fixed at creation** and an existing workgroup cannot be converted;
-**entitlement changes take up to an hour**, which floors the reconciler's lag no matter how often it
-runs; and queries **time out at 30 minutes, one hour maximum** in a TIP workgroup.
+So: **materially at risk, not settled either way — and settled only by experiment.** That is gate G7
+(`transition_plan.md` §5.5), and it stays in **Phase 0** because `transition_plan.md` §3.5's step 3 and
+the whole catalog-plane design rest on the answer. Budget for the possibility that it fails; do not
+plan as though it already has.
+
+Three more constraints from the same list bite independently of G7. **An IdC-enabled workgroup cannot
+be modified to support resource-level IAM permissions or identity-based IAM policies** — which
+constrains what can happen *inside such a workgroup*, and does **not** touch §3.4's separate base plane,
+where `${aws:PrincipalTag/username}` keeps governing S3 and the personal Glue database. A workgroup's
+**authentication method is fixed at creation** and an existing workgroup cannot be converted.
+**Entitlement changes take up to an hour**, which floors the reconciler's lag no matter how often it
+runs, and queries **time out at 30 minutes, one hour maximum**.
 
 ### Was open — all four settled 2026-08-18, when the specs were written
 
