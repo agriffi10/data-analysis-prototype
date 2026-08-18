@@ -1745,6 +1745,60 @@ Two further constraints on that flow, both settled and both easy to lose: the jw
 an expired-but-undeleted item is still returned by reads — so session expiry is checked on read, and
 TTL is storage hygiene rather than the security boundary.
 
+### Shared-space membership: the tags come from YOUR registry, not from any directory
+
+**Both directories are shut, and that is fine.** Membership is a principal tag today
+(`custom:shared_space_1..N`, written by `shared-space-add-members`, mapped by the Identity Pool to
+`${aws:PrincipalTag/shared_space_k}`). In the target environment you cannot write to Entra, and you
+cannot write to Identity Center either: **with an external IdP and SCIM provisioning, the IdC identity
+store is read-only** — no creating or updating users and groups. Anyone who plans to stash membership
+in a directory attribute will hit that wall.
+
+**The BFF removes the need.** Membership had to live in the IdP only because the *browser* received
+credentials directly and could not be trusted to assert its own. The BFF calls `AssumeRole` itself, so
+it computes the tags from the **shared-space registry** — already the source of truth, and already the
+authorization input everywhere that matters (`is_active_member`, never the member's join chip). The
+trust level is unchanged: the BFF is a privileged server-side component like the control planes that
+write the registry, and the browser still cannot influence it.
+
+Three things this improves rather than merely permits. **Membership takes effect immediately** — today
+there is a propagation delay that `useSharedSpaceAccessRecovery` exists solely to paper over, and that
+affordance can go. **The slot limit dissolves** — `shared_space_1..N` is a fixed pre-allocation only
+because a Cognito custom attribute can never be renamed or deleted; `AssumeRole` takes up to 50 session
+tags and you pass only what applies. **The self-service-edit risk disappears** — no directory attribute
+backs the tag, so there is nothing a user could edit to assume someone else's access.
+
+Keep the same tag keys and values and **no IAM policy changes at all** — only where the tag comes from.
+
+Where IdC still matters for shared spaces is the **catalog plane**: Lake Formation grants against the
+IdC user for a shared space's database. Since IdC groups cannot be created either, that is per-user
+grants driven by the registry — §3.8's reconciler.
+
+### Other applications acting on behalf of users
+
+**IdC provides identity ASSURANCE, not authorization.** It can vouch that a user really is who a caller
+says; it cannot say what they may do in this application — the registry does that, and always did. A
+team expecting IdC to be what *enables* delegation has the wrong model.
+
+Because the BFF resolves membership from the registry, the path downstream of identification is
+**identical** for a browser session and a delegated call. Two tiers differ only in how the end user was
+established: an **IdC-integrated caller** presents an IdC access token scoped to this application as
+audience, exchanged through the token-exchange grant so IdC validates the user; a **non-IdC caller**
+authenticates as itself (IAM SigV4 or client credentials), asserts a username, and is checked against a
+per-service delegation allowlist. That difference is what the `assurance` field records, and why
+flattening the two would be wrong.
+
+**The control planes never notice.** They receive `{actor, delegated_by, assurance}` and authorize on
+the registry; they never see a token. A delegated request and a browser request produce byte-identical
+messages apart from those two fields, so delegation costs the planes nothing.
+
+**One real limitation, probably not binding.** A delegated call whose user identity was *asserted*
+carries no IdC identity context, so it cannot make a Lake Formation-enforced query on that user's
+behalf. The operations other teams want are the **enqueue** paths, which run inside a control plane
+under its own execution role with LF grants to that role — the user identity is used for authorization
+and attribution, not for data-plane enforcement. Confirm with the consuming teams that they want to
+*trigger processes* rather than *read data as the user*; only the latter needs IdC integration.
+
 ### Was open — all four settled 2026-08-18, when the specs were written
 
 1. **The machine-facing surface is DEFERRED to a later arc; only its contract lands here.**
