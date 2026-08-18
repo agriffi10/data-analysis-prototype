@@ -70,13 +70,13 @@ variable "app_client_id" {
 # ── Notifications (SPEC-114 producer; optional by design) ─────────────────────
 
 variable "notifications_queue_arn" {
-  description = "ARN of the SPEC-058 notifications FIFO queue — scopes the execution role's sqs:SendMessage when the producer lands. Constructed-string local from root; default \"\" keeps the module standalone-plannable."
+  description = "ARN of the notifications FIFO queue — scopes the execution role's sqs:SendMessage when the producer lands. Constructed-string local from root; default \"\" keeps the module standalone-plannable."
   type        = string
   default     = ""
 }
 
 variable "notifications_queue_url" {
-  description = "URL of the SPEC-058 notifications FIFO queue — every verb's NOTIFICATIONS_QUEUE_URL env. OPTIONAL in cpcommon.config by design (unset ⇒ every emit is a logged no-op), so it never fails a cold start."
+  description = "URL of the notifications FIFO queue — every verb's NOTIFICATIONS_QUEUE_URL env. OPTIONAL in cpcommon.config by design (unset ⇒ every emit is a logged no-op), so it never fails a cold start."
   type        = string
   default     = ""
 }

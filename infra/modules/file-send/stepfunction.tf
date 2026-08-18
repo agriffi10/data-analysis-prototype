@@ -1,7 +1,7 @@
 # ── File-send Step Function (SPEC-164 FR-001, completed by SPEC-166) ─────────
 # Standard state machine — validate-authorize and inspect-source once per request,
 # then the guard Map, the top-level Distributed-Map transfer, the collector and the
-# per-recipient summary. The SPEC-152 failure path (a seed → RecordFailure →
+# per-recipient summary. The whole-request failure path (a seed → RecordFailure →
 # NotifyFailure → Failed) has been complete since day one.
 #
 # The state machine runs under its OWN role (iam.tf, sfn-permissions: InvokeFunction
@@ -15,7 +15,7 @@
 # recorded that this machine could not wedge for hours because nothing in it WAITED: no
 # Map, no poll loop, no copy. SPEC-166 adds all three, so it adds the timeout — and with
 # it the EventBridge rule below and the deploy-role events: grant that manages that
-# rule, because a timeout that cannot notify is SPEC-152 satisfied on paper and silent
+# rule, because a timeout that cannot notify is a failure path satisfied on paper and silent
 # in practice. The arithmetic behind the number is in locals.tf, where a test computes
 # it from the caps.
 
@@ -64,7 +64,7 @@ resource "aws_sfn_state_machine" "file_send" {
 # A top-level TimeoutSeconds expiry terminates the execution OUTRIGHT. Step Functions catchers
 # cover Task, Parallel and Map states but NOT top-level execution failures, so the machine's own
 # RecordFailure -> NotifyFailure path is unreachable on this one failure and the sender would be
-# told nothing at all — the exact silence SPEC-152 exists to close. Listening for TIMED_OUT on an
+# told nothing at all — the exact silence the failure path exists to close. Listening for TIMED_OUT on an
 # EventBridge bus is the documented remedy, and this is it. Same shape as table-share's, which is
 # the point: two planes with one failure mode should not have two answers to it.
 #

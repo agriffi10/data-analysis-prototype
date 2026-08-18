@@ -93,13 +93,13 @@ variable "logs_queue_url" {
 }
 
 variable "notifications_queue_arn" {
-  description = "ARN of the SPEC-058 notifications FIFO queue. Scopes each verb role's sqs:SendMessage grant (the ONLY notifications-pipeline action they get). Constructed-string local from root; default \"\" keeps the module standalone-plannable."
+  description = "ARN of the notifications FIFO queue. Scopes each verb role's sqs:SendMessage grant (the ONLY notifications-pipeline action they get). Constructed-string local from root; default \"\" keeps the module standalone-plannable."
   type        = string
   default     = ""
 }
 
 variable "notifications_queue_url" {
-  description = "URL of the SPEC-058 notifications FIFO queue — every verb Lambda's NOTIFICATIONS_QUEUE_URL env (best-effort emit target; unset ⇒ emit is a logged no-op)."
+  description = "URL of the notifications FIFO queue — every verb Lambda's NOTIFICATIONS_QUEUE_URL env (best-effort emit target; unset ⇒ emit is a logged no-op)."
   type        = string
   default     = ""
 }

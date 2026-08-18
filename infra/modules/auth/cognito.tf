@@ -6,8 +6,8 @@
 # `username` IAM principal tag stamped by the Identity Pool, AND the
 # user's Glue database name. An IAM RoleSessionName / tag value allows at
 # most 64 chars from the set `a-z A-Z 0-9 = , . @ - _` (see docs/architecture.md).
-# Signup additionally enforces `^[a-z][a-z0-9_]{2,62}$` via the SPEC-012 pre-signup
-# Lambda (tightened to a catalog-safe identifier by SPEC-033 so the Glue DB name is
+# Signup additionally enforces `^[a-z][a-z0-9_]{2,62}$` via the pre-signup
+# Lambda (a catalog-safe identifier, so the Glue DB name is
 # legal). Case-insensitivity (below) is immutable after pool creation, so `Alice` and
 # `alice` must never become two distinct users / S3 prefixes.
 
@@ -47,7 +47,7 @@ resource "aws_cognito_user_pool" "portal" {
     mutable             = true
   }
 
-  # SPEC-056 shared-space membership slots: custom:shared_space_1..N (mutable
+  # Shared-space membership slots: custom:shared_space_1..N (mutable
   # strings, not required). Each holds the name of a shared space the user belongs
   # to, or is unset. The Identity Pool maps each to a principal tag shared_space_k
   # (identity-pool.tf) and the portal-role policy scopes S3/Glue to
@@ -82,7 +82,7 @@ resource "aws_cognito_user_pool" "portal" {
     temporary_password_validity_days = 7
   }
 
-  # Self-signup enabled (open registration + email verification) — SPEC-009 depends on this.
+  # Self-signup enabled (open registration + email verification).
   admin_create_user_config {
     allow_admin_create_user_only = false
   }
@@ -96,7 +96,7 @@ resource "aws_cognito_user_pool" "portal" {
   }
 
   # Default Cognito email sender (50/day) is sufficient for MVP acceptance testing;
-  # SES integration is deferred until real user volume exists (SPEC-006 open question).
+  # SES integration is deferred until real user volume exists.
   email_configuration {
     email_sending_account = "COGNITO_DEFAULT"
   }

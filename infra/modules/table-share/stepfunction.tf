@@ -53,7 +53,7 @@ resource "aws_sfn_state_machine" "table_share" {
 # A top-level TimeoutSeconds expiry terminates the execution OUTRIGHT. Step Functions catchers
 # cover Task, Parallel and Map states but NOT top-level execution failures, so the machine's own
 # RecordFailure -> NotifyFailure path is unreachable on this one failure and the sender would be
-# told nothing at all — the exact silence SPEC-152 exists to close. Listening for TIMED_OUT on an
+# told nothing at all — the exact silence the failure path exists to close. Listening for TIMED_OUT on an
 # EventBridge bus is the documented remedy, and this is it.
 #
 # TIMED_OUT ONLY, never FAILED. Every other whole-request failure already reaches NotifyFailure

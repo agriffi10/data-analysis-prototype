@@ -47,17 +47,17 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
   })
 }
 
-# SPEC-050 shared-space control-plane grants live in a CUSTOMER-MANAGED policy
+# Shared-space control-plane grants live in a CUSTOMER-MANAGED policy
 # attached to the deploy role — NOT a second inline policy. IAM's 10,240-char limit
 # is the AGGREGATE of all inline policies on a role (sum, not per-policy), and the
 # main deploy-policy alone is already ~8.5k; an inline second policy pushed the
 # aggregate over (LimitExceeded). A managed policy has its own separate 6,144-char
-# budget and doesn't count toward the inline aggregate, so this also gives SPEC-056's
+# budget and doesn't count toward the inline aggregate, so this also gives the membership slots'
 # further shared-space grants room. All actions are resource-scopable by
 # {project_name}-*-shared-space-* name patterns (no "*"-only statements).
 resource "aws_iam_policy" "deploy_shared_spaces" {
   name        = "${var.project_name}-deploy-shared-spaces"
-  description = "Deploy-role grants for the SPEC-050 shared-space control plane (SQS/Pipes/Step Functions/Lambda/roles/logs/S3), kept off the role's inline-policy aggregate limit."
+  description = "Deploy-role grants for the shared-space control plane (SQS/Pipes/Step Functions/Lambda/roles/logs/S3), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-shared-spaces.json.tftpl", {
     project_name            = var.project_name
@@ -73,7 +73,7 @@ resource "aws_iam_role_policy_attachment" "deploy_shared_spaces" {
   policy_arn = aws_iam_policy.deploy_shared_spaces.arn
 }
 
-# SPEC-058 notifications write-pipeline grants — a SEPARATE customer-managed policy,
+# Notifications write-pipeline grants — a SEPARATE customer-managed policy,
 # same rationale as deploy_shared_spaces above: the inline deploy-policy aggregate is
 # already near IAM's 10,240-char limit, so new resource-type grants go in their own
 # managed policy (separate 6,144-char budget, off the inline aggregate). Covers the
@@ -90,7 +90,7 @@ resource "aws_iam_role_policy_attachment" "deploy_shared_spaces" {
 # outright: the "unknown-ARN-in-list" trap from architecture.md.
 resource "aws_iam_policy" "deploy_notifications" {
   name        = "${var.project_name}-deploy-notifications"
-  description = "Deploy-role grants for the SPEC-058 notifications write pipeline (FIFO SQS queue + DLQ, writer Lambda + role + log group, SQS event-source mapping), kept off the role's inline-policy aggregate limit."
+  description = "Deploy-role grants for the notifications write pipeline (FIFO SQS queue + DLQ, writer Lambda + role + log group, SQS event-source mapping), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-notifications.json.tftpl", {
     project_name = var.project_name
@@ -105,7 +105,7 @@ resource "aws_iam_role_policy_attachment" "deploy_notifications" {
   policy_arn = aws_iam_policy.deploy_notifications.arn
 }
 
-# SPEC-066 table-builder control-plane grants — a SEPARATE customer-managed policy,
+# Table-builder control-plane grants — a SEPARATE customer-managed policy,
 # same rationale as deploy_shared_spaces / deploy_notifications above (off the role's
 # inline-policy aggregate, separate 6,144-char budget). Covers the table-builder
 # module's resource types: the FIFO request queue + DLQ, the EventBridge Pipe, the
@@ -120,7 +120,7 @@ resource "aws_iam_role_policy_attachment" "deploy_notifications" {
 # in a later PR (the deploy-perms-before-resources rule), so no self-grant race.
 resource "aws_iam_policy" "deploy_table_builder" {
   name        = "${var.project_name}-deploy-table-builder"
-  description = "Deploy-role grants for the SPEC-066 table-builder control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, five verb Lambdas + roles, polars layer, log groups), kept off the role's inline-policy aggregate limit."
+  description = "Deploy-role grants for the table-builder control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, five verb Lambdas + roles, polars layer, log groups), kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-table-builder.json.tftpl", {
     project_name = var.project_name

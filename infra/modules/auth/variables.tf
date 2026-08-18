@@ -20,7 +20,7 @@ variable "cognito_domain_prefix" {
   default     = ""
 }
 
-# ── SPEC-033 post-confirmation provisioning Lambda inputs ────────────────────
+# ── Post-confirmation provisioning Lambda inputs ────────────────────────────
 
 variable "aws_region" {
   description = "AWS region — used to scope the post-confirmation Lambda exec role's Glue ARNs."
@@ -37,7 +37,7 @@ variable "portal_role_arn" {
   type        = string
 }
 
-# ── SPEC-056 shared-space membership slots ───────────────────────────────────
+# ── Shared-space membership slots ──────────────────────────────────────────────
 
 variable "max_shared_memberships" {
   description = "Number of shared-space membership slots — the user pool gains custom:shared_space_1..N (mutable string) and the Identity Pool maps each to principal tag shared_space_1..N. Single source is the root variable of the same name."
@@ -45,12 +45,12 @@ variable "max_shared_memberships" {
   default     = 10
 }
 
-# ── SPEC-137 structured logging ──────────────────────────────────────────────
+# ── Structured logging ────────────────────────────────────────────────────────
 # Both Cognito triggers attach the cpcommon layer for ONE import — `observability` —
 # and emit under service="auth". These two are the whole infra surface that needs: no
 # config variable joins them, because `observability` never reaches `cpcommon.config` and
-# so nothing here ever reads one of its six. (Before SPEC-156 that was enforced by a crash
-# at import — PR #196; it is now enforced by a source scan and an import probe.)
+# so nothing here ever reads one of its six. (That was once enforced by a crash
+# at import; it is now enforced by a source scan and an import probe.)
 
 variable "logs_queue_arn" {
   description = "Structured-logging queue ARN — the ONLY sqs:SendMessage scope granted to either trigger's exec role. A CONSTRUCTED string from the root locals, not module.observability's output: module.observability consumes this module's user_pool_id, so a real reference here is a module cycle."

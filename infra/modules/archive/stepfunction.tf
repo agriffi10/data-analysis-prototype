@@ -1,28 +1,28 @@
-# ── Archive Step Function (SPEC-168 FR-003's transfer's restore arm) ──
+# ── Archive Step Function: the transfer and the restore arm ──
 # Standard state machine, TWO ARMS off one mode Choice. The archive arm: validate-authorize
 # and inspect-source once per request, then the transfer manifest, the top-level
 # Distributed-Map copy into the vault, the collector, the COMMIT GATE and, on its one
 # committing arm, the record, the source deletion and the receipt. The restore arm:
 # inspect-archive rebuilds every destination from the archived keys, check-destination-clear
-# refuses the whole restore if any of them is occupied, and RestoreReady is where SPEC-171
+# refuses the whole restore if any of them is occupied, and RestoreReady is where the retrieval
 # picks up — the split is at exactly the point where seconds become hours and a free check
-# becomes a billed, uncancellable retrieval. The SPEC-152 failure path (a seed →
+# becomes a billed, uncancellable retrieval. The whole-request failure path (a seed →
 # RecordFailure → NotifyFailure → Failed) is complete from day one and now carries `mode`,
 # because the two arms' failures are worded differently.
 #
 # The state machine runs under its OWN role (iam.tf, sfn-permissions: InvokeFunction on
 # the verbs + log delivery + the Distributed Map's own grants); the verb Lambdas run under
 # the ONE shared execution role. Standard (over Express) keeps per-execution history for
-# debugging and allows the long copies SPEC-169 adds and the Glacier retrieval wait
-# SPEC-171 will — and Express is doubly rejected here, since a Pipe cannot use
+# debugging and allows the long copies and the Glacier retrieval wait
+# needs — and Express is doubly rejected here, since a Pipe cannot use
 # REQUEST_RESPONSE against a Standard machine and this plane's outcome is a
 # notification, not a response.
 #
-# THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY. SPEC-168
+# THE TOP-LEVEL TimeoutSeconds ARRIVES WITH THE THING THAT MADE IT NECESSARY. The front door alone
 # recorded that this machine could not wedge because nothing in it WAITED: no Map, no
 # manifest, no copy. SPEC-169 adds all three, so it adds the ceiling — and with it the
 # EventBridge rule below, notify-failure's second door and the raise from 15s to 60s that
-# door needs, because a timeout that cannot notify is SPEC-152 satisfied on paper and
+# door needs, because a timeout that cannot notify is a failure path satisfied on paper and
 # silent in practice. The deploy-role `events:` grant that manages the rule shipped one PR
 # ahead of it (the merge apply went red for exactly that ordering). The arithmetic
 # behind the number is in locals.tf, where a test computes it from the caps.
@@ -49,7 +49,7 @@ resource "aws_sfn_state_machine" "archive" {
     write_manifest_function_arn           = aws_lambda_function.functions["write-manifest"].arn
     delete_source_function_arn            = aws_lambda_function.functions["delete-source"].arn
     write_receipt_function_arn            = aws_lambda_function.functions["write-receipt"].arn
-    # The restore arm's two verbs. The guard is the LAST state before SPEC-171 starts
+    # The restore arm's two verbs. The guard is the LAST state before the retrieval starts
     # spending money it cannot get back, which is why both live on this side of the split.
     inspect_archive_function_arn         = aws_lambda_function.functions["inspect-archive"].arn
     check_destination_clear_function_arn = aws_lambda_function.functions["check-destination-clear"].arn
@@ -91,11 +91,11 @@ resource "aws_sfn_state_machine" "archive" {
   ]
 }
 
-# ── SPEC-169 FR-003: the timed-out run's only route to a notification ────────
+# ── The timed-out run's only route to a notification ────────
 # A top-level TimeoutSeconds expiry terminates the execution OUTRIGHT. Step Functions catchers
 # cover Task, Parallel and Map states but NOT top-level execution failures, so the machine's own
 # RecordFailure -> NotifyFailure path is unreachable on this one failure and the actor would be
-# told nothing at all — the exact silence SPEC-152 exists to close. Listening for TIMED_OUT on an
+# told nothing at all — the exact silence the failure path exists to close. Listening for TIMED_OUT on an
 # EventBridge bus is the documented remedy, and this is it. Same shape as file-send's and
 # table-share's, which is the point: three planes with one failure mode should not have three
 # answers to it.

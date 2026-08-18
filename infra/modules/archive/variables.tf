@@ -11,9 +11,9 @@
 # key layout and the receipt, and a restore is meaningless without the archive that
 # produced it.
 #
-# SPEC-168 is FOUNDATION + THE VAULT + THE FRONT DOOR: the bucket, the plumbing, the
+# FOUNDATION, THE VAULT AND THE FRONT DOOR: the bucket, the plumbing, the
 # request contract and validate-authorize. Nothing is listed, copied or deleted
-# (SPEC-169), and nothing about restore exists yet (SPEC-170/171). Cross-module ARNs
+# Cross-module ARNs
 # are CONSTRUCTED STRINGS (passed from root locals), never another module's output, so
 # they are known at plan time (architecture.md "unknown ARN in list" trap) and this
 # module plans standalone.
@@ -91,37 +91,37 @@ variable "admin_bucket_name" {
 }
 
 variable "user_space_bucket_name" {
-  description = "Name of the user-space bucket (Bucket 1). A personal source resolves here and its receipt is written here by SPEC-169. Set as USER_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage."
+  description = "Name of the user-space bucket (Bucket 1). A personal source resolves here and its receipt is written here. Set as USER_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage."
   type        = string
   default     = ""
 }
 
 variable "shared_space_bucket_name" {
-  description = "Name of the shared-space bucket (Bucket 2). A shared source resolves here and its receipt is written here by SPEC-169. Set as SHARED_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage."
+  description = "Name of the shared-space bucket (Bucket 2). A shared source resolves here and its receipt is written here. Set as SHARED_SPACE_BUCKET on every verb; no S3 grant on it is issued at this stage."
   type        = string
   default     = ""
 }
 
 variable "logs_queue_arn" {
-  description = "SPEC-136 parity: ARN of the structured-logging queue — scopes the execution role's sqs:SendMessage for log events."
+  description = "ARN of the structured-logging queue — scopes the execution role's sqs:SendMessage for log events."
   type        = string
   default     = ""
 }
 
 variable "logs_queue_url" {
-  description = "SPEC-136 parity: URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda. Optional BY CONSTRUCTION on the Lambda side (os.environ.get, never config._require), so a verb missing it logs to stdout rather than crashing the plane at cold start."
+  description = "URL of the structured-logging queue, set as LOGS_QUEUE_URL on every verb Lambda. Optional BY CONSTRUCTION on the Lambda side (os.environ.get, never config._require), so a verb missing it logs to stdout rather than crashing the plane at cold start."
   type        = string
   default     = ""
 }
 
 variable "notifications_queue_arn" {
-  description = "ARN of the SPEC-058 notifications FIFO queue — scopes the shared execution role's sqs:SendMessage to that queue ONLY (the pre-verb failure notification, best-effort). Constructed string from root (known at plan time); empty keeps this module standalone."
+  description = "ARN of the notifications FIFO queue — scopes the shared execution role's sqs:SendMessage to that queue ONLY (the pre-verb failure notification, best-effort). Constructed string from root (known at plan time); empty keeps this module standalone."
   type        = string
   default     = ""
 }
 
 variable "notifications_queue_url" {
-  description = "URL of the SPEC-058 notifications FIFO queue — the verbs' NOTIFICATIONS_QUEUE_URL env (optional in cpcommon.config: unset makes every emit a logged no-op)."
+  description = "URL of the notifications FIFO queue — the verbs' NOTIFICATIONS_QUEUE_URL env (optional in cpcommon.config: unset makes every emit a logged no-op)."
   type        = string
   default     = ""
 }

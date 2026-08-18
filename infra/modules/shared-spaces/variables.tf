@@ -103,13 +103,13 @@ variable "logs_queue_url" {
 }
 
 variable "notifications_queue_arn" {
-  description = "ARN of the SPEC-058 notifications FIFO queue. Constructed string from root (not module.notifications' output) so this module plans standalone — scopes the orchestrator role's sqs:SendMessage (trusted producer, the notifications queue ARN only). Empty = notifications not wired."
+  description = "ARN of the notifications FIFO queue. Constructed string from root (not module.notifications' output) so this module plans standalone — scopes the orchestrator role's sqs:SendMessage (trusted producer, the notifications queue ARN only). Empty = notifications not wired."
   type        = string
   default     = ""
 }
 
 variable "notifications_queue_url" {
-  description = "URL of the SPEC-058 notifications FIFO queue. Passed to every verb Lambda as NOTIFICATIONS_QUEUE_URL; the shared emit helper SendMessages a `create` notification here at each lifecycle terminal outcome. Empty = emit is a logged no-op (module stays independently deployable)."
+  description = "URL of the notifications FIFO queue. Passed to every verb Lambda as NOTIFICATIONS_QUEUE_URL; the shared emit helper SendMessages a `create` notification here at each lifecycle terminal outcome. Empty = emit is a logged no-op (module stays independently deployable)."
   type        = string
   default     = ""
 }

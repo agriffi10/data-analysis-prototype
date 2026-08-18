@@ -64,7 +64,7 @@ variable "dlq_max_receive_count" {
   default     = 3
 }
 
-# ── SPEC-137 structured logging ──────────────────────────────────────────────
+# ── Structured logging ────────────────────────────────────────────────────────
 
 variable "logs_queue_arn" {
   description = "Structured-logging queue ARN — the writer's ONLY sqs:SendMessage scope. The writer imports only `observability` from the cpcommon layer, so no cpcommon.config variable joins this pair."

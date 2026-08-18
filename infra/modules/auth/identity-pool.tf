@@ -6,13 +6,13 @@
 # Per-user isolation comes from "attributes for access control": the principal
 # tag mapping below stamps the username claim onto a `username` principal tag
 # SERVER-SIDE (unspoofable). The shared portal role and its prefix-scoped S3
-# policy live in the data module (role trust here's audience; policy in SPEC-013).
+# policy live in the data module (role trust here's audience; the policy lives in the data module).
 
 # IAM propagation guard: this spec adds cognito-identity permissions to the deploy
 # role (modules/base) in the same apply that then calls CreateIdentityPool. The
 # module-level depends_on (auth -> base) orders the calls, but IAM is eventually
 # consistent; this fresh time_sleep (created this apply, so it actually sleeps)
-# absorbs the propagation window — same rationale as the SPEC-010 bucket guard.
+# absorbs the propagation window — same rationale as the bucket guard.
 resource "time_sleep" "wait_for_identity_perms" {
   create_duration = "30s"
 }
@@ -35,13 +35,13 @@ resource "aws_cognito_identity_pool" "portal" {
 # username claim, asserted by AWS at credential issuance (never by the client).
 # the role policy scopes S3 access with ${aws:PrincipalTag/username}.
 #
-# Claim key resolved (SPEC-011 FR-002, 2026-06-12): the tag VALUE must be the
+# The tag VALUE must be the
 # `cognito:username` claim. A first attempt mapping to `username` produced a
 # CloudTrail AssumeRoleWithWebIdentity event with NO principalTags at all (the
 # `username` claim doesn't exist in a Cognito User Pool ID token — it's
 # `cognito:username`), so the tag was never stamped. The map key (`username`) is
 # the tag NAME the role policy references; the value is the token claim it reads.
-# SPEC-056 adds ten shared-space membership tags alongside `username`. There is only
+# Ten shared-space membership tags sit alongside `username`. There is only
 # ONE principal-tag map per (pool, provider), so the slots are merged into this same
 # resource: tag `shared_space_k` reads the `custom:shared_space_k` claim (cognito.tf).
 # A slot the user isn't in carries no claim → the tag isn't stamped → the portal
