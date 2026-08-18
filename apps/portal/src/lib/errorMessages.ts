@@ -56,7 +56,7 @@ const CONTACT_ADMIN = 'Contact the Administrator.';
 // is ordered because several patterns can match one Athena message.
 
 const CODE_RULES: readonly ErrorRule[] = [
-  // ── App codes our file-browser/query services already author (SPEC-106
+  // ── App codes our file-browser/query services already author (
   // FR-002). Trigger: a service returned this code with user-safe, often
   // parameterized text (filename / size / validation reason). User-fixable —
   // the wording tells them what to change. Passed through unchanged. ──
@@ -117,7 +117,7 @@ const CODE_RULES: readonly ErrorRule[] = [
   // whole point. Not user-fixable in the sense of an action to take, but not an
   // administrator's problem either: nothing is broken any more.
   //
-  // SPEC-173 retired the saved-queries JSON store, so query history is the one
+  // The saved-queries JSON store is retired, so query history is the one
   // `user_settings/` document this trio still speaks for. ──
   {
     code: 'QueryHistoryRecovered',
@@ -210,7 +210,7 @@ function isUnqualifiedTable(msg: string): boolean {
 }
 
 const MATCH_RULES: readonly ErrorRule[] = [
-  // Trigger: unqualified base table under SPEC-077 (no active database).
+  // Trigger: an unqualified base table (there is no active database).
   // User-fixable — qualify each table as `database.table`. ──
   {
     match: isUnqualifiedTable,

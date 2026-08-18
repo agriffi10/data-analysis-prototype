@@ -8,7 +8,7 @@ import {CATALOG_IDENTIFIER_RE} from '../../lib/catalogIdentifier';
  *
  * An unknown name is NOT silently ignored there: `add_members.py` notifies the space
  * OWNER by name, and table-share reports unresolved recipients. This docstring said
- * otherwise and had been wrong since the notification landed (corrected under SPEC-146).
+ * otherwise and had been wrong since the notification landed.
  * The real cost is that the report is late, asynchronous and owner-only.
  */
 export function parseMemberInput(raw: string): string[] {
@@ -32,7 +32,7 @@ export function parseMemberInput(raw: string): string[] {
  * good names become chips and keeps the bad ones to fix — rather than watching half their
  * paste disappear without comment.
  *
- * Added beside `parseMemberInput` rather than replacing it. Since SPEC-158 moved
+ * Added beside `parseMemberInput` rather than replacing it. Since the suggestion source moved
  * `TableShareDialog`'s space entry onto the same combobox, this is the parser every FIELD uses;
  * `parseMemberInput` remains the domain's plain parse of a bulk string, pinned by its own tests
  * and still the baseline these two are checked to agree on.

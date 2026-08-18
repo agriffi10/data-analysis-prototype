@@ -31,7 +31,7 @@ type MembersListProps = {
  * Shared presentational roster: the owner first (tagged, never removable), then the
  * other members A–Z, each with a join-status chip. Read-only by default; pass
  * `onRemove` to expose per-member Remove (the owner's Manage drawer). Used by both
- * `ManageMembersDrawer` (read-write) and `MemberRosterDrawer` (read-only) — SPEC-075.
+ * `ManageMembersDrawer` (read-write) and `MemberRosterDrawer` (read-only).
  *
  * @example
  * <MembersList owner="alice" members={members} />                 // read-only
@@ -66,7 +66,7 @@ export function MembersList({owner, members, onRemove, busy = false, viewer}: Me
               // The visible text is "Remove" on every row, so a screen-reader user hearing the
               // list of controls gets N identical buttons with no way to tell which member each
               // one acts on. Naming the member is the accessible fix and it is also what makes
-              // the removal journey testable by a stable query (SPEC-154 FR-006, the spec's
+              // the removal journey testable by a stable query (the journey test's
               // additive-accessibility exception). Appearance is unchanged — `aria-label`
               // overrides the accessible name only, not the rendered text.
               aria-label={`Remove ${member.username}`}

@@ -49,7 +49,7 @@ export type UsernameComboboxProps = SuggestionSource & {
    * A prop because the sentence has to name what was searched: The space entry must say
    * the space may exist and simply not be one of yours, since targeting a space you are not a
    * member of is PERMITTED — the username wording would imply the name is wrong. The default is
-   * the username sentence this component has shown since SPEC-147.
+   * the username sentence this component has always shown.
    */
   unlistedNote?: (names: string[]) => string;
 };
@@ -64,7 +64,7 @@ function directoryNote(names: string[]): string {
  *
  * `commit` exists for `TableShareDialog`, which keeps its **Add** button beside the field.
  * The button must go through the SAME path as Enter — otherwise the two would drift, and
- * SPEC-148 FR-003 requires invalid tokens to be surfaced however the commit was triggered.
+ * Invalid tokens must be surfaced however the commit was triggered.
  * One commit path, two ways to reach it.
  */
 export type UsernameComboboxHandle = {
@@ -184,7 +184,7 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
 
   // CLAMPED, because `suggestions` can shrink for reasons the input never sees. The keyboard
   // handlers reset the highlight on typing, Escape, Tab and commit — but not when a caller
-  // changes `exclude`/`suppress`, which is exactly what SPEC-148 does (`exclude` is the member
+  // changes `exclude`/`suppress`, which is exactly what the chips field does (`exclude` is the member
   // list, backed by a refetchable query). Without this, `aria-activedescendant` can point at an
   // element that no longer exists — no option reports itself active, and Enter quietly commits
   // the raw typed text instead of the option that was last announced.
@@ -374,7 +374,7 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
       // Only intercept when the list is open. With it closed, Escape is not touched at all, so
       // the enclosing Modal/Drawer dismisses normally.
       //
-      // `stopPropagation` is what does the work, VERIFIED rather than assumed (SPEC-147
+      // `stopPropagation` is what does the work, VERIFIED rather than assumed (
       // FR-004): React delegates events at its root container, which sits BELOW the `document`
       // listener `useEscapeKey` registers, so stopping the native event there means the hook
       // never fires. Measured — a Modal's `onDismiss` is called zero times. `useEscapeKey`

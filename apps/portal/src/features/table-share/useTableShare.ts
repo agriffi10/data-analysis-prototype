@@ -3,7 +3,7 @@ import {toUserText} from '../../lib/errorMessages';
 import {enqueueTableShare} from './tableShare.service';
 import type {ShareRecipient} from './tableShare.types';
 
-/** The rail table a share was invoked on (SPEC-077: the DB comes from the rail node). */
+/** The rail table a share was invoked on (the DB comes from the rail node). */
 export type ShareTarget = {database: string; table: string};
 
 type ShareToast = {variant: 'success' | 'danger'; message: string};

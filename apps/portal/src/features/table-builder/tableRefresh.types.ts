@@ -8,7 +8,7 @@ import type {GlueTableSummary} from '../catalog/catalog.types';
 export type TableRefreshRequest = {
   space: TableBuildSpace;
   tableName: string;
-  /** Omitted unless the user ticked the opt-in (SPEC-144: never coerced, never persisted). */
+  /** Omitted unless the user ticked the opt-in (never coerced, never persisted). */
   allowRemovals?: boolean;
 };
 

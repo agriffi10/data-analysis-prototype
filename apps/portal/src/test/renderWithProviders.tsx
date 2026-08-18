@@ -48,7 +48,7 @@ export type ProviderOptions = {
   /**
    * Pre-resolve the feature flags to the compiled-in defaults (everything on).
    *
-   * ON BY DEFAULT, because SPEC-163 made every gated surface wait on a fetch: without a
+   * ON BY DEFAULT, because every gated surface waits on a fetch: without a
    * seeded answer, `useFeature` reports `false` while the query is pending and a test that
    * has nothing to do with flags asserts against a shell with no tabs, no "Create table" and
    * no Help sections. Seeding all-on is the same answer production reaches when the document

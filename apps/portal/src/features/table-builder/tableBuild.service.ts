@@ -24,7 +24,7 @@ export async function enqueueTableBuild(req: TableBuildRequest): Promise<Service
     build: (idToken) => ({
       // The body is built field by field, so a new request field is NOT forwarded by
       // being added to the type: `mode` is deliberately absent here, and the
-      // server reads its absence as 'create'. SPEC-145 adds it with the refresh caller.
+      // server reads its absence as 'create'. The refresh caller sets it.
       body: {
         idToken,
         space: req.space,
@@ -40,14 +40,14 @@ export async function enqueueTableBuild(req: TableBuildRequest): Promise<Service
 }
 
 /**
- * Enqueue a refresh request onto the same table-builder FIFO queue — SPEC-143's
+ * Enqueue a refresh request onto the same table-builder FIFO queue — the plane's
  * `mode: 'refresh'` half. The pipeline re-inspects the folder the table already
  * points at and replaces the definition in place; the outcome arrives as
  * a notification, so success means enqueued, not refreshed.
  *
  * `partitionKeys` is always `[]`: a refresh reconstructs the table's existing keys
  * from the catalog and the server refuses a request that redeclares them.
- * `allowRemovals` is sent only when the user ticked the opt-in — SPEC-144 validates
+ * `allowRemovals` is sent only when the user ticked the opt-in — the diff validates
  * the flag rather than coercing it, so an always-present `false` would be a
  * different request than an absent one.
  */

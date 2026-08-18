@@ -7,7 +7,7 @@ export const MAX_LINKED_COLUMNS = 20;
 /**
  * The raw (still percent-encoded) value of one query parameter.
  *
- * `URLSearchParams.get` is deliberately NOT used for this: it decodes, and SPEC-144
+ * `URLSearchParams.get` is deliberately NOT used for this: it decodes, and the plane
  * encodes each column name individually before joining them with a comma — so a
  * name containing `%2C` would come back as a bare comma and split into two columns.
  * The separator has to be read before anything is decoded.

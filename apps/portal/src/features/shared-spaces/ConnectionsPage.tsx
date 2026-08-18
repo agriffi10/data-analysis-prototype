@@ -30,7 +30,7 @@ type ConnectionRow = {
   status: SharedConnectionStatus;
   reason?: string;
   /** Member roster with per-member join status. On owner rows (Manage) and, since
-   * SPEC-075, member rows too (read-only View members). Absent on legacy entries. */
+   * Member rows too (read-only View members). Absent on legacy entries. */
   members?: Member[];
   /** ISO; drives the "created <date>" meta line. */
   createdAt?: string;

@@ -377,7 +377,7 @@ export default function LandingPage() {
   const isAuthed = status === 'authenticated';
 
   // The UNAUTHENTICATED page is untouched by flags and never waits on the
-  // document: it offers sign-in and sign-up, which nothing gates, and SPEC-162 gates the
+  // document: it offers sign-in and sign-up, which nothing gates, and the flags gate the
   // fetch itself on a signed-in user — so a visitor who is not signed in would wait forever.
   // Everything below is therefore scoped to `isAuthed`.
   //

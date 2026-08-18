@@ -1,6 +1,6 @@
 // Table-builder feature: the file-browser "Create table from this
 // folder" surface — the only browser touch-point of the async control plane
-// (SPEC-066→070). The browser only enqueues a request; the pipeline creates the
+// The browser only enqueues a request; the pipeline creates the
 // table and notifies the actor of the outcome.
 export {CreateTableButton} from './CreateTableButton';
 export {CreateTableDialog} from './CreateTableDialog';

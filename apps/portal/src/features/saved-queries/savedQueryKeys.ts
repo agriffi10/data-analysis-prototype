@@ -1,5 +1,5 @@
 /**
- * Single source of truth for saved-query TanStack Query keys (SPEC-177 FR-003, out of
+ * Single source of truth for saved-query TanStack Query keys (out of
  * `queryKeys.savedQueries`). Never hand-build a key array — use these so consumers and
  * the invalidation helpers stay in sync.
  *

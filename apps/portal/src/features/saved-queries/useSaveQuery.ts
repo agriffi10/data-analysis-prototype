@@ -17,7 +17,7 @@ import type {SaveQueryRequest} from './SaveQueryDialog';
  *
  * this was the Query workspace's `QueryTab`, which is a shape no other
  * caller can produce. Two fields is what the flow actually reads, so the collision-and-
- * confirm path SPEC-175 spent a spec getting right is reusable rather than reimplemented.
+ * confirm path the Query workspace got right is reusable rather than reimplemented.
  */
 export type SaveQueryPayload = {
   /** The buffer written to the `.sql` object. */

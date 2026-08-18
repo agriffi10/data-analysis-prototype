@@ -26,7 +26,7 @@ export type UseSavedQueriesResult = {
  * over S3's own listing.
  *
  * Disabled while `space` is null, and keyed by SPACE: the same user reads a different
- * list per space, and SPEC-174 passes the chosen one where this spec always passes the
+ * list per space, and the caller passes the chosen one where this hook always passes the
  * personal space, so the hook does not change again.
  *
  * No body is ever fetched here. A row is name + modified + size, which is everything a

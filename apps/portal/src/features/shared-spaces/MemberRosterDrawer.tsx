@@ -12,7 +12,7 @@ type Props = {
   owner: string;
   /** The full roster (owner + members, with join status). */
   members: Member[];
-  /** True when the member's cache predates SPEC-075 and has no roster yet. */
+  /** True when the member's cache predates the roster and has none yet. */
   unavailable?: boolean;
   /** The signed-in reader, so their own row can't read `Pending` at them. */
   viewer?: string;

@@ -1,4 +1,4 @@
-// Types for the `.sql` store (SPEC-173, moved out of `features/query/` by SPEC-177). The
+// Types for the `.sql` store (moved out of `features/query/`). The
 // space a query is written into is a `QuerySpace` from `features/catalog/`.
 
 /**

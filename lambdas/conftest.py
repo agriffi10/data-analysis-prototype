@@ -1,7 +1,7 @@
 """Pytest baseline for the Lambda suites.
 
 The DOMAIN ``config.py`` modules fail fast at import when a required env var is unset
-; ``cpcommon.config``'s six moved to first access in SPEC-156 FR-004,
+; ``cpcommon.config``'s six resolve on first access,
 so they fail at the read instead. Either way the suites need the values present — the
 tests patch ``config.X`` attributes (via ``fakes.install()`` etc.) but the code under
 test still reads the unpatched ones — so this conftest stamps dummy values before any
@@ -35,19 +35,19 @@ import pytest
 
 # The shared cpcommon modules that verb tests globally patch (config.X = …,
 # clients._s3 = fake, s3_listing.list_data_objects = stub, registry.load = …,
-# auth.verified_username = …). Before SPEC-107 each domain had its OWN copy of these,
+# auth.verified_username = …). Each domain once had its OWN copy of these,
 # so a global patch could not leak across domains; now they are ONE module each, so a
 # test that patches (and doesn't restore) one leaks into the next — e.g. the
 # table-builder inspect test stubs list_data_objects, contaminating the table-share
 # inspect test. Snapshot each module's namespace before a test and restore it after,
 # keeping every test self-contained without touching any assertion.
 #
-# SPEC-153 FR-004 widened this from five hand-listed cpcommon modules to EVERY shared-layer
+# This covers EVERY shared-layer module rather than five hand-listed cpcommon ones
 # module. The five covered `cpcommon.config/clients/s3_listing/registry/auth` and none of
 # `cpcommon.observability`, `tbcommon`, `tscommon`, `dqcommon` or the shared-space flat
 # modules — so the leak the fixture exists to stop was still live everywhere else, and the
 # suites that hit it worked around it locally: `test_table_share_copy_objects.py` restored
-# `tscommon.athena` by hand with a comment naming this gap (that module is gone — SPEC-156
+# `tscommon.athena` by hand with a comment naming this gap (that module is gone —
 # FR-005 replaced it with a bound runner INSTANCE, which this fixture cannot restore either,
 # so its test restores locally), and five files hand-rolled
 # try/finally around `observability.info`. Matching by PREFIX rather than by name means a
@@ -146,7 +146,7 @@ def captured_events():
     """Capture one test's structured events.
 
     Lives here rather than in each verb's test file because all nine data-quality verbs need
-    it, and SPEC-133→137 will need it for four more control planes — nine copies of a sink
+    it, and four more control planes need it — nine copies of a sink
     harness is how three of them end up subtly different.
 
     Retiring the worker is the part that is easy to miss: log-foundry builds it lazily from
@@ -177,12 +177,12 @@ def _drain_log_foundry_before_capture_closes():
     """Retire log-foundry's worker while pytest's captured streams are still open.
 
     `cpcommon.observability.init()` runs at module import in every instrumented handler
-    (SPEC-127), and log-foundry registers its terminal `shutdown()` via `atexit`. At
+    and log-foundry registers its terminal `shutdown()` via `atexit`. At
     interpreter exit pytest has already closed the stream StdoutSink holds, so that atexit
     call raises `ValueError: I/O operation on closed file` and prints a traceback AFTER a
     green run — noise that would happily hide a real teardown error.
 
-    Draining here gets there first. `shutdown()` is once-only by design (log-forge SPEC-013),
+    Draining here gets there first. `shutdown()` is once-only by design,
     so the later atexit call becomes a no-op rather than a second drain.
     """
     yield

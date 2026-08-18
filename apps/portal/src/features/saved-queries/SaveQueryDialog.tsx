@@ -40,7 +40,7 @@ type Props = {
  * is linked and to the remembered one otherwise — one memory of "the space I am working
  * in", shared with the load surface rather than a second that can disagree with it.
  *
- * The collision is not detected here: SPEC-043 scanned the in-memory list
+ * The collision is not detected here: an earlier store scanned the in-memory list
  * case-insensitively, which stopped being sound once the list is paginated and the target
  * space may not be the one on screen. `writeSavedQuery` HEADs the exact key and the host
  * turns its `Collision` failure into the replace confirm.

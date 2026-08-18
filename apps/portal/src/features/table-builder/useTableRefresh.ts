@@ -50,7 +50,7 @@ export function useTableRefresh(notify: (toast: RefreshToast) => void, linked?: 
   // The database owed a post-focus re-read, or null when nothing is armed.
   const refetchOnFocus = useRef<string | null>(null);
   // A ref, not `busy`: see useDataQualityCheck for why the state read loses the race.
-  // It matters more here — SPEC-149 leaves concurrent refreshes on one table racing,
+  // It matters more here — concurrent refreshes on one table can race,
   // and `deduplicationId` is a fresh UUID per call, so SQS cannot collapse the pair.
   const inFlight = useRef(false);
 

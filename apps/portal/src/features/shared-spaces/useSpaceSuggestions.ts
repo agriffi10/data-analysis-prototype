@@ -15,7 +15,7 @@ import type {
  *
  * **It makes no request of its own.** `useConnections` already fetches the per-user connections
  * cache for the Connections page and the Query rail, so this reads a query the app has made
- * anyway — which is the whole reason SPEC-158 costs no new AWS call, IAM or published document.
+ * anyway — which is the whole reason this costs no new AWS call, IAM or published document.
  *
  * What it deliberately does NOT offer is every space in the organisation. Sharing a table to a
  * space does not require membership, so a complete list would be strictly more useful — and would

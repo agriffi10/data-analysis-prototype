@@ -37,7 +37,7 @@ export function sqlLiteral(value: string): string {
  *
  * Column names go through this and must **not** be checked against
  * `CATALOG_IDENTIFIER_RE`: that rule describes names this app CREATES (a username, a
- * database, a view), and column names are not catalog-safe — SPEC-144 had to record the
+ * database, a view), and column names are not catalog-safe — the refresh had to record the
  * same fact for a different reason. Validating a name and quoting one are different jobs
  * and are not interchangeable.
  *

@@ -30,7 +30,7 @@ export type UseUserDirectoryResult = {
  *
  * `status` exists because a single nullable index cannot distinguish the three situations
  * consumers must tell apart: still loading, unavailable, and loaded-but-this-name-is-absent
- * (SPEC-147 FR-005 turns on exactly that distinction — a "not found" note shown while the
+ * (that distinction is load-bearing — a "not found" note shown while the
  * fetch is still in flight reads as a delayed rejection of a name that was accepted).
  *
  * @example
