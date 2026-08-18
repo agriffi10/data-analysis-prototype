@@ -19,8 +19,7 @@
 #
 # THE ZERO-CATALOG-ACCESS PROPERTY IS DELIBERATELY SURRENDERED HERE
 # (architecture.md, Control Planes -> Data Quality) — this is a decision, not drift, and it is the
-# largest privilege this plane spends. Without it the role could not touch the Glue
-# catalog at all. It now can, because the pipeline's whole design is "let Athena read the
+# largest privilege this plane spends. The role holds Glue catalog access because the pipeline's whole design is "let Athena read the
 # 250 GB, not a Lambda", and Athena reads through a Glue external table. The temp tables
 # are created in the ACTOR'S OWN database (personal) or the shared space's (shared) —
 # both DYNAMIC, one per user and one per space — so they cannot be statically LF-granted

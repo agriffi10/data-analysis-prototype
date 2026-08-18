@@ -249,7 +249,7 @@ locals {
   # destination, so the source cap IS the transfer cap.
   #
   # 43,200 RATHER THAN 10,800, AND THE REASON IS THE STORAGE CLASS RATHER THAN THE DATA.
-  # Three hours would size the archive arm, whose long pole is a copy. The restore
+  # Three hours sizes the archive arm, whose long pole is a copy. The restore
   # arm's long pole is a WAIT: a GLACIER object is not readable, and the Standard retrieval tier
   # takes 3-5 hours to produce the temporary copy the copy-back reads — so the old ceiling would
   # have killed a healthy restore before S3 had finished with it. The restore's terms are the

@@ -457,7 +457,7 @@
     },
     "ArchiveComplete": {
       "Type": "Pass",
-      "Comment": "The whole-request success terminal, and the ASL/verb cross-check for write-receipt — the same job Validated does for the validator: a Task hands its output on whole, so nothing in a Task-to-Task chain would notice a renamed field, while a Pass naming each key fails the build via test_state_machine_archive.py. Everything the run no longer needs — the plan key, the transfer block, the Map Run pointer, the selection — is dropped here rather than carried into the execution output. The notification producer reads this shape.",
+      "Comment": "The whole-request success terminal, and the ASL/verb cross-check for write-receipt — the same job Validated does for the validator: a Task hands its output on whole, so nothing in a Task-to-Task chain would notice a renamed field, while a Pass naming each key fails the build via test_state_machine_archive.py. Everything the run no longer needs — the plan key, the transfer block, the Map Run pointer, the selection — is dropped here rather than carried into the execution output. The notification producer reads this shape; this machine deliberately emits none itself.",
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor.username",
@@ -1129,7 +1129,7 @@
 
     "RestoreComplete": {
       "Type": "Pass",
-      "Comment": "The restore's success terminal. It names only paths BOTH arms into it carry — the receipt's key is not among them, because the Catch above reaches here without one and a Pass naming an absent key raises an uncatchable States.Runtime. Everything the run no longer needs is dropped: the plan key, the transfer block, the Map Run pointer, the poll's progress. The notification producer reads this shape.",
+      "Comment": "The restore's success terminal. It names only paths BOTH arms into it carry — the receipt's key is not among them, because the Catch above reaches here without one and a Pass naming an absent key raises an uncatchable States.Runtime. Everything the run no longer needs is dropped: the plan key, the transfer block, the Map Run pointer, the poll's progress. The notification producer reads this shape; this machine deliberately emits none itself.",
       "Parameters": {
         "requestId.$": "$.requestId",
         "actor.$": "$.actor.username",

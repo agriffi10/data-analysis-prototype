@@ -43,8 +43,7 @@ export type ColumnFilterMenuProps = {
 };
 
 /**
- * The per-column header menu: ordering, the six comparisons, and the two null tests
- *.
+ * The per-column header menu: ordering, the six comparisons, and the two null tests.
  *
  * Composed on the `Menu` primitive, and its accessible name **names its column** — two
  * columns' menus are otherwise indistinguishable to anything that queries by name, which

@@ -12,7 +12,7 @@ type CollapsibleRailProps = {
   title?: ReactNode;
   /**
    * Width utilities for the expanded panel — static classes only, so a host can
-   * narrow the rail per breakpoint (the Query rail is `w-[220px] desktop:w-[248px]`,
+   * narrow the rail per breakpoint (the Query rail is `w-[220px] desktop:w-[248px]`).
    * Applied to the panel and its fixed-width inner content alike.
    */
   widthClass?: string;

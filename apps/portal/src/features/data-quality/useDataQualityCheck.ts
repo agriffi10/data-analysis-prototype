@@ -16,8 +16,8 @@ export type DataQualityTarget = {
 export type StartQualityCheckOptions = {
   /**
    * Push the success/failure toast. Default true — the Files-browser behaviour, unchanged.
-   * The dashboard passes false because it raises its own banner, which says strictly more
-   *: one action, one confirmation.
+   * The dashboard passes false because it raises its own banner, which says strictly more:
+   * one action, one confirmation.
    */
   toast?: boolean;
 };
@@ -41,8 +41,8 @@ export type UseDataQualityCheckResult = {
  * only channel there is.
  *
  * The check itself is asynchronous and takes minutes. Success here means *enqueued*, never
- * *checked* — the outcome arrives as a notification carrying a link to the report
- *, which is what lets this stop at "started" without stranding the user.
+ * *checked* — the outcome arrives as a notification carrying a link to the report,
+ * which is what lets this stop at "started" without stranding the user.
  *
  * @example
  * const {start, isPending} = useDataQualityCheck();

@@ -61,8 +61,7 @@ export function emptyQueryHistory(): QueryHistoryCursor {
 }
 
 /**
- * Formatting as a tab starts: no rules, no type tint, no striping, no transformers
- *.
+ * Formatting as a tab starts: no rules, no type tint, no striping, no transformers.
  *
  * Every default is "off" rather than a sensible-looking preset, because each one changes
  * how a value READS — a number rendered to two decimals is a different number to anyone

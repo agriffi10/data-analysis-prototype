@@ -273,7 +273,7 @@ resource "aws_iam_role_policy_attachment" "deploy_control_plane_dlq_drain" {
 #
 # No lambda:*EventSourceMapping statement, deliberately: the sweep is pulled by a schedule, not
 # by a managed poll loop, so there is no mapping to create. That is the whole point of the
-# design — idle long-polling was the bulk of this account's SQS request volume), and
+# design — idle long-polling was the bulk of this account's SQS request volume — and
 # the absence of the grant is what keeps a future "just add an event-source mapping" from
 # applying cleanly without a deliberate decision.
 #
@@ -360,7 +360,7 @@ resource "aws_iam_role_policy_attachment" "deploy_user_directory" {
 #
 # NO events: STATEMENT, deliberately. Table-share's policy carries one for its
 # TIMED_OUT rule; this machine validates and stops, so it has no TimeoutSeconds and no rule
-# to manage. The long Distributed-Map copy — and therefore the timeout, the rule and the
+# to manage. The long Distributed-Map copy needs the events: grant for its TIMED_OUT rule — and therefore the timeout, the rule and the
 # events: grant it needs — which must extend this policy FIRST and
 # apply it before those resources land.
 #

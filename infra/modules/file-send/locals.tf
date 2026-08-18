@@ -23,7 +23,7 @@ locals {
   # ONE shared execution role for every verb Lambda, matching every plane since
   # Every plane uses one role rather than one per verb. Its permission policy
   # (execution.json.tftpl) grows with the arc: logs + notifications + the registry
-  # read and Cognito check validate-authorize needs (164); the source listing lands
+  # read and Cognito check validate-authorize needs; the source listing lands
   # and the destination writes.
   #
   # NO execution_role_arn LOCAL HERE. Root constructs its own twin for the user-space

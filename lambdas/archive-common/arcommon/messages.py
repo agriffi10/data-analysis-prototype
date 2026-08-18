@@ -8,7 +8,7 @@ This module is the table and its wording; the resolution itself is ``cpcommon.me
 raise-time validation. ``unexpected_error`` is deliberately absent — it resolves through the
 base table and renders the same sentence everywhere.
 
-**No raw AWS text is ever interpolated into any of these** : the detail on the
+**No raw AWS text is ever interpolated into any of these**: the detail on the
 exception is for the logs and the Step Functions record, and the sentence the user reads is
 composed here.
 
@@ -44,8 +44,8 @@ Attributes:
     refusal that reads like a new bug, on a run that already went wrong.
 
     ``restore_archive_incomplete`` is the manifest-disagreement refusal, and it does NOT
-    reuse the ``archive_incomplete`` name the rule proposed: that code was already registered by
-    The archive's own body for a copy that fell short, its body promises "nothing was deleted and your files
+    reuse the ``archive_incomplete`` name the rule proposed: that code was already registered by the archive's own body for a copy that fell
+    short, whose body promises "nothing was deleted and your files
     are exactly where they were", and the ASL seeds the literal in ``RollbackReturnedSeed``. One
     code cannot carry both sentences, and the shorter name belongs to the arm that shipped first.
 

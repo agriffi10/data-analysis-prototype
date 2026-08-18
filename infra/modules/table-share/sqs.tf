@@ -2,7 +2,7 @@
 # The control-plane entry point. The browser enqueues a share-table
 # request; an EventBridge Pipe (pipe.tf) drains it into the Step Function.
 #
-# FIFO with MessageGroupId = the SOURCE `database.table` (set by the producer,
+# FIFO with MessageGroupId = the SOURCE `database.table`, set by the producer,
 # so repeated shares of the SAME source serialize strictly one-at-a-time
 # (a heavy copy never overlaps itself), while shares of different sources run in
 # parallel. The Pipe reads a batch of 1 (pipe.tf).

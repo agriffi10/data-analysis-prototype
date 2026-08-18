@@ -88,8 +88,8 @@ export const PICKER_LOCKED_FOLDERS = [
  * and browsable on purpose — you want to see your query results — but the role
  * policy's `ResultsNoDelete` Sid denies `s3:DeleteObject` beneath it, so
  * offering Delete only ever produced "You don't have permission to do that" for
- * a rule this app itself authored. The UI has always refused
- * this, and the guardrail pass is that criterion finally being met.
+ * a rule this app itself authored. The UI was always supposed to refuse
+ * this, and this module is that criterion finally being met.
  *
  * `saved_queries/` is the second case, and it is the one that proves
  * the lists are not a union: it is VISIBLE, it IS a valid paste target, and only

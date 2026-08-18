@@ -18,8 +18,7 @@ function pad(value: string, width: number): string {
 }
 
 /**
- * The current page as fixed-width text — the shape people paste into a ticket
- *.
+ * The current page as fixed-width text — the shape people paste into a ticket.
  *
  * A single `<pre>` rather than a table, because the point is that a drag-select and a
  * copy produce exactly what is on screen, alignment included. Column widths are measured

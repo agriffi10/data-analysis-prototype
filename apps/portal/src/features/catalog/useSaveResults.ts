@@ -46,8 +46,8 @@ type Params = {
    * precedent, and for the reason `useSaveQuery` has the same shape. The hook read
    * the unfiltered list, so with `sharedWorkspaces` off this dialog went on offering a
    * colleague's space as a WRITE target after every other shared-workspace surface had gone
-   * — and a flag may not be applied inside a hook that answers a question about access
-   *, so the filter belongs at the view either way. Both call sites now
+   * — and a flag may not be applied inside a hook that answers a question about access,
+   * so the filter belongs at the view either way. Both call sites now
    * hand it a list they have gated.
    */
   spaces: QuerySpace[];

@@ -34,7 +34,8 @@ Attributes:
     Matched on the whole line rather than on comment syntax, because four languages' comment
     markers is four ways to miss one. ``FR-005`` is in the set because 429 of them survived a
     sweep that looked only for ``SPEC-``, and a requirement number without its spec is strictly
-    less useful than the citation it hung off.
+    less useful than the citation it hung off. The PR form is bounded at four digits: unbounded, it
+    matches a six-digit hex colour such as the palette tokens in the Data Explorer.
 """
 
 import pathlib
@@ -50,7 +51,7 @@ DIGEST_MAX_CHARS = 900
 DELIVERY_MAX_LINES = 260
 STATUS_WORDS = ("shipped", "complete", "active", "draft", "in progress", "filed", "scoped")
 SOURCE_TREES = (("apps/portal/src", (".ts", ".tsx")), ("lambdas", (".py",)), ("infra", (".tf", ".tftpl")))
-CITATION_RE = re.compile(r"SPEC-\d{3}|(?<![\w#])#\d{3}(?![\w])|\b(?:FR|AC)-?\d+\b")
+CITATION_RE = re.compile(r"SPEC-\d{3}|(?<![\w#])#\d{3,4}(?![\w])|\b(?:FR|AC)-?\d+\b")
 
 
 class DocsError(Exception):

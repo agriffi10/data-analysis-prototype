@@ -16,8 +16,8 @@ locals {
   # ONE shared execution role for every verb Lambda (user decision, recorded in
   # docs/architecture.md (Control Planes -> Table Share) — mirrors the table-builder's
   # consolidated model; per-verb roles are NOT used). Its permission policy
-  # (execution.json.tftpl) grows with the arc: logs (088) + registry/Cognito/Glue
-  # reads (089) + source-bucket listing (090); the copy/create + LF-admin grants
+  # (execution.json.tftpl) covers logs, the registry/Cognito/Glue reads and the
+  # source-bucket listing; the copy/create and LF-admin grants
   # land with the verbs. The ARN is a constructed string (known at plan time) for
   # the later cycle-free LF-admin wiring from root.
   execution_role_name = "${var.project_name}-${var.environment}-table-share-execution-role"
@@ -74,8 +74,7 @@ locals {
   # Per-verb extra env, merged over the common env (lambda.tf). RESERVED FOR
   # OPTIONAL action env only: everything tscommon/config.py _require()s must live
   # in the COMMON env instead — the shared layer's import-time fail-fast runs for
-  # every verb, so a verb missing any required var crashes at cold start (the
-  # start.
+  # every verb, so a verb missing any required var crashes at cold start.
   table_share_verb_env = {}
 
   # ARNs for the execution role's grants (constructed, known at plan).

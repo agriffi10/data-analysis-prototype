@@ -16,8 +16,8 @@ export type UseCopyToClipboardResult = {
  *
  * It RETURNS the outcome as well, because swallowing is only safe for a caller whose
  * confirmation is the `copied` flag itself: a caller that closes its dialog and announces
- * success separately would otherwise say the copy worked when the write was refused
- *. Callers that render the flag can go on ignoring the return.
+ * success separately would otherwise say the copy worked when the write was refused.
+ * Callers that render the flag can go on ignoring the return.
  */
 export function useCopyToClipboard(resetMs = 1500): UseCopyToClipboardResult {
   const [copied, setCopied] = useState(false);

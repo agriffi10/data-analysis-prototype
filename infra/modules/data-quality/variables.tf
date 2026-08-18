@@ -34,8 +34,8 @@ variable "account_id" {
 # NOTE: these are wired into the COMMON Lambda env now, not because the stubs
 # use them, but because every verb attaches the cpcommon layer and cpcommon/config.py
 # requires them. That requirement moved from import to
-# FIRST READ, so a verb missing one no longer crashes at cold start (the table-builder
-# — it fails on whichever branch reads it. The union is still
+# FIRST READ, so a verb missing one no longer crashes at cold start — it fails on
+# whichever branch reads it. The union is still
 # what must be set; do not prune one as "unused". No bucket is created here.
 
 variable "user_space_bucket_name" {

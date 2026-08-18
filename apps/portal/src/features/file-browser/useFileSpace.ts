@@ -34,8 +34,7 @@ export type UseFileSpaceParams = {
    * Set while the `sharedWorkspaces` flag is off. Deliberately NOT the same thing as a
    * space that cannot be resolved: this reports `fellBack: false`, so no banner claims the
    * space is unavailable — it is available, this build just does not offer shared spaces.
-   * `useConnections` still resolves normally, because a flag may not touch a service
-   *.
+   * `useConnections` still resolves normally, because a flag may not touch a service.
    */
   ignoreSpaceParam?: boolean;
 };

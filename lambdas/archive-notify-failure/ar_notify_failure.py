@@ -47,7 +47,7 @@ Attributes:
   _RESTORE_TIMEOUT_REASON: The same for a RESTORE. Two codes rather than one worded generically,
     because what a timeout may PROMISE differs by arm: an archive's deletion is downstream of the
     commit gate, so a timed-out archive has never deleted anything — a sentence that is true, load
-    bearing, and meaningless about a restore. Reachable once the retrieval wait exists,
+    bearing, and meaningless about a restore. Unreachable until the retrieval wait exists,
     and shipped now because that is the spec that makes the timeout predominantly a restore event.
 """
 
@@ -80,7 +80,7 @@ def _mode_from_raw_request(raw) -> str:
     selects between two prefixes and two timeout sentences, so an untrusted value can only make a
     user's own malformed request read as the other operation.
 
-    **The retrieval is what makes this matter.** Nothing else on the restore arm waits, so a restore
+    **The retrieval is what makes this matter.** Nothing on the restore arm waits, so a restore
     cannot time out; that spec adds a 3-5 hour retrieval wait, which makes the timeout
     predominantly a RESTORE event — and the archive sentence promises "nothing was deleted and your
     files are exactly where they were", which says nothing true or useful about a restore.

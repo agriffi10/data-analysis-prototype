@@ -1,13 +1,13 @@
 """The destination guard: nothing a restore would write over may already exist.
 
-and the rule the feature was asked for explicitly. S3 has no move and no
+and it is the rule the feature was asked for explicitly. S3 has no move and no
 rename, so a restore is a copy and a copy overwrites. If the user has re-created
 ``reports/q1.csv`` since archiving it, restoring on top would destroy the newer file with no
 trace — so **any** occupied destination refuses the whole restore. There is no skip, no
 overwrite, no merge and no "restore what fits".
 
-**The guard runs before any ``RestoreObject``, and that ordering is the reason the guard exists
-as its own spec.** Glacier retrieval is billed and irreversible once initiated: discovering the
+**The guard runs before any ``RestoreObject``, and that ordering is the whole reason it
+runs where it does.** Glacier retrieval is billed and irreversible once initiated: discovering the
 conflict afterwards would charge the user for hours of retrieval that cannot land, and there is
 no way to give it back.
 

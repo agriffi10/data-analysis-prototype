@@ -49,9 +49,8 @@ resource "aws_lambda_function" "functions" {
 
   # EVERY variable tscommon/config.py _require()s at import must be COMMON to all
   # verbs: the shared layer's fail-fast runs on any `from tscommon import …`
-  # chain, so a verb missing ANY required var crashes at cold start (the
-  # start. The per-verb map (locals.tf) is
-  # reserved for OPTIONAL action env only.
+  # chain, so a verb missing ANY required var crashes at cold start. The per-verb
+  # map (locals.tf) is reserved for OPTIONAL action env only.
   environment {
     variables = merge(
       {
@@ -61,7 +60,7 @@ resource "aws_lambda_function" "functions" {
         COGNITO_USER_POOL_ID  = var.user_pool_id
         COGNITO_APP_CLIENT_ID = var.app_client_id
         ATHENA_WORKGROUP      = var.athena_workgroup
-        # Optional in tscommon.config — unset ⇒ emits are logged no-ops).
+        # Optional in tscommon.config — unset ⇒ emits are logged no-ops.
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
         # Deliberately NOT mirrored by a config._require — see variables.tf.
         LOGS_QUEUE_URL = var.logs_queue_url

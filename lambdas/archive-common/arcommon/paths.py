@@ -12,7 +12,7 @@ would be wrong without it.** Receipts sit in each space's own bucket, where the 
 cannot meet. The archive bucket is the first place they do. Shared-space names are made unique
 against the shared-space registry only — **nothing anywhere checks a proposed space name against
 the User Pool** — so a user ``alice`` and a space ``alice`` can both exist today. Flat, they
-would share one archive prefix; and  authorizes a restore by SPACE and then reads
+would share one archive prefix; and because a restore is authorized by SPACE and then reads
 whatever sits at that prefix, a member of space ``alice`` could restore user ``alice``'s files
 into the shared space. The kind segment is the entire fix and costs nothing else.
 
@@ -27,7 +27,7 @@ second copy of it is a second place a cross-tenant read can be introduced.
 
 Attributes:
   _UUID_V4: The request-id form accepted before any concatenation. **Validated BEFORE the id is
-    ever put into an S3 key** the id is browser-supplied and becomes a path segment in
+    ever put into an S3 key**: the id is browser-supplied and becomes a path segment in
     two buckets, so anything that is not exactly a UUID v4 — a slash, a ``..``, an empty string —
     is refused here rather than normalised into something that resolves.
 
@@ -79,7 +79,7 @@ def validated_archive_id(archive_id) -> str:
     **The archive id is the only part of a restore request that is both typed
     by a human and used to build an S3 key**, so it is matched against the pattern rather than
     sanitised into one: a value carrying ``/``, ``..``, a percent escape or a trailing space is
-    refused as malformed and never normalised, the same discipline the DDL discipline applied to DDL
+    refused as malformed and never normalised, the same discipline applied to DDL
     literals after a raw interpolation turned out to be the defect.
 
     It shares ``validated_request_id``'s regex on purpose — one rule, so the id that opened an

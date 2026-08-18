@@ -1,7 +1,7 @@
 """Best-effort outcome notifications for the file-send pipeline.
 
 The shared primitives live in ``cpcommon.notify``; this module keeps the file-send specifics:
-the sender-addressed failure, and  the per-recipient outcomes, the
+the sender-addressed failure, and the per-recipient outcomes, the
 recipient's own message and the link that takes them to what arrived.
 
 A missed notification must never change or fail the outcome, so every emit goes through
@@ -10,7 +10,7 @@ contract of this plane's producer: the copy has already happened by the time it 
 message is the only thing it can add.
 
 **No per-message dedup token is passed, and the queue's content-based dedup is load-bearing
-rather than incidental.** the rule is one token per OUTCOME, not per verb; here every
+rather than incidental.** The rule is one token per OUTCOME, not per verb; here every
 outcome is emitted from exactly one place, so there is no duplicate-emit pair for a token to
 collapse — while the producer's own state carries a ``Retry``, and a re-invocation after a
 transient Lambda fault would otherwise send every message twice. Content dedup is what makes that

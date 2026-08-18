@@ -130,8 +130,8 @@ export async function enqueueArchive(req: ArchiveRequest): Promise<ServiceResult
  * restore carrying a selection is a refusal rather than a request that quietly ignores half of
  * itself.
  *
- * The space comes from the caller — the route the user is standing in — never from the archive
- *. An archive belonging to a different space is then simply not found, which
+ * The space comes from the caller — the route the user is standing in — never from the archive.
+ * An archive belonging to a different space is then simply not found, which
  * is what keeps this from becoming an existence oracle over other people's archives.
  */
 export async function enqueueRestore(req: RestoreRequest): Promise<ServiceResult<void>> {

@@ -13,7 +13,7 @@
 # The state machine runs under its OWN role (iam.tf, sfn-permissions: InvokeFunction on
 # the verbs + log delivery + the Distributed Map's own grants); the verb Lambdas run under
 # the ONE shared execution role. Standard (over Express) keeps per-execution history for
-# debugging and allows the long copies and the Glacier retrieval wait
+# debugging and allows the long copies and the Glacier retrieval wait this plane
 # needs — and Express is doubly rejected here, since a Pipe cannot use
 # REQUEST_RESPONSE against a Standard machine and this plane's outcome is a
 # notification, not a response.

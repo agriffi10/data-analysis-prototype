@@ -136,8 +136,8 @@ export async function getQueryResults(p: {
   // Athena prepends the column names as the first row of the FIRST page of a
   // SELECT (the header foot-gun handled below). Request one extra row on page 1
   // so that, after dropping that header, a SELECT still nets a full `pageSize`
-  // data rows; continuation pages have no header and request exactly `pageSize`
-  //. Athena rejects MaxResults > 1000, so at the
+  // data rows; continuation pages have no header and request exactly `pageSize`.
+  // Athena rejects MaxResults > 1000, so at the
   // 1000-row maximum the +1 is clamped away and page 1 nets 999 data rows —
   // callers must not assume uniform page lengths (useQueryResults numbers rows
   // from the actual loaded pages).

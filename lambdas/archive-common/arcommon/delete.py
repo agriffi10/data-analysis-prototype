@@ -9,7 +9,7 @@ property that matters there (the source is intact) is already true.
 
 **``DeleteObjects`` returns HTTP 200 with a per-item ``Errors`` array.** A key that was denied or
 failed individually does not raise, so a response inspected only by status code reads as a
-complete deletion — the defect the DDL discipline fixed on the shared-space teardown, where it freed a space
+complete deletion — the defect that was fixed on the shared-space teardown, where it freed a space
 name whose objects were still in the bucket. ``Quiet: False`` is set explicitly so that array is
 populated at all.
 

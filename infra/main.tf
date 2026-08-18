@@ -625,7 +625,7 @@ module "table_builder" {
   shared_space_bucket_name = local.shared_space_bucket_name
   admin_bucket_name        = local.athena_admin_bucket_name
 
-  # The analytics workgroup execute-ddl runs the CREATE in .
+  # The analytics workgroup the execute-ddl verb runs its CREATE in.
   athena_workgroup = local.athena_workgroup_name
 
   # The portal role this module attaches the sqs:SendMessage enqueue policy
@@ -1050,7 +1050,7 @@ module "verification" {
 
   # Operator identities, from the TF_VAR_verification_principal_arns repo variable (NOT a local
   # terraform.tfvars — a local apply proposes to recreate the data buckets it cannot read; see
-  # modules/verification/iam.tf). Empty ⇒ no role, and the TRAIL — the half that unblocks
+  # modules/verification/iam.tf). Empty ⇒ no role, and the TRAIL — the half that unblocks the restore's negative assertion
   # Ships regardless.
   verification_principal_arns = var.verification_principal_arns
 

@@ -67,8 +67,8 @@ function EmptyState({title, hint}: {title: string; hint: string}) {
 }
 
 /**
- * The mobile (`< tablet`) query workspace: browse-first, with no SQL editor
- *. Saved queries and History are the two surfaces — tapping
+ * The mobile (`< tablet`) query workspace: browse-first, with no SQL editor.
+ * Saved queries and History are the two surfaces — tapping
  * **Run** on a card submits that entry through the same run path the editor uses
  * and hands off to the mobile results view; **View** opens it read-only. Both
  * lists are the workspace's existing data, passed down (no new fetch).

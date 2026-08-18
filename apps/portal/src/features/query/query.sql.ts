@@ -74,7 +74,7 @@ const DDL_QUALIFIED_TARGET = /\b(?:table|view)\s+(?:if\s+(?:not\s+)?exists\s+)?(
 /**
  * The database a schema-changing statement targets, taken from its
  * fully-qualified `database.object` — there's no active database to
- * assume). Returns null when the statement isn't schema-changing or its target
+ * assume. Returns null when the statement isn't schema-changing or its target
  * isn't database-qualified. Used to refresh the right database's schema after a
  * user-typed DDL run succeeds.
  */
@@ -87,8 +87,8 @@ export function schemaChangingDatabase(sql: string): string | null {
 export type ViewTarget = {database: string} | {error: string};
 
 /**
- * Derives the target database for a "Create view" from the view body itself
- *: the single database of the fully-qualified base tables the
+ * Derives the target database for a "Create view" from the view body itself:
+ * the single database of the fully-qualified base tables the
  * body selects from. Views generally don't span databases, so exactly one is
  * expected. Returns `{error}` (never a silent pick) when the body qualifies
  * tables from more than one database, or has no fully-qualified base table.

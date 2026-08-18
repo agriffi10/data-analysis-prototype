@@ -5,7 +5,7 @@ type Props = {
   disabled?: boolean;
 };
 
-// a multi-file picker + drag-and-drop drop zone. Selecting or
+// a multi-file picker + drag-and-drop zone. Selecting or
 // dropping any number of files enqueues them all onto the upload queue; per-file
 // progress, status, and cancel live in the in-drawer uploads list (UploadList), not here
 // (this is purely the "add files" surface). Upgrades the single-file zone.

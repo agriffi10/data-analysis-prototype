@@ -13,9 +13,9 @@ locals {
   state_machine_name  = "${var.project_name}-${var.environment}-table-builder-orchestrator"
   sfn_role_name       = "${var.project_name}-${var.environment}-table-builder-sfn-role"
 
-  # ONE shared execution role for every verb Lambda (user decision — reverses the
-  # per-verb roles, mirroring the shared-spaces single-orchestrator model in
-  # role. Its permission policy is the UNION of the verbs' needs (execution.json.tftpl),
+  # ONE shared execution role for every verb Lambda — user decision, reversing the
+  # per-verb roles and mirroring the shared-spaces single-orchestrator model.
+  # Its permission policy is the UNION of the verbs' needs (execution.json.tftpl),
   # and it is the table-builder Lake Formation admin (analytics data_lake_settings) so
   # check-table-absent + execute-ddl can Describe/CREATE in the DYNAMIC per-user +
   # per-shared-space target databases (they can't be statically LF-granted). ARN is a

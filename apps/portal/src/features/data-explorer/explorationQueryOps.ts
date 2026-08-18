@@ -8,8 +8,8 @@ import type {
   SortEntry
 } from './dataExplorer.types';
 
-// The pure edits every filtering and ordering surface makes to a query description
-//. They live apart from the components for the reason `exploration.ts` gives
+// The pure edits every filtering and ordering surface makes to a query description.
+// They live apart from the components for the reason `exploration.ts` gives
 // for its constructors: a header menu, a cell action and a settings dialog all "add a
 // filter", and three implementations of that is how two of them come to disagree about
 // whether adding a second filter on one column replaces the first.

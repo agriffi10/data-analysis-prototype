@@ -276,7 +276,7 @@ function isValidTransformer(value: unknown): boolean {
  * paints the opposite of what was intended. Losing the block costs a tab its colours;
  * keeping half of it costs the user their trust in what they are looking at.
  *
- * A document written written before it existed carries no block at all, which is the ordinary case
+ * A document written before these fields existed carries no block at all, which is the ordinary case
  * for the first session after a deploy and reaches the same default.
  *
  * @param value - The stored `formatting` object, or anything at all.
@@ -306,7 +306,7 @@ function normalizeFormatting(value: unknown): FormattingState {
 /**
  * Reads a stored presentation, defaulting every field it cannot trust.
  *
- * A document written written before it existed carries only the four geometry fields, and one
+ * A document written before these fields existed carries only the four geometry fields, and one
  * written by a future version may carry fields this build has never heard of — both must
  * restore rather than discard the tab, because presentation is cosmetic and the
  * exploration beside it is not.
@@ -377,7 +377,7 @@ export function readExplorationTabsState(username: string): ExplorationTabsState
       ...parsed,
       tabs: parsed.tabs.map((tab) => ({
         ...tab,
-        // A document written written before it existed carries no history at all, which is the
+        // A document written before these fields existed carries no history at all, which is the
         // ordinary case for the first session after a deploy — not a fault.
         history: normalizeHistory(tab.history),
         savedQuery: normalizeSavedQueryLink(tab.savedQuery),

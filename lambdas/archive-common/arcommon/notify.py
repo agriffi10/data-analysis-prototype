@@ -5,11 +5,11 @@ actor-addressed failure, and the three outcomes a FAILURE table cannot
 carry — an archive that completed, a restore that has started, and a restore that finished.
 
 **Only three, because the other six terminal outcomes are already told by the decorator.**
-the rule names nine; ``archive_not_found``, ``archive_incomplete``, ``destination_occupied``,
+The outcome table names nine; ``archive_not_found``, ``archive_incomplete``, ``destination_occupied``,
 ``restore_incomplete``, ``restore_timed_out`` and every other refusal are reason codes in
 ``messages._BODIES``, emitted once from ``notifies_on_failure`` or from the machine's
 ``NotifyFailure``. Adding a second producer for them would be the duplicate-notification bug
-The one-token-per-outcome rule exists to prevent.
+the one-token-per-outcome rule exists to prevent.
 
 A missed notification must never change or fail the outcome, so every emit goes through
 ``cpcommon.notify.emit_notification``, which catches, logs and never raises.

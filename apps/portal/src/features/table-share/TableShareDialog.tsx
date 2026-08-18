@@ -47,11 +47,11 @@ function unlistedSpaceNote(names: string[]): string {
  * The "Share table" modal: recipient-kind toggle (users / shared
  * spaces), multi-entry recipient chips, and a catalog-safe result table name
  * defaulted to the source name. Submit stays disabled until there is at least
- * one recipient and the name is valid; the server re-validates authoritatively
- *, so validation here is UX only.
+ * one recipient and the name is valid; the server re-validates authoritatively,
+ * so validation here is UX only.
  *
- * BOTH kinds suggest as you type — usernames from the published directory
- *, space names from the signed-in user's own connections cache
+ * BOTH kinds suggest as you type — usernames from the published directory,
+ * space names from the signed-in user's own connections cache
  * — and NEITHER blocks a name it does not know. Free text still
  * commits: the pipeline owns existence checks, and outcomes arrive as
  * notifications.

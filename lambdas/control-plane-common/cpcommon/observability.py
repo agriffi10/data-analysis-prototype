@@ -66,8 +66,8 @@ UNSTAMPED_VERSION = "0.0.0"
 def _build_version():
     """Resolves the commit this function's code was built from.
 
-    Every record shipped ``"0.0.0"`` because nothing ever set
-    ``BUILD_VERSION``, and the field exists to correlate a record with a deploy.
+    Before the stamp shipped in the package every record carried ``"0.0.0"``, because
+    nothing set ``BUILD_VERSION``. The field exists to correlate a record with a deploy.
 
     The stamp travels IN THE PACKAGE (``BUILD_VERSION`` beside the handler, written by
     ``Deploy Lambdas``) rather than in the function's environment, because Tofu owns the

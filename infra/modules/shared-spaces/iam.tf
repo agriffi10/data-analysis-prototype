@@ -2,8 +2,7 @@
 # Two roles:
 #   - orchestrator role: the single privileged role the Step Function AND every verb/
 #     validator Lambda run under (trust = states + lambda). The plane decomposes into
-#     monolith into six Lambdas but keeps ONE shared role (user decision
-#     note) — so the policy carries the union of all verbs' permissions (Glue,
+#     six Lambdas but keeps ONE shared role by user decision — so the policy carries the union of all verbs' permissions (Glue,
 #     Lake Formation, S3 on the shared bucket + admin registry prefix, user-space
 #     cache, Cognito admin, invoke the verb Lambdas, states/logs).
 #   - pipe role: assumed by the EventBridge Pipe to read the queue and start the SFN.
