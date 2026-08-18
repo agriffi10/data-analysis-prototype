@@ -8,7 +8,7 @@
 # At this stage the execution policy (execution.json.tftpl) is LOGS ONLY — the
 # placeholder path needs nothing else. The LF-admin / Glue / Athena / S3 / Cognito /
 # registry / notifications grants are added by the spec that first needs each
-# (SPEC-089/090/092/094), keeping this foundation behavior-free.
+# with the verbs, keeping this foundation behavior-free.
 
 # ── Shared Lambda execution role (uniform lambda trust) ──────────────────────
 resource "aws_iam_role" "execution" {
@@ -39,12 +39,12 @@ resource "aws_iam_role_policy" "execution" {
   policy = templatefile("${path.module}/policies/execution.json.tftpl", {
     log_group_arn = local.table_share_log_group_wildcard_arn
     # Registry read (source authz + recipient-space existence), Cognito
-    # recipient-existence checks. SPEC-090: source-bucket ListBucket for the
-    # copy-plan listing. SPEC-092: Glue CreateTable + the Athena DDL run/poll +
+    # recipient-existence checks. Source-bucket ListBucket for the
+    # copy-plan listing. Glue CreateTable, the Athena DDL run/poll and
     # results write + lakeformation:GetDataAccess — the LF-admin designation itself
     # lives in module.analytics' data_lake_settings (root wires the constructed
     # role ARN; recipient DBs are dynamic, so catalog-wide create via LF admin,
-    # mirroring the table-builder). SPEC-094: sqs:SendMessage to the notifications
+    # mirroring the table-builder). sqs:SendMessage to the notifications
     # queue ONLY (best-effort sender + recipient outcome notifications).
     admin_bucket_arn        = local.admin_bucket_arn
     user_pool_arn           = local.user_pool_arn
@@ -66,7 +66,7 @@ resource "aws_iam_role_policy" "execution" {
 # the table-builder / notifications modules (the role is created in module.data; the
 # root module-level depends_on guarantees it exists first). No Lambda invoke, no DLQ,
 # no Step Function — just enqueue. The send helper is enqueueTableShare; the UI that
-# uses it lands in SPEC-093.
+# uses it lives in the browser.
 resource "aws_iam_role_policy" "portal_table_share" {
   name = "table-share-enqueue"
   role = var.portal_role_name

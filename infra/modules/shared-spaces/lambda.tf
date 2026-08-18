@@ -1,4 +1,4 @@
-# ── Control-plane Lambdas (SPEC-050 skeleton; SPEC-062 decomposition) ─────────
+# ── Control-plane Lambdas ──────────────────────────────────────────────────
 # The single 711-line provisioner monolith is decomposed into a validate-authorize
 # Lambda + five single-task verb Lambdas (create / add-members / remove-members /
 # leave / delete), orchestrated by the Step Function (stepfunction.tf): validate ->
@@ -25,8 +25,8 @@ data "archive_file" "placeholder" {
   }
 }
 
-# Explicit log group per function so retention is managed (14 days; matches SPEC-012/
-# 033). Lambda would otherwise create one with infinite retention on first invoke.
+# Explicit log group per function so retention is managed (14 days; matches the other
+# singleton Lambdas). Lambda would otherwise create one with infinite retention on first invoke.
 resource "aws_cloudwatch_log_group" "functions" {
   for_each = local.shared_space_functions
 
@@ -46,7 +46,7 @@ resource "aws_lambda_function" "functions" {
   timeout       = 60
 
   # Full env on every function (each reads only what it needs; unused vars are empty).
-  # SPEC-056 trusted-actor binding: the validate Lambda verifies the caller's Cognito
+  # Trusted-actor binding: the validate Lambda verifies the caller's Cognito
   # ID token against the pool JWKS (COGNITO_*); the verbs trust the validated actor.
   environment {
     variables = {
@@ -67,7 +67,7 @@ resource "aws_lambda_function" "functions" {
       # feature-flag document's `environments` keys (`var.environment`, default "prod").
       ENV_NAME = var.environment
       # NOT used by any shared-space verb — set because the cpcommon layer's
-      # config requires it, and any code path may read it. (SPEC-156 FR-004 moved that from
+      # config requires it, and any code path may read it. (that read moved from
       # import to first read, so this is no longer a cold-start crash — but it is
       # still a failure, and this variable must still be set.) Landed and applied BEFORE the
       # code that imports cpcommon deploys, so the layer attach can never arrive at a

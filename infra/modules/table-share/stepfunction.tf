@@ -4,7 +4,7 @@
 # create-table PER RECIPIENT with a per-item Catch (one recipient's failure never
 # aborts its siblings — docs/architecture.md Control Planes -> Table Share). The per-step bodies
 # are STUBS here (pass-through) — the real logic + the structured recorded-failure
-# outcomes land in SPEC-089→092.
+# outcomes land with the verbs.
 #
 # The state machine runs under its OWN role (iam.tf, sfn-permissions: InvokeFunction
 # on the five verbs + log delivery); the verb Lambdas run under the ONE shared
@@ -49,7 +49,7 @@ resource "aws_sfn_state_machine" "table_share" {
   ]
 }
 
-# ── SPEC-161 FR-003 AC2: the timed-out run's only route to a notification ─────
+# ── The timed-out run's only route to a notification ─────
 # A top-level TimeoutSeconds expiry terminates the execution OUTRIGHT. Step Functions catchers
 # cover Task, Parallel and Map states but NOT top-level execution failures, so the machine's own
 # RecordFailure -> NotifyFailure path is unreachable on this one failure and the sender would be

@@ -33,12 +33,12 @@ resource "aws_sfn_state_machine" "file_send" {
     validate_authorize_function_arn = aws_lambda_function.functions["validate-authorize"].arn
     inspect_source_function_arn     = aws_lambda_function.functions["inspect-source"].arn
     notify_failure_function_arn     = aws_lambda_function.functions["notify-failure"].arn
-    # SPEC-166.
+    # The guard, the manifest, the copy and the collector.
     check_target_absent_function_arn      = aws_lambda_function.functions["check-target-absent"].arn
     build_transfer_manifest_function_arn  = aws_lambda_function.functions["build-transfer-manifest"].arn
     copy_objects_function_arn             = aws_lambda_function.functions["copy-objects"].arn
     collect_transfer_results_function_arn = aws_lambda_function.functions["collect-transfer-results"].arn
-    # SPEC-167.
+    # The outcome producer.
     notify_function_arn       = aws_lambda_function.functions["notify"].arn
     guard_map_max_concurrency = local.guard_map_max_concurrency
     # Mirrored from cpcommon/transfer/config.py; a test holds the two together.

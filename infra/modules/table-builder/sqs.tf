@@ -14,7 +14,7 @@
 # inside the 5-minute window. Per-DB serialization comes from MessageGroupId, above.
 #
 # No time_sleep guard here: the deploy-role grants these resource types need were
-# applied in the SPEC-066 PR1 (modules/base deploy-policy-table-builder) BEFORE this
+# applied in modules/base (deploy-policy-table-builder) BEFORE this
 # module's resources land (the deploy-perms-before-resources rule), so there is no
 # self-grant propagation race to wait out — same as the notifications module.
 

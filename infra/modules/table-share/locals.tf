@@ -1,6 +1,6 @@
 # ── Constructed names + ARNs ──────────────────────────────────────────────────────────────────────
 # All resource names derive from {project_name}-{environment} so the deploy policy
-# (modules/base, the SPEC-088 PR1 grant) scopes to the same {project}-*-table-share-*
+# (the modules/base grant) scopes to the same {project}-*-table-share-*
 # patterns, and so cross-resource ARNs referenced inside IAM policy templates are
 # KNOWN AT PLAN TIME (constructed strings, not resource attributes) — the
 # architecture.md "unknown ARN in list" discipline. This module plans standalone.
@@ -14,11 +14,11 @@ locals {
   sfn_role_name       = "${var.project_name}-${var.environment}-table-share-sfn-role"
 
   # ONE shared execution role for every verb Lambda (user decision, recorded in
-  # docs/architecture.md (Control Planes -> Table Share) — mirrors the table-builder's post-SPEC-072
+  # docs/architecture.md (Control Planes -> Table Share) — mirrors the table-builder's
   # consolidated model; per-verb roles are NOT used). Its permission policy
   # (execution.json.tftpl) grows with the arc: logs (088) + registry/Cognito/Glue
   # reads (089) + source-bucket listing (090); the copy/create + LF-admin grants
-  # land with SPEC-091/092. ARN is a constructed string (known at plan time) for
+  # land with the verbs. The ARN is a constructed string (known at plan time) for
   # the later cycle-free LF-admin wiring from root.
   execution_role_name = "${var.project_name}-${var.environment}-table-share-execution-role"
   execution_role_arn  = "arn:aws:iam::${var.account_id}:role/${var.project_name}-${var.environment}-table-share-execution-role"
@@ -36,7 +36,7 @@ locals {
   # `pytest lambdas/` process (the tbcommon-package lesson, applied to verb modules).
   table_share_functions = {
     "validate-authorize" = { handler = "table_share_validate_authorize.handler", timeout = 15, memory = 256 }
-    # SPEC-161 raised inspect-source from 60s/512MB. SHARE_MAX_OBJECTS went 1,000 -> 20,000, and
+    # inspect-source is sized above 60s/512MB. SHARE_MAX_OBJECTS went 1,000 -> 20,000, and
     # this is the verb that lists them and holds the whole copy plan in memory before writing it.
     # At S3's worst-case 1024-byte keys that plan is ~21 MB serialised (~3.4 MB at ordinary Hive
     # keys), and the in-memory list of dicts is several times either. It fit at 512 MB, but every
@@ -51,7 +51,7 @@ locals {
     # memory is about holding the expanded list, not about parallelism.
     # collect-transfer-results reads the Map Run's export.
     #
-    # SPEC-161 raised both from 60s/512MB, because these two ARE the binding constraint on
+    # Both are sized above 60s/512MB, because these two ARE the binding constraint on
     # SHARE_MAX_TRANSFER_ITEMS and the cap moved 1,000 -> 20,000. They handle the same volume in
     # opposite directions: at S3's worst-case 1024-byte keys a transfer item is ~2.3 KB, so
     # 20,000 items is a ~46 MB manifest to build and serialise, and the Map Run export carries
@@ -63,7 +63,7 @@ locals {
     # The notification of last resort: one decode + one SQS send, reached only
     # on a whole-request failure path.
     #
-    # SPEC-161 raised it 15s -> 60s. It gained a SECOND door (the EventBridge TIMED_OUT rule
+    # 60s rather than 15s, because of the SECOND door (the EventBridge TIMED_OUT rule
     # in stepfunction.tf), and that path does strictly more work than the ASL one: a cold-start
     # JWKS fetch over the network plus a JWT verify before the send, because the sender has to
     # come from the token in the timed-out execution's own input. 15s was sized for a decode
@@ -75,7 +75,7 @@ locals {
   # OPTIONAL action env only: everything tscommon/config.py _require()s must live
   # in the COMMON env instead — the shared layer's import-time fail-fast runs for
   # every verb, so a verb missing any required var crashes at cold start (the
-  # table-builder production break, PR #196).
+  # start.
   table_share_verb_env = {}
 
   # ARNs for the execution role's grants (constructed, known at plan).
@@ -131,7 +131,7 @@ locals {
   transfer_map_max_concurrency = 20
 
   # A TOP-LEVEL ASL field, not a resource argument and not a task field —
-  # the same distinction SPEC-157 settled for the table-builder. Without it a Standard
+  # the same distinction the table-builder's lock settled. Without it a Standard
   # workflow's ceiling is Step Functions' own default of ONE YEAR, so a wedged run simply
   # never ends.
   #

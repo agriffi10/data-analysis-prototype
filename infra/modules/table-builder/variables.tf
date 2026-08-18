@@ -7,7 +7,7 @@
 # plane PATTERN (not its resources), but with PER-VERB least-privilege roles.
 #
 # FOUNDATION ONLY — plumbing + Lambda stubs, no request contract and no
-# action semantics (those land in SPEC-067→070). Cross-module ARNs are CONSTRUCTED
+# action semantics (those land with the verbs). Cross-module ARNs are CONSTRUCTED
 # STRINGS (passed from root locals), never another module's output, so they are known
 # at plan time (architecture.md "unknown ARN in list" trap) and this module plans
 # standalone.
@@ -48,7 +48,7 @@ variable "admin_bucket_name" {
 }
 
 variable "athena_workgroup" {
-  description = "SPEC-032 Athena workgroup the execute-ddl verb runs the CREATE DDL in (wired to execute-ddl's env in SPEC-070). Carried as a foundation variable so the module's interface is stable across the arc."
+  description = "Athena workgroup the execute-ddl verb runs the CREATE DDL in. Carried as a foundation variable so the module's interface is stable across the arc."
   type        = string
   default     = ""
 }
@@ -78,7 +78,7 @@ variable "app_client_id" {
   default     = ""
 }
 
-# ── Outcome notifications (trusted producer of the SPEC-058 inbox) ──
+# ── Outcome notifications (trusted producer of the inbox) ─────────────
 
 variable "logs_queue_arn" {
   description = "ARN of the structured-logging queue — scopes the execution role's sqs:SendMessage for log events."

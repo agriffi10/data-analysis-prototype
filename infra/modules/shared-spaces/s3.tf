@@ -7,7 +7,7 @@
 # Is plumbing only — this bucket is created with NO access grants and NO
 # bucket policy. The membership-tag portal-role statements, the shared-results
 # delete-denies, and the Lake Formation hybrid registration arrive with the access model;
-# the per-space provisioning (prefix marker, Glue DB) in SPEC-051+.
+# the per-space provisioning (prefix marker, Glue DB) with the verbs.
 
 # IAM propagation guard — same rationale as data/s3.tf and auth/lambda.tf. The
 # module-level depends_on = [module.base] orders the deploy-role policy (which now

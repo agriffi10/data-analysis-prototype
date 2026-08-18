@@ -185,7 +185,7 @@
     },
     "HasTransferItems": {
       "Type": "Choice",
-      "Comment": "Skips the Distributed Map when every recipient was refused: an ItemReader pointed at a manifest that was never written fails the state, and there is nothing to copy anyway. IsPresent is tested BEFORE the numeric comparison and is not optional — a Choice on an ABSENT path raises States.Runtime, which is uncatchable and which `Default` does NOT cover (settled, #252-adjacent).",
+      "Comment": "Skips the Distributed Map when every recipient was refused: an ItemReader pointed at a manifest that was never written fails the state, and there is nothing to copy anyway. IsPresent is tested BEFORE the numeric comparison and is not optional — a Choice on an ABSENT path raises States.Runtime, which is uncatchable and which `Default` does NOT cover.",
       "Choices": [
         {
           "And": [

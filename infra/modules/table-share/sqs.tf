@@ -3,18 +3,18 @@
 # request; an EventBridge Pipe (pipe.tf) drains it into the Step Function.
 #
 # FIFO with MessageGroupId = the SOURCE `database.table` (set by the producer,
-# SPEC-089), so repeated shares of the SAME source serialize strictly one-at-a-time
+# so repeated shares of the SAME source serialize strictly one-at-a-time
 # (a heavy copy never overlaps itself), while shares of different sources run in
 # parallel. The Pipe reads a batch of 1 (pipe.tf).
 #
-# content_based_deduplication is OFF (SPEC-088 FR-001, unlike the table-builder
+# content_based_deduplication is OFF (unlike the table-builder
 # queue): the producer sends an explicit MessageDeduplicationId = requestId
 # as the double-submit guard, and two byte-identical share requests a
 # user genuinely repeats (e.g. re-share after deleting the copy) must NOT be
 # silently absorbed by a 5-minute content-dedup window.
 #
 # No time_sleep guard here: the deploy-role grants these resource types need were
-# applied in the SPEC-088 PR1 (modules/base deploy-table-share policy) BEFORE this
+# applied in modules/base (deploy-table-share policy) BEFORE this
 # module's resources land (the deploy-perms-before-resources rule), so there is no
 # self-grant propagation race to wait out — same as the table-builder module.
 

@@ -50,7 +50,7 @@ output "cognito_domain" {
 }
 
 output "s3_user_space_bucket_name" {
-  description = "Name of the user-space S3 bucket (Bucket 1). Set VITE_S3_USER_SPACE_BUCKET to this value (consumed by the build starting SPEC-013)."
+  description = "Name of the user-space S3 bucket (Bucket 1). Set VITE_S3_USER_SPACE_BUCKET to this value."
   value       = module.data.user_space_bucket_name
 }
 
@@ -70,7 +70,7 @@ output "pre_signup_function_name" {
 }
 
 output "athena_workgroup_name" {
-  description = "Name of the shared Athena workgroup. Set VITE_ATHENA_WORKGROUP to this value (consumed by the app starting SPEC-034)."
+  description = "Name of the shared Athena workgroup. Set VITE_ATHENA_WORKGROUP to this value."
   value       = module.analytics.athena_workgroup_name
 }
 
@@ -102,7 +102,7 @@ output "shared_space_state_machine_arn" {
 
 # ── Notifications write pipeline ──────────────────────────────────
 output "notifications_queue_url" {
-  description = "URL of the FIFO notifications request queue (SPEC-058; ends in .fifo). The browser enqueues markRead/markAllRead here once granted sqs:SendMessage (granted in this spec); maps to VITE_NOTIFICATIONS_QUEUE_URL in SPEC-059."
+  description = "URL of the FIFO notifications request queue (ends in .fifo). The browser enqueues markRead/markAllRead here once granted sqs:SendMessage (granted in this spec); maps to VITE_NOTIFICATIONS_QUEUE_URL."
   value       = module.notifications.notifications_queue_url
 }
 

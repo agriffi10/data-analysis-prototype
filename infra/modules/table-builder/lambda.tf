@@ -29,8 +29,8 @@ data "archive_file" "placeholder" {
   }
 }
 
-# Explicit log group per function so retention is managed (14 days; matches SPEC-012/
-# 033). Lambda would otherwise create one with infinite retention on first invoke.
+# Explicit log group per function so retention is managed (14 days; matches the other
+# singleton Lambdas). Lambda would otherwise create one with infinite retention on first invoke.
 resource "aws_cloudwatch_log_group" "functions" {
   for_each = local.table_builder_functions
 

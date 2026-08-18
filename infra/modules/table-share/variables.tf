@@ -7,7 +7,7 @@
 # record: docs/architecture.md (Control Planes -> Table Share).
 #
 # FOUNDATION ONLY — plumbing + Lambda stubs, no request contract and no
-# action semantics (those land in SPEC-089→092). Cross-module ARNs are CONSTRUCTED
+# action semantics (those land with the verbs). Cross-module ARNs are CONSTRUCTED
 # STRINGS (passed from root locals), never another module's output, so they are known
 # at plan time (architecture.md "unknown ARN in list" trap) and this module plans
 # standalone.

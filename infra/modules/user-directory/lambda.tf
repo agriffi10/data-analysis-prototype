@@ -39,9 +39,9 @@ resource "aws_lambda_function" "build" {
     variables = {
       # USER_SPACE_BUCKET is the one variable this function actually uses. The rest are here
       # because the cpcommon layer's config requires them of every function that attaches it.
-      # SPEC-156 FR-004 moved that from import to FIRST READ, so a missing one no longer
-      # crashes at COLD START (the table-builder break PR #196, and the nine-day signup outage
-      # PR #317) — it fails on whichever branch reads it, which is narrower and no less broken.
+      # That read happens on FIRST ACCESS rather than at import, so a missing one no longer
+      # crashes at COLD START (a table-builder break, and a nine-day signup outage
+      # ) — it fails on whichever branch reads it, which is narrower and no less broken.
       # lambdas/user-directory-build/test_build_directory.py asserts this block against
       # config.py's own declaration rather than against a hand-kept copy.
       USER_SPACE_BUCKET     = var.user_space_bucket_name
