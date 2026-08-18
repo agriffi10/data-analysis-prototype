@@ -101,8 +101,8 @@ resource "aws_iam_role_policy" "sfn" {
   role = aws_iam_role.sfn.id
 
   # InvokeFunction on the verbs + log delivery, plus the Distributed Map's
-  # own permissions — which belong HERE and not on the execution role (
-  # FR-006): the state machine is what calls StartExecution for each child and what
+  # own permissions — which belong HERE and not on the execution role:
+  # the state machine is what calls StartExecution for each child and what
   # reads the ItemReader object / writes the ResultWriter export. Putting them on the
   # Lambda role renders, applies and unit-tests green, then fails on the first real
   # send with AccessDenied at the ItemReader.

@@ -263,8 +263,8 @@ export type ExecutionCost = {
  * This tab's undo/redo over its own query DESCRIPTIONS.
  *
  * Descriptions, never result sets: a description is a few hundred bytes and re-renders to
- * the same SQL, so stepping back resolves to the execution already cached (
- * FR-006) rather than to rows this would otherwise have to hold. It rides in the tab, so
+ * the same SQL, so stepping back resolves to the execution already cached
+ * rather than to rows this would otherwise have to hold. It rides in the tab, so
  * it is per tab and lives exactly as long as the session does.
  */
 export type QueryHistoryCursor = {

@@ -3,8 +3,8 @@
 /**
  * Saved-queries rows per DISPLAY page. Unrelated to LISTING_PAGE_SIZE (25): an S3
  * listing page of 25 keys can yield 25 rows, three, or none at all, because the store
- * offers only the top-level `.sql` files of an otherwise ordinary folder (
- * FR-002). The pager counts filtered rows, never keys.
+ * offers only the top-level `.sql` files of an otherwise ordinary folder.
+ * The pager counts filtered rows, never keys.
  */
 export const SAVED_QUERIES_PAGE_SIZE = 10;
 

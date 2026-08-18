@@ -17,8 +17,8 @@
 # nothing else: not the data-quality request queue (the browser enqueues there, and a verb
 # that could re-enqueue its own work is a loop), and not the DLQ.
 #
-# THE ZERO-CATALOG-ACCESS PROPERTY IS DELIBERATELY SURRENDERED HERE (
-# architecture.md, Control Planes -> Data Quality) — this is a decision, not drift, and it is the
+# THE ZERO-CATALOG-ACCESS PROPERTY IS DELIBERATELY SURRENDERED HERE
+# (architecture.md, Control Planes -> Data Quality) — this is a decision, not drift, and it is the
 # largest privilege this plane spends. Without it the role could not touch the Glue
 # catalog at all. It now can, because the pipeline's whole design is "let Athena read the
 # 250 GB, not a Lambda", and Athena reads through a Glue external table. The temp tables

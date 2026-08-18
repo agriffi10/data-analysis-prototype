@@ -20,8 +20,7 @@ type SendToast = {variant: 'success'; message: string};
  * and the busy lock are. Keeping one id across a failed attempt would make the queue swallow the
  * retry: the user sees an error, presses the button again, and nothing at all happens. The trade
  * is a send whose response was lost being retried as a new request, which the control plane's
- * conflict guard then refuses per recipient and tells the sender about (
- * amended in build).
+ * conflict guard then refuses per recipient and tells the sender about.
  */
 export function useFileSend(space: SendSourceSpace | null, notify: (toast: SendToast) => void) {
   const [items, setItems] = useState<SendItem[] | null>(null);

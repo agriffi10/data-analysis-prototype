@@ -25,8 +25,8 @@ export type UseFileBrowserResult = {
 /**
  * Paginated folder listing backed by TanStack Query.
  *
- * Every `DO_NOT_DELETE.txt` is hidden, at any depth, in either bucket (
- * FR-003) — see `isMarkerName`. There is no caller-supplied key: the basename IS
+ * Every `DO_NOT_DELETE.txt` is hidden, at any depth, in either bucket
+ * — see `isMarkerName`. There is no caller-supplied key: the basename IS
  * the rule, because that is what the two bucket policies deny deletion on.
  */
 export function useFileBrowser(bucket: string, prefix?: string): UseFileBrowserResult {

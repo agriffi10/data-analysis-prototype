@@ -4,8 +4,7 @@
 # get NO automatic catalog-wide access and LF genuinely gates the catalog.
 #
 # SAFE TO ENABLE NOW because:
-#   (a) the file browser reads the user-space bucket via direct S3 IAM (hybrid mode,
-#       FR-005) — NOT through LF — so removing the Super grant doesn't touch it;
+#   (a) the file browser reads the user-space bucket via direct S3 IAM (hybrid mode) — NOT through LF — so removing the Super grant doesn't touch it;
 # (b) no per-user Glue databases exist yet, so there's nothing to lock
 # out. The end-to-end query path only works once the post-confirmation
 #       Lambda creates a user's database AND LF-grants the shared role on it.

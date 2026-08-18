@@ -207,8 +207,8 @@ resource "aws_iam_role_policy_attachment" "deploy_control_plane_common" {
 # user/shared-space buckets), so there is no S3-bucket-manage statement.
 # states:ValidateStateMachineDefinition is not resource-scopable, so it is isolated to
 # its own "*" statement per the architecture.md "new resource type" traps.
-# NOTE: the data-quality verbs run in the SHARED portal Athena workgroup (
-# a dedicated workgroup breaks Lake Formation), so there is no data-quality-specific
+# NOTE: the data-quality verbs run in the SHARED portal Athena workgroup
+# (a dedicated workgroup breaks Lake Formation), so there is no data-quality-specific
 # workgroup to grant on. The cpcommon layer that every DQ verb attaches is covered by
 # deploy_control_plane_common.
 # Granted FIRST (this PR) and applied before the data-quality module's resources land in a

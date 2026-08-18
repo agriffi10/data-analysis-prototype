@@ -374,8 +374,8 @@ export const UsernameCombobox = forwardRef<UsernameComboboxHandle, UsernameCombo
       // Only intercept when the list is open. With it closed, Escape is not touched at all, so
       // the enclosing Modal/Drawer dismisses normally.
       //
-      // `stopPropagation` is what does the work, VERIFIED rather than assumed (
-      // FR-004): React delegates events at its root container, which sits BELOW the `document`
+      // `stopPropagation` is what does the work, VERIFIED rather than assumed:
+      // React delegates events at its root container, which sits BELOW the `document`
       // listener `useEscapeKey` registers, so stopping the native event there means the hook
       // never fires. Measured — a Modal's `onDismiss` is called zero times. `useEscapeKey`
       // therefore needed no `defaultPrevented` guard and did not get one.

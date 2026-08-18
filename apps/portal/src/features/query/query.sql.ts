@@ -169,8 +169,8 @@ function hasSqlContent(segment: string): boolean {
 }
 
 /**
- * Parses an editor buffer into its individual SQL statements (
- * FR-001). A semicolon terminates a statement only outside single-/double-
+ * Parses an editor buffer into its individual SQL statements.
+ * A semicolon terminates a statement only outside single-/double-
  * quoted strings, backtick identifiers, and line/block comments; empty
  * (whitespace/comment-only) segments are dropped. Each statement's `range`
  * is the source offsets of its trimmed text in the buffer, so a cursor or
@@ -246,8 +246,8 @@ export function resolveRunStatements(
 /**
  * True for a statement that returns a result set worth a grid — SELECT/WITH/
  * SHOW/DESCRIBE/VALUES/EXPLAIN. DDL/DML (CREATE/INSERT/DROP/…) are false: their
- * outcome lives in history + the status bar, never a result tab (
- * FR-007). Leading comments/whitespace are skipped.
+ * outcome lives in history + the status bar, never a result tab.
+ * Leading comments/whitespace are skipped.
  */
 export function isResultProducingSql(sql: string): boolean {
   return /^(select|with|show|desc|describe|values|explain)\b/i.test(stripLeadingSqlComments(sql));

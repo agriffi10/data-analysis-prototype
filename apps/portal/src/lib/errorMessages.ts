@@ -56,8 +56,8 @@ const CONTACT_ADMIN = 'Contact the Administrator.';
 // is ordered because several patterns can match one Athena message.
 
 const CODE_RULES: readonly ErrorRule[] = [
-  // ── App codes our file-browser/query services already author (
-  // FR-002). Trigger: a service returned this code with user-safe, often
+  // ── App codes our file-browser/query services already author.
+  // Trigger: a service returned this code with user-safe, often
   // parameterized text (filename / size / validation reason). User-fixable —
   // the wording tells them what to change. Passed through unchanged. ──
   {code: 'Collision', userFixable: true, passthrough: true}, // dest name already exists (carries the name)

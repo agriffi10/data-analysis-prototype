@@ -252,8 +252,8 @@ export async function runStatementToCompletion(p: {
 }
 
 /**
- * Fetch a table's (or view's) authoritative DDL via Athena (
- * FR-006) — `SHOW CREATE VIEW` for a view, `SHOW CREATE TABLE` otherwise — assembling
+ * Fetch a table's (or view's) authoritative DDL via Athena
+ * — `SHOW CREATE VIEW` for a view, `SHOW CREATE TABLE` otherwise — assembling
  * the single-column result rows into the statement. Internal UI fetch — it does NOT
  * append a query-history entry.
  */
