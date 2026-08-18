@@ -53,7 +53,7 @@ locals {
     # recipients. Its work is one registry read plus one Cognito call per recipient —
     # network-bound and small, so the table-share validator's sizing holds here.
     "validate-authorize" = { handler = "file_send_validate_authorize.handler", timeout = 15, memory = 256 }
-    # SPEC-165. Expands the selection and holds the whole copy plan in memory before
+    # Expands the selection and holds the whole copy plan in memory before
     # writing it, which is the ONLY thing that sizes this row — not the listing, which
     # pages at 1000 keys and costs 20 round trips at SEND_MAX_OBJECTS.
     #
@@ -65,7 +65,7 @@ locals {
     # computes the plan against it, so raising SEND_MAX_OBJECTS without raising this
     # fails the build rather than the invocation.
     "inspect-source" = { handler = "file_send_inspect_source.handler", timeout = 120, memory = 1024 }
-    # SPEC-166. The per-recipient conflict guard. ONE delimited listing of the
+    # The per-recipient conflict guard. ONE delimited listing of the
     # recipient's inbox, paginated — so its cost is bounded by what this SENDER has
     # previously sent to this RECIPIENT, not by the size of the send. Even a sender
     # with 20,000 prior items is 20 round trips; the selection only ever costs a set
@@ -73,7 +73,7 @@ locals {
     # would have been 400 round trips per recipient AND could not answer the question
     # correctly (see fscommon/inbox.py on S3's key ordering).
     "check-target-absent" = { handler = "file_send_check_target_absent.handler", timeout = 60, memory = 256 }
-    # SPEC-166. The two verbs either side of the Distributed Map, handling the same
+    # The two verbs either side of the Distributed Map, handling the same
     # volume in opposite directions: the manifest builder expands the copy plan into
     # one JSONL line per (recipient x object) and serialises it, and the collector
     # parses the Map Run's export, which carries every batch's input back again. Both
@@ -90,7 +90,7 @@ locals {
     # inspect-source's. Until then the bound is prose, which is what the cap is for.
     "build-transfer-manifest"  = { handler = "file_send_build_transfer_manifest.handler", timeout = 300, memory = 2048 }
     "collect-transfer-results" = { handler = "file_send_collect_transfer_results.handler", timeout = 300, memory = 2048 }
-    # SPEC-166. One BATCH of transfer items per invocation, on cpcommon.transfer's
+    # One BATCH of transfer items per invocation, on cpcommon.transfer's
     # bounded worker pool. 900s is not a preference: it is COPY_TIMEOUT_SECONDS, the
     # budget cpcommon/transfer/config.py divides by to size MAX_ITEMS_PER_BATCH — and
     # test_the_copy_timeout_matches_this_planes_deployed_verb reads THIS row back, so
@@ -99,7 +99,7 @@ locals {
     # table-share's locals only; one file, one plane.) No object bytes pass through the
     # function, so the memory buys CPU for the pool's threads and nothing else.
     "copy-objects" = { handler = "file_send_copy_objects.handler", timeout = 900, memory = 1024 }
-    # SPEC-167. The plane's only outcome producer: at most one registry read plus a
+    # The plane's only outcome producer: at most one registry read plus a
     # handful of SQS sends, bounded by SEND_MAX_RECIPIENTS. Sized like every other
     # notifier on the fleet — the work is network-bound and small, and it must not be
     # the reason a delivered send reports failure.
@@ -160,7 +160,7 @@ locals {
   # header note. Referenced here for documentation/parity only.
   fscommon_layer_name = "${var.project_name}-${var.environment}-file-send-common"
 
-  # SPEC-166 FR-002. Mirrored from cpcommon/transfer/config.py, which is where the two
+  # Mirrored from cpcommon/transfer/config.py, which is where the two
   # numbers are REASONED about: MAX_ITEMS_PER_BATCH equals COPY_CONCURRENCY so a batch
   # is exactly one round of the worker pool, and MAP_MAX_CONCURRENCY bounds how much of
   # the account's Lambda concurrency one send may take. Terraform cannot import Python,
@@ -176,7 +176,7 @@ locals {
   # Map's makespan is one of the terms in the machine's own timeout budget.
   guard_map_max_concurrency = 5
 
-  # SPEC-166 FR-005. A TOP-LEVEL ASL field, not a resource argument and not a task field
+  # A TOP-LEVEL ASL field, not a resource argument and not a task field
   # (SPEC-157 settled that distinction for the table-builder). Without it a Standard
   # workflow's ceiling is Step Functions' own default of ONE YEAR, so a wedged run
   # simply never ends — and this is the first version of this machine that can wedge,
@@ -207,7 +207,7 @@ locals {
   # notification, so the margin is bought against the sender's silence, not for free.
   state_machine_timeout_seconds = 10800
 
-  # SPEC-166 FR-004. The Distributed Map's OWN permissions belong to the STATE MACHINE
+  # The Distributed Map's OWN permissions belong to the STATE MACHINE
   # role: it is the state machine that calls StartExecution for each child and that
   # reads the ItemReader object and writes the ResultWriter export. Granting these to
   # the Lambda execution role renders, applies and unit-tests green, then fails on the

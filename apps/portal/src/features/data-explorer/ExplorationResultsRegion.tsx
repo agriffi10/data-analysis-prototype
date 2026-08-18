@@ -309,7 +309,7 @@ export function ExplorationResultsRegion({
     [selection.selection.ranges, geometry.visible, rows]
   );
 
-  // SPEC-184. Resolved from the rows already on screen, which is the whole spec: every
+  // Resolved from the rows already on screen, which is the whole spec: every
   // gesture behind this is a state write, so the grid repaints and NOTHING is fetched. It is
   // memoised because it is recomputed on every render of a region that re-renders on every
   // cursor move.
@@ -398,7 +398,7 @@ export function ExplorationResultsRegion({
   // line announced "Running…" directly above the panel saying nothing had been run.
   const loading = !queryControls.suspended && (isPending || !shownExecutionId || results.isPending);
 
-  // SPEC-183 FR-002. `failed` is checked FIRST and is the one that is easy to miss: a failed
+  // `failed` is checked FIRST and is the one that is easy to miss: a failed
   // apply still has a rendered `sql` — the statement Athena rejected — while `shownExecutionId`
   // has fallen back to the last good one, so the grid is showing a DIFFERENT query's rows. A
   // save there writes a file that fails to open in the workspace FR-005 promises it opens in.

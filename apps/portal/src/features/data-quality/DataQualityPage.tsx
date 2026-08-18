@@ -129,7 +129,7 @@ export function DataQualityPage() {
         />
       )}
 
-      {/* SPEC-124 FR-005. A check that has just started is NOT in the list and will not be
+      {/* A check that has just started is NOT in the list and will not be
           for minutes, so without this the most common first impression of the feature is
           "I pressed the button and nothing happened." It reports that the check STARTED —
           never that it will pass — and does not survive a reload: it is a receipt for an

@@ -1,4 +1,4 @@
-// SPEC-186 FR-004 AC1. `RestoreObject` is an S3 OBJECT-level call, which CloudTrail classifies
+// `RestoreObject` is an S3 OBJECT-level call, which CloudTrail classifies
 // as a DATA event — it never appears in the console's Event history, which is why nothing today
 // records it. The trail below records data events for ONE bucket and management events for
 // none, so it is neither a general-purpose audit trail nor a cost of any size.

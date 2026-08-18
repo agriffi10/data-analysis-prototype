@@ -3,7 +3,7 @@ import {sqlIdentifier, sqlLiteral} from '../../lib/sql';
 import type {CellRange, CellSelection, CopyFormat, CopyOptions} from './dataExplorer.types';
 import type {GridColumn} from './useColumnGeometry';
 
-// SPEC-185 FR-001. Turning a selection into text, and nothing else — no clipboard, no React,
+// Turning a selection into text, and nothing else — no clipboard, no React,
 // no query. Copy is the one way out of this feature that costs nothing, and it stays that way
 // because everything here reads rows that are already on screen.
 //

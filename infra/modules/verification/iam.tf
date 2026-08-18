@@ -30,7 +30,7 @@
 // `dat-prod-user-space` and `dat-prod-archive` as ABSENT and plans to destroy and recreate them
 // — measured 2026-08-14 as `25 to add, 3 to change, 13 to destroy`, with both buckets in the
 // replace set. `modules/data/s3.tf` records the same failure mode for the deploy role under
-// SPEC-016. The same plan also fails outright on `GetLFTag` for `portal-managed`. So the
+// The same plan also fails outright on `GetLFTag` for `portal-managed`. So the
 // value is set as the `TF_VAR_verification_principal_arns` repo variable (a JSON list) and
 // reaches tofu through `deploy-infra.yml`, which runs as the deploy role. That keeps the ARNs
 // out of git without routing anyone through a local apply.

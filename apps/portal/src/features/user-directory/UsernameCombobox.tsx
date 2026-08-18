@@ -82,7 +82,7 @@ const ANNOUNCE_DEBOUNCE_MS = 400;
 /**
  * The box the list is actually clipped by — the nearest scrollable ancestor, or the viewport.
  *
- * SPEC-186 FR-003. This used to measure against `window.innerHeight`, which is right for a
+ * This used to measure against `window.innerHeight`, which is right for a
  * combobox on a page and wrong for one inside a dialog: `Modal`'s panel is `overflow-y-auto`, so
  * a list with room below it *in the viewport* is still clipped by the panel. Measured live in
  * Add members, the list ran 97px past the dialog's bottom edge and showed 3 of 8 options.

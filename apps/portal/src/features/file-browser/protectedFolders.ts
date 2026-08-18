@@ -74,7 +74,7 @@ export const PICKER_LOCKED_FOLDERS = [
   '_directory',
   '_config',
   'shared_tables',
-  // SPEC-172. IAM denies `PutObject` beneath it, so offering it as a paste target only ever
+  // IAM denies `PutObject` beneath it, so offering it as a paste target only ever
   // produced an AccessDenied — and a receipt acquiring neighbours is how an archive folder
   // stops being a record of what this plane did.
   'archive'
@@ -144,7 +144,7 @@ export function undeletableRootFolderRefusal(
 /**
  * The refusal for a selection in which NOTHING can be destroyed, or null when any of it can.
  *
- * SPEC-186 FR-002. The service already refuses (`fileBrowser.service.ts` calls
+ * The service already refuses (`fileBrowser.service.ts` calls
  * `undeletableRootFolderRefusal` before issuing anything), but it refuses AFTER the user has
  * read *"Delete the folder … and everything inside it? This can't be undone."* and pressed
  * Delete — the most alarming confirm in the app, shown for an action that was never possible.

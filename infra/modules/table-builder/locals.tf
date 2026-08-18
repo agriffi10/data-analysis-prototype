@@ -42,7 +42,7 @@ locals {
     "validate-authorize"    = { handler = "validate_authorize.handler", timeout = 15, memory = 256 }
     "check-table-absent"    = { handler = "check_table_absent.handler", timeout = 15, memory = 256 }
     "load-table-definition" = { handler = "load_table_definition.handler", timeout = 15, memory = 256 }
-    # SPEC-157. The refresh lock's two halves: one conditional S3 read + one conditional
+    # The refresh lock's two halves: one conditional S3 read + one conditional
     # write each, no Glue and no Athena, so both take the smallest shape here. The 15 s
     # timeout is an INPUT to the state machine's TimeoutSeconds derivation (stepfunction.tf's
     # comment; the field itself is in the ASL template)
@@ -55,7 +55,7 @@ locals {
     "diff-schema"          = { handler = "diff_schema.handler", timeout = 15, memory = 256 }
     "apply-refresh"        = { handler = "apply_refresh.handler", timeout = 300, memory = 512 }
     "execute-ddl"          = { handler = "execute_ddl.handler", timeout = 300, memory = 512 }
-    # SPEC-152. The notification of last resort: one decode + one SQS send, reached only
+    # The notification of last resort: one decode + one SQS send, reached only
     # on a failure path, so it takes the smallest shape any verb here has.
     "notify-failure" = { handler = "tb_notify_failure.handler", timeout = 15, memory = 256 }
   }

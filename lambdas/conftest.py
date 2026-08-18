@@ -101,7 +101,7 @@ _REQUIRED_ENV = {
     "ADMIN_BUCKET": "admin-bkt",
     "SHARED_SPACE_BUCKET": "shared-bkt",
     "USER_SPACE_BUCKET": "user-bkt",
-    # SPEC-168. Not one of cpcommon.config's fleet-wide required vars (only the archive
+    # Not one of cpcommon.config's fleet-wide required vars (only the archive
     # plane sets it); stamped here so the archive verb suites read a real name rather than
     # each re-stamping it, exactly as the six above are.
     "ARCHIVE_BUCKET": "archive-bkt",

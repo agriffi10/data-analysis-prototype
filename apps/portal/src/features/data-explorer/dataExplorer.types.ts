@@ -11,7 +11,7 @@ import type {SavedQueryLink} from '../saved-queries/savedQueries.types';
  * Where an exploration's rows come from.
  *
  * A discriminated union from the outset, with only the `table` arm reachable until
- * SPEC-183. A saved `.sql` file cannot be reverse-engineered into a table plus filters
+ * A saved `.sql` file cannot be reverse-engineered into a table plus filters
  * without a SQL parser, so a loaded file is a SOURCE rather than a view state — and
  * filters, ordering and grouping must compose over either arm without knowing which.
  * Retrofitting the union at SPEC-183 would have touched every spec in between.

@@ -1,6 +1,6 @@
 # ── Constructed names + ARNs ──────────────────────────────────────
-# All resource names derive from {project_name}-{environment} so the deploy policy
-# (modules/base, the SPEC-168 deploy_archive grant) scopes to the same
+# All resource names derive from {project_name}-{environment} so the deploy policy in
+# modules/base scopes to the same
 # {project}-*-archive-* patterns, and so cross-resource ARNs referenced inside IAM
 # policy templates are KNOWN AT PLAN TIME (constructed strings, not resource
 # attributes) — the architecture.md "unknown ARN in list" discipline. This module
@@ -26,14 +26,13 @@ locals {
   state_machine_name  = "${var.project_name}-${var.environment}-archive-orchestrator"
   sfn_role_name       = "${var.project_name}-${var.environment}-archive-sfn-role"
 
-  # ONE shared execution role for every verb Lambda, matching every plane since
-  # SPEC-062 consolidated the per-verb roles away. Its permission policy
-  # (execution.json.tftpl) grows with the arc: logs + notifications + the registry read
-  # validate-authorize needs (168); the source listing, the Glacier write and the source
-  # deletion land with SPEC-169, and the restore reads with SPEC-170/171.
+  # ONE shared execution role for every verb Lambda, matching every other plane. Its
+  # permission policy (execution.json.tftpl) covers logs, notifications, the registry read
+  # the front door needs, the source listing, the Glacier write, the source deletion and
+  # the restore's reads.
   #
   # NO execution_role_arn LOCAL HERE. Root constructs its own twin for the user-space
-  # bucket-policy allowlist (FR-007) and for this bucket's own policy, and a second
+  # bucket-policy allowlist and for this bucket's own policy, and a second
   # construction of the same string in this module would be one more place for it to
   # drift from the role that actually exists — with the failure appearing as a runtime
   # AccessDenied, not a plan error.
@@ -44,10 +43,10 @@ locals {
   # "archive-<suffix>"); value = the handler + the task's real timeout/memory need
   # (a small validator is not a long parallel S3 copy — lambdas.md §4).
   #
-  # SIXTEEN VERBS: SPEC-168's front door, SPEC-169's expansion, manifest, batch copy,
-  # collector, rollback, deletion and two artifacts, SPEC-170's archive lookup and
-  # destination guard, SPEC-171's restore manifest, retrieval, poll, vault sweep and receipt
-  # rewrite, and SPEC-152's notifier of last resort. TWO of them run inside a Distributed
+  # SIXTEEN VERBS: the front door; the expansion, manifest, batch copy, collector,
+  # rollback, deletion and two artifacts on the archive side; the archive lookup and
+  # destination guard, restore manifest, retrieval, poll, vault sweep and receipt rewrite
+  # on the restore side; and the notifier of last resort. TWO of them run inside a Distributed
   # Map — the batch copy and the batch retrieval — and everything else runs once per request.
   # The front door serves BOTH modes: the ASL's mode Choice sits downstream of it, so a second
   # restore-only validator would need the branch to happen before anything had parsed the body.
@@ -69,7 +68,7 @@ locals {
     # prefix. Its work is at most one registry read — network-bound and small, so the
     # file-send validator's sizing holds here.
     "validate-authorize" = { handler = "archive_validate_authorize.handler", timeout = 15, memory = 256 }
-    # SPEC-169 FR-001. Expands the selection and holds the whole copy plan in memory
+    # Expands the selection and holds the whole copy plan in memory
     # before writing it, which is the ONLY thing that sizes this row — not the listing,
     # which pages at 1000 keys and costs 20 round trips at ARCHIVE_MAX_OBJECTS.
     #
@@ -78,7 +77,7 @@ locals {
     # computes the plan against it, so raising ARCHIVE_MAX_OBJECTS without raising this
     # fails the build rather than the invocation.
     "inspect-source" = { handler = "archive_inspect_source.handler", timeout = 120, memory = 1024 }
-    # SPEC-169 FR-002/FR-004. The two verbs either side of the Distributed Map, handling
+    # The two verbs either side of the Distributed Map, handling
     # the same volume in opposite directions: the manifest builder expands the plan into
     # one JSONL line per object and serialises it, and the collector parses the Map Run's
     # export, which carries every batch's input back again. Both are JSON work over the
@@ -90,25 +89,25 @@ locals {
     # arrived in review: until it did, this comment claimed a bound nothing held.
     "build-transfer-manifest"  = { handler = "archive_build_transfer_manifest.handler", timeout = 300, memory = 2048 }
     "collect-transfer-results" = { handler = "archive_collect_transfer_results.handler", timeout = 300, memory = 2048 }
-    # SPEC-169 FR-003. One BATCH of transfer items per invocation, on cpcommon.transfer's
+    # One BATCH of transfer items per invocation, on cpcommon.transfer's
     # bounded worker pool. 900s is not a preference: it is COPY_TIMEOUT_SECONDS, the
     # budget cpcommon/transfer/config.py divides by to size MAX_ITEMS_PER_BATCH, and a
     # test reads THIS row back — so lowering it here fails the build rather than silently
     # invalidating every makespan bound the engine reasons with. No object bytes pass
     # through the function, so the memory buys CPU for the pool's threads and nothing else.
     "copy-objects" = { handler = "archive_copy_objects.handler", timeout = 900, memory = 1024 }
-    # SPEC-169 FR-004. Lists the archive prefix and deletes what the partial copy left.
+    # Lists the archive prefix and deletes what the partial copy left.
     # Bounded by ARCHIVE_MAX_OBJECTS the same way delete-source is: 20 listing pages and
     # 20 DeleteObjects calls, holding the key list in memory once.
     "rollback" = { handler = "archive_rollback.handler", timeout = 300, memory = 1024 }
-    # SPEC-169 FR-005. Loads the copy plan and deletes its keys in batches of 1000, so it
+    # Loads the copy plan and deletes its keys in batches of 1000, so it
     # holds the same list inspect-source built and is sized for it.
     "delete-source" = { handler = "archive_delete_source.handler", timeout = 300, memory = 1024 }
-    # SPEC-169 FR-006. The two artifacts: one PutObject each, of a document assembled from
+    # The two artifacts: one PutObject each, of a document assembled from
     # values already on the state. Neither reads the plan, so neither is sized by the caps.
     "write-manifest" = { handler = "archive_write_manifest.handler", timeout = 30, memory = 256 }
     "write-receipt"  = { handler = "archive_write_receipt.handler", timeout = 30, memory = 256 }
-    # SPEC-170 FR-003/FR-004. The restore arm, and both rows are sized by the SAME quantity the
+    # The restore arm, and both rows are sized by the SAME quantity the
     # archive arm's are — ARCHIVE_MAX_OBJECTS — because a restore handles exactly what its
     # archive held.
     #
@@ -130,13 +129,13 @@ locals {
     # the same quantity — the whole manifest expanded and serialised in memory, at the object cap
     # — so it takes the same row, and the SAME test computes it against this number.
     "build-restore-manifest" = { handler = "archive_build_restore_manifest.handler", timeout = 300, memory = 2048 }
-    # SPEC-171 FR-001. One BATCH of RestoreObject calls per invocation, on the same bounded pool
+    # One BATCH of RestoreObject calls per invocation, on the same bounded pool
     # the destination guard uses. Far cheaper than the copy verb beside it — a retrieval request
     # is a small synchronous call and no bytes move — so it needs neither 900s nor the memory.
     # MAX_ITEMS_PER_BATCH items, 8 at a time, at a pessimistic 200 ms each is under 1s; 60s is
     # the room a cold start and a retry storm need, not the work.
     "initiate-restore" = { handler = "archive_initiate_restore.handler", timeout = 60, memory = 512 }
-    # SPEC-171 FR-002. THE POLL'S TIMEOUT IS THE GUARD'S ARITHMETIC, RE-USED RATHER THAN
+    # THE POLL'S TIMEOUT IS THE GUARD'S ARITHMETIC, RE-USED RATHER THAN
     # RE-DERIVED, because it does the same work: HeadObject over the plan at
     # RESTORE_HEAD_CONCURRENCY, which botocore's connection pool holds at 8. A sweep that finds
     # every page complete heads ARCHIVE_MAX_OBJECTS (20,000) objects in one invocation — that is
@@ -145,22 +144,22 @@ locals {
     # worst case is the guard's ~250s and it gets the guard's 600s.
     # test_the_poll_can_sweep_the_whole_plan_inside_its_timeout READS THIS NUMBER.
     "poll-restore" = { handler = "archive_poll_restore.handler", timeout = 600, memory = 1024 }
-    # SPEC-171 FR-005. Lists the archive prefix and deletes what is under it — the rollback's
+    # Lists the archive prefix and deletes what is under it — the rollback's
     # work exactly, on the same bound (20 listing pages and 20 DeleteObjects calls at the object
     # cap, holding the key list in memory once), so it takes the rollback's row.
     "delete-archived" = { handler = "archive_delete_archived.handler", timeout = 300, memory = 1024 }
-    # SPEC-171 FR-006. One GetObject and one PutObject of a document assembled from values
+    # One GetObject and one PutObject of a document assembled from values
     # already on the state, exactly like write-receipt beside it — invoked from THREE states,
     # which changes nothing about its sizing.
     "update-receipt" = { handler = "archive_update_receipt.handler", timeout = 30, memory = 256 }
-    # SPEC-172 FR-006. The plane's only SUCCESS producer, invoked from THREE states — one per
+    # The plane's only SUCCESS producer, invoked from THREE states — one per
     # outcome a failure table cannot carry. One message composed from values already on the
     # state and one SQS send, so it is the smallest verb here; the notify-failure row beside it
     # is larger only because its second door verifies a JWT first, which this one never does.
     "notify" = { handler = "archive_notify.handler", timeout = 30, memory = 256 }
-    # SPEC-152's notification of last resort: one decode + one SQS send on the ASL door.
+    # The notification of last resort: one decode + one SQS send on the ASL door.
     #
-    # SPEC-169 RAISED IT 15s -> 60s, WITH the second door that made 15s wrong. The
+    # 60s, not the 15s a decode and a send would need, because of the second door. The
     # EventBridge TIMED_OUT rule (stepfunction.tf) invokes this same function with an event
     # of a different shape, and that path does strictly more work than the ASL one: a
     # DescribeExecution read-back plus a cold-start JWKS fetch and a JWT verify before the
@@ -173,14 +172,13 @@ locals {
   # Per-verb extra env, merged over the common env (lambda.tf). RESERVED FOR OPTIONAL
   # action env only: everything cpcommon/config.py _require()s must live in the COMMON
   # env instead — a verb missing any required var crashes on first ACCESS, and for an
-  # import-time read that is COLD START, where no test and no deploy can see it (the
-  # table-builder production break, PR #196).
+  # import-time read that is COLD START, where no test and no deploy can see it — which
+  # is how a table-builder release once broke in production.
   archive_verb_env = {}
 
   # ARNs for the execution role's grants (constructed, known at plan). The three data
-  # buckets arrive with SPEC-169: the two space buckets are read, written under `archive/`
-  # (the receipt) and — uniquely on this plane — DELETED FROM, and the archive bucket is
-  # the vault itself.
+  # buckets: the two space buckets are read, written under `archive/` (the receipt) and —
+  # uniquely on this plane — DELETED FROM, while the archive bucket is the vault itself.
   admin_bucket_arn        = "arn:aws:s3:::${var.admin_bucket_name}"
   user_space_bucket_arn   = "arn:aws:s3:::${var.user_space_bucket_name}"
   shared_space_bucket_arn = "arn:aws:s3:::${var.shared_space_bucket_name}"
@@ -216,7 +214,7 @@ locals {
   # documentation/parity only.
   arcommon_layer_name = "${var.project_name}-${var.environment}-archive-common"
 
-  # SPEC-169 FR-003. Mirrored from cpcommon/transfer/config.py, which is where the two
+  # Mirrored from cpcommon/transfer/config.py, which is where the two
   # numbers are REASONED about: MAX_ITEMS_PER_BATCH equals COPY_CONCURRENCY so a batch is
   # exactly one round of the worker pool, and MAP_MAX_CONCURRENCY bounds how much of the
   # account's Lambda concurrency one archive may take. Terraform cannot import Python, so
@@ -226,8 +224,8 @@ locals {
   transfer_max_items_per_batch = 8
   transfer_map_max_concurrency = 20
 
-  # SPEC-169 FR-003. A TOP-LEVEL ASL field, not a resource argument and not a task field
-  # (SPEC-157 settled that distinction for the table-builder). Without it a Standard
+  # A TOP-LEVEL ASL field, not a resource argument and not a task field
+  # — the same distinction the table-builder's lock settled. Without it a Standard
   # workflow's ceiling is Step Functions' own default of ONE YEAR, so a wedged run simply
   # never ends — and this is the first version of this machine that can wedge, because it
   # is the first with a Map and a copy in it.
@@ -236,7 +234,7 @@ locals {
   # Parallel and Map states but NOT top-level execution failures: this timeout terminates
   # the run outright, so no state runs and no Catch fires. The actor is told by the
   # EventBridge TIMED_OUT rule in stepfunction.tf, which is the documented remedy and is
-  # what actually discharges SPEC-152's "it just never came back" guarantee here.
+  # what stops a wedged run from simply never coming back.
   #
   # 3 hours, and the arithmetic is ARCHIVE_MAX_BYTES over a MAKESPAN rate: copy_batch
   # gives one whole object to one worker and copy_one part-copies serially, so the
@@ -250,8 +248,8 @@ locals {
   # Unlike file-send there is no recipient product to multiply by: an archive has one
   # destination, so the source cap IS the transfer cap.
   #
-  # SPEC-171 RAISED IT 10,800 -> 43,200, AND THE REASON IS THE STORAGE CLASS RATHER THAN THE
-  # DATA. Three hours was sized against the archive arm, whose long pole is a copy. The restore
+  # 43,200 RATHER THAN 10,800, AND THE REASON IS THE STORAGE CLASS RATHER THAN THE DATA.
+  # Three hours would size the archive arm, whose long pole is a copy. The restore
   # arm's long pole is a WAIT: a GLACIER object is not readable, and the Standard retrieval tier
   # takes 3-5 hours to produce the temporary copy the copy-back reads — so the old ceiling would
   # have killed a healthy restore before S3 had finished with it. The restore's terms are the
@@ -269,7 +267,7 @@ locals {
   # archive arm's own worst legal run is ~8,100s and still clears this by 5x.
   state_machine_timeout_seconds = 43200
 
-  # SPEC-171 FR-002. Mirrored from arcommon/config.py's RESTORE_POLL_SECONDS, which is where it
+  # Mirrored from arcommon/config.py's RESTORE_POLL_SECONDS, which is where it
   # is REASONED about — five minutes against a 3-5 hour retrieval is ~1% of the wait spent
   # asking. Terraform cannot import Python, so the ASL's Wait carries a literal fed from here and
   # a test asserts the rendered number still equals the constant, exactly as the transfer Map's
@@ -280,11 +278,11 @@ locals {
   # two homes for that number would only disagree on a restore that was already going badly.
   restore_poll_seconds = 300
 
-  # SPEC-169 FR-003/FR-007. The Distributed Map's OWN permissions belong to the STATE
+  # The Distributed Map's OWN permissions belong to the STATE
   # MACHINE role: it is the state machine that calls StartExecution for each child and
   # that reads the ItemReader object and writes the ResultWriter export. Granting these to
   # the Lambda execution role renders, applies and unit-tests green, then fails on the
-  # first real archive with AccessDenied at the ItemReader (SPEC-160 FR-006's finding).
+  # first real archive with AccessDenied at the ItemReader.
   # The same wildcard also scopes the DescribeExecution the timeout door needs, which IS
   # on the Lambda role because it is the notify-failure LAMBDA that makes that call.
   child_execution_arn_wildcard = "arn:aws:states:${var.aws_region}:${var.account_id}:execution:${local.state_machine_name}:*"

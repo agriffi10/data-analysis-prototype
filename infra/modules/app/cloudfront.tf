@@ -9,7 +9,7 @@ resource "aws_cloudfront_origin_access_control" "static_assets" {
 }
 
 # ── Response Headers Policy ───────────────────────────────────────────────────
-# SPEC-140. Closes Checkov CKV2_AWS_32 and every Medium plus six of eight Low
+# Closes Checkov CKV2_AWS_32 and every Medium plus six of eight Low
 # findings from the 2026-08-03 ZAP baseline — two scanners reporting one gap.
 #
 # The CSP is assembled from variables, never literals: a hardcoded region or

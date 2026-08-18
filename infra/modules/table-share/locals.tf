@@ -46,7 +46,7 @@ locals {
     "check-target-absent" = { handler = "table_share_check_target_absent.handler", timeout = 15, memory = 256 }
     "copy-objects"        = { handler = "table_share_copy_objects.handler", timeout = 900, memory = 1024 }
     "create-table"        = { handler = "table_share_create_table.handler", timeout = 300, memory = 512 }
-    # SPEC-160. The two verbs either side of the Distributed Map. build-transfer-manifest reads
+    # The two verbs either side of the Distributed Map. build-transfer-manifest reads
     # the copy plan and writes one JSONL line per (recipient x object) — S3-bound work whose
     # memory is about holding the expanded list, not about parallelism.
     # collect-transfer-results reads the Map Run's export.
@@ -60,7 +60,7 @@ locals {
     # this is JSON work, so it buys the timeout as much as the headroom.
     "build-transfer-manifest"  = { handler = "table_share_build_transfer_manifest.handler", timeout = 300, memory = 2048 }
     "collect-transfer-results" = { handler = "table_share_collect_transfer_results.handler", timeout = 300, memory = 2048 }
-    # SPEC-152. The notification of last resort: one decode + one SQS send, reached only
+    # The notification of last resort: one decode + one SQS send, reached only
     # on a whole-request failure path.
     #
     # SPEC-161 raised it 15s -> 60s. It gained a SECOND door (the EventBridge TIMED_OUT rule
@@ -117,7 +117,7 @@ locals {
   # layer wildcard (modules/base). Referenced here for documentation/parity only.
   tscommon_layer_name = "${var.project_name}-${var.environment}-table-share-common"
 
-  # SPEC-160 FR-002. The Distributed Map's two sizing numbers. Terraform cannot import Python,
+  # The Distributed Map's two sizing numbers. Terraform cannot import Python,
   # so these are literals fed into the ASL — and cpcommon/transfer/config.py holds the same two
   # for the batch verb. A test asserts the pair still match, because two homes for one number is
   # how a batch quietly grows past the limit it was sized against.
@@ -130,7 +130,7 @@ locals {
   transfer_max_items_per_batch = 8
   transfer_map_max_concurrency = 20
 
-  # SPEC-161 FR-003. A TOP-LEVEL ASL field, not a resource argument and not a task field —
+  # A TOP-LEVEL ASL field, not a resource argument and not a task field —
   # the same distinction SPEC-157 settled for the table-builder. Without it a Standard
   # workflow's ceiling is Step Functions' own default of ONE YEAR, so a wedged run simply
   # never ends.
@@ -164,7 +164,7 @@ locals {
   # notification, so the margin is bought against the sender's silence, not for free.
   state_machine_timeout_seconds = 10800
 
-  # SPEC-160 FR-006. The Distributed Map's OWN permissions belong to the STATE MACHINE role: it
+  # The Distributed Map's OWN permissions belong to the STATE MACHINE role: it
   # is the state machine that calls StartExecution for each child and that reads the ItemReader
   # object and writes the ResultWriter export. Granting these to the Lambda execution role
   # renders, applies and unit-tests green, then fails on the first real share with AccessDenied.

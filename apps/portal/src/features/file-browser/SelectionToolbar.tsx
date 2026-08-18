@@ -109,7 +109,7 @@ export function SelectionToolbar({
    */
   onRequestSend?: () => void;
   /**
-   * SPEC-172. Absent in the dev-unauth path, while the `files` flag is off, and inside the
+   * Absent in the dev-unauth path, while the `files` flag is off, and inside the
    * read-only `archive/` folder — removed rather than disabled, which is SPEC-163's rule.
    */
   onRequestArchive?: () => void;

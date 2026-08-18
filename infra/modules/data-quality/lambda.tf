@@ -76,7 +76,7 @@ resource "aws_lambda_function" "functions" {
         COGNITO_APP_CLIENT_ID   = var.app_client_id
         ATHENA_WORKGROUP        = var.athena_workgroup
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
-        # SPEC-128. Optional by construction — that is what makes a
+        # Optional by construction — that is what makes a
         # partial rollout safe: a function that somehow misses it logs to stdout instead
         # of failing at import, which for a shared layer means at COLD START.
         LOGS_QUEUE_URL = var.logs_queue_url

@@ -41,7 +41,7 @@ export function RefreshTableDialog({target, busy = false, submitError, onConfirm
       busyLabel="Starting…"
       busy={busy}
       confirmDisabled={!!pending && !allowRemovals}
-      // SPEC-186 FR-002. The banner above already explains the situation, but the CONTROL said
+      // The banner above already explains the situation, but the CONTROL said
       // nothing — a natively-disabled button with no title, skipped by the tab order.
       confirmDisabledReason="Tick “Allow columns to be removed” to refresh this table."
       onConfirm={() => onConfirm(allowRemovals)}

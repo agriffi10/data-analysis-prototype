@@ -40,7 +40,7 @@ resource "aws_lambda_function" "writer" {
       COGNITO_USER_POOL_ID  = var.user_pool_id
       COGNITO_APP_CLIENT_ID = var.app_client_id
       NOTIFICATIONS_MAX     = tostring(var.notifications_max)
-      # SPEC-137 FR-005. Optional BY CONSTRUCTION on the Lambda side — cpcommon.observability
+      # Optional BY CONSTRUCTION on the Lambda side — cpcommon.observability
       # reads it with os.environ.get and never config._require — so a writer deployed without
       # it logs to stdout instead of failing at cold start.
       #

@@ -111,7 +111,7 @@ function FileBrowserContent({
   // browser, which is exactly why a per-component gating pass misses them.
   const queryEnabled = useFeature('query');
   const dataQualityEnabled = useFeature('dataQuality');
-  // SPEC-167. The send's own space is the BROWSER's space, not the current folder: the control
+  // The send's own space is the BROWSER's space, not the current folder: the control
   // plane resolves the source from the verified username and the space name, and a folder deep
   // inside it is just where the selection came from.
   const filesEnabled = useFeature('files');
@@ -330,7 +330,7 @@ function FileBrowserContent({
         </MobileActionBar>
       )}
 
-      {/* SPEC-172 FR-004. The explanation, where a `title` cannot be one: a tooltip needs a
+      {/* The explanation, where a `title` cannot be one: a tooltip needs a
           hover, so on touch — and at the 400px width this feature's own live check is run at —
           the greyed controls above would say nothing at all. Rendered once for the folder rather
           than per control, because it is a fact about where you are standing. */}
@@ -434,7 +434,7 @@ function FileBrowserContent({
         progressVerb="Copying"
       />
 
-      {/* SPEC-167. Mounted here rather than in FileBrowserDialogs because its state is this
+      {/* Mounted here rather than in FileBrowserDialogs because its state is this
           component's (the selection it sends, and the space it sends from), and threading both
           through the dialogs bundle would give that file a second reason to change. */}
       {send.items && send.items.length > 0 && (
@@ -453,7 +453,7 @@ function FileBrowserContent({
         />
       )}
 
-      {/* SPEC-172. Mounted here for the same reason the send dialog is: their state is this
+      {/* Mounted here for the same reason the send dialog is: their state is this
           component's — the selection being archived, and the space both modes resolve. */}
       {archive.items && archive.items.length > 0 && (
         <ArchiveDialog
@@ -513,7 +513,7 @@ function FileBrowserContent({
           }
           archiveDisabledReason={archiveRefusal(selectedItems.map(toArchiveItem), rootPrefix) ?? undefined}
           writeLockReason={writeLockReason}
-          // SPEC-186 FR-002. The service refuses these too, but only after the user has read the
+          // The service refuses these too, but only after the user has read the
           // "everything inside it … can't be undone" confirm and pressed Delete.
           deleteDisabledReason={undeletableSelectionRefusal(selectedItems, rootPrefix, 'delete') ?? undefined}
           moveDisabledReason={undeletableSelectionRefusal(selectedItems, rootPrefix, 'move') ?? undefined}

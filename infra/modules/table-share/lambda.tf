@@ -63,7 +63,7 @@ resource "aws_lambda_function" "functions" {
         ATHENA_WORKGROUP      = var.athena_workgroup
         # SPEC-094 (optional in tscommon.config — unset ⇒ emits are logged no-ops).
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
-        # SPEC-136. Deliberately NOT mirrored by a config._require — see variables.tf.
+        # Deliberately NOT mirrored by a config._require — see variables.tf.
         LOGS_QUEUE_URL = var.logs_queue_url
         # `env` shipped empty on every record. Same source of truth as the
         # feature-flag document's `environments` keys (`var.environment`, default "prod").

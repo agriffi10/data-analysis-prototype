@@ -60,7 +60,7 @@ resource "aws_lambda_function" "functions" {
       # Target for `create` notifications emitted at each lifecycle terminal
       # outcome (notify.emit_notification). Empty until notifications is wired -> no-op.
       NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
-      # SPEC-134. Deliberately NOT mirrored by a config._require: a verb that loses this must
+      # Deliberately NOT mirrored by a config._require: a verb that loses this must
       # log to stdout and keep working, never crash the plane at cold start.
       LOGS_QUEUE_URL = var.logs_queue_url
       # `env` shipped empty on every record. Same source of truth as the

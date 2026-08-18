@@ -48,16 +48,16 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // Signed-in visitors only — the signed-out page gates nothing (FR-007).
     {name: 'Go to Dashboard', kind: 'control', path: '/'},
     {name: 'Files help section', kind: 'guide', path: '/help', helpId: 'files'},
-    // SPEC-167. A received-files notification deep-links into /files, and with this flag off
+    // A received-files notification deep-links into /files, and with this flag off
     // that route swaps its element — so an ungated link is a live anchor into the unavailable
     // page. The notification itself is never gated: the record of what happened outlives the
     // surface that would show it.
     {name: 'Received files link on a notification', kind: 'control', path: '/notifications'},
-    // SPEC-167. The entry point itself. In the FILE BROWSER, like "Check data quality" and
+    // The entry point itself. In the FILE BROWSER, like "Check data quality" and
     // unlike "Create table", which is a Query capability wearing a file-browser button.
     {name: 'Send selected items to someone', kind: 'control', path: '/files'},
     {name: 'Send files guide', kind: 'guide', path: '/help', helpId: 'send-files'},
-    // SPEC-172. Archive is a Files SUB-SURFACE, not one of the five primary features, so it
+    // Archive is a Files SUB-SURFACE, not one of the five primary features, so it
     // inherits this flag rather than gaining one — and it needs THREE rows, because its two
     // entry points are in different places and the restore has no selection at all.
     //
@@ -78,7 +78,7 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: '/query', kind: 'route', path: '/query'},
     // In the FILE BROWSER, not the Query workspace. The one everyone forgets.
     {name: 'Create table', kind: 'control', path: '/files'},
-    // SPEC-173. The SECOND of that kind: a folder row in the file browser that is a Query
+    // The SECOND of that kind: a folder row in the file browser that is a Query
     // feature. With `query` off it leaves the listing and the destination picker together —
     // a destination the user cannot see is not a destination. Its delete/rename refusal is
     // NOT part of the gate and is asserted with the flag off, because "you cannot see it"
@@ -87,12 +87,12 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // Belt to the route's braces: a later spec surfacing these elsewhere inherits the row.
     {name: 'Refresh table', kind: 'control', path: '/query'},
     {name: 'Share table', kind: 'control', path: '/query'},
-    // SPEC-179. The MIRROR IMAGE of "Create table": a Data Explorer capability living on a
+    // The MIRROR IMAGE of "Create table": a Data Explorer capability living on a
     // Query-workspace surface, so it is gated by both flags and registered under both. With
     // `query` off the whole workspace is gone and the item is unreachable — this row asserts
     // that rather than assuming it, on the same belt-and-braces reasoning as the two above.
     {name: 'Explore data on the Query schema rail', kind: 'control', path: '/query'},
-    // SPEC-183. The EXACT MIRROR of "Explore data" above: a saved-queries capability living
+    // The EXACT MIRROR of "Explore data" above: a saved-queries capability living
     // on a Data Explorer surface, so it follows the flag that owns the store rather than the
     // one that owns the screen. With `query` off there is no editor to open a `.sql` file in
     // and the `saved_queries` folder has left both the file browser and the destination
@@ -116,38 +116,38 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // The last two are beyond the spec's contract table — see the delivery doc. Hiding the
     // rail alone left both the schema rail and the move/copy WRITE path open.
     {name: 'Shared databases in the schema rail', kind: 'control', path: '/query'},
-    // SPEC-174. Its own row, and not a duplicate of the one above: that gate filters the
+    // Its own row, and not a duplicate of the one above: that gate filters the
     // CONNECTIONS the rail browses, while this one is the saved-queries space selector,
     // which reads `useQuerySpaces` and would otherwise go on naming a colleague's space in a
     // dropdown after the rest of the app stopped showing it.
     {name: 'Shared spaces in the saved-queries selector', kind: 'control', path: '/query'},
-    // SPEC-175. A SECOND instance of the same choice, on the same reasoning SPEC-167 used for
+    // A SECOND instance of the same choice, on the same reasoning SPEC-167 used for
     // the send dialog's recipient kind: the row above renders the DRAWER, so nothing would
     // notice if the save dialog's destination control stopped being gated — and that failure
     // is the worse of the two, because it offers a colleague's space as a WRITE target.
     {name: 'Shared spaces in the save-query dialog', kind: 'control', path: '/query'},
     {name: 'Shared spaces as a move destination', kind: 'control', path: '/files'},
     {name: 'Shared connections help section', kind: 'guide', path: '/help', helpId: 'shared-connections'},
-    // SPEC-167. The SPACE variant of the same link, and the worse failure of the two: with this
+    // The SPACE variant of the same link, and the worse failure of the two: with this
     // flag off the route does not READ ?space=, resolves the personal space, and then discards a
     // prefix that does not start with it — landing the space's owner in their OWN files with no
     // banner, while the message tells them where to look.
     {name: 'Received files link to a space on a notification', kind: 'control', path: '/notifications'},
-    // SPEC-167. A SECOND instance of the recipient-kind choice, and it needs its own row: the
+    // A SECOND instance of the recipient-kind choice, and it needs its own row: the
     // `Shared spaces` row above renders the share dialog, so nothing would notice if this one
     // stopped being gated. One surface per row is what makes the walking test mean anything.
     {name: 'Shared spaces recipient kind in the send dialog', kind: 'control', path: '/files'},
-    // SPEC-179. The Data Explorer's source picker reads `useQuerySpaces` exactly as the
+    // The Data Explorer's source picker reads `useQuerySpaces` exactly as the
     // saved-queries selector does, so it needs its own row for the same reason that one did:
     // the rows above render other surfaces, and an ungated picker would go on naming a
     // colleague's space after every other shared-workspace surface had gone.
     {name: 'Shared spaces in the Data Explorer source picker', kind: 'control', path: '/explore'},
-    // SPEC-183. A THIRD instance of the destination choice, and it needs its own row for the
+    // A THIRD instance of the destination choice, and it needs its own row for the
     // reason the save-query one did: the rows above render other surfaces, so nothing would
     // notice if this one stopped being gated — and this is the WRITE-target variant, which
     // offers a colleague's space as somewhere to put a file.
     {name: 'Shared spaces in the Data Explorer save dialog', kind: 'control', path: '/explore'},
-    // SPEC-185. The export destination, on the same footing again — and its TWIN below is
+    // The export destination, on the same footing again — and its TWIN below is
     // the point: `useSaveResults` built its own list from an unfiltered `useQuerySpaces()`,
     // so the Query workspace's Save-results dialog had been offering a colleague's space as
     // a write target with this flag off, unregistered and unnoticed since SPEC-055. The hook
@@ -175,7 +175,7 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // surface under the other one — one row per (surface, flag), because the two answer
     // different questions and either gate can be deleted alone.
     {name: 'Explore data', kind: 'control', path: '/query'},
-    // SPEC-185. The section AND each of its guides, on the `files` precedent: the section
+    // The section AND each of its guides, on the `files` precedent: the section
     // row alone would be enough to hide them today, and it would go on passing if a later
     // spec moved one of these guides into the Query section — where it would then be
     // visible with `dataExplorer` off. The registry is the only home of the guide→flag

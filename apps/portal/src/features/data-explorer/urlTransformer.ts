@@ -7,7 +7,7 @@ export const URL_NOT_HTTPS = 'Only https links are opened from a cell.';
 /** What a template resolved to: a link, or a reason there is not one. */
 export type ResolvedUrl = {href: string; reason?: undefined} | {href?: undefined; reason: string};
 
-// SPEC-184 FR-006. The one place in this spec where being wrong is a security bug rather
+// The one place in this spec where being wrong is a security bug rather
 // than an ugly grid: the TEMPLATE is authored by the user, but the value substituted into
 // it comes from the table — so a link's destination is partly attacker-controlled wherever
 // the data is.

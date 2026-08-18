@@ -79,7 +79,7 @@ resource "aws_lambda_function" "pre_signup" {
   filename         = data.archive_file.pre_signup_placeholder.output_path
   source_code_hash = data.archive_file.pre_signup_placeholder.output_base64sha256
 
-  # SPEC-137 FR-005. Optional BY CONSTRUCTION on the Lambda side — cpcommon.observability
+  # Optional BY CONSTRUCTION on the Lambda side — cpcommon.observability
   # reads it with os.environ.get and never config._require — so a trigger deployed without
   # it logs to stdout instead of failing at cold start. Set here so it is set in practice,
   # and the trigger's narrative lands in logs/service=auth/ with post-confirmation's.

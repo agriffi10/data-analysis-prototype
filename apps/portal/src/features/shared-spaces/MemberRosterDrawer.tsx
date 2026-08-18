@@ -41,7 +41,7 @@ export function MemberRosterDrawer({
   onRefresh,
   refreshing = false
 }: Props) {
-  // SPEC-186 FR-008. The sentence explains a chip; rendering it where no such chip exists is
+  // The sentence explains a chip; rendering it where no such chip exists is
   // how it came to be read by the one person for whom it was false — a member who HAD signed in,
   // told that Pending means they had not.
   const anyPending = members.some((m) => m.username !== owner && displayedMemberStatus(m, viewer) === 'pending');
