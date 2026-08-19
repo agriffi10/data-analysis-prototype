@@ -264,6 +264,11 @@ and its confirm **does** open. Without it a generic failure reads as the guard w
 | Do | Expect |
 |---|---|
 | Build from `explorer150/` | Notification, appears in the rail, returns rows, all columns text. |
+| **Create table** at a space ROOT | The button is `aria-disabled` with a reason about the folder being read whole — the dialog never opens. A table there would SUCCEED over `athenaresults/` and friends, which is what makes this worth blocking. |
+| Build from a folder whose CSV header has `Order ID` | Refused by notification, **naming the column**. Refused deliberately even though it would work today — one rule everywhere. |
+| Build from a folder whose header has `Total` and `TOTAL` | Refused, naming **both**: Athena lowercases, so they are one column to it and two to everything else. |
+| Build from a header with `_id`, `2024_total`, `select` | **Builds.** Leading underscores, leading digits and reserved words are quoted, not refused. |
+| Refresh a table whose header the rule would now refuse | **Refreshes.** Creates only — refusing would strand a table already in the catalog. |
 | Build from `partfix/` with key `year` (string, `2025, 2026`) | **One** Athena statement, no repair step, and `WHERE year = '2025'` returns rows immediately. |
 | Build from an empty folder, a mixed-format folder, a layout contradicting the declared keys, a name already taken | One notification each, naming which. |
 
@@ -337,6 +342,27 @@ statements that **succeed**.
 > **The suspended-failed-statement state is per-mount, and that is accepted, not a defect.** Leave
 > `/explore` and come back and the statement is submitted again. Do not file it.
 
+**The rebuilt table — the check this whole eviction exists for.** Count executions throughout.
+
+| # | Do | Expect |
+|---|---|---|
+| A | Open an exploration of `explorer150`, note the rows | Baseline. |
+| B | In **Query**, `DROP TABLE` it; go back to `/explore` | The tab **re-runs on its own** — 1 execution. Old rows served here is the bug. |
+| C | Rebuild it from a folder holding **different** data (Files → Create table), leave the window and come back | On focus the catalog is re-read and the tab re-runs, showing the NEW rows. Returning to a window you never left will not do it — `focus` fires on blur→focus only. |
+| D | With an exploration open, use **Options → Create view…** on it | **Zero** new executions. Creating a view changes no rows, and re-running here was a measured defect. |
+| E | With an exploration open, drop an **unrelated** table in the same database | **Zero** new executions on the open tab. |
+| F | Apply a filter and change it back, having done B–E | Still a cache hit, still zero executions. The eviction must not have cost the cache its whole point. |
+
+**Create and options, on the Explorer's own surfaces.**
+
+| Do | Expect |
+|---|---|
+| Open the picker with no tabs | A **Create** section below the list: *Create table from a folder…*. Its dialog refuses the space ROOT and says why. |
+| **Options** on an open exploration | One menu holding Columns, Colours, Transformers, Value, Calc, Grouping, Copy…, Export, Save as query, Create view…. The bar keeps only undo/redo, Order and filter, Clear, Filter by this value and the view switch. |
+| **Options** with nothing selected | **Copy…** sits there `aria-disabled` with its reason on hover AND reachable by Arrow — not missing, not silently inert. |
+| Pick any Options item, then press Tab | Focus is on the **Options** button, not at the top of the page. |
+| **Options → Create view…**, name it, then look in the rail | The view appears. Its statement quotes both identifiers. |
+
 ### 4.6 Data quality
 
 | Do | Expect |
@@ -346,6 +372,8 @@ statements that **succeed**.
 | Check a **single file** | Reports on that file alone — its neighbours are not counted. |
 | Check an empty / header-only folder | Called out as a finding, never clean. Sampled and skipped figures never read as a pass. |
 | The runs list | Pages, and reopens reports. |
+| Check a folder whose header has `Order ID` | Refused by notification naming the column — a check cannot report on data it cannot read, so this is the answer rather than a gap in it. |
+| Check a folder with a `key=value` partition whose KEY is not `[a-z0-9_]` (e.g. `order-id=1/`) | Refused under its **own** wording, about folder names — not the column one, because the repair is renaming a folder. |
 | A report link for an unreachable space | Refuses, and issues **no S3 request naming it**. |
 
 ### 4.7 Saved queries

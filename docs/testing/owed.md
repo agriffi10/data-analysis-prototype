@@ -53,6 +53,7 @@ recipe anywhere** — write one when you run it.
 | **The state order, including the poll loop** (SPEC-108, data quality) | **`WaitForQuery`/`CheckQuery` must appear TWICE** — one pass through is a poll that never polled. Recipe in §2.3. |
 | **The portal role can enqueue a user action and NOT a `create`** (SPEC-058) | The anti-spoof boundary: a browser that could enqueue `create` could write any user's inbox. Simulate `sqs:SendMessage` against the notifications queue and read the rendered policy. |
 | **The seven shared-space producer events** (SPEC-061), especially **delete fanning out to every member** | One notification per member per event, from the verified actor. A missed fan-out is silent. |
+| **A shared space whose NAME is not catalog-safe** (2026-08-19) | The premise behind `sqlIdentifier`/`sqlDdlIdentifier` on `CREATE VIEW` and `DROP`: `shared-space-validate` applies **no format check** to `space` on the create path, so the browser dialog is the only thing holding the rule. Enqueue a create for a name containing a backtick, a double quote or a space (§2.2), then confirm from the member's browser that dropping a table in it and creating a view from it both run — and that the rendered statement quotes the name rather than breaking on it. **If Glue itself refuses the name, say so and close this** — that would mean the quoting is belt to a braces that already holds, which is worth knowing either way. |
 
 ### Needs a second account for the REFUSAL half
 
