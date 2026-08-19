@@ -32,9 +32,11 @@ describe('requiresControlPlane', () => {
     expect(requiresControlPlane([file('alice/a.csv'), folder('alice/reports/')])).toBe(true);
   });
 
-  it('is a property of the SELECTION, not of the operation', () => {
-    // There is no operation parameter, so this is true by construction — asserted anyway because
-    // the signature is the guarantee, and a later spec adding one would break it silently.
+  it('takes no operation parameter', () => {
+    // `Function.prototype.length` counts formals up to the first defaulted or rest parameter, so
+    // this catches `(items, operation)` and NOT `(items, operation = 'copy')` — which is the shape
+    // someone would reach for to add one compatibly. Narrow, but not nothing: it pins the arity a
+    // reader sees, and the property it stands for is the absence of an operation in the signature.
     expect(requiresControlPlane.length).toBe(1);
   });
 
@@ -70,14 +72,23 @@ describe('the rule has a single home', () => {
     // broken" is this.
     expect(sources.length).toBeGreaterThan(100);
     expect(sources.some(([file]) => file.endsWith('fileOpRouting.ts'))).toBe(true);
+    // A count alone does not prove the glob reaches the whole tree: narrowing it by one segment
+    // still matches ~300 files, all of them under `features/`, while silently dropping `lib/`,
+    // `components/` and `App.tsx` — where a future second call site is at least as likely to live.
+    expect(sources.some(([file]) => file.includes('/lib/'))).toBe(true);
+    expect(sources.some(([file]) => file.includes('/components/'))).toBe(true);
   });
 
-  it('is imported by at most one module', () => {
+  it('is imported by nothing yet, and by at most one module ever', () => {
     // At most, not exactly: nothing routes through the plane yet. The spec that switches the
     // browser over raises this to exactly one — the branch has to MOVE rather than be consulted
     // from each of the four confirm paths. Note it is deliberately NOT re-exported from the
     // feature barrel: a barrel re-export is an importer without being a call site, so it would
     // cost this sweep its meaning while adding nothing.
+    //
+    // One false negative to know about when that happens: a RENAMED re-export
+    // (`export {requiresControlPlane as routesToPlane}`) is caught here, but its consumers are
+    // not — so the single allowed importer must not be one.
     expect(importers.map(([file]) => file)).toEqual([]);
   });
 });

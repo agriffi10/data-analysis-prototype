@@ -23,9 +23,18 @@ import type {FileOpItem} from './fileOps.types';
  * sweeps `src/` and fails if a second module imports this, because the failure mode of two copies
  * is silent — the two disagree about one selection shape and half the gestures take the wrong path.
  *
- * @param items - The current selection. Must be non-empty; an empty selection never reaches here,
- *   and the plane refuses an empty `source.items` as a request-shape error. Without that
- *   precondition "not exactly one item" would route a zero-item selection to the plane.
+ * **Where the call site must sit, because the throw depends on it.** An empty selection is a
+ * programmer error, not an answer: the plane refuses an empty `source.items` as a request-shape
+ * error, so returning "enqueue it" for zero items would send a request guaranteed to fail by
+ * notification minutes later. The throw is unreachable from a real gesture today only because the
+ * toolbar disables every bulk action at `count === 0`, and because `useDelete` and `useCopy`
+ * early-return on an empty list before doing anything. `useMove`'s `runMove` has no such guard, so
+ * a call placed at the head of it — rather than after the existing emptiness checks — would abort
+ * a React event handler with no unmount and no feedback, and the user's click would silently do
+ * nothing. Consult this AFTER the emptiness guard, never before it.
+ *
+ * @param items - The current selection. Must be non-empty. Without that precondition "not exactly
+ *   one item" would route a zero-item selection to the plane.
  * @returns True when the operation must be enqueued.
  */
 export function requiresControlPlane(items: readonly FileOpItem[]): boolean {
