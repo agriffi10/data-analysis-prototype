@@ -265,6 +265,23 @@ def test_the_width_cap_is_reported_before_the_name_rule(monkeypatch, ran):
     assert exc.value.reason == messages.TOO_MANY_COLUMNS
 
 
+def test_a_detected_partition_key_name_is_judged_by_the_SAME_rule(monkeypatch, ran):
+    """The keys here are derived from S3 path segments, not declared in a dialog — so a folder
+    name is a catalog identifier the user wrote. `cpcommon.ddl.quote` does not escape what it
+    wraps, so a backtick in a segment closes the quote and the rest becomes DDL."""
+    _install_manifest(monkeypatch, _manifest(
+        partition_keys=[{"name": "ab`c", "values": ["eu"]}],
+        files=[{"key": "alice/sales/ab`c=eu/jan.csv", "size": 1, "columns": [{"name": "id", "type": "string"}]}],
+    ))
+
+    with pytest.raises(TerminalError) as exc:
+        v.handler(_event(), None)
+
+    assert exc.value.reason == messages.INVALID_COLUMN_NAMES
+    assert exc.value.tokens["columns"] == '"ab`c"'
+    assert ran == []
+
+
 def test_a_clean_header_is_untouched_by_the_new_check(ran):
     """The rule is a floor, not a narrowing: the default manifest still builds both tables."""
     v.handler(_event(), None)

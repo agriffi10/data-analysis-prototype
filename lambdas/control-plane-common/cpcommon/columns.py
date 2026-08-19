@@ -2,9 +2,12 @@
 
 Column names are the one part of a table's schema this portal does not choose: they are read
 out of a file's own header or Parquet footer, so they arrive as user data and have to be
-judged before they become catalog identifiers. Table names, database names and partition-key
-names do not come through here — those are typed into a dialog and are already held to
-``config.CATALOG_IDENTIFIER_RE``.
+judged before they become catalog identifiers. Table and database names do not come through
+here — those are typed into a dialog and held to ``config.CATALOG_IDENTIFIER_RE``.
+
+Partition-key names are split: table-builder's are declared in that same dialog and validated
+with it, but data-quality DETECTS its own from S3 path segments, which makes them a name the
+user wrote by naming a folder. Those go through ``check_names`` at the verb that renders them.
 
 **WHAT THE RULE REFUSES, AND WHY EACH ONE IS NOT MERELY UNTIDY.** Athena lowercases every
 identifier as it runs a statement, and AWS Glue accepts a column name this repo's renderers
@@ -33,22 +36,30 @@ refusal below is a case that reaches the user later rather than now:
 all fine, and refusing them would be this app inventing a restriction AWS does not have: DDL
 here goes through ``ddl.quote`` (backticks) and DML through ``ddl.quote_dml`` and the browser's
 ``sqlLiteral`` (double quotes), which is precisely the escaping AWS documents for all three.
-Mixed case is allowed too — it survives as data and folds on read; only a fold *collision* is
-refused.
+Mixed case is allowed too, with its consequence stated rather than glossed: Athena lowercases
+the name when it creates the column, so a header of ``Castle`` becomes the column ``castle`` and
+the file itself is never rewritten. That is surprising but harmless on its own. Only a fold
+*collision* — two headers that become one column — is refused.
 
 Attributes:
-  MAX_COLUMN_NAME_LENGTH: Glue's own ceiling on a column name. Characters and bytes are the
-    same number here because the pattern has already excluded everything but ASCII.
+  MAX_COLUMN_NAME_LENGTH: Glue's own ceiling on a column name, which AWS documents in BYTES.
+    Characters and bytes are the same number here only because ``is_valid`` rejects non-ASCII
+    before measuring — see the note there on U+212A.
   MAX_NAMED_IN_REFUSAL: How many offending names a refusal spells out before summarising the
     rest. A wide file can carry hundreds, and the refusal is read in a notification.
-  COLUMN_NAME_RE: The rule itself, applied to the CASEFOLDED name.
+  MAX_NAME_CHARS_IN_REFUSAL: How much of one name is shown. A count bound alone still permits
+    ten names of ``MAX_COLUMN_NAME_LENGTH`` each, which is a 2.5 KB sentence.
+  COLUMN_NAME_RE: The rule itself, applied to the LOWERCASED name.
 """
 
 import re
+from collections.abc import Iterable
 
 MAX_COLUMN_NAME_LENGTH = 255
 
 MAX_NAMED_IN_REFUSAL = 10
+
+MAX_NAME_CHARS_IN_REFUSAL = 60
 
 COLUMN_NAME_RE = re.compile(rf"^[a-z0-9_]{{1,{MAX_COLUMN_NAME_LENGTH}}}$")
 
@@ -81,6 +92,21 @@ class InvalidColumnNamesError(ValueError):
         super().__init__(self.summary)
 
 
+def _clip(name: str) -> str:
+    """Shortens one name for display, marking that it was shortened.
+
+    Args:
+      name: The name to show.
+
+    Returns:
+      The name, truncated to ``MAX_NAME_CHARS_IN_REFUSAL`` with an ellipsis when it was longer.
+
+    Raises:
+      None.
+    """
+    return name if len(name) <= MAX_NAME_CHARS_IN_REFUSAL else name[:MAX_NAME_CHARS_IN_REFUSAL] + "…"
+
+
 def describe(names: list[str]) -> str:
     """Renders a bounded, quoted list of column names for a user-facing refusal.
 
@@ -93,31 +119,35 @@ def describe(names: list[str]) -> str:
     Raises:
       None.
     """
-    shown = ", ".join(f'"{name}"' for name in names[:MAX_NAMED_IN_REFUSAL])
+    shown = ", ".join(f'"{_clip(name)}"' for name in names[:MAX_NAMED_IN_REFUSAL])
     extra = len(names) - MAX_NAMED_IN_REFUSAL
     return f"{shown} and {extra} more" if extra > 0 else shown
 
 
-def is_valid(name) -> bool:
+def is_valid(name: object) -> bool:
     """Is one column name usable in Athena on its own terms?
 
     Says nothing about collisions, which are a property of the whole schema rather than of any
     one name in it. Use :func:`check` for a schema.
+
+    The ASCII check is not redundant beside the pattern. ``str.lower`` maps U+212A KELVIN SIGN
+    to ``k``, so a three-byte character reached ``[a-z]`` and passed a length bound documented in
+    BYTES — the one claim the ceiling rests on.
 
     Args:
       name: The candidate name.
 
     Returns:
       True when the name is a non-empty ASCII ``[a-z0-9_]`` string within the length ceiling,
-      judged after casefolding — so ``Total`` passes and ``Order ID`` does not.
+      judged after lowercasing — so ``Total`` passes and ``Order ID`` does not.
 
     Raises:
       None.
     """
-    return isinstance(name, str) and COLUMN_NAME_RE.match(name.lower()) is not None
+    return isinstance(name, str) and name.isascii() and COLUMN_NAME_RE.match(name.lower()) is not None
 
 
-def invalid_names(names) -> list[str]:
+def invalid_names(names: Iterable[object]) -> list[str]:
     """The names in a schema that no quoting will make work, in declaration order.
 
     Deduplicated by the raw name so a column list that repeats one offender reports it once.
@@ -138,7 +168,7 @@ def invalid_names(names) -> list[str]:
     return list(seen)
 
 
-def folded_duplicates(names) -> list[str]:
+def folded_duplicates(names: Iterable[object]) -> list[str]:
     """The names a schema declares more than once once Athena has lowercased them.
 
     Every name that takes part in a collision is returned, not just the second one: the user
@@ -160,7 +190,27 @@ def folded_duplicates(names) -> list[str]:
     return [n for n in names if isinstance(n, str) and counts[n.lower()] > 1]
 
 
-def check(columns) -> None:
+def check_names(names: Iterable[object]) -> None:
+    """Refuses a set of names that would not survive Athena.
+
+    Args:
+      names: The names, in declaration order.
+
+    Returns:
+      None.
+
+    Raises:
+      InvalidColumnNamesError: When any name is unusable or any two fold together.
+    """
+    offenders = invalid_names(names)
+    for name in folded_duplicates(names):
+        if name not in offenders:
+            offenders.append(name)
+    if offenders:
+        raise InvalidColumnNamesError(offenders)
+
+
+def check(columns: Iterable[dict]) -> None:
     """Refuses a schema whose column names would not survive Athena.
 
     Both failures are reported through one error because they are one question to the user —
@@ -176,10 +226,4 @@ def check(columns) -> None:
     Raises:
       InvalidColumnNamesError: When any name is unusable or any two fold together.
     """
-    names = [column.get("name") for column in columns]
-    offenders = invalid_names(names)
-    for name in folded_duplicates(names):
-        if name not in offenders:
-            offenders.append(name)
-    if offenders:
-        raise InvalidColumnNamesError(offenders)
+    check_names([column.get("name") for column in columns])

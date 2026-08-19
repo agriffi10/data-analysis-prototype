@@ -4,16 +4,29 @@ import {onCatalogChange} from '../catalog/useSchema';
 import {explorerKeys} from './explorerKeys';
 
 /**
- * Drops every cached exploration execution that could be reading a database whose catalog just
- * changed.
+ * Drops the cached exploration executions that could be reading a database whose catalog just
+ * changed — the ones **nothing is currently watching**.
+ *
+ * **THE OBSERVER FILTER IS THE WHOLE SAFETY PROPERTY.** `useExploration` already records why:
+ * removing a query that has an observer attached makes it refetch immediately. For a cached
+ * execution id that means a second `StartQueryExecution` against the same bytes — a real bill,
+ * for a catalog change that may have nothing to do with the rows on screen. Creating a view
+ * from the exploration you are looking at invalidates its own database and would have paid for
+ * the exploration twice.
+ *
+ * What it costs: the tab in front of you keeps its rows until you change something or come back
+ * to it. That is the narrow residue of the bug this closes, and it is the cheap side of the
+ * trade — the wide case is every OTHER cached exploration, which is where a dropped-and-rebuilt
+ * table's old rows used to wait for the rest of the session.
  *
  * @param client - The query client.
  * @param database - The database whose schema was invalidated.
  * @returns Nothing.
  */
 export function evictExplorations(client: QueryClient, database: string): void {
-  client.removeQueries({queryKey: explorerKeys.database(database)});
-  client.removeQueries({queryKey: explorerKeys.sqlSources()});
+  for (const queryKey of [explorerKeys.database(database), explorerKeys.sqlSources()]) {
+    client.removeQueries({queryKey, predicate: (query) => query.getObserversCount() === 0});
+  }
 }
 
 /**

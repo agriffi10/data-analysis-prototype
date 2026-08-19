@@ -27,9 +27,12 @@ export type ExplorationOptionsMenuProps = {
    * view is made from a statement and the picker has none — the statement is the thing in front
    * of the user on this screen.
    *
-   * Follows the `dataExplorer` surface itself rather than the `query` flag, unlike the sibling
-   * above: what it writes is a catalog object, not an object in the Query workspace's store.
+   * Follows the **`query`** flag, like the sibling above and like `Create view` on the Query
+   * workspace's own toolbar. Creating a Glue view is a Query capability wherever the button
+   * lives, and with the flag off the app deliberately has no way to make one — an exemption
+   * here would have handed that back through a different door.
    */
+  createViewEnabled: boolean;
   onCreateView: () => void;
   createViewRefusal?: string;
 };
@@ -77,6 +80,7 @@ export function ExplorationOptionsMenu({
   savedQueriesEnabled,
   onSaveQuery,
   saveRefusal,
+  createViewEnabled,
   onCreateView,
   createViewRefusal
 }: ExplorationOptionsMenuProps) {
@@ -97,7 +101,11 @@ export function ExplorationOptionsMenu({
     ...(savedQueriesEnabled
       ? ([{kind: 'action', label: 'Save as query', onSelect: onSaveQuery, disabledReason: saveRefusal}] as MenuItem[])
       : []),
-    {kind: 'action', label: 'Create view…', onSelect: onCreateView, disabledReason: createViewRefusal}
+    ...(createViewEnabled
+      ? ([
+          {kind: 'action', label: 'Create view…', onSelect: onCreateView, disabledReason: createViewRefusal}
+        ] as MenuItem[])
+      : [])
   ];
 
   return (

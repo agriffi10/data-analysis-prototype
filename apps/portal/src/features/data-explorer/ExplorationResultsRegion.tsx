@@ -92,6 +92,13 @@ export type ExplorationResultsRegionProps = {
   /** Turn the exploration in front of the user into a catalog view — `Save as query`'s
    *  sibling: one writes a `.sql` file, the other writes a view. */
   onCreateView: () => void;
+  /**
+   * A reason the HOST knows and this region does not — today, that the source is a saved query
+   * rather than a table, so there is no single database to create the view in. Combined with
+   * this region's own reasons rather than replacing them, so a control that is refused for two
+   * reasons still names the one the user can act on first.
+   */
+  createViewRefusal?: string | null;
   /** Raises the export dialog. The host owns the copy; this owns the gesture. */
   onExport: () => void;
   /**
@@ -177,6 +184,7 @@ export function ExplorationResultsRegion({
   queryControls,
   onSaveQuery,
   onCreateView,
+  createViewRefusal,
   onExport,
   exportRefusal
 }: ExplorationResultsRegionProps) {
@@ -204,7 +212,9 @@ export function ExplorationResultsRegion({
   const [pendingFilter, setPendingFilter] = useState<{column: string; operator: FilterOperator} | null>(null);
   const gridRef = useRef<HTMLTableElement>(null);
   const {query, apply} = queryControls;
-  const savedQueriesEnabled = useFeature('query');
+  // One flag, two consumers now: the saved-query store and the catalog view. Both are Query
+  // capabilities wearing Data Explorer controls.
+  const queryEnabled = useFeature('query');
   const toast = useToast();
   const {copy} = useCopyToClipboard();
 
@@ -634,13 +644,14 @@ export function ExplorationResultsRegion({
           onToggleGrouping={() => setGroupingOpen((open) => !open)}
           copyRefusal={selection.selectedCount === 0 ? NOTHING_SELECTED_TO_COPY : undefined}
           exportRefusal={exportRefusal ?? undefined}
-          savedQueriesEnabled={savedQueriesEnabled}
+          savedQueriesEnabled={queryEnabled}
           onSaveQuery={onSaveQuery}
           saveRefusal={saveRefusal ?? undefined}
+          createViewEnabled={queryEnabled}
           onCreateView={onCreateView}
-          // A view is made FROM a statement, so it is refused for exactly the reasons a save
-          // is — there is nothing to build one out of.
-          createViewRefusal={saveRefusal ?? undefined}
+          // A view is made FROM a statement, so this region's own reasons are a save's: there is
+          // nothing to build one out of. The host's reason is about the SOURCE and comes second.
+          createViewRefusal={saveRefusal ?? createViewRefusal ?? undefined}
         />
         {/* The count says "on this page" every time it is said, because that is the only
             thing a selection here can ever mean — Ctrl/Cmd+A included. */}

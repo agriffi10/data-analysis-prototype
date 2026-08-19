@@ -104,7 +104,11 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // toolbar: the same build, reached from a surface with no folder in view. It follows
     // `query` for the same reason that one does — building a table is a Query capability, and
     // with the flag off there is no workspace to use the result in.
-    {name: 'Create table from a folder', kind: 'control', path: '/explore'},
+    {name: 'Create table from a folder…', kind: 'control', path: '/explore'},
+    // Creating a Glue view is a Query capability wherever the control lives — the twin of
+    // `Create view` on the Query workspace's own toolbar. Registered separately because it
+    // is a different accessible name on a different route, and the walk is by name.
+    {name: 'Create view…', kind: 'control', path: '/explore'},
     {name: 'Query help section', kind: 'guide', path: '/help', helpId: 'query'},
     // Building a table from a folder is a Query capability wearing a file-browser button, so
     // its guides follow the `query` flag rather than `files`.

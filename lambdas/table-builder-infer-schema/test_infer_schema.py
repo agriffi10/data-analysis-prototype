@@ -277,6 +277,20 @@ def test_the_check_runs_BEFORE_the_ddl_is_rendered():
     assert err.value.reason == "invalid_column_names"
 
 
+def test_a_REFRESH_is_exempt_so_a_pre_existing_table_is_not_stranded():
+    """The mirror of the space-root refusal, which is creates-only for the same reason. A refresh
+    re-derives the columns of a table that ALREADY EXISTS, so refusing one would break every
+    refresh of a table built before this rule and leave rewriting the source files as the only
+    repair. Refusing the create stops the next bad table; refusing the refresh strands the ones
+    already there."""
+    _use_s3_fixture(b'order_id,"Order ID",ts\n1,2,3\n')
+    # Selected by the STORAGE DESCRIPTOR, which only the refresh path puts on the state — this
+    # verb is forbidden from reading `mode` by the guard below, and for good reason.
+    refresh = dict(_event("csv"), storage={"serializationLibrary": "org.apache.hadoop.hive.serde2.OpenCSVSerde"})
+    out = i.handler(refresh, None)
+    assert [c["name"] for c in out["columns"]] == ["order_id", "Order ID", "ts"]
+
+
 def test_a_clean_header_is_untouched_by_the_new_check():
     """The rule is a floor, not a narrowing: everything that built before still builds —
     including a leading underscore, a leading digit and a reserved word, all of which the

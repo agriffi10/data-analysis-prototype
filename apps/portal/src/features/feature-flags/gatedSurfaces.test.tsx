@@ -440,7 +440,7 @@ const RECIPES: Record<string, Recipe> = {
     anchor: async () => screen.findByRole('button', {name: /^My files/}),
     find: async () => screen.queryByRole('button', {name: /^teamspace/})
   },
-  'Create table from a folder': {
+  'Create table from a folder…': {
     render: () => {
       // NO tab seeded: the control lives on the source PICKER, which is what shows when there
       // is nothing open — the screen where "how do I get a table in here?" is the question.
@@ -450,6 +450,18 @@ const RECIPES: Record<string, Recipe> = {
     // settles the screen without depending on the row under test.
     anchor: async () => screen.findByRole('button', {name: /^My files/}),
     find: async () => screen.queryByRole('button', {name: 'Create table from a folder…'})
+  },
+  'Create view…': {
+    render: async () => {
+      seedExplorationTab();
+      renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
+      const {default: userEvent} = await import('@testing-library/user-event');
+      await openExplorationOptions(userEvent.setup({delay: null}));
+    },
+    // A SIBLING ITEM as the anchor, not the trigger: anchoring on the trigger settles before
+    // the menu has opened and lets the `find` miss for a reason that is not the flag.
+    anchor: async () => screen.findByRole('menuitem', {name: 'Grouping'}),
+    find: async () => screen.queryByRole('menuitem', {name: 'Create view…'})
   },
   'Save as query': {
     render: async () => {
@@ -907,7 +919,11 @@ describe('the registry itself', () => {
         // The twin of 'Create table' above: the same build reached from a surface with no
         // folder in view, so the folder is chosen first. It follows this flag for the same
         // reason — with `query` off there is no workspace to use the table in.
-        'Create table from a folder',
+        'Create table from a folder…',
+        // The twin of `Create view` on the Query toolbar: creating a Glue view is a Query
+        // capability wherever the control lives, so an exemption here would hand back, through
+        // a different door, the one thing turning this flag off is meant to remove.
+        'Create view…',
         'Query help section',
         'Tables help section'
       ],

@@ -4,9 +4,16 @@ import {renderWithProviders} from '../../test/renderWithProviders';
 import {CreateTableFromSpaceDialog, type BuildableSpace} from './CreateTableFromSpaceDialog';
 import {createTableRefusal} from './createTableRefusal';
 import {suggestedNameFor} from './useCreateTableFromSpace';
+import {listFiles} from '../file-browser/fileBrowser.service';
 
-vi.mock('../file-browser', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../file-browser')>())
+// Integration style: the REAL dialog → real `DestinationPicker` → real `useFileBrowser`,
+// mocking only the AWS boundary.
+vi.mock('../file-browser/fileBrowser.service', async (importActual) => {
+  const actual = await importActual<typeof import('../file-browser/fileBrowser.service')>();
+  return {...actual, listFiles: vi.fn()};
+});
+vi.mock('../../lib/awsCredentials', () => ({
+  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
 }));
 
 const PERSONAL: BuildableSpace = {
@@ -24,7 +31,14 @@ const SHARED: BuildableSpace = {
   kind: 'shared'
 };
 
-beforeEach(() => vi.clearAllMocks());
+const ok = <T,>(data: T) => ({success: true as const, data});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(listFiles).mockResolvedValue(
+    ok({files: [], folders: [{type: 'folder' as const, prefix: 'teamspace/sales/', name: 'sales'}], isTruncated: false})
+  );
+});
 
 /**
  * The Files toolbar's Create table needs no folder step — the folder in view IS the answer.
@@ -74,6 +88,34 @@ describe('choosing a folder to build a table from', () => {
     const select = await screen.findByLabelText('Space');
     expect(within(select).getByRole('option', {name: 'My files'})).toBeInTheDocument();
     expect(within(select).getByRole('option', {name: 'teamspace (shared)'})).toBeInTheDocument();
+  });
+
+  it('hands back the folder AND the space\u2019s own database once one is chosen', async () => {
+    const onChoose = vi.fn();
+    const {user} = renderWithProviders(
+      <CreateTableFromSpaceDialog
+        spaces={[SHARED]}
+        onChoose={onChoose}
+        onCancel={vi.fn()}
+      />
+    );
+
+    const dialog = await screen.findByRole('dialog', {name: 'Create table from a folder'});
+    // Into a real folder — the root is refused, so the confirm is dead until the user moves.
+    await user.click(await within(dialog).findByRole('button', {name: /sales/}));
+    const confirm = within(dialog).getByRole('button', {name: 'Choose this folder'});
+    await waitFor(() => expect(confirm).toBeEnabled());
+    await user.click(confirm);
+
+    // The database is the space's own root segment, which is the space NAME for a shared space
+    // and the username for a personal one — not the folder, and not the label.
+    expect(onChoose).toHaveBeenCalledWith({
+      spaceKind: 'shared',
+      bucket: 'dat-prod-shared-space',
+      database: 'teamspace',
+      prefix: 'teamspace/sales/',
+      rootPrefix: 'teamspace/'
+    });
   });
 });
 

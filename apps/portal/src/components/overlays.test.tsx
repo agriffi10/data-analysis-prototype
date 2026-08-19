@@ -865,6 +865,73 @@ describe('Menu', () => {
     ];
   }
 
+  // `disabledReason` — the `Button.disabledReason` contract, at menu-item scale. Pinned HERE
+  // rather than through a consumer, because a consumer's own item list decides which items can
+  // be refused at all, and every real one puts its refusable items last — an assertion about
+  // opening focus there holds whether or not the skip exists.
+  describe('MenuItem.disabledReason', () => {
+    const refusable = (reason?: string): MenuItem[] => [
+      {kind: 'action', label: 'Rename', onSelect: vi.fn(), disabledReason: reason},
+      {kind: 'action', label: 'Delete', onSelect: vi.fn()}
+    ];
+
+    it('refuses the item with its reason reachable, and keeps it out of `disabled`', async () => {
+      const user = userEvent.setup({delay: null});
+      render(
+        <Menu
+          ariaLabel="Row actions"
+          trigger={trigger()}
+          items={refusable('Nothing selected.')}
+        />
+      );
+      await user.click(screen.getByRole('button', {name: 'Open menu'}));
+
+      const item = screen.getByRole('menuitem', {name: 'Rename'});
+      expect(item).toHaveAttribute('aria-disabled', 'true');
+      // Never `disabled`: that would drop it from the roving focus order and take its reason
+      // out of reach of everyone not using a mouse.
+      expect(item).not.toHaveAttribute('disabled');
+      expect(item).toHaveAttribute('title', 'Nothing selected.');
+    });
+
+    it('opens focus PAST a refused first item, and Arrow still reaches it', async () => {
+      const user = userEvent.setup({delay: null});
+      render(
+        <Menu
+          ariaLabel="Row actions"
+          trigger={trigger()}
+          items={refusable('Nothing selected.')}
+        />
+      );
+      await user.click(screen.getByRole('button', {name: 'Open menu'}));
+
+      // The first item is the refused one, which is the only arrangement that can tell the
+      // skip apart from its absence.
+      expect(document.activeElement).toBe(screen.getByRole('menuitem', {name: 'Delete'}));
+
+      await user.keyboard('{ArrowUp}');
+      expect(document.activeElement).toBe(screen.getByRole('menuitem', {name: 'Rename'}));
+    });
+
+    it('drops the handler, so pressing it anyway does nothing', async () => {
+      const user = userEvent.setup({delay: null});
+      const onSelect = vi.fn();
+      render(
+        <Menu
+          ariaLabel="Row actions"
+          trigger={trigger()}
+          items={[{kind: 'action', label: 'Rename', onSelect, disabledReason: 'Nothing selected.'}]}
+        />
+      );
+      await user.click(screen.getByRole('button', {name: 'Open menu'}));
+      await user.click(screen.getByRole('menuitem', {name: 'Rename'}));
+
+      expect(onSelect).not.toHaveBeenCalled();
+      // …and the menu stays open, because nothing happened.
+      expect(screen.getByRole('menu', {name: 'Row actions'})).toBeInTheDocument();
+    });
+  });
+
   describe('Menu', () => {
     it('is closed initially and opens on trigger click', () => {
       render(

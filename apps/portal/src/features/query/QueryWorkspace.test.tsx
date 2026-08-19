@@ -1388,7 +1388,11 @@ describe('QueryWorkspace', () => {
       expect(await screen.findByText('Created view region_view')).toBeInTheDocument();
       expect(mockRunToCompletion).toHaveBeenCalledWith(
         expect.objectContaining({
-          sql: 'CREATE OR REPLACE VIEW alice.region_view AS SELECT region FROM alice.sales',
+          // Both identifiers are QUOTED, with the Trino escaper — Athena parses CREATE VIEW
+          // with Trino, where double quotes are the identifier quote and a backtick is an
+          // error. It matters because a shared space's name reaches the same builder and
+          // nothing server-side checks that name's format.
+          sql: 'CREATE OR REPLACE VIEW "alice"."region_view" AS SELECT region FROM alice.sales',
           database: 'alice',
           username: 'alice'
         })

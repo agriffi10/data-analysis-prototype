@@ -1,3 +1,5 @@
+import {sqlIdentifier} from '../../lib/sql';
+
 /**
  * The one `CREATE OR REPLACE VIEW` this app writes.
  *
@@ -25,19 +27,25 @@ function stripTrailingSemicolons(sql: string): string {
 /**
  * Builds the statement that saves a query as a named view.
  *
- * The identifiers are interpolated unquoted, which is deliberate and bounded rather than an
- * omission: `database` is a catalog-safe identifier by construction — it is a username or a
- * shared-space name, both held to `CATALOG_IDENTIFIER_RE` at creation — and `name` is validated
- * against the same rule by the dialog that collects it, before this is ever called. Quoting
- * here would be the *DDL* quoter (backticks), and Athena parses `CREATE VIEW` with Trino, where
- * backticks are an error rather than a quote. The correct escape for this statement is to
- * refuse an identifier that needs one, which is what the dialog does.
+ * **BOTH IDENTIFIERS ARE QUOTED, AND `database` IS THE ONE THAT MATTERS.** A view name is typed
+ * into a dialog that holds it to `CATALOG_IDENTIFIER_RE` before this is called, so it arrives
+ * clean. A database name does not: for a shared space it is the space's own name, and nothing
+ * server-side checks that name's format — the shared-space control plane trusts the browser
+ * dialog, and the SPA talks to its queue directly. A crafted space name therefore reaches a
+ * member's catalog, their space list, and from there this statement, to run under their own
+ * Athena credentials.
+ *
+ * The escaper is the **Trino** one (`lib/sql.ts`, doubles the quote), never `cpcommon.ddl`'s
+ * backtick quoter: Athena parses `CREATE VIEW` with Trino, where a backtick is an error rather
+ * than a quote, and AWS documents double quotes for exactly this statement. The exploration
+ * renderer beside this already quotes the same value the same way — the view's BODY was safe
+ * while its header was not.
  *
  * @param database - The database the view is created in.
- * @param name - The view's name, already validated as catalog-safe.
+ * @param name - The view's name.
  * @param body - The `SELECT` the view wraps; trailing semicolons are removed.
  * @returns The full statement.
  */
 export function buildCreateViewSql(database: string, name: string, body: string): string {
-  return `CREATE OR REPLACE VIEW ${database}.${name} AS ${stripTrailingSemicolons(body)}`;
+  return `CREATE OR REPLACE VIEW ${sqlIdentifier(database)}.${sqlIdentifier(name)} AS ${stripTrailingSemicolons(body)}`;
 }

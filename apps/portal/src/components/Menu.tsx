@@ -159,7 +159,14 @@ export function Menu({trigger, items, ariaLabel, align = 'right', className, men
                   item.disabledReason
                     ? undefined
                     : () => {
-                        close(false);
+                        // Focus RETURNS TO THE TRIGGER, it is not dropped. The item unmounts
+                        // with the menu, so releasing focus leaves it on `document.body` and
+                        // the next Tab restarts from the top of the page — WCAG 2.4.3. That
+                        // was invisible while every item opened a dialog, which takes focus
+                        // itself; it stopped being invisible when items began opening side
+                        // panels and toggling them. A dialog still wins: it focuses on mount,
+                        // after this.
+                        close(true);
                         item.onSelect();
                       }
                 }

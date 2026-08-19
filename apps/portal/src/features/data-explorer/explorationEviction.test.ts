@@ -23,7 +23,8 @@ const ok = <T>(data: T) => ({success: true as const, data});
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(runQuery).mockResolvedValue(ok({queryExecutionId: 'exec-1'}));
+  let started = 0;
+  vi.mocked(runQuery).mockImplementation(async () => ok({queryExecutionId: `exec-${(started += 1)}`}) as never);
   vi.mocked(getQueryStatus).mockResolvedValue(
     ok({
       queryExecutionId: 'exec-1',
@@ -95,6 +96,25 @@ describe('exploration cache eviction', () => {
     await waitFor(() =>
       expect(client.getQueryData(explorerKeys.execution(explorationSourceScope(ORDERS), sql))).toBeUndefined()
     );
+  });
+
+  // THE BILLING GUARD. `useExploration` records that removing a query with an observer attached
+  // makes it refetch immediately — for a cached execution id that is a second
+  // StartQueryExecution against the same bytes. Creating a view from the exploration in front
+  // of you invalidates its own database, so without the observer filter that gesture paid for
+  // the exploration twice. Measured: 2 calls where there should be 1.
+  it('leaves a MOUNTED exploration alone, and starts no second execution', async () => {
+    const client = createTestQueryClient();
+    const exploration = newExploration(ORDERS);
+    const {result, rerender} = renderHookWithProviders(() => useExploration(exploration), {queryClient: client});
+    await waitFor(() => expect(result.current.queryExecutionId).toBe('exec-1'));
+    expect(runQuery).toHaveBeenCalledTimes(1);
+
+    evictExplorations(client, 'alice');
+    rerender();
+    await waitFor(() => expect(result.current.queryExecutionId).toBe('exec-1'));
+
+    expect(runQuery).toHaveBeenCalledTimes(1);
   });
 
   // The registration is module-level state, so an unmounted shell that kept listening would

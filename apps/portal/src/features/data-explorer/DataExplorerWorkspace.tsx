@@ -282,10 +282,19 @@ export function DataExplorerWorkspace() {
               }
             }}
             onCreateView={() => {
-              if (exploration.sql !== null && tabs.activeTab?.exploration.source.kind === 'table') {
-                setCreatingView({sql: exploration.sql, database: tabs.activeTab.exploration.source.database});
+              const source = tabs.activeTab?.exploration.source;
+              if (exploration.sql !== null && source?.kind === 'table') {
+                setCreatingView({sql: exploration.sql, database: source.database});
               }
             }}
+            // A saved-query source reads whatever its body names, so there is no single database
+            // to create the view IN. No such source ships today; without this the control would
+            // be offered and silently do nothing the moment one does.
+            createViewRefusal={
+              tabs.activeTab && tabs.activeTab.exploration.source.kind !== 'table'
+                ? 'A view is created in one database, and a saved query can read from several. Open a table to create a view from it.'
+                : null
+            }
             onExport={saveResults.openDialog}
             // Judged HERE, on the results location, because that object is what export
             // copies — a grid full of rows says nothing about whether Athena has finished

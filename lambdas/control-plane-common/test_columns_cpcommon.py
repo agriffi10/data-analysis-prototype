@@ -45,6 +45,9 @@ class TestOneName:
             ("col\tname", "a tab"),
             ("col\nname", "a newline"),
             ("naïve", "non-ASCII folds unpredictably and is not [a-z0-9_]"),
+            # U+212A KELVIN SIGN. `str.lower` maps it to `k`, so it reached `[a-z]` and passed a
+            # length bound AWS documents in BYTES — where it costs three, not one.
+            ("\u212a", "a non-ASCII character that lowercases INTO the allowed range"),
             ("a" * 256, "Glue's own ceiling is 255"),
             (None, "a schema with a missing name is not a schema"),
             (42, "nor is one with a non-string name"),
@@ -115,3 +118,10 @@ class TestRefusalWording:
 
     def test_says_nothing_about_a_remainder_when_there_is_none(self):
         assert "more" not in columns.describe(["a b", "c d"])
+
+    def test_bounds_each_NAME_too_not_only_how_many(self):
+        """A count bound alone still permits ten names of MAX_COLUMN_NAME_LENGTH — a 2.5 KB
+        sentence in a notification body."""
+        summary = columns.describe(["x" * 400])
+        assert len(summary) < 100
+        assert summary.endswith('…"')

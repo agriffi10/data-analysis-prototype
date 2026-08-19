@@ -31,6 +31,7 @@ function props(over: Partial<React.ComponentProps<typeof ExplorationOptionsMenu>
     onToggleGrouping: NOOP,
     savedQueriesEnabled: true,
     onSaveQuery: NOOP,
+    createViewEnabled: true,
     onCreateView: NOOP,
     ...over
   };
@@ -87,19 +88,29 @@ describe('the Data Explorer options menu', () => {
   });
 
   // The half of `aria-disabled` that `disabled` would have destroyed: the item stays in the
-  // roving focus order, so a keyboard user arrives at it and hears the reason. Opening focus
-  // still skips it — landing on a control that does nothing is a worse first impression than
-  // landing on one that works.
-  it('keeps a refused item reachable by Arrow, while opening focus elsewhere', async () => {
+  // roving order, so a keyboard user reaches it and hears the reason.
+  //
+  // The OPENING-focus skip is not asserted here and cannot be: no item this menu can refuse is
+  // ever first, so any assertion about `items[0]` holds with the skip reverted. It is pinned in
+  // `Menu`'s own suite, where the item list is the fixture.
+  it('keeps a refused item reachable by Arrow', async () => {
     const {user, menu} = await open({copyRefusal: 'Select some cells first.'});
     const items = within(menu).getAllByRole('menuitem');
-    expect(document.activeElement).toBe(items[0]);
-
     const copy = within(menu).getByRole('menuitem', {name: 'Copy…'});
+
     for (let i = 0; i < items.indexOf(copy); i += 1) await user.keyboard('{ArrowDown}');
 
     expect(document.activeElement).toBe(copy);
     expect(copy).toHaveAttribute('title', 'Select some cells first.');
+  });
+
+  // Focus must not fall to `document.body` — the item unmounts with the menu, so releasing it
+  // there restarts the next Tab from the top of the page (WCAG 2.4.3). Invisible while every
+  // item opened a dialog; not invisible once items opened side panels.
+  it('returns focus to the trigger after a selection', async () => {
+    const {user, menu} = await open();
+    await user.click(within(menu).getByRole('menuitem', {name: 'Columns'}));
+    expect(document.activeElement).toBe(screen.getByRole('button', {name: 'Options'}));
   });
 
   // `menuitem` carries no pressed state, and `menuitemcheckbox` is the wrong shape: these open
@@ -116,13 +127,14 @@ describe('the Data Explorer options menu', () => {
   });
 
   // REMOVED rather than refused: a reason cannot explain a state the user has no way to change.
-  it('drops Save as query entirely when the query flag is off', async () => {
-    const {menu} = await open({savedQueriesEnabled: false});
+  // REMOVED rather than refused, both of them: a reason cannot explain a state the user has no
+  // way to change. They follow the SAME flag — creating a Glue view is a Query capability
+  // wherever the control lives, so exempting this one would hand it back through another door.
+  it('drops both Query capabilities when the query flag is off', async () => {
+    const {menu} = await open({savedQueriesEnabled: false, createViewEnabled: false});
     expect(within(menu).queryByRole('menuitem', {name: 'Save as query'})).not.toBeInTheDocument();
-    expect(within(menu).getAllByRole('menuitem')).toHaveLength(9);
-    // `Create view…` stays: it writes a CATALOG object, not one in the Query workspace's own
-    // store, so it does not follow that store's flag.
-    expect(within(menu).getByRole('menuitem', {name: 'Create view…'})).toBeInTheDocument();
+    expect(within(menu).queryByRole('menuitem', {name: 'Create view…'})).not.toBeInTheDocument();
+    expect(within(menu).getAllByRole('menuitem')).toHaveLength(8);
   });
 
   it('closes on Escape and returns focus to the trigger', async () => {
