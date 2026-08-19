@@ -383,6 +383,43 @@ resource "aws_iam_role_policy_attachment" "deploy_file_send" {
   policy_arn = aws_iam_policy.deploy_file_send.arn
 }
 
+# File-operations control-plane grants — a SEPARATE customer-managed policy, same rationale
+# and shape as deploy_file_send above (off the role's inline-policy aggregate, separate
+# 6,144-char budget). Covers the file-ops module's resource types: the FIFO request queue +
+# DLQ, the EventBridge Pipe, the Standard Step Function (+ its role), the verb Lambdas +
+# their ONE shared execution role (incl. scoped iam:PassRole), the file-ops-common
+# (focommon) Lambda layer, and the Lambda + Step-Function log groups — all scoped by
+# {project_name}-*-file-ops-* name patterns.
+#
+# IT CARRIES THE events: STATEMENT FROM ITS FIRST VERSION, which the neighbouring planes'
+# policies gained later. That is not copied habit: this machine has a top-level
+# TimeoutSeconds from day one, because the per-space lock's WAITING loop is in it before
+# any data work is — so it ships with the EventBridge TIMED_OUT rule that makes the ceiling
+# able to notify, and the grant to manage that rule has to be here or the first apply fails
+# on the rule rather than on anything to do with the plane's actual purpose.
+#
+# Granted FIRST and applied before the file-ops module's resources land (the
+# deploy-perms-before-resources rule), so there is no self-grant race. Expect one
+# first-apply failure anyway if this lands in the same run as the module: the
+# time_sleep.wait_for_self_grant guard fires once at creation and never re-fires, so an Nth
+# policy added later gets zero delay. The accepted remedy is a re-run, not a code change.
+resource "aws_iam_policy" "deploy_file_ops" {
+  name        = "${var.project_name}-deploy-file-ops"
+  description = "Deploy-role grants for the file-operations control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, focommon layer, log groups, TIMED_OUT rule), kept off the role's inline-policy aggregate limit."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-file-ops.json.tftpl", {
+    project_name = var.project_name
+    aws_region   = var.aws_region
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_file_ops" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_file_ops.arn
+}
+
 # Archive control-plane grants — a SEPARATE customer-managed policy, same
 # rationale + shape as deploy_file_send above (off the role's inline-policy aggregate,
 # separate 6,144-char budget). Covers the archive module's resource types: the FIFO

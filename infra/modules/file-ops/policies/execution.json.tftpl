@@ -1,0 +1,53 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EmitNotifications",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${notifications_queue_arn}"
+    },
+    {
+      "Sid": "RegistryRead",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "${admin_bucket_arn}/shared-spaces/*"
+    },
+    {
+      "Sid": "SpaceLockReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "${admin_bucket_arn}/${lock_prefix}/*"
+    },
+    {
+      "Sid": "NoLockDelete",
+      "Effect": "Deny",
+      "Action": "s3:DeleteObject",
+      "Resource": "${admin_bucket_arn}/*"
+    },
+    {
+      "Sid": "ReadTimedOutExecutionInput",
+      "Effect": "Allow",
+      "Action": "states:DescribeExecution",
+      "Resource": "${execution_arn_wildcard}"
+    },
+    {
+      "Sid": "EmitStructuredLogEvents",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${logs_queue_arn}"
+    },
+    {
+      "Sid": "WriteLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "${log_group_arn}:*"
+    }
+  ]
+}

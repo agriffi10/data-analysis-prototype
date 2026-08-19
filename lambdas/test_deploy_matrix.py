@@ -41,6 +41,7 @@ WORKFLOW = LAMBDAS.parent / ".github" / "workflows" / "deploy-lambdas.yml"
 #: ONE flag, so a module that never reaches the zip is invisible here no matter how complete this
 #: dict is. ``test_the_layer_copy_list_matches_the_layer_directory`` below is what closes it.
 LAYER_PACKAGES = {
+    "focommon": "focommon",
     "cpcommon": "cpcommon",
     "tbcommon": "tbcommon",
     "tscommon": "tscommon",

@@ -116,6 +116,24 @@ locals {
   # inside a LIST silently drops the change.
   file_send_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-file-send-execution-role"
 
+  # File-operations SHARED execution role ARN — one role for every verb, like every other
+  # plane — constructed cycle-free like the role ARNs above (module.file_ops creates it as
+  # "${project}-${env}-file-ops-execution-role").
+  #
+  # NOT ON THE LAKE FORMATION ADMINS LIST, for file-send's reason: a file operation moves
+  # FILES. It creates no table, describes no database and runs no DDL.
+  #
+  # It IS passed to module.data for the user-space bucket policy's principal allowlist, and
+  # that happens NOW rather than when the plane first touches S3 — the allowlist is
+  # hand-maintained, an explicit resource-policy Deny beats an identity Allow, and a plane
+  # missing from the list is denied by the bucket however correct its own grants are. The
+  # failure is asymmetric enough to read as a code bug: every SHARED-space operation works
+  # (the shared-space bucket has no bucket policy) and every PERSONAL one fails
+  # AccessDenied. A constructed string rather than a module output for the usual reason,
+  # which the allowlist is precisely the shape of: an unknown-at-plan ARN inside a LIST
+  # silently drops the change.
+  file_ops_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-file-ops-execution-role"
+
   # Archive bucket (Bucket 5) computed once the same cycle-free way: the archive
   # module creates it, base's deploy policy is scoped to its NAME (an exact-name statement,
   # because the bucket has no trailing segment and so does not match the plane's
@@ -257,6 +275,7 @@ locals {
     "${var.project_name}-${var.environment}-shared-space-requests-dlq.fifo",
     "${var.project_name}-${var.environment}-file-send-requests-dlq.fifo",
     "${var.project_name}-${var.environment}-archive-requests-dlq.fifo",
+    "${var.project_name}-${var.environment}-file-ops-requests-dlq.fifo",
   ]
 }
 
@@ -393,6 +412,13 @@ module "data" {
   # three-part change (a variable there, the templatefile() argument, the root wiring); a
   # plane that skips it is denied at runtime with nothing in the plan to warn it.
   archive_execution_role_arn = local.archive_execution_role_arn
+
+  # The file-operations execution role will eventually read, copy and delete a personal
+  # space's files. It is excluded from the Deny NOW, with the role, rather than with the
+  # first verb that needs it — this is the SIXTH plane to make the same three-part change
+  # (a variable there, the templatefile() argument, the root wiring), and a plane that
+  # skips it is denied at runtime with nothing in the plan to warn it.
+  file_ops_execution_role_arn = local.file_ops_execution_role_arn
 
   # Identity Pool ID from auth — used as the portal role's trust audience and the
   # pool's authenticated-role binding. Dependency stays one-directional: data -> auth.
@@ -785,6 +811,62 @@ module "file_send" {
 #
 # NOT on the analytics LF admins list — this plane creates no table and runs no DDL — so
 # module.analytics does not depend on it.
+# File-operations control plane: a DEDICATED FIFO SQS → EventBridge Pipe → Standard Step
+# Function pipeline running single-task verb Lambdas on ONE shared execution role. The
+# SEVENTH plane, and the one whose absence is felt daily rather than one enabling a new
+# feature: recursive folder copy, move and delete are the last bulk data operations this
+# product performs in the BROWSER.
+#
+# The plane and its front door — the plumbing, the request contract, the per-space lock and
+# validate-authorize. Nothing is listed, planned, copied or deleted yet, and the execution
+# role holds NO grant on either data bucket; a test asserts the rendered policy names
+# neither, so the grant cannot arrive early and unreviewed.
+#
+# ITS OWN QUEUE AND ITS OWN DLQ, for file-send's recorded reason: one queue under two
+# unrelated user features would let a malformed file operation dead-letter someone's send.
+#
+# NOT on the analytics LF admins list — this plane creates no table and runs no DDL — so
+# module.analytics does not depend on it. It passes no CSP input and no CORS origin either:
+# the browser's only relationship with it is sqs:SendMessage on this module's request queue.
+#
+# base grants the deploy role its file-ops perms; data creates the portal role this module
+# attaches the enqueue policy to. Settle both first.
+module "file_ops" {
+  source = "./modules/file-ops"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  account_id   = data.aws_caller_identity.current.account_id
+
+  # The portal role this module attaches the sqs:SendMessage enqueue policy to (by name),
+  # the Cognito pool/client the verbs verify tokens against, and the admin bucket holding
+  # the shared-spaces registry (read, to authorize a shared space) and this plane's locks.
+  portal_role_name  = local.portal_role_name
+  user_pool_id      = module.auth.user_pool_id
+  app_client_id     = module.auth.user_pool_client_id
+  admin_bucket_name = local.athena_admin_bucket_name
+
+  # The two data buckets a file operation moves between. Set as env on every verb so the
+  # domain layer can resolve a space; the S3 grants on them arrive with the verbs that
+  # actually touch bytes.
+  user_space_bucket_name   = local.user_space_bucket_name
+  shared_space_bucket_name = local.shared_space_bucket_name
+
+  # The notifications queue the pre-verb failure path emits to. The ARN scopes the
+  # execution role's sqs:SendMessage, the URL is the verbs' NOTIFICATIONS_QUEUE_URL.
+  notifications_queue_arn = local.notifications_queue_arn
+  notifications_queue_url = local.notifications_queue_url
+
+  # The verbs join the structured-logging pipe. From module.observability's OUTPUTS rather
+  # than reconstructed, so the FIFO `.fifo` suffix cannot drift between producer and
+  # consumer.
+  logs_queue_arn = module.observability.logs_queue_arn
+  logs_queue_url = module.observability.logs_queue_url
+
+  depends_on = [module.base, module.data]
+}
+
 module "archive" {
   source = "./modules/archive"
 
