@@ -2,7 +2,11 @@
 
 **Status:** Single source of truth for the client transition. Living document; update it in place
 rather than writing a competing one.
-**Last updated:** 2026-08-18 (the **identity-variant revision** — see below. §2, §3.3, §3.4, §3.5,
+**Last updated:** 2026-08-19 (**live-docs validation pass** — §3.5 gains the correct IAM action
+prefix, a corrected replay paragraph, the assertion's permitted token type and a half-answer on the
+`${user_id}` prefix; §3.9, §8 and Phase 0 narrow to the surviving sub-question; §3.3 gains a pointer
+to `docs/target-architecture-variants.md`, which carries the diagrams and the evidence). Previously
+2026-08-18 (the **identity-variant revision** — see below. §2, §3.3, §3.4, §3.5,
 §3.9, §5.5, §6.1, Phases 0/1/5, §8 and §9 all move). Previously 2026-08-18 (§3.5 gains the step-3
 caveat and gate G7 — the Athena docs are genuinely ambiguous about whether a plain
 `StartQueryExecution` on an identity-enhanced session is supported, so it is settled by experiment in
@@ -122,6 +126,15 @@ credential-plane split, the reconciler design and the surviving spike gates — 
   §6.3 (destructive paths during the sync-and-seed window).
 - **Touching Lake Formation re-keying** (grants moving to Identity Center principals) → §3.7 (how
   LF enforces) and Phase 5 (the work items); §3.8 for the reconciler that projects the grants.
+- **Wanting the end state as a picture** → `docs/target-architecture-variants.md`, a subordinate
+  companion: both variants drawn, the two credential lanes below the API made explicit, and the
+  **ALB-native-OIDC fork rejected on evidence**. It also carries the **live-docs validation log**
+  (2026-08-19) behind the corrections since applied in place here: §3.5's action prefix, its replay
+  claim, the assertion's permitted token type, and the `${user_id}` half-answer. Three things live
+  **only** there and would be lost if it were ever deleted as "just the pictures": the ALB fork's full
+  four-leg argument (§3.3 below carries a precis, not a substitute), the two-lane framing, and the
+  `AWSIAMIdentityCenterAllowListForIdentityContext` v12 evidence. This document stays authoritative;
+  where they disagree, read here.
 
 ---
 
@@ -341,6 +354,15 @@ SAML federation; the user must already exist in Identity Center for the exchange
 
 **Variant B's other cost is §6.1's trap**, which Variant A deletes outright — see there.
 
+**Both variants are drawn in `docs/target-architecture-variants.md`**, which also records why the
+Application Load Balancer is not a place to put the sign-in redirect for this flow. The evidential
+leg — the only header it signs is signed by *itself*, and the access token it forwards sits under
+*"Legacy unsigned headers"*, is one AWS says the load balancer creates, and *"cannot be independently
+verified by your application"* — is strong but not airtight, so the rejection does **not** rest on
+it: it also protects the wrong origin (the API is a separate front door), it is a second reader of
+the same identity able to disagree, and its 11 KB / 15-minute / expired-session-redirect limits bite
+this app specifically. Do not re-open it without reading all four.
+
 ### 3.4 ~~Two credential planes off one login~~ — superseded, there is one
 
 > **SUPERSEDED 2026-08-18.** This section described a **base plane** (Identity Pool → shared portal
@@ -398,9 +420,14 @@ shared spaces — crosses this revision unchanged. That is what makes them safe 
 ### 3.5 The token flow, and why the backend holds state
 
 ```
-1. sso-oidc:CreateTokenWithIAM                    [SigV4-signed, from the backend]
+1. CreateTokenWithIAM                             [SigV4-signed, from the backend]
+       IAM action = sso-oauth:CreateTokenWithIAM  (the ENDPOINT and CLI are sso-oidc;
+                                                   the action prefix is NOT. Verified 2026-08-19)
        grant_type = urn:ietf:params:oauth:grant-type:jwt-bearer
        assertion  = [A] <Entra ID token>  |  [B] <Cognito ID token>
+                    (AWS permits an ID token OR an access token — "the token can be an
+                     identity token or an access token". This plan assumes the ID token,
+                     the shape AWS's own Entra walkthrough uses. Verified 2026-08-19)
    → IdC validates the signature against the TTI's JWKS, checks the audience,
      maps the configured claim (typically `email`) to exactly ONE IdC user
    → returns the identity context (and a refresh token, if that grant is enabled)
@@ -472,10 +499,16 @@ consequential as G7:
   separate by design; §3.4 is superseded and they are separate only in TIME — the interim plane retires
   in Phase 5.* What it does reach is the query-results location: the workgroup's **user-identity-based
   S3 prefix** feature appends **`${user_id}`** to the results path and requires *Override client-side
-  settings*, displacing the per-user result routing this app derives today. **Confirm whether that
-  feature can be turned off** — AWS documents the override as a requirement *of the feature*, which is
-  on by default, rather than of an IdC workgroup as such. If it can, the results prefix is a choice
-  rather than a constraint, and §3.9's first question gets easier.
+  settings*, displacing the per-user result routing this app derives today. **PARTLY ANSWERED
+  2026-08-19 against the live page — and only partly, so read the split carefully.** The
+  **`${user_id}` prefix itself is OPTIONAL**: it is a checkbox at workgroup creation, *"(Optional)
+  Choose **Create user identity based S3 prefix**"*, and selecting it *"automatically enables the
+  override client-side settings option"*. What is **NOT** established is whether *Override
+  client-side settings* can be left off for an IdC workgroup that declines the prefix — the console
+  procedure's next step is *"confirm that **Override client-side settings** is selected"* and is
+  **not** marked optional. That override is the half that actually bites, because it *"enforces
+  [workgroup settings] at the workgroup level for all clients"*. **The surviving sub-question is the
+  override, not the prefix.**
 - **Queries time out after 30 minutes by default, one hour maximum**, in a TIP workgroup. The limit is
   not raisable past an hour.
 - **Users must be assigned to the `IdentityCenterApplicationArn`** returned by `GetWorkGroup`, not
@@ -512,10 +545,12 @@ a security property the baseline does not get.** The design conclusion is the sa
 exchange once at login, hold the refresh token server-side (encrypted, keyed by session, with a TTL)
 and use the `refresh_token` grant thereafter. Do not read that shared conclusion as a shared guarantee.
 
-Identity Center's replay protection is keyed on the JWT **`jti`** claim, and AWS states it
-conditionally — *"this claim, **when present**, prevents tokens that have the same JTI from being
-reused"* — while warning that some authorization servers do not emit one. It does **not** document
-what happens to a replayed token carrying none.
+Identity Center refuses a token it has **already exchanged**, and documents **`jti`** as the claim
+that makes reuse detectable. It states the `jti` half conditionally — *"this claim, **when present**,
+prevents tokens that have the same JTI from being reused for token exchanges"* — while warning that
+some authorization servers do not emit one. *This paragraph read "replay protection **is keyed on**
+the `jti` claim … it does **not** document what happens to a replayed token carrying none" until
+2026-08-19; both halves were wrong, and the [A] bullet carries the correction.*
 
 - **[B]** Cognito emits `jti` / `origin_jti`, but **only when `enable_token_revocation` is on**. The
   current IaC does not set it and relies on the Terraform provider default of `true`. Pin it
@@ -524,9 +559,17 @@ what happens to a replayed token carrying none.
   describes as *"equivalent to `jti` in the JWT specification"* — a different claim name, in v1.0 and
   v2.0, ID tokens and access tokens alike. `jti` is **not in the optional-claims reference**, so it
   cannot be requested, and nothing in AWS's documentation says Identity Center reads `uti` as a
-  substitute. **Record this as a property the baseline variant does not have** rather than as
-  something to confirm on a real token: an Entra ID token captured before its `exp` is, on the
-  evidence available, **re-exchangeable**.
+  substitute. **AMENDED 2026-08-19 — the old conclusion was too strong, and do not overcorrect
+  either.** The trusted-token-issuer page states *"If IAM Identity Center receives a request to
+  exchange a token that IAM Identity Center has already exchanged, the request fails"*, and that
+  *"IAM Identity Center protects against the replay of tokens **based on the claims in the token**"*.
+  So this bullet's old closing claim — that an Entra ID token captured before its `exp` is *"on the
+  evidence available, **re-exchangeable**"* — is **withdrawn**: a second exchange of the *same* token
+  is refused with or without a `jti`. What stays undocumented is how strong the dedup key is without
+  one. Settling that needs a **two-exchange test on a real Entra assertion** — which is *not* what G8
+  is (§5.5 calls G8 a conversation with the tenant owner, not an experiment); run it alongside,
+  whenever the exchange is first standing up. Record this as a property that is **weaker** in the
+  baseline variant, not one the baseline lacks.
 - **The compensating control, stated rather than assumed:** the assertion never reaches the browser
   and is exchanged exactly once, server-side, in the login handler — so the exposure is a token
   stolen from the backend or from the IdP round trip inside its own validity window, not a token
@@ -677,7 +720,8 @@ and the choice is real either way.
   database name (§2 item 3; the principal tag is this plan's own addition to it) — has survived every
   revision so far, and a literal per-user grant preserves it. Narrowing by
   `${identitystore:UserId}` in the location role's policy does not: the prefix becomes an Identity
-  Store id. **Query results are the part most likely to move regardless** (§3.5's workgroup bullet),
+  Store id. **Query results are the part most likely to move** — if *Override client-side settings*
+  turns out to be unavoidable on an IdC workgroup (§3.5's workgroup bullet, narrowed 2026-08-19) —
   so the invariant may hold for the file browser and break for results. Decide it deliberately; it
   strands data if it changes afterwards.
 - **Who creates a user's grant, and how many are there?** A literal per-user grant is a provisioning
@@ -1445,7 +1489,9 @@ they already were.
   `${identitystore:UserId}` in the location role's own policy**, which is standing but replaces the
   username with an Identity Store id. There is no variable grant scope; the two mechanisms are a
   grant and a policy. It may split, because the workgroup's user-identity result prefix (`${user_id}`)
-  may move **results** regardless — so also establish whether that feature can be turned off (§3.5).
+  may move **results** regardless. §3.5 now records that the **prefix** is optional; what is still
+  open — and what to establish here — is whether *Override client-side settings* can be left off on an
+  IdC workgroup that declines it.
 - Inventory the old account: buckets and data volumes, prefix conventions, per-user Glue
   databases, shared workspaces and per-user membership counts (§6.4's ceiling check), core
   datasets and the existing grant matrix.
@@ -1711,7 +1757,9 @@ freeze. This is the whole reason the old account survives the quiet period.
 - **The Access Grants prefix identity** (§3.9): one literal grant per user, or one broad grant
   narrowed by `${identitystore:UserId}` in the **location role's policy**? It decides whether a grant
   is a provisioning step and whether the username survives as the prefix, and it may split between
-  the file browser and query results. **Sub-question:** can the workgroup's user-identity result
+  the file browser and query results. **Sub-question — narrowed 2026-08-19, because §3.5 answers half of it:** the `${user_id}` prefix is
+  optional; what is still open is whether *Override client-side settings* can be left off. The old
+  wording asked whether the user-identity result
   prefix be turned off (§3.5)?
 - Gates P1, P2 and P3 (§5.4). P3 now decides whether §3.9's Access Grants or a permission-set-fed
   base plane serves user storage (§5's amendment).
