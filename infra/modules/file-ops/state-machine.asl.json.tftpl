@@ -1,5 +1,5 @@
 {
-  "Comment": "File-operations control plane. ONE machine serves copy, move and delete, branching on `operation` — the three share the request contract, the authorization question, the lock and the failure vocabulary, and a selection routes the same way whichever verb the user pressed. validate-authorize verifies the ID token into the actor, authorizes the SOURCE and (for copy/move) the DESTINATION independently, confirms every selected item sits inside its root, refuses the portal's own folders per (side x operation), and emits the per-item outcome list every later verb carries forward. THE LOCK IS THE POINT OF THIS VERSION: FIFO orders DELIVERY per space, but the Pipe starts this machine FIRE_AND_FORGET and returns, so two operations in one space can run at once — and a delete removing objects a concurrent move has already relocated is silent, unrecoverable loss with versioning off. AcquireLock/LockAcquired/WaitForLock is a WAITING loop rather than a refusal, because this lock is per SPACE and covers all three operations: deleting a folder in alice/a/ and then copying one in alice/b/ is disjoint and safe, and refusing it out of band after the UI accepted the request would be worse than waiting. The waiter STEALS a stale lock itself, so its give-up bound is independent of the steal threshold; the give-up is strictly less than the machine's own ceiling, because the waiter is a state INSIDE the machine and the ceiling would otherwise kill it before its refusal could fire. THE CHOICE FAILS CLOSED: a third clause routes an acquire output that lost its shape to the give-up, because with only the two positive clauses it would satisfy neither, fall to the Default and SPIN until the ceiling — the one failure mode a loop has that a linear machine does not. THE UNKNOWN-OPERATION DEFAULT MERGES ITS ERROR RATHER THAN REPLACING THE STATE (Result + ResultPath, not Parameters), because it is the one seed reached while the lock is still HELD: a Pass that rebuilt the state would drop `$.lock`, and the release below it would then free nothing while reporting success. THREE RELEASE STATES, because one ASL state has one Next: the success path, the give-up and the failure path each need one, and the graph walk asserts no reachable terminal skips one. THE TOP-LEVEL TimeoutSeconds SHIPS WITH ITS RULE: AWS catchers cover Task, Parallel and Map states but NOT a top-level execution failure, so a timeout terminates the run outright with no state running and no Catch firing — the EventBridge TIMED_OUT rule (stepfunction.tf) is the second door into the same notifier, and it deliberately does NOT release the lock, because by the time it fires the lock may already have been stolen and releasing would clobber the new holder. TWO FAILURE SEEDS: the pre-identity one reads the Pipe's raw array from the context object, because the catch on validate-authorize has no object to merge into; the post-identity ones take the actor from `$.actor`, the verified username the validator already produced, rather than recovering it from a token. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload, so a verb that returned only its own fields would REPLACE the whole state — which is why every looping verb echoes what it was given.",
+  "Comment": "File-operations control plane. ONE machine serves copy, move and delete, branching on `operation` — the three share the request contract, the authorization question, the lock and the failure vocabulary, and a selection routes the same way whichever verb the user pressed. validate-authorize verifies the ID token into the actor, authorizes the SOURCE and (for copy/move) the DESTINATION independently, confirms every selected item sits inside its root, refuses the portal's own folders per (side x operation), and emits the per-item outcome list every later verb carries forward. THE LOCK IS THE POINT OF THIS VERSION: FIFO orders DELIVERY per space, but the Pipe starts this machine FIRE_AND_FORGET and returns, so two operations in one space can run at once — and a delete removing objects a concurrent move has already relocated is silent, unrecoverable loss with versioning off. AcquireLock/LockAcquired/WaitForLock is a WAITING loop rather than a refusal, because this lock is per SPACE and covers all three operations: deleting a folder in alice/a/ and then copying one in alice/b/ is disjoint and safe, and refusing it out of band after the UI accepted the request would be worse than waiting. The waiter STEALS a stale lock itself, so its give-up bound is independent of the steal threshold; the give-up is strictly less than the machine's own ceiling, because the waiter is a state INSIDE the machine and the ceiling would otherwise kill it before its refusal could fire. THE CHOICE FAILS CLOSED: a third clause routes an acquire output that lost its shape to the give-up, because with only the two positive clauses it would satisfy neither, fall to the Default and SPIN until the ceiling — the one failure mode a loop has that a linear machine does not. THERE IS NO Validated PASS, AND ITS ABSENCE IS THE POINT: the neighbouring planes rebuild the whole state there to cross-check the verb's return shape, but three of this contract's fields are ABSENT for a delete (destination, onConflict and submittedAt are rejected for it), and a Pass reading an absent path raises an uncatchable States.Runtime — so the very first delete would die before NotifyFailure and tell the user nothing. StampExecution therefore MERGES the execution ARN with ResultPath instead of rebuilding, reading only $$.Execution.Id, which is always present. EVERY TASK RETRIES A TRANSIENT LAMBDA FAULT, the releases and the notifier included: a Catch is what stops a failed release failing the request, but a Retry is what makes the release actually happen — one throttle on ReleaseLock would otherwise leave the space locked until the stale steal, which is over three hours. THE UNKNOWN-OPERATION DEFAULT MERGES ITS ERROR RATHER THAN REPLACING THE STATE (Result + ResultPath, not Parameters), because it is the one seed reached while the lock is still HELD: a Pass that rebuilt the state would drop `$.lock`, and the release below it would then free nothing while reporting success. THREE RELEASE STATES, because one ASL state has one Next: the success path, the give-up and the failure path each need one, and the graph walk asserts no reachable terminal skips one. THE TOP-LEVEL TimeoutSeconds SHIPS WITH ITS RULE: AWS catchers cover Task, Parallel and Map states but NOT a top-level execution failure, so a timeout terminates the run outright with no state running and no Catch firing — the EventBridge TIMED_OUT rule (stepfunction.tf) is the second door into the same notifier, and it deliberately does NOT release the lock, because by the time it fires the lock may already have been stolen and releasing would clobber the new holder. TWO FAILURE SEEDS: the pre-identity one reads the Pipe's raw array from the context object, because the catch on validate-authorize has no object to merge into; the post-identity ones take the actor from `$.actor`, the verified username the validator already produced, rather than recovering it from a token. Each Task threads the running object via Payload.$=$ + OutputPath=$.Payload, so a verb that returned only its own fields would REPLACE the whole state — which is why every looping verb echoes what it was given.",
   "StartAt": "ValidateAuthorize",
   "TimeoutSeconds": ${state_machine_timeout_seconds},
   "States": {
@@ -31,37 +31,15 @@
           "Next": "ValidateFailureSeed"
         }
       ],
-      "Next": "Validated"
-    },
-
-    "Validated": {
-      "Type": "Pass",
-      "Parameters": {
-        "requestId.$": "$.requestId",
-        "actor.$": "$.actor",
-        "operation.$": "$.operation",
-        "source.$": "$.source",
-        "destination.$": "$.destination",
-        "onConflict.$": "$.onConflict",
-        "submittedAt.$": "$.submittedAt",
-        "outcomes.$": "$.outcomes"
-      },
       "Next": "StampExecution"
     },
 
     "StampExecution": {
       "Type": "Pass",
       "Parameters": {
-        "requestId.$": "$.requestId",
-        "actor.$": "$.actor",
-        "operation.$": "$.operation",
-        "source.$": "$.source",
-        "destination.$": "$.destination",
-        "onConflict.$": "$.onConflict",
-        "submittedAt.$": "$.submittedAt",
-        "outcomes.$": "$.outcomes",
-        "execution.$": "$$.Execution.Id"
+        "arn.$": "$$.Execution.Id"
       },
+      "ResultPath": "$.execution",
       "Next": "AcquireLock"
     },
 
@@ -179,6 +157,19 @@
         "FunctionName": "${release_lock_function_arn}",
         "Payload.$": "$"
       },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
       "ResultPath": null,
       "Catch": [
         {
@@ -197,6 +188,19 @@
         "FunctionName": "${release_lock_function_arn}",
         "Payload.$": "$"
       },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
       "ResultPath": null,
       "Catch": [
         {
@@ -215,6 +219,19 @@
         "FunctionName": "${release_lock_function_arn}",
         "Payload.$": "$"
       },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
       "ResultPath": null,
       "Catch": [
         {
@@ -291,6 +308,19 @@
         "FunctionName": "${notify_failure_function_arn}",
         "Payload.$": "$"
       },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
       "ResultPath": null,
       "Catch": [
         {

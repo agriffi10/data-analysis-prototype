@@ -110,8 +110,15 @@ def test_the_role_holds_no_object_write_or_delete_anywhere():
         actions = statement["Action"]
         actions = [actions] if isinstance(actions, str) else actions
         for action in actions:
+            if not action.startswith("s3:"):
+                continue
+            # Matched as a PATTERN rather than by equality, because `s3:*`, `s3:Put*` and
+            # `s3:Delete*` each grant exactly what this test says is excluded while passing
+            # any equality check — and they name no data bucket either, so the assertion
+            # above would not catch them.
+            assert "*" not in action, f"{statement['Sid']} grants the wildcard action {action!r}"
             assert action != "s3:DeleteObject", f"{statement['Sid']} grants DeleteObject"
-            if action == "s3:PutObject":
+            if action in ("s3:PutObject", "s3:PutObjectAcl"):
                 assert "lock_prefix" in json.dumps(statement["Resource"]), (
                     f"{statement['Sid']} may write outside the lock prefix"
                 )

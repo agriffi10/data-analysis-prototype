@@ -795,22 +795,6 @@ module "file_send" {
   depends_on = [module.base, module.data]
 }
 
-# Archive control plane + the archive bucket: a DEDICATED FIFO SQS → EventBridge
-# Pipe → Standard Step Function pipeline running single-task verb Lambdas on ONE shared
-# execution role, plus Bucket 5 — the vault. ONE plane serves both archive and restore,
-# branching on `mode`, because the two share the bucket, the role, the key layout and the
-# receipt (the table-builder's create/refresh branch is the precedent).
-#
-# The vault bucket, the plane and its front door. Decision record:
-# docs/architecture.md (Control Planes -> Archive).
-#
-# THE BROWSER HAS NO RELATIONSHIP WITH THE ARCHIVE BUCKET, which is why this block passes
-# no CSP input, no CORS origin and no bucket name to module.app: no CORS configuration, no
-# connect-src entry, and the portal role holds zero statements naming it. Its only browser
-# surface is sqs:SendMessage on this module's request queue.
-#
-# NOT on the analytics LF admins list — this plane creates no table and runs no DDL — so
-# module.analytics does not depend on it.
 # File-operations control plane: a DEDICATED FIFO SQS → EventBridge Pipe → Standard Step
 # Function pipeline running single-task verb Lambdas on ONE shared execution role. The
 # SEVENTH plane, and the one whose absence is felt daily rather than one enabling a new
@@ -867,6 +851,22 @@ module "file_ops" {
   depends_on = [module.base, module.data]
 }
 
+# Archive control plane + the archive bucket: a DEDICATED FIFO SQS → EventBridge
+# Pipe → Standard Step Function pipeline running single-task verb Lambdas on ONE shared
+# execution role, plus Bucket 5 — the vault. ONE plane serves both archive and restore,
+# branching on `mode`, because the two share the bucket, the role, the key layout and the
+# receipt (the table-builder's create/refresh branch is the precedent).
+#
+# The vault bucket, the plane and its front door. Decision record:
+# docs/architecture.md (Control Planes -> Archive).
+#
+# THE BROWSER HAS NO RELATIONSHIP WITH THE ARCHIVE BUCKET, which is why this block passes
+# no CSP input, no CORS origin and no bucket name to module.app: no CORS configuration, no
+# connect-src entry, and the portal role holds zero statements naming it. Its only browser
+# surface is sqs:SendMessage on this module's request queue.
+#
+# NOT on the analytics LF admins list — this plane creates no table and runs no DDL — so
+# module.analytics does not depend on it.
 module "archive" {
   source = "./modules/archive"
 

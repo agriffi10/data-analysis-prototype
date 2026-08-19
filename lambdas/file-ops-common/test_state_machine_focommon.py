@@ -174,6 +174,54 @@ def test_the_timeout_expiry_is_a_NAMED_exception_rather_than_silently_uncovered(
     assert "release" not in door.lower()
 
 
+def test_no_Pass_state_reads_a_field_a_DELETE_request_does_not_carry():
+    """The hazard that would have killed the very first delete, closed structurally.
+
+    ``destination``, ``onConflict`` and ``submittedAt`` are REJECTED for a delete, so they are
+    absent from its request — and a Pass reading an absent path raises ``States.Runtime``, which is
+    neither retriable nor catchable. The execution would die before ``NotifyFailure`` and the user
+    would be told nothing at all, on one of the plane's three operations.
+
+    The neighbouring planes rebuild the whole state in a ``Validated`` Pass to cross-check the
+    verb's return shape. That is safe for them because every field they name is unconditional; it
+    is not safe here, so this machine has no such state and ``StampExecution`` MERGES the execution
+    ARN with ``ResultPath`` instead of rebuilding — reading only ``$$.Execution.Id``, which is
+    always present.
+
+    Asserted as a rule over every Pass rather than about one state, because the next person to add
+    a Pass will reach for the pattern the other planes use.
+    """
+    optional = {"destination", "onConflict", "submittedAt"}
+
+    for name, state in STATES.items():
+        if state["Type"] != "Pass":
+            continue
+        read = set(re.findall(r'"\$\.(\w+)', json.dumps(state.get("Parameters", {}))))
+
+        assert not (read & optional), (
+            f"{name} reads {sorted(read & optional)}, which a delete request does not carry — "
+            f"an absent path in a Pass raises an uncatchable States.Runtime"
+        )
+
+
+@pytest.mark.parametrize(
+    "state", ["ValidateAuthorize", "AcquireLock", "ReleaseLock", "ReleaseLockOnGiveUp", "ReleaseLockOnFailure", "NotifyFailure"]
+)
+def test_every_task_retries_a_transient_lambda_fault(state):
+    """A Catch is what stops a failed release failing the request; a RETRY is what makes the
+    release actually happen.
+
+    One ``Lambda.TooManyRequestsException`` on a release would otherwise route straight to the
+    terminal with the lock still held, and the only recovery is the stale steal — over three hours
+    during which nobody can copy, move or delete anything in that space. The same throttle on
+    ``NotifyFailure`` costs the user the one message the failure path exists to send.
+    """
+    retries = STATES[state].get("Retry", [])
+
+    assert retries, f"{state} has no Retry"
+    assert "Lambda.TooManyRequestsException" in retries[0]["ErrorEquals"]
+
+
 # ── The waiting loop ─────────────────────────────────────────────────────────
 
 
