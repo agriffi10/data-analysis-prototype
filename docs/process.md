@@ -189,6 +189,73 @@ was fixed, and a fourth site shipped broken.
   right, but the widening arrives late, gets the least scrutiny, and inherits confidence it has not
   earned.
 
+**Briefing the reviewer — four lines that change what comes back**
+
+Measured over four rounds on one spec (SPEC-205, 2026-08-18: two adversarial-audit rounds, then two
+implementer rounds). The frame decides the *class* of finding; the briefing decides whether the
+answer is honest.
+
+- **Say that "this is sound" is a valid verdict.** A reviewer that infers it is expected to produce
+  findings will produce them. The round that returned the most useful report was the one told
+  explicitly that a short "implementable as written, here is what I built" was a valuable outcome —
+  and it still returned real defects, so the line costs nothing.
+- **Require it to cite where it looked** before declaring something missing — the spec line it read
+  before concluding the spec is silent. That separates a genuine gap from a miss, and it is the
+  cheapest way to keep a long report's false-positive rate down.
+- **Tell round N+1 what round N fixed, and forbid re-auditing it.** Otherwise the second pass
+  re-derives the first pass's findings and never reaches the new work.
+- **Withhold the history from a frame that is testing self-sufficiency.** The opposite of the line
+  above, and both are right: a pass asking *"is this spec buildable by someone who wasn't here"* must
+  be given it cold.
+
+**A rewrite under review pressure is the highest-risk artifact in the loop**
+
+Adjacent to *scope added mid-review restarts the clock*, and stronger. When a finding causes a
+substantial **replacement** rather than a widening, the replacement is written quickly, confidently,
+and with nobody having reviewed it. On SPEC-205 the second round found **four blockers, all of them
+inside machinery the first round's fixes introduced** — two of which independently broke a path the
+spec had a requirement to preserve. Budget a round for the fix, aimed at the fix.
+
+And **when the same area is wrong twice, the signal is about the area, not the draft.** Both SPEC-205
+drafts were wrong about the same thing — what protects a space from teardown. A repeat in one place
+is where to spend the next frame, ahead of anything the reviewer ranked higher.
+
+**The implementer frame must actually build, and every frame must run the gates**
+
+*The build-it-from-the-spec rotation named above, made concrete — it earns its own block because it
+yields a different class of finding than any reading-based frame.*
+
+- **Have it write real code, off-repo, and run the suites.** What it found by running that no reader
+  found: nine existing tests that invert (a list the spec claimed was four, including one in a
+  *different* suite from the one the spec's list implied), fixtures across two validator suites that
+  silently become the new failure case, a hard-coded verb count in an unrelated plane's coverage
+  test, and a fake whose signature diverges from the real client.
+- **Its output class is contradictions, unspecified shapes and sequencing** — two requirements that
+  cannot both hold; a return type nobody named; a phase boundary that leaves `main` exposed. An
+  adversarial reader finds defects and does not find these; the implementer finds these and is worse
+  at defects. Run both, not one twice.
+- **Every reviewer runs the repo's gates against the branch.** Four rounds reviewed SPEC-205 and
+  none ran `scripts/validate_docs.py`; the branch was red on it throughout, for a reason unrelated to
+  the spec, and it took an agent that *built* the change to notice. A review of a change touching
+  gated files runs the gates.
+
+**Exit on the trajectory of the findings, not on an empty round**
+
+*Refines "exit on a new frame finding nothing".* In practice a fresh frame rarely finds literally
+nothing — it finds something smaller. The honest signal is the **class** changing round over round:
+on SPEC-205, blockers → machinery introduced by the fixes → sequencing and contradictions →
+coin-flips no test would catch. Stop when a new frame's worst finding is one that would not change
+the built result, and say which finding that was.
+
+**An Open Question can wear a declarative sentence**
+
+`CLAUDE.md` forbids a spec carrying Open Questions, and the check is easy to pass while failing.
+SPEC-205 shipped the sentence *"either the exception moves to a shared location or `save_members`
+returns a refusal the caller raises. The spec states which"* — and then did not. A sentence that
+**promises a decision** is an Open Question with a declarative shape; so is an acceptance criterion
+demanding a **computed** bound while supplying none of its inputs. Both were caught by an implementer
+who had to pick, and neither by a reader.
+
 **Landing the spec — watch PRs and watch `main`**
 - **Every PR is watched to completion and merged as soon as CI is green** — don't open a PR and walk
   away. A spec's PR merges only on green.
