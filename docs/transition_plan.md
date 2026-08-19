@@ -694,8 +694,10 @@ and the choice is real either way.
   halves, and they are one spec**: they are written and revoked at the same moments (add member,
   remove member, leave, delete space), and splitting them across two owners is how a member ends up
   holding one and not the other. §3.8's reconciler is the **pattern** to follow — desired state,
-  read current, converge — not a second owner. Scope it in Phase 3; it does not exist yet in any
-  spec.
+  read current, converge — not a second owner. **That spec is now written: SPEC-204.** Phase 3's
+  inventory sizes it; Phase 5 executes it. Read its FR-008 before planning Phase 5 — it found a
+  standing role-level Lake Formation grant that becomes a union grant on every space the moment the
+  tags retire.
 
 **What does not change:** the seven control-plane execution roles keep their direct S3 grants and are
 untouched by any of this (§3.4).
@@ -1469,8 +1471,9 @@ and that is fine.
 > - **Shared-space membership tags come from the registry**, computed by the API at `AssumeRole`
 >   time rather than read from a directory attribute — which removes the SPEC-056 propagation delay
 >   for the whole interim window. It does **not** remove the ten-slot ceiling: see below. Phase 5 then
->   replaces tags altogether (§3.9), so this is a way station, not a destination. **It is also the one
->   piece of this phase that no spec owns** — SPEC-196 builds the claim-sourced version on purpose.
+>   replaces tags altogether (§3.9), so this is a way station, not a destination. **SPEC-203 owns it**
+>   and ships before this phase, in the current environment, where the two sources can be proved to
+>   agree — an assertion that is unwritable once this account is live.
 
 **Both variants:**
 
@@ -1480,7 +1483,11 @@ and that is fine.
 - Point the API's token verifier at the new provider: issuer, audience, JWKS URI and the **username
   claim** are configuration (SPEC-195 FR-002). **That half is configuration; the next item is not.**
   Confirm the claim against Phase 0's finding (§6.1).
-- **BUILD the registry-sourced membership tags. This is unscoped work and no spec owns it.**
+- **BUILD the registry-sourced membership tags — SPEC-203**, which ships in the current environment
+  ahead of this phase and defaults to the claims source, so what arrives here is a configuration
+  change over code already proved against both sources.
+  *The paragraph below is why that spec exists; it is retained because it is the argument, not the
+  work.*
   SPEC-196 deliberately builds the `shared_space_k` tags from the **token's claims**, and says so as
   a requirement — that is what makes its "not one IAM policy is rewritten" claim provable rather than
   arguable. In the successor account there are no such claims to read (no Cognito attribute in
@@ -1576,8 +1583,9 @@ shared spaces from cutover.
   one: the registry object must carry every member the manifest names, because nothing else does.
 - **Inventory the (member, space) pairs and record them as Phase 5 work.** In the end state each one
   becomes an S3 Access Grant on the space's prefix plus a Lake Formation grant on its database
-  (§3.9), issued by the shared-space control plane. Nothing issues them yet and no spec covers it;
-  this phase is where the size of that job becomes known.
+  (§3.9), issued by the shared-space control plane — **SPEC-204**. This phase is where the size of
+  that job becomes known, and the count is a direct input to its FR-009 grant budget: the Access
+  Grants instance holds 100,000 grants and is shared account-wide.
 - Run the parity check (§6.4) against every seeded workspace before enabling any verb on it.
 
 **Verification:** per-workspace inventory comparison, old account versus new; members see their
@@ -1637,7 +1645,10 @@ on any IAM role. The design is §3; the work items are here.
   decided. **Gate G9 (§5.5) must have passed** before the API presigns from these credentials.
 - **Issue the shared-space grants** the Phase 3 inventory produced — one Access Grant per (member,
   space) prefix plus the matching Lake Formation grant on the space's database, issued by the
-  shared-space control plane. **This is unscoped work**; it needs a spec before this phase starts.
+  shared-space control plane. **SPEC-204**, and its **FR-008 is the ordering this phase must
+  follow**: entitle every member and verify, *then* retire the tags, *then* revoke the standing
+  role-level Lake Formation grants `shared-space-create` issues today. Reversed, every member is
+  locked out; skipped, every user is entitled to every space.
 - **Retire the interim plane** last, and only once storage and catalog both run on the
   identity-enhanced session: the portal role's session-tag assumption, the `username` and
   `shared_space_k` tags, and the `${aws:PrincipalTag/username}` conditions in the policies that no
@@ -1727,9 +1738,10 @@ freeze. This is the whole reason the old account survives the quiet period.
   `max_shared_memberships` and re-render the policy — the one IAM change the interim window
   otherwise promises not to make — or accept a truncated membership until Phase 5. The pair **count**
   matters separately: every pair is a grant Phase 5 has to issue.
-- **Who issues the per-(member, space) grants, and under which spec?** §3.9 names the obligation and
-  nothing implements it. It is a new verb on the shared-space control plane and it needs a spec
-  before Phase 5.
+- ~~Who issues the per-(member, space) grants, and under which spec?~~ **Answered 2026-08-18:
+  SPEC-204**, a new verb plus a reconciling sweep on the existing shared-space control plane. What
+  remains open is an *input* to it, not a question about it: the Phase 3 pair count, which sizes its
+  FR-009 budget against the instance's 100,000-grant ceiling.
 - Are all old-account workspace names catalog-safe under `^[a-z][a-z0-9_]{2,62}$`? They become
   Glue database names in the successor account.
 

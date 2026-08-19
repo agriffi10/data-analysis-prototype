@@ -1889,7 +1889,7 @@ Do not model shared spaces as directory groups.
 **And that is the same reason the end state's storage grants are per-user too.** Once the tags are
 gone, the Access Grant on a space's prefix is keyed exactly the way the Lake Formation grant on its
 database already is: per (member, space), from the registry, issued by the plane that owns
-membership. The two halves are one job and should be specced as one — and nothing specs them yet.
+membership. The two halves are one job and are specced as one: **SPEC-204**.
 
 ### Other applications acting on behalf of users
 
@@ -2039,10 +2039,11 @@ trusted identity propagation only when grantor and grantee share a Region, an Or
 organization instance. Both shapes are now available. Nothing in Arc B ever depended on the answer;
 Phase 5 and any future team-level data sharing did.
 
-**One question replaces it, and it is a spec decision nobody has taken.** Per-(member, shared-space)
-Access Grants and Lake Formation grants (`transition_plan.md` §3.9) have no owning spec. They are a
-new verb on the shared-space control plane, they are Phase 5 work, and the Phase 3 inventory is what
-sizes them.
+**One question replaced it and has since been taken: SPEC-204.** Per-(member, shared-space) Access
+Grants and Lake Formation grants (`transition_plan.md` §3.9) are a new verb plus a reconciling sweep
+on the shared-space control plane, they are transition Phase 5 work, and the Phase 3 inventory sizes
+them. Its companion, **SPEC-203**, ships in *this* environment: it is where the interim plane's
+membership tags come from once there is no Cognito claim to read.
 
 It is here because of what it forecloses. AWS's own prerequisite is explicit: with an **account
 instance**, *"all AWS services that you want users to access with trusted identity propagation must
@@ -2085,3 +2086,78 @@ move rather than after.
 holds work that grows with object count: the SPEC-020 upload queue, and `firstFreeName`'s up to 999
 sequential `HeadObject` probes. Those are deliberate residuals, recorded so this arc inherits them
 knowingly.
+
+## Transition identity arc (SPEC-203 → 204 — filed 2026-08-18)
+
+Both specs exist because a fresh-context review of the identity-variant revision found the same
+gap twice: `transition_plan.md` names two obligations that **no spec owned**, and each is the kind
+of work that arrives as "a small change during Phase N" and is a plane's worth of design.
+
+**They are not an arc in the usual sense.** They do not compose, they ship years apart, and one is
+buildable today while the other cannot be built until the successor account has an S3 Access Grants
+instance. What they share is a subject — *where a shared-space membership becomes an AWS
+permission* — and a lifetime: 203 is how that works while principal tags exist, 204 is how it works
+once they do not, and 204's FR-008 is the seam between them.
+
+### Why 203 ships now, against Cognito
+
+SPEC-196 builds the `shared_space_k` session tags from Cognito custom-attribute claims, deliberately,
+because byte-identical tags are what make its "not one IAM policy is rewritten" claim provable. In
+the successor account those claims do not exist in either identity variant, so the tags have to come
+from the registry — and **that is a real change to the credential-minting path**, not a
+configuration flip: a registry read, new API-plane IAM, a latency cost, an availability coupling and
+a defined behaviour when the read fails.
+
+It ships now because it can only be **proved** now. While both sources exist the same user's
+membership is knowable two ways and they must agree; in the successor account only one survives and
+a wrong implementation is indistinguishable from a right one. That is SPEC-137's lesson — instrumented
+code shipped whose layer attachment was missing while every gate was blind — and the parity
+assertion (FR-006) is an assertion that **expires**, which is the argument for writing it while it
+still can be.
+
+The default stays `claims` through Arc B and every environment omits the variable. No user can
+observe this spec.
+
+### The decision 203 took that the transition plan did not anticipate
+
+`transition_plan.md` said "compute the tags from the registry", which reads as *enumerate the user's
+spaces*. **The registry cannot answer that cheaply** — one object per space, keyed by space name, no
+per-user index, so enumeration is a full listing plus a read per space on every credential mint.
+
+Two ways out, and the second is better than the artifact this repo would normally build. A per-user
+index in the admin bucket would work and is precedented twice (SPEC-123's runs index, SPEC-146's
+username directory, both under ETag CAS, both user-unreachable) — but **a request already names the
+spaces it touches**, so the source reads only those and stamps only those. The cost becomes bounded
+by the request rather than by the organization, the session is least-privilege per request, and the
+ten-slot ceiling stops binding on *how many spaces a user belongs to* and starts binding on *how
+many one request names* — which is one, everywhere in the product today.
+
+**The trap it has to name loudly**: there IS an object listing a user's spaces, one `GetObject`
+away, keyed by username — `{username}/user_settings/shared-connections.json`. It is in the user's own
+prefix and the user can write it. Reading it would be a complete authorization bypass through a file
+the product invites the user to own. FR-003 is a sweep, not a review note, because it is the obvious
+implementation.
+
+### What 204 is, and the cliff inside it
+
+Once the tags retire, a member's access becomes **two grants** — an S3 Access Grant on the space
+prefix and a Lake Formation grant on the space database, per (member, space), against the member's
+Identity Center principal. Five triggers, and `acknowledge-membership` is deliberately not one
+(SPEC-073: access is granted at add time; making it a trigger reverses that). Event-driven
+projection **plus** a sweep, because events drift silently and a sweep alone is too slow — and the
+sweep must **revoke**, which is the direction a grant-only reconcile never repairs.
+
+**The finding worth carrying out of it**: `shared-space-create` today grants Lake Formation
+`Database` and `Table` permissions to the **shared portal role** for every space, with isolation
+supplied entirely by the IAM principal tag. Remove the tags and leave those grants and every portal
+user holds catalog access to every shared space. Remove them first and every member is locked out.
+FR-008 is the ordering, and it says both failure directions out loud because it looks like
+housekeeping.
+
+**One thing 204 settles that the transition plan had open.** §3.9 asks whether a storage entitlement
+is a literal per-user grant or one broad grant narrowed by `${identitystore:UserId}` in the location
+role's policy. For **shared spaces the literal form is forced**: a policy variable can narrow by
+properties of the caller, and membership is a relation in our registry that no IAM variable can
+consult. The two buckets may therefore use different forms, and the personal-prefix decision does
+not have to wait for this one.
+

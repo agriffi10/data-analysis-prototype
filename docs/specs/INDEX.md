@@ -208,6 +208,8 @@ Add a row when a spec is created; update its status on completion (status only �
 | 200 — The Enqueue Paths & the Delegated Actor Contract | Draft |
 | 201 — The Lambda Trust Boundary | Draft |
 | 202 — Retiring CloudFront & the Identity Pool, and the Arc's Live Checks | Draft |
+| 203 — Membership Tags from the Registry | Draft |
+| 204 — Shared-Space Entitlements as Grants | Draft |
 
 ## Arcs
 
