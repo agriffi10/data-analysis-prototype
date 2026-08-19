@@ -5,11 +5,20 @@ file adds **pictures and one rejected fork**; where it and the plan disagree, th
 **Last updated:** 2026-08-19 (validated against live AWS and Microsoft documentation on that
 date — see *What was checked against the live docs* at the end)
 
-Both diagrams show the **end state — after Phase 5**. They are not today's architecture and they are
-not the **Phase 1 interim plane** (the API assuming the shared portal role with a `username` session
-tag, `${aws:PrincipalTag/username}` still scoping every policy). The interim plane is deliberately
-absent: the interim *plane* is provider-agnostic and identical under both variants, so drawing it
-would repeat this page's lower half under the same two identity planes and add nothing.
+**What these are.** The successor-account architecture at the end of **Phase 5**, drawn once for each
+of the two identity variants: one *user* credential plane — the identity-enhanced session — with Athena and
+Lake Formation governing the catalog and S3 Access Grants governing storage, and the browser holding
+no AWS credential at any point — the last of those being the property **gate G9** tests.
+
+Everything below the JWT is identical in both variants. What changes is the door the JWT comes
+through, which is why the transition is one plan and not two — and why **Variant B is drawn as its
+identity plane alone**: repeating sixty near-identical lines to change four would make you hunt
+the difference instead of being shown it.
+
+**What they are not.** Today's architecture, or the **Phase 1 interim plane** (the API assuming
+the shared portal role with a `username` session tag, `${aws:PrincipalTag/username}` still scoping
+every policy). That plane is provider-agnostic and identical under both variants, so drawing it would
+repeat this page's lower half under both identity planes and add nothing.
 
 Read `transition_plan.md` §3.3 for the variant split itself, §3.4 and §3.9 for why there is one
 credential plane and what governs storage, §3.5 for the token flow, and §4.6/§4.7 for hosting.
@@ -36,10 +45,7 @@ record** for them, since there is no just-in-time provisioning and their exchang
 
 ## How to read them
 
-Everything below the JWT is identical in both variants. What changes is the door the JWT comes
-through — which is why the transition is one plan and not two.
-
-Below the API each drawing splits into **two lanes**, because two different credentials leave it:
+Below the API the drawing splits into **two lanes**, because two different credentials leave it:
 
 - **Lane A** is the API's own execution role, writing the eight FIFO **request** queues that drive
   the asynchronous control planes. It is *not* their only writer: **notifications is one of those
@@ -129,17 +135,27 @@ flowchart TB
   CARRIER -.->|"restricted by"| DENY
   CARRIER -->|"3a"| ATHENA -->|"propagates the identity"| LF -->|"resolves and masks"| GLUE
   CARRIER -->|"3b"| AG -->|"vends scoped credentials"| CREDS -->|"presigned URL"| BFF
-  BFF -.->|"the URL only, never a credential"| BR
-  BR -.->|"redeems it directly — bytes never touch compute"| S3
 ```
 
 ## Variant B — the fallback
 
 Used only if the Entra tenant is hard SAML-only. Trusted identity propagation needs an OAuth 2.0
 JWT and does not accept SAML, so something must convert a SAML-authenticated session into an OIDC
-token. That is Cognito's entire job here. **Compare the identity plane and nothing else** — one
-extra hop, the trusted-token-issuer badge one box to the left, and a guardrail that has to be
-configured rather than being absent by construction.
+token. That is Cognito's entire job here.
+
+**Only the identity plane is drawn, because only the identity plane changes.** Against Variant A,
+exactly four things move:
+
+| | Variant A | Variant B |
+|---|---|---|
+| Sign-in hop | Browser → Entra | Browser → **Cognito** → SAML → Entra |
+| Trusted token issuer | Entra | **Cognito** |
+| Assertion exchanged | The Entra ID token | The **Cognito** ID token |
+| Self-asserted identity | Impossible by construction | A **configured** guardrail: self-signup off, local identities impossible |
+
+Everything else in the drawing — the SPA container, API Gateway, DynamoDB, both lanes, the
+allow-list, Athena, Lake Formation, Access Grants and the stores — is the Variant A diagram
+unchanged.
 
 ```mermaid
 flowchart TB
@@ -153,55 +169,13 @@ flowchart TB
     ENTRA -->|"SCIM · users + groups"| IDC
   end
 
-  subgraph PORTAL["THE PORTAL"]
-    SPA["ECS Fargate + ALB<br/>SPA container, nginx<br/>app.example.com"]
-    APIGW["API Gateway<br/>api.example.com"]
-    BFF["BFF Lambda<br/>owns /auth/login and /auth/callback<br/>every request-path AWS call<br/>(the target splits this: authorizer + worker)"]
-    DDB[("DynamoDB<br/>session + IdC refresh token<br/>CMK · TTL checked on read")]
-  end
-
-  subgraph LANEA["LANE A — signed by the API execution role"]
-    SQS[["SQS · eight FIFO request queues, ten routes<br/>API-only, EXCEPT notifications"]]
-    PIPE["EventBridge Pipe to Step Functions<br/>one machine per plane"]
-    VERBS["Verb Lambdas · the control-plane execution roles<br/>ordinary IAM, never identity-enhanced"]
-    NOTIFW["notifications writer Lambda<br/>no Pipe, no state machine"]
-  end
-
-  subgraph LANEB["LANE B — the propagated user identity"]
-    STS["sts:AssumeRole<br/>ProvidedContexts = IdentityCenter"]
-    CARRIER["Carrier role · identity-enhanced session<br/>one role for everyone, no principal tags"]
-    ATHENA["athena:StartQueryExecution<br/>IdC-enabled workgroup · gate G7"]
-    LF["Lake Formation<br/>SELECT to the IdC user or group<br/>levels are data cell filters"]
-    AG["s3:GetDataAccess<br/>S3 Access Grants instance"]
-    CREDS["Prefix-scoped temporary credentials<br/>the BFF presigns from them · gate G9<br/>lifetime + clamp: SPEC-196, SPEC-198"]
-  end
-
-  DENY["DENIED BY AWSIAMIdentityCenterAllowListForIdentityContext:<br/>plain GetObject / PutObject / ListObjectsV2,<br/>and SQS and Step Functions too.<br/>That is why lane A exists."]
-
-  GLUE[("Glue Data Catalog<br/>core datasets · personal DB · shared-space DBs")]
-  S3[("Amazon S3<br/>user-space · shared-space prefixes · results")]
+  BFF["BFF Lambda<br/>owns /auth/login and /auth/callback<br/>every request-path AWS call<br/>(the target splits this: authorizer + worker)"]
+  SAME["Everything else is IDENTICAL to Variant A —<br/>the SPA container, API Gateway, DynamoDB, lane A and lane B,<br/>the allow-list, Athena, Lake Formation, Access Grants, the stores.<br/>See the Variant A diagram above."]
 
   BR -->|"302 from /auth/login · the SPA never builds this URL"| COG
   COG -->|"code via browser to /auth/callback, then back-channel exchange"| BFF
-  BR -->|"loads the bundle"| SPA
-  BR -->|"every call and /auth/* · httpOnly cookie"| APIGW
-  APIGW --> BFF
-  BFF <--> DDB
   BFF -->|"1 · CreateTokenWithIAM, jwt-bearer<br/>assertion = the Cognito ID token<br/>IAM action: sso-oauth:CreateTokenWithIAM"| IDC
-
-  BFF -->|"enqueue · the API's own role"| SQS
-  SQS -->|"seven planes"| PIPE --> VERBS
-  SQS -->|"the notifications route"| NOTIFW
-  VERBS -->|"direct grants, unchanged"| S3
-  VERBS -->|"direct grants, unchanged"| GLUE
-  VERBS -->|"planes notify their users — so the API is NOT this queue's only writer"| SQS
-
-  BFF -->|"2 · identity context"| STS --> CARRIER
-  CARRIER -.->|"restricted by"| DENY
-  CARRIER -->|"3a"| ATHENA -->|"propagates the identity"| LF -->|"resolves and masks"| GLUE
-  CARRIER -->|"3b"| AG -->|"vends scoped credentials"| CREDS -->|"presigned URL"| BFF
-  BFF -.->|"the URL only, never a credential"| BR
-  BR -.->|"redeems it directly — bytes never touch compute"| S3
+  BFF --> SAME
 ```
 
 ## Three readings the drawings exist to prevent
@@ -218,7 +192,18 @@ flowchart TB
   not its only writer (SPEC-200 FR-008 makes this an acceptance criterion); and the observability/logs
   queue is a **ninth**, outside the eight, which the API role also writes.
 - **Presigned URLs and S3 Access Grants are not alternatives.** Access Grants is how the *credential*
-  is obtained; presigning is how the *bytes* move. Presigning is a local SigV4 operation the API can
+  is obtained; presigning is how the *bytes* move. That half is drawn on its own below: as a single
+  edge spanning the whole diagram it stretched the main drawing and squeezed everything else.
+
+  ```mermaid
+  flowchart LR
+    AG["S3 Access Grants<br/>s3:GetDataAccess"] -->|"prefix-scoped<br/>temporary credentials"| BFF["BFF Lambda"]
+    BFF -->|"presigns locally · SigV4,<br/>no network call"| URL(["Presigned URL"])
+    URL -.->|"returned to the tab —<br/>the URL, never a credential"| BR["Browser"]
+    BR -.->|"redeems it directly ·<br/>bytes never touch compute"| S3[("Amazon S3")]
+  ```
+
+  Presigning is a local SigV4 operation the API can
   perform with whatever credential the environment hands it, and the transfer never touches compute.
   Whether S3 then evaluates the grant's scope correctly at redemption is exactly what **gate G9**
   tests, and it is **unproven**; a presigned URL also cannot outlive the credential that signed it.
@@ -330,16 +315,26 @@ Corrected here as a result:
 
 Open, and changed by this reading:
 
-- **G7 is unchanged, and an earlier draft of this section wrongly changed it.** That draft read two
-  strings on the Athena page as evidence that a *regular* workgroup might serve the portal and
-  sidestep the Studio restriction. Neither is evidence: *"Existing Athena SQL workgroups can propagate
-  identity to downstream services"* is a sub-bullet of the **authentication-method-immutability**
-  bullet and names no downstream service and no mechanism; *"Regular WorkGroups — No user/group
-  assignments needed"* sits inside a list scoped to *"When using Athena SQL in **EMR Studio** with IAM
-  Identity Center identities"*, so it is about the assignment ceremony, inside the very scope the
-  draft claimed it escaped. *"Federated access to the Athena API"* is still listed as incompatible.
-  `transition_plan.md` §3.5 warns in terms against installing a third confident reading of this page;
-  that draft did. It is recorded here as withdrawn rather than deleted, so it is not re-derived.
+- **G7 is unchanged.** Nothing on the Athena page moves it: *"Federated access to the Athena API"* is
+  still listed as incompatible with trusted identity propagation. An earlier draft of this section
+  claimed otherwise and is **withdrawn** — kept on the record, not deleted, because
+  `transition_plan.md` §3.5 warns in terms against installing a third confident reading of this
+  page *without re-reading both live pages* — a rule that says what you may do as well as what you
+  may not.
+
+  <details><summary>Why that draft was wrong, if you are tempted by the same two strings</summary>
+
+  It read two strings as evidence that a *regular* workgroup might serve the portal and sidestep the
+  EMR-Studio restriction. Neither is evidence:
+
+  - *"Existing Athena SQL workgroups can propagate identity to downstream services"* is a **sub-bullet
+    of the authentication-method-immutability bullet**. It names no downstream service and no
+    mechanism.
+  - *"Regular WorkGroups — No user/group assignments needed"* sits inside a list scoped to *"When
+    using Athena SQL in **EMR Studio** with IAM Identity Center identities"*. It is about the
+    assignment ceremony, inside the very scope the draft claimed it escaped.
+
+  </details>
 - **The `${user_id}` results prefix is optional — but that is only half of §3.5's question.** It is a
   checkbox at workgroup creation, and selecting it *"automatically enables the override client-side
   settings option"*. What is **not** established is whether *Override client-side settings* itself can
@@ -352,8 +347,8 @@ Open, and changed by this reading:
 
 Mermaid is not rendered or linted anywhere in this repository's CI — `scripts/validate_docs.py`
 checks layout, links and budgets, not fenced diagram syntax, and this is the first `mermaid` fence in
-`docs/`. Both blocks were rendered with mermaid 11 by hand before this file was written; a future
-edit will not be checked for you.
+`docs/`. All three blocks were rendered with mermaid 11 by hand before each change; a future edit
+will not be checked for you.
 
 **Sources:** AWS — *AWSIAMIdentityCenterAllowListForIdentityContext*; *AssumeRole*;
 *CreateTokenWithIAM*; *Use IAM Identity Center enabled Athena workgroups*; *Using applications with a
