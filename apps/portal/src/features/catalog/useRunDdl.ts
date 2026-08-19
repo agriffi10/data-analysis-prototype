@@ -10,6 +10,13 @@ export type RunDdlArgs = {
   sql: string;
   /** The schema invalidated on success, and the history entry's recorded context. */
   database: string;
+  /**
+   * The one catalog object this statement changes — the table dropped, the view created.
+   * Passed on so a consumer that caches per table can evict that one rather than all of them:
+   * creating a view beside an exploration must not re-run it, and a bill is what the
+   * difference costs. Omit only for a statement whose target is genuinely unknown.
+   */
+  table?: string;
   /** The two toast wordings, in the user's terms. */
   describe: {
     /** Shown verbatim on success — e.g. `Created view sales_2024`. */
@@ -92,7 +99,7 @@ export function useRunDdl({username, appendEntry, toast}: Params): UseRunDdlResu
   }, []);
 
   const run = useCallback(
-    ({sql, database, describe, onSettled}: RunDdlArgs) => {
+    ({sql, database, table, describe, onSettled}: RunDdlArgs) => {
       setBusy(true);
       void (async () => {
         const result = await runStatementToCompletion({sql, database, username, signal: abortRef.current?.signal});
@@ -119,7 +126,7 @@ export function useRunDdl({username, appendEntry, toast}: Params): UseRunDdlResu
         }).catch((e) => logBackgroundFailure('query-history', e));
 
         if (status.state === 'SUCCEEDED') {
-          void invalidateSchema(queryClient, database);
+          void invalidateSchema(queryClient, database, table);
           toast.push({variant: 'success', message: describe.success});
         } else {
           toast.push({

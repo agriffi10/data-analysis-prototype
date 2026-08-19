@@ -22,16 +22,18 @@ import type {ExplorationSource} from './dataExplorer.types';
  */
 export const explorerKeys = {
   all: ['data-explorer'] as const,
-  execution: (scope: readonly [string, string], sql: string) =>
+  execution: (scope: readonly [string, string, string], sql: string) =>
     [...explorerKeys.all, 'execution', ...scope, sql] as const,
-  /** Every execution reading a table in this database — the precise eviction. */
+  /** Every execution reading ONE table — the precise eviction, when the caller knows which. */
+  table: (database: string, table: string) => [...explorerKeys.all, 'execution', 'table', database, table] as const,
+  /** Every execution reading any table in this database, for a change that names no table. */
   database: (database: string) => [...explorerKeys.all, 'execution', 'table', database] as const,
   /** Every execution over a saved query, whose SQL may read any database at all. */
   sqlSources: () => [...explorerKeys.all, 'execution', 'sql'] as const
 };
 
 /**
- * The `[kind, scope]` pair an exploration's source contributes to its execution key.
+ * The `[kind, database, table]` triple an exploration's source contributes to its execution key.
  *
  * A **table** source names its database, so an execution reading it can be found and dropped
  * when that database's catalog changes. A **saved query** source cannot: its body is arbitrary
@@ -40,12 +42,13 @@ export const explorerKeys = {
  * the cost of the alternative is a saved query that keeps showing rows from a table that no
  * longer holds them.
  *
- * The database rather than the table: a rebuild is one `invalidateSchema` for the whole
- * database, and this is what that signal can address.
+ * Both the database and the table, because a caller that knows which table changed can then
+ * evict only that one — a `CREATE VIEW` beside your exploration must not re-run it, and a
+ * rebuild of the table you are reading must.
  *
  * @param source - The exploration's source.
- * @returns The two key segments, source kind first.
+ * @returns The three key segments, source kind first.
  */
-export function explorationSourceScope(source: ExplorationSource): readonly [string, string] {
-  return source.kind === 'table' ? ['table', source.database] : ['sql', source.label];
+export function explorationSourceScope(source: ExplorationSource): readonly [string, string, string] {
+  return source.kind === 'table' ? ['table', source.database, source.table] : ['sql', source.label, ''];
 }

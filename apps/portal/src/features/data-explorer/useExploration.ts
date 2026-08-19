@@ -64,7 +64,7 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
   // The source segments the key is filed under. A stable placeholder while there is nothing
   // to run, for the same reason the SQL has one: the hook order must not depend on it.
   const scope = useMemo(
-    () => (exploration ? explorationSourceScope(exploration.source) : ([NO_KEY, NO_KEY] as const)),
+    () => (exploration ? explorationSourceScope(exploration.source) : ([NO_KEY, NO_KEY, NO_KEY] as const)),
     [exploration]
   );
 

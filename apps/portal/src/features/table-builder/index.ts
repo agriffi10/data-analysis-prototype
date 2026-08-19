@@ -10,6 +10,7 @@ export {CreateTableFromSpaceDialog} from './CreateTableFromSpaceDialog';
 export type {BuildableSpace, ChosenFolder} from './CreateTableFromSpaceDialog';
 export {createTableRefusal, CREATE_TABLE_AT_ROOT_REFUSAL} from './createTableRefusal';
 export {useCreateTableFromSpace, suggestedNameFor} from './useCreateTableFromSpace';
+export {useCatalogCatchUp} from './useCatalogCatchUp';
 export {PartitionKeysField} from './PartitionKeysField';
 export {RefreshTableDialog} from './RefreshTableDialog';
 export {enqueueTableBuild, enqueueTableRefresh, suggestTableName, isValidTableName} from './tableBuild.service';

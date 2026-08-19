@@ -5,6 +5,7 @@ import {toUserText} from '../../lib/errorMessages';
 import {lastSegment} from '../file-browser/fileBrowser.paths';
 import {CreateTableDialog} from './CreateTableDialog';
 import {createTableRefusal} from './createTableRefusal';
+import {useCatalogCatchUp} from './useCatalogCatchUp';
 import {enqueueTableBuild} from './tableBuild.service';
 import type {PartitionKey} from './tableBuild.types';
 
@@ -32,6 +33,7 @@ export function CreateTableButton({spaceKind, bucket, database, prefix, rootPref
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const toast = useToast();
+  const catchUp = useCatalogCatchUp();
 
   // Suggestion base: the folder's own name, or the space name at the space root.
   const folderName = lastSegment(prefix) || database;
@@ -52,6 +54,11 @@ export function CreateTableButton({spaceKind, bucket, database, prefix, rootPref
     });
     setBusy(false);
     if (result.success) {
+      // The build lands minutes from now and announces itself in a notification, not here — so
+      // the catalog is re-read when the user comes back to the page, and every cache keyed on
+      // it catches up. Without this, a table dropped and rebuilt under the same name leaves the
+      // Data Explorer resolving to the pre-drop execution.
+      catchUp.arm(database);
       setOpen(false);
       toast.push({
         variant: 'success',

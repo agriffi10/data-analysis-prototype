@@ -561,6 +561,7 @@ export function QueryWorkspace() {
     ddl.run({
       sql: buildCreateViewSql(database, name, activeTab.sql),
       database,
+      table: name,
       describe: {success: `Created view ${name}`, failure: `Couldn\u2019t create view ${name}.`},
       onSettled: () => setCreateViewOpen(false)
     });
@@ -575,6 +576,7 @@ export function QueryWorkspace() {
     ddl.run({
       sql: `DROP ${isView ? 'VIEW' : 'TABLE'} ${database}.${table.name}`,
       database,
+      table: table.name,
       describe: {success: `Dropped ${table.name}`, failure: `Couldn\u2019t drop ${table.name}.`},
       onSettled: () => setDropping(null)
     });

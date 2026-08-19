@@ -337,6 +337,9 @@ export function DataExplorerWorkspace() {
             ddl.run({
               sql: buildCreateViewSql(creatingView.database, name, creatingView.sql),
               database: creatingView.database,
+              // The view is the only thing that changed, so the exploration it was built FROM
+              // is not evicted and does not re-run.
+              table: name,
               describe: {success: `Created view ${name}`, failure: `Couldn\u2019t create view ${name}.`},
               onSettled: () => setCreatingView(null)
             })

@@ -56,7 +56,7 @@ describe('exploration cache eviction', () => {
     return {client, sql};
   }
 
-  it('drops a table execution when its own database changes', async () => {
+  it('drops an unobserved table execution when its own database changes', async () => {
     const {client, sql} = await seed(ORDERS, 'exec-1');
     expect(client.getQueryData(explorerKeys.execution(explorationSourceScope(ORDERS), sql))).toBe('exec-1');
 
@@ -98,23 +98,51 @@ describe('exploration cache eviction', () => {
     );
   });
 
-  // THE BILLING GUARD. `useExploration` records that removing a query with an observer attached
-  // makes it refetch immediately — for a cached execution id that is a second
-  // StartQueryExecution against the same bytes. Creating a view from the exploration in front
-  // of you invalidates its own database, so without the observer filter that gesture paid for
-  // the exploration twice. Measured: 2 calls where there should be 1.
-  it('leaves a MOUNTED exploration alone, and starts no second execution', async () => {
+  // THE POINT OF THE WHOLE FIX: a stale execution must not be served AT ALL — not until the
+  // user changes a filter, not until they come back to the tab. Removing an observed query
+  // makes TanStack refetch it immediately, so the tab in front of the user re-runs and shows
+  // the rebuilt table's rows. That second execution is the price, and it is why the eviction is
+  // scoped as narrowly as the signal allows rather than being made timid.
+  it('re-runs a MOUNTED exploration of the table that changed', async () => {
     const client = createTestQueryClient();
     const exploration = newExploration(ORDERS);
-    const {result, rerender} = renderHookWithProviders(() => useExploration(exploration), {queryClient: client});
+    const {result} = renderHookWithProviders(() => useExploration(exploration), {queryClient: client});
     await waitFor(() => expect(result.current.queryExecutionId).toBe('exec-1'));
+
+    evictExplorations(client, 'alice', 'orders');
+
+    await waitFor(() => expect(result.current.queryExecutionId).toBe('exec-2'));
+    expect(runQuery).toHaveBeenCalledTimes(2);
+  });
+
+  // The narrowing that makes the above affordable. Creating a view beside an exploration
+  // changes the catalog and changes none of its rows; re-running it would be a bill for
+  // nothing, every time.
+  it('leaves a mounted exploration of a DIFFERENT table alone', async () => {
+    const client = createTestQueryClient();
+    const exploration = newExploration(ORDERS);
+    const {result} = renderHookWithProviders(() => useExploration(exploration), {queryClient: client});
+    await waitFor(() => expect(result.current.queryExecutionId).toBe('exec-1'));
+
+    evictExplorations(client, 'alice', 'monthly_revenue_view');
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(result.current.queryExecutionId).toBe('exec-1');
     expect(runQuery).toHaveBeenCalledTimes(1);
+  });
+
+  // A change that names no table claims anything in the database may have moved — an arbitrary
+  // DDL statement the user typed, or the rail's own refresh button. Both are cases where
+  // re-reading everything is what was asked for.
+  it('re-runs a mounted exploration when the change names no table', async () => {
+    const client = createTestQueryClient();
+    const exploration = newExploration(ORDERS);
+    const {result} = renderHookWithProviders(() => useExploration(exploration), {queryClient: client});
+    await waitFor(() => expect(result.current.queryExecutionId).toBe('exec-1'));
 
     evictExplorations(client, 'alice');
-    rerender();
-    await waitFor(() => expect(result.current.queryExecutionId).toBe('exec-1'));
 
-    expect(runQuery).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(result.current.queryExecutionId).toBe('exec-2'));
   });
 
   // The registration is module-level state, so an unmounted shell that kept listening would

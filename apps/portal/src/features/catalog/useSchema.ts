@@ -52,8 +52,13 @@ export function useAllSchemas(databaseNames: string[]): DatabaseSchema[] {
 /**
  * Something that must be re-read when a database's catalog changes, over and above this
  * module's own schema query.
+ *
+ * `table` is passed when the caller knows which one changed. It is the difference between a
+ * consumer re-reading everything in the database and re-reading the one thing that moved, and
+ * for a consumer that pays per read — the Data Explorer's execution cache does, in Athena
+ * bytes — that difference is the whole design.
  */
-export type CatalogChangeListener = (client: QueryClient, databaseName: string) => void;
+export type CatalogChangeListener = (client: QueryClient, databaseName: string, table?: string) => void;
 
 const listeners = new Set<CatalogChangeListener>();
 
@@ -90,9 +95,11 @@ export function onCatalogChange(listener: CatalogChangeListener): () => void {
  *
  * @param client - The query client.
  * @param databaseName - The database whose catalog changed.
+ * @param table - The one table that changed, when the caller knows it. Omitting it is a claim
+ *   that anything in the database may have moved, so pass it whenever it is known.
  * @returns Nothing, once the invalidation has settled.
  */
-export async function invalidateSchema(client: QueryClient, databaseName: string): Promise<void> {
+export async function invalidateSchema(client: QueryClient, databaseName: string, table?: string): Promise<void> {
   await client.invalidateQueries({queryKey: catalogKeys.schema(databaseName)});
-  for (const listener of listeners) listener(client, databaseName);
+  for (const listener of listeners) listener(client, databaseName, table);
 }
