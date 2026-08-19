@@ -3,7 +3,7 @@
 **ID:** SPEC-204
 **Status:** Draft
 **Last Updated:** 2026-08-18
-**Depends On:** SPEC-203 (the registry as the membership source, and the interim tag plane this spec eventually retires), SPEC-196 (the tag set being replaced), SPEC-051/052/053/054/055 (the shared-space control plane, its registry, its verbs and its FIFO queue), SPEC-073 (acknowledge is display-only — access is granted at add time), SPEC-075 (the roster fan-out, and why its best-effort posture does **not** transfer here), SPEC-125 (`shared-space-common`, the domain layer), SPEC-151 (a partial teardown never frees the name — the ordering rule this spec extends), SPEC-152 (every plane notifies on a pre-verb failure), SPEC-157 (FIFO orders delivery, not executions), SPEC-107/156 (`cpcommon`, and the one-implementation rule), SPEC-106 (`toUserMessage`), SPEC-127→137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
+**Depends On:** SPEC-203 (the per-user membership index, the interim tag plane this spec eventually retires, and the index staleness residual FR-005's sweep closes), SPEC-196 (the tag set being replaced), SPEC-051/052/053/054/055 (the shared-space control plane, its registry, its verbs and its FIFO queue), SPEC-073 (acknowledge is display-only — access is granted at add time), SPEC-075 (the roster fan-out, and why its best-effort posture does **not** transfer here), SPEC-125 (`shared-space-common`, the domain layer), SPEC-151 (a partial teardown never frees the name — the ordering rule this spec extends), SPEC-152 (every plane notifies on a pre-verb failure), SPEC-157 (FIFO orders delivery, not executions), SPEC-107/156 (`cpcommon`, and the one-implementation rule), SPEC-106 (`toUserMessage`), SPEC-127→137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
 
 **Transition context:** `transition_plan.md` §3.4, §3.9 and Phase 5. This spec is the work those
 sections name and no spec owned.
@@ -19,7 +19,7 @@ The transition removes that mechanism. On an identity-enhanced session there are
 and `AWSIAMIdentityCenterAllowListForIdentityContext` denies plain S3 outright — so storage moves to
 **S3 Access Grants** and the catalog to **Lake Formation grants against the Identity Center
 principal**. A member's access stops being one attribute and becomes **two grants**, per (member,
-space), and something has to issue and revoke them at the same five moments the membership changes.
+space), and something has to issue and revoke them at the same six moments the membership changes.
 
 This spec is that something. The registry stays the source of truth and the verbs stay unchanged in
 what they *decide*; what changes is that a membership decision now has to be **projected** into two
@@ -42,7 +42,7 @@ prevents it, and getting the order backwards locks every member out instead.
   transition Phase 0 question.
 - **Principal resolution** — portal username to Identity Center principal, and what an unresolvable
   member means (FR-003).
-- **The five trigger points, and the one that deliberately is not** (FR-004).
+- **The six trigger points, and the one that deliberately is not** (FR-004).
 - **Convergence: event-driven projection plus a periodic sweep**, and why neither alone is enough
   (FR-005).
 - **Idempotency in both directions**, revocation being the harder one (FR-006).
@@ -68,9 +68,13 @@ prevents it, and getting the order backwards locks every member out instead.
 - **Retiring the principal tags, the interim plane, or SPEC-203's `registry` source.** That is the
   last step of transition Phase 5 and it happens *after* this spec's grants are live and verified —
   FR-008.
-- **Modelling shared spaces as directory groups.** Rejected: SCIM-synced Entra groups are good grant
-  targets for team-level data, but a shared space has no Entra group behind it and this application
-  cannot author one (`ARCS.md`).
+- **Modelling shared spaces as directory groups.** Rejected. SCIM-synced Entra groups are good grant
+  targets for team-level data, but a shared space has no Entra group behind it (`ARCS.md`). Note the
+  reason is **governance, not capability**: `identitystore:CreateGroup` exists, and the Identity
+  Store's mutating APIs stay reachable to the management and delegated-administrator accounts — but
+  AWS warns in the same breath that using them on a SCIM-provisioned directory makes it **drift from
+  the IdP**, and this application will never hold that privilege. Recorded precisely so the rejection
+  is not later overturned by someone who finds the API and concludes the spec was mistaken.
 - **Any browser change.** Membership is created and displayed exactly as today.
 
 ### Preconditions this spec takes as inputs, not open questions
@@ -85,7 +89,21 @@ inputs:
 | The personal-prefix grant form (literal vs location-role policy) | Transition Phase 0 (§3.9) | FR-002: shared spaces force the literal form **regardless** of what personal prefixes do. The two buckets may differ |
 | Gate G7 — whether `StartQueryExecution` works on our own identity-enhanced session | Transition Phase 0 | The **Lake Formation grant is correct either way**; G7 decides the query *surface*, not who is entitled. If G7 fails, the grant this spec issues is what a studio product would honour |
 | Gate G9 — presigning from `GetDataAccess` credentials | Transition Phase 0 | This spec issues grants; how bytes are fetched under them is SPEC-198's |
-| Which claim identifies an Identity Center user | Transition Phase 0 (§6.1) | FR-003 takes it as configuration |
+| Which claim identifies an Identity Center user | Transition Phase 0 (§6.1) | **NOT invariant — this row states a requirement, not an assumption.** See below |
+
+**The one gate that is genuinely load-bearing, stated as a requirement on Phase 0.** FR-003 resolves a
+portal username to an Identity Center principal through `identitystore:GetUserId`, which matches
+`UserName`, `Email` or `ExternalId`. The registry holds the **portal** username — catalog-safe
+`^[a-z][a-z0-9_]{2,62}$`, which can never be an email address. So this spec requires that **the portal
+username equals exactly one Identity Store attribute value**, most plausibly `UserName` or
+`ExternalId`.
+
+`transition_plan.md` §6.1 leaves open whether the portal username is *derived* rather than stored —
+"if no existing claim carries it, the username must be derived or mapped rather than stored". **If
+Phase 0 decides derived, this spec changes**: it needs a stored username → principal map, which its
+Data Model currently refuses on purpose. That is a real dependency and pretending otherwise would put
+an Open Question in a table denying it has any. Carry it to Phase 0 as a constraint this spec places
+on the decision, not as a question this spec asks.
 
 **What this spec cannot be built without** is the instance and the Identity Center integration. It is
 therefore Draft until transition Phase 5 begins, and it is written now because `transition_plan.md`
@@ -108,14 +126,34 @@ a support ticket that looks like a product bug: files but no tables, or tables t
 
 - [ ] One operation projects both halves for one (member, space) pair: an S3 Access Grant scoped to
       the space's prefix in the shared-space bucket at `READWRITE`, and Lake Formation permissions on
-      the space's database and its tables — the same permission sets `shared-space-create` uses
-      today (`config.DATABASE_PERMISSIONS`, `config.TABLE_PERMISSIONS`), reused rather than restated.
+      the space's database and its tables.
+- [ ] **The member's Lake Formation permissions are DERIVED from today's EFFECTIVE rights, and
+      reusing `config.DATABASE_PERMISSIONS` / `TABLE_PERMISSIONS` directly is a privilege
+      escalation.** Those constants — `["DESCRIBE", "CREATE_TABLE", "ALTER", "DROP"]` on the database
+      and `["SELECT", "INSERT", "DESCRIBE", "ALTER", "DROP"]` on tables — were sized for the **shared
+      portal role**, whose rights are then narrowed by `SharedSpaceGlue`, which grants
+      `GetDatabase`, `GetTable(s)`, `GetPartition(s)`, `CreateTable`, `UpdateTable`, `DeleteTable`
+      and the two partition batches — and **no `glue:DeleteDatabase`, no `glue:UpdateDatabase`**. So
+      today a member *cannot* drop or alter a shared space's Glue database. Grant the role's LF set
+      straight to a member's principal with the narrowing IAM statement gone, and `DROP` and `ALTER`
+      on the **Database** become live: any member can delete the space's catalog. That is FR-008's
+      own finding, one layer down, manufactured by the reuse instruction.
+- [ ] The member set is therefore the **intersection** of the LF grant and `SharedSpaceGlue`, computed
+      and stated in the spec rather than inherited: **Database — `DESCRIBE`, `CREATE_TABLE`**;
+      **Tables — `SELECT`, `INSERT`, `DESCRIBE`, `ALTER`, `DROP`**. A test asserts the database set
+      excludes `ALTER` and `DROP`, and names the two absent Glue actions as the reason, so a later
+      reader cannot "restore parity with the role" without reading why.
 - [ ] **A partial projection is a failure of the whole operation**, reported as one outcome. It is
       not two independent best-effort steps, and it does not report success having done half.
-- [ ] Ordering within the pair is **most durable first**: the Lake Formation grant, then the Access
-      Grant. A member with catalog access and no storage access sees an empty space; a member with
-      storage and no catalog sees files and no tables. Neither is good, and the first is the one the
-      sweep repairs without the user acting.
+- [ ] Ordering within the pair is **least privileged first: the S3 Access Grant, then the Lake
+      Formation grant.** *An earlier draft had this reversed on a "most durable first" reading, and
+      the reasoning was wrong:* with the space's data location registered with Lake Formation in
+      hybrid mode (`transition_plan.md` §6.2), an LF grant is sufficient for Athena to read the whole
+      space through LF credential vending, while the Access Grant is what the **file browser** needs.
+      LF-first therefore hands a member the ability to query everything in the space while the UI
+      still looks empty — the *more* privileged half, not the less. Since FR-005's sweep repairs
+      both directions without the user acting, durability does not distinguish the two orders and
+      privilege does.
 - [ ] The pair is expressed once, in `shared-space-common`, and every trigger calls it. A test
       asserts no verb issues a `grant_permissions` or a `CreateAccessGrant` of its own — SPEC-156's
       one-implementation rule, and the reason it matters here is that revocation must mirror grant
@@ -182,8 +220,23 @@ projection at each; it does not add a decision at any.
 
 #### Acceptance Criteria:
 
-- [ ] Projection runs on: **create** (the owner, who is in `members` from `reserve`), **add-members**,
-      **remove-members**, **leave**, and **delete** (revoking everything — FR-011).
+- [ ] Projection runs on **six** verbs, not five: **create** (the owner), **add-members**,
+      **remove-members**, **leave**, **delete**, and **`shared-space-forget`**. Forget is easy to
+      miss and is two things at once — it calls `membership.clear_slot(actor, space)` on **both** its
+      paths (that is today's revocation), and its owner path runs a **full teardown**
+      (`delete_shared_prefix`, `revoke_portal_role`, `drop_database`, `cache.remove_entry`,
+      `reg.delete`). So it is also a **second space-deletion route**, and FR-011 written against
+      `delete` alone would leave a forgotten space's grants live on a freed name.
+- [ ] **Revocation lives in `teardown.py`, not at the `delete` verb's call site**, so both deletion
+      routes inherit it by construction rather than by two call sites staying in step. A test
+      enumerates the verb directory and fails on a membership-affecting verb with no projection, so a
+      seventh cannot be added silently.
+- [ ] **Create's projection runs after `reg.finalize(..., "active")`, not inside the provisioning
+      steps.** `reserve` writes `status: "provisioning"` and FR-005 AC5 computes desired state with
+      `is_active_member`, which is false then — so a projection placed where every other create step
+      lives entitles nobody. Placed after `finalize` it falls outside the verb's three-part failure
+      recording (`clear_slot` rollback, `finalize(..., "failed")`, the cache failure entry), which is
+      correct and is stated so it is not "fixed" back inside the guard.
 - [ ] **`acknowledge-membership` is NOT a trigger.** SPEC-073 settled that acknowledgement is
       display-only and access is granted at add time; making it a trigger would deny an added member
       until they signed in, reversing that decision. A test asserts the acknowledge verb issues no
@@ -221,8 +274,24 @@ converge — and the registry is this one's config.
 - [ ] Desired state is computed with `registry.is_active_member` (SPEC-203 FR-004's rule), not by
       reading `members` directly — the two differ on a non-active space, and the direct read grants
       access to a space that is provisioning or failed.
-- [ ] The sweep's cadence is a stated decision with its reasoning, and it is bounded by the entitlement
-      change latency the product promises rather than chosen round.
+- [ ] **The sweep re-reads each registry record immediately before acting on it and abandons that
+      space if the ETag moved.** Without it the sweep's authority in both directions is a defect:
+      it reads `finance_space`, computes a desired set including `alice`, `remove-members` then
+      commits and revokes her, and the sweep — still holding the stale desired set — "grants the
+      difference" and **puts her back**. FR-006 AC5's concurrency criterion is about two runs
+      projecting the *same pair* and does not cover this. SPEC-157's own answer to this shape is a
+      per-key claim under ETag CAS; a re-read plus an ETag comparison is the cheaper form and is
+      sufficient because the sweep is idempotent and can simply skip.
+- [ ] A test drives exactly that interleaving — sweep reads, verb commits a removal, sweep acts — and
+      asserts the member is **not** re-granted and the space is reported as skipped.
+- [ ] **The sweep also reconciles SPEC-203's membership index** against the registry, on the same
+      pass and under the same re-read rule. That index is an authorization input with a stated
+      staleness residual (SPEC-203 FR-006) and this is what closes it.
+- [ ] **The cadence is hourly**, and the reasoning is stated rather than the number chosen round:
+      Identity Center entitlement changes take **up to an hour** to take effect (`transition_plan.md`
+      §3.5), which floors the end-to-end latency no sweep can beat, so a faster sweep spends API
+      quota (FR-006) to beat a floor it cannot beat. The event path is what delivers the fast case;
+      the sweep is the repair, and an hour bounds how long a lost event can hide.
 
 ### FR-006: Idempotency in both directions
 
@@ -246,6 +315,25 @@ easy and already true of Lake Formation; the revoke direction is where the traps
 - [ ] Concurrency: two runs projecting the same pair must not produce two grants or a spurious
       failure. SPEC-157's rule applies — FIFO orders delivery, not executions — so this is asserted
       against genuinely concurrent runs, not inferred from the queue.
+- [ ] **Every criterion above is a claim about the behaviour of the S3 Access Grants and Lake
+      Formation APIs, and offline it can only be asserted against a stub this repo wrote.** A
+      double-run test against a fake programmed to be idempotent **cannot fail**. So: the offline
+      tests are declared **shape assertions** that state what they do not prove, and each of these
+      properties is a **live check in Phase 5** — grant twice, revoke twice, revoke what is absent,
+      and two concurrent projections of one pair — run against the real APIs in the non-production
+      account. `process.md`'s rule is explicit that a spec touching lifecycle, IAM or concurrency
+      gets an execution harness rather than a review.
+- [ ] **Revocation is a list-then-delete, and the spec says so rather than leaving it to be
+      discovered.** `DeleteAccessGrant` takes an `AccessGrantId`, so matching by (principal, scope)
+      means a paginated `ListAccessGrants` and then a delete; `lakeformation:ListPermissions` is the
+      same shape. A sweep is therefore O(spaces × members) list calls, not O(1).
+- [ ] **The API rate limits are budgeted, and the sweep is paced against them.**
+      `identitystore:GetUserId`, `lakeformation:GrantPermissions` / `RevokePermissions` /
+      `ListPermissions` and `s3control:ListAccessGrants` are all low-TPS. The spec records the
+      measured or documented limit for each, and the sweep's pacing is **computed** from the Phase 3
+      pair count against the tightest of them — the repo's compute-the-bound rule, and the reason
+      the hourly cadence above is a floor rather than an aspiration. A per-container `GetUserId`
+      cache buys a scheduled Lambda almost nothing and is not counted as mitigation.
 
 ### FR-007: A member with no access must never be silent
 
@@ -261,9 +349,13 @@ she has access except the two systems that grant it.
       (SPEC-152's `NotifyFailure`, decoded by `cpcommon.errors.failure_reason` — the only decoder).
 - [ ] The **actor** is told the membership change did not fully apply, in SPEC-106 wording, naming the
       member and the space. Raw AWS or Lake Formation text is never rendered.
-- [ ] **The affected member is told nothing**, on the send-files precedent (SPEC-167): a member who
-      never gained access has nothing to act on, and a message about a space they cannot open is
-      worse than silence.
+- [ ] **The affected member is told nothing**, and this is a disposition rather than a citation.
+      SPEC-167's precedent is a failed *recipient of a transfer*, who never knew a transfer was
+      coming; here the member appears in a roster the app shows them, in a space they can see and
+      cannot open, so the analogy is weaker than it looks. It is still the right call: the member can
+      do nothing about a failed grant, the actor can, and the sweep repairs it within the cadence
+      (FR-005) — usually before the member notices. **If the sweep's repair window ever exceeds the
+      cadence, revisit this**, because at that point silence stops being brief.
 - [ ] The registry is **not** rolled back. It is the source of truth and it is correct — the grant
       systems are behind, which is what FR-005's sweep exists to fix. A rollback would make the
       registry wrong to make two projections right.
@@ -298,9 +390,23 @@ behind, it is a standing union grant on every shared space.
       spaces. A test asserts the create path no longer names `PORTAL_ROLE_ARN` in a
       `grant_permissions` call — otherwise every space created after the cutover reintroduces the
       union grant one space at a time.
+- [ ] **The hazard's actual trigger is the POLICY REWRITE, not the tags going quiet, and step 3 must
+      carry both.** The role-level LF grants become a union only if the portal role also keeps **IAM**
+      Glue permissions on those databases — and the only such grant today is `SharedSpaceGlue`, every
+      resource of which is `${aws:PrincipalTag/shared_space_k}`. If tags simply stop being stamped
+      and that policy is untouched, the ARNs resolve to nothing and the outcome is a **lockout**, not
+      a union. The union materialises when the transition rewrites that statement tag-free, which it
+      must. So step 3 revokes the role-level LF grants **and** removes or rewrites
+      `portal-role-shared-space.json.tftpl`'s tag-scoped Glue statement **in the same change**, and
+      the AC names the rewrite as the trigger.
 - [ ] A verification step between (1) and (2) confirms a **non-owner member** reaches a space through
-      the entitlement alone, with the tags already inert for them. Proving it while the tags still
-      work proves nothing.
+      the entitlement alone. Proving it while the tags still work proves nothing — and **the tags
+      cannot be made inert for one member**, which an earlier draft asked for: under the interim
+      plane the tag and the entitlement both derive from the same registry record (SPEC-203), so
+      removing the member removes both. The only shape that works is exercising an
+      **identity-enhanced session**, where principal tags do not exist by construction — a different
+      session from the one the app runs on at that point, driven with raw credentials rather than
+      through the UI. The AC says so, because otherwise an implementer either fakes it or skips it.
 - [ ] Step (2) is out of this spec's scope and is named as the transition's, so the sequence is not
       read as three merges here.
 
@@ -317,11 +423,17 @@ either.
 
 - [ ] The sweep reports **total grants held by this application** on every run, as a counted figure,
       so consumption is a trend and not a surprise at the ceiling.
-- [ ] A stated threshold raises a `warn` well below the ceiling, computed against the instance limit
-      rather than written round — the repo's compute-the-bound rule.
-- [ ] The spec records the arithmetic: at the Phase 3 inventory's (member, space) pair count, what
-      fraction of the instance this application consumes, and what a co-tenant granting per object
-      prefix would do to the remainder.
+- [ ] **The threshold is 50% of the instance's 100,000-grant ceiling, and the schedulable unit that
+      sizes it is the (member, space) pair.** The reasoning, which is what the compute-the-bound rule
+      actually asks the spec to supply: the instance is shared account-wide (§4.4), this application
+      cannot see a co-tenant's consumption, and it cannot shed load — so the threshold has to leave
+      room for a co-tenant's whole footprint rather than for this application's growth alone. Half is
+      the only defensible split absent a contractual budget; **if §4.4's coordination contract ever
+      states one, this number is replaced by it and the test reads it back.**
+- [ ] The arithmetic is recorded **once the Phase 3 inventory exists**, and until then the spec
+      states the formula rather than the figure: `pairs = Σ(members per space)`, consumption =
+      `pairs` grants, headroom = `50,000 − pairs`. This is the one deferral in the spec and it is
+      deferred to a *measurement*, not to a decision.
 - [ ] Hitting the ceiling is a **refusal with a named reason**, not an opaque AWS error surfaced
       through `toUserMessage`'s generic path.
 
@@ -349,7 +461,10 @@ alongside the objects and the catalog.
 
 - [ ] Deleting a space revokes **every** member's entitlement pair before the registry record is
       released, on SPEC-151's ordering: the record is the name lock and it survives an incomplete
-      teardown.
+      teardown. **Both deletion routes are covered** — the `delete` verb and
+      `shared-space-forget`'s owner path — because FR-004 puts the revocation inside `teardown.py`,
+      which both call. A test drives the forget-teardown path specifically; it is the one a spec
+      written against `delete` alone misses.
 - [ ] An incomplete revocation raises `TeardownIncompleteError` and **leaves the registry record
       intact**, exactly as the object and catalog teardowns do. A freed name with live grants on its
       prefix means the next space of that name inherits the previous one's members.

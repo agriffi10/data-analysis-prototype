@@ -1473,7 +1473,10 @@ and that is fine.
 >   for the whole interim window. It does **not** remove the ten-slot ceiling: see below. Phase 5 then
 >   replaces tags altogether (§3.9), so this is a way station, not a destination. **SPEC-203 owns it**
 >   and ships before this phase, in the current environment, where the two sources can be proved to
->   agree — an assertion that is unwritable once this account is live.
+>   agree — an assertion that is unwritable once this account is live. Its mechanism is a **per-user
+>   membership index in the admin bucket**, not a registry scan: enumerating a user's spaces from the
+>   registry costs a listing plus a read per space on every credential mint, and the request cannot
+>   name its own spaces (a fully-qualified `SELECT` names none).
 
 **Both variants:**
 
@@ -1483,9 +1486,11 @@ and that is fine.
 - Point the API's token verifier at the new provider: issuer, audience, JWKS URI and the **username
   claim** are configuration (SPEC-195 FR-002). **That half is configuration; the next item is not.**
   Confirm the claim against Phase 0's finding (§6.1).
-- **BUILD the registry-sourced membership tags — SPEC-203**, which ships in the current environment
-  ahead of this phase and defaults to the claims source, so what arrives here is a configuration
-  change over code already proved against both sources.
+- **BUILD the membership index and its source — SPEC-203**, which ships before the move (after
+  SPEC-199, before SPEC-202) and defaults to the claims source, so what arrives here is a
+  configuration change over code already proved against both sources. It also re-sources SPEC-198's
+  route-level membership check, which would otherwise refuse every shared space once the claims are
+  gone.
   *The paragraph below is why that spec exists; it is retained because it is the argument, not the
   work.*
   SPEC-196 deliberately builds the `shared_space_k` tags from the **token's claims**, and says so as

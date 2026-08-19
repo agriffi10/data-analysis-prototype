@@ -2093,13 +2093,16 @@ Both specs exist because a fresh-context review of the identity-variant revision
 gap twice: `transition_plan.md` names two obligations that **no spec owned**, and each is the kind
 of work that arrives as "a small change during Phase N" and is a plane's worth of design.
 
-**They are not an arc in the usual sense.** They do not compose, they ship years apart, and one is
-buildable today while the other cannot be built until the successor account has an S3 Access Grants
-instance. What they share is a subject — *where a shared-space membership becomes an AWS
+**They are not an arc in the usual sense.** They do not compose, they ship far apart, and one cannot
+be built until the successor account has an S3 Access Grants instance. **203 is not "buildable
+today" either** — it lands after SPEC-199 and before SPEC-202, because it depends on the API
+boundary, the identity layer, the transport and the route surface. What it does have is a window:
+SPEC-202 retires the Identity **Pool**, not the User Pool, so the Cognito claims persist to the
+environment move and 203's parity assertion stays available for the whole of it. What they share is a subject — *where a shared-space membership becomes an AWS
 permission* — and a lifetime: 203 is how that works while principal tags exist, 204 is how it works
 once they do not, and 204's FR-008 is the seam between them.
 
-### Why 203 ships now, against Cognito
+### Why 203 ships before the environment moves
 
 SPEC-196 builds the `shared_space_k` session tags from Cognito custom-attribute claims, deliberately,
 because byte-identical tags are what make its "not one IAM policy is rewritten" claim provable. In
@@ -2108,7 +2111,7 @@ from the registry — and **that is a real change to the credential-minting path
 configuration flip: a registry read, new API-plane IAM, a latency cost, an availability coupling and
 a defined behaviour when the read fails.
 
-It ships now because it can only be **proved** now. While both sources exist the same user's
+It ships before the move because it can only be **proved** before the move. While both sources exist the same user's
 membership is knowable two ways and they must agree; in the successor account only one survives and
 a wrong implementation is indistinguishable from a right one. That is SPEC-137's lesson — instrumented
 code shipped whose layer attachment was missing while every gate was blind — and the parity
@@ -2118,25 +2121,38 @@ still can be.
 The default stays `claims` through Arc B and every environment omits the variable. No user can
 observe this spec.
 
-### The decision 203 took that the transition plan did not anticipate
+### The decision 203 took, and the one it reversed under review
 
 `transition_plan.md` said "compute the tags from the registry", which reads as *enumerate the user's
 spaces*. **The registry cannot answer that cheaply** — one object per space, keyed by space name, no
-per-user index, so enumeration is a full listing plus a read per space on every credential mint.
+per-user index, so enumeration is a full listing plus a read per space on every credential mint. So
+203 builds the index that can: one object per user in the **admin bucket**, written by the same
+fan-out that already writes the roster, at the same consistency point. SPEC-123's runs index and
+SPEC-146's username directory are the precedents — CAS, user-unreachable.
 
-Two ways out, and the second is better than the artifact this repo would normally build. A per-user
-index in the admin bucket would work and is precedented twice (SPEC-123's runs index, SPEC-146's
-username directory, both under ETag CAS, both user-unreachable) — but **a request already names the
-spaces it touches**, so the source reads only those and stamps only those. The cost becomes bounded
-by the request rather than by the organization, the session is least-privilege per request, and the
-ten-slot ceiling stops binding on *how many spaces a user belongs to* and starts binding on *how
-many one request names* — which is one, everywhere in the product today.
+**Its first draft avoided the index and was wrong, and the reason is worth carrying.** That draft
+scoped the tags to *the spaces a request names* — bounded cost, least privilege, no new artifact.
+It cannot work: SPEC-199's query route takes `{sql, database?}` and SPEC-077 makes every base table
+fully qualified, so `SELECT * FROM finance_space.sales` names **no space and no database** anywhere
+the API can see — and SPEC-199 Premise 2 makes the SQL opaque to the API by design, so the API may
+not go looking. Every shared-space query would have failed. SPEC-198's `copy` route names *two*
+spaces, which the rule also mishandled. Enumeration is required; the index is what makes it one
+`GetObject`.
 
-**The trap it has to name loudly**: there IS an object listing a user's spaces, one `GetObject`
-away, keyed by username — `{username}/user_settings/shared-connections.json`. It is in the user's own
-prefix and the user can write it. Reading it would be a complete authorization bypass through a file
-the product invites the user to own. FR-003 is a sweep, not a review note, because it is the obvious
-implementation.
+**The trap it names as a sweep rather than a review note**: there IS an object listing a user's
+spaces, one `GetObject` away, keyed by username — `{username}/user_settings/shared-connections.json`.
+It is in the user's own prefix and the user can write it (verified: `PutObject` on
+`${bucket_arn}/${aws:PrincipalTag/username}/*`, no Deny under `user_settings/`, hidden client-side
+only). Reading it would be a complete authorization bypass through a file the product invites the
+user to own. That is the whole reason the index lives in the admin bucket.
+
+**And 203 inverts a SPEC-146 rule deliberately.** The username directory is *advisory* — a tripwire
+test forbids it being an authorization input. This index decides what a session may reach. Three
+properties carry that: user-unreachable, written only by the plane that owns membership, written
+under CAS at the registry's own consistency point. The residual is a staleness window, and it is
+**smaller than the one it replaces** — `clear_slot` clears a Cognito attribute but the user's
+existing token keeps the old claim until it refreshes, which is what
+`useSharedSpaceAccessRecovery` exists to paper over. SPEC-204's sweep closes it.
 
 ### What 204 is, and the cliff inside it
 
