@@ -11,6 +11,7 @@ import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {ExplorationTabsState} from './dataExplorer.types';
+import {chooseExplorationOption} from './explorationOptions.testkit';
 
 // SPEC-180 Phase 3 and 4: the Value panel, the Record and Text presentations, and the
 // below-`tablet` default. Every one of these is a view over rows that have ALREADY been
@@ -101,7 +102,7 @@ describe('the Value panel', () => {
     const {user} = render();
     const cells = await screen.findAllByRole('gridcell');
     await user.click(cells[1]); // row 1, `note`
-    await user.click(screen.getByRole('button', {name: 'Value'}));
+    await chooseExplorationOption(user, 'Value');
 
     const panel = await screen.findByRole('complementary', {name: 'Value'});
     expect(within(panel).getByRole('textbox', {name: 'Value of note'})).toHaveValue(ROWS[0][1] as string);
@@ -115,7 +116,7 @@ describe('the Value panel', () => {
   it('tells a NULL and an empty string apart', async () => {
     const {user} = render();
     await screen.findAllByRole('gridcell');
-    await user.click(screen.getByRole('button', {name: 'Value'}));
+    await chooseExplorationOption(user, 'Value');
     const panel = await screen.findByRole('complementary', {name: 'Value'});
 
     // Athena returns every value as a string, so this distinction is the app's to make —
@@ -129,7 +130,7 @@ describe('the Value panel', () => {
   it('is read-only, keyboard-reachable and does not trap focus', async () => {
     const {user} = render();
     await screen.findAllByRole('gridcell');
-    await user.click(screen.getByRole('button', {name: 'Value'}));
+    await chooseExplorationOption(user, 'Value');
 
     const value = await screen.findByRole('textbox', {name: /^Value of/});
     expect(value).toHaveAttribute('readonly');

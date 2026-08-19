@@ -1,7 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {fireEvent, render, screen, within} from '@testing-library/react';
 import {MAX_RESULTS_PAGE_SIZE, MIN_RESULTS_PAGE_SIZE} from './query.constants';
-import {CreateViewDialog} from './CreateViewDialog';
+import {CreateViewDialog} from '../catalog/CreateViewDialog';
 import {axe} from 'vitest-axe';
 import {EditorLayoutControl} from './EditorLayoutControl';
 import {QueryHistoryRow} from './QueryHistoryRow';

@@ -24,6 +24,7 @@ import {ExplorationTextView} from './ExplorationTextView';
 import {ExpressionBar} from './ExpressionBar';
 import {FilterValueDialog} from './FilterValueDialog';
 import {FilterHistoryControls} from './FilterHistoryControls';
+import {ExplorationOptionsMenu} from './ExplorationOptionsMenu';
 import {OrderFilterDialog} from './OrderFilterDialog';
 import {PresentationSwitch} from './PresentationSwitch';
 import {ValuePanel} from './ValuePanel';
@@ -88,6 +89,9 @@ export type ExplorationResultsRegionProps = {
   queryControls: UseExplorationQueryResult;
   /** Raises the save dialog. The host owns the write; this owns the gesture. */
   onSaveQuery: () => void;
+  /** Turn the exploration in front of the user into a catalog view — `Save as query`'s
+   *  sibling: one writes a `.sql` file, the other writes a view. */
+  onCreateView: () => void;
   /** Raises the export dialog. The host owns the copy; this owns the gesture. */
   onExport: () => void;
   /**
@@ -172,6 +176,7 @@ export function ExplorationResultsRegion({
   onPresentationChange,
   queryControls,
   onSaveQuery,
+  onCreateView,
   onExport,
   exportRefusal
 }: ExplorationResultsRegionProps) {
@@ -604,77 +609,39 @@ export function ExplorationResultsRegion({
           value={view}
           onChange={setView}
         />
-        <Button
-          size="sm"
-          onClick={() => setColumnsOpen(true)}>
-          Columns
-        </Button>
-        {/* Colours, striping and the type tint change how the rows on screen LOOK and
-            nothing about which rows they are — so unlike Grouping beside it, opening this
-            and applying what it stages are both free. */}
-        <Button
-          size="sm"
-          onClick={() => setColoursOpen(true)}>
-          Colours
-        </Button>
-        <Button
-          size="sm"
-          onClick={() => setTransformersOpen(true)}>
-          Transformers
-        </Button>
-        <Button
-          size="sm"
-          aria-pressed={presentation.valuePanelOpen}
-          onClick={() => onPresentationChange((p) => ({...p, valuePanelOpen: !p.valuePanelOpen}))}>
-          Value
-        </Button>
-        {/* Calc runs no query — opening it, changing its functions and re-selecting cells
-            are all free, which is exactly why it aggregates the SELECTION and not the
-            result set. */}
-        <Button
-          size="sm"
-          aria-pressed={calcOpen}
-          onClick={() => setCalcOpen((open) => !open)}>
-          Calc
-        </Button>
-        {/* Grouping is the sibling that is not one: opening the panel is free, but what it
-            applies is a GROUP BY, and that is an execution like any other. */}
-        <Button
-          size="sm"
-          aria-pressed={groupingOpen}
-          onClick={() => setGroupingOpen((open) => !open)}>
-          Grouping
-        </Button>
-        {/* Copy issues nothing and never has — see `renderCopy`. The plain Ctrl/Cmd+C is on
-            the grid; this is the same copy with the formats and toggles a destination other
-            than a spreadsheet wants. */}
-        <Button
-          size="sm"
-          disabledReason={selection.selectedCount === 0 ? NOTHING_SELECTED_TO_COPY : undefined}
-          onClick={() => setCopyOpen(true)}>
-          Copy…
-        </Button>
-        {/* Export writes the EXECUTION's own results object, so a filtered, ordered or
-            grouped exploration exports exactly what is on screen without a second query and
-            without a second bill. The refusal comes from the host, which is
-            what knows whether that object exists yet. */}
-        <Button
-          size="sm"
-          disabledReason={exportRefusal ?? undefined}
-          onClick={onExport}>
-          Export
-        </Button>
-        {/* Gated by `query`, not `dataExplorer`: the store is the Query workspace's, and
-            REMOVED rather than refused, because a reason cannot explain a state the user has
-            no way to change. See `gatedSurfaces.ts`. */}
-        {savedQueriesEnabled && (
-          <Button
-            size="sm"
-            disabledReason={saveRefusal ?? undefined}
-            onClick={onSaveQuery}>
-            Save as query
-          </Button>
-        )}
+        {/* Everything that does not change WHICH ROWS are on screen. The bar carried
+            thirteen controls and wrapped onto three lines at a laptop width, which made the
+            four that alter the query no easier to find than the nine that do not.
+
+            Copy issues nothing and never has (see `renderCopy`) — the plain Ctrl/Cmd+C is on
+            the grid, and `Copy…` is the same copy with the formats a destination other than a
+            spreadsheet wants. Export writes the EXECUTION's own results object, so a
+            filtered, ordered or grouped exploration exports what is on screen without a
+            second query and without a second bill; its refusal comes from the host, which is
+            what knows whether that object exists yet. Both keep their reasons through the
+            move — `MenuItem.disabledReason` exists for that. */}
+        <ExplorationOptionsMenu
+          onColumns={() => setColumnsOpen(true)}
+          onColours={() => setColoursOpen(true)}
+          onTransformers={() => setTransformersOpen(true)}
+          onCopy={() => setCopyOpen(true)}
+          onExport={onExport}
+          valueOpen={presentation.valuePanelOpen}
+          onToggleValue={() => onPresentationChange((p) => ({...p, valuePanelOpen: !p.valuePanelOpen}))}
+          calcOpen={calcOpen}
+          onToggleCalc={() => setCalcOpen((open) => !open)}
+          groupingOpen={groupingOpen}
+          onToggleGrouping={() => setGroupingOpen((open) => !open)}
+          copyRefusal={selection.selectedCount === 0 ? NOTHING_SELECTED_TO_COPY : undefined}
+          exportRefusal={exportRefusal ?? undefined}
+          savedQueriesEnabled={savedQueriesEnabled}
+          onSaveQuery={onSaveQuery}
+          saveRefusal={saveRefusal ?? undefined}
+          onCreateView={onCreateView}
+          // A view is made FROM a statement, so it is refused for exactly the reasons a save
+          // is — there is nothing to build one out of.
+          createViewRefusal={saveRefusal ?? undefined}
+        />
         {/* The count says "on this page" every time it is said, because that is the only
             thing a selection here can ever mean — Ctrl/Cmd+A included. */}
         <p

@@ -41,6 +41,11 @@ _BODIES = {
     "unsupported_format": "that file format isn't supported (use Parquet, CSV, or JSON).",
     "unexpected_partitioning": "the folder is partitioned but no partition keys were provided.",
     "partition_layout_mismatch": "the partition keys don't match the folder layout (check names and order).",
+    "invalid_column_names": (
+        "these column names won't work in Athena: {columns}. Athena column names can only use "
+        "letters, digits and underscores, and two names that differ only by case become one "
+        "column - rename them in your files and try again."
+    ),
     "schema_inference_failed": "the data schema couldn't be read.",
     "unmappable_type": "the data schema couldn't be read.",
     "ddl_execution_failed": "creating the table failed. Please try again or contact the Administrator.",

@@ -9,6 +9,15 @@ export type MenuItem =
       tone?: 'default' | 'danger';
       onSelect: () => void;
       disabled?: boolean;
+      /**
+       * Why this item is unavailable — refuses it AND says so, the way
+       * `Button.disabledReason` does. Prefer it over `disabled`: an item sitting greyed with
+       * nothing to explain it teaches the user nothing, and the reasons behind these were
+       * written for controls that used to be visible on a toolbar. `aria-disabled` rather
+       * than `disabled`, so the item keeps its place in the roving focus order and the
+       * reason stays reachable rather than hover-only.
+       */
+      disabledReason?: string;
     }
   | {kind: 'separator'};
 
@@ -73,10 +82,13 @@ export function Menu({trigger, items, ariaLabel, align = 'right', className, men
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [open]);
 
-  // On open, focus the first enabled item.
+  // On open, focus the first item that can act. A `disabledReason` item is `aria-disabled`
+  // and therefore still focusable — deliberately, so its reason is reachable — but opening a
+  // menu onto a control that does nothing is a worse first impression than opening onto one
+  // that works, so it is skipped here and stays reachable by Arrow.
   useEffect(() => {
     if (!open) return;
-    const first = itemRefs.current.find((el) => el && !el.disabled);
+    const first = itemRefs.current.find((el) => el && !el.disabled && el.getAttribute('aria-disabled') !== 'true');
     first?.focus();
   }, [open]);
 
@@ -141,15 +153,22 @@ export function Menu({trigger, items, ariaLabel, align = 'right', className, men
                 type="button"
                 role="menuitem"
                 disabled={item.disabled}
-                onClick={() => {
-                  close(false);
-                  item.onSelect();
-                }}
+                aria-disabled={item.disabledReason ? true : undefined}
+                title={item.disabledReason}
+                onClick={
+                  item.disabledReason
+                    ? undefined
+                    : () => {
+                        close(false);
+                        item.onSelect();
+                      }
+                }
                 className={cx(
                   // `ring-inset` (as every edge-to-edge row surface in the app does): items
                   // touch with no gap, so an outset ring bleeds into its neighbours, whose
                   // hover background paints later and clips the shared edge.
                   'flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-45',
+                  item.disabledReason && 'cursor-not-allowed opacity-45',
                   item.tone === 'danger' ? 'text-danger hover:bg-danger-soft' : 'text-text hover:bg-surface-2'
                 )}>
                 {item.icon}

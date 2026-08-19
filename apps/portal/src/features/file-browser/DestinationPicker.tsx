@@ -33,6 +33,13 @@ type BaseProps = {
   // Message shown when the confirm action is blocked inside an operated folder's
   // own subtree (the verb differs: "move" vs "copy").
   selfMessage?: string;
+  // Why the CURRENT folder is not a valid destination, shown when `allowCurrentParent` is off
+  // and the user is standing in it. Defaulted to the move/copy wording the three original
+  // callers rely on; overridden by any caller whose rule is a different one — Create table's
+  // is that a table reads the whole folder, which has nothing to do with items already being
+  // here. A prop rather than a second status line under the picker, because two competing
+  // explanations of one disabled button is worse than the wrong one alone.
+  currentParentMessage?: string;
   // The list's aria-label. "Destination folders" is wrong in a
   // mode where files are selectable and nothing is a "destination".
   listLabel?: string;
@@ -105,6 +112,7 @@ export function DestinationPicker({
   confirmLabel,
   busyLabel,
   selfMessage = "You can't copy a folder into itself.",
+  currentParentMessage = 'These items are already here.',
   listLabel = 'Destination folders',
   autoFocus = false,
   selectableFiles = false,
@@ -209,7 +217,7 @@ export function DestinationPicker({
     selectableFiles && !isLoading && error === null && navigableFolders.length === 0 && files.length === 0;
   const canConfirm = !isBusy && !currentParentBlocked && !intoOwnSubtree && !confirmDisabled && !emptyFolderBlocked;
   const disabledReason = currentParentBlocked
-    ? 'These items are already here.'
+    ? currentParentMessage
     : intoOwnSubtree
       ? selfMessage
       : emptyFolderBlocked

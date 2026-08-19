@@ -15,6 +15,7 @@ import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {ExplorationTabsState} from './dataExplorer.types';
+import {chooseExplorationOption} from './explorationOptions.testkit';
 
 // SPEC-182 FR-003 to FR-006: the Grouping panel and the generated-SQL disclosure. Grouping
 // is the Calc panel's opposite — it renders SQL and mints an execution — so every claim
@@ -82,7 +83,7 @@ function seedTab() {
 }
 
 async function openGrouping(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole('button', {name: 'Grouping'}));
+  await chooseExplorationOption(user, 'Grouping');
   return screen.getByRole('complementary', {name: 'Grouping'});
 }
 

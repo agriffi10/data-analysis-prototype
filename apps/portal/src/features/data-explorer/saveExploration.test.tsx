@@ -16,6 +16,7 @@ import {listSavedQueries, readSavedQuery} from '../saved-queries/savedQueries.se
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {ExplorationTab, ExplorationTabsState} from './dataExplorer.types';
 import type {QuerySpace} from '../catalog/catalog.types';
+import {chooseExplorationOption, explorationOption} from './explorationOptions.testkit';
 
 // SPEC-183. Only the AWS boundary is mocked (react.md §21): the real workspace, the real
 // engine, the real `useSaveQuery`, the real `writeSavedQuery` and the real dialog all run —
@@ -101,11 +102,17 @@ function storeReady({occupied = false}: {occupied?: boolean} = {}) {
   });
 }
 
-/** Open the save dialog on a tab whose first execution has landed. */
+/** Open the save dialog on a tab whose first execution has landed.
+ *
+ * The control lives in the Options menu, so the wait for the execution is a wait on the MENU
+ * ITEM's refusal clearing — same assertion, one layer in. The menu is reopened rather than held
+ * open across the wait: `waitFor` can outlive an outside click, and a stale handle would assert
+ * against an item detached from the document. */
 async function openSaveDialog(user: ReturnType<typeof render>['user']) {
-  const button = await screen.findByRole('button', {name: 'Save as query'});
-  await waitFor(() => expect(button).not.toHaveAttribute('aria-disabled', 'true'));
-  await user.click(button);
+  await waitFor(async () =>
+    expect(await explorationOption(user, 'Save as query')).not.toHaveAttribute('aria-disabled', 'true')
+  );
+  await chooseExplorationOption(user, 'Save as query');
   return screen.findByRole('dialog', {name: 'Save query'});
 }
 
@@ -427,11 +434,15 @@ describe('nothing to save (FR-002)', () => {
         }
       }
     });
-    render();
+    const {user} = render();
 
-    const button = await screen.findByRole('button', {name: 'Save as query'});
-    // `aria-disabled`, not `disabled` (SPEC-172) — the reason has to be reachable.
-    await waitFor(() => expect(button).toHaveAttribute('aria-disabled', 'true'));
+    // Asserted on the MENU ITEM: `aria-disabled`, not `disabled` — the reason has to be
+    // reachable, which is why the item carries `MenuItem.disabledReason` rather than leaving
+    // the menu. Re-fetched on each pass because `waitFor` outlives the menu's own state.
+    await waitFor(async () =>
+      expect(await explorationOption(user, 'Save as query')).toHaveAttribute('aria-disabled', 'true')
+    );
+    const button = await explorationOption(user, 'Save as query');
     expect(button).not.toHaveAttribute('disabled');
     // A render refusal is an ERROR as well as an absent statement, so it takes the same
     // wording a failed execution does: nothing ran, and the way out is to change something.
@@ -468,11 +479,13 @@ describe('nothing to save (FR-002)', () => {
     // statement, so `sql` is non-null and only the failure itself can turn the control off.
     expect(screen.queryByRole('button', {name: 'Run it anyway'})).not.toBeInTheDocument();
 
-    const button = screen.getByRole('button', {name: 'Save as query'});
+    const button = await explorationOption(user, 'Save as query');
     expect(button).toHaveAttribute('aria-disabled', 'true');
     expect(button).toHaveAttribute('title', FAILED_NOT_SAVEABLE);
 
-    // …and pressing it anyway writes nothing: `disabledReason` drops the handler.
+    // …and pressing it anyway writes nothing: `MenuItem.disabledReason` drops the handler the
+    // same way `Button.disabledReason` does, which is the property that had to survive the
+    // move off the toolbar.
     await user.click(button);
     expect(screen.queryByRole('dialog', {name: 'Save query'})).not.toBeInTheDocument();
     expect(commandsOfType(PutObjectCommand)).toHaveLength(0);
@@ -507,7 +520,7 @@ describe('nothing to save (FR-002)', () => {
     await user.click(screen.getByRole('button', {name: 'Forward to next filters'}));
     await screen.findByRole('button', {name: 'Run it anyway'});
 
-    const button = screen.getByRole('button', {name: 'Save as query'});
+    const button = await explorationOption(user, 'Save as query');
     expect(button).toHaveAttribute('aria-disabled', 'true');
     expect(button).toHaveAttribute('title', NOTHING_TO_SAVE);
   });

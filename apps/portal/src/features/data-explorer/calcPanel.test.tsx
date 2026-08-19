@@ -13,6 +13,7 @@ import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {ExplorationTabsState} from './dataExplorer.types';
+import {chooseExplorationOption} from './explorationOptions.testkit';
 
 // SPEC-182 FR-001 and FR-002: the Calc panel. The claim that matters most here is a
 // NEGATIVE one — every gesture in this file leaves `runQuery` on the single execution the
@@ -66,7 +67,7 @@ function seedTab() {
 
 /** Opens the panel and returns it, so every query below is scoped to the panel. */
 async function openCalc(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole('button', {name: 'Calc'}));
+  await chooseExplorationOption(user, 'Calc');
   return screen.getByRole('complementary', {name: 'Calc'});
 }
 

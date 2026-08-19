@@ -5,6 +5,15 @@ import {useAuth} from '../auth';
 import {useFeature} from '../feature-flags';
 import {useQuerySpaces} from '../catalog/useQuerySpaces';
 import {useSaveResults} from '../catalog/useSaveResults';
+import {useRunDdl} from '../catalog/useRunDdl';
+import {buildCreateViewSql} from '../catalog/createView';
+import {CreateViewDialog} from '../catalog/CreateViewDialog';
+import {
+  CreateTableDialog,
+  CreateTableFromSpaceDialog,
+  suggestedNameFor,
+  useCreateTableFromSpace
+} from '../table-builder';
 import {useSavedQuerySpace} from '../saved-queries/useSavedQuerySpace';
 import {EXPLORATION_TABPANEL_ID, EXPLORATION_TABS_MAX} from './dataExplorer.constants';
 import {CostIndicator} from './CostIndicator';
@@ -43,6 +52,9 @@ export function DataExplorerWorkspace() {
   // precedent): the hook answers "which spaces can this user reach", which is a question
   // about access, and a flag is presentation.
   const sharedEnabled = useFeature('sharedWorkspaces');
+  // Building a table is a Query capability wearing a Data Explorer control, the mirror of
+  // `Save as query` — so it follows the flag that owns the capability, not the screen.
+  const queryEnabled = useFeature('query');
   const allSpaces = useQuerySpaces();
   const spaces = useMemo(
     () => (sharedEnabled ? allSpaces : allSpaces.filter((space) => space.id === 'personal')),
@@ -56,6 +68,23 @@ export function DataExplorerWorkspace() {
   // while the dialog is up. The dialog is modal, so nothing can change the active tab behind
   // it today — capturing is what keeps that a property of THIS code rather than of `Modal`.
   const [saving, setSaving] = useState<{tabId: string; sql: string} | null>(null);
+  // The statement the view will wrap and the database it lands in, both CAPTURED at the
+  // gesture rather than read live while the dialog is up — the same reason `saving` is.
+  const [creatingView, setCreatingView] = useState<{sql: string; database: string} | null>(null);
+  const createTable = useCreateTableFromSpace();
+  // Derived from `spaces`, which the `sharedWorkspaces` filter has ALREADY been through —
+  // never rebuilt from the connections, which would hand back what the flag just removed.
+  const buildableSpaces = useMemo(
+    () =>
+      spaces.map((space) => ({
+        id: space.id,
+        label: space.label,
+        bucket: space.bucket,
+        rootPrefix: space.rootPrefix,
+        kind: (space.id === 'personal' ? 'personal' : 'shared') as 'personal' | 'shared'
+      })),
+    [spaces]
+  );
   const queryControls = useExplorationQuery(tabs, tabs.activeTabId);
 
   // The ONE memory of "the space I am working in", shared with the Query workspace's save and
@@ -88,6 +117,11 @@ export function DataExplorerWorkspace() {
   // The destinations are the view-gated `spaces`, not an unfiltered list: this control is a
   // WRITE target, so a colleague's space must leave it with `sharedWorkspaces` off.
   const toast = useToast();
+  // No history to append to on this surface — the Query workspace owns that store, and a
+  // Data Explorer view is not a statement the user typed there. The write is a no-op that
+  // resolves, which `useRunDdl` treats as best-effort anyway.
+  const ddl = useRunDdl({username, appendEntry: async () => undefined, toast});
+
   const saveResults = useSaveResults({
     spaces,
     username,
@@ -210,6 +244,9 @@ export function DataExplorerWorkspace() {
           username={username}
           onChoose={openSource}
           onCancel={tabs.tabs.length > 0 ? () => setPicking(false) : undefined}
+          // Follows the `query` flag, like `Save as query`: building a table is a Query
+          // capability, and with the flag off there is no workspace to use the result in.
+          onCreateTable={queryEnabled ? createTable.start : undefined}
         />
       ) : (
         // The region each tab controls. `aria-controls` on a tab has to name something, or
@@ -244,6 +281,11 @@ export function DataExplorerWorkspace() {
                 setSaving({tabId: tabs.activeTab.id, sql: exploration.sql});
               }
             }}
+            onCreateView={() => {
+              if (exploration.sql !== null && tabs.activeTab?.exploration.source.kind === 'table') {
+                setCreatingView({sql: exploration.sql, database: tabs.activeTab.exploration.source.database});
+              }
+            }}
             onExport={saveResults.openDialog}
             // Judged HERE, on the results location, because that object is what export
             // copies — a grid full of rows says nothing about whether Athena has finished
@@ -257,6 +299,41 @@ export function DataExplorerWorkspace() {
             totalBytes={tabs.activeTabBytesScanned}
           />
         </div>
+      )}
+
+      {createTable.step === 'folder' && (
+        <CreateTableFromSpaceDialog
+          spaces={buildableSpaces}
+          onChoose={createTable.chooseFolder}
+          onCancel={createTable.cancel}
+        />
+      )}
+      {createTable.step === 'name' && createTable.folder && (
+        // The SAME dialog the Files toolbar raises — only the folder reached it differently.
+        <CreateTableDialog
+          folderName={suggestedNameFor(createTable.folder)}
+          folderPath={createTable.folder.prefix}
+          busy={createTable.busy}
+          submitError={createTable.error ?? undefined}
+          onSubmit={createTable.submit}
+          onCancel={createTable.cancel}
+        />
+      )}
+
+      {creatingView && (
+        <CreateViewDialog
+          busy={ddl.busy}
+          targetDatabase={creatingView.database}
+          onCreate={(name) =>
+            ddl.run({
+              sql: buildCreateViewSql(creatingView.database, name, creatingView.sql),
+              database: creatingView.database,
+              describe: {success: `Created view ${name}`, failure: `Couldn\u2019t create view ${name}.`},
+              onSettled: () => setCreatingView(null)
+            })
+          }
+          onCancel={() => setCreatingView(null)}
+        />
       )}
 
       {/* Mounting IS the open state — see the dialog's own note. */}

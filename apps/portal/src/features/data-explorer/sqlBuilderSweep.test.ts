@@ -9,10 +9,11 @@ import {describe, expect, it} from 'vitest';
  * leak into a query, which is the one rule this whole feature is organised around.
  *
  * **Scope: this feature, not the repo.** FR-002 AC6 says "any module outside this one",
- * and a literal repo-wide sweep is not achievable and never was: `useTableActions.tsx`,
- * `useRunDdl.ts` and `CreateViewDialog.tsx` build real DDL for the Query workspace today,
- * and `query.constants.ts`'s `DEFAULT_SQL` is `SELECT 1;`. A sweep that had to exempt
- * three legitimate builders would prove nothing about the fourth. SPEC-165's rule is
+ * and a literal repo-wide sweep is not achievable and never was: `useTableActions.tsx`
+ * builds real DDL, `features/catalog/`'s `useRunDdl.ts`, `CreateViewDialog.tsx` and
+ * `createView.ts` are the shared DDL path both workspaces now run through, and
+ * `query.constants.ts`'s `DEFAULT_SQL` is `SELECT 1;`. A sweep that had to exempt
+ * several legitimate builders would prove nothing about the one under test. SPEC-165's rule is
  * one-builder within the package that owns the concept, and that is what this asserts.
  */
 

@@ -12,6 +12,7 @@ import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.servi
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import {COLUMN_RESIZE_STEP_PX, DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH} from '../catalog/catalog.constants';
 import type {ExplorationTab, ExplorationTabsState} from './dataExplorer.types';
+import {chooseExplorationOption} from './explorationOptions.testkit';
 
 // SPEC-180 Phase 1: column geometry over the REAL workspace, the real tab state and
 // SPEC-178's real engine — only the AWS boundary is mocked (react.md §21), because that
@@ -83,7 +84,7 @@ function headerNames(): string[] {
 /** Opens the Columns panel and returns the row for one column. */
 async function columnRow(user: ReturnType<typeof userEvent.setup>, name: string) {
   if (!screen.queryByRole('dialog', {name: 'Columns'})) {
-    await user.click(screen.getByRole('button', {name: 'Columns'}));
+    await chooseExplorationOption(user, 'Columns');
   }
   const panel = await screen.findByRole('dialog', {name: 'Columns'});
   const row = within(panel)

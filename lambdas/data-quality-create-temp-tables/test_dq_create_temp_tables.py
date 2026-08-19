@@ -205,6 +205,72 @@ def test_a_source_exactly_at_the_cap_is_allowed(monkeypatch, ran):
     assert out["columnCount"] == config.DQ_MAX_COLUMNS
 
 
+# ── Column names ─────────────────────────────────────────────────────────────
+#
+# The reported bug: a data-quality check said nothing about column names, so a folder whose
+# headers Athena cannot use passed the check and then produced an unbuildable — or worse, a
+# built-but-unreadable — table. The check cannot report on data it cannot read, so the answer
+# is a refusal naming the columns rather than a report that never gets built.
+
+
+def test_a_header_athena_cannot_use_is_a_terminal_that_names_the_columns(monkeypatch, ran):
+    _install_manifest(monkeypatch, _manifest(
+        files=[{"key": "alice/sales/jan.csv", "size": 1, "columns": [
+            {"name": "order_id", "type": "string"},
+            {"name": "Order ID", "type": "string"},
+        ]}]
+    ))
+
+    with pytest.raises(TerminalError) as exc:
+        v.handler(_event(), None)
+
+    assert exc.value.reason == messages.INVALID_COLUMN_NAMES
+    assert exc.value.tokens["columns"] == '"Order ID"'
+    # Nothing was created: the check fires BEFORE any DDL runs, so a refused source cannot
+    # leak a temp table into the user's own database.
+    assert ran == []
+
+
+def test_a_case_fold_collision_across_two_files_is_caught_by_the_UNION(monkeypatch, ran):
+    """The union is where this one becomes visible. Each file is individually fine; it is only
+    once both files' columns are one schema that `Total` and `TOTAL` are the same column to
+    Athena — and the union is exactly what the external table has to declare."""
+    _install_manifest(monkeypatch, _manifest(
+        files=[
+            {"key": "alice/sales/jan.csv", "size": 1, "columns": [{"name": "Total", "type": "string"}]},
+            {"key": "alice/sales/feb.csv", "size": 1, "columns": [{"name": "TOTAL", "type": "string"}]},
+        ]
+    ))
+
+    with pytest.raises(TerminalError) as exc:
+        v.handler(_event(), None)
+
+    assert exc.value.reason == messages.INVALID_COLUMN_NAMES
+    assert exc.value.tokens["columns"] == '"Total", "TOTAL"'
+    assert ran == []
+
+
+def test_the_width_cap_is_reported_before_the_name_rule(monkeypatch, ran):
+    """A source that is both too wide and badly named gets the width refusal, because that one
+    is about the whole source and the other is about particular columns — telling a user to
+    rename ten columns in a folder this check will not read at any width is wasted advice."""
+    wide = [{"name": f"bad name {i}", "type": "string"} for i in range(config.DQ_MAX_COLUMNS + 1)]
+    _install_manifest(monkeypatch, _manifest(
+        files=[{"key": "alice/sales/w.csv", "size": 1, "columns": wide}]
+    ))
+
+    with pytest.raises(TerminalError) as exc:
+        v.handler(_event(), None)
+
+    assert exc.value.reason == messages.TOO_MANY_COLUMNS
+
+
+def test_a_clean_header_is_untouched_by_the_new_check(ran):
+    """The rule is a floor, not a narrowing: the default manifest still builds both tables."""
+    v.handler(_event(), None)
+    assert len(ran) == 2
+
+
 # ── LOCATION resolution ──────────────────────────────────────────────────────
 
 

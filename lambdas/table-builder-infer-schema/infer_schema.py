@@ -27,6 +27,7 @@ import logging
 import re
 
 from cpcommon import bounded_read, clients, errors, events, observability
+from cpcommon import columns as columns_mod
 from cpcommon import ddl as ddl_mod
 from cpcommon.ddl import build_create_table_ddl
 from cpcommon.errors import TerminalError, TransientError
@@ -189,8 +190,8 @@ def handler(event: dict, context) -> dict:
       The event with the inferred columns and rendered DDL attached.
 
     Raises:
-      TerminalError: ``schema_inference_failed``, ``unmappable_type`` or ``format_changed``.
-        The actor is notified before the SFN Catch records it.
+      TerminalError: ``schema_inference_failed``, ``unmappable_type``, ``format_changed`` or
+        ``invalid_column_names``. The actor is notified before the SFN Catch records it.
       TransientError: On a retryable S3 fault, passed through for the SFN Retry.
     """
     return _infer(event)
@@ -240,6 +241,11 @@ def _infer(event: dict) -> dict:
     so a table full of strings reads as the documented decision rather than as inference having
     failed.
 
+    The name check sits between inference and the DDL because this is the only point at which
+    the whole schema exists and nothing has been built from it yet. It refuses rather than
+    repairs: a rewritten name would no longer match the file's own header, and a table whose
+    columns disagree with the data is the harder problem to notice.
+
     Args:
       event: The task input.
 
@@ -248,8 +254,9 @@ def _infer(event: dict) -> dict:
 
     Raises:
       TerminalError: ``format_changed`` when the folder no longer matches the table's SerDe,
-        ``unmappable_type`` for an unmappable dtype, ``schema_inference_failed`` for any other
-        scan or parse failure, or ``malformed_event`` for a missing field.
+        ``unmappable_type`` for an unmappable dtype, ``invalid_column_names`` when a header
+        carries a name Athena cannot use, ``schema_inference_failed`` for any other scan or
+        parse failure, or ``malformed_event`` for a missing field.
       TransientError: On a retryable S3 fault.
     """
     fmt = events.require(event, "format")
@@ -273,6 +280,16 @@ def _infer(event: dict) -> dict:
         raise
     except Exception as exc:
         raise TerminalError("schema_inference_failed", f"could not read {sample_key}: {exc}") from exc
+
+    try:
+        columns_mod.check(columns)
+    except columns_mod.InvalidColumnNamesError as exc:
+        # The names ride as a TOKEN, not as the detail: the user cannot act on this refusal
+        # without seeing which columns it is about, and detail is the operator channel that
+        # never reaches them.
+        raise TerminalError(
+            "invalid_column_names", exc.summary, tokens={"columns": exc.summary}
+        ) from exc
 
     partition_keys = event.get("partitionKeys") or []
     ddl = build_create_table_ddl(database, table_name, columns, partition_keys, fmt, location)

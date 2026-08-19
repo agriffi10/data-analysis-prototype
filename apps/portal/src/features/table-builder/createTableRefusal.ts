@@ -1,6 +1,18 @@
 import {isAtRoot} from '../file-browser/fileBrowser.paths';
 
 /**
+ * The sentence {@link createTableRefusal} returns.
+ *
+ * Named separately because the folder picker needs it where it has no prefix to compare: it
+ * overrides its own default disabled-reason with this up front, rather than rendering a second
+ * explanation beneath the first.
+ */
+export const CREATE_TABLE_AT_ROOT_REFUSAL =
+  'A table reads every file in the folder you build it from, so it can’t be built here — the top of a space ' +
+  'also holds your query results, saved queries and shared files. Open the folder that holds your data and ' +
+  'create the table there.';
+
+/**
  * The user-facing reason a table cannot be built from the folder currently being viewed, or
  * null when it can.
  *
@@ -24,7 +36,5 @@ import {isAtRoot} from '../file-browser/fileBrowser.paths';
  * @returns The explanation, or null when the folder is a real one below the root.
  */
 export function createTableRefusal(prefix: string, rootPrefix: string): string | null {
-  return isAtRoot(prefix, rootPrefix)
-    ? 'A table reads every file in the folder you build it from, so it can’t be built here — the top of a space also holds your query results, saved queries and shared files. Open the folder that holds your data and create the table there.'
-    : null;
+  return isAtRoot(prefix, rootPrefix) ? CREATE_TABLE_AT_ROOT_REFUSAL : null;
 }

@@ -39,6 +39,10 @@ Attributes:
   TOO_MANY_PARTITION_VALUES: inspect-source terminal.
   PARTITION_LAYOUT_MISMATCH: inspect-source terminal.
   TOO_MANY_COLUMNS: Temp-table and profile-query terminal.
+  INVALID_COLUMN_NAMES: Temp-table terminal. This check cannot report on data it cannot
+    read, and it cannot read data whose column names Athena will not accept — so the answer
+    to "is this folder healthy?" is this refusal, naming the columns, rather than a report
+    that never gets built.
   QUERY_FAILED: Profile-query terminal.
   QUERY_TIMEOUT: Profile-query terminal.
   _BODIES: Reason code to the clause following the "Couldn't check data quality" prefix. Caps
@@ -70,6 +74,7 @@ TOO_MANY_PARTITION_VALUES = "too_many_partition_values"
 PARTITION_LAYOUT_MISMATCH = "partition_layout_mismatch"
 
 TOO_MANY_COLUMNS = "too_many_columns"
+INVALID_COLUMN_NAMES = "invalid_column_names"
 QUERY_FAILED = "query_failed"
 QUERY_TIMEOUT = "query_timeout"
 
@@ -101,6 +106,12 @@ _BODIES = {
     TOO_MANY_COLUMNS: (
         f"that data has more than the {config.DQ_MAX_COLUMNS} columns this check supports "
         "({count} found). Please check a narrower set of files."
+    ),
+    INVALID_COLUMN_NAMES: (
+        "these column names in that data won't work in Athena: {columns}. Athena column names "
+        "can only use letters, digits and underscores, and two names that differ only by case "
+        "become one column - a table built from this data would be unreadable, so the check "
+        "stopped here."
     ),
     QUERY_FAILED: "the check couldn't be completed. Please contact the Administrator.",
     QUERY_TIMEOUT: (

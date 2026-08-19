@@ -13,6 +13,12 @@ export type SourcePickerProps = {
   spaces: readonly QuerySpace[];
   username: string;
   onChoose: (target: ExploreTarget) => void;
+  /**
+   * Start the create-table flow, or omitted when the surface does not offer it — which is how
+   * the `query` flag reaches this component. REMOVED rather than refused: a reason cannot
+   * explain a state the user has no way to change.
+   */
+  onCreateTable?: () => void;
   /** Offered only when there is somewhere to go back to — i.e. a tab is already open. */
   onCancel?: () => void;
 };
@@ -32,7 +38,7 @@ export type SourcePickerProps = {
  * @example
  * <SourcePicker spaces={spaces} username="alice" onChoose={openTab} />
  */
-export function SourcePicker({spaces, username, onChoose, onCancel}: SourcePickerProps) {
+export function SourcePicker({spaces, username, onChoose, onCreateTable, onCancel}: SourcePickerProps) {
   const [selectedId, setSelectedId] = useState(spaces[0]?.id ?? '');
   const selected = spaces.find((s) => s.id === selectedId) ?? spaces[0];
   const database = selected ? spaceDatabase(selected, username) : null;
@@ -114,7 +120,12 @@ export function SourcePicker({spaces, username, onChoose, onCancel}: SourcePicke
             This space&rsquo;s tables aren&rsquo;t available right now. Try another space, or contact an administrator.
           </p>
         )}
-        {data && data.tables.length === 0 && <p className="px-2 py-2 text-sm text-text-3">No tables or views yet.</p>}
+        {data && data.tables.length === 0 && (
+          <p className="px-2 py-2 text-sm text-text-3">
+            No tables or views yet.
+            {onCreateTable && ' Create one from a folder of data files below.'}
+          </p>
+        )}
         {data && data.tables.length > 0 && (
           <ul className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             {data.tables.map((table) => (
@@ -133,6 +144,31 @@ export function SourcePicker({spaces, username, onChoose, onCancel}: SourcePicke
               </li>
             ))}
           </ul>
+        )}
+
+        {/* The Create section sits BELOW the list, not above it: the list is what the user came
+            for, and a create affordance at the top pushes it down for everyone on every visit
+            to save a step for the few who are adding a source. It is here at all because this
+            panel is where a user discovers there is nothing to explore yet — the point at
+            which "how do I get a table in here?" is the actual question.
+
+            Only Create table. A view is made FROM a query, and there is no query on this
+            screen — `Create view` lives in an open exploration's Options menu, where the
+            statement it would be built from is the thing in front of the user. */}
+        {onCreateTable && (
+          <div className="mt-2 flex-none border-t border-border px-2 pt-3">
+            <h3 className={`pb-1 ${SECTION_CAPTION}`}>Create</h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-ml-2"
+              onClick={onCreateTable}>
+              Create table from a folder…
+            </Button>
+            <p className="mt-1 text-xs leading-relaxed text-text-3">
+              Turn a folder of CSV, JSON or Parquet files into a table you can explore. The files stay where they are.
+            </p>
+          </div>
         )}
       </div>
     </section>

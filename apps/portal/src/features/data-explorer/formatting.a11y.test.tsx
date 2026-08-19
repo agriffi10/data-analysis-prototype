@@ -11,6 +11,7 @@ import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {ExplorationTabsState} from './dataExplorer.types';
+import {chooseExplorationOption} from './explorationOptions.testkit';
 
 // SPEC-184 FR-002 AC8. **Axe carries half of that criterion and cannot carry the other
 // half**: `color-contrast` is disabled in `test/axe.ts` because jsdom has no layout engine
@@ -90,7 +91,7 @@ describe('the formatting surfaces are accessible', () => {
     });
     await screen.findByRole('columnheader', {name: 'status'});
 
-    await user.click(screen.getByRole('button', {name: 'Colours'}));
+    await chooseExplorationOption(user, 'Colours');
     const dialog = screen.getByRole('dialog', {name: 'Colours'});
     // A match rule and a gradient rule render DIFFERENT controls, so one of each is what
     // it takes to have every control in this dialog on screen at once.
@@ -109,7 +110,7 @@ describe('the formatting surfaces are accessible', () => {
     });
     await screen.findByRole('columnheader', {name: 'status'});
 
-    await user.click(screen.getByRole('button', {name: 'Colours'}));
+    await chooseExplorationOption(user, 'Colours');
     const dialog = screen.getByRole('dialog', {name: 'Colours'});
     await user.click(within(dialog).getByRole('button', {name: 'Add rule'}));
     await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Rule 1 column'}), 'status');
@@ -131,7 +132,7 @@ describe('the formatting surfaces are accessible', () => {
     });
     await screen.findByRole('columnheader', {name: 'status'});
 
-    await user.click(screen.getByRole('button', {name: 'Transformers'}));
+    await chooseExplorationOption(user, 'Transformers');
     const dialog = screen.getByRole('dialog', {name: 'Transformers'});
     // Each kind renders its own controls, so one of each is what it takes to have every
     // control in this dialog on screen.
@@ -159,7 +160,7 @@ describe('the formatting surfaces are accessible', () => {
     });
     await screen.findByRole('columnheader', {name: 'link'});
 
-    await user.click(screen.getByRole('button', {name: 'Transformers'}));
+    await chooseExplorationOption(user, 'Transformers');
     const dialog = screen.getByRole('dialog', {name: 'Transformers'});
     await user.selectOptions(within(dialog).getByRole('combobox', {name: 'Show link as'}), 'url');
     await user.clear(within(dialog).getByRole('textbox', {name: 'Link for link'}));

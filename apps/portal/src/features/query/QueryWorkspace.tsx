@@ -9,7 +9,8 @@ import {useColumnWidths} from '../catalog/useColumnWidths';
 import {useQueryHistory} from './useQueryHistory';
 import {useQueryTabs} from './useQueryTabs';
 import {useTabRuns} from './useTabRuns';
-import {useRunDdl} from './useRunDdl';
+import {useRunDdl} from '../catalog/useRunDdl';
+import {buildCreateViewSql} from '../catalog/createView';
 import {useMobileQuerySurface} from './useMobileQuerySurface';
 import {useSaveResults} from '../catalog/useSaveResults';
 import {useTableActions} from './useTableActions';
@@ -557,9 +558,8 @@ export function QueryWorkspace() {
   const handleCreateView = (name: string) => {
     const database = createViewDb;
     if (!database) return;
-    const body = stripTrailingSemicolons(activeTab.sql);
     ddl.run({
-      sql: `CREATE OR REPLACE VIEW ${database}.${name} AS ${body}`,
+      sql: buildCreateViewSql(database, name, activeTab.sql),
       database,
       describe: {success: `Created view ${name}`, failure: `Couldn\u2019t create view ${name}.`},
       onSettled: () => setCreateViewOpen(false)
