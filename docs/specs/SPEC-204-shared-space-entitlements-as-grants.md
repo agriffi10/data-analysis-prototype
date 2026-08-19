@@ -86,12 +86,13 @@ registry record all survive; the record keeps `status: "active"` with an empty m
 no terminal state.
 
 **One qualification, because an earlier draft of this block overstated it.** SPEC-205 FR-002 keys
-retention on whether the space ever reached `active`: a space that did is emptied, and a space that
-never did — a failed create, which by construction holds no user data — is still **destroyed** by
-`shared-space-forget`'s owner path, teardown protocol and all. So `delete_shared_prefix` and
-`drop_database` do not disappear; they stop being reachable on the **`delete`** route. This spec's
-FR-011 covers the emptying route, and its forget-path criterion covers a verb that may still tear
-down.
+retention on **`everActive`, a durable monotonic field** — not on live `status`, which moves
+`active → deleting → failed` on a failed delete and would have let `forget` destroy a live space. A
+space that ever reached `active` is emptied; one that never did — reachable only by its own creator,
+who is the actor discarding it — is still **destroyed** by `shared-space-forget`'s owner path,
+teardown protocol and all. So `delete_shared_prefix` and `drop_database` do not disappear; they stop
+being reachable on the **`delete`** route. This spec's FR-011 covers the emptying route, and its
+forget-path criterion covers a verb that may still tear down.
 
 Four consequences run through the requirements below, and they are why FR-011 is three criteria
 rather than a teardown protocol:
@@ -535,9 +536,16 @@ inert.
       "not deleted".
 - [ ] The sweep is the backstop (FR-005): a delete whose revocation failed is repaired on the next
       pass rather than being permanent, and its correction is reported as drift.
-- [ ] `teardown.py`'s existing `revoke_portal_role` is **retired with FR-008 step 3**, not before —
-      while role-level grants exist, a delete must still revoke them. It is the one teardown helper
-      that survives the change, because it revokes a grant rather than destroying data.
+- [ ] **`teardown.revoke_portal_role` is NOT called on the emptying route** — SPEC-205 FR-003
+      settles it and this criterion is the record of the disagreement. *An earlier version of this AC
+      said "while role-level grants exist, a delete must still revoke them", which is the opposite.*
+      SPEC-205 wins: with every member's slot cleared the grant reaches no user (every resource in
+      `portal-role-shared-space.json.tftpl` is `${aws:PrincipalTag/shared_space_k}`-substituted), and
+      revoking it would leave a restored space's catalog unusable for no benefit. The database does
+      stay reachable by the control-plane execution roles through its `portal-managed` LF-Tag, gated
+      by `is_active_member`, which is false for everyone on an emptied space.
+- [ ] `revoke_portal_role` **is** still called on SPEC-205 FR-002's destroying route, and these
+      grants are retired wholesale by FR-008 step 3.
 
 ---
 

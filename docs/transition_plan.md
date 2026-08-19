@@ -1243,11 +1243,12 @@ allow-list. Keep this paragraph until the account's tenancy order is contractual
 > the record stays `active` with an empty roster. **SPEC-205 owns that change** and ships
 > independently of the transition.
 >
-> **It does not empty this table; it splits it.** SPEC-205 FR-002 keys retention on whether a space
-> ever reached `active`: one that did is emptied, and one that never did — a failed create, holding
-> no user data by construction — is still destroyed by `shared-space-forget`'s owner path. So the
-> **`delete` verb** row and the **teardown-helper** row lose their teeth once SPEC-205 lands, and the
-> **`forget` branch** row keeps them in full.
+> **It does not empty this table; it narrows one row.** SPEC-205 FR-002 keys retention on
+> **`everActive`**, a durable field — not on live `status`, which a failed delete moves out of
+> `active` while the data is intact. A space that ever reached `active` is emptied; one that never
+> did is still destroyed by `shared-space-forget`'s owner path. So only the **`delete` verb** row
+> loses its teeth. The **teardown-helper** row keeps them in full — `forget` still calls all three
+> helpers — and so does the **`forget` branch** row.
 >
 > **The guards stay until SPEC-205 ships.** Today's `delete` still deletes objects and drops
 > databases. Strike the two rows when it lands rather than editing them now.

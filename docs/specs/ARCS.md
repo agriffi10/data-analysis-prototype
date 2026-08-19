@@ -2194,11 +2194,19 @@ free a name while resources survived under it, and FR-011 was originally a teard
 descending from that. On a route that releases no record the hazard is *unreachable*, so FR-011 is
 three criteria and `TeardownIncompleteError` does not apply to it.
 
-**The seam that keeps it from hoarding rubbish is `status`.** Retention keys on whether a space ever
-reached `active`. One that did is emptied; one that never did — a failed create, which by
-construction holds no user data because nobody could reach it to put any there — is still destroyed
-by `shared-space-forget`'s owner path, SPEC-151 protocol intact. That split is why
-`transition_plan.md` §6.3's destructive-path table is *split* rather than struck.
+**The seam is a durable field, and the obvious version of it was unsafe.** Retention keys on
+`everActive`, stamped at `finalize` and never cleared — **not** on live `status`, which the first
+draft used. `forget`'s owner path fires on `status != "active"`, meaning *any* non-active status, so
+a delete that fails midway leaves a live workspace in `failed` and the Connections page's **Dismiss**
+button would have destroyed it, while **Retry** — which calls `create` — would have revived it
+through `_resolve_reserve_collision` with the roster reset to the owner alone. Both doors are closed
+server-side, and the two buttons gain a failed-create/failed-delete distinction.
+
+**The justification for the destroying route is narrower than it first read.** `create_space` assigns
+the Cognito slot — which *is* the S3 grant — before `finalize`, so a never-`active` space *can* hold
+data; the "no user data by construction" claim is withdrawn. What is true and sufficient: such a
+space was reachable only by its creator, and the route is that creator discarding their own failed
+create.
 
 **The detail that looks cosmetic and is an authorization boundary:** the `owner` field is cleared
 with the members. `shared-space-common/auth.py`'s `authorize` gates every owner-only action on
