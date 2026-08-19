@@ -38,6 +38,7 @@ authoritative detail lives in `docs/spec-delivery/SPEC-XXX-*.md` and the per-arc
 - [Data Explorer arc (SPEC-176 → 185)](#data-explorer-arc-spec-176--185)
 - [File-operations control-plane arc (SPEC-187 → 191)](#file-operations-control-plane-arc-spec-187--191)
 - [API-layer & containerisation arc (SPEC-192 → 202)](#api-layer--containerisation-arc-spec-192--202)
+- [Transition identity arc (SPEC-203 → 205)](#transition-identity-arc-spec-203--205)
 
 ---
 
@@ -2087,7 +2088,7 @@ holds work that grows with object count: the SPEC-020 upload queue, and `firstFr
 sequential `HeadObject` probes. Those are deliberate residuals, recorded so this arc inherits them
 knowingly.
 
-## Transition identity arc (SPEC-203 → 205 — filed 2026-08-18)
+## Transition identity arc (SPEC-203 → 205)
 
 Both specs exist because a fresh-context review of the identity-variant revision found the same
 gap twice: `transition_plan.md` names two obligations that **no spec owned**, and each is the kind

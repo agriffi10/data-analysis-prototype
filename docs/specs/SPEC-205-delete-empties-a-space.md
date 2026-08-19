@@ -173,6 +173,17 @@ one of those transitions describes a space whose data is intact.
       only principal that can read and write the registry — the deploy user cannot read the data
       buckets, so a local script cannot do it. The same access is what FR-001's manual `failed`-record
       enumeration needs.
+- [ ] **It rides `locals.tf`'s `shared_space_functions` map**, which feeds both the function set and
+      the orchestrator's `InvokeFunction` list, so it inherits the role, the env, the log group and
+      the deploy-role and layer wildcards. **No IAM change is needed** — `AdminRegistryList`'s
+      existing `s3:prefix` of `shared-spaces/*` already covers the enumeration. Stated because a
+      builder who does not check will assume a new grant.
+- [ ] **`test_instrumentation_coverage.py` carries the shared-space verb count as a literal** and the
+      backfill matches its glob without being a verb, so it fails a test in a plane this spec never
+      otherwise touches. Bump it, and note the failure text names the new module so the cause is
+      visible.
+- [ ] **`FakeS3.list_objects_v2` accepts only `Bucket`, `Prefix` and `ContinuationToken`.** A backfill
+      passing `MaxKeys` `TypeError`s against the fake and works in production.
 - [ ] **The deploy order is stated, because there is no enable switch**: run the backfill, *then*
       deploy the verb change. The Lambda's new behaviour is live the moment it deploys, so the
       reverse order leaves a window in which a delete can fail on an unstamped record.
@@ -191,8 +202,19 @@ not have today.
 #### Acceptance Criteria:
 
 - [ ] The predicate is `record.get("everActive") is True` → **emptied, never destroyed**.
-- [ ] `forget_space`'s owner path becomes `owner == actor and status != "active" and not
-      record.get("everActive")`. **A test drives forget as the owner against a record that was
+- [ ] **`forget_space` gets FOUR branches in this order, and the order is the requirement.** *An
+      earlier draft gave two guards that were not the same guard and could not both be live: an
+      owner-scoped conjunction and a standalone ever-active no-op. The conjunction alone leaves a
+      **member** dismissing a failed-delete row falling through to cache-only, clearing their own
+      chip and slot — and a standalone no-op covering everyone makes the conjunction dead code.*
+      1. `status == "active"` and the actor is a member → `AuthorizationError`, **unchanged**.
+      2. `owner == actor` and `status != "active"` and **not** `everActive` → **full teardown**, today's
+         behaviour with the new guard.
+      3. `owner == actor` and `everActive` → **no-op that clears nothing** (below). This is the branch
+         that keeps the owner's row, and with it FR-007's Retry.
+      4. Anything else → **cache-only, unchanged**. A *member* clearing their own chip on a stuck
+         space is choosing to leave, which is what this branch has always meant and what `leave`
+         does deliberately; only the owner's row is load-bearing. **A test drives forget as the owner against a record that was
       `active` and is now `failed`, and asserts no teardown helper is called** — that is the exact
       data-loss path the first draft left open, and a test using a never-active fixture passes over
       it.
@@ -260,10 +282,19 @@ not have today.
       other field is carried forward.
 - [ ] **It builds from `dict(existing)`, never from a literal.** A literal drops `everActive` and
       `createdAt` — the same defect FR-001 catches in `finalize`.
+- [ ] **Re-emptying an already-emptied record is a no-op.** `delete` is idempotent today
+      (`test_delete_idempotent_…` exists) and a replay on this route would otherwise overwrite
+      `emptiedAt` with a later time and fall back to the stale event record for `previousOwner` — an
+      operator reading either gets a wrong answer and no test looks. If the record already has no
+      `owner` and an empty roster, both fields are preserved and the write is skipped.
 - [ ] **It returns `(committed, replaced)`.** `cpcommon.cas.cas_mutate` returns only the committed
       value, so the replaced record is captured out of the mutator rather than read beforehand — a
       pre-read is a different record under a race and would pass every test that does not race.
       FR-008's latecomer pass consumes `replaced`.
+- [ ] **The capture is attempt-scoped.** `cas_mutate`'s transform runs **once per attempt**, so the
+      captured value is reset at the top of the transform — a capture that persists across a losing
+      attempt leaves a stale record behind, and every non-racing test passes either way. The test
+      drives a genuine CAS retry.
 - [ ] After a delete: `load(space)` returns a record; `members` is empty; `owner` is absent;
       `status` is `active`; the objects under `{space}/` and the Glue database are **present**. A
       test that checks only the registry passes over the point of the spec.
@@ -332,9 +363,10 @@ emptied space and revive it, with the previous cohort's files intact.
       objects land under a prefix nobody holds a slot for, a table is created in the retained
       database, and the sender is told it succeeded. The owner notification is skipped because there
       is no owner (FR-004), so **nobody is told at all**.
-- [ ] **The two destination validators move to a predicate that also requires an owner** —
-      `is_active(record) and record.get("owner")`, expressed once in `cpcommon` under a name that
-      says what it decides (a space that may receive a share), not reimplemented at each call site.
+- [ ] **The two destination validators move to `cpcommon.registry.may_receive_share(record)`** —
+      `is_active(record) and record.get("owner")`, expressed once in `cpcommon` (both callers are
+      different planes, so it belongs there and not in `shared-space-common`), never reimplemented at
+      a call site. The name is fixed here because FR-006's sweep hard-codes it.
       `is_active` itself keeps its meaning; what changes is that no caller may use it alone to decide
       reachability.
 - [ ] **The guard sweeps THREE names, not two** — `is_active_member`, `is_active` and the new
@@ -347,6 +379,13 @@ emptied space and revive it, with the previous cohort's files intact.
       (`test_layer_import_safety.py`, SPEC-165's), not a new mechanism.
 - [ ] A test asserts a share and a file-send **targeting an emptied space are refused**, driven as a
       former member of that space.
+- [ ] **Both validator suites' destination fixtures gain an `owner`, in the same commit.** They build
+      `{"status": "active", "members": [...]}` with no owner, so under the new predicate **every
+      existing destination fixture is an emptied space** and three tests fail — one of them
+      (`test_membership_is_not_required_to_send_to_a_space`) with a message about membership, which
+      is the opposite of the reason. The corollary matters more than the fix: the suite had **no**
+      coverage distinguishing owner-present from owner-absent, so nothing existing was protecting the
+      behaviour this FR changes.
 - [ ] No new status value. A terminal status was considered and declined: it would make every reader
       above learn a new value, where the empty roster already makes each answer correctly.
 
@@ -435,8 +474,12 @@ over destroyed data; here it is live access to retained data.
       and `delete_space` clears slots for the UNION of its captured list and that record's members**,
       then re-checks. Without this, FR-008 and FR-009 together guarantee the orphan rather than
       prevent it.
-- [ ] **The refusal raises `registry.MembershipRefused`, a new exception defined in
-      `cpcommon/registry.py` itself.** *An earlier draft offered three options and said "the spec
+- [ ] **The refusal raises `MembershipRefused`, a new exception defined in
+      `lambdas/shared-space-common/registry.py`** — the module `save_members` actually lives in.
+      *An earlier draft said `cpcommon/registry.py`, which is the wrong one of two files with that
+      name: it is documented read-only, holds no writer, and imports only `clients` and `config`, so
+      the "adds no import edge" argument is false there and putting a shared-space domain exception
+      in it would break its own contract.* *An earlier draft offered three options and said "the spec
       states which" without stating it — an Open Question in a sentence promising not to be one.*
       The two rejected alternatives, with why: reusing `ProvisioningError` is **silently** wrong —
       `add_members` already catches it around `assign_or_find_slot`, so a later widening of that
@@ -452,6 +495,16 @@ over destroyed data; here it is live access to retained data.
       does.* The order is: per-member loop over the **captured** roster → rewrite → **latecomer
       pass** clearing slots and cache entries for anyone in the replaced record's roster who was not
       in the captured one.
+- [ ] **Latecomers are notified and counted.** A user added between the captured loop and the
+      rewrite has their access revoked by the latecomer pass, so they receive the same
+      `The shared workspace "X" was deleted.` message as everyone else and appear in the run's
+      revoked-member count. Stated because either choice compiles, passes every test this spec asks
+      for, and the wrong one silently revokes a user's access with no message.
+- [ ] **Every new exception registers its reason token** with the domain resolver `ss_notify_failure`
+      reaches through `cpcommon.errors.failure_reason`. An unregistered reason degrades to generic
+      text, and a `TerminalError` carrying one raises `ValueError` **at the raise site** — a runtime
+      break rather than a review finding. This covers `MembershipRefused`, the `None`-record refusal
+      and the re-check failure below.
 - [ ] **The re-check is one re-read, and it raises.** After the latecomer pass, re-read the record;
       a non-empty roster raises rather than looping — the `save_members` guard forbids further adds
       once the owner is gone, so a loop would be unreachable code and a version without the assertion
@@ -572,12 +625,24 @@ not survive is the product claiming the data was destroyed, and today it claims 
       which was wrong in both the count and the feature.* Nothing outside that list changes.
 - [ ] **A backfill is required** (FR-001) and it is the only migration. Spaces deleted before this
       ships were destroyed; there is nothing to retain retroactively.
-- [ ] **Four existing tests invert and are expected to**, named so their failure is not read as a
-      regression: `test_delete_space.py`'s `test_delete_cascades_files_tables_db_members_and_registry_frees_name`
-      and `test_delete_idempotent_tolerant_of_partial_prior_progress` both seed `status: "active"`
-      and assert the prefix, database and record are gone; the two `TeardownIncompleteError` tests
-      now exercise a route their fixture no longer reaches. `test_forget_space.py` uses a
-      never-`active` fixture and **survives unchanged**, which is FR-002's split working.
+- [ ] **Nine existing tests change and are expected to**, named so their failure is not read as a
+      regression. *An earlier draft named four and missed the rest, including the only one outside
+      `lambdas/`.* In `test_delete_space.py`: `test_delete_cascades_files_tables_db_members_and_registry_frees_name`
+      and `test_delete_idempotent_tolerant_of_partial_prior_progress` (both seed `active` and assert
+      the prefix, database and record are gone); the two `TeardownIncompleteError` tests (their
+      fixture no longer reaches that route);
+      `test_delete_records_failure_and_reraises_without_deleting_registry` and
+      `test_delete_failure_notifies_owner_with_reason` — **both inject a fault into
+      `teardown.drop_database`, which the emptying route never calls, so they fail as "expected
+      RuntimeError, none raised", which reads as a broken test rather than an inverted one**; and
+      `test_delete_swallows_emit_failure_and_still_succeeds` and `test_handler_uses_validated_context`,
+      which assert the registry key is gone.
+- [ ] **The ninth is in the portal suite**, which is the silent one: `sharedSpacesUi.test.tsx`'s
+      `it('marks the action irreversible')` asserts `/can.t be undone/i` on `DeleteSharedSpaceDialog`,
+      and FR-010 removes that line. A builder working from a lambdas-shaped list will meet it as a
+      surprise in a different suite.
+- [ ] `test_forget_space.py` uses a never-`active` fixture and **survives unchanged**, which is
+      FR-002's split working.
 - [ ] **The reasoning in this spec cannot be carried into `lambdas/` as comments.** That tree allows
       **zero** inline comments, and `scripts/validate_docs.py`'s citation rule bans `FR-\d+` and
       `AC-\d+` alongside `SPEC-\d{3}` — so the read-first ordering, the union pass and the `None`
@@ -586,6 +651,23 @@ not survive is the product claiming the data was destroyed, and today it claims 
       work and it fails CI rather than review.
 
 ---
+
+### Which criteria can drive the build, and which only guard it
+
+Stated because a builder who expects every criterion to go red first will assume they have
+mis-implemented something. **Regression guards, not drivers:** FR-001's `finalize(..., "failed")`
+no-stamp assertion and its never-cleared sweep (both pass before the change, because nothing stamps
+anything yet), and FR-005's first criterion (`_resolve_reserve_collision` already requires the owner
+match — the spec says "no new code path", and it is the *second* criterion, the ever-active guard,
+that drives). **FR-001's sweep ships with a guard-the-guard** on SPEC-153's pattern, because a sweep
+that is vacuous today and silently goes trivial later is this repo's recorded failure mode.
+
+**Not assertable from here:** FR-004's "five verbs subscript `registry["owner"]` … unreachable
+because `authorize` refuses first" — you cannot assert a `KeyError` did not fire on a line that never
+executes. The reachable half (the refusal) is asserted; the rest is documentation. And FR-008's
+notification criterion needs an ASL-graph walk this plane does not have (SPEC-169's shape), so the
+refusal and the rollback are asserted at the verb and the notification is **owed**, recorded as such
+rather than asserted against a stub.
 
 ## Data Model
 
@@ -625,6 +707,11 @@ FR-001 — the field, `finalize`'s conditional stamp and its carry-forward, pres
 
 *Safe alone:* the field is written and read by nobody, and the backfill is idempotent.
 
+*Two orderings inside this phase, not one.* FR-001 states backfill-then-verb. The other is this
+repo's standard code/infra split: the backfill Lambda's `locals.tf` entry must apply through **Deploy
+Infrastructure before `deploy-lambdas.yml` can push its code**, or the matrix row targets a function
+that does not exist.
+
 ### Phase 2: The retention rule, both routes, and everything that must land with them
 
 FR-002, FR-003, FR-005, FR-004, FR-006 and FR-008 together. The was-`active`-now-`failed` forget test
@@ -633,12 +720,20 @@ and the `finalize(..., "failed")` no-stamp test are written **before** the imple
 *Safe alone, and only as a whole:* the first emptied record cannot exist before the predicate that
 refuses it as a share destination and the guard that refuses an add into it.
 
+*Two things land here that read like Phase 3 work.* The destination validators' **fixtures**
+(FR-006) must change in this commit or the phase lands red. And `failedAction`'s **writers** are
+`create_space` and `delete_space` — Phase 2 files this phase rewrites wholesale — so they are written
+here and only the readers are Phase 3; splitting them means touching `delete_space.py` twice for one
+field.
+
 ### Phase 3: The browser
 
 FR-007's affordances and discriminator, and FR-010's copy.
 
-*Safe alone; user-hostile if it never lands* — between Phase 2 and here, Dismiss on a failed-delete
-row is a server-side no-op, so the button renders and does nothing.
+*Safe alone; worse than "does nothing" if it never lands.* Between Phase 2 and here a failed delete
+has **no exit at all**: Dismiss is a server no-op (FR-002), Retry re-runs a *create* which FR-005 now
+refuses, and the row has no other affordance. Still safe to leave on `main` — the space is intact and
+an operator can act — but say it accurately.
 
 ### Phase 4: Verification
 
