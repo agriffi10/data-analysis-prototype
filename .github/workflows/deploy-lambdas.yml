@@ -424,6 +424,60 @@ jobs:
           echo "Published ${ARN}"
           echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
 
+  file_ops_layer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      layer_arn: ${{ steps.publish.outputs.layer_arn }}
+      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Build layer package
+        id: build
+        run: |
+          set -euo pipefail
+          LAYER_DIR="build/focommon-layer/python"
+          rm -rf build/focommon-layer && mkdir -p "$LAYER_DIR"
+          # A whole-package copy, not a per-file list: a new focommon module ships by
+          # existing. SPEC-153 FR-002 requires set equality against the directory for any
+          # layer packaged by an EXPLICIT list, and this is exempt for that named reason.
+          cp -r lambdas/file-ops-common/focommon "$LAYER_DIR"/focommon
+          find "$LAYER_DIR"/focommon -name '__pycache__' -type d -prune -exec rm -rf {} +
+          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
+          (cd build/focommon-layer && zip --quiet --recurse-paths ../file-ops-common-layer.zip .)
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          retry-max-attempts: 3
+
+      - name: Publish layer version
+        id: publish
+        run: |
+          set -euo pipefail
+          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-file-ops-common"
+          ARN=$(aws lambda publish-layer-version \
+            --layer-name "$LAYER_NAME" \
+            --description "Shared focommon package for the file-ops verb Lambdas." \
+            --zip-file "fileb://build/file-ops-common-layer.zip" \
+            --compatible-runtimes python3.12 \
+            --query LayerVersionArn --output text)
+          echo "Published ${ARN}"
+          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
+
   # ── control-plane-common layer (SPEC-107) ──────────────────────────────────
   # Publishes the `control-plane-common` layer = external deps (PyJWT[crypto],
   # declared ONCE here) + the `cpcommon` package (shared auth/clients/config/errors/
@@ -613,7 +667,7 @@ jobs:
           echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
 
   deploy:
-    needs: [layer, polars_layer, table_builder_layer, table_share_layer, file_send_layer, archive_layer, cpcommon_layer, dqcommon_layer, dq_polars_layer]
+    needs: [layer, polars_layer, table_builder_layer, table_share_layer, file_send_layer, file_ops_layer, archive_layer, cpcommon_layer, dqcommon_layer, dq_polars_layer]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -825,6 +879,7 @@ jobs:
           [ "${{ matrix.lambda.dqcommon }}" = "true" ] && add "${{ needs.dqcommon_layer.outputs.unzipped_kb }}" data-quality-common
           [ "${{ matrix.lambda.dqpolars }}" = "true" ] && add "${{ needs.dq_polars_layer.outputs.unzipped_kb }}" data-quality-polars
           [ "${{ matrix.lambda.fscommon }}" = "true" ] && add "${{ needs.file_send_layer.outputs.unzipped_kb }}" file-send-common
+          [ "${{ matrix.lambda.focommon }}" = "true" ] && add "${{ needs.file_ops_layer.outputs.unzipped_kb }}" file-ops-common
           [ "${{ matrix.lambda.arcommon }}" = "true" ] && add "${{ needs.archive_layer.outputs.unzipped_kb }}" archive-common
           echo "${{ matrix.lambda.name }} combined unzipped: $((TOTAL_KB / 1024)) MB  [${NAMES}]"
           if [ "$TOTAL_KB" -gt 245760 ]; then
@@ -893,6 +948,7 @@ jobs:
           [ "${{ matrix.lambda.dqcommon }}" = "true" ] && LAYERS+=("${{ needs.dqcommon_layer.outputs.layer_arn }}")
           [ "${{ matrix.lambda.dqpolars }}" = "true" ] && LAYERS+=("${{ needs.dq_polars_layer.outputs.layer_arn }}")
           [ "${{ matrix.lambda.fscommon }}" = "true" ] && LAYERS+=("${{ needs.file_send_layer.outputs.layer_arn }}")
+          [ "${{ matrix.lambda.focommon }}" = "true" ] && LAYERS+=("${{ needs.file_ops_layer.outputs.layer_arn }}")
           [ "${{ matrix.lambda.arcommon }}" = "true" ] && LAYERS+=("${{ needs.archive_layer.outputs.layer_arn }}")
           if [ "${#LAYERS[@]}" -gt 0 ]; then
             aws lambda update-function-configuration \

@@ -86,6 +86,12 @@ variable "archive_execution_role_arn" {
   default     = ""
 }
 
+variable "file_ops_execution_role_arn" {
+  description = "ARN of the file-operations shared execution role, constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny so the plane can eventually read, copy and delete a personal space's files. IT IS ADDED BEFORE THE PLANE HAS ANY S3 GRANT AT ALL, deliberately: the allowlist is hand-maintained and a plane that skips it is denied at runtime with nothing in the plan to warn it, so the exclusion lands with the role rather than with the first verb that needs it. AN EXPLICIT RESOURCE-POLICY DENY BEATS AN IDENTITY-POLICY ALLOW, which is what makes the omission read like a code bug: every SHARED-space operation would succeed (the shared-space bucket has no bucket policy) and every PERSONAL one fail."
+  type        = string
+  default     = ""
+}
+
 variable "user_directory_build_role_arn" {
   description = "ARN of the daily username-directory builder, constructed cycle-free by the root module. Excluded from the user-space bucket policy's data-access Deny so it can ListBucket the workspace prefixes and PutObject _directory/usernames.json; without the exclusion the Deny overrides its identity-policy Allow and the write fails with an opaque AccessDenied that looks like an IAM problem and is not."
   type        = string

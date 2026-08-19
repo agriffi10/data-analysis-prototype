@@ -131,6 +131,7 @@ SOURCES: dict[str, Source] = {
     "shared-space": Source("shared-space", "shared space", "idToken"),
     "file-send": Source("file-send", "file send", "actor"),
     "archive": Source("archive", "archive", "actor"),
+    "file-ops": Source("file-ops", "file operation", "actor"),
 }
 
 UNDRAINED_QUEUES = frozenset({"notifications"})

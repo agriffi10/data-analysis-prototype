@@ -41,6 +41,7 @@ _EXPECTED_ARCS = {
     "table-share",
     "file-send",
     "archive",
+    "file-ops",
 }
 
 #: Every state field in which ASL EVALUATES intrinsic functions. The scan below walked
