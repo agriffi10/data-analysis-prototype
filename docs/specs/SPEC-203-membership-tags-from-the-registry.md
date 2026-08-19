@@ -138,9 +138,16 @@ grant direction on a removal.
       steps: `reserve` writes `status: "provisioning"` and FR-003 stamps no tag for a non-active
       space, so an index written mid-create entitles nobody and is immediately wrong. A test asserts
       the ordering against the real `create_space` call sequence.
-- [ ] Teardown removes the space from **every** member's index before the registry record is
-      released, on SPEC-151's rule — the record is the name lock. An incomplete pass raises
-      `TeardownIncompleteError` and leaves the record intact. Counts, never keys.
+- [ ] **A delete is a membership removal and needs no special path.** In the target environment a
+      delete removes every member and the owner and destroys nothing — the prefix, the Glue database
+      and the registry record all survive, and the record stays `active` with an empty roster
+      (SPEC-204). So the index write for a delete is the same write as a full `remove-members`, and
+      SPEC-151's name-lock ordering does not apply: the record is never released, so there is no
+      window in which the name is free and the index still names it.
+- [ ] **`active` with zero members is a legitimate, permanent state**, so nothing here infers
+      membership from status. FR-003 filters on status *and* the index's own entries; a test asserts
+      that a user whose index still named an emptied space would get no tag — because the entry is
+      removed, not because the space stopped being `active`.
 - [ ] The per-member write count is bounded by the membership cap, so the fan-out's
       per-item-event exemption (`write_roster_to_all`'s docstring) applies unchanged.
 

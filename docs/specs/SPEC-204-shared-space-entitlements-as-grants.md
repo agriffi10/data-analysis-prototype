@@ -50,7 +50,7 @@ prevents it, and getting the order backwards locks every member out instead.
 - **The cutover ordering**, including the role-grant revocation (FR-008).
 - **The grant budget**, against a shared account-wide instance with a hard ceiling (FR-009).
 - **Observability** (FR-010).
-- **Teardown** — a deleted space leaves no grants behind (FR-011).
+- **Delete as a membership removal**, and the inert state it leaves behind (FR-011).
 
 ### Out of Scope
 
@@ -76,6 +76,44 @@ prevents it, and getting the order backwards locks every member out instead.
   the IdP**, and this application will never hold that privilege. Recorded precisely so the rejection
   is not later overturned by someone who finds the API and concludes the spec was mistaken.
 - **Any browser change.** Membership is created and displayed exactly as today.
+
+### The delete semantics this spec is written against
+
+**Decided 2026-08-18, and it is an input to this spec rather than a decision of it.** In the target
+environment a shared-space **delete removes every member — including the owner — and destroys
+nothing**. The objects under `{name}/`, the Glue database and the registry record all survive; the
+record keeps `status: "active"` with an empty member list, and takes no terminal state.
+
+Four consequences run through the requirements below, and they are why FR-011 is three criteria
+rather than a teardown protocol:
+
+- **`delete_shared_prefix` and `drop_database` do not run.** Both halves of the entitlement pair
+  therefore have the same lifetime — the Access Grant's prefix and the Lake Formation grant's
+  database both outlive the space's membership — so FR-001's "one operation, both halves" holds
+  through deletion as well as through creation. Had the database still been dropped, the pair would
+  tear down asymmetrically and a revived space would have files and no tables.
+- **SPEC-151's name-lock ordering stops applying to delete.** The registry record is the name lock
+  and it is never released, so the interleaving FR-011 was originally written against — an
+  incomplete revocation freeing a name whose prefix still carries live grants, letting the next
+  space of that name inherit the previous one's members — **is unreachable**. It is not mitigated;
+  it does not exist.
+- **`active` with zero members becomes a legitimate, permanent state.** Nothing below may infer
+  membership from status. FR-005's desired set is already computed from `is_active_member`, which
+  is false for everyone on an empty space, so it converges correctly — but the inference is now
+  wrong rather than merely unnecessary, and a test asserts it.
+- **The name is permanently taken.** A user can never re-create a space with a name some earlier
+  space used, because the record that locks it is never deleted. Product-visible, and stated here
+  so it is not discovered.
+
+**The `owner` field is cleared with the members, and that is load-bearing.**
+`shared-space-common/auth.py`'s `authorize` gates every owner-only action on
+`actor != registry.get("owner")` — it reads the **owner field**, never membership. So an `owner`
+retained through a delete leaves the original owner able to call `add-members` on the emptied
+space and revive it, with the previous cohort's files intact, in one call and with no confirm. That
+contradicts the requirement that nothing in the product can reach a deleted space. Clearing the
+field makes `authorize` refuse every owner-only action (`actor != None`) and every member-only
+action (empty roster), so the record is inert. Reviving a space becomes an operator act that
+rewrites `owner` — which is the intended door.
 
 ### Preconditions this spec takes as inputs, not open questions
 
@@ -450,29 +488,46 @@ either.
 - [ ] The sweep's corrected-drift counts (FR-005) and the budget figure (FR-009) are fields, not
       interpolations into a message.
 
-### FR-011: Teardown leaves nothing behind
+### FR-011: A delete is a membership removal, and nothing is torn down
 
 #### Description:
 
-SPEC-151's rule — a partial teardown never frees the space name — now has a third thing to clean up
-alongside the objects and the catalog.
+Under the delete semantics above, this FR is three criteria rather than the teardown protocol an
+earlier draft carried. A delete revokes entitlements the same way a `remove-members` covering the
+whole roster would; there is no prefix deletion, no database drop, and no registry record to
+release, so there is no ordering to get wrong and no name to free early.
+
+**What is left is the state the delete produces**, which is new: a permanently `active` space with
+no members, no owner, live data and a live catalog. That state has to be inert and has to stay
+inert.
 
 #### Acceptance Criteria:
 
-- [ ] Deleting a space revokes **every** member's entitlement pair before the registry record is
-      released, on SPEC-151's ordering: the record is the name lock and it survives an incomplete
-      teardown. **Both deletion routes are covered** — the `delete` verb and
-      `shared-space-forget`'s owner path — because FR-004 puts the revocation inside `teardown.py`,
-      which both call. A test drives the forget-teardown path specifically; it is the one a spec
-      written against `delete` alone misses.
-- [ ] An incomplete revocation raises `TeardownIncompleteError` and **leaves the registry record
-      intact**, exactly as the object and catalog teardowns do. A freed name with live grants on its
-      prefix means the next space of that name inherits the previous one's members.
-- [ ] Counts, never keys, in the raise — SPEC-151's rule.
-- [ ] The teardown is covered by FR-005's sweep as a backstop: a non-active space converges to no
-      entitlements, so a teardown that failed midway is repaired rather than permanent.
+- [ ] Deleting a space revokes **every** member's entitlement pair, through the same operation
+      `remove-members` uses (FR-001). Both routes are covered — the `delete` verb and
+      `shared-space-forget`'s owner path — because FR-004 puts the projection where both reach it. A
+      test drives the forget path specifically; it is the one a spec written against `delete` alone
+      misses.
+- [ ] A failed revocation is FR-007's failure — the run fails and the actor is notified — and
+      **`TeardownIncompleteError` does not apply**. It exists to stop a partial teardown freeing a
+      name (SPEC-151); nothing here frees a name. A spec that kept the raise would be guarding an
+      unreachable state and would fail closed on the wrong condition.
+- [ ] **The emptied space is inert, asserted directly.** With `members` empty and `owner` cleared,
+      `shared-space-common/auth.py`'s `authorize` refuses every owner-only action and every
+      member-only action. A test drives `add-members`, `remove-members`, `leave`, `acknowledge` and
+      `delete` against an emptied record **as the original owner** and asserts each raises
+      `AuthorizationError`. Driving it as a stranger passes over the defect — the field
+      `authorize` reads is `owner`, so the original owner is the only actor who could have survived
+      it.
+- [ ] **No requirement infers membership from status.** `active` with zero members is legitimate and
+      permanent, so FR-005's desired set stays computed from `is_active_member` and a test asserts an
+      emptied but `active` space converges to **zero** entitlements rather than being skipped as
+      "not deleted".
+- [ ] The sweep is the backstop (FR-005): a delete whose revocation failed is repaired on the next
+      pass rather than being permanent, and its correction is reported as drift.
 - [ ] `teardown.py`'s existing `revoke_portal_role` is **retired with FR-008 step 3**, not before —
-      while role-level grants exist, a delete must still revoke them.
+      while role-level grants exist, a delete must still revoke them. It is the one teardown helper
+      that survives the change, because it revokes a grant rather than destroying data.
 
 ---
 

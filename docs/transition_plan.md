@@ -1237,6 +1237,20 @@ allow-list. Keep this paragraph until the account's tenancy order is contractual
 
 ### 6.3 Destructive code paths during the sync-and-seed window
 
+> **AMENDED 2026-08-18 — the delete semantics change, and most of this table's teeth go with them.**
+> In the target environment a shared-space **delete removes every member and the owner and destroys
+> nothing**: the objects under `{name}/`, the Glue database and the registry record all survive, and
+> the record stays `active` with an empty roster (SPEC-204's *delete semantics* block). So
+> `delete_shared_prefix` and `drop_database` stop being called at all, and the `forget` verb's
+> teardown branch stops being a teardown — which removes the reason three of the rows below have to
+> be disabled through the seeding window.
+>
+> **The guards stay until that change actually ships.** Today's verbs still delete objects and drop
+> databases, and the change is **not yet specced** — SPEC-204 is written *against* the new semantics
+> but does not implement them, and the behaviour change is product-visible (a name a space once used
+> is permanently taken, and deleted data is retained rather than destroyed). Treat this table as
+> live until a spec lands it, then strike the three rows rather than editing them.
+
 The app deletes things because it created them — and in the successor account that becomes true
 again, which retires most of the previous strategy's permanent guards. What remains is a
 **window**: between the first sync and a verified cutover, prefixes and workspaces hold the only
