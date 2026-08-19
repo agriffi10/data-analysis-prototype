@@ -276,6 +276,7 @@ function FileBrowserContent({
                 bucket={bucket}
                 database={username}
                 prefix={currentPrefix}
+                rootPrefix={rootPrefix}
               />
             )}
             {/* a restore has no selection — it takes a pasted id — so it sits

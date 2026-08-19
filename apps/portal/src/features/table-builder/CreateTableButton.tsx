@@ -4,6 +4,7 @@ import {useToast} from '../../components/toastContext';
 import {toUserText} from '../../lib/errorMessages';
 import {lastSegment} from '../file-browser/fileBrowser.paths';
 import {CreateTableDialog} from './CreateTableDialog';
+import {createTableRefusal} from './createTableRefusal';
 import {enqueueTableBuild} from './tableBuild.service';
 import type {PartitionKey} from './tableBuild.types';
 
@@ -13,15 +14,20 @@ type Props = {
   bucket: string;
   database: string; // username (personal) | shared-space name
   prefix: string; // the current folder key (within the space)
+  rootPrefix: string; // the space root, which is the one folder a table may NOT be built from
 };
 
 // The file-browser toolbar action. Opens the name/partition
 // prompt and, on confirm, ENQUEUES a create-table request for the current folder in
-// the space's database (the browser never creates the table). Eligibility is
-// enforced server-side, so the button is available at any folder; a
-// bad case comes back as a notification, not a pre-flight block. Async: a success
-// toast confirms submission and the outcome arrives via notifications.
-export function CreateTableButton({spaceKind, bucket, database, prefix}: Props) {
+// the space's database (the browser never creates the table). Eligibility is otherwise
+// enforced server-side, so a bad case comes back as a notification rather than a
+// pre-flight block. Async: a success toast confirms submission and the outcome arrives
+// via notifications.
+//
+// The ONE case refused before submission is the space root, because that build succeeds:
+// see `createTableRefusal`. The control plane refuses it too — this is the explanation,
+// not the enforcement.
+export function CreateTableButton({spaceKind, bucket, database, prefix, rootPrefix}: Props) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -29,6 +35,7 @@ export function CreateTableButton({spaceKind, bucket, database, prefix}: Props) 
 
   // Suggestion base: the folder's own name, or the space name at the space root.
   const folderName = lastSegment(prefix) || database;
+  const refusal = createTableRefusal(prefix, rootPrefix);
 
   const openDialog = () => {
     setSubmitError(null);
@@ -61,6 +68,7 @@ export function CreateTableButton({spaceKind, bucket, database, prefix}: Props) 
       <Button
         variant="default"
         className="shrink-0"
+        disabledReason={refusal ?? undefined}
         onClick={openDialog}>
         Create table
       </Button>

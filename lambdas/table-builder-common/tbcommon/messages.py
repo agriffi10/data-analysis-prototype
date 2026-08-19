@@ -30,6 +30,10 @@ from cpcommon import messages as _cpmessages
 
 _BODIES = {
     "invalid_table_name": "the name isn't a valid table name.",
+    "location_is_space_root": (
+        "a table reads every file in the folder it's built from, so it can't be built from the "
+        "top of a space - open the folder holding your data and build it there."
+    ),
     "invalid_partition_keys": "the partition keys aren't valid (check names, types, and ranges).",
     "table_exists": 'a table with that name already exists in "{database}".',
     "no_data_files": "no supported data files were found in that folder.",

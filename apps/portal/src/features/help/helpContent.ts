@@ -334,7 +334,7 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'Have a folder full of data files — CSV, JSON, or Parquet — that you’d like to run SQL against? This turns them into a table without moving or copying anything. The portal reads the files where they already sit and builds the table in the background, then it shows up in the <b>Query</b> tab ready to go. One thing worth sorting out before you start: <b>use lowercase column names in your files</b>. Every column name in a table is stored in lowercase, so a header written as <b>OrderID</b> becomes <b>orderid</b> — your files themselves are never rewritten, and headers that differ only by case can stop lining up with the table.',
         steps: [
-          'In the <b>Files</b> tab, open the folder whose files you want to query, then click <b>Create table</b>.',
+          'In the <b>Files</b> tab, open the folder whose files you want to query, then click <b>Create table</b>. It has to be a folder — <b>Create table</b> is unavailable at the top of a space, because a table reads everything below it and the top of a space also holds your query results, saved queries and shared files.',
           'Enter a <b>Table name</b> (lowercase letters, digits, or underscores, starting with a letter).',
           'If your files sit in <b>key=value</b> folders (for example <b>year=2026/month=01/</b>), click <b>Add partition keys</b> and declare each key in order — coarsest first — along with its type and range.',
           'Click <b>Create table</b>. It’s built in the background, and you’ll get a notification when it’s ready — or if something stopped it from being created.'

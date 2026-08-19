@@ -100,6 +100,7 @@ def test_success_message():
 #: thing under test would assert nothing.
 _CREATE_MESSAGES = {
     "invalid_table_name": 'Couldn\'t create table "sales": the name isn\'t a valid table name.',
+    "location_is_space_root": 'Couldn\'t create table "sales": a table reads every file in the folder it\'s built from, so it can\'t be built from the top of a space - open the folder holding your data and build it there.',
     "invalid_partition_keys": 'Couldn\'t create table "sales": the partition keys aren\'t valid (check names, types, and ranges).',
     "table_exists": 'Couldn\'t create table "sales": a table with that name already exists in "alice".',
     "no_data_files": 'Couldn\'t create table "sales": no supported data files were found in that folder.',

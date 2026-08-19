@@ -23,7 +23,8 @@ export type SourcePickerProps = {
  * **There is no database step**, and its absence is a decision rather than an omission: a
  * space maps to exactly one Glue database here (see `spaceDatabase`), so a database control
  * would offer one option — the one-option control the gating rule declines to render for the share
- * dialog's recipient kind. The database is shown, beside the space it belongs to.
+ * dialog's recipient kind. The database is shown beside the space it belongs to, but only
+ * when it differs from the space's own label — for a shared space the two are the same string.
  *
  * Views are offered alongside tables. A view is a perfectly good thing to explore and the
  * renderer does not care which it is reading.
@@ -59,21 +60,31 @@ export function SourcePicker({spaces, username, onChoose, onCancel}: SourcePicke
       className="flex min-h-0 flex-1 flex-col tablet:flex-row">
       <div className="flex flex-none flex-col gap-1 border-b border-border p-3 tablet:w-64 tablet:border-b-0 tablet:border-r">
         <h2 className={`px-2 pb-1 ${SECTION_CAPTION}`}>Space</h2>
-        {spaces.map((space) => (
-          <button
-            key={space.id}
-            type="button"
-            aria-pressed={space.id === selected?.id}
-            onClick={() => setSelectedId(space.id)}
-            className={cx(
-              'flex items-center gap-2 rounded-md px-2 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
-              space.id === selected?.id ? 'bg-surface-2 font-medium text-text' : 'text-text-2 hover:bg-surface-2'
-            )}>
-            <DatabaseRowIcon />
-            <span className="min-w-0 flex-1 truncate">{space.label}</span>
-            <span className="flex-none font-mono text-xs text-text-3">{spaceDatabase(space, username)}</span>
-          </button>
-        ))}
+        {spaces.map((space) => {
+          // Named apart from the outer `database`, which is the SELECTED space's — this one is
+          // the row's own, and the two differ for every row but one.
+          const rowDatabase = spaceDatabase(space, username);
+          return (
+            <button
+              key={space.id}
+              type="button"
+              aria-pressed={space.id === selected?.id}
+              onClick={() => setSelectedId(space.id)}
+              className={cx(
+                'flex items-center gap-2 rounded-md px-2 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                space.id === selected?.id ? 'bg-surface-2 font-medium text-text' : 'text-text-2 hover:bg-surface-2'
+              )}>
+              <DatabaseRowIcon />
+              <span className="min-w-0 flex-1 truncate">{space.label}</span>
+              {/* A shared space's label IS its database name, so showing both printed the
+                  name twice. The database is still shown where it says something the label
+                  does not — the personal space, whose label is "My files". */}
+              {rowDatabase !== space.label && (
+                <span className="flex-none font-mono text-xs text-text-3">{rowDatabase}</span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col p-3">

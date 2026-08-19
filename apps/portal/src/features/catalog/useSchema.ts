@@ -49,7 +49,50 @@ export function useAllSchemas(databaseNames: string[]): DatabaseSchema[] {
     .filter((s): s is DatabaseSchema => s !== null);
 }
 
-/** Refreshes a database's cached schema after schema-changing DDL runs. */
+/**
+ * Something that must be re-read when a database's catalog changes, over and above this
+ * module's own schema query.
+ */
+export type CatalogChangeListener = (client: QueryClient, databaseName: string) => void;
+
+const listeners = new Set<CatalogChangeListener>();
+
+/**
+ * Registers a listener for "this database's catalog changed".
+ *
+ * **THE SHARED LAYER MUST NOT IMPORT THE LEAF FEATURE**, which is the whole reason this is a
+ * registration rather than a call. The Data Explorer caches an Athena execution forever, keyed
+ * by the SQL it rendered — so a table dropped and rebuilt under the same name goes on
+ * answering from the old execution. It has to hear about {@link invalidateSchema}, and
+ * `features/catalog/` reaching into `features/data-explorer/` to tell it would be the
+ * undeclared shared layer this directory exists to prevent, pointing the other way.
+ *
+ * A registration rather than a call beside each of the five existing `invalidateSchema` sites,
+ * too: each of those is a place a future author would have to remember, and the sixth would be
+ * written by someone who had never heard of the cache it silently invalidates.
+ *
+ * Not a query-cache subscription: TanStack emits no event for invalidating a key nothing has
+ * cached, and the rail's schema is not always loaded when a DDL statement runs.
+ *
+ * @param listener - Called after the schema invalidation, with the same client and database.
+ * @returns The unsubscribe function.
+ */
+export function onCatalogChange(listener: CatalogChangeListener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/**
+ * Refreshes a database's cached schema after schema-changing DDL runs, and tells every
+ * registered listener the same thing.
+ *
+ * @param client - The query client.
+ * @param databaseName - The database whose catalog changed.
+ * @returns Nothing, once the invalidation has settled.
+ */
 export async function invalidateSchema(client: QueryClient, databaseName: string): Promise<void> {
   await client.invalidateQueries({queryKey: catalogKeys.schema(databaseName)});
+  for (const listener of listeners) listener(client, databaseName);
 }

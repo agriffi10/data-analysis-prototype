@@ -5,7 +5,7 @@ import {isTerminalState, runQuery} from '../catalog/athena.service';
 import {useQueryExecution} from '../catalog/useQueryExecution';
 import {unwrap} from '../../lib/serviceResult';
 import {NO_KEY} from '../../lib/queryKeys';
-import {explorerKeys} from './explorerKeys';
+import {explorerKeys, explorationSourceScope} from './explorerKeys';
 import {renderExplorationSql} from './renderExplorationSql';
 import type {QueryState} from '../catalog/catalog.types';
 import type {ExecutionCost, Exploration} from './dataExplorer.types';
@@ -61,11 +61,18 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
 
   const sql = rendered.sql;
 
+  // The source segments the key is filed under. A stable placeholder while there is nothing
+  // to run, for the same reason the SQL has one: the hook order must not depend on it.
+  const scope = useMemo(
+    () => (exploration ? explorationSourceScope(exploration.source) : ([NO_KEY, NO_KEY] as const)),
+    [exploration]
+  );
+
   const enabled = sql !== null && username !== '';
 
   const start = useQuery({
     // A stable placeholder keeps the hook order constant while disabled.
-    queryKey: explorerKeys.execution(sql ?? NO_KEY),
+    queryKey: explorerKeys.execution(scope, sql ?? NO_KEY),
     enabled,
     // The execution id is durable for the session: re-running an identical statement
     // would scan the same bytes for the same rows, so the cached id IS the right answer.
@@ -112,10 +119,10 @@ export function useExploration(exploration: Exploration | null): UseExplorationR
     return () => {
       const verdict = lastVerdict.current;
       if (verdict?.sql === sql && (verdict.state === 'FAILED' || verdict.state === 'CANCELLED')) {
-        queryClient.removeQueries({queryKey: explorerKeys.execution(sql)});
+        queryClient.removeQueries({queryKey: explorerKeys.execution(scope, sql)});
       }
     };
-  }, [sql, queryClient]);
+  }, [sql, scope, queryClient]);
 
   const cost = useMemo((): ExecutionCost | null => {
     // TERMINAL states only. A QUEUED or RUNNING poll carries no `Statistics`, so it reports
