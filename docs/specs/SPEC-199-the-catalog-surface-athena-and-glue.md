@@ -118,6 +118,35 @@ Things a reader would reasonably assume travel with "the catalog moved behind th
    the Out-of-Scope exposure above; until then `logs/service=api/` carrying `actor` on every catalog
    span is the only attribution that exists.
 
+**AMENDED 2026-08-18 — FR-002's server-side derivation has a known successor, and the results
+location is the part that moves.** Moving the workgroup, the results location and the caller's
+identity off the wire is right and is not in question. What changes in the target environment
+(`transition_plan.md` §3.5, §3.9) is what the derivation *derives*:
+
+- **The workgroup becomes an IAM Identity Center enabled workgroup**, whose **user-identity-based S3
+  prefix** feature appends **`${user_id}`** to the results path — substituted by Athena when it
+  writes results — and requires *Override client-side settings*. So
+  `s3://{bucket}/{username}/athenaresults/`, which this spec derives from the verified username, may
+  stop being the path results land at. *Whether the feature can be turned off is an open Phase 0
+  question (`transition_plan.md` §3.5), so treat this as likely rather than certain. Note also that
+  Athena's `${user_id}` and the `${identitystore:UserId}` **IAM policy variable** used in the Access
+  Grants location role's policy are two different mechanisms — do not merge them.* Anything reading a result
+  object back from the path it *requested* breaks there; this spec's own FR-004 reads results through
+  `GetQueryResults` and is safe, but the export path (SPEC-185's `outputLocation`) and the
+  save-results copy are the surfaces to re-check. Keep the derivation in **one function** for exactly
+  this reason — it is one edit there and a hunt otherwise.
+- **A workgroup's authentication method is fixed at creation** and an existing workgroup cannot be
+  converted, so the target's workgroup is a new resource rather than a modified one. Nothing here
+  needs to anticipate it beyond not hard-coding the current workgroup's name outside configuration.
+- **Three quotas arrive with that workgroup and are worth knowing now**: queries time out at 30
+  minutes by default and **one hour maximum, not raisable**; entitlement changes take up to an hour
+  to take effect; and an IdC-enabled workgroup cannot be modified to support resource-level IAM
+  permissions or identity-based IAM policies. None of them change a requirement below.
+- **What does not move is this spec's central claim.** Lake Formation grants attach to a principal,
+  and FR-008's two distinct denial shapes are properties of Lake Formation rather than of which
+  principal reached it. When the principal becomes an Identity Center identity instead of the assumed
+  portal role, the shapes are the same and the tests still mean what they meant.
+
 ---
 
 ## Functional Requirements

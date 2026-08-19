@@ -2,11 +2,54 @@
 
 **Status:** Single source of truth for the client transition. Living document; update it in place
 rather than writing a competing one.
-**Last updated:** 2026-08-18 (§3.5 gains the step-3 caveat and gate G7 — the Athena docs are
-genuinely ambiguous about whether a plain `StartQueryExecution` on an identity-enhanced session is
-supported, so it is settled by experiment in Phase 0 rather than assumed either way; §5.5, Phase 0 and
-§8 updated with it). Previously 2026-08-03 (reconciled against the folded `architecture.md` — control-plane
-records now live there; SPEC-140/141 header and caching facts updated in §4.6, §6.3, §9)
+**Last updated:** 2026-08-18 (the **identity-variant revision** — see below. §2, §3.3, §3.4, §3.5,
+§3.9, §5.5, §6.1, Phases 0/1/5, §8 and §9 all move). Previously 2026-08-18 (§3.5 gains the step-3
+caveat and gate G7 — the Athena docs are genuinely ambiguous about whether a plain
+`StartQueryExecution` on an identity-enhanced session is supported, so it is settled by experiment in
+Phase 0 rather than assumed either way; §5.5, Phase 0 and §8 updated with it). Previously 2026-08-03
+(reconciled against the folded `architecture.md` — control-plane records now live there; SPEC-140/141
+header and caching facts updated in §4.6, §6.3, §9)
+
+**Identity-variant revision (2026-08-18).** The corporate identity provider is named for the first
+time — **Microsoft Entra ID** — and the plan now carries **two variants of the identity plane**, one
+tagged **[A]** and one tagged **[B]**, because which one is buildable is not ours to decide:
+
+- **Variant A is the baseline.** Entra issues OIDC/OAuth2 JWTs directly and is registered as the
+  Identity Center **trusted token issuer**. **There is no Cognito anywhere** — no User Pool, no
+  Identity Pool, no Managed Login, no custom attributes.
+- **Variant B is the fallback**, used only if the Entra tenant turns out to be hard SAML-only.
+  Cognito is reduced to a **SAML→OIDC bridge**: it federates to Entra and issues the JWT the
+  exchange consumes, and is the trusted token issuer. It is infrastructure, not the app's identity
+  provider — nothing app-level may depend on it.
+
+**Everything downstream of the JWT is identical in both**, which is why this is one plan and not two.
+The **deliberately** variant-tagged passages are §3.3, the assertion in §3.5's step 1 and its replay
+paragraph, §6.1, and the Phase 1 and Phase 5 items that name a provider. The deciding fact — whether
+Entra can issue OIDC for this application — is **gate G8** (§5.5) and it runs in Phase 0.
+
+> **An untagged passage is NOT a promise of variant-neutrality.** This document predates the variants
+> and names Cognito in passages the revision did not rewrite — §4.6 and §4.7's callback URLs and
+> session clocks, and the whole of §5, whose experiment is written around a Cognito pool. Read a bare
+> "Cognito" in an untagged passage as **[B]**, and as *"under [A] the same job exists and Entra does
+> it"*. The revision chose not to rewrite those sections because §5 is an open fork that may close on
+> its own terms and §4.6/§4.7 are a hosting workstream with its own owner — but the reader should not
+> have to infer that, so it is stated here.
+
+Two consequences of the same revision reach further than the variant tag, and both are recorded in
+place: §3.4's **two credential planes collapse into one** (the identity-enhanced session's allow-list
+denies plain S3, so **S3 Access Grants** governs storage — new §3.9), and §6.1's federated-claim trap
+**changes shape rather than disappearing**.
+
+**Arc B (SPEC-192 → 202) keeps Cognito exactly as it is today, and the product is fully functional on
+Cognito when the last of those specs lands.** No variant decision reaches it and none of its work is
+gated on G7, G8 or G9. It is not, however, left literally untouched: the revision adds three
+forward-compatibility obligations to its drafts, each small and each with a test —
+**SPEC-195** gains a premise keeping the verifier free of router dependencies (so the target's
+authorizer split is wiring, not surgery), **SPEC-198** strengthens one existing acceptance criterion
+so the presigned-URL clamp reads the credential rather than a configured duration, and **SPEC-199**
+requires the results-location derivation to stay in one function. Nothing there changes what the arc
+delivers or when it can ship; saying "nothing changes" would have been the easier claim and the
+false one.
 **Strategy revision (2026-08-01):** the client environment is itself moving to a **successor
 account** this year. The portal will be **built fresh in that account as its first tenant**, and
 the client's data will be **synced over** with a freeze-and-cutover — rather than the portal
@@ -29,12 +72,13 @@ credential-plane split, the reconciler design and the surviving spike gates — 
 3. [Target architecture — the identity and authorization model](#3-target-architecture--the-identity-and-authorization-model)
    - [3.1 What the end state has to support](#31-what-the-end-state-has-to-support)
    - [3.2 Why trusted identity propagation is the only mechanism](#32-why-trusted-identity-propagation-is-the-only-mechanism)
-   - [3.3 Two Cognito–Identity Center connections, in opposite directions](#33-two-cognitoidentity-center-connections-in-opposite-directions)
-   - [3.4 Two credential planes off one login](#34-two-credential-planes-off-one-login)
-   - [3.5 The catalog-plane token flow, and why the backend holds state](#35-the-catalog-plane-token-flow-and-why-the-backend-holds-state)
+   - [3.3 The identity plane — two mechanisms, two variants](#33-the-identity-plane--two-mechanisms-two-variants)
+   - [3.4 ~~Two credential planes off one login~~ — superseded, there is one](#34-two-credential-planes-off-one-login--superseded-there-is-one)
+   - [3.5 The token flow, and why the backend holds state](#35-the-token-flow-and-why-the-backend-holds-state)
    - [3.6 The carrier role](#36-the-carrier-role)
    - [3.7 How Lake Formation enforces](#37-how-lake-formation-enforces)
    - [3.8 The reconciler](#38-the-reconciler)
+   - [3.9 The storage plane — S3 Access Grants](#39-the-storage-plane--s3-access-grants)
 4. [Deployment topology](#4-deployment-topology)
    - [4.1 The constraint that still settles it](#41-the-constraint-that-still-settles-it)
    - [4.2 What first tenancy buys, and what it obliges](#42-what-first-tenancy-buys-and-what-it-obliges)
@@ -50,7 +94,7 @@ credential-plane split, the reconciler design and the surviving spike gates — 
    - [5.4 The experiment](#54-the-experiment)
    - [5.5 Gates inherited from the retired spike](#55-gates-inherited-from-the-retired-spike)
 6. [Risk register — the five hard problems](#6-risk-register--the-five-hard-problems)
-   - [6.1 The federated username claim is not `cognito:username`](#61-the-federated-username-claim-is-not-cognitousername)
+   - [6.1 The username claim is not `cognito:username`](#61-the-username-claim-is-not-cognitousername)
    - [6.2 First-tenant singleton ownership (was: the Lake Formation IaC overwrite)](#62-first-tenant-singleton-ownership-was-the-lake-formation-iac-overwrite)
    - [6.3 Destructive code paths during the sync-and-seed window](#63-destructive-code-paths-during-the-sync-and-seed-window)
    - [6.4 Shared workspace seeding (was: adoption — nothing is adopted anymore)](#64-shared-workspace-seeding-was-adoption--nothing-is-adopted-anymore)
@@ -69,9 +113,10 @@ credential-plane split, the reconciler design and the surviving spike gates — 
 
 **Read map** — `CLAUDE.md` says "read before touching auth, provisioning or LF"; in practice:
 
-- **Touching auth** (Cognito, tokens, sign-in, anything reading the username claim) → §3
-  (especially §3.3–3.5) plus §6.1 — the federated claim is **not** `cognito:username`, the
-  highest-consequence detail in the migration.
+- **Touching auth** (tokens, sign-in, anything reading the username claim) → §3 (especially
+  §3.3–3.5) plus §6.1 — the username claim is **not** `cognito:username` in either variant, and it
+  is the highest-consequence detail in the migration. §3.3 is where the **[A]** / **[B]** variant
+  split lives; an untagged passage applies to both.
 - **Touching provisioning / de-provisioning** (creating or deleting user/space resources, the
   account-wide LF singletons) → §4.4 and §6.2 (portal-created singletons and their ownership),
   §6.3 (destructive paths during the sync-and-seed window).
@@ -88,16 +133,20 @@ happening at once: the client environment is transitioning to a **successor acco
 portal is **stood up in that account first**, before the data arrives. The portal therefore
 remains the **resident, owning system of its account** — much closer to what this repo already is
 than the "access portal over resources it does not own" posture the previous strategy required.
-What changes instead is identity (Identity Center replaces self-service Cognito) and the arrival
-of the client's data via a **one-time sync and cutover** from the old account.
+What changes instead is identity — **Entra ID replaces self-service Cognito as who authenticates, and
+Identity Center is added as what propagates that identity into AWS**; they are not alternatives and
+reading them as one is the mistake §3.3 exists to prevent — and the arrival of the client's data via a
+**one-time sync and cutover** from the old account.
 
 | Concern | Today (this repo) | Successor account |
 |---|---|---|
-| Who authenticates | Cognito User Pool, self-service signup | IAM Identity Center, already the org's SSO |
+| Who authenticates | Cognito User Pool, self-service signup | **Entra ID**, the org's existing SSO — directly **[A]**, or through a Cognito SAML→OIDC bridge **[B]** (§3.3) |
 | Who can sign in | Anyone who registers | Everyone in the organization |
+| Who propagates identity into AWS | Nothing — one shared role, differentiated by a principal tag | **IAM Identity Center**, via the token exchange (§3.5). Entra authenticates; IdC propagates — they are not alternatives |
 | Who creates the user's S3 prefix | The browser, via `ensurePrefixMarker` | The sync (initial population), then the client's automated process for new users. **Sign-in provisions nothing** |
 | Who creates the user's Glue database | `post_confirmation.py` | Sync initially, user automation thereafter (it already handles tagging); grants come from a separate permissions control plane (§8) |
-| Per-user IAM identity | One shared role plus a `username` principal tag | Same model, carried over. **Bespoke per-user roles are never created** |
+| Per-user IAM identity | One shared role plus a `username` principal tag, minted by the Identity Pool | **Interim (Phases 1–4):** the same shared role and tag, assumed by the API from the verified claim — no Identity Pool. **End state (Phase 5):** one identity-enhanced session, no principal tags, storage on S3 Access Grants (§3.4, §3.9). **Bespoke per-user roles are never created** |
+| Per-user storage isolation | `${aws:PrincipalTag/username}` in the bucket and Glue policies | Same in the interim; **S3 Access Grants** in the end state — plain S3 is denied on an identity-enhanced session (§3.6) |
 | Lake Formation grants | Issued by this app, keyed on the shared role | Same for personal and workspace scopes; core datasets keyed on Identity Center principals (§3), issued by a config-driven reconciler |
 | Shared workspaces | Created and managed by this app's control plane | Same — created by this app in the successor account, contents synced from the old account's workspaces |
 | The data itself | Created in place by users | **Synced from the old account**, re-encrypted under the successor account's KMS key, then cut over (§6.5) |
@@ -108,9 +157,18 @@ of the client's data via a **one-time sync and cutover** from the old account.
 
 Treated as inputs. Do not re-litigate without new information.
 
-1. **Cognito survives as a facade.** Identity Center becomes the upstream SAML/OIDC identity
-   provider on the User Pool. The portal stays open to everyone in the organization, using the
-   login screens they already trust.
+1. **~~Cognito survives as a facade.~~ SUPERSEDED 2026-08-18 — the identity plane has two
+   variants, and the baseline has no Cognito at all.** The corporate identity provider is
+   **Entra ID**, and the portal stays open to everyone in the organization using the login screens
+   they already trust either way. **[A — baseline]** Entra issues OIDC directly and is the Identity
+   Center trusted token issuer; there is no Cognito. **[B — fallback]** Entra is SAML-only, so
+   Cognito federates to it and issues the OIDC JWT the exchange consumes, and is the trusted token
+   issuer. Under **both**, nothing app-level depends on Cognito: no custom attributes, no
+   `cognito:username`, no Managed Login as the app's own login surface. §3.3 carries the mechanism;
+   the choice is gate G8 (§5.5), in Phase 0. *The old wording — Identity Center as the upstream SAML
+   provider on a surviving User Pool — described Variant B with the bridge pointed at Identity
+   Center rather than at Entra; §3.3 records why the Entra-facing shape is preferred if B is used at
+   all.*
 2. **A token-exchange backend is required.** AWS documentation confirms this is *mandatory*, not
    conditional, and that it must hold session state rather than being a pure function (§3.5).
    The "no backend" constraint is formally broken; record that honestly in `architecture.md`.
@@ -143,7 +201,32 @@ Treated as inputs. Do not re-litigate without new information.
     supplies AWS credentials, which is what makes the token-exchange backend straightforward (§4.6).
 11. **The token-exchange backend runs in the same container as the SPA.** Same origin, so no CORS
     for the backend, `httpOnly` session cookies work naturally, one artifact and one certificate
-    (§4.7).
+    (§4.7). *Arc B (SPEC-192 → 202) instead puts the API behind API Gateway as its own origin; when
+    that arc lands, this item is about where the **token-exchange** half runs, not the API as a
+    whole.*
+12. **Users and groups must exist in Identity Center BEFORE use, and nothing in this architecture
+    creates them.** The token exchange maps a claim to an existing Identity Center user and populates
+    nothing; **Identity Center performs no just-in-time provisioning**, so an unprovisioned user's
+    exchange simply fails. AWS permits two ways to satisfy this — SCIM synchronisation from the IdP,
+    **or** creating users directly in Identity Center — and at organization scale SCIM from Entra is
+    the only tractable one. It is also what gives Lake Formation **groups** to grant to. Two
+    constraints that ride with it: the claim mapped to an Identity Center user must resolve to
+    **user name, email or external ID** (so "typically `email`" is a constraint rather than a
+    convention), and it must be unique. Variant-independent, and a hard dependency on the Identity
+    Center administrators either way.
+13. **There is ONE credential plane in the end state, not two.** Supersedes §3.4. The
+    identity-enhanced session is the only plane, and because
+    `AWSIAMIdentityCenterAllowListForIdentityContext` denies plain S3, **S3 Access Grants** governs
+    storage — personal prefixes included. `${aws:PrincipalTag/username}` and the
+    `custom:shared_space_k` slots **do not survive Phase 5** — they carry through the interim plane
+    (Phase 1) and retire with it. New §3.9 carries what replaces them, and
+    the largest downstream consequence lands on **shared spaces**, not on the file browser.
+14. **The app must be fully functional on Cognito until the successor account is live.** Arc B
+    (SPEC-192 → 202) moves every AWS call behind an API without touching sign-in, and the product is
+    complete on Cognito when it lands. Nothing in this plan may create a window where the current
+    environment is degraded, and **no Arc B spec may be gated on a transition gate** — the three
+    forward-compatibility obligations this revision added to its drafts are each independently
+    shippable today (see the revision note above).
 
 ---
 
@@ -196,62 +279,156 @@ shared carrier role, and Lake Formation differentiates by the propagated Identit
 identity rather than by the role. No per-user roles, no role explosion, no credential swap per
 dataset, and one statement can join across everything the user holds.
 
-### 3.3 Two Cognito–Identity Center connections, in opposite directions
+### 3.3 The identity plane — two mechanisms, two variants
 
-These are constantly conflated. They are separate connections doing different jobs, and both are
-needed.
+**Two mechanisms are constantly conflated, and keeping them apart is what makes the variants
+legible.** They are separate connections doing different jobs, and both are needed.
 
-**Login federation — Identity Center is Cognito's upstream IdP.** Configure Identity Center as a
-SAML 2.0 identity provider on the User Pool. Portal login becomes the user's existing corporate
-SSO, and Cognito becomes a facade over the Identity Center user. This handles authentication,
-and because both sides resolve to the same directory it makes the token-to-user mapping below
-exact rather than a fuzzy cross-directory email match.
+1. **Sign-in / SSO** — how a human authenticates. Identity Center accepts SAML 2.0 **or** OIDC here,
+   and Entra SAML is fully supported.
+2. **The token exchange (trusted identity propagation)** — how that identity reaches AWS services.
+   This requires **OAuth 2.0 / JWT**. AWS documents that TIP **does not support SAML 2.0
+   integrations**: the trusted token issuer must be an OAuth 2.0 authorization server issuing signed
+   JWTs, because `CreateTokenWithIAM` uses a `jwt-bearer` grant with the JWT as the assertion.
 
-**Trusted Token Issuer — Identity Center trusts Cognito's tokens.** Register the Cognito User
-Pool as a Trusted Token Issuer in Identity Center. Issuer URL is the pool's OIDC issuer,
-`https://cognito-idp.{region}.amazonaws.com/{userPoolId}`; claim mapping determines which Cognito
-claim identifies the user. Then create a customer-managed application with trusted identity
-propagation enabled, whose audience is the Cognito app-client ID.
+**That single asymmetry is the whole basis for the two variants.** Identity Center accepting SAML for
+*sign-in* does not remove the OAuth requirement for the *exchange*. So if Entra can issue OIDC JWTs,
+it is the trusted token issuer directly; if it cannot, something has to convert a SAML-authenticated
+session into an OIDC JWT, and that something is Cognito.
 
-Cognito ID tokens already satisfy the format requirements — RS256-signed JWTs carrying `iss`,
-`sub`, `aud` and `exp`. Identity Center supports up to ten trusted token issuers.
+| | **[A] — baseline** | **[B] — fallback** |
+|---|---|---|
+| Use when | The Entra tenant/app registration can issue OIDC/OAuth2 JWTs | Entra is hard SAML-only for this application |
+| Sign-in | Browser → **Entra** (OIDC) | Browser → **Cognito** → SAML → Entra |
+| Trusted token issuer in IdC | **Entra** (issuer URL + JWKS) | **Cognito** (`https://cognito-idp.{region}.amazonaws.com/{userPoolId}`) |
+| Assertion exchanged in §3.5 step 1 | The **Entra** ID token | The **Cognito** ID token |
+| Cognito | **Absent entirely** | Present as a SAML→OIDC bridge and nothing else |
+| Everything downstream of the JWT | Identical | Identical |
 
-### 3.4 Two credential planes off one login
+**A third shape exists and is rejected: Identity Center as the login provider.** AWS's own
+**Important** on the customer-managed-applications page settles it — such an application *"must
+obtain a token from a trusted token issuer, **which is external to IAM Identity Center**."* It
+assumes your application authenticates users elsewhere. **Entra authenticates the users; Identity Center propagates their identity into AWS.**
+They are not alternatives, and anyone who reads "tie the portal to an Identity Center login" as a
+sign-in flow will build something that cannot work.
+
+**Provisioning into Identity Center is required in both variants and is not part of either one.**
+The claim in step 1 must resolve to a user who already exists in Identity Center — there is no
+just-in-time provisioning — and the mapped claim must be **user name, email or external ID**. SCIM
+from Entra is the practical way to satisfy that at organization scale, and it is also what gives Lake
+Formation groups to grant to (§2 item 12). The exchange populates nothing by itself.
+
+#### If Variant B is used, point the bridge at Entra
+
+An earlier version of this plan had Cognito federating to **Identity Center** as its upstream SAML
+provider, on the argument that both sides then resolve to the same directory and the token-to-user
+mapping is exact rather than a fuzzy cross-directory email match. That argument is real, but it is
+weaker than it looks and the Entra-facing shape is preferred:
+
+- With SCIM live (§2 item 12), Identity Center's directory **is** Entra's — so the "same directory"
+  property holds either way, and the mapping is exact in both.
+- Authentication, MFA and conditional access stay in Entra in both shapes. Pointing the bridge at
+  Identity Center adds a hop that authenticates nobody.
+- Variant B exists to be **deleted**. The migration from B to A is *"re-point the trusted token
+  issuer registration and the claim mapping at Entra, store Entra tokens instead of Cognito tokens,
+  delete Cognito"* — and that is a smaller diff when Cognito was already federating to Entra.
+
+**Guardrail, and it is load-bearing:** in Variant B, Cognito **must not permit self-asserted local
+identities**. Authentication must delegate to Entra. If a user can sign up locally and assert an
+arbitrary email, they can obtain a token that maps to another person's Identity Center user, and with
+it that person's Lake Formation grants and Access Grants. The pool auto-creates users on successful
+SAML federation; the user must already exist in Identity Center for the exchange to succeed.
+
+**Variant B's other cost is §6.1's trap**, which Variant A deletes outright — see there.
+
+### 3.4 ~~Two credential planes off one login~~ — superseded, there is one
+
+> **SUPERSEDED 2026-08-18.** This section described a **base plane** (Identity Pool → shared portal
+> role → `${aws:PrincipalTag/username}`, serving the file browser, the personal database and shared
+> workspaces) running alongside a **catalog plane** (identity-enhanced session, serving core-dataset
+> queries). The end state has **one plane**: the identity-enhanced session. What follows is the
+> reasoning; §3.9 is what replaces the base plane's job.
 
 ```
-                         ┌─ BASE plane
-                         │     Identity Pool → shared portal role (principal tag: username)
-  Cognito login  ────────┤     used by: file browser, personal DB, shared workspaces
-  (federated to IdC)     │     NOTE: §5 may replace this plane entirely — test before building
-                         │
-                         └─ CATALOG plane
-                               CreateTokenWithIAM → AssumeRole(ProvidedContexts)
-                               → shared carrier role carrying the IdC user identity
-                               used by: core-dataset queries
+  Entra login  ──── §3.5 ────►  identity-enhanced session on the carrier role
+  [A] OIDC direct               ├─ Athena + Lake Formation  → core datasets, personal DB,
+  [B] via Cognito bridge        │                             shared-workspace DBs
+                                └─ S3 Access Grants (§3.9)  → personal prefixes, shared-workspace
+                                                              prefixes, query results
 ```
 
-The two planes stay separate. A query joining a personal database (base plane) against a core
-dataset (catalog plane) in one statement almost certainly will not work — different enforcement
-planes. Confirm this is acceptable; the expectation is yes, and they remain separate connections.
+**Why the base plane cannot survive, and it is not a preference.** STS attaches
+`AWSIAMIdentityCenterAllowListForIdentityContext` to every identity-enhanced session automatically,
+and it denies everything not on its list regardless of what the carrier role's own policies allow.
+The **only** S3 actions on that list are the three S3 Access Grants operations (`s3:GetDataAccess`,
+`s3:GetAccessGrantsInstanceForPrefix`, `s3:ListCallerAccessGrants`) — plain `GetObject`, `PutObject`
+and `ListObjectsV2` are denied (§3.6). A file browser cannot run on that plane by calling S3
+directly, so storage moves to Access Grants, and once it has there is no second plane left to keep.
 
-### 3.5 The catalog-plane token flow, and why the backend holds state
+Running both anyway was the previous design, and it was the more expensive answer to the same
+problem: two credential paths, two isolation mechanisms for one product, and a hard wall between them.
+
+**Three things this collapse buys, and one it costs.**
+
+- **`${aws:PrincipalTag/username}` and `custom:shared_space_1..10` cease to exist.** With them go
+  §6.1's writable-attribute privilege-escalation trap in its Variant-B form, the ten-slot membership
+  ceiling, and the propagation delay `useSharedSpaceAccessRecovery` exists to paper over.
+- **The cross-plane join question dissolves.** It was open — a statement joining a personal database
+  against a core dataset "almost certainly will not work", because the two sat in different
+  enforcement planes. On one plane both are Lake Formation grants against the same propagated
+  identity, so the join is an ordinary query. Confirm it rather than assume it (§5.5 covers the
+  cross-dataset case as G5); do not carry the old expectation forward.
+- **Audit legibility improves** — every data access, storage included, is attributable to an
+  Identity Center user rather than to a shared role with a tag.
+- **The cost is a hard dependency on S3 Access Grants**, which appears nowhere in this architecture
+  today. It is new infrastructure and a new account-wide singleton to own (§3.9, §4.4).
+
+**The largest downstream consequence lands on shared spaces, not on the file browser.** Membership
+is a principal tag today; on one plane there are no principal tags, so a member's access to a shared
+space becomes **an Access Grant on its prefix plus a Lake Formation grant on its database**, issued
+per (user, space) by the shared-space control plane rather than written as an attribute. That is a
+new verb on an existing plane and it is **not** scoped anywhere yet — §3.9 states the obligation;
+Phase 3 and Phase 5 are where it lands.
+
+**What is unaffected:** the seven control-plane execution roles are ordinary IAM roles and are *not*
+identity-enhanced, so their direct S3 and Glue grants keep working untouched. Every asynchronous
+plane in this repo — file operations, table builder, table share, send-files, archive, data quality,
+shared spaces — crosses this revision unchanged. That is what makes them safe to keep building now.
+
+### 3.5 The token flow, and why the backend holds state
 
 ```
 1. sso-oidc:CreateTokenWithIAM                    [SigV4-signed, from the backend]
        grant_type = urn:ietf:params:oauth:grant-type:jwt-bearer
-       assertion  = <Cognito ID token>
-   → IdC validates against the TTI, maps the claim to an IdC user
+       assertion  = [A] <Entra ID token>  |  [B] <Cognito ID token>
+   → IdC validates the signature against the TTI's JWKS, checks the audience,
+     maps the configured claim (typically `email`) to exactly ONE IdC user
    → returns the identity context (and a refresh token, if that grant is enabled)
 
-2. sts:AssumeRole on the CATALOG carrier role
+2. sts:AssumeRole on the carrier role
        ProvidedContexts = [{ ProviderArn     = arn:aws:iam::aws:contextProvider/IdentityCenter,
                              ContextAssertion = <identity context from step 1> }]
-   → identity-enhanced credentials, returned to the browser
+   → identity-enhanced credentials, held by the BACKEND (~1 hour), cached and reused
 
-3. athena:StartQueryExecution on the IdC-enabled workgroup   [browser-direct]
+3a. athena:StartQueryExecution on the IdC-enabled workgroup   [from the backend]
    → Athena propagates the identity to Lake Formation
    → LF resolves THIS user's grants and applies the data cell filter for their level
+
+3b. s3:GetDataAccess on the S3 Access Grants instance          [from the backend, §3.9]
+   → prefix-scoped temporary credentials for THIS user's storage
 ```
+
+**Steps 1 and 2 are the same in both variants; only the assertion differs.** That is the whole reason
+this is one plan: the trusted token issuer registration and the claim mapping point at Entra **[A]**
+or at Cognito **[B]**, and nothing downstream of the identity context can tell which.
+
+**Step 3 runs in the backend, not the browser.** An earlier version of this section returned the
+identity-enhanced credentials to the browser and had it call Athena directly. Arc B (SPEC-192 → 202)
+settles the opposite for the current environment — the API assumes the role and makes the call — and
+the same conclusion holds here for a stronger reason: the identity-enhanced session is the one
+credential in this architecture that carries a **person's** whole Lake Formation grant set, and
+handing it to a tab makes every browser-side exfiltration path a data-lake path. What crosses to the
+browser is what crosses today: the results of a call, and presigned URLs for bytes (§3.9).
 
 **Step 3 is AMBIGUOUS in the documentation, and the whole flow rests on it (2026-08-18).** The Athena
 documentation for IAM Identity Center enabled workgroups lists *"Federated access to the Athena API"*
@@ -288,12 +465,17 @@ The same page carries five more facts to design around regardless, and one of th
 consequential as G7:
 
 - **An IdC-enabled workgroup cannot be modified to support resource-level IAM permissions or
-  identity-based IAM policies.** That constrains what is possible **inside such a workgroup**. It does
-  **not** touch §3.4's base plane, where the Identity Pool → portal role → `${aws:PrincipalTag/username}`
-  model keeps governing S3 and the personal Glue database — the two planes are separate by design, and
-  reading this bullet as "the portal's isolation model is unworkable" is the mistake to avoid. What it
-  does reach is the query-results location: an IdC workgroup requires *Override client-side settings*,
-  and replaces per-user result routing with S3 Access Grants and `${identitystore:UserId}` prefixes.
+  identity-based IAM policies.** That constrains what is possible **inside such a workgroup**, and
+  reading it as "the portal's isolation model is unworkable" is the mistake to avoid — through Phase 4
+  the interim plane (Phase 1) keeps `${aws:PrincipalTag/username}` governing S3 and the personal Glue
+  database, untouched by anything a workgroup does. *This bullet used to say the two planes were
+  separate by design; §3.4 is superseded and they are separate only in TIME — the interim plane retires
+  in Phase 5.* What it does reach is the query-results location: the workgroup's **user-identity-based
+  S3 prefix** feature appends **`${user_id}`** to the results path and requires *Override client-side
+  settings*, displacing the per-user result routing this app derives today. **Confirm whether that
+  feature can be turned off** — AWS documents the override as a requirement *of the feature*, which is
+  on by default, rather than of an IdC workgroup as such. If it can, the results prefix is a choice
+  rather than a constraint, and §3.9's first question gets easier.
 - **Queries time out after 30 minutes by default, one hour maximum**, in a TIP workgroup. The limit is
   not raisable past an hour.
 - **Users must be assigned to the `IdentityCenterApplicationArn`** returned by `GetWorkGroup`, not
@@ -325,16 +507,35 @@ the SPA is a front end to it. This is the backend-for-frontend pattern. What cro
 browser is AWS temporary credentials, exactly what the Identity Pool sends today, so the posture
 is unchanged. What must never cross is the Identity Center token.
 
-**The backend needs session state.** Identity Center refuses to exchange a token it has already
-exchanged, using the JWT `jti` claim for replay detection, and Cognito ID tokens carry a `jti` —
-**but only because token revocation is enabled on the app client.** Cognito adds `jti` /
-`origin_jti` only when `enable_token_revocation` is on; the current IaC does not set it and relies
-on the Terraform provider default of `true`. Pin it explicitly when the client pool is built,
-because this replay behaviour is what the session-state design rests on.
-Each Cognito ID token can therefore be exchanged **exactly once**, which rules out the stateless
-design where the browser re-presents its token and the backend re-exchanges it. Hold the refresh
-token server-side (encrypted, keyed by session, with a TTL) and use the `refresh_token` grant
-thereafter.
+**The backend needs session state in both variants — but for DIFFERENT reasons, and the difference is
+a security property the baseline does not get.** The design conclusion is the same either way:
+exchange once at login, hold the refresh token server-side (encrypted, keyed by session, with a TTL)
+and use the `refresh_token` grant thereafter. Do not read that shared conclusion as a shared guarantee.
+
+Identity Center's replay protection is keyed on the JWT **`jti`** claim, and AWS states it
+conditionally — *"this claim, **when present**, prevents tokens that have the same JTI from being
+reused"* — while warning that some authorization servers do not emit one. It does **not** document
+what happens to a replayed token carrying none.
+
+- **[B]** Cognito emits `jti` / `origin_jti`, but **only when `enable_token_revocation` is on**. The
+  current IaC does not set it and relies on the Terraform provider default of `true`. Pin it
+  explicitly when the bridge pool is built, or the protection is silently absent.
+- **[A] — Entra does NOT emit `jti`, and it cannot be made to.** It emits **`uti`**, which Microsoft
+  describes as *"equivalent to `jti` in the JWT specification"* — a different claim name, in v1.0 and
+  v2.0, ID tokens and access tokens alike. `jti` is **not in the optional-claims reference**, so it
+  cannot be requested, and nothing in AWS's documentation says Identity Center reads `uti` as a
+  substitute. **Record this as a property the baseline variant does not have** rather than as
+  something to confirm on a real token: an Entra ID token captured before its `exp` is, on the
+  evidence available, **re-exchangeable**.
+- **The compensating control, stated rather than assumed:** the assertion never reaches the browser
+  and is exchanged exactly once, server-side, in the login handler — so the exposure is a token
+  stolen from the backend or from the IdP round trip inside its own validity window, not a token
+  replayed from a tab. That is the same exposure the OIDC code exchange already carries. It is
+  narrow, and it is **not zero**, and it is the reason session state here is a design requirement
+  rather than a consequence of replay protection.
+- **Settle it with G8's own experiment.** The exchange is already being stood up to answer G8; while
+  it is up, exchange one Entra assertion twice and record what Identity Center does. That is the only
+  evidence that would move this.
 
 Two further consequences worth designing for:
 
@@ -351,8 +552,9 @@ Two further consequences worth designing for:
   no per-user conditions — the identity travels in the context and Lake Formation, not the trust
   policy, enforces per-user.
 - **Permissions:** Athena start/get/results on the Identity Center workgroup, Glue catalog read
-  on the core-dataset databases, `lakeformation:GetDataAccess`, and read/write on the Athena
-  results prefix. Deliberately **no direct S3 read** on dataset data — Lake Formation vends it.
+  on the core-dataset databases, `lakeformation:GetDataAccess`, and the three S3 Access Grants
+  operations (§3.9). Deliberately **no direct S3 read** on dataset data — Lake Formation vends it,
+  and the allow-list below denies it anyway.
 - **One role for everyone.** All differentiation is in Lake Formation via the propagated identity.
 
 Note that the identity-enhanced session is restricted by the
@@ -362,8 +564,13 @@ of what the carrier role's own policies allow. **Answered (2026-07-31, policy v1
 the Glue catalog read actions are on it; the **only S3 actions on it are the three S3 Access
 Grants operations** (`s3:GetDataAccess`, `s3:GetAccessGrantsInstanceForPrefix`,
 `s3:ListCallerAccessGrants`). Plain `GetObject` / `PutObject` / `ListObjectsV2` are denied, so
-**the file browser can never run on this plane via direct S3 calls.** The two-plane split already
-routes around this; it also motivates gate P3 in §5.4.
+**the file browser can never run on this plane via direct S3 calls.**
+
+> **AMENDED 2026-08-18.** This paragraph used to end *"the two-plane split already routes around
+> this"*. There is no two-plane split (§3.4): this constraint is not routed around, it is **obeyed** —
+> storage moves onto S3 Access Grants (§3.9). It still motivates gate P3 in §5.4, and P3 now decides
+> whether the permission-set path can serve any storage access at all rather than whether it can
+> serve a second plane.
 
 ### 3.7 How Lake Formation enforces
 
@@ -416,6 +623,84 @@ The reconcile loop is idempotent and safe to re-run:
 **The trade:** this is eventually consistent. A config change is not live until the next
 reconcile. Run it on config merge plus a periodic sweep. Accepting reconciler lag to avoid
 hand-rolled column security is the right trade.
+
+### 3.9 The storage plane — S3 Access Grants
+
+§3.4 collapsed the two credential planes into one, and the allow-list in §3.6 is why: on an
+identity-enhanced session, plain S3 is denied. **S3 Access Grants is what replaces
+`${aws:PrincipalTag/username}`**, and it is new infrastructure — it appears nowhere in this
+architecture today, and it is an account-wide singleton to own in the coordination contract (§4.4).
+
+**How it is configured** (all in the central account):
+
+1. Create an **S3 Access Grants instance** — one per account and Region — and associate it with
+   Identity Center so it accepts trusted-identity-propagation identities. That association is also a
+   **prerequisite of the IdC-enabled Athena workgroup**, not an optional extra.
+2. **Register a location**: the bucket or prefix, plus an IAM role Access Grants uses to vend
+   credentials for it, whose **permission** policy is where per-user narrowing lives (below). Its
+   **trust** policy needs a **second statement** granting **`sts:SetContext`** — beside the
+   `sts:AssumeRole` one, not folded into it — conditioned on
+   `ForAllValues:ArnEquals` over `sts:RequestContextProviders` =
+   `arn:aws:iam::aws:contextProvider/IdentityCenter`, plus `aws:SourceAccount` and an `aws:SourceArn`
+   naming the **location**.
+3. **Create grants**: bind an **Identity Center user or group** to a **prefix** with
+   `READ` / `WRITE` / `READWRITE`.
+
+**The backend calls `GetDataAccess` on the user's identity-enhanced session and gets back
+prefix-scoped temporary credentials.** From there the bytes reach the browser the way Arc B already
+settles it — the backend presigns and the browser redeems the URL directly against S3, so large
+transfers stay off compute without the browser ever holding credentials. **That presigning step is
+unproven against Access-Grants-vended credentials and is gate G9** (§5.5); if it fails, the fallback
+is handing the scoped credentials to the browser, which is what the target design assumed, and
+SPEC-202's load-bearing negative has to be re-worded before it is run.
+
+**Isolation is expressed in TWO places, and confusing them is the mistake to avoid.** A grant's scope
+is **literal path text** plus a trailing `*` — `CreateAccessGrant` documents no variable substitution
+in `S3SubPrefix`, so *there is no such thing as one variable grant covering every user*. The
+per-user narrowing that looks like a variable lives in the **location role's permission policy**,
+where `${identitystore:UserId}` is an ordinary IAM policy variable — AWS's own sample role policy for
+an IdC-enabled Athena workgroup resolves `arn:aws:s3:::.../${identitystore:UserId}/*` exactly that
+way. So the shape is *one broad grant narrowed by a role policy*, or *one literal grant per user*,
+and the choice is real either way.
+
+> **CORRECTED 2026-08-18, at review.** An earlier version of this section offered
+> `${identitystore:UserId}` as a **grant scope** and called it "one standing grant and no provisioning
+> at all — the strongest practical argument for the variable form". That option does not exist as
+> described. It is also **not** the same token Athena uses: Athena's user-identity result prefix
+> appends **`${user_id}`**, substituted by Athena when it writes results, where
+> `${identitystore:UserId}` appears in an **IAM policy**. Two mechanisms, two spellings, one easy
+> conflation.
+
+**Three things this plane must answer that no section answers yet.**
+
+- **Does the per-user prefix stay the username?** The core invariant — username = S3 prefix = Glue
+  database name (§2 item 3; the principal tag is this plan's own addition to it) — has survived every
+  revision so far, and a literal per-user grant preserves it. Narrowing by
+  `${identitystore:UserId}` in the location role's policy does not: the prefix becomes an Identity
+  Store id. **Query results are the part most likely to move regardless** (§3.5's workgroup bullet),
+  so the invariant may hold for the file browser and break for results. Decide it deliberately; it
+  strands data if it changes afterwards.
+- **Who creates a user's grant, and how many are there?** A literal per-user grant is a provisioning
+  step and belongs beside database creation and tagging in the provisioning contract (§2 item 7),
+  with the same latency question. A role-policy-narrowed grant is standing and provisions nothing —
+  which is the genuine argument for that shape, now that the imaginary one is gone. **Either way the
+  instance has a ceiling**: one Access Grants instance per account and Region, **1,000 locations**
+  and **100,000 grants** on it, shared with every other tenant of the account (§4.4).
+- **Shared spaces need a grant per (member, space), and nothing issues one today.** Membership is a
+  Cognito attribute write today; here it is an Access Grant on the space's prefix **plus** a Lake
+  Formation grant on the space's database. Both are per-user and registry-driven — the shared-space
+  control plane already knows the membership and is already the privileged writer, so this is a new
+  verb on an existing plane rather than a new plane. **The shared-space control plane owns both
+  halves, and they are one spec**: they are written and revoked at the same moments (add member,
+  remove member, leave, delete space), and splitting them across two owners is how a member ends up
+  holding one and not the other. §3.8's reconciler is the **pattern** to follow — desired state,
+  read current, converge — not a second owner. **That spec is now written: SPEC-204.** Phase 3's
+  inventory sizes it; Phase 5 executes it. Read its FR-008 before planning Phase 5 — it found a
+  standing role-level Lake Formation grant that becomes a union grant on every space the moment the
+  tags retire.
+
+**What does not change:** the seven control-plane execution roles keep their direct S3 grants and are
+untouched by any of this (§3.4).
 
 ---
 
@@ -485,6 +770,21 @@ replacing an existing one breaks every other consumer.
 The same posture applies to `aws_lakeformation_data_lake_settings`: the portal now legitimately
 owns the account's data-lake administrator list, and later tenants are added through this repo's
 IaC, never by a competing apply.
+
+**The list gained a third member on 2026-08-18: the S3 Access Grants instance** (§3.9). It is one
+per account and Region, its association with Identity Center is a prerequisite of the IdC-enabled
+Athena workgroup, and every consuming application in the account shares it. Name it in the
+coordination contract on the same terms as the other two — the portal creates it as first tenant,
+and later tenants register locations through this repo's IaC rather than by a competing apply.
+
+**It is the first singleton with a CONSUMABLE budget, and that is a different kind of coordination
+problem.** The data-lake settings and the Identity Center configuration are shapes a later tenant can
+overwrite; this one is a pool a later tenant can **exhaust**: **1,000 locations** and **100,000
+grants** per instance. With one literal grant per user per space (§3.9), the portal's own consumption
+grows with users × spaces, and a co-tenant granting per object prefix could take the rest. The
+contract needs a **budget** alongside the ownership line, and the Region constraint with it — the
+Identity Center instance, the Access Grants instance, the Athena workgroup and Lake Formation must
+all be in the same Region.
 
 ### 4.5 A third counterparty — unchanged
 
@@ -608,21 +908,23 @@ The rest of what CloudFront was doing, each of which needs explicit configuratio
 | SPA routing fallback | CloudFront mapped 404 to `index.html` for client-side routes. nginx needs `try_files $uri $uri/ /index.html`, or every deep link 404s. |
 | Cache headers and busting | Long immutable cache on hashed assets, revalidate-always (`no-cache`) on `index.html` — the exact per-class scheme is **SPEC-141**, and nginx must reproduce it (SPEC-141 also records *why*: heuristic browser caching plus `--delete` produces a white screen, not stale content). Get this wrong and users silently run stale bundles after a deploy — intermittent and very hard to diagnose. |
 | Compression | CloudFront gzipped and brotli'd automatically. nginx must be told to. |
-| TLS and certificate | An ALB with ACM, or ingress TLS. **Cognito requires HTTPS callback URLs.** |
+| TLS and certificate | An ALB with ACM, or ingress TLS. **The OIDC provider requires HTTPS callback URLs** — Cognito does under **[B]**, Entra does under **[A]**. |
 | Security headers | The **shipped** response-headers policy (SPEC-140: enforcing CSP + HSTS + framing/nosniff/referrer/Permissions-Policy/COOP/CORP, `Server` stripped — `architecture.md` → *Infrastructure & Deployment*) moves into the nginx config. The CSP's `connect-src` is derived from Terraform variables; the nginx copy needs the same derivation, not a frozen string. HSTS currently carries `preload` (inert on `*.cloudfront.net`, never submitted) — re-decide `preload` deliberately for the new domain before emitting it there. |
 | Health check | The load balancer or orchestrator needs an endpoint to probe. |
 
 **Two coupling points that reach outside this workstream:**
 
-- **The Cognito app client's callback and logout URLs must match the new origin exactly**, and
+- **The OIDC provider's callback and logout URLs must match the new origin exactly** — the Cognito app client under **[B]**, the Entra app registration under **[A]** — and
   `VITE_APP_URL` feeds the same value. So the final origin has to be known before Phase 1's auth
   configuration is finalised. This is the hosting workstream's one hard dependency on the auth
   phases.
-- **S3 bucket CORS must allow the new origin.** The browser calls S3, Athena, Glue and SQS
-  directly, so the bucket's CORS configuration needs the new origin added. Under the successor
-  strategy the portal owns the bucket, so this is this repo's own IaC rather than a change
-  request — but it is still easy to miss until the first upload fails with an opaque browser
-  error.
+- **S3 bucket CORS must allow the new origin.** *This bullet predates Arc B: the browser no longer
+  calls Athena, Glue or SQS at all — every AWS call moves behind the API (SPEC-197 → 201), and the
+  Identity Pool retires (SPEC-202).* What survives is the part that matters here: the browser still
+  redeems **presigned S3 URLs** for file bytes, so the bucket's CORS configuration needs the new
+  origin. Under the successor strategy the portal owns the bucket, so this is this repo's own IaC
+  rather than a change request — but it is still easy to miss until the first upload fails with an
+  opaque browser error.
 
 **The deploy pipeline changes shape.** Build, push to a registry, update the service, replacing
 build, sync to S3, invalidate the distribution. New resource types mean the deploy role's
@@ -677,7 +979,7 @@ backend needs SigV4 credentials to call `CreateTokenWithIAM`, and the task role 
 free. Scope that role narrowly — it is a privileged identity that mints sessions on behalf of
 users.
 
-**Three clocks now govern a session:** the Cognito session, the Identity Center refresh token, and
+**Three clocks now govern a session:** the provider session (Cognito **[B]**, Entra **[A]**), the Identity Center refresh token, and
 the browser session cookie. Decide deliberately what the user experiences when each expires,
 rather than letting the shortest one produce a confusing failure.
 
@@ -709,6 +1011,30 @@ exemption covers this — it does not.
 
 **This must be tested before Phase 1 is built.** It is the single highest-value experiment in the
 plan, and running it late means throwing Phase 1 work away.
+
+> **AMENDED 2026-08-18 — what Path A is now an alternative to.** This section was written when §3.4
+> had a **base plane** for storage, and Path A was a candidate replacement for the Cognito Identity
+> Pool that fed it. §3.4 is superseded and the base plane is gone, so Path A's role changes rather
+> than disappearing: it is now the alternative to **§3.9's S3 Access Grants** for the storage plane.
+> Gate **P3** is the one that decides it, and §5.4 already records the tension that makes it
+> interesting — a P1 *pass* implies the session is identity-enhanced, which implies a P3 *failure*,
+> because the allow-list denies plain S3 (§3.6). So the two outcomes are:
+>
+> - **P3 passes** (plain S3 works, session not identity-enhanced): a base plane survives after all,
+>   fed by permission sets rather than the Identity Pool, and §3.9 is not needed for user storage —
+>   though it is **still needed for the IdC-enabled Athena workgroup**, which requires the Access
+>   Grants association regardless.
+> - **P3 fails**: §3.9 stands as written and this section is history.
+>
+> Either way §3.9's Access Grants instance gets built, so nothing in Phase 5 waits on this.
+>
+> **Two further things this section says that the variant revision has already delivered.** §5.2
+> credits Path A with deleting §6.1's trap and removing the ten-slot ceiling; **Variant A delivers
+> both on its own** — no Cognito means no writable custom attribute, and Phase 5 retires the tags
+> regardless — so they are no longer reasons to prefer Path A. What remains genuinely Path A's is the
+> audit-legible session name and the single-identity story. And §5.4's procedure is written around a
+> **Cognito pool as the trusted token issuer**: read it as **[B]**, and substitute Entra under
+> **[A]**. The experiment is unchanged in either case; only the issuer it points at moves.
 
 The longer-term goal is one identity across every internal tool, with seamless movement between
 several small services. That ambition points at a second credential path that AWS introduced in
@@ -788,7 +1114,8 @@ If a gate fails, nothing is lost: Phase 1 proceeds as written and Path B still c
 
 ### 5.5 Gates inherited from the retired spike
 
-Independent of P1 and P2, these belong to Phase 5 and are still worth proving:
+Independent of P1 and P2, and still worth proving. **G7, G8 and G9 run in Phase 0** — each can
+invalidate design rather than merely confirm it; the rest belong to Phase 5:
 
 | Gate | Check | If it fails |
 |---|---|---|
@@ -799,6 +1126,8 @@ Independent of P1 and P2, these belong to Phase 5 and are still worth proving:
 | G5 | A JOIN across two granted datasets returns in one query | The single-session-spans-grants assumption is wrong |
 | G6 | Session lifetime is workable and silent refresh exists | UX churn; needs a refresh strategy |
 | G7 | A plain `StartQueryExecution` on an IdC-enabled workgroup, issued with identity-enhanced credentials from our own code, runs and is enforced per user (§3.5) | **Blocker, and genuinely uncertain** — the docs list *federated access to the Athena API* as incompatible with TIP, but define that term narrowly elsewhere as SAML-via-JDBC/ODBC, so neither reading is safe to assume. If it fails, Phase 5 needs a different query surface: a studio product, or a broker that re-implements masking (§3.2 point 4). **Run it in Phase 0, not Phase 5** |
+| **G8** | **Can the Entra tenant issue OIDC/OAuth2 JWTs for this application** — an app registration on the **default signing key** (a custom signing key is unsupported for the Entra trusted-token-issuer path), with an audience and an `email`-to-IdC-attribute claim mapping that align? | **This is the variant decider (§3.3), not a blocker.** Pass → **Variant A**, and Cognito is never built. Fail → **Variant B**, and a Cognito bridge is built to be deleted later. Often a per-app-registration or tenant-policy matter rather than a product limitation, so **ask the Entra tenant owner before assuming**. Answer it in **Phase 0**: it decides work in Phase 1 and Phase 5, and building B when A was available is the expensive mistake |
+| **G9** | **Presign an S3 `GET` and a `PUT` from `GetDataAccess`-vended credentials and redeem both from a browser origin** (§3.9) | Presigning is a local SigV4 operation and the session token rides in the query string, so this *should* work and S3 should evaluate the grant's scope at redemption — but it is **unproven**, and the whole "AWS credentials never reach the browser" posture rests on it. If it fails, the fallback is vending the scoped credentials to the browser directly, and **SPEC-202's load-bearing negative live check must be re-worded before it is run**. Cheap; run it in Phase 0 beside G7, on the same throwaway instance |
 
 ---
 
@@ -806,14 +1135,37 @@ Independent of P1 and P2, these belong to Phase 5 and are still worth proving:
 
 Everything else is mechanical. These are where the work and the risk live.
 
-### 6.1 The federated username claim is not `cognito:username`
+### 6.1 The username claim is not `cognito:username`
 
-The highest-consequence detail in the migration, and easy to miss. **If §5's gates P2 and P3 both
-pass, this problem disappears — which is why that experiment comes first.**
+The highest-consequence detail in the migration, and easy to miss.
+
+> *This section used to open by saying that gates P2 and P3 passing would make the problem disappear.
+> They no longer touch it: the Identity Pool those gates are about is never created in the successor
+> account (Phase 1), and what survives under **[A]** — which Entra claim carries the catalog-safe
+> username — is not a question about session tags.*
+
+> **RESHAPED 2026-08-18 by the identity-variant revision. It changes shape; it does not go away.**
+>
+> - **[A — baseline]** There is no Cognito, so there is no `cognito:username` and **no custom
+>   attribute to lock down**. The second half of the fix below — the writable-attribute privilege
+>   escalation — disappears entirely, and with it the "attributes can never be renamed or deleted"
+>   trap and the whole `read_attributes` / `write_attributes` enumeration. What survives is the
+>   *first* half, in a new form: **which Entra claim carries the catalog-safe username**, is it
+>   stable for the life of a user, and does every reader below take it from there. You cannot write
+>   to Entra, so if no existing claim carries it, the username must be derived or mapped rather than
+>   stored — decide that in Phase 0, because it keys the S3 prefix and a change strands data.
+> - **[B — fallback]** The section stands as written, with one correction: the synthetic value is
+>   prefixed with the **provider name configured on the pool**, so with the bridge pointed at Entra
+>   (§3.3) it is not literally `identitycenter_<subject>`. Do not pattern-match on the prefix.
+> - **Both** — **Arc B collapses the five readers to one.** After SPEC-201 the API derives `actor`
+>   once from the verified token and every control plane reads a field it cannot forge, so this
+>   becomes one configured claim name in one verifier rather than five independent reads. That is a
+>   large part of why the API migration should happen **before** the environment move rather than
+>   after. The list below is the *pre-Arc-B* inventory; keep it until SPEC-201 lands.
 
 When a user signs in through a federated identity provider, Cognito does **not** set
 `cognito:username` to the user's real username. It sets a provider-prefixed synthetic value of
-the form `identitycenter_<subject>`. **Five** places read that claim and would silently start
+the form `{providerName}_<subject>`. **Five** places read that claim and would silently start
 operating on the wrong identifier:
 
 - `infra/modules/auth/identity-pool.tf` line 85 maps the `username` principal tag to
@@ -825,10 +1177,12 @@ operating on the wrong identifier:
   55-56 — which sits inside `_verify` (line 26), *not* inside the `verify_id_token` wrapper at
   line 60. Change the private helper, not the wrapper — though note the wrapper's *docstring*
   does mention the claim, so a naive grep-and-replace will still touch it.
-- `lambdas/notifications-writer/notifications_writer.py` line 105 reads the claim through its
-  **own, independent verification path** — it is not routed through `cpcommon`, and it raises its
-  own error when the claim is missing (line 107). This read is the **anti-spoofing control for
-  the notifications inbox**; miss it and notification identity silently keys on the wrong value.
+- `lambdas/notifications-writer/notifications_writer.py` reads the claim as the **anti-spoofing
+  control for the notifications inbox** — miss it and notification identity silently keys on the
+  wrong value. *Stale as written: this bullet describes an **own, independent verification path**,
+  which **SPEC-156 FR-004 removed** — the verification now goes through `cpcommon`. The claim read
+  is still its own. `SPEC-201` flags the same staleness; re-derive the line numbers when this list
+  is next used rather than trusting them.*
 - `lambdas/shared-space-common/auth.py` line 34 reads the claim directly from the token dict
   returned by `cpauth.verify_id_token` — verification is delegated, the claim read is not.
 - `apps/portal/src/features/auth/auth.service.ts` reads `getCurrentUser().username` and publishes
@@ -882,6 +1236,23 @@ source, surrender the bucket policy, and join the incumbent's Identity Center co
 allow-list. Keep this paragraph until the account's tenancy order is contractual.
 
 ### 6.3 Destructive code paths during the sync-and-seed window
+
+> **AMENDED 2026-08-18 — the delete semantics change, and most of this table's teeth go with them.**
+> In the target environment a shared-space **delete removes every member and the owner and destroys
+> nothing**: the objects under `{name}/`, the Glue database and the registry record all survive, and
+> the record stays `active` with an empty roster. **SPEC-205 owns that change** and ships
+> independently of the transition.
+>
+> **It does not empty this table; it narrows one row.** SPEC-205 FR-002 keys retention on
+> **`everActive`**, a durable field — not on live `status`, which a failed delete moves out of
+> `active` while the data is intact. A space that ever reached `active` is emptied; one that never
+> did is still destroyed by `shared-space-forget`'s owner path. So only the **`delete` verb** row
+> loses its teeth. The **teardown-helper** row keeps them in full — `forget` still calls all three
+> helpers — and so does the **`forget` branch** row.
+>
+> **The guards stay until SPEC-205 ships.** Today's `delete` still deletes objects and drops
+> databases. Strike **the `delete` verb row** when it lands — and only that row; the teardown-helper
+> and `forget` rows stay, because `forget` still calls all three helpers on a never-active space.
 
 The app deletes things because it created them — and in the successor account that becomes true
 again, which retires most of the previous strategy's permanent guards. What remains is a
@@ -958,13 +1329,32 @@ attribute slot and roster cache is populated, and a read-only roster fetch succe
 `tofu state rm` choreography, the ownership-transfer inventory and the "what physically grants
 membership" unknown are gone; this **parity check** is what stands in their place.
 
-What does **not** disappear is the ceiling. Membership remains the Cognito custom attributes
-(`custom:shared_space_1..10`), and the ten-slot cap carries over. Enumerate old-account workspace
-membership in Phase 0: **if any user belongs to more than ten workspaces, redesign before the
-successor User Pool is created** — custom attributes can never be deleted or renamed, and fixing
-the schema later means a new pool and new `sub` values for every user. Passing gates P2 and P3
-(§5.4) replaces the attributes with Identity Center-sourced session tags and removes the ceiling
-entirely — one more reason the experiment runs first.
+What does **not** disappear is the membership question, though the revision changes its shape.
+
+> **RESHAPED 2026-08-18, then CORRECTED at review the same day. The ceiling survives the interim
+> plane, and the correction is the load-bearing half.** This paragraph first said the ten-slot cap
+> carries over as a *Cognito* limit; the reshape then said it dissolves. Both were wrong.
+>
+> **The cap is not in Cognito. It is in the IAM policy.**
+> `infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl` loops over
+> `max_shared_memberships` (default 10) and emits `${aws:PrincipalTag/shared_space_${k}}` into the S3
+> object resources, the `ListBucket` prefix condition and the Glue database and table ARNs. An
+> eleventh session tag matches **no resource** and is an implicit deny — so it does not matter where
+> the tag came from. Through **Phases 1–4** the interim plane keeps that policy, which means it keeps
+> the ceiling: raising it means re-rendering the policy, which is the "no IAM policy changes at all"
+> the interim window otherwise promises (and IAM's 6,144-character inline-policy limit bounds how far
+> the loop can grow). *STS accepting up to 50 session tags is true and irrelevant — enforcement is
+> the policy, not the tag set.*
+>
+> **The ceiling dissolves at Phase 5, not before**, when the tags retire and membership becomes an
+> **S3 Access Grant on the space's prefix plus a Lake Formation grant on its database**, per (member,
+> space) — §3.9. Those have no per-user slot limit, but the Access Grants instance has its own
+> ceilings (1,000 locations, 100,000 grants) and is shared account-wide.
+>
+> **So keep the Phase 0 inventory and keep checking it against ten**, for Phases 1–4. It has a second
+> purpose now: every (member, space) pair is a grant something has to issue at Phase 5 seeding, and
+> the count sizes that work. **[B]** adds nothing here — the bridge pool ships with no custom
+> attribute schema at all (§2 item 1), so the cap has no Cognito half in either variant.
 
 ### 6.5 The sync and the cutover (was: retiring bespoke roles — deleted; they are never created)
 
@@ -1007,14 +1397,37 @@ they already were.
 
 **Goal:** eliminate the unknowns in §8 and write down the successor-account contract.
 
-- **Run the §5.4 permission-set experiment.** Unchanged and still first: gates P2 and P3
-  together decide whether Phase 1 needs the Cognito Identity Pool and the custom username
-  attribute at all, and §6.4's membership ceiling turns on the same result.
+- **Settle the variant — gate G8 (§5.5), and it is a conversation, not an experiment.** Ask the
+  Entra tenant owner whether an OIDC/OAuth2 app registration is available for this application, on
+  the **default signing key**. Pass → **Variant A** and no Cognito is ever built; fail → **Variant
+  B** and a bridge pool is built to be deleted later. It gates Phase 1's whole auth configuration
+  and part of Phase 5, it has a long lead time, and **building B when A was available is the
+  expensive mistake** — so start this on day one of the phase, ahead of the experiments below.
+- **Confirm SCIM provisioning from Entra into Identity Center is live** (§2 item 12) — the exchange
+  maps a claim to an Identity Center user and grants target Identity Center groups; neither works
+  without it, in either variant. It is somebody else's system, so confirm it rather than assume it.
+- **Run the §5.4 permission-set experiment.** Unchanged and still first among the experiments: gate
+  P3 now decides whether §3.9's Access Grants or a permission-set-fed base plane serves user storage
+  (§5's amendment), and P2 decides whether session tags can come from Identity Center attributes.
 - **Run gate G7 (§5.5) alongside it.** It is a single query against a throwaway IdC-enabled
   workgroup, and it is the one experiment that can invalidate §3 outright — the documentation is
   ambiguous (§3.5) and no amount of further reading will settle it. Standing the workgroup up also
   surfaces the S3 Access Grants prerequisite while it is still cheap, and the workgroup's
   authentication method cannot be changed afterwards, so throwaway means throwaway.
+- **Run gate G9 (§5.5) on the same throwaway instance** — presign an S3 `GET` and a `PUT` from
+  `GetDataAccess`-vended credentials and redeem both from a browser origin. Cheap, and the
+  "AWS credentials never reach the browser" posture rests on it (§3.9).
+- **Check the Region against the list, before anything else is stood up.** Trusted identity
+  propagation with Athena is available in an **enumerated set of Regions** — `us-east-1` is on it;
+  `eu-south-2`, `ap-south-2`, `il-central-1`, `me-central-1` and `ca-west-1` are not. The Identity
+  Center instance, the Access Grants instance, the Athena workgroup and Lake Formation must all sit
+  in that **same** Region. §4.1 asks whether the account is in the same organization and never asks
+  this.
+- **Size the `CreateTokenWithIAM` quota against the user base.** JWT-bearer token generation is
+  limited to **10 requests per second, instance-wide across every application on the Identity Center
+  instance**, and it is raisable only by support request. Every sign-in performs exactly one
+  exchange (§3.5), so this is a *login-storm* limit — a Monday-morning cohort, or a deploy that
+  invalidates sessions — and the instance is shared with whatever else the organization runs on it.
 - Do **not** run the retired spike's G1 experiment. It is settled (§3.5).
 - Confirm the successor account: does it exist yet, is it in the **same organization** (same
   Identity Center organization instance — load-bearing, §4.5), who else is scheduled to land in
@@ -1023,7 +1436,16 @@ they already were.
 - Call `DescribeLakeFormationIdentityCenterConfiguration` in the successor account (§4.4).
 - Identify the Identity Center administrators and their process for creating a customer-managed
   application (§4.5).
-- Confirm the exact Identity Center attribute carrying the catalog-safe username.
+- Confirm the exact **claim** carrying the catalog-safe username, and that it is stable for the life
+  of a user — **[A]** an Entra claim, which you cannot write to, so if none carries it the username
+  must be derived or mapped rather than stored; **[B]** the same, mapped through the bridge pool
+  (§6.1). It keys the S3 prefix, so a change strands data.
+- **Decide the Access Grants prefix identity** (§3.9): one **literal grant per user**, keeping the
+  username as the prefix and making a grant a provisioning step — or **one broad grant narrowed by
+  `${identitystore:UserId}` in the location role's own policy**, which is standing but replaces the
+  username with an Identity Store id. There is no variable grant scope; the two mechanisms are a
+  grant and a policy. It may split, because the workgroup's user-identity result prefix (`${user_id}`)
+  may move **results** regardless — so also establish whether that feature can be turned off (§3.5).
 - Inventory the old account: buckets and data volumes, prefix conventions, per-user Glue
   databases, shared workspaces and per-user membership counts (§6.4's ceiling check), core
   datasets and the existing grant matrix.
@@ -1036,57 +1458,111 @@ they already were.
 - Choose the sync tooling and rehearse one real prefix end-to-end in non-production, including
   re-encryption under a customer-managed key (§6.5).
 
-**Exit criteria:** every question in §8 has an answer; P1–P3 findings are written down and
-Phase 1's credential design is confirmed or revised in light of them.
+**Exit criteria:** every question in §8 has an answer; **G8 has settled the variant in writing**;
+G7 and G9 have run; P1–P3 findings are written down and Phase 1's credential design is confirmed or
+revised in light of them.
 
 ### Phase 1 — Stand up the portal in the successor account
 
-**Goal:** the portal runs in the successor account with federated login: an organization user
-signs in with their existing SSO and lands in an empty portal with a correct `username` principal
-tag. No data yet, and that is fine.
+**Goal:** the portal runs in the successor account with corporate SSO: an organization user signs in
+with Entra and lands in an empty portal whose file browser is correctly scoped to them. No data yet,
+and that is fine.
 
-*Revise this phase if gates P2 and P3 both passed — the Identity Pool and custom attribute items
-drop out.*
+> **The credential model in this phase is the INTERIM one, and naming it is what keeps the phase
+> tractable.** §3.4's end state — one identity-enhanced plane with storage on S3 Access Grants — is
+> **Phase 5** machinery: it needs the trusted token issuer, the customer-managed application, the
+> Access Grants instance and the IdC-enabled workgroup, none of which exist yet. Phase 1 instead
+> runs the plane **Arc B already built**: the API verifies the OIDC ID token and calls
+> `sts:AssumeRole` on the shared portal role with a `username` session tag taken from the verified
+> claim, and `${aws:PrincipalTag/username}` keeps scoping every S3 and Glue policy exactly as it
+> does today (SPEC-196).
+>
+> Three things follow, and all three are improvements on the previous plan:
+>
+> - **The Cognito Identity Pool is never created in the successor account, in either variant.** Arc
+>   B retires it (SPEC-202) before the move, and nothing here brings it back. Every Phase 1 item the
+>   previous version of this section had about the pool, its principal-tag mapping and the
+>   `custom:portal_username` attribute is **deleted**, not rewritten.
+> - **The interim plane is provider-agnostic.** It needs a verified ID token and nothing else, so it
+>   works identically under **[A]** and **[B]** and needs no Identity Center integration at all.
+> - **Shared-space membership tags come from the registry**, computed by the API at `AssumeRole`
+>   time rather than read from a directory attribute — which removes the SPEC-056 propagation delay
+>   for the whole interim window. It does **not** remove the ten-slot ceiling: see below. Phase 5 then
+>   replaces tags altogether (§3.9), so this is a way station, not a destination. **SPEC-203 owns it**
+>   and ships before this phase, in the current environment, where the two sources can be proved to
+>   agree — an assertion that is unwritable once this account is live. Its mechanism is a **per-user
+>   membership index in the admin bucket**, not a registry scan: enumerating a user's spaces from the
+>   registry costs a listing plus a read per space on every credential mint, and the request cannot
+>   name its own spaces (a fully-qualified `SELECT` names none).
+
+**Both variants:**
 
 - Apply the portal's IaC into the successor account — **including** the Lake Formation settings
   and bucket registration it now legitimately owns (§4.2). Register the user-space bucket in
   **hybrid** mode (§6.2).
-- Add Identity Center as a SAML identity provider on the User Pool (`infra/modules/auth/cognito.tf`).
-- Add the `custom:portal_username` attribute (or the Pre-Token-Generation trigger), map it from
-  the Identity Center attribute, and **remove write permission from the app client** (§6.1).
-- Change the Identity Pool principal-tag mapping (`identity-pool.tf` line 85) to the new claim.
-  Heed the existing comment on that resource: it churns on every apply if the provider name
-  becomes unknown at plan time. Do not reintroduce a data source there.
-- Change all three `cpcommon/auth.py` readers: `verified_username` (line 95),
-  `verified_username_ignoring_expiry` (line 108), and the claim rejection inside `_verify`
-  (lines 55-56) — the `verify_id_token` wrapper needs only its docstring updated.
-- Change the two readers **outside** `cpcommon` (§6.1): `notifications_writer.py` line 105 (its
-  own verification path — the notifications anti-spoof control) and
-  `shared-space-common/auth.py` line 34.
-- Change `auth.service.ts` to read the claim from the ID token rather than
-  `getCurrentUser().username`.
-- Change `supported_identity_providers` (`cognito.tf` line 142, currently `["COGNITO"]`) to
-  Identity Center only, and pass the provider to `signInWithRedirect` so Managed Login skips the
-  picker.
-- Turn off self-signup Cognito-side, then delete the sign-up UI surface. This is **cosmetic**:
-  `startSignUp` in `auth.service.ts` lines 64-66 is literally `return startSignIn();`, so there is
-  no distinct code path. The surface is `startSignUp` in `auth.service.ts`, `signUp` in
-  `AuthProvider.tsx` and `auth.types.ts`, the "Create account" / "Create your account" handlers in
-  `routes/LandingPage.tsx` (lines 470, 509, 607), copy in `lib/returnPath.ts`, and the "automatic
-  right after sign-up" empty state in `features/query/DatabaseNode.tsx`.
+- Point the API's token verifier at the new provider: issuer, audience, JWKS URI and the **username
+  claim** are configuration (SPEC-195 FR-002). **That half is configuration; the next item is not.**
+  Confirm the claim against Phase 0's finding (§6.1).
+- **BUILD the membership index and its source — SPEC-203**, which ships before the move (after
+  SPEC-199, before SPEC-202) and defaults to the claims source, so what arrives here is a
+  configuration change over code already proved against both sources. It also re-sources SPEC-198's
+  route-level membership check, which would otherwise refuse every shared space once the claims are
+  gone.
+  *The paragraph below is why that spec exists; it is retained because it is the argument, not the
+  work.*
+  SPEC-196 deliberately builds the `shared_space_k` tags from the **token's claims**, and says so as
+  a requirement — that is what makes its "not one IAM policy is rewritten" claim provable rather than
+  arguable. In the successor account there are no such claims to read (no Cognito attribute in
+  **[B]** by decision, no writable directory in **[A]**), so the tags must come from the shared-space
+  registry, computed at `AssumeRole` time. It is a real change to the identity layer with real
+  consequences to spec: a registry read on the credential-minting path, new API-plane IAM on the
+  admin bucket, a per-mint latency cost, an availability coupling, and a defined behaviour when the
+  read fails (**fail closed** — a missing tag denies, which is the safe direction, but it must be
+  chosen rather than inherited). It needs its own equivalence argument, exactly as SPEC-196 says.
+  **Write the spec before this phase, not during it.**
+- Confirm `${aws:PrincipalTag/username}` resolves in a real request — the whole isolation model is
+  that one tag, and a session without it matches nothing.
 - Remove the `pre-signup` and `post-confirmation` triggers and delete their provisioning logic —
-  sign-in provisions nothing (settled, §2 item 7).
+  sign-in provisions nothing (settled, §2 item 7). **[A]** they go with the User Pool.
 - Remove `ensurePrefixMarker` and every other write the portal makes to establish a prefix (full
   removal list in §6.3).
-- Compile out the `VITE_S3_DEV_UNAUTH` path for client builds.
+- Delete the sign-up UI surface. This is **cosmetic**: `startSignUp` in `auth.service.ts` lines
+  64-66 is literally `return startSignIn();`, so there is no distinct code path. The surface is
+  `startSignUp` in `auth.service.ts`, `signUp` in `AuthProvider.tsx` and `auth.types.ts`, the
+  "Create account" / "Create your account" handlers in `routes/LandingPage.tsx` (lines 470, 509,
+  607), copy in `lib/returnPath.ts`, and the "automatic right after sign-up" empty state in
+  `features/query/DatabaseNode.tsx`.
 - Feature-flag off Query workspace, Table Builder, Table Share and Data Quality.
-- **Coordinate with the hosting workstream (§4.6):** the app client's callback and logout URLs
-  must match the container's final origin, so that origin has to be settled before this phase's
-  auth configuration is finalised.
+- **Coordinate with the hosting workstream (§4.6):** the container's final origin has to be settled
+  before this phase's redirect URIs are registered, in either variant.
 
-**Verification:** sign in as two real Identity Center users; confirm from CloudTrail that the
-expected `username` principal tag is stamped for each, and that neither can obtain the other's tag
-via `UpdateUserAttributes`.
+**[A] — baseline, no Cognito:**
+
+- Register the portal as an **OIDC application in Entra**, on the **default signing key** (a custom
+  signing key is unsupported for the trusted-token-issuer path in Phase 5 — get it right now, not
+  then). Confidential client; the redirect URI is the API's callback route.
+- The API performs the code exchange and holds the tokens; the browser gets the `httpOnly` session
+  cookie and nothing else (§3.5, §4.7).
+- **Do not apply `infra/modules/auth`.** No User Pool, no Identity Pool, no Managed Login, no custom
+  attributes, no `supported_identity_providers`, no self-signup to turn off.
+
+**[B] — fallback, Cognito as a bridge:**
+
+- Create the bridge User Pool and configure **SAML federation to Entra** (§3.3), with
+  `supported_identity_providers` set to that provider only and the provider passed to the login
+  redirect so no picker appears.
+- **Self-signup off, and local identities impossible** — this is the §3.3 guardrail, not hygiene: a
+  self-asserted email is another person's grants.
+- **Ship no custom attribute schema at all.** Not `custom:portal_username`, not
+  `custom:shared_space_*`. Nothing app-level depends on Cognito (§2 item 1), the username comes from
+  the verifier's configured claim and membership from the registry — and Cognito custom attributes
+  can never be renamed or deleted, so an attribute created "just in case" is permanent.
+- Everything else is identical to **[A]**; the API's verifier configuration points at the pool's
+  issuer instead of Entra's.
+
+**Verification:** sign in as two real users; confirm from CloudTrail that the expected `username`
+session tag is stamped for each on the assumed role, that neither can reach the other's prefix with
+raw credentials pulled from the session, and that no browser request carries AWS credentials.
 
 **Rollback:** tear the stack down; the account was empty. Nothing in the old account changed.
 
@@ -1122,9 +1598,16 @@ shared spaces from cutover.
 - Keep the destructive verbs disabled on seeded workspaces through this phase (§6.3); the app
   takes over full management at cutover, after the parity check passes.
 - Seed per §6.4: sync each workspace's objects, author its registry object from the manifest,
-  create its Glue database and grants, and populate the members' attribute slots and roster
-  caches from the Phase 0 membership inventory (or Identity Center groups, if gates P2 and P3
-  passed and the mechanism moved). Idempotent and re-runnable.
+  create its Glue database and grants, and populate the roster caches from the Phase 0 membership
+  inventory. Idempotent and re-runnable. **There are no member attribute slots to populate** — the
+  interim plane computes membership session tags from the registry at `AssumeRole` time (Phase 1),
+  so a correct registry object *is* the membership. The §6.4 parity check drops that item and gains
+  one: the registry object must carry every member the manifest names, because nothing else does.
+- **Inventory the (member, space) pairs and record them as Phase 5 work.** In the end state each one
+  becomes an S3 Access Grant on the space's prefix plus a Lake Formation grant on its database
+  (§3.9), issued by the shared-space control plane — **SPEC-204**. This phase is where the size of
+  that job becomes known, and the count is a direct input to its FR-009 grant budget: the Access
+  Grants instance holds 100,000 grants and is shared account-wide.
 - Run the parity check (§6.4) against every seeded workspace before enabling any verb on it.
 
 **Verification:** per-workspace inventory comparison, old account versus new; members see their
@@ -1158,8 +1641,12 @@ non-production workspace.
 **Goal:** core datasets governed by Lake Formation grants keyed on the Identity Center user, not
 on any IAM role. The design is §3; the work items are here.
 
-- Register the Cognito User Pool as a Trusted Token Issuer. Confirm the `aud` claim configuration
-  and which claim maps uniquely to the Identity Center user (`email` is the usual choice).
+- Register the trusted token issuer in Identity Center — **[A]** Entra (issuer URL + JWKS, default
+  signing key), **[B]** the bridge User Pool
+  (`https://cognito-idp.{region}.amazonaws.com/{userPoolId}`). Confirm the `aud` configuration and
+  which claim maps uniquely to the Identity Center user (`email` is the usual choice). Identity
+  Center supports up to ten trusted token issuers, so registering both during a B→A migration is
+  possible.
 - Create the customer-managed application — **requires the management account or a delegated
   administrator** (§4.5). Register a second, separate application if the broader
   identity-brokering capability is being pursued (§5.1).
@@ -1173,9 +1660,25 @@ on any IAM role. The design is §3; the work items are here.
   (§3.8) pointed at the successor account — a re-run of the existing grant matrix against
   unchanged Identity Center principals (§4.1). No dual-granting: there are no bespoke roles to
   grant alongside.
-- Stand up S3 Access Grants for the workgroup's identities — a prerequisite of the IdC-enabled
-  workgroup, and new infrastructure for this repo (§3.5).
-- Prove gates G2 through G6 (§5.5). G7 should already be settled from Phase 0.
+- **Stand up S3 Access Grants (§3.9) and migrate storage onto it.** This is more than the workgroup
+  prerequisite it was previously described as: it is what replaces `${aws:PrincipalTag/username}`
+  when the interim plane retires. Instance, Identity Center association, registered locations,
+  `sts:SetContext` on the location role, and the per-user grants in whichever prefix form Phase 0
+  decided. **Gate G9 (§5.5) must have passed** before the API presigns from these credentials.
+- **Issue the shared-space grants** the Phase 3 inventory produced — one Access Grant per (member,
+  space) prefix plus the matching Lake Formation grant on the space's database, issued by the
+  shared-space control plane. **SPEC-204**, and its **FR-008 is the ordering this phase must
+  follow**: entitle every member and verify, *then* retire the tags, *then* revoke the standing
+  role-level Lake Formation grants `shared-space-create` issues today. Reversed, every member is
+  locked out; skipped, every user is entitled to every space.
+- **Retire the interim plane** last, and only once storage and catalog both run on the
+  identity-enhanced session: the portal role's session-tag assumption, the `username` and
+  `shared_space_k` tags, and the `${aws:PrincipalTag/username}` conditions in the policies that no
+  longer gate anything. Keep it running alongside until then — it is the rollback.
+- Prove gates G2 through G6 (§5.5). G7 and G9 should already be settled from Phase 0.
+- **Re-test the cross-plane join.** §3.4 records that the two-plane wall is gone and a personal
+  database should now join a core dataset in one statement. Confirm it; do not carry the old
+  "almost certainly will not work" expectation forward, and do not assume it either.
 
 **Verification:** two users on the same carrier role see different data; a user with no grant is
 denied. Confirm with raw credentials, not through the UI. Separately, confirm no Identity Center
@@ -1201,7 +1704,17 @@ freeze. This is the whole reason the old account survives the quiet period.
 
 **Gating Phase 0 to 1:**
 
-- Gates P1, P2 and P3 (§5.4). Everything about Phase 1's credential design depends on P2 and P3.
+- **Gate G8 (§5.5) — can Entra issue OIDC for this application?** It decides the variant (§3.3), it
+  is a conversation with the tenant owner rather than an experiment, and it has the longest lead
+  time of anything in this list. Ask first.
+- **Is SCIM provisioning from Entra into Identity Center live** (§2 item 12), and who operates it?
+- **The Access Grants prefix identity** (§3.9): one literal grant per user, or one broad grant
+  narrowed by `${identitystore:UserId}` in the **location role's policy**? It decides whether a grant
+  is a provisioning step and whether the username survives as the prefix, and it may split between
+  the file browser and query results. **Sub-question:** can the workgroup's user-identity result
+  prefix be turned off (§3.5)?
+- Gates P1, P2 and P3 (§5.4). P3 now decides whether §3.9's Access Grants or a permission-set-fed
+  base plane serves user storage (§5's amendment).
 - Does the successor account exist yet, and is it in the **same organization** — the same
   Identity Center organization instance? §3 and §4.1 assume yes (§4.5).
 - Who else lands in the successor account, when, and is the portal's first-tenant ownership of
@@ -1219,11 +1732,12 @@ freeze. This is the whole reason the old account survives the quiet period.
 - **Provisioning latency:** how long between a new user existing in Identity Center and the
   automated process provisioning them, and is the defensive empty state acceptable for that
   window? Queries against a not-yet-created database must fail soft.
-- Does the client permit a Cognito User Pool at all, and is Managed Login v2 branding acceptable
-  to their security review?
-- Session lifetime: Cognito refresh tokens can outlive an Identity Center session revocation, so a
+- **[B] only** — does the client permit a Cognito User Pool at all, even as a bridge that
+  authenticates nobody? If the answer is no *and* G8 fails, neither variant is available and §3.3
+  needs a third OAuth issuer, which is unscoped infrastructure.
+- Session lifetime: a refresh token can outlive an Identity Center session revocation, so a
   deprovisioned employee could hold a valid portal session. What window is acceptable, and does
-  sign-out need single logout?
+  sign-out need single logout? Unchanged by the variant — the API holds the tokens either way.
 
 **Gating Phase 2:**
 
@@ -1239,11 +1753,17 @@ freeze. This is the whole reason the old account survives the quiet period.
 
 **Gating Phase 3:**
 
-- **How many workspaces can one user belong to in the old account?** The app hard-caps at ten
-  (`custom:shared_space_1..10`, `var.max_shared_memberships`), Cognito allows fifty custom
-  attributes and **they cannot be deleted once created**. If the real number exceeds ten,
-  redesign before the successor pool is created, not after. Passing gates P2 and P3 (§5.4)
-  removes this ceiling entirely.
+- **How many workspaces can one user belong to, and how many (member, workspace) pairs are there?**
+  Both, and the first is still a hard gate. **The ten-slot cap survives Phases 1–4** — it lives in
+  `portal-role-shared-space.json.tftpl`'s per-slot loop, not in Cognito, so sourcing the tags from
+  the registry does not lift it (§6.4 as corrected). If any user exceeds ten, either raise
+  `max_shared_memberships` and re-render the policy — the one IAM change the interim window
+  otherwise promises not to make — or accept a truncated membership until Phase 5. The pair **count**
+  matters separately: every pair is a grant Phase 5 has to issue.
+- ~~Who issues the per-(member, space) grants, and under which spec?~~ **Answered 2026-08-18:
+  SPEC-204**, a new verb plus a reconciling sweep on the existing shared-space control plane. What
+  remains open is an *input* to it, not a question about it: the Phase 3 pair count, which sizes its
+  FR-009 budget against the instance's 100,000-grant ceiling.
 - Are all old-account workspace names catalog-safe under `^[a-z][a-z0-9_]{2,62}$`? They become
   Glue database names in the successor account.
 
@@ -1255,8 +1775,8 @@ freeze. This is the whole reason the old account survives the quiet period.
   deliberately deferred: do the accessor refactor first (§4.6) and the decision becomes a
   one-file change made later, on evidence rather than up front.
 - Who owns TLS and DNS for the new origin, and what is the turnaround on getting a certificate?
-  The origin must be settled before Phase 1's Cognito callback URLs are finalised.
-- What is the session cookie's lifetime relative to the Cognito session and the Identity Center
+  The origin must be settled before Phase 1's provider callback URLs are finalised.
+- What is the session cookie's lifetime relative to the provider session and the Identity Center
   refresh token — the three clocks in §4.7? (Bucket CORS is now this repo's own configuration —
   §4.6 — so the old change-request dependency is gone.)
 
@@ -1277,8 +1797,12 @@ freeze. This is the whole reason the old account survives the quiet period.
 - Control-plane roles as Lake Formation data-lake admins is now the portal's own design choice
   as first tenant — but Identity Center users and groups **cannot** be data lake administrators,
   so it stays an IAM-role question regardless.
-- Cross-plane joins: a query joining a personal database against a core dataset almost certainly
-  will not work (§3.4). Confirm this is acceptable.
+- ~~Cross-plane joins: a query joining a personal database against a core dataset almost certainly
+  will not work.~~ **Reversed by §3.4's collapse** — on one plane both are Lake Formation grants
+  against the same propagated identity, so the join should be ordinary. Confirm it in Phase 5
+  rather than assuming it in either direction.
+- **Gate G9 (§5.5)** — can the API presign from `GetDataAccess`-vended credentials? If not, the
+  browser holds scoped credentials after all and SPEC-202's live-check wording is wrong.
 
 **Gating Phase 6:**
 
@@ -1309,8 +1833,16 @@ doc). Deleting this code is a **cutover** task; keeping it working is a **today*
   `test/authFixtures.ts`, and their tests.
 - Sign-up copy in `routes/LandingPage.tsx`, `lib/returnPath.ts` and
   `features/query/DatabaseNode.tsx`.
-- If gates P2 and P3 pass: the Cognito Identity Pool, its principal-tag mapping, and the
-  `custom:shared_space_*` attribute schema.
+- **The Cognito Identity Pool, its principal-tag mapping and `lib/awsCredentials.ts`** — retired by
+  **Arc B (SPEC-202) before the move**, not at cutover, and never recreated in the successor account
+  in either variant (Phase 1).
+- **[A] — all of Cognito.** `infra/modules/auth` in full: the User Pool, Managed Login v2 and its
+  branding re-ensure step in CI, the app client, the hosted-UI domain, `lib/amplify.ts` and the
+  `aws-amplify` dependency, and every runtime-configuration key naming a pool. **[B]** keeps the
+  pool as a bridge and deletes the same list when the tenant gains OIDC — which is the whole reason
+  §3.3 keeps the bridge thin.
+- **The `custom:shared_space_*` attribute schema** and `var.max_shared_memberships` — membership is
+  the registry from Phase 1 onward, and per-(member, space) grants from Phase 5 (§3.9).
 - The CloudFront distribution, its origin access configuration, the static-hosting bucket, the
   **SPEC-140 response headers policy** (its header set moves into nginx — §4.6), and the
   deploy-app sync and cache-invalidation CI steps — including SPEC-141's per-class
@@ -1350,6 +1882,12 @@ IAM Identity Center:
 [Attributes for access control](https://docs.aws.amazon.com/singlesignon/latest/userguide/attributesforaccesscontrol.html) ·
 [Delegated administration](https://docs.aws.amazon.com/singlesignon/latest/userguide/delegated-admin.html) ·
 [Announcement, 30 June 2026](https://aws.amazon.com/about-aws/whats-new/2026/06/aws-iam-identity-center-account-access-customer-managed-apps/)
+
+S3 Access Grants and Entra:
+[S3 Access Grants — working with instances, locations and grants](https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-grants.html) ·
+[Using S3 Access Grants with IAM Identity Center identities](https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-grants-directory-idc.html) ·
+[GetDataAccess](https://docs.aws.amazon.com/AmazonS3Control/latest/API/API_control_GetDataAccess.html) ·
+[Automatic provisioning (SCIM) from Microsoft Entra ID to IAM Identity Center](https://docs.aws.amazon.com/singlesignon/latest/userguide/idp-microsoft-entra.html)
 
 IAM and STS:
 [Granting permissions to use identity-enhanced console sessions (`sts:SetContext`)](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_temp_control-access_sts-setcontext.html) ·

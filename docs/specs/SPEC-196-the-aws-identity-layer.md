@@ -138,6 +138,34 @@ Stated here because SPEC-195 is written in parallel and the rest are not written
    user cannot reach must refuse without probing AWS. That is per-route work in SPEC-198/199; it is
    named here because the identity layer's 403 is what a careless route would leak through.
 
+**AMENDED 2026-08-18 — this layer is CORRECT and it is also TEMPORARY, and both halves matter.**
+`transition_plan.md` §3.4 collapses the target's two credential planes into one identity-enhanced
+session, and §3.9 records the consequence: because
+`AWSIAMIdentityCenterAllowListForIdentityContext` denies plain S3, the end state governs storage with
+**S3 Access Grants** and has **no principal tags at all**. So the whole tag set this spec builds —
+`username` and the ten `shared_space_k` slots — does not survive Phase 5 of the transition.
+
+**Nothing in this spec changes as a result, and the equivalence argument is why.** The claim to
+preserve is that *not one IAM policy, bucket policy or Lake Formation grant is rewritten*, and that
+is only provable if the API stamps byte-identically what the Identity Pool stamps — from the same
+claims of the same token. Sourcing the membership tags from the shared-space registry instead would
+be defensible in isolation and would **break the equivalence**, turning a provable preservation into
+an argument. Build it from the claims (FR-002), exactly as written.
+
+Three things a later reader should carry, because each is easy to get wrong in the other direction:
+
+- **This layer is what makes the successor account's Phases 1–4 possible at all.** The
+  identity-enhanced session needs a trusted token issuer, a customer-managed application, an Access
+  Grants instance and an IdC-enabled workgroup — none of which exist before Phase 5. The interim
+  plane there *is* this layer, pointed at a different provider, with **no Cognito Identity Pool
+  anywhere** (SPEC-202 retires it and it is never recreated).
+- **In that interim window the membership tags DO come from the registry**, because there is no
+  Cognito attribute to read and no Identity Pool to read it. That is a deliberate later change with
+  its own equivalence argument to make; it is not licence to make it here.
+- **The ten-slot ceiling and SPEC-056's propagation delay die with the tags**, not with this spec.
+  `useSharedSpaceAccessRecovery` stays exactly as it is (FR-002), because claim-sourced tags still
+  carry the delay.
+
 ---
 
 ## Functional Requirements
@@ -307,6 +335,11 @@ user unambiguously.
       front of it; sanitising would make it a silent identity collision.
 
 ### FR-005: Two credential planes, declared per call site
+
+> **Naming note (2026-08-18).** "Two credential planes" here means **user plane** and **API plane** —
+> whose credentials a route uses. `transition_plan.md` §3.4 uses the same phrase for a different
+> split (**base plane** and **catalog plane** — which enforcement mechanism governs a resource), and
+> supersedes it. They are unrelated; this one is unaffected.
 
 #### Description:
 

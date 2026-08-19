@@ -137,6 +137,23 @@ The cheapest defence against deleting something that was still load-bearing. Eve
    load-bearing for nothing that either origin serves — while it is *live*, it is the one thing that
    makes the arc's central negative unobservable. It is nonetheless the merge's one irreversible
    element in the literal sense: a re-created pool gets a new id. Nothing needs the old one.
+5. **The load-bearing negative is TRUE TODAY and CONTINGENT LATER, and the wording is what carries
+   that.** *The browser makes no AWS call other than presigned S3 bytes* is unconditionally correct
+   for this arc and for the current environment — nothing here is gated on anything. In the successor
+   account it rests on **gate G9** (`transition_plan.md` §5.5, §3.9): storage moves onto S3 Access
+   Grants, the API presigns from `GetDataAccess`-vended credentials, and that presigning step is
+   expected to work but is unproven. If G9 fails, the browser holds scoped credentials again and the
+   negative is false **in the target only**. Two consequences, both cheap:
+   - **Do not weaken the assertion here to pre-accommodate that.** A negative hedged against a
+     hypothetical is not a negative, and this spec exists because a half-finished retirement looks
+     exactly like a finished one.
+   - **The check's exception clause is a LIST OF HOSTS, and a later environment edits the list rather
+     than the method.** FR-009 §4 enumerates them — the S3 endpoint, `cognito-idp.{region}.amazonaws.com`
+     and the Hosted UI host — because Amplify still runs in the tab and sign-in is untouched by this
+     arc. **Do not "simplify" that to "presigned S3 bytes only": the check would fail today**, and
+     failing correctly is the whole point of it. A target-environment version drops the two Cognito
+     hosts (no Cognito under Variant A) and adds whatever the storage plane needs if G9 fails. G9
+     runs in the transition's Phase 0, long before anyone needs the answer.
 
 ---
 
