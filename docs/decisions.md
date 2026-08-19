@@ -12,7 +12,7 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 
 ## Contents
 
-149 entries, one heading each. **Jump to the one you need — never read this file whole.**
+153 entries, one heading each. **Jump to the one you need — never read this file whole.**
 
 - [Auth](#auth)
 - [Hosted UI = Managed Login v2](#hosted-ui--managed-login-v2)
@@ -163,6 +163,10 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 - [Consolidation is worth doing against a SWEEP, not against a list](#consolidation-is-worth-doing-against-a-sweep-not-against-a-list)
 - [A procedure that cannot produce its claimed outcome invites a false bug report](#a-procedure-that-cannot-produce-its-claimed-outcome-invites-a-false-bug-report)
 - [Results are read only at SUCCEEDED, and `isPending` is not a substitute (2026-08-16)](#results-are-read-only-at-succeeded-and-ispending-is-not-a-substitute-2026-08-16)
+- [A stale result must not be served at all, so the eviction reaches the tab in front of you (2026-08-19)](#a-stale-result-must-not-be-served-at-all-so-the-eviction-reaches-the-tab-in-front-of-you-2026-08-19)
+- [A column name is user data, and the renderer must be safe without it being validated (2026-08-19)](#a-column-name-is-user-data-and-the-renderer-must-be-safe-without-it-being-validated-2026-08-19)
+- [Athena's two dialects need two escapers in the browser, and the second was missing (2026-08-19)](#athenas-two-dialects-need-two-escapers-in-the-browser-and-the-second-was-missing-2026-08-19)
+- [A table's LOCATION is read recursively, so the space root is not a data folder (2026-08-19)](#a-tables-location-is-read-recursively-so-the-space-root-is-not-a-data-folder-2026-08-19)
 
 ---
 
@@ -3952,3 +3956,105 @@ where it said "Loading rows…" — the old text was wrong, and wrong *because* 
 fetching rows then. And a query outliving `MAX_POLL_DURATION_MS` (5 min) now shows an indefinite
 "Running…" rather than a permanent wrong error banner; neither self-heals, and the behaviour is
 unspecified.
+
+### A stale result must not be served at all, so the eviction reaches the tab in front of you (2026-08-19)
+
+The Data Explorer caches an Athena execution at `staleTime: Infinity, gcTime: Infinity`, keyed by
+the SQL it rendered. That cache **is** the cost control — changing a filter and changing it back is
+a hit rather than a second bill. What it could not see is a table dropped and rebuilt over
+different data under the same name: the SQL renders byte-identical, so the entry stayed a hit and
+the pre-rebuild rows came back for the rest of the session, with nothing on the page able to ask
+otherwise.
+
+**It evicts what is on screen, and a reload fixing it is not a fix.** The first attempt spared
+observed entries to avoid a second billed `StartQueryExecution` — measured, 2 calls where there
+should be 1 — which left the tab in front of the user showing old rows until they came back to it.
+That is the bug, quieter. `resetQueries` rather than `removeQueries`: removal only re-runs an
+observed query if something re-renders afterwards, and in the app something usually does (a toast,
+a dialog closing), which is exactly the accident correctness must not rest on.
+
+**The narrowing is what makes that affordable.** The execution key carries the TABLE, and
+`invalidateSchema(client, db, table?)` takes the table its caller changed. Dropping the table you
+are exploring re-runs it; creating a view beside it does not. Only a change that names no table
+falls back to the whole database — an arbitrary DDL statement the user typed and the rail's own
+refresh button, both of which ARE requests to re-read everything. A caller that could name its
+table and does not is a bug in that caller.
+
+**The rebuild had a second road in, and it was the reported one.** A table build is asynchronous:
+the browser enqueues and the table appears minutes later, announced by a notification nothing in
+the tab hears. So dropping invalidated and rebuilding did not. `armCatalogCatchUp` is **module
+state drained by a listener mounted once in `ProtectedLayout`** — held per component, the arm died
+with the control that set it, and both controls that enqueue a build unmount when the user leaves
+that route. Residual: `focus` fires on blur→focus only, so a user who never leaves the window gets
+no catch-up until they do.
+
+**A registration, not a call beside each `invalidateSchema` site.** `features/catalog/` reaching
+into `features/data-explorer/` is the undeclared shared layer pointing the wrong way; five call
+sites is five things to forget, and the sixth would be written by someone who had never heard of
+this cache. Not a query-cache subscription either: TanStack emits no event for invalidating a key
+nothing has cached, and the rail's schema is not always loaded when DDL runs.
+
+### A column name is user data, and the renderer must be safe without it being validated (2026-08-19)
+
+Column names are the one part of a schema this portal does not choose — they are read out of a
+file's own header or Parquet footer. Nothing judged them, and Glue accepts what Athena then cannot
+read: the result is not a failed build but a table that is CREATED, appears in the rail, and fails
+or returns nothing when queried.
+
+`cpcommon.columns` is one rule shared by both planes that infer a schema. It refuses an empty name
+(a blank CSV header cell), leading or trailing whitespace, anything outside `[a-z0-9_]` after the
+fold, over Glue's 255, and two names that fold to the same lowercase string — the last being the
+one that reads as a portal bug rather than a file bug, because `Total` and `TOTAL` are two columns
+to every tool the user has and one column to Athena. It ALLOWS a leading digit, a leading
+underscore and a reserved word: those are what the quoters exist for.
+
+**The blanket `[a-z0-9_]` is stricter than AWS documents, and that is a product decision, not an
+oversight.** `Order ID` builds and queries today. It is refused so that one rule holds everywhere
+rather than a narrower one holding until someone writes a query by hand without the quoting this
+app applies for them. Reversing it is a change to one regex.
+
+**Creates only.** A refresh re-derives the columns of a table that already exists, so refusing one
+would break every refresh of a table built before the rule and leave rewriting the source files as
+the only repair. It selects on the storage descriptor, not on `mode` — a tripwire forbids the
+shared verbs reading that field, because the moment one does, "a refresh reuses these verbs
+unchanged" stops being true.
+
+**The rule is not what makes the renderer safe.** `cpcommon.ddl.quote` now doubles an embedded
+backtick, as `quote_dml` always did for the double quote. A renderer that is safe only because
+someone else validated first is one refactor from not being safe — and data-quality proved it:
+its partition keys are derived from S3 path segments, so a folder named ``ab`c=eu`` put a backtick
+straight into `PARTITIONED BY`. Those keys are checked too, under their **own** reason code: the
+repair is renaming a folder, and a user told to fix a column name goes looking in the wrong place.
+
+### Athena's two dialects need two escapers in the browser, and the second was missing (2026-08-19)
+
+`CREATE VIEW` is Trino (double quotes); `DROP TABLE` / `DROP VIEW` is Hive (backticks, an inner
+backtick doubled). The browser had only `lib/sql.ts` `sqlIdentifier`, the Trino one, so both
+statements interpolated their identifiers raw.
+
+The identifier that matters is the **database**. A view or table name is typed into a dialog held
+to `CATALOG_IDENTIFIER_RE`; a shared space's name is held to nothing the browser cannot bypass —
+`shared-space-validate` applies **no format check** to `space` on the create path, and the SPA
+talks to its queue directly. A crafted space name reaches a member's space list and from there
+into DDL, under their own Athena credentials.
+
+Both statements are quoted now, each with its own dialect's escaper (`sqlIdentifier` /
+`sqlDdlIdentifier`). The lesson that generalises is the ordering: `buildCreateViewSql` was fixed
+first and `DROP` two functions down was left live for a commit — **a quoting fix is not done until
+every statement built from the same value is swept**, because the second one is the one nobody
+tests against a real engine.
+
+### A table's LOCATION is read recursively, so the space root is not a data folder (2026-08-19)
+
+AWS is explicit: "Athena reads *all* data stored in the Amazon S3 folder that you specify." A table
+built at a space root therefore covers `athenaresults/`, `saved_queries/`, `user_settings/`,
+`shared_files/`, `shared_tables/` and `archive/` as well as the user's own data. It does not fail —
+it **succeeds**, and every later read returns the portal's own bookkeeping mixed into the answer.
+Succeeding is what makes it worth blocking rather than warning about.
+
+Refused on the control with its reason (`createTableRefusal`, on `writeLockRefusal`'s
+predicate-with-its-words precedent) and in `validate-authorize` as `location_is_space_root`. A
+refusal rather than a hidden control: the button is where a user standing at the root looks for it,
+and a control that vanishes teaches nothing about where to go instead. **Creates only** — a refresh
+reads the location the table already has, so refusing one would strand any root table already in a
+catalog with no way to repair it.
