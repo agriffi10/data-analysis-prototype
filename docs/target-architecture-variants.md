@@ -72,6 +72,11 @@ wanted them to. They cross this revision untouched for the separate reason §3.4
 execution roles are ordinary IAM roles and are *not* identity-enhanced, so lane B's restrictions
 never applied to them.
 
+**Colour in the diagrams carries meaning, and only reinforces what the labels already say:**
+**brass** is the identity plane — the one part that differs between [A] and [B]; **teal** is where
+the identity-enhanced session is *established and carried*, the rest of lane B sitting inside the box
+that names it; **red** is what the allow-list denies. Everything else is unstyled.
+
 ## Variant A — the baseline
 
 Entra issues the OIDC JWT itself and is the Identity Center trusted token issuer. No User Pool, no
@@ -135,6 +140,13 @@ flowchart TB
   CARRIER -.->|"restricted by"| DENY
   CARRIER -->|"3a"| ATHENA -->|"propagates the identity"| LF -->|"resolves and masks"| GLUE
   CARRIER -->|"3b"| AG -->|"vends scoped credentials"| CREDS -->|"presigned URL"| BFF
+
+  classDef variant fill:#F6EADA,stroke:#9B5D18,stroke-width:2px,color:#3A2A12
+  classDef session fill:#DBEDEF,stroke:#0E6E78,stroke-width:2px,color:#0B3F45
+  classDef deny fill:#F8E4E6,stroke:#9E2937,stroke-width:2px,color:#5C1A22
+  class ENTRA,IDC variant
+  class BFF,STS,CARRIER session
+  class DENY deny
 ```
 
 ## Variant B — the fallback
@@ -176,6 +188,11 @@ flowchart TB
   COG -->|"code via browser to /auth/callback, then back-channel exchange"| BFF
   BFF -->|"1 · CreateTokenWithIAM, jwt-bearer<br/>assertion = the Cognito ID token<br/>IAM action: sso-oauth:CreateTokenWithIAM"| IDC
   BFF --> SAME
+
+  classDef variant fill:#F6EADA,stroke:#9B5D18,stroke-width:2px,color:#3A2A12
+  classDef session fill:#DBEDEF,stroke:#0E6E78,stroke-width:2px,color:#0B3F45
+  class COG,ENTRA,IDC variant
+  class BFF session
 ```
 
 ## Three readings the drawings exist to prevent
@@ -201,6 +218,9 @@ flowchart TB
     BFF -->|"presigns locally · SigV4,<br/>no network call"| URL(["Presigned URL"])
     URL -.->|"returned to the tab —<br/>the URL, never a credential"| BR["Browser"]
     BR -.->|"redeems it directly ·<br/>bytes never touch compute"| S3[("Amazon S3")]
+
+    classDef session fill:#DBEDEF,stroke:#0E6E78,stroke-width:2px,color:#0B3F45
+    class BFF session
   ```
 
   Presigning is a local SigV4 operation the API can
