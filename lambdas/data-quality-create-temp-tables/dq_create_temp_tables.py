@@ -146,11 +146,12 @@ def _create(event: dict) -> dict:
     statement the user never wrote. The width cap is checked first because it is the cheaper
     question and its refusal is about the whole source rather than about particular columns.
 
-    The detected partition keys are judged by the same rule and that is not symmetry for its own
-    sake. In this arc the keys are derived from S3 path segments rather than declared in a
-    dialog, so a folder named ``ab`c=eu`` puts a backtick straight into the ``PARTITIONED BY``
-    clause — and the DDL identifier quoter does not escape what it wraps. They are the one input
-    here the user names by naming a folder.
+    The detected partition keys are judged by the same rule under a DIFFERENT reason code. Same
+    rule, because in this arc the keys are derived from S3 path segments rather than declared in
+    a dialog, which makes them a catalog identifier the user wrote by naming a folder. Different
+    reason, because the two refusals ask for different repairs — a column is fixed by editing a
+    file's header, a partition key by renaming a folder — and a user told to fix a column would
+    go looking in the wrong place.
 
     Args:
       event: The task input.
@@ -183,13 +184,17 @@ def _create(event: dict) -> dict:
         raise TerminalError(
             messages.TOO_MANY_COLUMNS, str(exc), tokens={"count": f"{len(columns):,}"}
         ) from exc
-    partition_key_names = [k.get("name") for k in (manifest.get("partitionKeys") or [])]
     try:
         columns_mod.check(columns)
-        columns_mod.check_names(partition_key_names)
     except columns_mod.InvalidColumnNamesError as exc:
         raise TerminalError(
             messages.INVALID_COLUMN_NAMES, exc.summary, tokens={"columns": exc.summary}
+        ) from exc
+    try:
+        columns_mod.check_names([k.get("name") for k in (manifest.get("partitionKeys") or [])])
+    except columns_mod.InvalidColumnNamesError as exc:
+        raise TerminalError(
+            messages.INVALID_PARTITION_NAMES, exc.summary, tokens={"columns": exc.summary}
         ) from exc
 
     table = sql.temp_table_name(request_id)

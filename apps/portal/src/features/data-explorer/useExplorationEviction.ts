@@ -50,9 +50,9 @@ export function evictExplorations(client: QueryClient, database: string, table?:
  * `onCatalogChange`.
  *
  * The residual is worth stating: this fires on invalidations raised **in this browser**. The
- * async table build is the case that would otherwise slip through — it completes long after the
- * enqueue — so both of its entry points arm a post-focus invalidation, the same way a table
- * refresh does.
+ * async table build would otherwise slip through entirely — it completes long after the enqueue
+ * — so `useCatalogCatchUp` re-reads that catalog on the next window focus. Its own residual is
+ * on its docstring: a user who never leaves the window gets no catch-up until they do.
  *
  * Mount once, in the authenticated shell. Mounting it inside the Explorer would miss the
  * ordinary case, which is a table dropped from the Query workspace with the Explorer's tabs

@@ -4,6 +4,7 @@ import {useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../features/auth';
 import {useExplorationEviction} from '../features/data-explorer';
 import {useFeatureSet} from '../features/feature-flags';
+import {useCatalogCatchUp} from '../features/table-builder';
 import {UploadQueueProvider} from '../features/file-browser';
 import {prefetchNotifications} from '../features/notifications';
 import {setReturnPath} from '../lib/returnPath';
@@ -62,6 +63,12 @@ export function ProtectedLayout() {
   // shell rather than in the Explorer because the drop usually happens in the Query workspace,
   // with the Explorer's tabs open behind it.
   useExplorationEviction();
+
+  // A table build lands minutes after the browser enqueues it and announces itself in a
+  // notification, so the control that submitted it has usually unmounted by then. This re-reads
+  // the catalog on the next window focus — here rather than in either create surface, because
+  // what it waits for outlives both of them.
+  useCatalogCatchUp();
 
   // The feature flags resolve here and the result is DISCARDED — the gating registry is what
   // reads them. This is not a placeholder: without a mount the whole feature is

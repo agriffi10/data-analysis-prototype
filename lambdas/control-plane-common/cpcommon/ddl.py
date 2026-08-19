@@ -94,16 +94,24 @@ def quote(identifier: str) -> str:
     but parses SELECT with Trino syntax, where they are not. Use ``quote_dml`` inside a
     query.
 
+    **AN EMBEDDED BACKTICK IS DOUBLED**, the same way ``quote_dml`` doubles a double quote.
+    This wraps names the portal does not choose: a column name read out of a file header, a
+    partition key derived from an S3 folder segment. Without the escape, one backtick in
+    either closed the quote and turned the rest of the value into DDL. ``cpcommon.columns``
+    refuses such a name wherever it is checked, but this is the layer that renders, and a
+    renderer that is only safe because someone else validated first is one refactor from not
+    being safe at all.
+
     Args:
       identifier: A database, table or column name.
 
     Returns:
-      The identifier wrapped in backticks.
+      The identifier wrapped in backticks, inner backticks doubled.
 
     Raises:
       None.
     """
-    return f"`{identifier}`"
+    return f"`{identifier.replace('`', '``')}`"
 
 
 def literal(value: str) -> str:

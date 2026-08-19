@@ -3,7 +3,7 @@ import {useToast} from '../../components/toastContext';
 import {toUserText} from '../../lib/errorMessages';
 import {lastSegment} from '../file-browser/fileBrowser.paths';
 import {enqueueTableBuild} from './tableBuild.service';
-import {useCatalogCatchUp} from './useCatalogCatchUp';
+import {armCatalogCatchUp} from './useCatalogCatchUp';
 import type {ChosenFolder} from './CreateTableFromSpaceDialog';
 import type {PartitionKey} from './tableBuild.types';
 
@@ -45,7 +45,6 @@ export function useCreateTableFromSpace(): UseCreateTableFromSpaceResult {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const toast = useToast();
-  const catchUp = useCatalogCatchUp();
 
   const start = useCallback(() => {
     setError(null);
@@ -88,7 +87,7 @@ export function useCreateTableFromSpace(): UseCreateTableFromSpaceResult {
       }
       // Same reason as the Files toolbar's: the build completes long after this returns, so
       // the catalog is re-read on the next focus and every cache keyed on it catches up.
-      catchUp.arm(folder.database);
+      armCatalogCatchUp(folder.database, tableName);
       setStep(null);
       setFolder(null);
       toast.push({
@@ -96,7 +95,7 @@ export function useCreateTableFromSpace(): UseCreateTableFromSpaceResult {
         message: `Creating table “${tableName}”… you’ll be notified when it’s ready.`
       });
     },
-    [catchUp, folder, toast]
+    [folder, toast]
   );
 
   return {step, folder, busy, error, start, chooseFolder, submit, cancel};

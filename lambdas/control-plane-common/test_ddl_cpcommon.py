@@ -349,6 +349,22 @@ def test_quote_dml_double_quotes_an_identifier():
     assert "`" not in quote_dml("dq_tmp_7f3a")
 
 
+def test_quote_escapes_an_embedded_backtick():
+    """The DDL half of the pair below, and the sharper one: `quote` wraps names this portal
+    does NOT choose — a column read out of a file header, a partition key derived from an S3
+    folder segment. Unescaped, one backtick closed the quote and the rest of the value became
+    DDL. `cpcommon.columns` refuses such a name wherever it is checked, but this is the layer
+    that renders, and a renderer that is safe only because someone else validated first is one
+    refactor away from not being safe."""
+    assert quote("ab`c") == "`ab``c`"
+    assert quote("x` string, `injected") == "`x`` string, ``injected`"
+
+
+def test_quote_leaves_an_ordinary_identifier_byte_identical():
+    """The escape must not change what every existing statement renders."""
+    assert quote("order_id") == "`order_id`"
+
+
 def test_quote_dml_escapes_an_embedded_double_quote():
     """A CSV header can contain anything. Unescaped, this ends the identifier early and
     the rest of the name is parsed as SQL."""

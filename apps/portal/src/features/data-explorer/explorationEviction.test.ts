@@ -65,6 +65,24 @@ describe('exploration cache eviction', () => {
     expect(client.getQueryData(explorerKeys.execution(explorationSourceScope(ORDERS), sql))).toBeUndefined();
   });
 
+  // THE LOAD-BEARING HALF FOR THE COMMONEST CASE. `resetQueries` clears an entry rather than
+  // removing it, so an unobserved one stays in the cache with no data. Under
+  // `staleTime: Infinity` that could plausibly sit empty forever and never re-run — it does
+  // not, because staleTime governs refetching data that EXISTS. Asserted rather than reasoned
+  // about: if this were wrong, the fix would be broken for every tab not currently on screen,
+  // which is most of them.
+  it('re-runs an unobserved exploration the next time it is opened', async () => {
+    const {client, sql} = await seed(ORDERS, 'exec-1');
+    expect(client.getQueryData(explorerKeys.execution(explorationSourceScope(ORDERS), sql))).toBe('exec-1');
+
+    evictExplorations(client, 'alice', 'orders');
+    // `seed` pins the mock to one id; the rebuild's execution is a different one.
+    vi.mocked(runQuery).mockResolvedValue(ok({queryExecutionId: 'exec-after-rebuild'}));
+
+    const reopened = renderHookWithProviders(() => useExploration(newExploration(ORDERS)), {queryClient: client});
+    await waitFor(() => expect(reopened.result.current.queryExecutionId).toBe('exec-after-rebuild'));
+  });
+
   it('leaves a table execution in a DIFFERENT database alone', async () => {
     const {client, sql} = await seed(OTHER_DB, 'exec-2');
 

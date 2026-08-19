@@ -11,6 +11,7 @@ import {useQueryTabs} from './useQueryTabs';
 import {useTabRuns} from './useTabRuns';
 import {useRunDdl} from '../catalog/useRunDdl';
 import {buildCreateViewSql} from '../catalog/createView';
+import {sqlDdlIdentifier} from '../../lib/sql';
 import {useMobileQuerySurface} from './useMobileQuerySurface';
 import {useSaveResults} from '../catalog/useSaveResults';
 import {useTableActions} from './useTableActions';
@@ -574,7 +575,10 @@ export function QueryWorkspace() {
     const {database, table} = dropping;
     const isView = table.tableType === 'VIRTUAL_VIEW';
     ddl.run({
-      sql: `DROP ${isView ? 'VIEW' : 'TABLE'} ${database}.${table.name}`,
+      // Backticks, not double quotes: a DROP is DDL, which Athena parses with Hive. The
+      // database is the identifier that needs it — a shared space's name is checked by
+      // nothing server-side.
+      sql: `DROP ${isView ? 'VIEW' : 'TABLE'} ${sqlDdlIdentifier(database)}.${sqlDdlIdentifier(table.name)}`,
       database,
       table: table.name,
       describe: {success: `Dropped ${table.name}`, failure: `Couldn\u2019t drop ${table.name}.`},

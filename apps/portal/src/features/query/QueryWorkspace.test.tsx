@@ -1344,7 +1344,12 @@ describe('QueryWorkspace', () => {
       );
 
       expect(await screen.findByText('Dropped sales_2026')).toBeInTheDocument();
-      expect(mockRunToCompletion).toHaveBeenCalledWith(expect.objectContaining({sql: 'DROP TABLE alice.sales_2026'}));
+      // BACKTICKS: a DROP is DDL, which Athena parses with Hive — the mirror of CREATE VIEW
+      // above, which is Trino and takes double quotes. The database is the identifier that
+      // needs quoting: a shared space's name is format-checked by nothing server-side.
+      expect(mockRunToCompletion).toHaveBeenCalledWith(
+        expect.objectContaining({sql: 'DROP TABLE `alice`.`sales_2026`'})
+      );
       expect(mockAppend).toHaveBeenCalledWith('alice', expect.objectContaining({queryExecutionId: 'q-drop'}));
 
       mockRunToCompletion.mockResolvedValueOnce(
@@ -1371,7 +1376,9 @@ describe('QueryWorkspace', () => {
       );
 
       expect(await screen.findByText('Dropped revenue_view')).toBeInTheDocument();
-      expect(mockRunToCompletion).toHaveBeenCalledWith(expect.objectContaining({sql: 'DROP VIEW alice.revenue_view'}));
+      expect(mockRunToCompletion).toHaveBeenCalledWith(
+        expect.objectContaining({sql: 'DROP VIEW `alice`.`revenue_view`'})
+      );
     });
 
     it('Create view composes CREATE OR REPLACE VIEW (target db derived from the body), records history + success toast', async () => {

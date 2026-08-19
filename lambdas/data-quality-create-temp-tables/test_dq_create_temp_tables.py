@@ -277,7 +277,9 @@ def test_a_detected_partition_key_name_is_judged_by_the_SAME_rule(monkeypatch, r
     with pytest.raises(TerminalError) as exc:
         v.handler(_event(), None)
 
-    assert exc.value.reason == messages.INVALID_COLUMN_NAMES
+    # Its OWN reason, not the column one: the repair is renaming a folder, and a user told
+    # to fix a column name would go looking in the wrong place.
+    assert exc.value.reason == messages.INVALID_PARTITION_NAMES
     assert exc.value.tokens["columns"] == '"ab`c"'
     assert ran == []
 
