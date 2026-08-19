@@ -2,9 +2,10 @@ import {useEffect, useRef, useState} from 'react';
 import {Input} from '../../components/Input';
 import {Modal} from '../../components/Modal';
 import {DestinationPicker, validateFolderName} from '../file-browser';
+import {SpaceSelect} from '../../components/SpaceSelect';
 import {normalizeCsvName} from './catalog.format';
 import type {QuerySpace} from './catalog.types';
-import {FIELD_LABEL, SECTION_CAPTION} from '../../components/fieldStyles';
+import {SECTION_CAPTION} from '../../components/fieldStyles';
 import {DIALOG_PANEL, DIALOG_TITLE} from '../../components/dialogChrome';
 
 type Props = {
@@ -68,29 +69,17 @@ export function SaveResultsDialog({spaces, defaultName, isBusy = false, onSave, 
         />
       </div>
 
-      {spaces.length > 1 && (
-        <div className="mt-3">
-          <label
-            htmlFor="save-results-space"
-            className={FIELD_LABEL}>
-            Save to
-          </label>
-          <select
-            id="save-results-space"
-            value={space.id}
-            disabled={isBusy}
-            onChange={(e) => setSpaceId(e.target.value)}
-            className="h-9 w-full rounded-md border border-border bg-surface px-3 text-base text-text focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-45">
-            {spaces.map((s) => (
-              <option
-                key={s.id}
-                value={s.id}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      {/* No `kind` passed, so no " (shared)" suffix — this dialog has never carried one and
+          changing what a shipped option says is not this change's business. The difference
+          between the two callers is now visible in one line instead of two components. */}
+      <SpaceSelect
+        id="save-results-space"
+        label="Save to"
+        spaces={spaces}
+        value={space.id}
+        disabled={isBusy}
+        onChange={setSpaceId}
+      />
 
       <p className={`mt-4 mb-1 ${SECTION_CAPTION}`}>Destination folder</p>
       <DestinationPicker

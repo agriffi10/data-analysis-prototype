@@ -2,7 +2,9 @@ import {type ReactNode, useEffect} from 'react';
 import {Navigate, Outlet, useLocation} from 'react-router';
 import {useQueryClient} from '@tanstack/react-query';
 import {useAuth} from '../features/auth';
+import {useExplorationEviction} from '../features/data-explorer';
 import {useFeatureSet} from '../features/feature-flags';
+import {useCatalogCatchUp} from '../features/table-builder';
 import {UploadQueueProvider} from '../features/file-browser';
 import {prefetchNotifications} from '../features/notifications';
 import {setReturnPath} from '../lib/returnPath';
@@ -54,6 +56,19 @@ export function ProtectedLayout() {
   useEffect(() => {
     void prefetchNotifications(queryClient, username);
   }, [queryClient, username]);
+
+  // The Data Explorer caches an execution forever, keyed by the SQL it rendered — so a table
+  // dropped and rebuilt over new data keeps answering from the old one. This watches for the
+  // schema invalidation that rebuild raises and drops the affected executions. It lives in the
+  // shell rather than in the Explorer because the drop usually happens in the Query workspace,
+  // with the Explorer's tabs open behind it.
+  useExplorationEviction();
+
+  // A table build lands minutes after the browser enqueues it and announces itself in a
+  // notification, so the control that submitted it has usually unmounted by then. This re-reads
+  // the catalog on the next window focus — here rather than in either create surface, because
+  // what it waits for outlives both of them.
+  useCatalogCatchUp();
 
   // The feature flags resolve here and the result is DISCARDED — the gating registry is what
   // reads them. This is not a placeholder: without a mount the whole feature is

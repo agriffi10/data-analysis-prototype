@@ -5,7 +5,7 @@ import {ClearQueryDialog} from './ClearQueryDialog';
 import {CloseTabDialog} from './CloseTabDialog';
 import {TabLimitDialog} from './TabLimitDialog';
 import {SaveQueryDialog} from '../saved-queries/SaveQueryDialog';
-import {CreateViewDialog} from './CreateViewDialog';
+import {CreateViewDialog} from '../catalog/CreateViewDialog';
 import {DropTableDialog} from './DropTableDialog';
 import {SaveResultsDialog} from '../catalog/SaveResultsDialog';
 import type {QueryTab} from './query.types';

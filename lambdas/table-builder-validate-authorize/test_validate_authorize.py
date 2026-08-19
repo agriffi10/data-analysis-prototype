@@ -379,6 +379,46 @@ def test_a_refresh_outside_the_actors_space_still_raises_the_existing_forbidden(
     _expect_reason(_event(_personal(prefix="bob/secret/"), mode="refresh"), "forbidden")
 
 
+def test_a_create_at_the_space_root_is_refused_in_both_space_kinds():
+    """A table's LOCATION is read recursively, so a build at the root sweeps in every
+    app-managed folder the space keeps there and SUCCEEDS while doing it. The refusal is the
+    only thing standing between a user and a table whose rows are the portal's bookkeeping.
+
+    Both kinds, because the root is derived differently in each: the actor's own name in the
+    user-space bucket, the space's name in the shared one.
+    """
+    _setup()
+    _expect_reason(_event(_personal(prefix="alice/")), "location_is_space_root")
+    v.reg.load = lambda name: {"status": "active", "owner": "bob", "members": ["bob", "alice"]}
+    _expect_reason(_event(_shared(prefix="salesdata/")), "location_is_space_root")
+
+
+def test_the_root_refusal_survives_an_unnormalised_prefix():
+    """The check runs on the NORMALISED prefix, after `_normalize_prefix`, so a producer
+    sending `/alice` or `alice` is refused on the same rule rather than slipping past a
+    string comparison the request happened not to match."""
+    _setup()
+    for raw in ("alice", "/alice/", " alice/ "):
+        _expect_reason(_event(_personal(prefix=raw)), "location_is_space_root")
+
+
+def test_a_folder_one_level_below_the_root_is_still_allowed():
+    """The rule is the root ITSELF, not "shallow" — the shortest real folder still builds."""
+    _setup()
+    out = v.handler(_event(_personal(prefix="alice/sales/")), None)
+    assert out["location"] == f"s3://{USER_BUCKET}/alice/sales/"
+
+
+def test_a_refresh_at_the_space_root_is_NOT_refused():
+    """Creates only. A refresh re-derives an existing table's columns from the location that
+    table already has, so refusing one would strand any root table already in a catalog with
+    no way to repair it — and a refresh chooses no new location to be wrong about."""
+    _setup()
+    out = v.handler(_event(_personal(prefix="alice/"), mode="refresh"), None)
+    assert out["mode"] == "refresh"
+    assert out["location"] == f"s3://{USER_BUCKET}/alice/"
+
+
 def test_create_partition_key_validation_is_untouched_by_the_mode_branch():
     """FR-002 AC5 — pins that the refresh rule was added BESIDE the create rule, not
     woven into it. Same reason code, same message, for a create with and without an

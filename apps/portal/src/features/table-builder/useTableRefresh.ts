@@ -47,8 +47,8 @@ export function useTableRefresh(notify: (toast: RefreshToast) => void, linked?: 
   const [opened, setOpened] = useState<TableRefreshTarget | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // The database owed a post-focus re-read, or null when nothing is armed.
-  const refetchOnFocus = useRef<string | null>(null);
+  // The database and table owed a post-focus re-read, or null when nothing is armed.
+  const refetchOnFocus = useRef<{database: string; table: string} | null>(null);
   // A ref, not `busy`: see useDataQualityCheck for why the state read loses the race.
   // It matters more here — concurrent refreshes on one table can race,
   // and `deduplicationId` is a fresh UUID per call, so SQS cannot collapse the pair.
@@ -56,10 +56,10 @@ export function useTableRefresh(notify: (toast: RefreshToast) => void, linked?: 
 
   useEffect(() => {
     const onFocus = () => {
-      const database = refetchOnFocus.current;
-      if (!database) return;
+      const armed = refetchOnFocus.current;
+      if (!armed) return;
       refetchOnFocus.current = null;
-      void invalidateSchema(queryClient, database);
+      void invalidateSchema(queryClient, armed.database, armed.table);
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
@@ -122,8 +122,8 @@ export function useTableRefresh(notify: (toast: RefreshToast) => void, linked?: 
         const {database, table} = target;
         setOpened(null);
         consumeLink?.();
-        void invalidateSchema(queryClient, database);
-        refetchOnFocus.current = database;
+        void invalidateSchema(queryClient, database, table.name);
+        refetchOnFocus.current = {database, table: table.name};
         notify({
           variant: 'success',
           message: `Refreshing “${database}.${table.name}” — the result will appear in your notifications.`

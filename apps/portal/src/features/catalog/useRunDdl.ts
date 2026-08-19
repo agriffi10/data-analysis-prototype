@@ -1,15 +1,22 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
-import {isAbandoned, runStatementToCompletion} from '../catalog/athena.service';
-import {invalidateSchema} from '../catalog/useSchema';
+import {isAbandoned, runStatementToCompletion} from './athena.service';
+import {invalidateSchema} from './useSchema';
 import {logBackgroundFailure, toUserText} from '../../lib/errorMessages';
 import type {ToastApi} from '../../components/toastContext';
-import type {UseQueryHistoryResult} from './useQueryHistory';
+import type {QueryState} from './catalog.types';
 
 export type RunDdlArgs = {
   sql: string;
   /** The schema invalidated on success, and the history entry's recorded context. */
   database: string;
+  /**
+   * The one catalog object this statement changes — the table dropped, the view created.
+   * Passed on so a consumer that caches per table can evict that one rather than all of them:
+   * creating a view beside an exploration must not re-run it, and a bill is what the
+   * difference costs. Omit only for a statement whose target is genuinely unknown.
+   */
+  table?: string;
   /** The two toast wordings, in the user's terms. */
   describe: {
     /** Shown verbatim on success — e.g. `Created view sales_2024`. */
@@ -27,9 +34,29 @@ export type UseRunDdlResult = {
   run: (args: RunDdlArgs) => void;
 };
 
+/**
+ * Records the statement in whatever history the caller keeps. Typed structurally rather than
+ * imported from `features/query/`: this module moved DOWN into the shared layer so the Data
+ * Explorer could create a view, and a shared module naming a leaf feature's type would be the
+ * undeclared shared layer the layering rule exists to prevent, one import deep. The return
+ * value is unused here — a history write is best-effort and its result belongs to its owner.
+ */
+export type RecordedStatement = {
+  queryExecutionId: string;
+  sql: string;
+  database: string;
+  /** ISO timestamp. */
+  submittedAt: string;
+  status?: QueryState;
+  dataScannedBytes?: number;
+  durationMs?: number;
+};
+
+export type RecordStatement = (entry: RecordedStatement) => Promise<unknown>;
+
 type Params = {
   username: string;
-  appendEntry: UseQueryHistoryResult['appendEntry'];
+  appendEntry: RecordStatement;
   toast: ToastApi;
 };
 
@@ -37,6 +64,11 @@ type Params = {
  * Runs one background DDL statement to completion and reports it — the single
  * path behind Create view and Drop table, which were the
  * same forty lines written twice.
+ *
+ * It lives in `features/catalog/` rather than in the Query workspace because the Data
+ * Explorer creates views too, and a leaf feature importing another leaf is how a feature
+ * quietly becomes a shared layer nobody declared. Nothing about the behaviour changed in the
+ * move; only `appendEntry`'s type, which is now structural.
  *
  * "Background" means the editor keeps showing the user's own SQL while the
  * statement runs; the outcome arrives as a toast. Every run is recorded in
@@ -67,7 +99,7 @@ export function useRunDdl({username, appendEntry, toast}: Params): UseRunDdlResu
   }, []);
 
   const run = useCallback(
-    ({sql, database, describe, onSettled}: RunDdlArgs) => {
+    ({sql, database, table, describe, onSettled}: RunDdlArgs) => {
       setBusy(true);
       void (async () => {
         const result = await runStatementToCompletion({sql, database, username, signal: abortRef.current?.signal});
@@ -94,7 +126,7 @@ export function useRunDdl({username, appendEntry, toast}: Params): UseRunDdlResu
         }).catch((e) => logBackgroundFailure('query-history', e));
 
         if (status.state === 'SUCCEEDED') {
-          void invalidateSchema(queryClient, database);
+          void invalidateSchema(queryClient, database, table);
           toast.push({variant: 'success', message: describe.success});
         } else {
           toast.push({

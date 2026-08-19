@@ -208,18 +208,22 @@ def _validate_partition_keys(keys):
 
 
 def _authorize_space(space, actor):
-    """Authorizes the actor for the target space and returns its normalised prefix.
+    """Authorizes the actor for the target space and returns its normalised prefix and root.
 
     A personal space must be the actor's own database in the user-space bucket, with the
     location inside their prefix. A shared space must list the actor as an active member, live
     in the shared-space bucket, and have the location inside the space's own prefix.
+
+    The root is returned rather than recomputed by the caller because it is the string this
+    function already tested the prefix against; a second derivation of "where this space
+    starts" would be free to disagree with the one that authorized the request.
 
     Args:
       space: The request's space dict.
       actor: The verified username.
 
     Returns:
-      The normalised prefix.
+      A ``(prefix, root)`` pair: the normalised location prefix, and the space's own root.
 
     Raises:
       TerminalError: ``forbidden`` when the space is missing, its kind is unknown, the actor is
@@ -238,7 +242,8 @@ def _authorize_space(space, actor):
             raise TerminalError("forbidden", "personal database must be the actor's own")
         if bucket != config.USER_SPACE_BUCKET:
             raise TerminalError("forbidden", "personal space must be the user-space bucket")
-        if not prefix.startswith(f"{actor}/"):
+        root = f"{actor}/"
+        if not prefix.startswith(root):
             raise TerminalError("forbidden", "location escapes the personal space")
     elif kind == "shared":
         record = _load_registry(database)
@@ -246,11 +251,45 @@ def _authorize_space(space, actor):
             raise TerminalError("forbidden", f"{actor!r} is not an active member of {database!r}")
         if bucket != config.SHARED_SPACE_BUCKET:
             raise TerminalError("forbidden", "shared space must be the shared-space bucket")
-        if not prefix.startswith(f"{database}/"):
+        root = f"{database}/"
+        if not prefix.startswith(root):
             raise TerminalError("forbidden", "location escapes the shared space")
     else:
         raise TerminalError("forbidden", f"unknown space kind {kind!r}")
-    return prefix
+    return prefix, root
+
+
+def _validate_not_space_root(prefix, root, mode):
+    """Refuses a create whose location is the space root itself.
+
+    A table's ``LOCATION`` is read recursively, so a table built at the root covers every
+    app-managed folder the space keeps there — ``athenaresults/``, ``saved_queries/``,
+    ``user_settings/``, ``shared_files/``, ``shared_tables/``, ``archive/`` — as well as the
+    user's own data. It does not fail; it succeeds, and every later read of that table returns
+    the portal's own bookkeeping mixed into the answer. Refused here, where the request is
+    still a request.
+
+    Creates only. A refresh re-derives an existing table's columns, so refusing one would
+    strand any root table already in a catalog with no way to repair it, and a refresh reads
+    the location the table already has rather than choosing a new one.
+
+    Args:
+      prefix: The normalised location prefix.
+      root: The space's own root prefix.
+      mode: The validated request mode.
+
+    Returns:
+      None.
+
+    Raises:
+      TerminalError: ``location_is_space_root`` when a create names the root.
+    """
+    if mode == "create" and prefix == root:
+        raise TerminalError(
+            "location_is_space_root",
+            "a table cannot be built from the top of a space, which also holds query results, "
+            "saved queries and shared files",
+        )
 
 
 @observability.traced("validate-authorize")
@@ -306,8 +345,9 @@ def _validate_and_authorize(event) -> dict:
 
     Raises:
       TerminalError: ``unauthorized`` for a bad token, ``invalid_mode``,
-        ``removals_flag_not_applicable``, ``forbidden``, ``invalid_table_name``,
-        ``partition_keys_not_refreshable`` or ``invalid_partition_keys``.
+        ``removals_flag_not_applicable``, ``forbidden``, ``location_is_space_root``,
+        ``invalid_table_name``, ``partition_keys_not_refreshable`` or
+        ``invalid_partition_keys``.
       TransientError: On a retryable fault loading the registry.
     """
     req = events.parse_sqs_request(event, reason="unauthorized")
@@ -318,7 +358,8 @@ def _validate_and_authorize(event) -> dict:
     try:
         mode = _validate_mode(req.get("mode"))
         allow_removals = _validate_allow_removals(req.get("allowRemovals"), mode)
-        prefix = _authorize_space(space, actor)
+        prefix, root = _authorize_space(space, actor)
+        _validate_not_space_root(prefix, root, mode)
         table_name = req.get("tableName")
         _validate_table_name(table_name)
         if mode == "refresh":

@@ -14,6 +14,7 @@ import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.servi
 import {copyObject, listFiles} from '../file-browser/fileBrowser.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {ExplorationTab, ExplorationTabsState} from './dataExplorer.types';
+import {chooseExplorationOption, explorationOption} from './explorationOptions.testkit';
 
 // SPEC-185 FR-001 / FR-002. Integration style (react.md §21): the real workspace, the real
 // grid and selection, the real `useSaveResults` and the real `SaveResultsDialog` —
@@ -218,7 +219,7 @@ describe('copy (FR-001)', () => {
     await grid();
     await clickCell(user, 0, 'region');
     await user.keyboard('{Shift>}{ArrowDown}{ArrowRight}{/Shift}');
-    await user.click(screen.getByRole('button', {name: 'Copy…'}));
+    await chooseExplorationOption(user, 'Copy…');
 
     const dialog = await screen.findByRole('dialog', {name: 'Copy selection'});
     expect(within(dialog).getByText(COPY_RECTANGLE_NOTE)).toBeInTheDocument();
@@ -243,7 +244,7 @@ describe('copy (FR-001)', () => {
     const {user} = render();
     await grid();
     await clickCell(user, 0, 'region');
-    await user.click(screen.getByRole('button', {name: 'Copy…'}));
+    await chooseExplorationOption(user, 'Copy…');
     const dialog = await screen.findByRole('dialog', {name: 'Copy selection'});
 
     expect(within(dialog).getByLabelText('Quote values')).not.toHaveAttribute('aria-disabled', 'true');
@@ -260,7 +261,7 @@ describe('copy (FR-001)', () => {
     await grid();
     await clickCell(user, 0, 'region');
     refuseClipboard();
-    await user.click(screen.getByRole('button', {name: 'Copy…'}));
+    await chooseExplorationOption(user, 'Copy…');
     const dialog = await screen.findByRole('dialog', {name: 'Copy selection'});
     await user.click(within(dialog).getByRole('button', {name: 'Copy'}));
 
@@ -307,7 +308,7 @@ describe('copy (FR-001)', () => {
     await clickCell(user, 0, 'region');
     await user.keyboard('{Shift>}{ArrowDown}{/Shift}');
     await user.keyboard('{Control>}c{/Control}');
-    await user.click(screen.getByRole('button', {name: 'Copy…'}));
+    await chooseExplorationOption(user, 'Copy…');
     const dialog = await screen.findByRole('dialog', {name: 'Copy selection'});
     await user.selectOptions(within(dialog).getByLabelText('Format'), 'markdown');
     await user.click(within(dialog).getByRole('button', {name: 'Copy'}));
@@ -323,7 +324,7 @@ describe('accessibility', () => {
     const {user, container} = render();
     await grid();
     await clickCell(user, 0, 'region');
-    await user.click(screen.getByRole('button', {name: 'Copy…'}));
+    await chooseExplorationOption(user, 'Copy…');
     const dialog = await screen.findByRole('dialog', {name: 'Copy selection'});
 
     // SPEC-172's rule: the refusal is `aria-disabled`, so the control stays in the tab order
@@ -345,9 +346,10 @@ describe('accessibility', () => {
     seedTab();
     const {user, container} = render();
     await grid();
-    const button = await screen.findByRole('button', {name: 'Export'});
-    await waitFor(() => expect(button).not.toHaveAttribute('aria-disabled', 'true'));
-    await user.click(button);
+    await waitFor(async () =>
+      expect(await explorationOption(user, 'Export')).not.toHaveAttribute('aria-disabled', 'true')
+    );
+    await chooseExplorationOption(user, 'Export');
     await screen.findByRole('dialog', {name: 'Save results to my files'});
 
     await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
@@ -358,10 +360,15 @@ describe('accessibility', () => {
 
 describe('export (FR-002)', () => {
   /** Open the export dialog on a tab whose first execution has landed. */
+  // The control lives in the Options menu, so the wait for the execution is a wait on the MENU
+  // ITEM's refusal clearing — same assertion, one layer in. The menu is reopened each pass
+  // rather than held open across the wait, because a stale handle would assert against an item
+  // detached from the document.
   async function openExport(user: ReturnType<typeof render>['user']) {
-    const button = await screen.findByRole('button', {name: 'Export'});
-    await waitFor(() => expect(button).not.toHaveAttribute('aria-disabled', 'true'));
-    await user.click(button);
+    await waitFor(async () =>
+      expect(await explorationOption(user, 'Export')).not.toHaveAttribute('aria-disabled', 'true')
+    );
+    await chooseExplorationOption(user, 'Export');
     return screen.findByRole('dialog', {name: 'Save results to my files'});
   }
 
@@ -419,12 +426,16 @@ describe('export (FR-002)', () => {
     vi.mocked(getQueryStatus).mockResolvedValue(
       ok({queryExecutionId: 'exec-1', state: 'SUCCEEDED', dataScannedBytes: 1, engineExecutionTimeMillis: 1})
     );
-    render();
+    const {user} = render();
     await grid();
 
-    const button = await screen.findByRole('button', {name: 'Export'});
-    expect(button).toHaveAttribute('aria-disabled', 'true');
-    expect(button).toHaveAttribute('title', NOTHING_TO_EXPORT);
+    // Asserted on the MENU ITEM. `aria-disabled`, not `disabled` — the reason has to be
+    // reachable, which is exactly why the item was given `MenuItem.disabledReason` rather
+    // than being dropped from the menu when it moved off the toolbar.
+    const item = await explorationOption(user, 'Export');
+    expect(item).toHaveAttribute('aria-disabled', 'true');
+    expect(item).not.toHaveAttribute('disabled');
+    expect(item).toHaveAttribute('title', NOTHING_TO_EXPORT);
   });
 
   it('a failed copy shows the mapped message and leaves the dialog open', async () => {

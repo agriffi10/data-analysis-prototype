@@ -5,7 +5,7 @@ import {useExploration} from './useExploration';
 import {useQueryResults} from '../catalog/useQueryResults';
 import {getQueryStatus, runQuery, getQueryResults} from '../catalog/athena.service';
 import {newExploration} from './exploration';
-import {explorerKeys} from './explorerKeys';
+import {explorerKeys, explorationSourceScope} from './explorerKeys';
 import type {Exploration, ExplorationSource} from './dataExplorer.types';
 import type {QueryState} from '../catalog/catalog.types';
 
@@ -184,10 +184,14 @@ describe('useExploration — one execution per distinct rendered SQL (FR-006)', 
     await waitFor(() => expect(first.result.current.state).toBe('FAILED'));
     expect(runQuery).toHaveBeenCalledTimes(1);
     // Still cached while mounted — the user sees the failure and pays for it once.
-    expect(client.getQueryData(explorerKeys.execution(first.result.current.sql as string))).toBe('exec-1');
+    expect(
+      client.getQueryData(explorerKeys.execution(explorationSourceScope(TABLE), first.result.current.sql as string))
+    ).toBe('exec-1');
 
     first.unmount();
-    expect(client.getQueryData(explorerKeys.execution('SELECT *\nFROM "alice"."orders"'))).toBeUndefined();
+    expect(
+      client.getQueryData(explorerKeys.execution(explorationSourceScope(TABLE), 'SELECT *\nFROM "alice"."orders"'))
+    ).toBeUndefined();
 
     vi.mocked(getQueryStatus).mockResolvedValue(status({bytes: 10}));
     const second = renderHookWithProviders(() => useExploration(exploration), {queryClient: client});

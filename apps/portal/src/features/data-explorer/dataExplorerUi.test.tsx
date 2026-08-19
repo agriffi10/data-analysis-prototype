@@ -119,10 +119,12 @@ describe('the source picker', () => {
   it('offers every space personal-first, and the chosen space’s tables AND views', async () => {
     render();
 
+    // The database is shown only where it says something the label does not. A shared space's
+    // label IS its database name, so printing both rendered `teamspaceteamspace`.
     await waitFor(() =>
       expect(screen.getAllByRole('button', {name: /^(My files|teamspace)/}).map((b) => b.textContent)).toEqual([
         'My filesalice',
-        'teamspaceteamspace'
+        'teamspace'
       ])
     );
 

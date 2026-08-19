@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {Badge} from '../../components/Badge';
 import {Button} from '../../components/Button';
 import {Drawer} from '../../components/Drawer';
 import type {UseColumnGeometryResult} from './useColumnGeometry';
@@ -73,16 +74,25 @@ export function ColumnsPanel({open, onClose, geometry}: ColumnsPanelProps) {
               onClick={() => move(column.name, 1)}>
               ↓
             </Button>
-            <Button
-              size="sm"
-              variant="ghost"
+            {/* A chip rather than a text button, because pinning is the one column property
+                whose CURRENT state the user needs to read off the row — hidden is legible
+                from the grid, pinned is not. The accessible name still names the ACTION and
+                flips with the state, which is why there is no `aria-pressed` here: a toggle
+                label that already changes, announced as pressed, says the state twice. */}
+            <button
+              type="button"
               aria-label={`${column.pinned ? 'Unpin' : 'Pin'} ${column.name}`}
               onClick={() => {
                 geometry.togglePinned(column.name);
                 setAnnouncement(`${column.name} ${column.pinned ? 'unpinned' : 'pinned to the left'}.`);
-              }}>
-              {column.pinned ? 'Unpin' : 'Pin'}
-            </Button>
+              }}
+              // `h-8` matches the buttons either side and keeps the target above WCAG 2.2
+              // SC 2.5.8's minimum, which the chip on its own would sit under.
+              className="flex h-8 items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+              <Badge className={column.pinned ? 'border-accent-border bg-accent-soft text-accent-text' : undefined}>
+                {column.pinned ? 'Pinned' : 'Pin'}
+              </Badge>
+            </button>
             <Button
               size="sm"
               variant="ghost"

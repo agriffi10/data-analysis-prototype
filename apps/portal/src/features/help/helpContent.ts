@@ -146,7 +146,8 @@ export const HELP_SECTIONS: HelpSection[] = [
           'When it finishes you’ll get a <b>notification</b> naming what was checked. Click it to open the full report — the findings live there, not in the notification.',
           'The report shows every finding: row and column counts, blank values, columns whose values don’t match their type, repeated rows, and — for a folder — any file whose columns disagree with the rest.',
           'Checking <b>one file</b> reports on that file alone — its neighbours in the same folder are not counted, even though they sit alongside it.',
-          'If a source turns out to have <b>no rows at all</b> — an empty or header-only export — the report says so as a finding rather than calling it clean.'
+          'If a source turns out to have <b>no rows at all</b> — an empty or header-only export — the report says so as a finding rather than calling it clean.',
+          'If the <b>column names</b> in your data won’t work in Athena — a header like <b>Order ID</b>, or two headers that differ only by case — the check stops and the notification names them. There’s no report in that case: those names are also what would stop a table being readable, so they’re worth fixing before anything else.'
         ],
         callout: {
           kind: 'tip',
@@ -332,9 +333,9 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Create a table from a folder',
         subtitle: 'Turn a folder of files into a table you can query.',
         intro:
-          'Have a folder full of data files — CSV, JSON, or Parquet — that you’d like to run SQL against? This turns them into a table without moving or copying anything. The portal reads the files where they already sit and builds the table in the background, then it shows up in the <b>Query</b> tab ready to go. One thing worth sorting out before you start: <b>use lowercase column names in your files</b>. Every column name in a table is stored in lowercase, so a header written as <b>OrderID</b> becomes <b>orderid</b> — your files themselves are never rewritten, and headers that differ only by case can stop lining up with the table.',
+          'Have a folder full of data files — CSV, JSON, or Parquet — that you’d like to run SQL against? This turns them into a table without moving or copying anything. The portal reads the files where they already sit and builds the table in the background, then it shows up in the <b>Query</b> tab ready to go. One thing to sort out before you start: <b>column names have to be letters, digits and underscores</b>. A header like <b>Order ID</b> or <b>sales-2024</b> will stop the build, and you’ll get a notification naming the columns to fix. Names are also stored in lowercase, so <b>OrderID</b> becomes <b>orderid</b> — and two headers that differ only by case (<b>Total</b> and <b>TOTAL</b>) become one column, which is refused for the same reason. Your files themselves are never rewritten.',
         steps: [
-          'In the <b>Files</b> tab, open the folder whose files you want to query, then click <b>Create table</b>.',
+          'In the <b>Files</b> tab, open the folder whose files you want to query, then click <b>Create table</b>. You can also start from the <b>Data explorer</b> — when it asks what to explore, use <b>Create table from a folder…</b> and pick the folder there. It has to be a folder — <b>Create table</b> is unavailable at the top of a space, because a table reads everything below it and the top of a space also holds your query results, saved queries and shared files.',
           'Enter a <b>Table name</b> (lowercase letters, digits, or underscores, starting with a letter).',
           'If your files sit in <b>key=value</b> folders (for example <b>year=2026/month=01/</b>), click <b>Add partition keys</b> and declare each key in order — coarsest first — along with its type and range.',
           'Click <b>Create table</b>. It’s built in the background, and you’ll get a notification when it’s ready — or if something stopped it from being created.'
@@ -441,11 +442,11 @@ export const HELP_SECTIONS: HelpSection[] = [
         intro:
           'These two panels look alike and work very differently, and it is worth knowing which is which. <b>Grouping</b> asks the database a new question. <b>Calc</b> adds up the cells you have highlighted, right here in your browser.',
         steps: [
-          'Click <b>Grouping</b>, choose the columns to group by and what to work out for each group — a count, a sum, an average, a minimum or a maximum. You can also drag a column header onto the panel.',
+          'Open <b>Options</b> and click <b>Grouping</b>, then choose the columns to group by and what to work out for each group — a count, a sum, an average, a minimum or a maximum. You can also drag a column header onto the panel.',
           'Tick <b>Show percentage of the rows on this page</b> to add a share-of-total column beside the first figure. It is worked out from the rows on the page, and the column header says so.',
           'Click <b>Apply</b>. Grouping is a query like any other — it runs, and it scans.',
-          'For a quick total instead, drag across some cells and click <b>Calc</b>. It shows the count, sum, average, minimum, maximum and more for exactly what you selected.',
-          'Click <b>Value</b> to open a panel showing the full contents of the cell you are on — useful when a value is too long for its column.'
+          'For a quick total instead, drag across some cells and pick <b>Calc</b> from <b>Options</b>. It shows the count, sum, average, minimum, maximum and more for exactly what you selected.',
+          'Pick <b>Value</b> from <b>Options</b> to open a panel showing the full contents of the cell you are on — useful when a value is too long for its column.'
         ],
         callout: {
           kind: 'tip',
@@ -460,8 +461,8 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Two ways out, for two different jobs. <b>Copy</b> takes the cells you have selected on the page. <b>Export</b> saves every row the query returned as a CSV file in your files — neither one runs another query.',
         steps: [
           'Select some cells and press <b>Ctrl+C</b> (<b>⌘C</b> on a Mac) to copy them as plain columns you can paste straight into a spreadsheet.',
-          'Click <b>Copy…</b> instead to choose a format — <b>CSV</b>, <b>JSON</b>, a <b>Markdown table</b>, a <b>SQL INSERT</b> or <b>XML</b> — and whether to include column names, row numbers or quotes.',
-          'Click <b>Export</b> to save the full result. Give the file a name, choose the space and folder, and click <b>Save here</b>.',
+          'Pick <b>Copy…</b> from <b>Options</b> instead to choose a format — <b>CSV</b>, <b>JSON</b>, a <b>Markdown table</b>, a <b>SQL INSERT</b> or <b>XML</b> — and whether to include column names, row numbers or quotes.',
+          'Pick <b>Export</b> from <b>Options</b> to save the full result. Give the file a name, choose the space and folder, and click <b>Save here</b>.',
           'If a file of that name is already there you are asked before anything is replaced.'
         ],
         callout: {
@@ -477,8 +478,9 @@ export const HELP_SECTIONS: HelpSection[] = [
           'Everything you click here builds a real SQL statement, and you can see it and keep it. Open <b>Generated SQL</b> at any time to read exactly what is about to run — a good way to learn the SQL for something you have just built by hand.',
         steps: [
           'Open <b>Generated SQL</b> above the rows to see the statement your filters, sorting and grouping produced.',
-          'Click <b>Save as query</b> to keep it. Give it a name and choose the space to save it in, and it is written to that space’s <b>saved_queries</b> folder as a <b>.sql</b> file.',
-          'To use it again, open the <b>Query</b> tab and load it from <b>Saved queries</b>.'
+          'Pick <b>Save as query</b> from <b>Options</b> to keep it. Give it a name and choose the space to save it in, and it is written to that space’s <b>saved_queries</b> folder as a <b>.sql</b> file.',
+          'To use it again, open the <b>Query</b> tab and load it from <b>Saved queries</b>.',
+          'Or pick <b>Create view…</b> from <b>Options</b> to keep it as a <b>view</b> in the catalogue instead. A view behaves like a table — it turns up in the <b>Data explorer</b> and the <b>Query</b> tab for anyone who can see that space, and it re-runs your query each time it is read.'
         ],
         callout: {
           kind: 'warning',

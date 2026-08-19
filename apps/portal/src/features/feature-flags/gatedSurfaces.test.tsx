@@ -125,6 +125,11 @@ import {DataExplorerWorkspace} from '../data-explorer';
 import {listFiles} from '../file-browser/fileBrowser.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {Connection} from '../connections/connection.types';
+import {
+  chooseExplorationOption,
+  explorationOption,
+  openExplorationOptions
+} from '../data-explorer/explorationOptions.testkit';
 
 const ALL_ON: FeatureFlags = {files: true, query: true, sharedWorkspaces: true, dataQuality: true, dataExplorer: true};
 
@@ -435,17 +440,46 @@ const RECIPES: Record<string, Recipe> = {
     anchor: async () => screen.findByRole('button', {name: /^My files/}),
     find: async () => screen.queryByRole('button', {name: /^teamspace/})
   },
-  'Save as query': {
+  'Create table from a folder…': {
     render: () => {
+      // NO tab seeded: the control lives on the source PICKER, which is what shows when there
+      // is nothing open — the screen where "how do I get a table in here?" is the question.
+      renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
+    },
+    // The picker's own space list, which is ungated for the personal space, so the anchor
+    // settles the screen without depending on the row under test.
+    anchor: async () => screen.findByRole('button', {name: /^My files/}),
+    find: async () => screen.queryByRole('button', {name: 'Create table from a folder…'})
+  },
+  'Create view…': {
+    render: async () => {
       seedExplorationTab();
       renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
+      const {default: userEvent} = await import('@testing-library/user-event');
+      await openExplorationOptions(userEvent.setup({delay: null}));
+    },
+    // A SIBLING ITEM as the anchor, not the trigger: anchoring on the trigger settles before
+    // the menu has opened and lets the `find` miss for a reason that is not the flag.
+    anchor: async () => screen.findByRole('menuitem', {name: 'Grouping'}),
+    find: async () => screen.queryByRole('menuitem', {name: 'Create view…'})
+  },
+  'Save as query': {
+    render: async () => {
+      seedExplorationTab();
+      renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
+      const {default: userEvent} = await import('@testing-library/user-event');
+      await openExplorationOptions(userEvent.setup({delay: null}));
     },
     // A tab is seeded because the control lives on the RESULTS region, which does not mount
     // at all with no tabs — absent for a reason that has nothing to do with a flag. Given one,
-    // an unrunnable exploration leaves the control `aria-disabled` rather than absent
-    // (SPEC-172), so from here the flag is the only thing that can remove it.
-    anchor: async () => screen.findByRole('button', {name: 'Grouping'}),
-    find: byRole('button', 'Save as query')
+    // an unrunnable exploration leaves the control `aria-disabled` rather than absent, so from
+    // here the flag is the only thing that can remove it.
+    //
+    // The control is now a menu item, so `render` opens the menu and the anchor is a SIBLING
+    // ITEM — `Grouping`, which is ungated. Anchoring on the trigger instead would settle before
+    // the menu had opened and let the `find` miss for a reason that is not the flag.
+    anchor: async () => screen.findByRole('menuitem', {name: 'Grouping'}),
+    find: async () => screen.queryByRole('menuitem', {name: 'Save as query'})
   },
   // SPEC-185. Export's own destination selector, reached through the real toolbar button —
   // which is itself refused until an execution has SUCCEEDED, so the recipe exercises that
@@ -456,12 +490,15 @@ const RECIPES: Record<string, Recipe> = {
       renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
       const {default: userEvent} = await import('@testing-library/user-event');
       const user = userEvent.setup({delay: null});
-      // The button is REFUSED until an execution has succeeded (FR-002 AC3), and a refused
-      // `Button` drops its `onClick` — so clicking early would silently do nothing and the
-      // row would read as correctly hidden in both states.
-      const button = await screen.findByRole('button', {name: 'Export'});
-      await waitFor(() => expect(button).not.toHaveAttribute('aria-disabled', 'true'));
-      await user.click(button);
+      // Export now lives in the Options menu, and the recipe still has to walk the refusal:
+      // the item is REFUSED until an execution has succeeded (FR-002 AC3), and a refused
+      // `MenuItem` drops its `onSelect` — so choosing it early would silently do nothing and
+      // the row would read as correctly hidden in both states. Re-fetched on each pass rather
+      // than held, because `waitFor` outlives the menu's own open state.
+      await waitFor(async () =>
+        expect(await explorationOption(user, 'Export')).not.toHaveAttribute('aria-disabled', 'true')
+      );
+      await chooseExplorationOption(user, 'Export');
     },
     anchor: async () =>
       within(await screen.findByRole('dialog', {name: 'Save results to my files'})).findByLabelText('File name'),
@@ -498,7 +535,7 @@ const RECIPES: Record<string, Recipe> = {
       renderWithProviders(<DataExplorerWorkspace />, {auth: authenticated('alice'), seedFeatureFlags: false});
       const {default: userEvent} = await import('@testing-library/user-event');
       const user = userEvent.setup({delay: null});
-      await user.click(await screen.findByRole('button', {name: 'Save as query'}));
+      await chooseExplorationOption(user, 'Save as query');
     },
     anchor: async () => within(await screen.findByRole('dialog', {name: 'Save query'})).findByLabelText('Space'),
     find: async () => screen.queryByRole('option', {name: 'teamspace'})
@@ -879,6 +916,14 @@ describe('the registry itself', () => {
         // capability on a Data Explorer surface, so it follows the store's flag.
         'Save as query',
         'Create view',
+        // The twin of 'Create table' above: the same build reached from a surface with no
+        // folder in view, so the folder is chosen first. It follows this flag for the same
+        // reason — with `query` off there is no workspace to use the table in.
+        'Create table from a folder…',
+        // The twin of `Create view` on the Query toolbar: creating a Glue view is a Query
+        // capability wherever the control lives, so an exemption here would hand back, through
+        // a different door, the one thing turning this flag off is meant to remove.
+        'Create view…',
         'Query help section',
         'Tables help section'
       ],

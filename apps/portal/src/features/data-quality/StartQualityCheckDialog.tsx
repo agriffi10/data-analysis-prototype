@@ -1,10 +1,11 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {Modal} from '../../components/Modal';
 import {DestinationPicker, type FileSpaceTarget} from '../file-browser';
+import {SpaceSelect} from '../../components/SpaceSelect';
 import {splitLocation} from './dataQuality.format';
 import type {DataQualitySpace} from './dataQuality.types';
 import type {DataQualityTarget} from './useDataQualityCheck';
-import {FIELD_LABEL, SECTION_CAPTION} from '../../components/fieldStyles';
+import {SECTION_CAPTION} from '../../components/fieldStyles';
 import {DIALOG_PANEL, DIALOG_TITLE} from '../../components/dialogChrome';
 
 type Props = {
@@ -86,31 +87,15 @@ export function StartQualityCheckDialog({spaces, isPending = false, onStart, onC
         you’ll get a notification when it finishes.
       </p>
 
-      {spaces.length > 1 && (
-        <div className="mt-3">
-          <label
-            htmlFor="dq-start-space"
-            className={FIELD_LABEL}>
-            Space
-          </label>
-          <select
-            ref={selectRef}
-            id="dq-start-space"
-            value={space.id}
-            disabled={isPending}
-            onChange={(e) => setSpaceId(e.target.value)}
-            className="h-9 w-full rounded-md border border-border bg-surface px-3 text-base text-text focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-45">
-            {spaces.map((s) => (
-              <option
-                key={s.id}
-                value={s.id}>
-                {s.label}
-                {s.kind === 'shared' ? ' (shared)' : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      <SpaceSelect
+        ref={selectRef}
+        id="dq-start-space"
+        label="Space"
+        spaces={spaces}
+        value={space.id}
+        disabled={isPending}
+        onChange={setSpaceId}
+      />
 
       <div className="mt-4 flex items-baseline justify-between gap-3">
         <p className={`flex-none ${SECTION_CAPTION}`}>Data to check</p>

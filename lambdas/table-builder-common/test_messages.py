@@ -100,6 +100,7 @@ def test_success_message():
 #: thing under test would assert nothing.
 _CREATE_MESSAGES = {
     "invalid_table_name": 'Couldn\'t create table "sales": the name isn\'t a valid table name.',
+    "location_is_space_root": 'Couldn\'t create table "sales": a table reads every file in the folder it\'s built from, so it can\'t be built from the top of a space - open the folder holding your data and build it there.',
     "invalid_partition_keys": 'Couldn\'t create table "sales": the partition keys aren\'t valid (check names, types, and ranges).',
     "table_exists": 'Couldn\'t create table "sales": a table with that name already exists in "alice".',
     "no_data_files": 'Couldn\'t create table "sales": no supported data files were found in that folder.',
@@ -132,6 +133,9 @@ _CREATE_MESSAGES = {
     # with no tokens, and that is the behaviour being pinned: an unfilled marker must leave a
     # sentence rather than a literal "{removed}" on the user's screen.
     "columns_removed": 'Couldn\'t create table "sales": these columns are no longer in the data and would be removed: . Nothing was changed - refresh again and confirm the removal to apply it.',
+    # The second marker-carrying body. Its {columns} marker renders EMPTY here for the same
+    # reason: the table pins the SHAPE, and the token comes from a raise site.
+    "invalid_column_names": 'Couldn\'t create table "sales": these column names won\'t work in Athena: . Athena column names can only use letters, digits and underscores, and two names that differ only by case become one column - rename them in your files and try again.',
     "removals_flag_not_applicable": 'Couldn\'t create table "sales": the request was malformed. Please try again.',
     # Shipped by SPEC-149, exempt while that spec was current. SPEC-156 is the next one, so
     # it moves in — and it matters more than most: this is the spec whose SOLE acceptance
@@ -191,7 +195,7 @@ def test_a_body_with_no_token_markers_is_unaffected_by_the_tokens_channel():
 
     The marker-carrying bodies are excluded BY DETECTION rather than by name, so a body that
     gains a marker later leaves this loop automatically instead of failing it — and a body
-    that loses one rejoins. `columns_removed` is the only one today.
+    that loses one rejoins. `columns_removed` and `invalid_column_names` are today's two.
 
     Detection reads the resolver rather than `_BODIES` because SPEC-156 moved two reasons
     (`malformed_event`, `unexpected_error`) out of this layer's table and onto cpcommon's

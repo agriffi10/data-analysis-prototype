@@ -18,6 +18,7 @@ the ``verb`` field.
 import logging
 
 from cpcommon import athena, events, observability, results
+from cpcommon import columns as columns_mod
 from cpcommon import config as cpconfig
 from cpcommon.errors import TerminalError
 from dqcommon import manifest as manifest_store
@@ -139,6 +140,19 @@ def _create(event: dict) -> dict:
     Whether the raw-line table exists is recorded, because it decides whether the ragged check can
     run at all — so a missing ragged finding downstream reads as designed rather than as a bug.
 
+    The column names are judged before either create runs, and their refusal is this check's
+    answer rather than a gap in it: a name Athena will not accept makes the temp table
+    unbuildable, so the alternative to naming the columns here is a raw engine error about a
+    statement the user never wrote. The width cap is checked first because it is the cheaper
+    question and its refusal is about the whole source rather than about particular columns.
+
+    The detected partition keys are judged by the same rule under a DIFFERENT reason code. Same
+    rule, because in this arc the keys are derived from S3 path segments rather than declared in
+    a dialog, which makes them a catalog identifier the user wrote by naming a folder. Different
+    reason, because the two refusals ask for different repairs — a column is fixed by editing a
+    file's header, a partition key by renaming a folder — and a user told to fix a column would
+    go looking in the wrong place.
+
     Args:
       event: The task input.
 
@@ -149,7 +163,8 @@ def _create(event: dict) -> dict:
       TerminalError: ``invalid_request`` for a missing field or an empty manifest,
         ``too_many_columns`` when the source is too wide — the count comes from the column list
         rather than from parsing the exception's text, because a token that reaches a user must
-        never be scraped out of a log message — or a query failure from the creates.
+        never be scraped out of a log message — ``invalid_column_names`` when a header carries a
+        name Athena cannot use, or a query failure from the creates.
       TransientError: On a retryable Athena or S3 fault.
     """
     bucket = events.require(event, "space", "bucket", reason=messages.INVALID_REQUEST)
@@ -168,6 +183,18 @@ def _create(event: dict) -> dict:
     except sql.TooManyColumnsError as exc:
         raise TerminalError(
             messages.TOO_MANY_COLUMNS, str(exc), tokens={"count": f"{len(columns):,}"}
+        ) from exc
+    try:
+        columns_mod.check(columns)
+    except columns_mod.InvalidColumnNamesError as exc:
+        raise TerminalError(
+            messages.INVALID_COLUMN_NAMES, exc.summary, tokens={"columns": exc.summary}
+        ) from exc
+    try:
+        columns_mod.check_names([k.get("name") for k in (manifest.get("partitionKeys") or [])])
+    except columns_mod.InvalidColumnNamesError as exc:
+        raise TerminalError(
+            messages.INVALID_PARTITION_NAMES, exc.summary, tokens={"columns": exc.summary}
         ) from exc
 
     table = sql.temp_table_name(request_id)

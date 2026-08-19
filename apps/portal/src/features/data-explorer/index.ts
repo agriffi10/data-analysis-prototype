@@ -64,7 +64,9 @@ export type {UseExplorationQueryResult} from './useExplorationQuery';
 export {useExplorationTabs} from './useExplorationTabs';
 export type {UseExplorationTabsResult, OpenExplorationOpts} from './useExplorationTabs';
 export {tabBytesScanned} from './explorationTabs';
-export {explorerKeys} from './explorerKeys';
+export {ExplorationOptionsMenu} from './ExplorationOptionsMenu';
+export {explorerKeys, explorationSourceScope} from './explorerKeys';
+export {useExplorationEviction, evictExplorations} from './useExplorationEviction';
 export {
   CALC_DEFAULT_FUNCTIONS,
   CALC_FUNCTIONS,

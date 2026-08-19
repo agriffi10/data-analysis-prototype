@@ -28,6 +28,7 @@ import json
 
 import infer_schema as i
 import polars as pl
+import pytest
 from cpcommon import clients, config
 from cpcommon.errors import TerminalError, TransientError
 
@@ -230,10 +231,73 @@ def test_csv_header_is_read_without_downloading_the_object():
 
 def test_csv_header_with_a_quoted_comma_survives_the_head_read():
     """polars parses the header, so a quoted name containing a comma stays one column —
-    the reason the head read keeps whole lines instead of splitting on the first newline."""
-    _use_s3_fixture(b'order_id,"amount, net",ts\n1,2.50,2026-01-01\n')
+    the reason the head read keeps whole lines instead of splitting on the first newline.
+
+    Asserted at the INFERENCE seam rather than through the handler, because the handler now
+    refuses that name: a comma and a space are outside what Athena will take. The parsing fact
+    and the naming rule are two different claims, and the parsing one is still worth holding —
+    if the head read split on the first newline this would come back as TWO columns, and the
+    refusal downstream would name the wrong thing."""
+    columns = i._infer_columns(io_module.BytesIO(b'order_id,"amount, net",ts\n1,2.50,2026-01-01\n'), "csv")
+    assert [c["name"] for c in columns] == ["order_id", "amount, net", "ts"]
+
+
+def test_a_header_name_athena_cannot_use_refuses_the_build_and_names_the_column():
+    """The reported bug. Glue accepts these names and the renderers quote them, so before this
+    the table was CREATED — it appeared in the rail and failed or returned nothing when read.
+
+    The names ride as a TOKEN, not as the detail: `detail` is the operator channel and never
+    reaches the user, and a refusal that does not say which column is the one thing the user
+    cannot work out for themselves."""
+    _use_s3_fixture(b'order_id,"Order ID",ts\n1,2,3\n')
+    with pytest.raises(TerminalError) as err:
+        i.handler(_event("csv"), None)
+    assert err.value.reason == "invalid_column_names"
+    assert err.value.tokens["columns"] == '"Order ID"'
+
+
+def test_a_case_fold_collision_refuses_the_build_and_names_BOTH_columns():
+    """Athena lowercases every identifier as it runs, so `Total` and `TOTAL` are two columns to
+    every tool the user has and one column to Athena. This is the failure that reads as a bug
+    in the portal rather than in the file."""
+    _use_s3_fixture(b"Total,id,TOTAL\n1,2,3\n")
+    with pytest.raises(TerminalError) as err:
+        i.handler(_event("csv"), None)
+    assert err.value.reason == "invalid_column_names"
+    assert err.value.tokens["columns"] == '"Total", "TOTAL"'
+
+
+def test_the_check_runs_BEFORE_the_ddl_is_rendered():
+    """A refused schema must produce no DDL at all. `ddl.quote` does not escape what it wraps,
+    so a name carrying a backtick would close the quote and turn the rest of the header cell
+    into DDL — rendering first and validating after would build that string before refusing."""
+    _use_s3_fixture(b"id,bad`name\n1,2\n")
+    with pytest.raises(TerminalError) as err:
+        i.handler(_event("csv"), None)
+    assert err.value.reason == "invalid_column_names"
+
+
+def test_a_REFRESH_is_exempt_so_a_pre_existing_table_is_not_stranded():
+    """The mirror of the space-root refusal, which is creates-only for the same reason. A refresh
+    re-derives the columns of a table that ALREADY EXISTS, so refusing one would break every
+    refresh of a table built before this rule and leave rewriting the source files as the only
+    repair. Refusing the create stops the next bad table; refusing the refresh strands the ones
+    already there."""
+    _use_s3_fixture(b'order_id,"Order ID",ts\n1,2,3\n')
+    # Selected by the STORAGE DESCRIPTOR, which only the refresh path puts on the state — this
+    # verb is forbidden from reading `mode` by the guard below, and for good reason.
+    refresh = dict(_event("csv"), storage={"serializationLibrary": "org.apache.hadoop.hive.serde2.OpenCSVSerde"})
+    out = i.handler(refresh, None)
+    assert [c["name"] for c in out["columns"]] == ["order_id", "Order ID", "ts"]
+
+
+def test_a_clean_header_is_untouched_by_the_new_check():
+    """The rule is a floor, not a narrowing: everything that built before still builds —
+    including a leading underscore, a leading digit and a reserved word, all of which the
+    renderers quote in both dialects."""
+    _use_s3_fixture(b"_id,2024_total,select,order_id\n1,2,3,4\n")
     out = i.handler(_event("csv"), None)
-    assert [c["name"] for c in out["columns"]] == ["order_id", "amount, net", "ts"]
+    assert [c["name"] for c in out["columns"]] == ["_id", "2024_total", "select", "order_id"]
 
 
 def test_json_dates_are_parsed():

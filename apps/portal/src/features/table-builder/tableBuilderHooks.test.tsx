@@ -33,6 +33,7 @@ describe('CreateTableButton', () => {
         bucket="dat-prod-user-space"
         database="alice"
         prefix="alice/sales/"
+        rootPrefix="alice/"
         {...props}
       />
     );
@@ -103,6 +104,25 @@ describe('CreateTableButton', () => {
       expect(await screen.findByText(/Check your connection/)).toBeInTheDocument();
       expect(screen.queryByText('SQS unavailable')).not.toBeInTheDocument();
       expect(screen.getByLabelText('Table name')).toBeInTheDocument();
+    });
+
+    // A table's LOCATION is read recursively, so a build at the space root SUCCEEDS and
+    // produces a table over `athenaresults/`, `saved_queries/` and everything else the space
+    // keeps there. Refused before submission, with the reason on the control rather than as a
+    // notification about a table that already exists.
+    it('refuses a build at the space root and says why, without opening the dialog', async () => {
+      const {user} = renderButton({prefix: 'alice/', rootPrefix: 'alice/'});
+      const button = screen.getByRole('button', {name: 'Create table'});
+      expect(button).toHaveAttribute('aria-disabled', 'true');
+      expect(button.getAttribute('title')).toMatch(/reads every file in the folder/);
+      await user.click(button);
+      expect(screen.queryByRole('dialog', {name: 'Create table from this folder'})).not.toBeInTheDocument();
+      expect(mockEnqueue).not.toHaveBeenCalled();
+    });
+
+    it('offers the build in any folder below the root', () => {
+      renderButton({prefix: 'alice/sales/2024/', rootPrefix: 'alice/'});
+      expect(screen.getByRole('button', {name: 'Create table'})).not.toHaveAttribute('aria-disabled');
     });
   });
 

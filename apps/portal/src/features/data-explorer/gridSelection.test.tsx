@@ -11,6 +11,7 @@ import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {ExplorationTab, ExplorationTabsState} from './dataExplorer.types';
+import {chooseExplorationOption} from './explorationOptions.testkit';
 
 // SPEC-180 Phase 2: the cell cursor and range selection, driven through the real grid.
 // A selection model is an accessibility problem a static table is not, so the axe pass
@@ -229,7 +230,7 @@ describe('the cell cursor and range selection', () => {
     // Hide a DIFFERENT column: hiding the selected one removes its cells from the DOM, so
     // "nothing is selected" would hold whether or not the reset ran — the assertion has to
     // be made where the selected cell is still on screen to be one at all.
-    await user.click(screen.getByRole('button', {name: 'Columns'}));
+    await chooseExplorationOption(user, 'Columns');
     const panel = await screen.findByRole('dialog', {name: 'Columns'});
     await user.click(within(panel).getByRole('button', {name: 'Hide status'}));
     await user.click(screen.getByRole('button', {name: 'Close columns'}));
@@ -260,7 +261,7 @@ describe('the cell cursor and range selection', () => {
     const {user} = render();
     await screen.findByRole('columnheader', {name: 'status'});
 
-    await user.click(screen.getByRole('button', {name: 'Columns'}));
+    await chooseExplorationOption(user, 'Columns');
     const panel = await screen.findByRole('dialog', {name: 'Columns'});
     await user.click(within(panel).getByRole('button', {name: 'Pin status'}));
     await user.click(screen.getByRole('button', {name: 'Close columns'}));
