@@ -122,7 +122,7 @@ python_version = "3.12"
 
 # The layer roots, so `from cpcommon import …` and shared-space-common's FLAT modules
 # resolve the way conftest.py makes them resolve under pytest.
-mypy_path = "lambdas/control-plane-common:lambdas/table-builder-common:lambdas/table-share-common:lambdas/data-quality-common:lambdas/shared-space-common:lambdas/file-send-common:lambdas/archive-common"
+mypy_path = "lambdas/control-plane-common:lambdas/table-builder-common:lambdas/table-share-common:lambdas/data-quality-common:lambdas/shared-space-common:lambdas/file-send-common:lambdas/archive-common:lambdas/file-ops-common"
 
 files = [
     "lambdas/control-plane-common/cpcommon",
@@ -139,6 +139,10 @@ files = [
     # ratchet WITH the spec that creates it. Added later it is a baseline of existing errors
     # to argue about; added now it is free, and this one entered at zero too.
     "lambdas/archive-common/arcommon",
+    # A new shared layer joins the ratchet WITH the spec that creates it, on the precedent
+    # above and for its reason: added later it is a baseline of existing errors to argue about;
+    # added now it is free, and this one entered at zero too.
+    "lambdas/file-ops-common/focommon",
 ]
 # The suites and the test doubles are not shipped and are not the contract.
 exclude = '(/test_[^/]*\.py|/conftest\.py|/fakes\.py)$'

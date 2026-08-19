@@ -23,6 +23,7 @@ _LAYER_DIRS = (
     "table-share-common",
     "file-send-common",
     "archive-common",
+    "file-ops-common",
 )
 _HERE = os.path.dirname(os.path.abspath(__file__))
 for _dir in _LAYER_DIRS:
@@ -57,7 +58,7 @@ import pytest
 # layers, and its process-wide worker/config already has purpose-built save-and-restore in
 # the `captured_events` fixture below. Two mechanisms restoring the same globals in an order
 # nobody chose is how a quiet teardown bug starts.
-_LAYER_PREFIXES = ("cpcommon", "tbcommon", "tscommon", "dqcommon", "fscommon", "arcommon")
+_LAYER_PREFIXES = ("cpcommon", "tbcommon", "tscommon", "dqcommon", "fscommon", "arcommon", "focommon")
 
 #: shared-space-common publishes FLAT modules, so they have no package prefix to match on.
 #: DERIVED FROM THE DIRECTORY, never hand-listed: a hand-list drifts silently, and the leak
