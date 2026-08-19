@@ -2087,7 +2087,7 @@ holds work that grows with object count: the SPEC-020 upload queue, and `firstFr
 sequential `HeadObject` probes. Those are deliberate residuals, recorded so this arc inherits them
 knowingly.
 
-## Transition identity arc (SPEC-203 → 204 — filed 2026-08-18)
+## Transition identity arc (SPEC-203 → 205 — filed 2026-08-18)
 
 Both specs exist because a fresh-context review of the identity-variant revision found the same
 gap twice: `transition_plan.md` names two obligations that **no spec owned**, and each is the kind
@@ -2176,4 +2176,41 @@ role's policy. For **shared spaces the literal form is forced**: a policy variab
 properties of the caller, and membership is a relation in our registry that no IAM variable can
 consult. The two buckets may therefore use different forms, and the personal-prefix decision does
 not have to wait for this one.
+
+### 205 is not transition work, and it is the prerequisite for 204
+
+`shared-space-delete` destroys a space: every object under its prefix, its Glue database, its Lake
+Formation grants, its members' slots and its registry record. **SPEC-205 makes it remove people
+instead of things** — every member's access ends, including the owner's, and the objects, the
+database and the record survive with `status: "active"` and an empty roster.
+
+**It ships independently of everything else here.** It needs no API, no Identity Center and no
+Access Grants; it is a change to one verb and one registry write, and it stands on its own merits —
+a deleted workspace becomes recoverable by an administrator, where today it is gone from a bucket
+with versioning off.
+
+**What it buys SPEC-204 is a whole failure class.** SPEC-151 exists because a partial teardown could
+free a name while resources survived under it, and FR-011 was originally a teardown protocol
+descending from that. On a route that releases no record the hazard is *unreachable*, so FR-011 is
+three criteria and `TeardownIncompleteError` does not apply to it.
+
+**The seam that keeps it from hoarding rubbish is `status`.** Retention keys on whether a space ever
+reached `active`. One that did is emptied; one that never did — a failed create, which by
+construction holds no user data because nobody could reach it to put any there — is still destroyed
+by `shared-space-forget`'s owner path, SPEC-151 protocol intact. That split is why
+`transition_plan.md` §6.3's destructive-path table is *split* rather than struck.
+
+**The detail that looks cosmetic and is an authorization boundary:** the `owner` field is cleared
+with the members. `shared-space-common/auth.py`'s `authorize` gates every owner-only action on
+`actor != registry.get("owner")` — the field, never the roster — so an `owner` retained through a
+delete leaves the original owner able to `add-members` on the emptied space and revive it in one
+call, with the previous cohort's files intact and no confirmation. The previous owner survives as
+`previousOwner`, which no authorization path reads, so an operator can still restore it. The
+inert-state test is driven **as the original owner**, because as a stranger it passes over the
+defect.
+
+**Two user-visible costs, both stated rather than discovered.** A name any space once used can never
+be claimed again — the record is the name lock and it is never released. And data a user asked to
+delete is retained; the wording stays "delete" because from every user's view the space is gone, but
+no copy anywhere may claim the data was destroyed, which is what FR-006's sweep enforces.
 

@@ -210,6 +210,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 202 — Retiring CloudFront & the Identity Pool, and the Arc's Live Checks | Draft |
 | 203 — The Membership Index | Draft |
 | 204 — Shared-Space Entitlements as Grants | Draft |
+| 205 — A Delete Empties a Space and Destroys Nothing | Draft |
 
 ## Arcs
 

@@ -79,24 +79,34 @@ prevents it, and getting the order backwards locks every member out instead.
 
 ### The delete semantics this spec is written against
 
-**Decided 2026-08-18, and it is an input to this spec rather than a decision of it.** In the target
-environment a shared-space **delete removes every member — including the owner — and destroys
-nothing**. The objects under `{name}/`, the Glue database and the registry record all survive; the
-record keeps `status: "active"` with an empty member list, and takes no terminal state.
+**Decided 2026-08-18. It is an input to this spec, and it is owned by SPEC-205**, which changes the
+verb and ships independently of the transition. A shared-space **delete removes every member —
+including the owner — and destroys nothing**. The objects under `{name}/`, the Glue database and the
+registry record all survive; the record keeps `status: "active"` with an empty member list, and takes
+no terminal state.
+
+**One qualification, because an earlier draft of this block overstated it.** SPEC-205 FR-002 keys
+retention on whether the space ever reached `active`: a space that did is emptied, and a space that
+never did — a failed create, which by construction holds no user data — is still **destroyed** by
+`shared-space-forget`'s owner path, teardown protocol and all. So `delete_shared_prefix` and
+`drop_database` do not disappear; they stop being reachable on the **`delete`** route. This spec's
+FR-011 covers the emptying route, and its forget-path criterion covers a verb that may still tear
+down.
 
 Four consequences run through the requirements below, and they are why FR-011 is three criteria
 rather than a teardown protocol:
 
-- **`delete_shared_prefix` and `drop_database` do not run.** Both halves of the entitlement pair
+- **On the `delete` route nothing is destroyed.** Both halves of the entitlement pair
   therefore have the same lifetime — the Access Grant's prefix and the Lake Formation grant's
   database both outlive the space's membership — so FR-001's "one operation, both halves" holds
   through deletion as well as through creation. Had the database still been dropped, the pair would
   tear down asymmetrically and a revived space would have files and no tables.
-- **SPEC-151's name-lock ordering stops applying to delete.** The registry record is the name lock
-  and it is never released, so the interleaving FR-011 was originally written against — an
-  incomplete revocation freeing a name whose prefix still carries live grants, letting the next
-  space of that name inherit the previous one's members — **is unreachable**. It is not mitigated;
-  it does not exist.
+- **SPEC-151's name-lock ordering stops applying to `delete`, and still applies to `forget`.** On
+  the emptying route the registry record is never released, so the interleaving FR-011 was
+  originally written against — an incomplete revocation freeing a name whose prefix still carries
+  live grants, letting the next space of that name inherit the previous one's members — **is
+  unreachable**. On the destroying route it remains reachable and SPEC-151 still governs it; the
+  difference is that a never-`active` space has no members to have inherited anything.
 - **`active` with zero members becomes a legitimate, permanent state.** Nothing below may infer
   membership from status. FR-005's desired set is already computed from `is_active_member`, which
   is false for everyone on an empty space, so it converges correctly — but the inference is now
