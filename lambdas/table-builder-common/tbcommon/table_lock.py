@@ -8,18 +8,19 @@ previous execution is still running. The in-place ``glue:UpdateTable`` reduced t
 compare-and-set on ``UpdateTable``. This module is the serialization the catalog cannot provide:
 the second refresh is refused rather than raced.
 
+**The PROTOCOL now lives in ``cpcommon.lock``**, which is where an algorithm belongs once a second
+plane is going to need it — the specced file-ops per-space lock, extracted ahead of that caller
+rather than after it. What stays here is
+what is genuinely table-builder's: the key layout, the thresholds derived from THIS machine's
+ceiling, and the sentences this plane narrates with. The behaviour is unchanged, and this module's
+own suites are the proof: the protocol moved without them being rewritten.
+
 **The lock is released by OVERWRITING, never by deleting, and that is forced rather than chosen.**
 The table-builder execution role carries an explicit ``Deny`` on ``s3:DeleteObject`` for the whole
 admin bucket (``NoDataObjectDelete``), deliberately kept when the plane removed
 ``glue:DeleteTable``. Releasing by deletion would mean amending that Deny — trading a standing
 safety property for an implementation convenience. So "free" is a *state* of the object, not its
-absence, and a test greps this module to keep it that way.
-
-The conditional-write protocol is ``cpcommon.cas``'s, but the loop is deliberately not:
-``cas_mutate`` **retries** on a precondition failure, which is right for an append and wrong for a
-lock. Here a lost precondition means another execution holds it, and the correct answer is to
-refuse. Only ``cas.is_precondition`` is shared — the one place that knows a failed match and a
-racing create are the same answer.
+absence, and a test in ``cpcommon`` greps the protocol to keep it that way.
 
 Attributes:
   LOCK_PREFIX: Key prefix for every lock object, under the admin bucket.
@@ -39,14 +40,15 @@ Attributes:
   LOCK_VERSION: Body schema version, recorded so a later reader can tell which shape wrote an
     object. Nothing reads it back today — a version-aware branch would need a second shape to
     branch on, and inventing one now would be a guess about a migration nobody has designed.
+  WORDING: This plane's six lock sentences. Literals here, so ``observability``'s rule that a
+    message is a literal and everything variable is a field still holds at the emitting module.
 """
 
-import json
 import logging
-from datetime import UTC, datetime
-from typing import cast
 
-from cpcommon import cas, clients, config, observability
+from cpcommon import clients, config, observability
+from cpcommon import lock as _lock
+from cpcommon.lock import LockWording
 
 logger = logging.getLogger()
 
@@ -55,11 +57,21 @@ MACHINE_TIMEOUT_SECONDS = 3600
 STALE_LOCK_SECONDS = MACHINE_TIMEOUT_SECONDS + 900
 LOCK_VERSION = 1
 
+WORDING = LockWording(
+    acquired="refresh lock acquired",
+    refused="refresh lock refused",
+    stealing_stale="stealing stale refresh lock",
+    stealing_unreadable="stealing unreadable refresh lock",
+    released="refresh lock released",
+    release_failed="refresh lock release failed",
+)
+
 __all__ = [
     "LOCK_PREFIX",
     "LOCK_VERSION",
     "MACHINE_TIMEOUT_SECONDS",
     "STALE_LOCK_SECONDS",
+    "WORDING",
     "acquire",
     "lock_key",
     "release",
@@ -93,34 +105,13 @@ def lock_key(database: str, table: str) -> str:
 def acquire(database: str, table: str, holder: str) -> tuple[bool, str | None]:
     """Claims the table's refresh lock, stealing it only when it is provably stale.
 
-    Conditional ``PutObject`` only — ``IfNoneMatch`` when the object does not exist yet, ``IfMatch``
-    when it exists and is free or stale. A lost precondition is not retried: it means another
-    execution claimed it between this read and this write, which is the answer, not a transient
-    fault.
+    A thin binding of ``cpcommon.lock.acquire`` to this plane's key, threshold and wording. The
+    holder is validated FIRST, before the key is composed, so a call carrying both a bad holder and
+    a bad name still raises about the holder.
 
-    A read failure is treated as absent, which makes the following write create-only and therefore
-    a *refusal* when the object does in fact exist. That is the safe direction — the discipline
-    ``log-sweep`` uses for the same reason — because the alternative is overwriting a live holder's
-    lock on a transient S3 error.
-
-    **The holder is validated, because a null holder is what "free" MEANS.** An empty or missing
-    identity would write a lock that every later reader — including the next line of this module —
-    correctly interprets as unheld, so the claim would succeed and grant nothing: two executions
-    would hold ``acquired=True`` on one table, which is the exact state this module exists to
-    prevent. The caller passes a per-request identity, and an absent path in ASL resolves to
-    exactly this, so the guard is on the reachable case, not a theoretical one.
-
-    **A lock this holder already owns is re-claimed, not refused.** The state machine retries the
-    acquire task on a Lambda service fault, and a put whose response was lost has already written
-    the lock — so a re-invocation that refused would fail a request whose own earlier attempt
-    succeeded, and would do it under the one reason code that tells the user another refresh is
-    running.
-
-    That branch is why the holder MUST identify the execution and not the request. A request id
-    identifies the message, and Pipes delivery is at-least-once, so a redelivered message runs a
-    second execution carrying the same id while the first is still going — and this branch would
-    then hand both of them the lock, with no refusal event and an acquire event reading
-    ``stolen: False``. The caller passes the execution ARN for exactly that reason.
+    ``_read`` is passed as a module global resolved at call time rather than bound at import, which
+    is what lets a test pin the read so two acquires see the same stale tag and the compare-and-set
+    decides between them.
 
     Args:
       database: The target Glue database name.
@@ -136,52 +127,29 @@ def acquire(database: str, table: str, holder: str) -> tuple[bool, str | None]:
         non-empty string.
       ClientError: Any write fault that is not a precondition failure.
     """
-    if not isinstance(holder, str) or not holder:
-        raise ValueError(f"refresh lock holder is not a usable identity: {holder!r}")
-
-    key = lock_key(database, table)
-    raw, etag = _read(key)
-
-    if raw is None:
-        return _claim(key, database, table, holder, etag=None, stolen=False)
-
-    state = _parse(raw)
-    if state is None:
-        observability.warning(
-            "stealing unreadable refresh lock", database=database, table=table, age_seconds=None
-        )
-        return _claim(key, database, table, holder, etag=etag, stolen=True)
-
-    if state.get("holder") is None:
-        return _claim(key, database, table, holder, etag=etag, stolen=False)
-
-    if state.get("holder") == holder:
-        logger.info("refresh lock for %s.%s is already ours — reclaiming", database, table)
-        return _claim(key, database, table, holder, etag=etag, stolen=False)
-
-    age = _age_seconds(state.get("acquiredAt"))
-    if age is None or not 0 <= age <= STALE_LOCK_SECONDS:
-        observability.warning(
-            "stealing stale refresh lock", database=database, table=table, age_seconds=age
-        )
-        return _claim(key, database, table, holder, etag=etag, stolen=True)
-
-    observability.info(
-        "refresh lock refused",
-        database=database,
-        table=table,
-        held_since=state.get("acquiredAt"),
+    _lock.assert_usable_holder(holder, "refresh lock")
+    return _lock.acquire(
+        bucket=config.ADMIN_BUCKET,
+        key=lock_key(database, table),
+        holder=holder,
+        stale_after_seconds=STALE_LOCK_SECONDS,
+        wording=WORDING,
+        fields={"database": database, "table": table},
+        read=_read,
+        version=LOCK_VERSION,
     )
-    return False, None
 
 
 def release(database: str, table: str, etag: str | None) -> None:
     """Marks the table's lock free, under the tag the acquire returned.
 
-    Never raises and never retries a lost compare-and-swap. Losing it means the lock was stolen by
-    a later execution, and re-writing would clobber the new holder — so the loss is
-    recorded and left alone. A request that did its work and then reported failure because of its
-    own bookkeeping would be a worse outcome than a lock that the rule can recover anyway.
+    Never raises and never retries a lost compare-and-swap — see ``cpcommon.lock.release``.
+
+    **The key is composed AFTER the etag check and inside a guard**, which is not tidiness: as an
+    argument to the shared release it would run before both, so an uncatalog-safe name would raise
+    out of a function whose whole contract is that it cannot fail. The verb that calls this runs on
+    every terminal path including the failure path, and a raise there is a task failure that
+    replaces a recorded user failure with silence.
 
     Args:
       database: The target Glue database name.
@@ -200,17 +168,27 @@ def release(database: str, table: str, etag: str | None) -> None:
         return
 
     try:
-        _put(lock_key(database, table), _body(holder=None, acquired_at=None), etag)
-    except Exception as err:  # noqa: BLE001
+        key = lock_key(database, table)
+    except ValueError as err:
         logger.error("refresh lock release for %s.%s failed: %s", database, table, err)
-        observability.error("refresh lock release failed", database=database, table=table)
+        observability.error(WORDING.release_failed, database=database, table=table)
         return
 
-    observability.info("refresh lock released", database=database, table=table)
+    _lock.release(
+        bucket=config.ADMIN_BUCKET,
+        key=key,
+        etag=etag,
+        wording=WORDING,
+        fields={"database": database, "table": table},
+        version=LOCK_VERSION,
+    )
 
 
 def _read(key: str) -> tuple[bytes | None, str | None]:
     """Reads the lock object's current bytes and entity tag.
+
+    The bucket is read at call time rather than closed over at import, because a caller's tests set
+    it as a module attribute on ``cpcommon.config``.
 
     Args:
       key: The lock object's key.
@@ -227,133 +205,3 @@ def _read(key: str) -> tuple[bytes | None, str | None]:
     except Exception as err:  # noqa: BLE001
         logger.info("no readable refresh lock at %s (%s)", key, err)
         return None, None
-
-
-def _parse(raw: bytes) -> dict | None:
-    """Decodes a lock body, reporting an unusable one as unreadable rather than raising.
-
-    A body nobody can read is not evidence that a refresh is running, so the caller treats None as
-    stale. The alternative — treating it as held — leaves a table that can never be refreshed
-    again, which is a worse failure than the race.
-
-    Args:
-      raw: The lock object's bytes.
-
-    Returns:
-      The decoded object, or None if it is not a JSON object.
-
-    Raises:
-      None.
-    """
-    try:
-        state = json.loads(raw)
-    except Exception as err:  # noqa: BLE001
-        logger.warning("refresh lock body is not JSON (%s)", err)
-        return None
-    return state if isinstance(state, dict) else None
-
-
-def _age_seconds(acquired_at: object) -> float | None:
-    """Reports how long ago a lock was claimed.
-
-    A NEGATIVE age is possible and is not filtered here — a future-dated claim time, from clock
-    skew or a corrupt write, would otherwise be younger than every threshold forever and cost the
-    table its refresh permanently, with no operator recovery path (the role cannot delete the
-    object). The caller treats it as stealable for the same reason it treats an unreadable body
-    that way: a timestamp that cannot be true is no evidence that a refresh is running.
-
-    Args:
-      acquired_at: The recorded ISO-8601 claim time, or anything else.
-
-    Returns:
-      The age in seconds, negative when the claim time is in the future, or None if the value is
-      missing or unparseable.
-
-    Raises:
-      None.
-    """
-    if not isinstance(acquired_at, str):
-        return None
-    try:
-        claimed = datetime.fromisoformat(acquired_at)
-    except ValueError:
-        return None
-    if claimed.tzinfo is None:
-        claimed = claimed.replace(tzinfo=UTC)
-    return (datetime.now(UTC) - claimed).total_seconds()
-
-
-def _claim(
-    key: str, database: str, table: str, holder: str, *, etag: str | None, stolen: bool
-) -> tuple[bool, str | None]:
-    """Writes the claim conditionally, reporting a lost precondition as a refusal.
-
-    Args:
-      key: The lock object's key.
-      database: The target Glue database name, for the event.
-      table: The target table name, for the event.
-      holder: The claiming execution's ARN.
-      etag: The tag to match, or None to write only if the object is absent.
-      stolen: Whether this claim took the lock from a stale or unreadable holder.
-
-    Returns:
-      An ``(acquired, etag)`` tuple.
-
-    Raises:
-      ClientError: Any write fault that is not a precondition failure.
-    """
-    body = _body(holder=holder, acquired_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
-    try:
-        response = _put(key, body, etag)
-    except Exception as exc:
-        if cas.is_precondition(exc):
-            observability.info("refresh lock refused", database=database, table=table, held_since=None)
-            return False, None
-        raise
-    observability.info("refresh lock acquired", database=database, table=table, stolen=stolen)
-    return True, response.get("ETag")
-
-
-def _put(key: str, body: bytes, etag: str | None) -> dict:
-    """Writes the lock object conditionally on the tag it was read at.
-
-    Args:
-      key: The lock object's key.
-      body: The full object body.
-      etag: The tag to match, or None to write only if the object is absent.
-
-    Returns:
-      The ``PutObject`` response, whose ETag is what a later release conditions on.
-
-    Raises:
-      ClientError: On a precondition failure, or any other S3 fault.
-    """
-    kwargs: dict[str, object] = {
-        "Bucket": config.ADMIN_BUCKET,
-        "Key": key,
-        "Body": body,
-        "ContentType": "application/json",
-    }
-    if etag is None:
-        kwargs["IfNoneMatch"] = "*"
-    else:
-        kwargs["IfMatch"] = etag
-    return cast("dict", clients.s3().put_object(**kwargs))
-
-
-def _body(*, holder: str | None, acquired_at: str | None) -> bytes:
-    """Renders a lock body.
-
-    Args:
-      holder: The holding execution's ARN, or None for a free lock.
-      acquired_at: The ISO-8601 claim time, or None for a free lock.
-
-    Returns:
-      The encoded JSON body.
-
-    Raises:
-      None.
-    """
-    return json.dumps(
-        {"version": LOCK_VERSION, "holder": holder, "acquiredAt": acquired_at}
-    ).encode("utf-8")
