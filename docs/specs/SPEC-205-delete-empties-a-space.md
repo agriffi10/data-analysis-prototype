@@ -169,6 +169,10 @@ one of those transitions describes a space whose data is intact.
       is single-member by construction, since creating is creator-only — and the set is small. The
       spec requires the enumeration to be run and its disposition recorded, rather than guessing a
       rule that is wrong in one direction or the other.
+- [ ] **The backfill runs as a one-shot Lambda under the plane's orchestrator role**, which is the
+      only principal that can read and write the registry — the deploy user cannot read the data
+      buckets, so a local script cannot do it. The same access is what FR-001's manual `failed`-record
+      enumeration needs.
 - [ ] **The deploy order is stated, because there is no enable switch**: run the backfill, *then*
       deploy the verb change. The Lambda's new behaviour is live the moment it deploys, so the
       reverse order leaves a window in which a delete can fail on an unstamped record.
@@ -192,6 +196,13 @@ not have today.
       `active` and is now `failed`, and asserts no teardown helper is called** — that is the exact
       data-loss path the first draft left open, and a test using a never-active fixture passes over
       it.
+- [ ] **A fresh read returning `None` refuses.** The record is the only evidence of what the space
+      was, and destroying a prefix and a database on its absence is the worst available option. It is
+      near-unreachable — `validate` loads the record and `authorize` refuses a missing space — which
+      is why it is stated rather than left to the builder.
+- [ ] **The no-op below is placed AFTER `forget`'s existing active-member refusal, not before it.**
+      Placed first it would convert today's `AuthorizationError` on a healthy active space the actor
+      still belongs to into a silent success, which FR-013 says is untouched.
 - [ ] **On an ever-`active` space, `forget` is a no-op that clears NOTHING.** Not the slot, not the
       chip. Its cache-only branch calls `membership.clear_slot(actor, space)` and
       `cache.remove_entry`, and the Connections page derives every row from the cache — so clearing
@@ -242,9 +253,17 @@ not have today.
       down in both files, per the reviewer contract.
 - [ ] The per-member loop is unchanged. `members` already includes the owner, so "removes everyone
       including the owner" needs no new code — asserted, because it looks like it would.
-- [ ] `reg.delete(space)` is replaced by a rewrite committing `members: []`, `owner` **removed from
-      the record** (not set to `null` — one representation, FR-004), `status: "active"`,
-      `previousOwner`, and `emptiedAt` in `registry.now_iso()`'s format.
+- [ ] `reg.delete(space)` is replaced by **`reg.empty_space(name, previous_owner, request_id)`**,
+      committing `members: []`, `acknowledged: []`, `owner` **removed from the record** (not set to
+      `null` — one representation, FR-004), `status: "active"`, `previousOwner`, and `emptiedAt` in
+      `registry.now_iso()`'s format. Any `reason` left by an earlier failure is **removed**; every
+      other field is carried forward.
+- [ ] **It builds from `dict(existing)`, never from a literal.** A literal drops `everActive` and
+      `createdAt` — the same defect FR-001 catches in `finalize`.
+- [ ] **It returns `(committed, replaced)`.** `cpcommon.cas.cas_mutate` returns only the committed
+      value, so the replaced record is captured out of the mutator rather than read beforehand — a
+      pre-read is a different record under a race and would pass every test that does not race.
+      FR-008's latecomer pass consumes `replaced`.
 - [ ] After a delete: `load(space)` returns a record; `members` is empty; `owner` is absent;
       `status` is `active`; the objects under `{space}/` and the Glue database are **present**. A
       test that checks only the registry passes over the point of the spec.
@@ -318,11 +337,14 @@ emptied space and revive it, with the previous cohort's files intact.
       says what it decides (a space that may receive a share), not reimplemented at each call site.
       `is_active` itself keeps its meaning; what changes is that no caller may use it alone to decide
       reachability.
-- [ ] **The guard test derives the list for BOTH names** — the set of modules calling
-      `is_active_member` or `is_active` equals the set the refusal test covers — so a sixth caller of
-      either fails CI. A hand-written list of five rots exactly as the list of four did. The shape to
-      reuse is this repo's existing AST sweeps (`test_layer_import_safety.py`, SPEC-165's), not a new
-      mechanism.
+- [ ] **The guard sweeps THREE names, not two** — `is_active_member`, `is_active` and the new
+      destination predicate. *Two would go blind the moment this FR lands: the validators move to the
+      new name, so sweeping the old two drops them out of the swept set entirely and a later caller
+      of the new predicate would not fail CI — the guard's whole purpose.*
+- [ ] **The covered set is six modules, not five.** `file-send-validate-authorize` is a sixth
+      module inside an already-counted plane, so counting planes and counting modules give different
+      answers. The sweep compares **modules**. The shape to reuse is this repo's existing AST sweeps
+      (`test_layer_import_safety.py`, SPEC-165's), not a new mechanism.
 - [ ] A test asserts a share and a file-send **targeting an emptied space are refused**, driven as a
       former member of that space.
 - [ ] No new status value. A terminal status was considered and declined: it would make every reader
@@ -350,13 +372,27 @@ FR makes the buttons mean the right thing.
       server rather than a second enforcement.
 - [ ] A row in `deleting` renders the same Retry, so the stuck-`deleting` state (Out of Scope to fix
       generally) has an exit that is not an operator.
-- [ ] **The discriminator travels through five files across TWO features**, enumerated because
+- [ ] The discriminator is **`failedAction: 'create' | 'delete'`**, reusing the existing action
+      vocabulary, written explicitly by both `create_space` failure upserts and by `delete_space`'s.
+- [ ] **It travels through SIX sites across TWO features**, enumerated because
       `features/connections/` is a separate area the spec would otherwise never name:
       `features/shared-spaces/sharedSpaces.types.ts` (`SharedConnectionEntry`),
-      `features/connections/connection.types.ts` (`Connection`, separately enumerated),
+      `sharedSpaces.service.ts`'s `normalizeEntry` (**or an unvalidated union member reaches the
+      row**), `features/connections/connection.types.ts` (`Connection`, separately enumerated),
       `features/connections/useConnections.ts` (**a field-by-field spread-conditional mapper — an
       unmapped field is silently dropped**), and `ConnectionsPage.tsx`'s `ConnectionRow` type and its
-      mapper. `parseCache`/`normalizeEntry` spread, so the read side needs no change.
+      mapper.
+- [ ] **`retrying` becomes `Map<string, 'create' | 'delete'>` and `onRetry` receives the row, not the
+      name.** The optimistic override must show `deleting` for a retried delete, and forcing that
+      status makes `row.status === 'failed'` false on the next render — so `failedAction`-based logic
+      flips the row back to `provisioning` unless the retry kind is carried. One more call site than
+      the enumerated six.
+- [ ] **Retry must not render on an optimistically-`deleting` row.** `ConnectionsPage`'s
+      `transitioning` map forces `status: 'deleting'` the instant the user confirms a delete, and
+      that is **indistinguishable in `rows`** from the durable `deleting` the validator writes. Left
+      alone, this FR's "a row in `deleting` renders Retry" puts a Retry button beside a delete
+      submitted two seconds ago. The two must be told apart — the optimistic set is local state and
+      already known.
 - [ ] **`ConnectionsPage`'s optimistic retry override hard-codes `status: 'provisioning'`**, which is
       wrong for a retried delete — it must show `deleting`. Named because it is invisible in review
       and produces a row that lies for the length of the run.
@@ -399,10 +435,27 @@ over destroyed data; here it is live access to retained data.
       and `delete_space` clears slots for the UNION of its captured list and that record's members**,
       then re-checks. Without this, FR-008 and FR-009 together guarantee the orphan rather than
       prevent it.
-- [ ] The refusal raises an error type reachable from `registry.py` **without adding a
-      `registry → auth → config` import edge** to a module every verb loads — either the exception
-      moves to a shared location or `save_members` returns a refusal the caller raises. The spec
-      states which.
+- [ ] **The refusal raises `registry.MembershipRefused`, a new exception defined in
+      `cpcommon/registry.py` itself.** *An earlier draft offered three options and said "the spec
+      states which" without stating it — an Open Question in a sentence promising not to be one.*
+      The two rejected alternatives, with why: reusing `ProvisioningError` is **silently** wrong —
+      `add_members` already catches it around `assign_or_find_slot`, so a later widening of that
+      `try` would turn a hard refusal into a "skipped at limit" summary row and the add would
+      half-succeed; and a sentinel return changes `save_members`' contract, which four verbs consume
+      as "the committed record". Defining it in `registry.py` adds no import edge and collides with
+      no existing handler. The plane's ASL catches on `States.ALL`, so no state-machine change is
+      needed.
+- [ ] **The latecomer pass runs AFTER the rewrite, and FR-009's "last" is scoped accordingly.** The
+      union is only knowable once the rewrite returns the record it replaced, so the two cannot both
+      be last. *This contradicted FR-009 as originally written and a builder honouring FR-009
+      literally cannot close FR-008's second window at all — while producing code that looks like it
+      does.* The order is: per-member loop over the **captured** roster → rewrite → **latecomer
+      pass** clearing slots and cache entries for anyone in the replaced record's roster who was not
+      in the captured one.
+- [ ] **The re-check is one re-read, and it raises.** After the latecomer pass, re-read the record;
+      a non-empty roster raises rather than looping — the `save_members` guard forbids further adds
+      once the owner is gone, so a loop would be unreachable code and a version without the assertion
+      would be indistinguishable in every test.
 - [ ] Two tests, one per window: (a) authorize `add-members` against a live record, empty the space,
       run the verb — the member is not added and holds no slot; (b) `add-members` commits mid-loop —
       the member's slot is cleared by the union pass. **The notification is asserted on the state
@@ -414,11 +467,14 @@ over destroyed data; here it is live access to retained data.
 
 - [ ] A failure during the per-member loop records `status: "failed"` and notifies the owner, as
       today. **The `owner` field is kept on this path** so the space stays operable for a retry.
-- [ ] **The rewrite is the last step**, after every slot and cache entry is cleared. Failing the other
-      way leaves a record with no owner and members still holding slots: unrecoverable *as an owned
-      space*, since no owner-only action is reachable. *(Members could still `leave`, so it is not
-      inert — the earlier "inert and unretryable" phrasing was wrong; the ordering requirement is
-      unchanged and this is why it holds.)*
+- [ ] **The rewrite is the last step of the captured loop** — after every slot and cache entry for
+      the roster the verb captured is cleared. Failing the other way leaves a record with no owner
+      and members still holding slots: unrecoverable *as an owned space*, since no owner-only action
+      is reachable. *(Members could still `leave`, so it is not inert — the earlier "inert and
+      unretryable" phrasing was wrong; the ordering requirement is unchanged and this is why it
+      holds.)* **FR-008's latecomer pass then follows the rewrite**, because the union it clears is
+      only knowable from the record the rewrite replaced. "Last" means last of the captured loop, not
+      last in the verb.
 - [ ] A test drives a `clear_slot` failure mid-loop and asserts the record still names its owner, its
       status is `failed`, `everActive` is set, and a retried delete succeeds.
 - [ ] **The credential window is named, bounded and accepted.** `membership.clear_slot` empties the
@@ -455,8 +511,12 @@ not survive is the product claiming the data was destroyed, and today it claims 
       undo.", neither of which matches the terms it listed.*
 - [ ] Notification wording is **unchanged** — the space is gone from every member's view, and a
       message about retention describes something only an administrator can act on.
-- [ ] Help gains two facts in the shared-workspaces guide: a deleted workspace is removed from
-      everyone and its contents are retained by administrators, and its **name cannot be reused**.
+- [ ] Help gains two facts in the **`delete-space` guide of the `shared-connections` section** —
+      there is no "shared workspaces" section; *the earlier draft named one that does not exist*: a
+      deleted workspace is removed from everyone and its contents are retained by administrators, and
+      its **name cannot be reused**.
+- [ ] **`ConnectionsPage`'s `metaLine` "Deleting — applies on next refresh" is false on a stuck
+      `deleting` row** that FR-007 now gives a Retry to, and is fixed with the other copy.
 - [ ] `CreateSharedConnectionDialog`'s "the name is permanent (it can't be renamed)" gains the second
       half — a name is never reusable after deletion. It is where the user chooses the name, and where
       FR-005's refusal will later confuse them.
@@ -472,7 +532,7 @@ not survive is the product claiming the data was destroyed, and today it claims 
       **This spec does not compute the headroom and does not pretend to**: the quota is
       account-specific and the create rate is not yet observable at a useful scale, so promising a
       computed bound here would defer a decision while looking like one. The disposition instead is
-      unconditional — **request a Service Quotas increase as a Phase 5 task**, and record the quota,
+      unconditional — **request a Service Quotas increase as a Phase 4 task**, and record the quota,
       the current database count and the resulting headroom in the delivery doc as a measurement.
       *An earlier draft asked for a computed bound and supplied none of its three inputs, which is
       the Open-Question shape this project forbids.*
@@ -489,7 +549,11 @@ not survive is the product claiming the data was destroyed, and today it claims 
 - [ ] The `space deleted` record gains a field distinguishing **emptied** from **destroyed**, so
       FR-002's two routes are visible in `logs/` rather than inferred from which verb ran. *The member
       count is already there (`members_applied`); only the discriminator is new.*
-- [ ] The backfill (FR-001) reports its object count and how many records it stamped.
+- [ ] The backfill (FR-001) reports **registry objects scanned** and how many it stamped, split by
+      the status it found. *"Object count" alone is ambiguous between registry records and the S3
+      objects under an emptied prefix; it means the former.*
+- [ ] The `stores=` list differs per route — the emptying route writes no `glue` — so it is set from
+      the route rather than left as today's literal.
 - [ ] Space names and usernames are permitted user metadata; nothing else is added. `env` and
       `version` on every record; messages are literals; `echo=` prohibited.
 
@@ -508,6 +572,18 @@ not survive is the product claiming the data was destroyed, and today it claims 
       which was wrong in both the count and the feature.* Nothing outside that list changes.
 - [ ] **A backfill is required** (FR-001) and it is the only migration. Spaces deleted before this
       ships were destroyed; there is nothing to retain retroactively.
+- [ ] **Four existing tests invert and are expected to**, named so their failure is not read as a
+      regression: `test_delete_space.py`'s `test_delete_cascades_files_tables_db_members_and_registry_frees_name`
+      and `test_delete_idempotent_tolerant_of_partial_prior_progress` both seed `status: "active"`
+      and assert the prefix, database and record are gone; the two `TeardownIncompleteError` tests
+      now exercise a route their fixture no longer reaches. `test_forget_space.py` uses a
+      never-`active` fixture and **survives unchanged**, which is FR-002's split working.
+- [ ] **The reasoning in this spec cannot be carried into `lambdas/` as comments.** That tree allows
+      **zero** inline comments, and `scripts/validate_docs.py`'s citation rule bans `FR-\d+` and
+      `AC-\d+` alongside `SPEC-\d{3}` — so the read-first ordering, the union pass and the `None`
+      route are expressed in Google-style docstrings without requirement numbers, or moved to
+      `docs/lambda-rationale.md`. Budgeted here because it is the largest unbudgeted chunk of the
+      work and it fails CI rather than review.
 
 ---
 
@@ -516,42 +592,60 @@ not survive is the product claiming the data was destroyed, and today it claims 
 ```
 s3://{admin-bucket}/shared-spaces/{name}.json
 
-  in use:   { version, name, owner, members: [...], status: "active", everActive: true,
-              createdAt, lastRequestId }
-  emptied:  { version, name,        members: [],    status: "active", everActive: true,
-              createdAt, lastRequestId, previousOwner, emptiedAt }
+  in use:   { version, name, owner, members: [...], acknowledged: [...], status: "active",
+              everActive: true, createdAt, lastRequestId }
+  emptied:  { version, name,        members: [],    acknowledged: [],     status: "active",
+              everActive: true, createdAt, lastRequestId, previousOwner, emptiedAt }
 ```
 
 `owner` is **removed**, never `null`. `previousOwner` is read by no authorization path.
 `emptiedAt` uses `registry.now_iso()`'s format and is for the operator.
 
+**What the emptying rewrite does to every other field is stated, because `dict(existing)` carries
+them all forward silently:** `acknowledged` is cleared to `[]` (it is a projection of a roster that
+no longer exists), any `reason` left by an earlier failure is **removed**, and everything else —
+`createdAt`, `everActive`, `version`, `lastRequestId` — is carried forward. An emptied record that
+still names acknowledgements of departed members is not wrong in any test the spec asks for, which
+is why it is written down.
+
 ## Implementation Phases
+
+**Every boundary below is safe to leave on `main`, and one earlier arrangement was not.** An earlier
+draft split the emptying rewrite (Phase 2) from the destination-predicate change and the add-refusal
+(Phase 3). For that whole interval every emptied record is `status: "active"` with no owner, so
+`is_active` returns true, **any former member who remembers the name can push a table or send files
+into a deleted workspace**, and with no owner there is nobody to notify — the exact hazard FR-006
+exists for, opened deliberately by the phase order. The concurrency window was open for the same
+interval. They are one phase now.
 
 ### Phase 1: The durable fact
 
-FR-001 — the field, its two writers, the preservation assertions and the backfill script. Nothing
-else changes; the field is inert until Phase 2 reads it.
+FR-001 — the field, `finalize`'s conditional stamp and its carry-forward, preservation in
+`save_members`/`set_status`, the one-shot backfill Lambda and the deploy order.
 
-### Phase 2: The retention rule and the two routes
+*Safe alone:* the field is written and read by nobody, and the backfill is idempotent.
 
-FR-002 and FR-003, with the was-`active`-now-`failed` forget test written **before** the
-implementation. FR-005's `_resolve_reserve_collision` guard lands here — it is the same fact.
+### Phase 2: The retention rule, both routes, and everything that must land with them
 
-### Phase 3: The inert record and the audits
+FR-002, FR-003, FR-005, FR-004, FR-006 and FR-008 together. The was-`active`-now-`failed` forget test
+and the `finalize(..., "failed")` no-stamp test are written **before** the implementation.
 
-FR-004, FR-006 and FR-008, with the inert-state test driven as the original owner, the five-plane
-refusal test and its derived guard.
+*Safe alone, and only as a whole:* the first emptied record cannot exist before the predicate that
+refuses it as a share destination and the guard that refuses an add into it.
 
-### Phase 4: The browser
+### Phase 3: The browser
 
-FR-007's affordances and FR-010's copy.
+FR-007's affordances and discriminator, and FR-010's copy.
 
-### Phase 5: Verification
+*Safe alone; user-hostile if it never lands* — between Phase 2 and here, Dismiss on a failed-delete
+row is a server-side no-op, so the button renders and does nothing.
 
-FR-011's computed headroom, FR-012's fields, then the formatter, `ruff`, the blocking `mypy`,
+### Phase 4: Verification
+
+FR-011's quota request, FR-012's fields, then the formatter, `ruff`, the blocking `mypy`,
 `pytest lambdas/`, the portal suite and `npm run build`.
 
-### Phase 6: Live checks
+### Phase 5: Live checks
 
 Against a deployed environment: a space with two members and files, deleted — gone from both lists,
 objects and database present, name refused on re-create, original owner cannot add a member. **Both
@@ -565,7 +659,7 @@ reclaimable — and separately, a failed create **deleted** by its owner, confir
 route destroys it and its name is still reclaimable. Into `docs/testing/e2e.md`'s shared-workspaces
 section.
 
-### Phase 7: Completion ritual
+### Phase 6: Completion ritual
 
 Per `CLAUDE.md`. Three `decisions.md` entries: retention keyed on a durable fact rather than live
 status and why; the cleared `owner` field with the `authorize` reasoning; and the `revoke_portal_role`
