@@ -17,8 +17,8 @@ So the rule is stated per (side x operation), enumerated against the real consta
   - as a DELETE or MOVE SOURCE, the undeletable root folders, plus anything beneath
     ``athenaresults/`` or ``archive/``;
   - for EVERY operation, ``user_settings/`` as a source, by this plane's own rule;
-  - for EVERY operation, the marker file by basename;
-  - as a COPY SOURCE, nothing. There is deliberately no rule, and a test says so.
+  - for EVERY operation INCLUDING COPY, the marker file by basename — see below;
+  - as a COPY SOURCE, no FOLDER rule at all. There is deliberately none, and a test says so.
 
 **The bucket asymmetry is mirrored, never averaged.** In the personal bucket the prefix IS the
 principal tag, so the Deny names the caller's own root and ``alice/backups/archive/x`` is an
@@ -50,23 +50,14 @@ __all__ = [
 ]
 
 
-def _as_prefix(key: str) -> str:
-    """Returns a key in the trailing-slash form a prefix comparison needs.
-
-    Args:
-      key: A folder or file key.
-
-    Returns:
-      The key ending in exactly one slash.
-
-    Raises:
-      None.
-    """
-    return key if key.endswith("/") else f"{key}/"
-
-
 def _is_root_folder(key: str, root: str, name: str) -> bool:
     """Reports whether a key names one folder at the space root, and not below it.
+
+    **A file whose name happens to match is NOT that folder.** ``alice/archive`` — an
+    extension-less file — is matched by no bucket Deny and the browser's own rule only ever asks
+    this of a folder, so treating it as one would refuse a delete both the browser and IAM permit.
+    A folder's key carries its trailing slash by the time it reaches here; validate-authorize
+    normalises it.
 
     Args:
       key: The key under test.
@@ -79,7 +70,30 @@ def _is_root_folder(key: str, root: str, name: str) -> bool:
     Raises:
       None.
     """
-    return _as_prefix(key) == f"{normalize_root(root)}{name}/"
+    return key.endswith("/") and key == f"{normalize_root(root)}{name}/"
+
+
+def _is_under_root_folder(key: str, root: str, name: str) -> bool:
+    """Reports whether a key is one root-level folder or anything inside it.
+
+    Root-anchored in both buckets, unlike the write-lock rule below: this mirrors the browser's
+    PICKER, which filters the folder out of the navigable list and so makes everything under it
+    unreachable, rather than mirroring an IAM Deny. Compared on the RAW key, so a file merely named
+    like a locked folder is not mistaken for one.
+
+    Args:
+      key: The key under test.
+      root: The authorized space root, normalised.
+      name: The folder's name.
+
+    Returns:
+      True when the key is that folder or sits beneath it.
+
+    Raises:
+      None.
+    """
+    anchored = f"{normalize_root(root)}{name}/"
+    return key == anchored or key.startswith(anchored)
 
 
 def _is_at_or_below(key: str, root: str, name: str, *, space_kind: str) -> bool:
@@ -87,6 +101,12 @@ def _is_at_or_below(key: str, root: str, name: str, *, space_kind: str) -> bool:
 
     Root-anchored in a personal space and any-depth in a shared one, mirroring each bucket's Deny
     rather than averaging the two.
+
+    **Compared on the RAW key, never a slash-appended form.** ``alice/archive`` is an
+    extension-less FILE, matched by no Deny and offered for deletion by the browser; appending a
+    slash to compare would make it indistinguishable from the folder. For the same reason the
+    shared-bucket segment scan drops the final segment of a file key: a file *called* ``archive``
+    is not a file *inside* one.
 
     Args:
       key: The key under test.
@@ -102,12 +122,12 @@ def _is_at_or_below(key: str, root: str, name: str, *, space_kind: str) -> bool:
     """
     root = normalize_root(root)
     anchored = f"{root}{name}/"
-    as_prefix = _as_prefix(key)
-    if as_prefix == anchored or as_prefix.startswith(anchored):
+    if key == anchored or key.startswith(anchored):
         return True
-    if space_kind != "shared" or not as_prefix.startswith(root):
+    if space_kind != "shared" or not key.startswith(root):
         return False
-    return name in as_prefix[len(root) :].split("/")
+    segments = key[len(root) :].split("/")
+    return name in (segments if key.endswith("/") else segments[:-1])
 
 
 def destination_refusal(root: str, prefix: str, space_kind: str) -> Refusal | None:
@@ -117,6 +137,13 @@ def destination_refusal(root: str, prefix: str, space_kind: str) -> Refusal | No
     tends to omit — ``_data-quality-reports/`` and ``shared_tables/`` — whose absence would let this
     plane accept a destination the browser refuses. ``archive/`` is refused again under the depth
     rule, because the picker rule alone is root-anchored and the shared bucket denies it deeper.
+
+    **Anything BENEATH a locked folder is refused too, not just the folder itself.** The browser's
+    picker filters locked folders out of the navigable list, so a user cannot enter one and cannot
+    target a descendant — a root-only rule here would accept a destination the picker makes
+    unreachable, which is the gap this rule exists to close. The harm is concrete for
+    ``shared_tables/``: a table's files acquiring neighbours is how a later projection read starts
+    returning rows nobody wrote.
 
     No separate rule is written for the bucket-root ``_config`` and ``_directory`` documents. They
     live outside every user prefix and containment already makes them unreachable. That is not an
@@ -135,7 +162,7 @@ def destination_refusal(root: str, prefix: str, space_kind: str) -> Refusal | No
       None.
     """
     for name in PICKER_LOCKED_FOLDERS:
-        if _is_root_folder(prefix, root, name):
+        if _is_under_root_folder(prefix, root, name):
             return Refusal("destination_folder_locked", f"{name}/ is not a place files can be put")
     if _is_at_or_below(prefix, root, ARCHIVE_FOLDER, space_kind=space_kind):
         return Refusal("destination_archive_read_only", f"{ARCHIVE_FOLDER}/ is read-only")
@@ -176,7 +203,7 @@ def source_refusal(root: str, key: str, operation: str, space_kind: str) -> Refu
         if _is_root_folder(key, root, name):
             return Refusal("source_folder_undeletable", f"{name}/ cannot be moved or deleted")
 
-    if _is_at_or_below(key, root, ATHENA_RESULTS_FOLDER, space_kind="shared"):
+    if _is_at_or_below(key, root, ATHENA_RESULTS_FOLDER, space_kind=space_kind):
         return Refusal("results_folder_not_deletable", f"{ATHENA_RESULTS_FOLDER}/ is managed for you")
 
     if _is_at_or_below(key, root, ARCHIVE_FOLDER, space_kind=space_kind):
@@ -214,6 +241,13 @@ def marker_refusal(key: str) -> Refusal | None:
     Both bucket policies deny ``DeleteObject`` on ``*/DO_NOT_DELETE.txt`` and an S3 wildcard matches
     ``/``, so a marker anywhere is already undeletable and selecting one can only fail.
 
+    **Copy is refused too, and this is the one place copy is not free.** Everywhere else on this
+    plane a copy is unrestricted, because copying takes nothing away. A marker is the exception:
+    both bucket policies deny ``DeleteObject`` on the basename at any depth, so copying one MINTS
+    A NEW PERMANENTLY UNDELETABLE OBJECT wherever it lands — litter no user and no plane can ever
+    remove. The refusal's wording says so rather than talking about deletion, which would be false
+    under the copy prefix.
+
     **This is about a SELECTED item only.** A marker discovered inside a folder being expanded is
     excluded from the plan rather than refused — the browser partitions the root marker out as a
     per-key error and deletes everything else, and ``saved_queries/`` ships its own marker, so
@@ -229,5 +263,5 @@ def marker_refusal(key: str) -> Refusal | None:
       None.
     """
     if key.rstrip("/").rsplit("/", 1)[-1] == MARKER_BASENAME:
-        return Refusal("marker_not_deletable", f"{MARKER_BASENAME} cannot be moved or deleted")
+        return Refusal("marker_not_deletable", f"{MARKER_BASENAME} cannot be copied, moved or deleted")
     return None

@@ -107,6 +107,45 @@ def test_an_ordinary_name_is_accepted(name):
     assert paths.validate_target_name(name) == name
 
 
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"key": "alice/reports/"},
+        {"kind": "Folder", "key": "alice/reports/"},
+        {"type": "folder", "key": "alice/reports/"},
+        {"kind": None, "key": "alice/reports/"},
+    ],
+)
+def test_an_UNRECOGNISED_kind_is_refused_rather_than_treated_as_a_file(item):
+    """The less obvious half of the same data-loss shape as the empty ``targetName``.
+
+    The trailing slash is applied on ``kind == "folder"``, so anything else — an absent field, a
+    capitalised one, a caller that spelled it ``type`` — silently produces the no-slash form. That
+    is exactly the key that makes ``move alice/reports/ -> alice/`` derive ``alice/reports``, miss
+    the same-key rule, copy every object onto itself and then delete the source.
+    """
+    with pytest.raises(TerminalError) as caught:
+        paths.derived_destination_key("alice/", item)
+
+    assert caught.value.reason == "invalid_items"
+
+
+def test_an_item_with_no_key_refuses_rather_than_raising_a_KeyError():
+    """A bare KeyError surfaces as an unexpected error rather than a refusal, which means the user
+    is told to contact an administrator about a malformed request."""
+    with pytest.raises(TerminalError) as caught:
+        paths.derived_destination_key("alice/", {"kind": "file"})
+
+    assert caught.value.reason == "invalid_items"
+
+
+def test_the_name_cap_is_applied_to_BYTES_as_well_as_characters():
+    """S3's own limit is 1024 BYTES for a whole key, so 255 astral characters is 1020 bytes and
+    would leave nothing for the prefix the name sits under."""
+    with pytest.raises(TerminalError):
+        paths.validate_target_name("\U0001F600" * 200)
+
+
 def test_containment_is_re_exported_rather_than_re_implemented():
     """A second copy of the containment rule is a second place a cross-tenant read is introduced,
     so this plane does not own one — it uses the shared module's, and this asserts the identity

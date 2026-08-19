@@ -148,6 +148,48 @@ def test_COPYING_OUT_OF_a_protected_folder_stays_allowed():
         assert protected.source_refusal("alice/", key, "copy", "personal") is None
 
 
+def test_the_ATHENARESULTS_source_rule_carries_the_asymmetry_too():
+    """The rule that was wrong, and the input the spec names verbatim.
+
+    ``alice/reports/athenaresults/x`` is an ordinary user folder: the personal Deny is
+    ``{bucket}/{principalTag}/athenaresults/*``, root-anchored, so IAM permits deleting it and the
+    browser offers it. The shared Deny is ``{bucket}/*/athenaresults/*`` and an S3 wildcard matches
+    ``/``, so the same key in a shared space is denied at any depth.
+
+    Applying the shared rule to both refuses a delete the browser and IAM both allow — which is the
+    "averaging removes working capability" failure, arrived at by hard-coding one bucket's kind.
+    """
+    assert protected.source_refusal("alice/", "alice/reports/athenaresults/x.csv", "delete", "personal") is None
+    assert protected.source_refusal("sales/", "sales/reports/athenaresults/x.csv", "delete", "shared") is not None
+    assert protected.source_refusal("alice/", "alice/athenaresults/x.csv", "delete", "personal") is not None
+
+
+@pytest.mark.parametrize("folder", config.PICKER_LOCKED_FOLDERS)
+def test_a_destination_BENEATH_a_locked_folder_is_refused_too(folder):
+    """The browser's picker filters locked folders out of the navigable list, so a user can never
+    enter one and never target a descendant. A root-only rule here accepts a destination the picker
+    makes unreachable — and for ``shared_tables/`` the harm is concrete: a table's files acquiring
+    neighbours is how a later projection read starts returning rows nobody wrote."""
+    assert protected.destination_refusal("alice/", f"alice/{folder}/sub/deeper/", "personal") is not None
+
+
+def test_a_FILE_named_like_a_protected_folder_is_not_that_folder():
+    """``alice/archive`` — an extension-less file — is matched by no bucket Deny, and the browser
+    only ever asks this of a folder. Treating it as one refuses a delete both permit."""
+    assert protected.source_refusal("alice/", "alice/archive", "delete", "personal") is None
+    assert protected.source_refusal("alice/", "alice/saved_queries", "delete", "personal") is None
+    assert protected.source_refusal("alice/", "alice/archive/", "delete", "personal") is not None
+
+
+@pytest.mark.parametrize("operation", ["copy", "move", "delete"])
+def test_the_marker_is_refused_for_EVERY_operation_including_copy(operation):
+    """The one place a copy is not free on this plane, and the reason is asymmetric to every other
+    rule: copying a marker MINTS A NEW PERMANENTLY UNDELETABLE OBJECT, because both bucket policies
+    deny deleting the basename at any depth. Elsewhere a copy takes nothing away; here it leaves
+    litter no user and no plane can remove."""
+    assert protected.marker_refusal(f"alice/reports/{config.MARKER_BASENAME}") is not None
+
+
 def test_the_source_rule_carries_the_SAME_bucket_asymmetry_as_the_destination_rule():
     """It is the same predicate asked from the other side, so it must not be simplified to
     "at any depth" for both: in the personal bucket the prefix IS the principal tag, so

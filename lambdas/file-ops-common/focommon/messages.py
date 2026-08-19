@@ -71,8 +71,13 @@ _BODIES = {
     "archive_read_only": (
         "the archive folder is read-only, so what is inside it cannot be moved or deleted."
     ),
-    "settings_folder_not_a_source": "that folder is managed for you and cannot be moved or deleted.",
-    "marker_not_deletable": "that file is there to protect the folder and cannot be removed.",
+    "settings_folder_not_a_source": (
+        "that folder is managed for you. It cannot be copied, moved or deleted."
+    ),
+    "marker_not_deletable": (
+        "that file is there to protect a folder. It cannot be copied, moved or deleted - a copy "
+        "of it could never be removed either."
+    ),
     "lock_wait_exhausted": (
         "something else was already working in that space and had not finished. Nothing was "
         "changed. Please try again in a few minutes."

@@ -179,19 +179,50 @@ def _items_at_the_byte_cap(key_char: str) -> list:
     return _selection(count, key_char)
 
 
-def test_the_item_cap_bounds_the_per_item_work_and_says_which():
-    """The unit is one item's validation, which is string work with no network call.
+def test_the_item_cap_fits_the_verbs_own_timeout_at_the_MEASURED_per_item_cost():
+    """The unit is one item's validation, and this MEASURES it rather than describing it.
 
-    Two containment checks, the derived-destination guards and the protected-location rules. There
-    is no listing in this verb, so nothing here is charged per OBJECT — the caps that bound the
-    expansion belong to the verb that lists, and conflating the two is how a cap comes to certify
-    something it never measured.
+    The budget is validate-authorize's Lambda timeout. The work charged per item is everything this
+    verb does with an item and nothing it does not: two containment checks, the derived-destination
+    key, and the four protected-location rules. There is no listing in this verb, so nothing here is
+    charged per OBJECT — the caps that bound the expansion belong to the verb that lists.
 
-    The product reading is the check that it is not absurd: the file browser pages at 25, so this
-    is eight full pages of selection.
+    An earlier version asserted ``FILE_OPS_MAX_ITEMS % 25 == 0``, which is satisfied by every
+    multiple of 25 from 100 to 1175 and certifies the number against no quantity at all — the exact
+    pattern this module's own docstring opens by condemning.
+
+    The margin is enormous, and that is the honest result rather than a reason to raise the cap:
+    string work over a few hundred items is microseconds against a 15-second budget, so what really
+    bounds this number is the byte cap below and the product reading — the file browser pages at 25,
+    so 200 is eight full pages of selection.
     """
-    assert config.FILE_OPS_MAX_ITEMS % 25 == 0
-    assert config.FILE_OPS_MAX_ITEMS // 25 >= 4
+    import time
+
+    from focommon import paths, protected
+
+    root = "alice/"
+    items = [
+        {"kind": "folder", "key": f"alice/reports/2026/quarter-{n:04d}/"}
+        for n in range(config.FILE_OPS_MAX_ITEMS)
+    ]
+
+    started = time.perf_counter()
+    for item in items:
+        paths.assert_inside_root(root, item["key"])
+        paths.has_dot_segment(item["key"])
+        paths.derived_destination_key("alice/out/", item)
+        protected.destination_refusal(root, "alice/out/", "personal")
+        protected.source_refusal(root, item["key"], "move", "personal")
+        protected.settings_source_refusal(root, item["key"])
+        protected.marker_refusal(item["key"])
+    elapsed = time.perf_counter() - started
+
+    verb_timeout_seconds = 15
+    assert elapsed < verb_timeout_seconds / 10, (
+        f"validating {config.FILE_OPS_MAX_ITEMS} items took {elapsed:.3f}s against a "
+        f"{verb_timeout_seconds}s budget — the cap no longer leaves an order of magnitude"
+    )
+    assert config.FILE_OPS_MAX_ITEMS % 25 == 0, "the cap should be a whole number of browser pages"
 
 
 def test_the_byte_cap_admits_its_worst_selection_through_the_pipe():

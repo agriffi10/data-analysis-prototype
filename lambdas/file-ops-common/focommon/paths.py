@@ -35,6 +35,8 @@ _CONTROL_CHARS = frozenset(chr(code) for code in range(0x20))
 
 _DOT_NAMES = frozenset({".", ".."})
 
+_ITEM_KINDS = frozenset({"file", "folder"})
+
 
 def item_name(key: str) -> str:
     """Returns a selected item's own leaf name.
@@ -66,7 +68,9 @@ def validate_target_name(name: object) -> str:
     Mirrors the browser's own leaf rule — non-empty after trimming, no surrounding whitespace, no
     ``/``, no control characters — and adds the two the browser's version does not carry, because
     the browser only ever names a folder the user is looking at while this plane accepts a
-    hand-crafted envelope: dot segments, and a length cap.
+    hand-crafted envelope: dot segments, and a length cap. **The cap is applied to characters AND
+    to encoded bytes**, because S3's own limit is 1024 BYTES for a whole key: 255 astral characters
+    is 1020 bytes and would leave nothing for the prefix the name sits under.
 
     **The empty string is the case that makes this load-bearing.** An unvalidated ``""`` derives to
     the destination prefix itself, which merges a folder's *contents* into the destination and then,
@@ -98,7 +102,7 @@ def validate_target_name(name: object) -> str:
         raise TerminalError("invalid_target_name", f"{name!r} contains a control character")
     if name in _DOT_NAMES:
         raise TerminalError("invalid_target_name", f"{name!r} is a path segment, not a name")
-    if len(name) > MAX_TARGET_NAME:
+    if len(name) > MAX_TARGET_NAME or len(name.encode("utf-8")) > MAX_TARGET_NAME:
         raise TerminalError("invalid_target_name", f"a name of {len(name)} characters is too long")
     return name
 
@@ -123,6 +127,12 @@ def derived_destination_key(destination_prefix: str, item: dict) -> str:
     item's own name there would turn the sharpest hole on this plane into a successful operation
     nobody asked for.
 
+    **``kind`` is validated for the same reason, and it is the less obvious half.** The trailing
+    slash is applied on ``kind == "folder"``, so anything else — an absent field, ``"Folder"``, a
+    caller that spelled it ``type`` — silently produces the no-slash form, which is exactly the
+    key that makes a move copy a folder onto itself and then delete it. Refusing an unrecognised
+    kind is what stops a typo in a future verb from becoming data loss rather than an error.
+
     Args:
       destination_prefix: The authorized destination folder, with its trailing slash.
       item: The selected item, carrying ``kind``, ``key`` and optionally ``targetName``.
@@ -131,10 +141,18 @@ def derived_destination_key(destination_prefix: str, item: dict) -> str:
       The absolute key this item lands at, ending in a slash when the item is a folder.
 
     Raises:
-      TerminalError: ``invalid_target_name`` when a supplied name is unusable, or ``forbidden``
-        when the item's key has no final segment.
+      TerminalError: ``invalid_items`` when the item has no usable key or an unrecognised kind,
+        ``invalid_target_name`` when a supplied name is unusable, or ``forbidden`` when the item's
+        key has no final segment.
     """
+    key = item.get("key")
+    kind = item.get("kind")
+    if not isinstance(key, str) or not key:
+        raise TerminalError("invalid_items", "an item has no key")
+    if kind not in _ITEM_KINDS:
+        raise TerminalError("invalid_items", f"unknown item kind {kind!r}")
+
     requested = item.get("targetName")
-    name = validate_target_name(requested) if requested is not None else item_name(item["key"])
+    name = validate_target_name(requested) if requested is not None else item_name(key)
     derived = f"{normalize_root(destination_prefix)}{name}"
-    return f"{derived}/" if item.get("kind") == "folder" else derived
+    return f"{derived}/" if kind == "folder" else derived

@@ -39,16 +39,40 @@ def test_the_three_resolvers_share_ONE_body_table():
     assert len(bodies) == 1
 
 
-@pytest.mark.parametrize("operation", _OPERATIONS)
-def test_no_body_names_an_operation_it_might_not_be(operation):
-    """The real constraint on writing bodies that complete three prefixes: a clause saying
-    "...so nothing was copied" reads wrong under two of the three openings, so the bodies say what
-    is true of the ITEM instead. A body that named one operation would pass every other test here.
+#: Reasons this plane can produce for ANY of the three operations. Their bodies are rendered under
+#: all three prefixes, so a clause naming one operation is wrong two-thirds of the time.
+#:
+#: The rest are NOT operation-neutral and deliberately so: ``source_folder_undeletable`` and its
+#: siblings are returned only for a delete or a move — ``source_refusal`` returns None for a copy —
+#: so "cannot be moved or deleted" is accurate everywhere it can actually appear.
+_OPERATION_NEUTRAL = (
+    "marker_not_deletable",
+    "settings_folder_not_a_source",
+    "lock_wait_exhausted",
+    "too_many_items",
+    "selection_too_large",
+    "no_items",
+    "invalid_items",
+    "invalid_target_name",
+)
+
+
+@pytest.mark.parametrize("reason", _OPERATION_NEUTRAL)
+def test_a_body_rendered_under_every_prefix_names_no_single_operation(reason):
+    """The real constraint on writing bodies that complete three prefixes.
+
+    A clause saying "...so nothing was copied" reads wrong under two of the three openings. A body
+    may still ENUMERATE all three — the marker's does, because refusing a copy is the one place
+    this plane refuses one — since that sentence is true whichever prefix precedes it. What is
+    forbidden is naming one and not the others.
     """
-    for reason in messages._BODIES:
-        body = messages.failure_message(operation, reason).split(": ", 1)[1]
-        for verb in ("copied", "moved and deleted", "deleted or copied"):
-            assert verb not in body, f"{reason!r} names an operation in its body"
+    body = messages.failure_message("copy", reason).split(": ", 1)[1]
+    named = [verb for verb in ("copied", "moved", "deleted") if verb in body]
+
+    assert not named or len(named) == 3, (
+        f"{reason!r} names {named} — it is rendered under all three prefixes, so it must name all "
+        f"three or none"
+    )
 
 
 def test_every_protected_refusal_has_a_sentence():
