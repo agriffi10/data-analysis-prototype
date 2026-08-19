@@ -1251,7 +1251,8 @@ allow-list. Keep this paragraph until the account's tenancy order is contractual
 > helpers — and so does the **`forget` branch** row.
 >
 > **The guards stay until SPEC-205 ships.** Today's `delete` still deletes objects and drops
-> databases. Strike the two rows when it lands rather than editing them now.
+> databases. Strike **the `delete` verb row** when it lands — and only that row; the teardown-helper
+> and `forget` rows stay, because `forget` still calls all three helpers on a never-active space.
 
 The app deletes things because it created them — and in the successor account that becomes true
 again, which retires most of the previous strategy's permanent guards. What remains is a

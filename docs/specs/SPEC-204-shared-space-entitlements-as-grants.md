@@ -539,8 +539,10 @@ inert.
 - [ ] **`teardown.revoke_portal_role` is NOT called on the emptying route** — SPEC-205 FR-003
       settles it and this criterion is the record of the disagreement. *An earlier version of this AC
       said "while role-level grants exist, a delete must still revoke them", which is the opposite.*
-      SPEC-205 wins: with every member's slot cleared the grant reaches no user (every resource in
-      `portal-role-shared-space.json.tftpl` is `${aws:PrincipalTag/shared_space_k}`-substituted), and
+      SPEC-205 wins: with every member's slot cleared the grant reaches no user (every space-scoped
+      resource in `portal-role-shared-space.json.tftpl` is scoped by
+      `${aws:PrincipalTag/shared_space_k}` — the object statement by substitution, `ListBucket` by
+      prefix condition, with the Glue `:catalog` ARN carrying no space grant of its own), and
       revoking it would leave a restored space's catalog unusable for no benefit. The database does
       stay reachable by the control-plane execution roles through its `portal-managed` LF-Tag, gated
       by `is_active_member`, which is false for everyone on an emptied space.

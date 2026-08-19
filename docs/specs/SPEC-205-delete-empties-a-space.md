@@ -83,8 +83,10 @@ write into a space that never reaches `active`. FR-002 states the honest version
   given access — a worse failure than the one it fixes.
 - **Fixing the stuck `deleting` record generally.** The state machine's `RecordFailure` is a `Pass`
   that writes no registry status, so a Lambda timeout leaves `status: "deleting"` permanently. This
-  spec makes that state **safe** (FR-001 protects it from teardown) and **exitable** (FR-007's retry),
-  and does not otherwise change the state machine.
+  spec makes that state **safe** — FR-001's backfill stamps `deleting` records, which is unambiguous
+  because only `delete_space` writes that status, and FR-002's guard then refuses to tear them down —
+  and **exitable**, because FR-002 stops `forget` clearing the row and FR-007 renders Retry on it. It
+  does not otherwise change the state machine.
 - **Entitlements, Access Grants, Identity Center.** SPEC-204, which this unblocks.
 
 ### What runs today, and what each step becomes
@@ -93,11 +95,11 @@ write into a space that never reaches `active`. FR-002 states the honest version
 
 | Today | After |
 |---|---|
-| — | **New first step**: stamp `everActive: true` (FR-001) |
+| — | **New first steps**: load the record fresh, evaluate FR-002's predicate, and — **on the emptying route only** — stamp `everActive: true` |
 | `reg.set_status(registry, "deleting")` | **Unchanged** |
-| `teardown.delete_shared_prefix(space)` | **Not called on this route** |
-| `teardown.revoke_portal_role(space)` | **Not called on this route** (FR-003) |
-| `teardown.drop_database(space)` | **Not called on this route** |
+| `teardown.delete_shared_prefix(space)` | **Not called on the emptying route.** Called on the never-active route, which is today's behaviour unchanged |
+| `teardown.revoke_portal_role(space)` | **Not called on the emptying route** (FR-003) |
+| `teardown.drop_database(space)` | **Not called on the emptying route** |
 | per member: `clear_slot`, `cache.remove_entry` | **Unchanged** — `members` already includes the owner |
 | `reg.delete(space)` | **Replaced**: rewrite with `members: []`, `owner` removed, `status: "active"` |
 | notify every member | **Unchanged wording** (FR-010) |
@@ -128,23 +130,50 @@ one of those transitions describes a space whose data is intact.
 
 #### Acceptance Criteria:
 
-- [ ] `reg.finalize(name, actor, request_id, "active")` stamps `everActive: true`. `finalize`
-      **rebuilds the record rather than copying it**, so the field must be added to what it
-      constructs — a test asserts a record round-tripped through `finalize` retains it.
-- [ ] `delete_space` stamps `everActive: true` **as its first action**, before
-      `set_status("deleting")`. This heals any record that reaches delete without the field and makes
-      the protection independent of when the record was created.
+- [ ] **`finalize` stamps `everActive: true` ONLY when the outcome status is `active`.** `finalize`
+      is called on **both** create outcomes — `finalize(..., "active")` and
+      `finalize(..., "failed", reason)` — so an unconditional stamp marks every failed create as
+      ever-active, which makes FR-005's guard refuse every legitimate retry and makes `forget` refuse
+      to tear down any failed create. A test drives the **failed** path and asserts the field is
+      absent; a round-trip test alone passes either way.
+- [ ] **`finalize` also carries an existing `everActive` forward, on both status paths.** It
+      **rebuilds** the record from a literal rather than copying it — it carries forward only
+      `createdAt` today — so it is the one writer that provably drops fields. Asserted separately
+      from the stamp, because the two are different bugs.
+- [ ] **`delete_space` reads first, decides the route, and stamps only on the emptying route.** The
+      order is load-fresh → evaluate → stamp → `set_status("deleting")`. *An earlier draft stamped as
+      the verb's first action, which was two defects at once: it made FR-002's predicate vacuous —
+      the fresh read would always see `everActive`, so no fixture could take the other branch — and
+      it burned never-active spaces, because `delete` has no status guard (FR-002) and the portal
+      role can enqueue it directly, so an owner deleting their own failed create would have stamped
+      it ever-active and permanently blocked both `forget`'s teardown and `_resolve_reserve_collision`'s
+      overwrite. The name would be unreclaimable and the Glue database orphaned.*
+- [ ] Stamping is idempotent and skipped when the field is already present.
 - [ ] The field is **never cleared or set false** by any verb. A sweep asserts no module writes
       `everActive` to anything but `True`.
 - [ ] `save_members` and `set_status` preserve it — both already do `dict(existing)`, asserted
       because the protection depends on it and a later projection-style rewrite would drop it
       silently.
-- [ ] **A one-time backfill stamps `everActive: true` on every existing record whose status is
-      `active`**, run before the verb change is enabled. Without it, a space created before this spec
-      whose delete then fails is unprotected — exactly the case the spec exists for. Records that are
-      non-active at backfill time are left alone: they are indistinguishable from failed creates, the
-      set is small, and it is enumerable at deploy time for manual disposition.
-- [ ] The backfill is idempotent and re-runnable, and its object count is reported.
+- [ ] **A one-time backfill stamps `everActive: true` on every record whose status is `active` OR
+      `deleting`.** *An earlier draft skipped every non-active record on the grounds that they are
+      "indistinguishable from failed creates". That is false for the highest-risk status:*
+      **`deleting` is written by `delete_space` and by nothing else** — `create_space` writes only
+      `provisioning`, `active` and `failed` — so a `deleting` record is unambiguously a space that
+      reached `active` and whose delete did not finish. And because the state machine's
+      `RecordFailure` is a `Pass` that writes no registry status, a timed-out delete leaves that
+      status permanently. Skipping them leaves round one's exact data-loss path open on every such
+      record that exists on the day this ships.
+- [ ] **Pre-existing `failed` records are enumerated and dispositioned manually before deploy**, not
+      skipped silently. A failed *delete* was ever-active and must be stamped; a failed *create* must
+      not be, or its name is burned. They are distinguishable by hand at this scale — a failed create
+      is single-member by construction, since creating is creator-only — and the set is small. The
+      spec requires the enumeration to be run and its disposition recorded, rather than guessing a
+      rule that is wrong in one direction or the other.
+- [ ] **The deploy order is stated, because there is no enable switch**: run the backfill, *then*
+      deploy the verb change. The Lambda's new behaviour is live the moment it deploys, so the
+      reverse order leaves a window in which a delete can fail on an unstamped record.
+- [ ] The backfill is idempotent and re-runnable, and reports the object count and how many records
+      it stamped, split by the status it found.
 - [ ] `SCHEMA_VERSION` does **not** bump. The fields are additive and every reader uses `.get`;
       stated so it is not raised as an omission.
 
@@ -163,14 +192,26 @@ not have today.
       `active` and is now `failed`, and asserts no teardown helper is called** — that is the exact
       data-loss path the first draft left open, and a test using a never-active fixture passes over
       it.
-- [ ] On an ever-`active` space, `forget` falls through to its **cache-only** branch: the owner's
-      chip is cleared and nothing else happens. It does not raise — a user dismissing a stuck row
-      should not see an error.
-- [ ] `delete_space` also consults the predicate, and it reads the **freshly loaded** record, not the
-      one `validate` put on the event. A re-delete after a failed delete sees `everActive` and empties
-      again; reading the stale event record would see `active` and take the same branch by accident
-      rather than by rule. The AC names which record is read, because the two answers differ by a
-      bucket of files.
+- [ ] **On an ever-`active` space, `forget` is a no-op that clears NOTHING.** Not the slot, not the
+      chip. Its cache-only branch calls `membership.clear_slot(actor, space)` and
+      `cache.remove_entry`, and the Connections page derives every row from the cache — so clearing
+      the chip deletes the row, which deletes FR-007's Retry, which is the only exit from a failed
+      delete. `create` is refused by FR-005, `forget` by this criterion, and `delete` needs an
+      affordance that no longer renders: the space would be permanently stranded by one Dismiss
+      click. It does not raise; it returns a no-op result and the row survives.
+- [ ] **`delete_space` has two routes, and the never-active one is specified rather than implied.**
+      The predicate is `everActive is True or status == "active"` — the second disjunct covers a
+      record that predates the backfill. True → empty (FR-003). **False → destroy**, exactly as the
+      verb does today, because a never-active space reached by `delete` is the same object
+      `forget`'s owner path would destroy and the same argument applies (FR-002's justification
+      below). An earlier draft left this branch unnamed while FR-003's table said the helpers are
+      "not called on this route", which describes a second route the spec never wrote.
+- [ ] `delete_space` reads the **freshly loaded** record. *The reason is the validate→verb window,
+      not staleness in general:* `validate` already does `reg.load(space)` at the start of every
+      execution, so the event record is not stale by construction — but FIFO orders delivery and not
+      executions (SPEC-157), so an `add-members`, `leave` or competing `delete` can land between
+      validate and this verb. *An earlier draft justified this by claiming the event record would
+      "see `active` where a fresh read sees otherwise", which is not true of the code.*
 - [ ] **The justification for destroying a never-`active` space is stated honestly**, and the "no
       user data by construction" claim is **withdrawn**: `create_space` assigns the Cognito slot —
       which *is* the S3 grant — before `finalize`, so a creator can write into a space that never
@@ -190,8 +231,9 @@ not have today.
 - [ ] `teardown.revoke_portal_role` is **also not called**, and the rationale is stated precisely
       rather than as "the database becomes unreachable": with every member's slot cleared, the
       portal-role grant reaches no *user*, because every resource in
-      `portal-role-shared-space.json.tftpl` is `${aws:PrincipalTag/shared_space_k}`-substituted. The
-      database **does** remain reachable by the control-plane execution roles, which hold tag-policy
+      `portal-role-shared-space.json.tftpl` is scoped by `${aws:PrincipalTag/shared_space_k}` — the
+      object statement by resource substitution, `ListBucket` by prefix condition, with the Glue
+      `:catalog` ARN carrying no space grant of its own. The database **does** remain reachable by the control-plane execution roles, which hold tag-policy
       grants on its still-present `portal-managed` LF-Tag; application-level `is_active_member` is
       what gates them, and that returns false for everyone (FR-006). Revoking the grant would leave a
       restored space's catalog unusable for no benefit.
@@ -261,9 +303,28 @@ emptied space and revive it, with the previous cohort's files intact.
       `table-share-validate-authorize`, `table-builder-validate-authorize`, `file-send-common`,
       `archive-common`, and **`data-quality-validate-authorize`**. A test asserts an emptied space is
       refused by all five.
-- [ ] **A guard test derives the list** — the set of modules calling `is_active_member` equals the set
-      the refusal test covers — so a sixth caller fails CI rather than being missed. A hand-written
-      list of five rots exactly as the list of four did.
+- [ ] **`cpcommon.registry.is_active` is a SECOND predicate and auditing only the first misses the
+      worst case.** It is `record.get("status") == "active"` and nothing else, and its two callers are
+      **destination** validators: `table_share_validate_authorize.py` and
+      `file_send_validate_authorize.py` both use it to decide whether a named space may receive a
+      share. On an emptied record — `active`, `members: []` — it returns **true**, so **any former
+      member who remembers the name can still push a table or send files into the deleted
+      workspace**. SPEC-158 keeps an unlisted space typeable and a former member knows the name; the
+      objects land under a prefix nobody holds a slot for, a table is created in the retained
+      database, and the sender is told it succeeded. The owner notification is skipped because there
+      is no owner (FR-004), so **nobody is told at all**.
+- [ ] **The two destination validators move to a predicate that also requires an owner** —
+      `is_active(record) and record.get("owner")`, expressed once in `cpcommon` under a name that
+      says what it decides (a space that may receive a share), not reimplemented at each call site.
+      `is_active` itself keeps its meaning; what changes is that no caller may use it alone to decide
+      reachability.
+- [ ] **The guard test derives the list for BOTH names** — the set of modules calling
+      `is_active_member` or `is_active` equals the set the refusal test covers — so a sixth caller of
+      either fails CI. A hand-written list of five rots exactly as the list of four did. The shape to
+      reuse is this repo's existing AST sweeps (`test_layer_import_safety.py`, SPEC-165's), not a new
+      mechanism.
+- [ ] A test asserts a share and a file-send **targeting an emptied space are refused**, driven as a
+      former member of that space.
 - [ ] No new status value. A terminal status was considered and declined: it would make every reader
       above learn a new value, where the empty roster already makes each answer correctly.
 
@@ -289,6 +350,20 @@ FR makes the buttons mean the right thing.
       server rather than a second enforcement.
 - [ ] A row in `deleting` renders the same Retry, so the stuck-`deleting` state (Out of Scope to fix
       generally) has an exit that is not an operator.
+- [ ] **The discriminator travels through five files across TWO features**, enumerated because
+      `features/connections/` is a separate area the spec would otherwise never name:
+      `features/shared-spaces/sharedSpaces.types.ts` (`SharedConnectionEntry`),
+      `features/connections/connection.types.ts` (`Connection`, separately enumerated),
+      `features/connections/useConnections.ts` (**a field-by-field spread-conditional mapper — an
+      unmapped field is silently dropped**), and `ConnectionsPage.tsx`'s `ConnectionRow` type and its
+      mapper. `parseCache`/`normalizeEntry` spread, so the read side needs no change.
+- [ ] **`ConnectionsPage`'s optimistic retry override hard-codes `status: 'provisioning'`**, which is
+      wrong for a retried delete — it must show `deleting`. Named because it is invisible in review
+      and produces a row that lies for the length of the run.
+- [ ] **Dismiss is suppressed on a failed-delete and a `deleting` row.** FR-002 makes `forget` a
+      no-op there, so offering the button would present an action that does nothing; and the earlier
+      draft's criterion — "Dismiss clears the chip and does not destroy the space" — described
+      clearing the row, which is itself the trap that strands the space.
 - [ ] **FR-013's "no browser change" does not cover this**, and the spec says so rather than letting
       the contradiction stand.
 
@@ -305,13 +380,33 @@ over destroyed data; here it is live access to retained data.
 
 #### Acceptance Criteria:
 
-- [ ] **`save_members` refuses to `add` to a record with no `owner`**, raising the plane's
-      authorization error. One guard, in the one place every membership mutation goes through, inside
-      the CAS loop where the record is fresh.
-- [ ] `remove` and `acknowledge` are unaffected — both only ever shrink or annotate, and refusing them
-      would strand a member who slipped through.
-- [ ] A test drives the interleaving directly: authorize `add-members` against a live record, empty
-      the space, then run the verb — and asserts the member is not added and the actor is notified.
+- [ ] **`save_members` refuses to `add` to a record with no `owner`**, inside the CAS loop where the
+      record is fresh. `remove` and `acknowledge` are unaffected — both only shrink or annotate, and
+      refusing them would strand a member who slipped through. (`create_space` never reaches
+      `save_members`, so creation is untouched.)
+- [ ] **`add_members` rolls back the slots it assigned in this run when the refusal fires.** It calls
+      `membership.assign_or_find_slot` for every new member **before** `save_members` and, unlike
+      `create_space`, has **no rollback** — so the guard alone leaves the added user holding a live
+      `custom:shared_space_k` slot, which *is* the S3 and Glue grant, while appearing in no roster
+      anywhere. That is strictly worse than the state the guard was written to prevent: at least a
+      roster entry is visible. The rollback mirrors `create_space`'s.
+- [ ] **The narrow window is not the only window, and the wide one needs the delete side to close
+      it.** The guard fires only once the rewrite has committed; FR-009 requires the rewrite to be
+      **last**, so an `add-members` committing while `delete_space` is mid-loop sees an owner and
+      succeeds. `delete_space` captured `members` before the loop, so the new member's slot is never
+      cleared and the rewrite blanks the roster over them — the same orphan, through the ordinary
+      interleaving rather than a knife-edge one. **The rewrite's CAS returns the record it replaced,
+      and `delete_space` clears slots for the UNION of its captured list and that record's members**,
+      then re-checks. Without this, FR-008 and FR-009 together guarantee the orphan rather than
+      prevent it.
+- [ ] The refusal raises an error type reachable from `registry.py` **without adding a
+      `registry → auth → config` import edge** to a module every verb loads — either the exception
+      moves to a shared location or `save_members` returns a refusal the caller raises. The spec
+      states which.
+- [ ] Two tests, one per window: (a) authorize `add-members` against a live record, empty the space,
+      run the verb — the member is not added and holds no slot; (b) `add-members` commits mid-loop —
+      the member's slot is cleared by the union pass. **The notification is asserted on the state
+      machine's `NotifyFailure` path**, not on the verb, which emits none of its own.
 
 ### FR-009: A partial empty
 
@@ -326,6 +421,14 @@ over destroyed data; here it is live access to retained data.
       unchanged and this is why it holds.)*
 - [ ] A test drives a `clear_slot` failure mid-loop and asserts the record still names its owner, its
       status is `failed`, `everActive` is set, and a retried delete succeeds.
+- [ ] **The credential window is named, bounded and accepted.** `membership.clear_slot` empties the
+      Cognito attribute, but the principal tag is stamped at credential-vend time — which is why
+      `useConnections` forces a token refresh after a membership change and why `add_members` logs
+      `principal_tag_needs_token_remint`. So **every removed member keeps live S3 and Glue access to
+      the retained data until their session credentials expire**, the deleter's own browser most of
+      all. Under today's semantics that window is harmless because the data is gone; here it is not.
+      The bound is the Identity Pool credential TTL, it is accepted rather than mitigated, and the
+      spec says so — "every member's access ends" is true only after the last credential expires.
 - [ ] `TeardownIncompleteError` is not raised on the emptying route and is retained in full on
       FR-002's destroying route.
 
@@ -364,10 +467,15 @@ not survive is the product claiming the data was destroyed, and today it claims 
 
 - [ ] Three things now grow without bound: S3 objects under emptied prefixes, Glue databases with no
       members, and registry records. None is managed by this spec.
-- [ ] **The binding constraint is the Glue databases-per-account quota**, not storage cost. Every user
-      already consumes one for their personal database. The spec records the current quota, the
-      observed create rate, and the resulting headroom — **computed, not asserted** — with the
-      disposition being a Service Quotas increase if headroom is short.
+- [ ] **The binding constraint is the Glue databases-per-account quota**, not storage cost. Every
+      user already consumes one for their personal database, and emptied spaces never release theirs.
+      **This spec does not compute the headroom and does not pretend to**: the quota is
+      account-specific and the create rate is not yet observable at a useful scale, so promising a
+      computed bound here would defer a decision while looking like one. The disposition instead is
+      unconditional — **request a Service Quotas increase as a Phase 5 task**, and record the quota,
+      the current database count and the resulting headroom in the delivery doc as a measurement.
+      *An earlier draft asked for a computed bound and supplied none of its three inputs, which is
+      the Open-Question shape this project forbids.*
 - [ ] The registry listing grows with historical spaces, not live ones, and **SPEC-204's sweep
       iterates every record** — so its cost and its `identitystore`/Lake Formation call budget are
       sized against all spaces ever created. Named as an input to its FR-009.
@@ -378,9 +486,9 @@ not survive is the product claiming the data was destroyed, and today it claims 
 
 #### Acceptance Criteria:
 
-- [ ] The `space deleted` record gains the member count removed and a field distinguishing
-      **emptied** from **destroyed**, so FR-002's two routes are visible in `logs/` rather than
-      inferred from which verb ran.
+- [ ] The `space deleted` record gains a field distinguishing **emptied** from **destroyed**, so
+      FR-002's two routes are visible in `logs/` rather than inferred from which verb ran. *The member
+      count is already there (`members_applied`); only the discriminator is new.*
 - [ ] The backfill (FR-001) reports its object count and how many records it stamped.
 - [ ] Space names and usernames are permitted user metadata; nothing else is added. `env` and
       `version` on every record; messages are literals; `echo=` prohibited.
@@ -394,8 +502,10 @@ not survive is the product claiming the data was destroyed, and today it claims 
       unchanged.
 - [ ] No IAM policy, bucket policy or Lake Formation grant is edited. The plane keeps its
       `s3:DeleteObject` and `glue:DeleteDatabase` grants because FR-002's route still uses them.
-- [ ] **The browser changes in two places and only two**: FR-007's failed-row affordances and
-      FR-010's copy. Everything else in `features/shared-spaces/` is untouched.
+- [ ] **The browser changes in exactly the places FR-007 and FR-010 enumerate**, which span
+      `features/shared-spaces/` **and** `features/connections/` — five files for the discriminator,
+      plus the retry status override and the copy. *An earlier draft said "two places and only two",
+      which was wrong in both the count and the feature.* Nothing outside that list changes.
 - [ ] **A backfill is required** (FR-001) and it is the only migration. Spaces deleted before this
       ships were destroyed; there is nothing to retain retroactively.
 
@@ -444,10 +554,16 @@ FR-011's computed headroom, FR-012's fields, then the formatter, `ruff`, the blo
 ### Phase 6: Live checks
 
 Against a deployed environment: a space with two members and files, deleted — gone from both lists,
-objects and database present, name refused on re-create, original owner cannot add a member. Then a
-**failed delete**, confirming Dismiss does not destroy it and Retry re-runs the delete. Then a failed
-create forgotten by its owner, confirming its name **is** reclaimable. Into `docs/testing/e2e.md`'s
-shared-workspaces section.
+objects and database present, name refused on re-create, original owner cannot add a member. **Both
+browsers must re-mint credentials (sign out and back in, or wait out the Identity Pool TTL) before
+the access checks are believed** — FR-009's credential window means a session that still holds the
+old principal tag can read a space it was told is deleted, and the deleter's own browser is the one
+most likely to be used for the check. Then a **share and a file-send targeting the emptied space**,
+confirming both are refused (FR-006). Then a **failed delete**, confirming Dismiss is not offered and
+Retry re-runs the delete. Then a failed create forgotten by its owner, confirming its name **is**
+reclaimable — and separately, a failed create **deleted** by its owner, confirming the never-active
+route destroys it and its name is still reclaimable. Into `docs/testing/e2e.md`'s shared-workspaces
+section.
 
 ### Phase 7: Completion ritual
 
