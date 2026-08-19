@@ -9,10 +9,11 @@ compare-and-set on ``UpdateTable``. This module is the serialization the catalog
 the second refresh is refused rather than raced.
 
 **The PROTOCOL now lives in ``cpcommon.lock``**, which is where an algorithm belongs once a second
-plane needs it — the file-ops plane's per-space lock is that second consumer. What stays here is
+plane is going to need it — the specced file-ops per-space lock, extracted ahead of that caller
+rather than after it. What stays here is
 what is genuinely table-builder's: the key layout, the thresholds derived from THIS machine's
 ceiling, and the sentences this plane narrates with. The behaviour is unchanged, and this module's
-own suites are the proof: they were not edited when the protocol moved.
+own suites are the proof: the protocol moved without them being rewritten.
 
 **The lock is released by OVERWRITING, never by deleting, and that is forced rather than chosen.**
 The table-builder execution role carries an explicit ``Deny`` on ``s3:DeleteObject`` for the whole
@@ -45,7 +46,7 @@ Attributes:
 
 import logging
 
-from cpcommon import clients, config
+from cpcommon import clients, config, observability
 from cpcommon import lock as _lock
 from cpcommon.lock import LockWording
 
@@ -126,7 +127,7 @@ def acquire(database: str, table: str, holder: str) -> tuple[bool, str | None]:
         non-empty string.
       ClientError: Any write fault that is not a precondition failure.
     """
-    _lock.assert_usable_holder(holder)
+    _lock.assert_usable_holder(holder, "refresh lock")
     return _lock.acquire(
         bucket=config.ADMIN_BUCKET,
         key=lock_key(database, table),
@@ -144,6 +145,12 @@ def release(database: str, table: str, etag: str | None) -> None:
 
     Never raises and never retries a lost compare-and-swap — see ``cpcommon.lock.release``.
 
+    **The key is composed AFTER the etag check and inside a guard**, which is not tidiness: as an
+    argument to the shared release it would run before both, so an uncatalog-safe name would raise
+    out of a function whose whole contract is that it cannot fail. The verb that calls this runs on
+    every terminal path including the failure path, and a raise there is a task failure that
+    replaces a recorded user failure with silence.
+
     Args:
       database: The target Glue database name.
       table: The target table name.
@@ -156,9 +163,20 @@ def release(database: str, table: str, etag: str | None) -> None:
     Raises:
       None.
     """
+    if not etag:
+        logger.warning("refresh lock for %s.%s has no etag to release against", database, table)
+        return
+
+    try:
+        key = lock_key(database, table)
+    except ValueError as err:
+        logger.error("refresh lock release for %s.%s failed: %s", database, table, err)
+        observability.error(WORDING.release_failed, database=database, table=table)
+        return
+
     _lock.release(
         bucket=config.ADMIN_BUCKET,
-        key=lock_key(database, table),
+        key=key,
         etag=etag,
         wording=WORDING,
         fields={"database": database, "table": table},

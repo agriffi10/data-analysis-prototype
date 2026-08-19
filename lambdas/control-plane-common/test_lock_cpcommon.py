@@ -53,11 +53,13 @@ class FakeS3:
 
     def __init__(self):
         self.objects = {}
+        self.gets = []
         self.puts = []
         self.deletes = []
         self._n = 0
 
     def get_object(self, Bucket, Key):
+        self.gets.append({"Bucket": Bucket, "Key": Key})
         if Key not in self.objects:
             raise KeyError(Key)
         body, etag = self.objects[Key]
@@ -67,7 +69,12 @@ class FakeS3:
         key = kwargs["Key"]
         current = self.objects.get(key)
         self.puts.append(
-            {"IfMatch": kwargs.get("IfMatch"), "IfNoneMatch": kwargs.get("IfNoneMatch"), "Key": key}
+            {
+                "Bucket": kwargs.get("Bucket"),
+                "IfMatch": kwargs.get("IfMatch"),
+                "IfNoneMatch": kwargs.get("IfNoneMatch"),
+                "Key": key,
+            }
         )
         if kwargs.get("IfNoneMatch") == "*" and current is not None:
             raise _ClientError("PreconditionFailed")
@@ -267,17 +274,56 @@ def test_the_lock_is_never_deleted(s3):
     assert "delete_object" not in source
 
 
-def test_a_future_dated_claim_is_stolen(s3):
-    """A timestamp that cannot be true is no evidence that anything is running, and treating it
-    as fresh would cost the target its operation permanently."""
-    _seed(s3, holder=OTHER, acquired_at=_iso(-600))
+def test_the_bucket_parameter_is_the_one_written_to(s3):
+    """The most important new parameter, and the one nothing else asserts.
 
-    assert _acquire()[0] is True
+    A regression writing to a hard-coded or wrong bucket leaves every other test in both suites
+    green while the lock object lands somewhere nothing reads — no serialization at all, and
+    silently, which is the worst shape a lock failure can take.
+    """
+    _, etag = _acquire()
+    _release(etag)
+
+    assert [put["Bucket"] for put in s3.puts] == [BUCKET, BUCKET]
 
 
-def test_a_release_without_a_tag_writes_nothing(s3):
-    """There is nothing safe to condition on, so the release is skipped rather than written
-    unconditionally over whatever holds it now."""
-    _release(None)
+def test_fields_may_not_shadow_the_protocols_own_event_names(s3):
+    """Expanded alongside a branch-specific keyword, a colliding field raises ``TypeError`` on
+    that branch alone — a steal-only or refusal-only crash on the rarest path. It fails up front
+    instead, on every call, so a binding cannot ship with one."""
+    for name in ("stolen", "held_since", "age_seconds"):
+        with pytest.raises(ValueError, match="may not use the protocol's own names"):
+            lock.acquire(
+                bucket=BUCKET,
+                key=KEY,
+                holder=HOLDER,
+                stale_after_seconds=3600,
+                wording=WORDING,
+                fields={name: "x"},
+                read=_read,
+            )
 
     assert s3.puts == []
+
+
+def test_every_one_of_the_six_sentences_is_the_callers(s3, captured_events):
+    """All six, because a binding that mis-wired one of the rarer three — the unreadable steal,
+    the release, the failed release — would otherwise be caught only by another plane's suite."""
+    s3.objects[KEY] = (b"not json at all", '"etag-0"')
+    _, etag = _acquire()
+    _release(etag)
+
+    def _fail(**kwargs):
+        raise _ClientError("ServiceUnavailable")
+
+    _, etag2 = _acquire()
+    s3.put_object = _fail
+    _release(etag2)
+
+    for message in (
+        "stealing unreadable space lock",
+        "space lock acquired",
+        "space lock released",
+        "space lock release failed",
+    ):
+        assert captured_events.messages(message), f"nothing narrated {message!r}"

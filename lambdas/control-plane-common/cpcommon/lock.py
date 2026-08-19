@@ -3,9 +3,12 @@
 **This is an ALGORITHM, so it lives here.** ``MessageGroupId`` orders delivery per group, but the
 Pipe starts the state machine ``FIRE_AND_FORGET`` and returns, so two executions against one target
 can overlap. A conditional-write lock is the serialization the queue cannot provide, and it arrived
-on ``tbcommon.table_lock`` for the per-table refresh. It moved here at its **second** consumer —
-the file-ops plane's per-space lock — because a second full copy of it is a second place a
-concurrency bug can be introduced, in the one module whose whole purpose is preventing one.
+on ``tbcommon.table_lock`` for the per-table refresh. It moves here **ahead of** its second
+consumer — the specced file-ops per-space lock, which is not built yet — because a second full copy
+of it would be a second place a concurrency bug can be introduced, in the one module whose whole
+purpose is preventing one. Extracting before the second caller rather than after is deliberate:
+building the caller first means importing a leaf domain's module, which is the undeclared shared
+layer this repo has already had to unpick once.
 
 What each domain keeps is what is genuinely its own: its key layout, its own thresholds, and the
 sentences it narrates with. What is here is the protocol: the three-way acquire branch, the
@@ -28,6 +31,13 @@ Attributes:
     reader can tell which shape wrote an object; nothing reads it back, because a version-aware
     branch would need a second shape to branch on and inventing one now would be a guess about a
     migration nobody has designed.
+  RESERVED_FIELDS: Event field names this protocol supplies itself. A binding whose own fields
+    collide with one would raise ``TypeError`` at the emit — and only on the branch that uses that
+    name, so a steal-only or refusal-only crash on the rarest path. Checked up front instead.
+  Reader: Reads a lock object, called as ``read(key)`` and returning ``(bytes, etag)`` with both
+    None when it is absent or unreadable. A parameter rather than a call into S3 here, because
+    pinning the read is the only way a caller's test can reach the concurrent case: two acquires
+    seeing one stale tag, decided by the compare-and-set rather than the age check.
 """
 
 import json
@@ -43,13 +53,17 @@ logger = logging.getLogger()
 
 DEFAULT_VERSION = 1
 
+RESERVED_FIELDS = frozenset({"stolen", "held_since", "age_seconds"})
+
 Reader = Callable[[str], tuple[bytes | None, str | None]]
 
 __all__ = [
     "DEFAULT_VERSION",
+    "RESERVED_FIELDS",
     "LockWording",
     "Reader",
     "acquire",
+    "assert_fields_are_free",
     "assert_usable_holder",
     "release",
 ]
@@ -85,7 +99,7 @@ class LockWording:
     release_failed: str
 
 
-def assert_usable_holder(holder: object) -> None:
+def assert_usable_holder(holder: object, label: str = "lock") -> None:
     """Fails unless the holder is an identity a later reader will not mistake for "free".
 
     A null or empty holder is what FREE means in this body, so a claim carrying one would write a
@@ -99,6 +113,9 @@ def assert_usable_holder(holder: object) -> None:
 
     Args:
       holder: The claiming execution's identity, from the caller.
+      label: Names the lock in the message, so a fleet with more than one kind of lock does not
+        report them all identically. The message reaches CloudWatch and the decoded Step Functions
+        ``Cause``, where "which lock" is the first thing a reader needs.
 
     Returns:
       None.
@@ -107,7 +124,29 @@ def assert_usable_holder(holder: object) -> None:
       ValueError: If the holder is not a non-empty string.
     """
     if not isinstance(holder, str) or not holder:
-        raise ValueError(f"lock holder is not a usable identity: {holder!r}")
+        raise ValueError(f"{label} holder is not a usable identity: {holder!r}")
+
+
+def assert_fields_are_free(fields: Mapping[str, object]) -> None:
+    """Fails unless a binding's own event fields leave the protocol's reserved names alone.
+
+    The emit sites expand ``**fields`` alongside a branch-specific keyword, so a binding that named
+    one of those itself would raise ``TypeError`` — on that branch only, which means a crash on the
+    steal or the refusal and nowhere else. Failing here instead turns the rarest possible runtime
+    fault into one every call makes immediately.
+
+    Args:
+      fields: The binding's identifying fields.
+
+    Returns:
+      None.
+
+    Raises:
+      ValueError: If any reserved name is present.
+    """
+    clashes = sorted(RESERVED_FIELDS & set(fields))
+    if clashes:
+        raise ValueError(f"lock fields may not use the protocol's own names: {', '.join(clashes)}")
 
 
 def acquire(
@@ -159,10 +198,11 @@ def acquire(
       the lock was not acquired, and may be None on success if S3 returned no tag.
 
     Raises:
-      ValueError: If the holder is not a non-empty string.
+      ValueError: If the holder is not a non-empty string, or the fields use a reserved name.
       ClientError: Any write fault that is not a precondition failure.
     """
     assert_usable_holder(holder)
+    assert_fields_are_free(fields)
 
     raw, etag = read(key)
 
@@ -224,8 +264,11 @@ def release(
       None.
 
     Raises:
-      None.
+      ValueError: If the fields use a reserved name — a binding error, not a request failure, and
+        the one thing this function does raise on.
     """
+    assert_fields_are_free(fields)
+
     if not etag:
         logger.warning("lock at %s has no etag to release against", key)
         return

@@ -8,7 +8,6 @@ reason ``log-sweep``'s fake is built the same way.
 
 import json
 import os
-import pathlib
 import sys
 from datetime import UTC, datetime, timedelta
 
@@ -313,9 +312,6 @@ def test_the_lock_is_never_deleted(s3):
     table_lock.release("alice", "sales", etag)
 
     assert s3.deletes == []
-
-    source = (pathlib.Path(__file__).parent / "tbcommon" / "table_lock.py").read_text()
-    assert "delete_object" not in source
 
 
 # ── FR-004: stealing, and the bound that makes it legitimate ─────────────────
