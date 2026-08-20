@@ -1,4 +1,5 @@
 import {enqueueFifoRequest} from '../../lib/enqueueFifo';
+import {spaceDigest} from '../../lib/spaceDigest';
 import type {ServiceResult} from '../../types/service.types';
 import type {FileSendRequest, SendSourceSpace} from './fileSend.types';
 
@@ -25,22 +26,6 @@ function sourceBucket(space: SendSourceSpace): string {
   const bucket =
     space.kind === 'personal' ? import.meta.env.VITE_S3_USER_SPACE_BUCKET : import.meta.env.VITE_S3_SHARED_SPACE_BUCKET;
   return (bucket as string | undefined) ?? '';
-}
-
-/**
- * FIFO group id: the SHA-256 hex digest of `{bucket}/{sourceSpaceRoot}`, so
- * repeated sends OUT OF one space serialize while sends from different spaces run in parallel.
- *
- * A HASH, NEVER THE RAW PATH. SQS caps `MessageGroupId` at 128 characters where an S3 key
- * reaches 1024 — the raw form would be a length failure that appears only for the users with
- * the deepest prefixes, which is the same reasoning the data-quality plane recorded.
- */
-async function messageGroupId(space: SendSourceSpace): Promise<string> {
-  const canonical = `${sourceBucket(space)}/${space.name}/`;
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 /**
@@ -77,7 +62,7 @@ export async function enqueueFileSend(req: FileSendRequest): Promise<ServiceResu
         source: {space: req.space, items: req.items},
         recipients: req.recipients
       },
-      messageGroupId: await messageGroupId(req.space),
+      messageGroupId: await spaceDigest(sourceBucket(req.space), req.space.name),
       deduplicationId: req.requestId,
       data: undefined
     })
