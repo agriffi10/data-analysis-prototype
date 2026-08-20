@@ -63,6 +63,93 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ── What does this push actually need? ──────────────────────────────────────
+  # This workflow rebuilt and redeployed all 73 functions on every push. The median
+  # push touches four function directories, so ~69 were re-uploading identical code.
+  #
+  # The reason that was not simply wasteful is the thing to understand before changing
+  # anything here: `publish-layer-version` MINTS A NEW VERSION on every call, a function
+  # pins its layers by ARN, so republishing all ten layers every run meant every function
+  # genuinely DID need re-pointing. Skipping functions is only correct because unchanged
+  # layers now resolve to the version already published instead of a fresh one — the two
+  # halves are one change and neither works alone.
+  #
+  # The rules live in .github/scripts/plan_deploy.py, which is pure and offline so that
+  # lambdas/test_plan_deploy.py can drive it over the real tables. Everything it cannot
+  # reason about confidently falls back to the whole fleet: a function it wrongly omits
+  # keeps running against a layer that has moved on, and that is invisible until a cold
+  # start (SPEC-137 broke real Cognito signups exactly that way).
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      functions: ${{ steps.plan.outputs.functions }}
+      publish: ${{ steps.plan.outputs.publish }}
+      shards: ${{ steps.plan.outputs.shards }}
+      shard_count: ${{ steps.plan.outputs.shard_count }}
+      any: ${{ steps.plan.outputs.any }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # The plan is a diff against the previous commit, so the history has to be here.
+          fetch-depth: 0
+
+      - name: Work out what changed
+        id: plan
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          FORCE=""
+          # A dispatch carries no diff, and a `before` that is absent, all-zeros or no
+          # longer in the history (force-push, first push on a new branch) is not a diff
+          # either. Treating any of those as "nothing changed" would silently deploy
+          # nothing, so they all mean "deploy everything".
+          if [ "${{ github.event_name }}" != "push" ]; then
+            FORCE="--all"
+            echo "Not a push — planning a full deploy."
+          elif [ -z "${BEFORE:-}" ] || [ "${BEFORE}" = "0000000000000000000000000000000000000000" ] \
+               || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            FORCE="--all"
+            echo "No usable previous commit (${BEFORE:-unset}) — planning a full deploy."
+          fi
+
+          OLD_ARGS=()
+          if [ -z "$FORCE" ]; then
+            git diff --name-only "${BEFORE}" "${GITHUB_SHA}" > changed.txt
+            echo "Changed paths:"; sed 's/^/  /' changed.txt
+            # The tables as they were, so a table change narrows to the rows that moved
+            # instead of forcing the fleet. If either cannot be read the planner falls
+            # back on its own — the flag is simply not passed.
+            if git show "${BEFORE}:.github/lambda-functions.json" > old-functions.json 2>/dev/null; then
+              OLD_ARGS+=(--old-functions old-functions.json)
+            fi
+            if git show "${BEFORE}:.github/lambda-layers.json" > old-layers.json 2>/dev/null; then
+              OLD_ARGS+=(--old-layers old-layers.json)
+            fi
+          else
+            : > changed.txt
+          fi
+
+          PLAN=$(python3 .github/scripts/plan_deploy.py \
+            ${FORCE:+$FORCE} ${OLD_ARGS[@]+"${OLD_ARGS[@]}"} --changed-from changed.txt)
+
+          echo "$PLAN" | jq .
+          echo "$(jq -r .reason <<<"$PLAN")" >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            printf 'functions=%s\n' "$(jq -c .functions <<<"$PLAN")"
+            printf 'publish=%s\n'   "$(jq -c .publish   <<<"$PLAN")"
+            printf 'shards=%s\n'    "$(jq -c .shards    <<<"$PLAN")"
+            printf 'shard_count=%s\n' "$(jq -r .shard_count <<<"$PLAN")"
+            printf 'any=%s\n'       "$(jq -r 'if (.functions | length) > 0 then "true" else "false" end' <<<"$PLAN")"
+          } >> "$GITHUB_OUTPUT"
+
   # ── Layers, ALL of them, in one job ────────────────────────────────────────
   # This was ten separate jobs. Each took 14-29 seconds and GitHub bills a whole
   # minute per job, so ten layers cost ten billed minutes for about three minutes of
@@ -81,6 +168,10 @@ jobs:
   # real Cognito signups exactly that way). One map, one lookup, and deploy-lambda.sh
   # refuses any function whose layer resolves to an empty ARN.
   layers:
+    needs: [plan]
+    # Nothing to deploy means nothing to publish. Skipped rather than run-and-no-op so a
+    # docs-only push that happens to touch lambdas/ costs no billed minutes at all.
+    if: needs.plan.outputs.any == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -119,6 +210,14 @@ jobs:
             [ -n "$flag" ] && FLAGS+=("$flag")
           done < <(jq -r '.[].flag' .github/lambda-layers.json)
 
+          # Which of them the plan says actually changed. Every layer is still BUILT —
+          # the combined per-function size guard needs its unzipped size either way — but
+          # only these are PUBLISHED. The rest resolve to the version already published,
+          # which is what leaves the functions attaching them correctly pointed without
+          # redeploying any of them.
+          PUBLISH_SET=$(jq -r '.[]' <<<'${{ needs.plan.outputs.publish }}' | tr '\n' ' ')
+          echo "Publishing: ${PUBLISH_SET:-none (all reused)}"
+
           if [ "${#FLAGS[@]}" -eq 0 ]; then
             echo "::error::no layers in .github/lambda-layers.json — every function would deploy with no layer attached and fail at cold start."
             exit 1
@@ -130,7 +229,8 @@ jobs:
           FAILED=()
           for FLAG in "${FLAGS[@]}"; do
             echo "::group::${FLAG}"
-            if line=$(bash .github/scripts/build-layer.sh "$FLAG"); then
+            case " $PUBLISH_SET " in *" $FLAG "*) DO_PUBLISH=true ;; *) DO_PUBLISH=false ;; esac
+            if line=$(bash .github/scripts/build-layer.sh "$FLAG" "$DO_PUBLISH"); then
               RESULTS="${RESULTS}${line}"$'\n'
             else
               echo "::error::layer ${FLAG} failed to build or publish."
@@ -178,7 +278,8 @@ jobs:
   # cannot express "these twelve in one job", and the table was always read as data
   # by lambdas/test_deploy_matrix.py — which now parses JSON instead of regexing YAML.
   deploy:
-    needs: [layers]
+    needs: [plan, layers]
+    if: needs.plan.outputs.any == 'true'
     runs-on: ubuntu-latest
     # Sized against a SHARD, not a function, which is the change sharding makes to this
     # number. Thirteen functions at ~20s each is ~4.5 min; the infra race adds up to 5
@@ -202,11 +303,15 @@ jobs:
       # partial deploy in more places rather than fewer.
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5]
+        # Computed, not fixed. Sharding four functions across six jobs would spend six
+        # billed minutes to save none — the count scales with the work the plan found.
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
 
     env:
       SHARD: ${{ matrix.shard }}
-      SHARD_COUNT: 6
+      SHARD_COUNT: ${{ needs.plan.outputs.shard_count }}
+      # The functions THIS PUSH needs, not the whole table.
+      PLANNED: ${{ needs.plan.outputs.functions }}
       # flag -> {arn, kb} for every published layer, from the one layers job.
       # deploy-lambda.sh refuses to deploy a function whose layer is missing from this
       # map rather than shipping it to fail at COLD START, where no test and no deploy
@@ -263,7 +368,7 @@ jobs:
           while IFS= read -r fn; do
             [ -n "$fn" ] && FUNCS+=("$fn")
           done < <(jq -r --argjson s "$SHARD" --argjson n "$SHARD_COUNT" \
-            'to_entries[] | select(.key % $n == $s) | .value.name' .github/lambda-functions.json)
+            'to_entries[] | select(.key % $n == $s) | .value' <<<"$PLANNED")
 
           if [ "${#FUNCS[@]}" -eq 0 ]; then
             echo "::error::Shard ${SHARD}/${SHARD_COUNT} selected no functions — the table or the sharding expression is wrong, and a silently empty shard deploys nothing while reporting success."

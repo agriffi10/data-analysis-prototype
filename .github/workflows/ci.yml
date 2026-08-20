@@ -106,7 +106,7 @@ jobs:
       - name: Lint (ruff)
         # `scripts/` joins the scan because SPEC-162 put a Python module there
         # (validate_feature_flags.py). Nothing else in that directory is Python today.
-        run: ruff check lambdas/ scripts/
+        run: ruff check lambdas/ scripts/ .github/scripts/
 
       # The documentation layout is a gate because prose was not one. Every rule the script
       # holds already existed in CLAUDE.md or docs/process.md, and every one was violated

@@ -27,6 +27,7 @@ selects no functions), which ``test_every_function_lands_in_exactly_one_shard`` 
 """
 
 import ast
+import importlib.util
 import json
 import pathlib
 import re
@@ -47,6 +48,12 @@ LAYERS = LAMBDAS.parent / ".github" / "lambda-layers.json"
 #: The script that attaches layers, whose hardcoded order is the one that actually reaches
 #: `update-function-configuration`.
 DEPLOY_SCRIPT = LAMBDAS.parent / ".github" / "scripts" / "deploy-lambda.sh"
+
+_plan_spec = importlib.util.spec_from_file_location(
+    "plan_deploy", LAMBDAS.parent / ".github" / "scripts" / "plan_deploy.py"
+)
+plan_deploy = importlib.util.module_from_spec(_plan_spec)
+_plan_spec.loader.exec_module(plan_deploy)
 
 #: Top-level package (or flat module) name → the matrix flag whose layer provides it.
 #:
@@ -329,89 +336,86 @@ def test_every_imported_layer_package_is_attached(name):
     )
 
 
-def _shard_config():
-    """The deploy job's shard list and its ``SHARD_COUNT``, read from the workflow.
+def _shard_bindings():
+    """The deploy job's three sharding inputs, as written in the workflow.
 
-    Read rather than duplicated: these two are only correct RELATIVE TO EACH OTHER, and a
-    constant here would keep asserting a covering partition after someone changed the workflow.
+    All three now come from the SAME plan job, which is what makes them unable to
+    disagree — the earlier design declared the shard list and the divisor independently,
+    so ``SHARD_COUNT: 6`` beside ``shard: [0, 1, 2, 3]`` was valid YAML that silently never
+    deployed a third of the fleet.
     """
     text = WORKFLOW.read_text()
-    count = re.search(r"^\s*SHARD_COUNT:\s*(\d+)\s*$", text, re.MULTILINE)
-    assert count, f"no SHARD_COUNT found in {WORKFLOW.name} — did the deploy job change?"
-    listed = re.search(r"^\s*shard:\s*\[([\d,\s]+)\]\s*$", text, re.MULTILINE)
-    assert listed, f"no `shard:` matrix list found in {WORKFLOW.name} — did the deploy job change?"
-    return [int(s) for s in listed.group(1).split(",")], int(count.group(1))
+    found = {}
+    for name, pattern in (
+        ("shards", r"^\s*shard:\s*(.+?)\s*$"),
+        ("count", r"^\s*SHARD_COUNT:\s*(.+?)\s*$"),
+        ("planned", r"^\s*PLANNED:\s*(.+?)\s*$"),
+    ):
+        match = re.search(pattern, text, re.MULTILINE)
+        assert match, f"no {name} binding found in {WORKFLOW.name} — did the deploy job change?"
+        found[name] = match.group(1)
+    return found
 
 
-def test_the_shard_list_and_the_shard_count_agree():
-    """The two halves of the sharding are declared separately and must describe one partition.
+def test_the_sharding_inputs_all_come_from_the_one_plan():
+    """Three values that must describe one partition, so all three have one source.
 
-    ``SHARD_COUNT`` is the divisor in the job's ``select(.key % $n == $s)``; the matrix's
-    ``shard:`` list is which remainders actually get a job. Nothing in Actions relates them, so
-    ``SHARD_COUNT: 6`` beside ``shard: [0, 1, 2, 3]`` is valid YAML that silently never deploys a
-    third of the fleet — green, because every job that ran, succeeded.
+    If the shard list came from anywhere other than the job that computed the divisor and
+    the function list, the three could disagree and the run would still go green — every
+    job that ran would have succeeded, having deployed a subset nobody asked for.
     """
-    listed, count = _shard_config()
-    assert sorted(listed) == list(range(count)), (
-        f"shard list {listed} does not cover 0..{count - 1} — functions whose index mod "
-        f"{count} is unlisted are never deployed, and the run still goes green"
+    bindings = _shard_bindings()
+    assert bindings["shards"] == "${{ fromJSON(needs.plan.outputs.shards) }}"
+    assert bindings["count"] == "${{ needs.plan.outputs.shard_count }}"
+    assert bindings["planned"] == "${{ needs.plan.outputs.functions }}"
+
+
+def test_the_shard_filter_selects_from_the_PLAN_not_the_whole_table():
+    """Reading the table here would deploy all 73 regardless of what the plan decided."""
+    text = WORKFLOW.read_text()
+    assert '<<<"$PLANNED"' in text, (
+        "the shard filter no longer reads $PLANNED — if it reads the function table "
+        "instead, every push deploys the whole fleet and the plan job is decorative"
     )
 
 
-def _shard_selection(shard, count):
-    """Run the WORKFLOW'S OWN jq filter for one shard and return the names it selects.
+@pytest.mark.parametrize("size", [1, 4, 12, 13, 25, 73, 200])
+def test_the_workflows_own_filter_partitions_the_plan(size):
+    """The real jq filter, over the real planner's shard count, for many fleet sizes.
 
-    Re-implementing ``index % count == shard`` in Python here made the test tautological: it
-    asserted a fact about modular arithmetic, not about the deploy. Mutating the workflow's
-    filter to ``!= $s`` (every function deployed six times, concurrently) or pinning
-    ``SHARD: 0`` (sixty functions never deployed) both left it green. Extracting the real
-    filter and the real shard binding is what makes the two assertions below reachable.
+    Re-implementing ``index % count == shard`` in Python made this vacuous: it asserted a
+    fact about modular arithmetic rather than about the deploy. Extracting the filter is
+    what makes the two failures below reachable — a function in no shard is never deployed,
+    and a function in two shards is deployed twice concurrently, racing
+    ``update-function-code`` against ``update-function-configuration`` on one function.
     """
-    text = WORKFLOW.read_text()
-    match = re.search(r"jq -r --argjson s \"\$SHARD\" --argjson n \"\$SHARD_COUNT\" \\\n\s*'([^']+)'", text)
+    table = [{"name": f"fn-{i}", "layers": ["cpcommon"]} for i in range(size)]
+    computed = plan_deploy.plan(set(), table, json.loads(LAYERS.read_text()), force_all=True)
+    names = computed["functions"]
+
+    match = re.search(
+        r"jq -r --argjson s \"\$SHARD\" --argjson n \"\$SHARD_COUNT\" \\\n\s*'([^']+)'",
+        WORKFLOW.read_text(),
+    )
     assert match, "could not extract the shard jq filter from the workflow"
-    binding = re.search(r"^\s*SHARD:\s*(.+?)\s*$", text, re.MULTILINE)
-    assert binding, "could not find the SHARD binding in the workflow"
-    assert binding.group(1) == "${{ matrix.shard }}", (
-        f"SHARD is bound to {binding.group(1)!r}, not the matrix value — every shard job "
-        f"would select the same slice, so most functions are never deployed"
-    )
     jq = shutil.which("jq")
     assert jq, "jq is not on PATH — the workflow's own shard filter cannot be evaluated"
-    out = subprocess.run(  # noqa: S603
-        [jq, "-r", "--argjson", "s", str(shard), "--argjson", "n", str(count),
-         match.group(1), str(FUNCTIONS)],
-        capture_output=True, text=True, check=True,
-    )
-    return out.stdout.split()
-
-
-def test_every_function_lands_in_exactly_one_shard():
-    """The sharded deploy must be a COVERING PARTITION of the table.
-
-    Under one job per function this was true by construction. Sharding makes it an expression
-    that can be wrong in two directions, both of them quiet: a function in no shard is never
-    deployed, and a function in two shards is deployed twice concurrently, which races
-    ``update-function-code`` against ``update-function-configuration`` on one function.
-
-    Runs the workflow's own filter through ``jq`` rather than restating it, so both of those
-    are actually reachable from here.
-    """
-    names = [entry["name"] for entry in json.loads(FUNCTIONS.read_text())]
-    listed, count = _shard_config()
 
     placements = {}
-    for shard in listed:
-        for name in _shard_selection(shard, count):
+    for shard in computed["shards"]:
+        out = subprocess.run(  # noqa: S603
+            [jq, "-r", "--argjson", "s", str(shard),
+             "--argjson", "n", str(computed["shard_count"]), match.group(1)],
+            input=json.dumps(names), capture_output=True, text=True, check=True,
+        )
+        for name in out.stdout.split():
             placements.setdefault(name, []).append(shard)
 
-    unplaced = sorted(set(names) - set(placements))
-    assert not unplaced, f"never deployed — in no shard: {unplaced}"
-    duplicated = sorted(n for n, shards in placements.items() if len(shards) > 1)
-    assert not duplicated, f"deployed concurrently by two shards: {duplicated}"
     assert set(placements) == set(names), (
-        f"the shard filter selected names not in the table: {sorted(set(placements) - set(names))}"
+        f"never deployed: {sorted(set(names) - set(placements))}"
     )
+    duplicated = sorted(n for n, s in placements.items() if len(s) > 1)
+    assert not duplicated, f"deployed concurrently by two shards: {duplicated}"
 
 
 def test_the_deploy_table_has_no_duplicate_names():

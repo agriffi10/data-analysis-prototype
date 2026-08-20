@@ -13,10 +13,19 @@
 # function invoked that way, so a failed `pip install` would publish a layer missing its
 # dependencies and report success.
 #
+# The layer is always BUILT, because the combined 250 MB per-function guard needs its
+# unzipped size whether or not it changed. It is only PUBLISHED when the second argument
+# says so. That split is what makes skipping unchanged functions correct at all:
+# `publish-layer-version` mints a NEW VERSION on every call and functions pin layers by
+# ARN, so republishing an unchanged layer would oblige every function attaching it to be
+# re-pointed — which is precisely the work the plan is trying to avoid. An unchanged layer
+# resolves to the version already published instead.
+#
 # Required env: PROJECT_NAME, ENVIRONMENT.
 set -euo pipefail
 
-FLAG="${1:?usage: build-layer.sh <flag>}"
+FLAG="${1:?usage: build-layer.sh <flag> <publish:true|false>}"
+PUBLISH="${2:?usage: build-layer.sh <flag> <publish:true|false>}"
 LAYERS_JSON="${LAYERS_JSON_FILE:-.github/lambda-layers.json}"
 
 entry=$(jq -c --arg f "$FLAG" '.[] | select(.flag==$f)' "$LAYERS_JSON")
@@ -84,14 +93,39 @@ if [ "$UNZIPPED_KB" -gt 245760 ]; then
   exit 1
 fi
 
-(cd "$BUILD_ROOT" && zip --quiet --recurse-paths "../${FLAG}-layer.zip" .)
+LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-${LAYER_NAME_SUFFIX}"
 
-ARN=$(aws lambda publish-layer-version \
-  --layer-name "${PROJECT_NAME}-${ENVIRONMENT}-${LAYER_NAME_SUFFIX}" \
-  --description "$DESCRIPTION" \
-  --zip-file "fileb://build/layers/${FLAG}-layer.zip" \
-  --compatible-runtimes python3.12 \
-  --query LayerVersionArn --output text)
+ARN=""
+if [ "$PUBLISH" != "true" ]; then
+  # Unchanged: reuse the newest version already published. `list-layer-versions` returns
+  # newest first, so this is the version every function attaching this layer is already
+  # pointing at — re-pointing them is a no-op, which is the point.
+  ARN=$(aws lambda list-layer-versions \
+    --layer-name "$LAYER_NAME" \
+    --max-items 1 \
+    --query 'LayerVersions[0].LayerVersionArn' --output text 2>/dev/null || true)
+  if [ "$ARN" = "None" ]; then
+    ARN=""
+  fi
+  if [ -n "$ARN" ]; then
+    echo "Reusing ${ARN} (unchanged)" >&2
+  else
+    # Never published — a brand-new layer on a push that did not appear to change it.
+    # Publishing is the only correct answer; the alternative is an empty ARN, and
+    # deploy-lambda.sh would refuse every function attaching it.
+    echo "No published version of ${LAYER_NAME} exists — publishing despite no detected change." >&2
+  fi
+fi
 
-echo "Published ${ARN}" >&2
+if [ -z "$ARN" ]; then
+  (cd "$BUILD_ROOT" && zip --quiet --recurse-paths "../${FLAG}-layer.zip" .)
+  ARN=$(aws lambda publish-layer-version \
+    --layer-name "$LAYER_NAME" \
+    --description "$DESCRIPTION" \
+    --zip-file "fileb://build/layers/${FLAG}-layer.zip" \
+    --compatible-runtimes python3.12 \
+    --query LayerVersionArn --output text)
+  echo "Published ${ARN}" >&2
+fi
+
 printf '%s\t%s\t%s\n' "$FLAG" "$ARN" "$UNZIPPED_KB"
