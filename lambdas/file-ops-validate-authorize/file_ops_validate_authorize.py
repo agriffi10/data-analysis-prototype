@@ -176,6 +176,12 @@ def _normalize_items(items, root: str) -> list:
     The byte cap bounds a different quantity from the count — the count bounds the per-item work,
     this bounds what rides on the state and reaches the Pipe.
 
+    **The byte measurement is the one the browser makes**, character for character, so a local
+    refusal and this one agree. They diverged once by default: Python escapes non-ASCII and
+    JavaScript does not, so a folder of accented filenames measured 66 KB here and 26 KB there —
+    the browser accepting a selection this verb then refused by notification, which is the
+    outcome the browser's own cap exists to prevent.
+
     Containment is a WHOLE-REQUEST terminal rather than a per-item skip: a request naming a key
     outside the actor's own space is not a request with one bad row in it.
 
@@ -230,7 +236,11 @@ def _normalize_items(items, root: str) -> list:
             item["targetName"] = paths.validate_target_name(entry["targetName"])
         normalized.append(item)
 
-    serialized = len(json.dumps(normalized, separators=(",", ":")).encode())
+    # ensure_ascii=False, and it is not a preference: it is what actually travels. The browser
+    # sends literal UTF-8 and the Pipe keeps it literal, so the default escaping would measure a
+    # quantity nothing produces — six bytes for every accented character — and refuse selections
+    # that fit comfortably, minutes after the browser accepted them.
+    serialized = len(json.dumps(normalized, separators=(",", ":"), ensure_ascii=False).encode())
     if serialized > FILE_OPS_MAX_SELECTION_BYTES:
         raise TerminalError(
             "selection_too_large", f"{serialized} bytes of keys, over {FILE_OPS_MAX_SELECTION_BYTES}"

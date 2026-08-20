@@ -1,4 +1,5 @@
 import {enqueueFifoRequest} from '../../lib/enqueueFifo';
+import {spaceDigest} from '../../lib/spaceDigest';
 import type {ServiceResult} from '../../types/service.types';
 import type {FileOpRequest, FileOpSpace} from './fileOps.types';
 
@@ -11,10 +12,11 @@ import type {FileOpRequest, FileOpSpace} from './fileOps.types';
  * minutes later rather than from a refusal now. Below the caps the verb is still the authority;
  * these exist so the common case fails fast and legibly.
  *
- * The byte cap is measured against a DIFFERENT quantity from the plane's, and it has to be: the
- * plane's is computed over the whole chain — the actor's token, the destination, and one outcome
- * record per item riding beside the request — none of which the browser can see. A test holds this
- * one at or below the plane's, so a local refusal can never be more permissive than the authority.
+ * Both sides measure the SAME quantity — the UTF-8 bytes of the compact JSON selection — and that
+ * had to be made true rather than assumed. Python escapes non-ASCII by default and JavaScript does
+ * not, so a folder of accented filenames measured 26 KB here and 66 KB there, and the browser
+ * accepted selections the plane then refused by notification. A test now compares the two
+ * MEASUREMENTS on the same input, not just the two constants.
  */
 const FILE_OPS_MAX_ITEMS = 200;
 const FILE_OPS_MAX_SELECTION_BYTES = 64 * 1024;
@@ -29,32 +31,6 @@ function spaceBucket(space: FileOpSpace): string {
   const bucket =
     space.kind === 'personal' ? import.meta.env.VITE_S3_USER_SPACE_BUCKET : import.meta.env.VITE_S3_SHARED_SPACE_BUCKET;
   return (bucket as string | undefined) ?? '';
-}
-
-/**
- * FIFO group id: the SHA-256 hex digest of `{bucket}/{spaceRoot}`, so requests against one space
- * are delivered in order while different spaces run in parallel.
- *
- * **Ordered delivery is not serialized execution**, and on this plane that distinction is the
- * difference between working and losing data — the Pipe starts the machine and returns, so two
- * operations in one space can still run at once. The serialization is the per-space lock inside
- * the machine; this buys ordering and throughput isolation, and nothing else.
- *
- * A HASH, NEVER THE RAW PATH. SQS caps `MessageGroupId` at 128 characters where an S3 key reaches
- * 1024 — the raw form would be a length failure that appears only for the users with the deepest
- * prefixes.
- *
- * The trailing slash is inside the hashed string, and the plane hashes the identical string to
- * derive its lock key. A difference of one character means delivery is ordered per space while the
- * lock is keyed by something else, and nothing at runtime reports that: operations simply stop
- * being serialized. Both sides pin the same vector in their own tests.
- */
-async function messageGroupId(space: FileOpSpace): Promise<string> {
-  const canonical = `${spaceBucket(space)}/${space.name}/`;
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 /**
@@ -90,14 +66,19 @@ export async function submitFileOperation(request: FileOpRequest): Promise<Servi
         actor: idToken,
         operation: request.operation,
         source: request.source,
-        // Spread rather than set to undefined: the plane REJECTS these fields on a delete rather
-        // than ignoring them, and `JSON.stringify` drops an undefined value but keeps an explicit
-        // null — which would arrive as a field the contract forbids.
-        ...(request.destination ? {destination: request.destination} : {}),
-        ...(request.onConflict ? {onConflict: request.onConflict} : {}),
-        ...(request.submittedAt ? {submittedAt: request.submittedAt} : {})
+        // Gated on the OPERATION, not on whether the fields happen to be set: the plane rejects
+        // them on a delete rather than ignoring them, so a stale destination carried over from a
+        // re-submitted request object would refuse the whole thing. The union in `fileOps.types`
+        // makes that unconstructable in TypeScript; this keeps it true of the wire.
+        ...(request.operation === 'delete'
+          ? {}
+          : {
+              destination: request.destination,
+              onConflict: request.onConflict,
+              submittedAt: request.submittedAt
+            })
       },
-      messageGroupId: await messageGroupId(request.source.space),
+      messageGroupId: await spaceDigest(spaceBucket(request.source.space), request.source.space.name),
       deduplicationId: request.requestId,
       data: undefined
     })

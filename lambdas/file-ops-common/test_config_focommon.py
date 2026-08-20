@@ -70,12 +70,13 @@ def _serialised(value: object) -> int:
       value: Anything JSON-serialisable.
 
     Returns:
-      The byte length.
+      The byte length of the UTF-8 form that actually travels — non-ASCII left literal, as both
+      the browser's serialiser and the Pipe leave it.
 
     Raises:
       None.
     """
-    return len(json.dumps(value, separators=(",", ":")).encode())
+    return len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode())
 
 
 def _pipe_record(selection: list) -> int:
@@ -359,3 +360,24 @@ def test_the_browsers_mirrored_caps_are_never_more_permissive_than_these():
 
     assert browser_items <= config.FILE_OPS_MAX_ITEMS
     assert browser_bytes <= config.FILE_OPS_MAX_SELECTION_BYTES
+
+
+def test_the_two_runtimes_MEASURE_the_same_selection_the_same_way():
+    """Equal constants are not enough, and this is the test that would have caught it.
+
+    Python escapes non-ASCII by default and JavaScript does not, so the identical selection of
+    accented filenames measured 26 KB in the browser and 66 KB here — the browser accepting
+    selections this plane then refused by notification, which is the outcome the browser's own cap
+    exists to prevent. Two matching numbers said nothing about it.
+
+    Asserted on the SERIALISER, against the byte length JavaScript produces for the same input:
+    compact separators, non-ASCII left literal.
+    """
+    selection = [{"kind": "file", "key": "alice/" + ("\u00e9" * 60)} for _ in range(170)]
+
+    # What `new TextEncoder().encode(JSON.stringify(items))` yields for this input, computed in
+    # Node rather than derived from this side — a value taken from Python would only prove Python
+    # is self-consistent.
+    javascript_bytes = 25671
+
+    assert _serialised(selection) == javascript_bytes

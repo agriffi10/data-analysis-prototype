@@ -21,7 +21,9 @@ const mockGetIdToken = getIdToken as unknown as MockedFunction<() => Promise<unk
  */
 const VECTOR_DIGEST = 'fdeab79570d11a19a05ce52dba54a66b83597ae4fb6eecfd1a378e83b1b6a039';
 
-function request(overrides: Partial<FileOpRequest> = {}): FileOpRequest {
+type CopyRequest = Extract<FileOpRequest, {operation: 'copy' | 'move'}>;
+
+function request(overrides: Partial<CopyRequest> = {}): CopyRequest {
   return {
     requestId: 'req-1',
     operation: 'copy',
@@ -89,12 +91,16 @@ describe('submitFileOperation', () => {
     expect(Object.keys(body())).toEqual(['requestId', 'actor', 'operation', 'source']);
   });
 
-  it('never sends an overwrite on a first submit', async () => {
-    // `overwrite` is reachable only from the conflict round trip, where the user has been shown
-    // what collided — and even then the plane bounds it by `submittedAt`.
+  it('forwards the conflict answer it was given, unchanged', async () => {
+    // Deliberately NOT titled "never sends an overwrite on a first submit". This service forwards
+    // whatever the caller supplies, so nothing here can make a first submit incapable of carrying
+    // `overwrite` — that is a property of the CALLER, and it is dischargeable only where the
+    // gesture is built. Recorded as owed against the spec that switches the browser over.
     await submitFileOperation(request());
+    await submitFileOperation(request({requestId: 'req-2', onConflict: 'overwrite'}));
 
     expect(body().onConflict).toBe('refuse');
+    expect(JSON.parse(send.mock.calls[1][0].input.MessageBody).onConflict).toBe('overwrite');
   });
 
   it('refuses a selection over the item cap without calling AWS', async () => {
@@ -127,6 +133,25 @@ describe('submitFileOperation', () => {
       success: false,
       error: {message: 'File operations are not configured', code: 'NotConfigured'}
     });
+  });
+
+  it('normalises a space name that already carries a slash', async () => {
+    // The plane strips trailing slashes before hashing, so `alice/` here would otherwise produce
+    // `…/alice//` against `…/alice/` there — a different digest, no error, and delivery ordered on
+    // a key the lock does not use.
+    await submitFileOperation(
+      request({source: {space: {kind: 'personal', name: 'alice/'}, items: [{kind: 'file', key: 'alice/q1.csv'}]}})
+    );
+
+    expect(send.mock.calls[0][0].input.MessageGroupId).toBe(VECTOR_DIGEST);
+  });
+
+  it('refuses rather than hashing an unconfigured bucket', async () => {
+    // The server-side twin raises on an empty bucket, because it would put every space behind one
+    // key. Failing here keeps the two ends agreeing about which inputs are usable.
+    vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', undefined);
+
+    await expect(submitFileOperation(request())).rejects.toThrow(/needs a bucket and a name/);
   });
 
   it('resolves a shared space to the shared bucket', async () => {
