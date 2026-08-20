@@ -205,7 +205,17 @@ def test_no_Pass_state_reads_a_field_a_DELETE_request_does_not_carry():
 
 
 @pytest.mark.parametrize(
-    "state", ["ValidateAuthorize", "AcquireLock", "ReleaseLock", "ReleaseLockOnGiveUp", "ReleaseLockOnFailure", "NotifyFailure"]
+    "state",
+    [
+        "ValidateAuthorize",
+        "AcquireLock",
+        "InspectSource",
+        "CheckDestinations",
+        "ReleaseLock",
+        "ReleaseLockOnGiveUp",
+        "ReleaseLockOnFailure",
+        "NotifyFailure",
+    ],
 )
 def test_every_task_retries_a_transient_lambda_fault(state):
     """A Catch is what stops a failed release failing the request; a RETRY is what makes the
@@ -319,17 +329,91 @@ def test_a_release_never_fails_the_request_and_never_clobbers_the_real_error(sta
 def test_the_placeholders_carry_no_result_or_parameters():
     """A bare Pass, and this is not stylistic. Either field would replace or reshape the state and
     destroy ``$.lock`` — so ``ReleaseLock`` would free nothing and every SUCCESSFUL request would
-    wedge its space until the lock went stale."""
-    for name in ("CopyPlaceholder", "MovePlaceholder", "DeletePlaceholder"):
+    wedge its space until the lock went stale.
+
+    A rule over every placeholder rather than a list of their names: the states they stand in for
+    arrive one spec at a time, and a list is what goes stale silently while reading as enforcement.
+    """
+    placeholders = [name for name in STATES if name.endswith("Placeholder")]
+
+    assert placeholders, "the machine has no placeholder left — this rule now checks nothing"
+    for name in placeholders:
         assert "Result" not in STATES[name]
         assert "Parameters" not in STATES[name]
         assert STATES[name]["Next"] == "ReleaseLock"
 
 
+def test_every_task_taken_under_the_lock_can_reach_a_terminal_at_all():
+    """The hole the release walk above is structurally blind to.
+
+    ``_successors`` reads ``Next``, ``Default``, ``Choices`` and ``Catch``. A Task with no ``Catch``
+    therefore has NO EDGE to a terminal on its failing path — so the walk never visits it, "no path
+    reaches a terminal holding the lock" stays true, and a fault in that verb wedges the space until
+    the stale steal over three hours later. Every Task taken while the lock is held must carry a
+    catch, and the two that decide what an operation will do are exactly where forgetting one is
+    invisible.
+    """
+    under_lock = [
+        name
+        for name, state in STATES.items()
+        if state["Type"] == "Task" and name not in ("ValidateAuthorize", "NotifyFailure")
+    ]
+
+    assert "InspectSource" in under_lock and "CheckDestinations" in under_lock
+    for name in under_lock:
+        catches = STATES[name].get("Catch", [])
+
+        assert catches, (
+            f"{name} runs under the lock and has no Catch — a fault there wedges the space"
+        )
+        if name in RELEASE_STATES:
+            continue
+        caught = {catch["Next"] for catch in catches}
+
+        assert caught <= RELEASE_STATES, f"{name}'s catch reaches {sorted(caught)}, none of which frees the lock"
+
+
+def test_the_two_planning_verbs_merge_their_error_rather_than_replacing_the_state():
+    """``ResultPath: "$.error"`` on the catch, like ``AcquireLock``'s. Without it the caught error
+    REPLACES the running object, so the release below it frees nothing — it has no ``$.lock`` left
+    to read — and the failure seed has no ``requestId`` or ``actor`` to name either."""
+    for name in ("InspectSource", "CheckDestinations"):
+        for catch in STATES[name]["Catch"]:
+            assert catch["ResultPath"] == "$.error", f"{name}'s catch replaces the whole state"
+
+
+def test_the_delete_branch_routes_PAST_the_destination_guard_on_the_operation():
+    """A delete has no destination to check, and the obvious guard is the wrong one.
+
+    validate-authorize normalises the copy/move-only fields to explicit NULLS for a delete, and
+    ASL's ``IsPresent`` is TRUE for a field that is present and null — so a Choice on
+    ``$.destination`` would route every delete into a destination check it has no destination for.
+    Branching on the operation is what the rest of this machine already does.
+
+    The Default is the GUARD rather than the skip, so an operation that lost its shape reaches a
+    verb that refuses it rather than one that writes.
+    """
+    choice = STATES["NeedsDestinationGuard"]
+    routes = {clause["Next"] for clause in choice["Choices"]}
+
+    assert routes == {"DeletePlaceholder"}
+    assert all(
+        clause["And"][1]["Variable"] == "$.operation" for clause in choice["Choices"]
+    ), "the branch past the guard reads a field a delete does not carry"
+    assert choice["Default"] == "CheckDestinations"
+
+
 def test_every_choice_comparison_is_guarded_by_IsPresent():
     """A Choice on an absent path raises an uncatchable ``States.Runtime``, and ``Default`` does
-    not cover it. Every comparison on this machine pairs its test with a presence check."""
-    for name in ("LockAcquired", "ChooseOperation"):
+    not cover it. Every comparison on this machine pairs its test with a presence check.
+
+    A rule over every Choice rather than a named pair, because the next branch added is the one that
+    will not be in the list.
+    """
+    choices = [name for name, state in STATES.items() if state["Type"] == "Choice"]
+
+    assert len(choices) >= 3, "this rule stopped seeing the machine's branches"
+    for name in choices:
         for choice in STATES[name]["Choices"]:
             guarded = choice.get("IsPresent") is False or any(
                 clause.get("IsPresent") is True for clause in choice.get("And", [])

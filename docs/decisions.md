@@ -172,6 +172,8 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 - [The file-ops lock's loser WAITS where the table-builder's is refused (SPEC-187)](#the-file-ops-locks-loser-waits-where-the-table-builders-is-refused-spec-187)
 - [An item copied into itself is refused PER ITEM, where a containment breach fails the request (SPEC-187)](#an-item-copied-into-itself-is-refused-per-item-where-a-containment-breach-fails-the-request-spec-187)
 - [The source deletion removes only CONFIRMED-COPIED keys, never a prefix listing (SPEC-187, diverging from SPEC-169)](#the-source-deletion-removes-only-confirmed-copied-keys-never-a-prefix-listing-spec-187-diverging-from-spec-169)
+- [The collision unit is the derived destination KEY, and that is what preserves merging (SPEC-188)](#the-collision-unit-is-the-derived-destination-key-and-that-is-what-preserves-merging-spec-188)
+- [A conflict is one item's outcome, and the list is created once and carried forward (SPEC-188)](#a-conflict-is-one-items-outcome-and-the-list-is-created-once-and-carried-forward-spec-188)
 
 ---
 
@@ -4218,3 +4220,91 @@ before per-item outcomes the planned set and the confirmed-copied set were ident
 here: a skipped item is planned and not copied, so deleting plan keys would remove the user's source
 file while the destination still holds the colliding object that displaced it — a direct,
 unrecoverable substitution.
+
+### The collision unit is the derived destination KEY, and that is what preserves merging (SPEC-188)
+
+The destination guard asks, per selected item, whether anything is already where that item's objects
+would land. **What it compares is each derived destination KEY, never the destination subtree**, and
+the difference is a capability rather than a nuance.
+
+That is what the browser does today: `moveFolder` and `copyFolder` intersect `sourceKeys.map(destKeyFor)`
+against the listed destination. So copying `reports/` into `out/` while `out/reports/notes.txt`
+already exists — where no source key maps onto that key — is legal today and stays legal. "The
+destination subtree holds anything" is a stricter test that reads as tidier and would silently
+remove **merging into an existing folder**, which is how people actually use a file browser.
+
+**It heads every key rather than listing the destination, and a listing structurally cannot serve
+the check.** `CommonPrefixes` carries no `LastModified`, `Size` or keys, so a delimited listing
+cannot answer the overwrite predicate below the first level; and `ListObjectsV2` never returns a
+per-key 403 — an `AccessDenied` fails the whole listing. HEADs are also bounded by **our own**
+`FILE_OPS_MAX_OBJECTS` rather than by the size of someone else's destination folder.
+
+**A 403 counts as OCCUPIED, in both modes**, inherited from the archive guard for the same reason: a
+key this role cannot head is one it must not overwrite, and under `overwrite` it yields no
+`LastModified`, so "an existing object" must never be read as "the ones we could head". A head that
+faults for any other reason refuses its item; it never falls through to clear.
+
+**`refuse` short-circuits and `overwrite` cannot**, and the asymmetry is stated because a shared
+early exit would silently make `overwrite` sample-dependent — a newer object *anywhere* in an item's
+key set refuses it, so the whole set has to be asked about. The corollary is that the ordinary case
+costs a full sweep either way: a clean item is always `objectCount` heads, which is what the verb's
+timeout is sized for.
+
+**The overwrite predicate reads `submittedAt` from the PLAN with no fallback to the state**, and an
+unusable instant refuses the request rather than degrading the mode. A fallback would reintroduce
+exactly the substitution `plan_superseded` exists to catch, and a silent degrade would apply refuse
+semantics — *with* the short-circuit that mode must never take — to a request the user confirmed as
+an overwrite.
+
+**The conflict sample is bounded by the STATE, not by taste.** Every conflicted item carries its
+sample from the guard to the notification, and Step Functions caps a state at 256 KB. Measured at the
+selection byte cap with every item conflicted, one full-length path per item is all that fits — so a
+sampled path is shortened from the middle to `FILE_OPS_SAMPLE_PATH_CHARS`, which keeps the basename,
+and three of them fit with room over. An ordinary path is untouched.
+
+### A conflict is one item's outcome, and the list is created once and carried forward (SPEC-188)
+
+Three verbs decide per-item outcomes — validate-authorize (the protected locations, the no-ops and
+the into-itself refusals), inspect-source (`source_missing`, `source_empty`, and every expanded item
+provisionally `cleared`) and check-destinations (`cleared` → `conflict`). **None of them creates the
+list. Each takes it as input and returns all of it.**
+
+The rule exists because of how a verb's result reaches the state: it REPLACES the path it is merged
+into rather than appending to it. Wired the obvious way, the destination guard would silently drop
+the two producers before it — and those are exactly the outcomes the per-item model exists to carry.
+`focommon.outcomes.carry_forward` is the one function that merges, and it replaces an entry **in
+place**, because a person reads this list and a revised verdict must not reorder it.
+
+**An item an earlier verb decided is never expanded**, which is a rule rather than an optimisation. A
+same-key no-op's destination subtree IS its source subtree, so expanding it would have the guard
+report every one of its own objects as a collision and flip a reported success into a refusal. It
+also keeps the same-key comparison — a security-adjacent rule — in exactly one verb.
+
+**Whole-request refusals still raise, and the split is the one SPEC-187 set.** Two items where one
+contains the other, and every cap, fail the request; a missing file and an item that resolves to
+nothing fail alone. **The overlap check is asked of the WHOLE selection, before the decided items are
+dropped**, because an item can be decided and still be the container: a move of `saved_queries/` and
+`saved_queries/2026/` has the parent refused as protected and the child untouched by any rule, so a
+check over the survivors would move the subtree out of the folder whose own refusal exists to keep it
+there.
+
+**Only a proven absence is `source_missing`.** A 403 or a KMS refusal is a statement about what could
+be READ; reporting it as a per-item miss drops the file from the plan silently, moves everything
+else, and names the user a cause that is false. Those fail the whole request.
+
+**The plan is the object that knows what the run will touch, and it is passed by pointer.** At the
+object cap the list is tens of megabytes against a 256 KB payload limit, so it is written to
+`{admin_bucket}/file-ops/{requestId}/plan.json` and only the key and the counts ride. It carries
+`requestId`, `submittedAt`, `onConflict` and the **execution ARN**; the last is what makes the
+request-id reuse guard retry-safe. Every task on this machine carries a three-attempt `Retry`, so a
+transient fault after the write is ordinary: a guard refusing any occupied prefix — the archive's
+shape — would refuse the request it had itself just planned and tell the user their id had been used
+before. Comparing the execution refuses the case the check exists for and admits the one the machine
+creates.
+
+**The ETag rides on every plan object because the listing already carried it.** `ListObjectsV2`
+returns it in `Contents` at zero marginal cost, and this is the only verb that lists the source — so
+it is the only cheap producer of the field a later conditional delete turns on. Getting it any other
+way is a `HeadObject` per object, which is a round trip per object where a listing is one per
+thousand. `cpcommon.s3_listing` gained `list_data_records` for it, and `list_data_objects` is now a
+projection of that function, so there is still exactly one paginator in the fleet.

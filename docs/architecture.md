@@ -19,6 +19,7 @@ Pointers (don't duplicate these here):
   - **Control Planes → Table Builder** — create-table-from-folder, inference, partition projection.
   - **Control Planes → Table Share** — snapshot push, clone-not-re-infer, recipient Map.
   - **Control Planes → Data Quality** — Athena-computed checks, report/index discovery, cost.
+  - **Control Planes → File Operations** — the one machine for copy/move/delete, the per-space lock, the plan.
 - **Known Constraints** — read before building on S3/LF/deploy semantics: non-atomic move, no versioning, pagination, LF hybrid mode, parallel-deploy conflict, the depends_on/ForceNew rule.
 - **Infrastructure & Deployment** — read when touching IaC layout, CI/CD, CORS, or LF-admin ordering.
   - **Deploy-role IAM — adding a new resource type** — read before any spec adding new infra (self-grant propagation, scopability, refresh deadlocks).
@@ -631,6 +632,65 @@ only through a restore request that takes **hours**, not a click.
   and urllib3 discards sockets rather than reusing them, so a wider pool buys throughput the client
   cannot deliver while every bound computed from it reads as satisfied. 8 workers; the guard's
   600 s **timeout** is what pays for 20,000 heads. A test reads the ceiling off botocore.
+
+### File Operations — SPEC-187 → 191 (187–188 complete; 189–191 pending)
+
+"Move / copy / delete these files and folders": the last bulk data operations this product performed
+in the **browser**. `copyFolder` issued one `CopyObject` per object in a strictly sequential loop
+from the user's laptop, `moveFolder` did that and then deleted, and closing the tab left the
+operation half-done with no record it had started.
+
+- **ONE machine serves all three operations.** They share the request contract, the authorization
+  question, the lock and the failure vocabulary; a selection routes the same way whichever verb the
+  user pressed. What differs is only whether a destination is derived.
+- **A selection stays synchronous if and only if it is exactly ONE FILE.** A single folder — a
+  *rename* included — is enqueued, because a rename is one `CopyObject` per contained object.
+- **The envelope is FLAT** (`actor` = the raw ID token, top level), for SPEC-126's drain, and the
+  copy/move-only fields (`destination`, `onConflict`, `submittedAt`) are **rejected for a delete**
+  and emitted as explicit nulls. That is why `NeedsDestinationGuard` branches on `$.operation`:
+  ASL's `IsPresent` is TRUE for a field that is present and null.
+- **A per-SPACE lock, whose loser WAITS.** FIFO orders delivery and the Pipe starts the machine
+  `FIRE_AND_FORGET`, so delivery is ordered and execution is not — and this plane's loser would
+  delete objects a concurrent move had already relocated. `cpcommon.lock` under ETag CAS, held by
+  the execution ARN, released by overwriting, stolen only when stale.
+- **There is NO `Validated` Pass**, unlike every neighbour, and its absence is load-bearing: a Pass
+  reading a path a delete does not carry raises an uncatchable `States.Runtime`, so the very first
+  delete would have died before the notifier. Read that rule before adding a `Pass` here.
+- **SFN:** `ValidateAuthorize → StampExecution → AcquireLock ⇄ WaitForLock → ChooseOperation →
+  InspectSource → NeedsDestinationGuard → CheckDestinations → …placeholder… → ReleaseLock →
+  Succeeded`, with three release states (one ASL state has one `Next`) and
+  `ValidateFailureSeed`/`RequestFailureSeed`/`GiveUpFailureSeed → RecordFailure → NotifyFailure →
+  Failed`. **Every Task taken under the lock carries a `Catch`**: a Task without one has no edge to
+  any terminal, so the graph walk that proves no path reaches a terminal holding the lock stays
+  green while the space wedges until the stale steal.
+
+**The plan.** `{admin_bucket}/file-ops/{requestId}/plan.json`, written by inspect-source and read
+back by everything after it; only its key and the counts ride on the state, because at
+`FILE_OPS_MAX_OBJECTS` the object list is tens of megabytes against a 256 KB payload limit. A
+prefix-scoped lifecycle rule expires it (`modules/analytics/s3.tf`) and cannot reach
+`locks/file-ops/` — an S3 lifecycle prefix anchors at the start of the key, and a lock that is
+released by *overwriting* must never be expired into absence.
+
+```
+{ requestId, operation, submittedAt, onConflict, actor, executionArn,
+  source: {bucket, root}, destination: {bucket, prefix} | null,
+  items: [ { itemKey, label, kind, targetName, objectCount, totalBytes,
+             objects: [ {srcBucket, srcKey, relKey, size, etag, destBucket?, destKey?} ] } ],
+  itemCount, objectCount, totalBytes }
+```
+
+`requestId`, `submittedAt` and `onConflict` are on the plan because the guard's overwrite predicate
+reads them from there and **not** from the state — reading them off the state is the substitution
+`plan_superseded` exists to catch. `executionArn` is what makes the reused-id guard retry-safe:
+every Task retries three times, so refusing any occupied prefix would refuse the request the verb
+had itself just planned. `etag` rides because `ListObjectsV2` already returned it, and it is the
+field a later conditional delete turns on.
+
+**The execution role reads both data buckets and writes to neither** — `ListBucket` +
+`GetBucketLocation` + `GetObject`, with an explicit `Deny` on every write verb, so the transfer
+spec has to delete a statement by name rather than widen an Allow. Its lock and plan prefixes in
+the admin bucket are the only places it may write, and it is on the user-space bucket policy's
+allowlist.
 
 ### Data Quality — SPEC-108→114, 123, 124
 

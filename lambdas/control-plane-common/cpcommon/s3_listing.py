@@ -1,9 +1,13 @@
 """Paginated S3 listing, the size of one named object, and the shared rules for what counts
 as a data object.
 
-The two reads sit together because every plane that expands a selection into a copy plan needs
-both: ``list_data_objects`` for a folder item and ``object_size`` for a file item, which costs
-its own serial ``HeadObject``.
+The reads sit together because every plane that expands a selection into a copy plan needs them:
+a listing for a folder item and a head for a file item, which costs its own serial ``HeadObject``.
+
+``list_data_records`` is the paginator; ``list_data_objects`` is that function projected onto the
+``(key, size)`` pairs most callers read. There is one place that pages, and the projection exists
+so that a plane needing the ETag — to make a later write or delete conditional on the object not
+having changed — does not have to fork the pagination to get a field the response already carried.
 
 The single source of the ignore rules for every control plane's source listing: the prefix
 marker, the results and settings sub-trees, zero-byte placeholders, and hidden or partial
@@ -80,6 +84,43 @@ def is_ignored(key: str, size: int, prefix: str) -> bool:
     return size == 0
 
 
+def list_data_records(
+    bucket: str,
+    prefix: str,
+    ignore: Callable[[str, int, str], bool] = is_ignored,
+) -> Iterator[dict]:
+    """Yields every non-ignored data object under a prefix, with the fields the listing already
+    returned, paginating past 1000 objects.
+
+    The paginator itself, and the reason it is the one function rather than two: ``ListObjectsV2``
+    returns ``ETag`` and ``Size`` in ``Contents`` at zero marginal cost, and a plane that needs the
+    ETag to make its later write conditional has no other cheap producer of it — the alternative is
+    a ``HeadObject`` per object, which is a round trip per object where a listing is one per
+    thousand. ``list_data_objects`` below is this function narrowed to the two fields its five
+    callers read, so there is still exactly one place that pages.
+
+    Args:
+      bucket: The bucket to list.
+      prefix: The request prefix.
+      ignore: Predicate receiving ``(key, size, prefix)`` and reporting whether the object is
+        something other than source data. Defaults to the analytics rule above; the planes whose
+        exclusions are anchored somewhere else pass their own.
+
+    Yields:
+      ``{"key", "size", "etag"}`` per data object, the key absolute.
+
+    Raises:
+      ClientError: Propagated raw from the paginator.
+    """
+    paginator = clients.s3().get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            key, size = obj["Key"], obj["Size"]
+            if ignore(key, size, prefix):
+                continue
+            yield {"key": key, "size": size, "etag": obj.get("ETag")}
+
+
 def list_data_objects(
     bucket: str,
     prefix: str,
@@ -87,6 +128,10 @@ def list_data_objects(
     ignore: Callable[[str, int, str], bool] = is_ignored,
 ) -> Iterator[tuple[str, int]]:
     """Yields every non-ignored data object under a prefix, paginating past 1000 objects.
+
+    ``list_data_records`` narrowed to the ``(key, size)`` pairs these callers read. It is a
+    projection rather than a second paginator, so a plane that needs the ETag and one that does not
+    still page in exactly one place.
 
     Errors are never swallowed — but "raw" means a botocore ``ClientError``, which a Step
     Function sees by its Python class name, and a verb's Retry list names ``TransientError``
@@ -118,13 +163,9 @@ def list_data_objects(
     Raises:
       ClientError: Propagated raw from the paginator.
     """
-    paginator = clients.s3().get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        for obj in page.get("Contents", []):
-            key, size = obj["Key"], obj["Size"]
-            if ignore(key, size, prefix):
-                continue
-            yield (key[len(prefix):] if relative else key), size
+    for record in list_data_records(bucket, prefix, ignore=ignore):
+        key = record["key"]
+        yield (key[len(prefix):] if relative else key), record["size"]
 
 
 def object_size(bucket: str, key: str, *, missing_reason: str) -> int:

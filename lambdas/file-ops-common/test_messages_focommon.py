@@ -54,6 +54,16 @@ _OPERATION_NEUTRAL = (
     "no_items",
     "invalid_items",
     "invalid_target_name",
+    "overlapping_items",
+    "too_many_objects",
+    "selection_too_large_to_expand",
+    "object_too_large",
+    "source_missing",
+    "source_empty",
+    "destination_occupied",
+    "plan_unreadable",
+    "plan_superseded",
+    "request_id_reused",
 )
 
 
@@ -156,7 +166,98 @@ def test_an_outcome_without_a_reason_carries_no_reason_key():
     assert "reason" not in outcomes.outcome("alice/a/", "a", outcomes.NOOP)
 
 
-def test_the_three_members_this_verb_produces_are_all_in_the_closed_set():
-    """The expansion spec adds four more; these three ship here because this verb produces them."""
-    for member in (outcomes.NOOP, outcomes.PROTECTED, outcomes.REFUSED):
+def test_every_outcome_this_plane_can_produce_is_in_the_closed_set():
+    """Three verbs produce outcomes and every one of them has to be wordable, or the record arrives
+    at the notifier as silence."""
+    for member in (
+        outcomes.NOOP,
+        outcomes.PROTECTED,
+        outcomes.REFUSED,
+        outcomes.CLEARED,
+        outcomes.CONFLICT,
+        outcomes.SOURCE_MISSING,
+        outcomes.SOURCE_EMPTY,
+    ):
         assert member in outcomes.MEMBERS
+
+    assert len(outcomes.MEMBERS) == 7, "an outcome was added without deciding how it is worded"
+
+
+def test_a_conflicts_extra_fields_come_out_of_the_ONE_record_builder():
+    """The sample and its "there may be more" flag ride to the notification like everything else, so
+    they are built where the shape is assertable rather than merged in by a caller."""
+    record = outcomes.outcome(
+        "alice/a/", "a", outcomes.CONFLICT, "destination_occupied", sample=["out/a/x"], more=True
+    )
+
+    assert record == {
+        "itemKey": "alice/a/",
+        "label": "a",
+        "outcome": "conflict",
+        "reason": "destination_occupied",
+        "sample": ["out/a/x"],
+        "more": True,
+    }
+
+
+def test_an_absent_extra_is_left_off_rather_than_carried_as_null():
+    """A null on the state is a field a later reader has to test for, and one every item pays for in
+    bytes against a 256 KB limit."""
+    assert "sample" not in outcomes.outcome("alice/a/", "a", outcomes.CLEARED, sample=None)
+
+
+# ── Carrying the list forward ────────────────────────────────────────────────
+
+
+def test_the_list_is_carried_forward_COMPLETE_by_each_verb():
+    """The test the rule exists for: one refusal, one empty item and one conflict, produced by three
+    different verbs, all present at the end. A verb returning only its own records would drop the
+    two before it — and those are exactly the per-item outcomes the model exists to carry."""
+    from_validate = [
+        outcomes.outcome("alice/athenaresults/", "athenaresults", outcomes.PROTECTED, "results_folder_not_deletable")
+    ]
+    from_expansion = outcomes.carry_forward(
+        from_validate,
+        [
+            outcomes.outcome("alice/empty/", "empty", outcomes.SOURCE_EMPTY, "source_empty"),
+            outcomes.outcome("alice/logs/", "logs", outcomes.CLEARED),
+        ],
+    )
+
+    final = outcomes.carry_forward(
+        from_expansion,
+        [outcomes.outcome("alice/logs/", "logs", outcomes.CONFLICT, "destination_occupied")],
+    )
+
+    assert [(record["itemKey"], record["outcome"]) for record in final] == [
+        ("alice/athenaresults/", "protected"),
+        ("alice/empty/", "source_empty"),
+        ("alice/logs/", "conflict"),
+    ]
+
+
+def test_a_revised_verdict_keeps_the_items_PLACE_in_the_list():
+    """A person reads this list. A guard revising a provisional verdict must not reorder it."""
+    existing = [
+        outcomes.outcome("alice/a/", "a", outcomes.CLEARED),
+        outcomes.outcome("alice/b/", "b", outcomes.CLEARED),
+    ]
+
+    merged = outcomes.carry_forward(
+        existing, [outcomes.outcome("alice/a/", "a", outcomes.CONFLICT, "destination_occupied")]
+    )
+
+    assert [record["itemKey"] for record in merged] == ["alice/a/", "alice/b/"]
+    assert merged[0]["outcome"] == "conflict"
+
+
+def test_the_decided_keys_are_what_the_expansion_must_never_see():
+    """A same-key no-op's destination subtree IS its source subtree, so expanding it would have the
+    guard report every one of its own objects as a collision."""
+    existing = [
+        outcomes.outcome("alice/old/", "old", outcomes.NOOP),
+        {"label": "malformed"},
+    ]
+
+    assert outcomes.decided_keys(existing) == {"alice/old/"}
+    assert outcomes.decided_keys(None) == set()

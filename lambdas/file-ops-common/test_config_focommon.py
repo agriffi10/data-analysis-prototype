@@ -17,7 +17,10 @@ beside the request from the first verb onward.
 """
 
 import json
+import math
 import os
+import pathlib
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -36,6 +39,43 @@ _MAX_KEY_BYTES = 1024
 
 #: A generous Cognito ID token. It rides at the top level of every request.
 _MAX_TOKEN_BYTES = 8 * 1024
+
+#: The module whose ``locals.tf`` carries the memory and timeout every expansion cap is computed
+#: against. Read back rather than restated, so lowering one without lowering the cap fails the
+#: build rather than the invocation.
+_MODULE = pathlib.Path(__file__).resolve().parents[2] / "infra" / "modules" / "file-ops"
+
+#: A parsed dict is several times the size of the bytes it came from — the same allowance the two
+#: neighbouring planes compute their own object caps with.
+_PARSED_OBJECT_OVERHEAD = 3
+
+#: A pessimistic ``HeadObject`` round trip. The guard's whole cost is round trips, not bytes.
+_HEAD_LATENCY_SECONDS = 0.1
+
+#: botocore's default ``max_pool_connections``. Asserted against the real value where botocore is
+#: importable, so this cannot quietly become a restatement of a number that has since moved.
+_BOTOCORE_DEFAULT_MAX_POOL_CONNECTIONS = 10
+
+
+def _verb_row(name: str) -> tuple[int, int]:
+    """Returns one verb's ``(timeout, memory)`` as Terraform actually configures it.
+
+    Args:
+      name: The function suffix, as ``locals.tf`` keys it.
+
+    Returns:
+      The timeout in seconds and the memory in MB.
+
+    Raises:
+      AssertionError: When the row is not there, so a renamed verb fails loudly rather than
+        silently skipping every bound computed from it.
+    """
+    row = re.search(
+        rf'"{name}"\s*=\s*{{[^}}]*timeout\s*=\s*(\d+),\s*memory\s*=\s*(\d+)',
+        (_MODULE / "locals.tf").read_text(),
+    )
+    assert row, f"no locals.tf row for {name}"
+    return int(row.group(1)), int(row.group(2))
 
 
 def _selection(items: int, key_char: str = "k", *, with_names: bool = True) -> list:
@@ -381,3 +421,234 @@ def test_the_two_runtimes_MEASURE_the_same_selection_the_same_way():
     javascript_bytes = 25671
 
     assert _serialised(selection) == javascript_bytes
+
+
+# ── The three expansion caps, each against the budget that sizes it ──────────
+
+
+def _plan_entry_bytes() -> int:
+    """One plan object at S3's worst-case key length, serialised.
+
+    Pessimistic in a way real entries cannot be: the destination key is DERIVED from the source key,
+    so both cannot independently be 1024 bytes. Over-counting is the safe direction for a bound.
+    """
+    entry = {
+        "srcBucket": "b" * 63,
+        "srcKey": "s" * _MAX_KEY_BYTES,
+        "relKey": "r" * _MAX_KEY_BYTES,
+        "size": 10 * 1024**3,
+        "etag": '"' + ("e" * 32) + '"',
+        "destBucket": "d" * 63,
+        "destKey": "d" * _MAX_KEY_BYTES,
+    }
+    return len(json.dumps(entry, separators=(",", ":")).encode())
+
+
+def _memory_budget_objects() -> int:
+    """How many objects the smaller of the two plan-holding verbs can hold at once.
+
+    The expansion builds the whole list of dicts, serialises it to a string and encodes that — three
+    live copies at the moment of the write — and the guard loads the same plan back. Half the
+    configured memory is left for the interpreter, boto3 and its response buffers, which is not a
+    rounding allowance: a cold Lambda with botocore loaded is already tens of megabytes.
+    """
+    per_object = _plan_entry_bytes() * (_PARSED_OBJECT_OVERHEAD + 2)
+    memory = min(_verb_row(verb)[1] for verb in ("inspect-source", "check-destinations"))
+    return int((memory * 1024**2 / 2) // per_object)
+
+
+def _guard_budget_objects() -> int:
+    """How many destinations the guard can head inside its own timeout.
+
+    THE SCHEDULABLE UNIT IS ONE HEAD ON ONE WORKER, and the rounds are what the pool costs: a head
+    holds nothing, so capacity is ``concurrency x timeout / latency`` rather than anything about
+    bytes. The worst case is the ordinary one — an item whose destinations are all clear, where the
+    short-circuit saves nothing and every key is headed.
+    """
+    timeout = _verb_row("check-destinations")[0]
+    rounds = (timeout / 2) / _HEAD_LATENCY_SECONDS
+    return int(rounds * config.FILE_OPS_HEAD_CONCURRENCY)
+
+
+def test_the_object_cap_is_the_MINIMUM_of_two_budgets_held_by_two_verbs():
+    """WHAT SIZES FILE_OPS_MAX_OBJECTS, computed rather than asserted, and computed TWICE.
+
+    Naming only the memory budget is how a cap comes to certify something it never checked: if
+    memory permitted 200,000 objects the guard could not head them at any concurrency inside
+    Lambda's own 900-second ceiling. Both are computed here and both must admit the cap.
+    """
+    memory_budget = _memory_budget_objects()
+    guard_budget = _guard_budget_objects()
+
+    assert memory_budget >= config.FILE_OPS_MAX_OBJECTS, (
+        f"a worst-case plan of {config.FILE_OPS_MAX_OBJECTS} objects does not fit the memory "
+        f"locals.tf configures (it holds {memory_budget}) — raise the memory or lower the cap"
+    )
+    assert guard_budget >= config.FILE_OPS_MAX_OBJECTS, (
+        f"the guard cannot head {config.FILE_OPS_MAX_OBJECTS} destinations inside its timeout (it "
+        f"manages {guard_budget}) — raise the timeout in locals.tf or lower the cap"
+    )
+
+
+def test_the_guard_is_the_budget_that_BINDS_and_the_memory_one_is_slack():
+    """Which of the two binds is a fact about the design, not a detail: the number is the guard's,
+    so the reflex of raising the verb's memory buys nothing at all. Recorded as an assertion because
+    the alternative is a comment that stops being true silently."""
+    assert _guard_budget_objects() < _memory_budget_objects()
+
+
+def test_the_guards_pool_fits_inside_the_clients_connection_pool():
+    """THE TERM THE OBVIOUS MODEL SKIPS. "Workers x timeout / latency" says to widen the pool until
+    the arithmetic fits — but this plane creates no client of its own; it uses
+    ``cpcommon.clients.s3()``, which passes no ``Config``, so botocore's default
+    ``max_pool_connections`` is the real ceiling. Threads past it do not each get a connection:
+    they contend, and urllib3 opens and discards sockets rather than reusing them, so a wider pool
+    buys throughput the client cannot deliver while every bound computed from it reads as satisfied.
+    """
+    assert _BOTOCORE_DEFAULT_MAX_POOL_CONNECTIONS >= config.FILE_OPS_HEAD_CONCURRENCY
+
+    try:
+        from botocore.config import Config
+    except ImportError:
+        return
+    assert Config().max_pool_connections == _BOTOCORE_DEFAULT_MAX_POOL_CONNECTIONS, (
+        "botocore's default connection pool has moved; FILE_OPS_HEAD_CONCURRENCY was computed "
+        "against the old value"
+    )
+
+
+def test_the_expansions_timeout_is_sized_PER_ITEM_rather_than_per_page():
+    """The term the obvious model drops. A ``file`` item costs its own serial ``HeadObject``, so 200
+    files is 200 round trips where 20,000 objects in one folder is 20 listing pages — the item count
+    dominates, and a bound computed per page would be twenty times too generous."""
+    timeout = _verb_row("inspect-source")[0]
+    heads = config.FILE_OPS_MAX_ITEMS * config.FILE_OPS_ITEM_ROUND_TRIP_SECONDS
+    pages = math.ceil(config.FILE_OPS_MAX_OBJECTS / 1000) * config.FILE_OPS_ITEM_ROUND_TRIP_SECONDS
+
+    assert heads > pages, "the per-page reading has overtaken the per-item one — re-derive this"
+    assert heads + pages < timeout / 2, (
+        f"a worst-case expansion is ~{heads + pages:.0f}s against inspect-source's {timeout}s"
+    )
+
+
+def test_the_byte_cap_is_a_MAKESPAN_against_the_machines_own_ceiling():
+    """The denominator is not an aggregate bandwidth: one object is handed WHOLE to one worker and
+    the multipart loop inside it is serial, so the rate is the Map's concurrency times one stream —
+    not the far larger number multiplying every constant together suggests.
+
+    Every other term of the run is subtracted, including the guard TWICE: the spec that adds the
+    transfer re-runs it immediately before the copy, seconds rather than hours later, and a budget
+    counting one sweep would be spent by the second.
+
+    PROVISIONAL, exactly as the ceiling it is measured against is: nothing copies anything yet, so
+    the copy and the deletion are budgets rather than measurements. Both re-derive together.
+    """
+    from cpcommon.transfer.config import (
+        CONSERVATIVE_STREAM_BYTES_PER_SECOND,
+        COPY_TIMEOUT_SECONDS,
+        MAP_MAX_CONCURRENCY,
+    )
+
+    copy_seconds = config.FILE_OPS_MAX_TOTAL_BYTES / (
+        MAP_MAX_CONCURRENCY * CONSERVATIVE_STREAM_BYTES_PER_SECOND
+    )
+    guard_seconds = 2 * _verb_row("check-destinations")[0]
+    serial_seconds = 15 + _verb_row("inspect-source")[0] + 60
+    deletion_seconds = (
+        config.FILE_OPS_MAX_OBJECTS / config.FILE_OPS_HEAD_CONCURRENCY
+    ) * _HEAD_LATENCY_SECONDS
+    run = copy_seconds + guard_seconds + serial_seconds + deletion_seconds
+
+    assert run < config.MACHINE_TIMEOUT_SECONDS, (
+        f"a worst-case run is ~{run:,.0f}s against a {config.MACHINE_TIMEOUT_SECONDS}s ceiling"
+    )
+    assert config.FILE_OPS_MAX_OBJECT_BYTES / CONSERVATIVE_STREAM_BYTES_PER_SECOND < (
+        COPY_TIMEOUT_SECONDS / 2
+    ), "one object is one worker, and the largest legal one no longer fits a single batch"
+
+
+def test_the_per_object_cap_binds_a_case_the_byte_cap_cannot_see():
+    """A total-bytes makespan certifies the DISTRIBUTED case only, and this is the selection that
+    satisfies it while being impossible.
+
+    ONE object of the whole byte cap is legal under that cap and under the object COUNT cap, and it
+    is one worker's serial work: at the conservative per-stream rate it is over thirty hours,
+    against a three-hour ceiling. Nothing but a per-object cap can see it.
+    """
+    from cpcommon.transfer.config import CONSERVATIVE_STREAM_BYTES_PER_SECOND
+
+    one_enormous_object = config.FILE_OPS_MAX_TOTAL_BYTES
+
+    assert (
+        one_enormous_object / CONSERVATIVE_STREAM_BYTES_PER_SECOND
+        > config.MACHINE_TIMEOUT_SECONDS
+    ), "the case this cap exists for has gone away; re-derive it rather than deleting it"
+    assert one_enormous_object > config.FILE_OPS_MAX_OBJECT_BYTES
+
+
+# ── The outcome list, and the sample it may carry ────────────────────────────
+
+
+def _state_with_outcomes(selection: list, sample: list | None) -> int:
+    """Returns the size of the state the destination guard returns, at its worst allowed shape.
+
+    Every selected item rides twice — as the item and as its outcome record — and a conflicted one
+    rides three times, because its record carries a sample of the keys it collided with.
+    """
+    outcomes = []
+    for item in selection:
+        record = {"itemKey": item["key"], "label": item["key"], "outcome": "cleared"}
+        if sample is not None:
+            record.update({"outcome": "conflict", "reason": "destination_occupied", "sample": sample, "more": True})
+        outcomes.append(record)
+    return _serialised(
+        {
+            "requestId": "0" * 36,
+            "actor": {"username": "a" * 64},
+            "operation": "move",
+            "source": {"bucket": "b" * 63, "root": ("r" * 63) + "/", "items": selection},
+            "destination": {"bucket": "b" * 63, "prefix": ("p" * 512) + "/"},
+            "onConflict": "overwrite",
+            "submittedAt": "2026-08-19T12:00:00Z",
+            "planKey": f"file-ops/{'0' * 36}/plan.json",
+            "itemCount": len(selection),
+            "objectCount": config.FILE_OPS_MAX_OBJECTS,
+            "totalBytes": config.FILE_OPS_MAX_TOTAL_BYTES,
+            "checkedCount": config.FILE_OPS_MAX_OBJECTS,
+            "outcomes": outcomes,
+            "lock": {"attempt": 20, "acquired": True, "exhausted": False, "etags": ['"e"' * 8] * 2},
+        }
+    )
+
+
+def test_the_sample_size_is_DERIVED_from_the_state_budget_rather_than_chosen():
+    """WHAT SIZES FILE_OPS_CONFLICT_SAMPLE, and it is measured on the escaped worst case.
+
+    ``FILE_OPS_MAX_ITEMS`` bounds the number of entries and says nothing about bytes: S3 keys reach
+    1024 bytes and are arbitrary UTF-8, so JSON escaping expands a quote to two bytes and a control
+    character to six. The worst case is every item at the byte cap, every one of them conflicted,
+    and every sampled path as long as the shortening rule allows.
+    """
+    for key_char in ("\x01", "k"):
+        worst = _items_at_the_byte_cap(key_char)
+        sample = [key_char * config.FILE_OPS_SAMPLE_PATH_CHARS] * config.FILE_OPS_CONFLICT_SAMPLE
+        measured = _state_with_outcomes(worst, sample)
+
+        assert measured < _STATE_LIMIT, (
+            f"the guard's state reaches {measured} bytes with {len(worst)} conflicted items, over "
+            f"the {_STATE_LIMIT}-byte limit — lower FILE_OPS_CONFLICT_SAMPLE or the path length"
+        )
+
+
+def test_the_shortening_rule_is_what_makes_a_SAMPLE_of_more_than_one_possible():
+    """The measurement that decided the number, kept because it is the whole argument for shortening
+    a path a user might rather see whole: at full key length the budget admits ONE per item, and the
+    third is over the limit. A future reader raising the sample size will find this rather than
+    rediscovering it in production, where the state limit is a caught failure on a request that has
+    already done all of its work.
+    """
+    worst = _items_at_the_byte_cap("k")
+    full_length = ["k" * _MAX_KEY_BYTES]
+
+    assert _state_with_outcomes(worst, full_length) < _STATE_LIMIT
+    assert _state_with_outcomes(worst, full_length * 2) > _STATE_LIMIT

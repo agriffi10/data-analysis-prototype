@@ -5,10 +5,16 @@ Containment is the one place on this plane where a bug is a cross-tenant read or
 copy of that rule is a second place the same failure can be introduced.
 
 What is genuinely this plane's is below, and it is one function's worth of subtlety.
-``derived_destination_key`` answers "where does this item actually land?", and every guard that
+``destination_key`` answers "where does this OBJECT land?" and ``derived_destination_key`` answers
+"where does this ITEM land?" — the second is the first with an empty relative key, deliberately,
+because two functions that agree today are two functions that can stop agreeing. Every guard that
 matters — the same-key no-op, the into-itself refusal, the collision between two selected items —
-compares its output rather than the request's ``destination.prefix``. The prefix is the folder
+compares their output rather than the request's ``destination.prefix``. The prefix is the folder
 items are copied *into*; it is not where any of them ends up.
+
+**There is exactly ONE builder and a sweep enforces it**, because the destination tests can only
+prove the one right: a verb that composed its own would pass every one of them while writing
+somewhere else, and on a move that is the source deleted after the copy went to the wrong place.
 
 ``item_name`` is copied from ``fscommon.paths`` rather than imported, and the copy is deliberate:
 the two layers are packaged and attached separately, and ``fscommon`` carries file-send's wording,
@@ -25,9 +31,11 @@ from .config import MAX_TARGET_NAME
 __all__ = [
     "assert_inside_root",
     "derived_destination_key",
+    "destination_key",
     "has_dot_segment",
     "item_name",
     "normalize_root",
+    "relative_key",
     "validate_target_name",
 ]
 
@@ -107,6 +115,69 @@ def validate_target_name(name: object) -> str:
     return name
 
 
+def relative_key(item_key: str, object_key: str) -> str:
+    """Returns an object's key relative to the selected item it was found under.
+
+    What keeps a folder's structure intact: ``alice/reports/2026/q1.csv`` under a selected
+    ``alice/reports/`` is ``2026/q1.csv``, and it lands under whatever the item is renamed to.
+
+    Args:
+      item_key: The selected folder's key, with its trailing slash.
+      object_key: An absolute key from the listing beneath it.
+
+    Returns:
+      The relative key.
+
+    Raises:
+      TerminalError: ``forbidden`` when the object is not inside the item. It cannot happen through
+        the listing — the prefix asked for is the item — but the value of the check is that the
+        relative key is a SUBSTRING OPERATION, and one taken against the wrong prefix silently
+        yields a plausible key rather than an error.
+    """
+    prefix = normalize_root(item_key) if item_key.endswith("/") else item_key
+    if not object_key.startswith(prefix):
+        raise TerminalError("forbidden", f"{object_key!r} is not inside {prefix!r}")
+    return object_key[len(prefix) :]
+
+
+def destination_key(
+    destination_prefix: str, target_name: str, rel_key: str, *, is_folder: bool
+) -> str:
+    """Returns where ONE object lands. The only function on this plane that composes a destination.
+
+    ``{destinationPrefix}{targetName}`` for a file item, and ``{destinationPrefix}{targetName}/``
+    plus the object's relative key for a folder — so the layout is unaffected by how deep the
+    source sat: moving ``alice/deep/nested/q1.csv`` into ``alice/out/`` yields ``alice/out/q1.csv``,
+    not a rebuilt copy of the source's own path.
+
+    **The folder form is re-normalised to a trailing slash even when it carries no relative key**,
+    and that residue is what re-opened the data-loss path during review: ``item_name`` strips the
+    slash, so a naive concatenation yields ``alice/reports`` against a source of ``alice/reports/``
+    — unequal, so the same-key rule never fires, and a move copies a folder onto itself and then
+    deletes it.
+
+    Args:
+      destination_prefix: The authorized destination folder, absolute.
+      target_name: The item's own name, or the one the request asked for.
+      rel_key: The object's key relative to its selected item; empty for a file item and for the
+        folder itself.
+      is_folder: Whether the selected item is a folder, which is what decides the trailing slash.
+
+    Returns:
+      The absolute key this object lands at.
+
+    Raises:
+      TerminalError: ``invalid_target_name`` when the name is unusable, or ``forbidden`` when the
+        destination prefix is empty.
+    """
+    if not isinstance(target_name, str) or not target_name:
+        raise TerminalError("invalid_target_name", "an item has no destination name")
+    base = f"{normalize_root(destination_prefix)}{target_name}"
+    if not is_folder:
+        return base
+    return f"{base}/{rel_key}" if rel_key else f"{base}/"
+
+
 def derived_destination_key(destination_prefix: str, item: dict) -> str:
     """Returns where one selected item actually lands, which is never the destination prefix.
 
@@ -154,5 +225,4 @@ def derived_destination_key(destination_prefix: str, item: dict) -> str:
 
     requested = item.get("targetName")
     name = validate_target_name(requested) if requested is not None else item_name(key)
-    derived = f"{normalize_root(destination_prefix)}{name}"
-    return f"{derived}/" if kind == "folder" else derived
+    return destination_key(destination_prefix, name, "", is_folder=kind == "folder")

@@ -19,6 +19,15 @@
 #     shared-space source or destination fails AccessDenied while every personal one
 #     works — a split that reads like a code bug and is not.
 #   - SpaceLockReadWrite. The lock object, scoped to its own prefix.
+#   - PlanReadWrite. The copy plan, scoped to its own prefix in the same bucket. The
+#     expansion writes it and every verb after reads it back; without this the plane
+#     cannot record what it is about to do.
+#   - ReadSpaceObjects. THE FIRST GRANT THIS ROLE HOLDS ON USER DATA, and it is READ
+#     ONLY. The expansion lists a source folder and heads a selected file; the guard heads
+#     every destination key. Both are reads, and neither has any other producer — a
+#     listing is where the object list comes from, and the ETag it carries is what lets a
+#     later deletion be conditional. The write and delete grants a transfer needs are still
+#     absent, and NoDataObjectWrite below makes that a rule rather than a gap.
 #   - ReadTimedOutExecutionInput. The ONE grant the timeout door needs, and it is on THIS
 #     role rather than the state machine's because it is the notify-failure LAMBDA that
 #     makes the call — invoked by EventBridge, outside any execution. It reads back the
@@ -31,6 +40,18 @@
 # plane looks nobody up: it authorizes the actor against a space, never against a user
 # directory. The neighbouring planes carry AdminGetUser because they resolve a RECIPIENT;
 # there is no recipient here.
+#
+# NoDataObjectWrite is the second Deny, and it exists because "read only" asserted by the
+# ABSENCE of an Allow is not a rule — it is a state a later statement reverses silently. The
+# machine plans and guards; it writes nothing into either space bucket and deletes nothing
+# from them. The spec that adds the transfer removes this Deny deliberately, which is a
+# review a widened Allow would never have had.
+#
+# ITS ACTIONS ARE WILDCARDS ON PURPOSE, which is the opposite of the rule for an Allow. Naming
+# PutObject and DeleteObject alone would leave PutObjectAcl, PutObjectTagging,
+# DeleteObjectVersion and AbortMultipartUpload outside a statement whose whole claim is that
+# this role changes nothing in a user's space — and a Deny that is narrower than its own
+# comment is worse than no Deny, because it is read as covering the case it misses.
 #
 # NoLockDelete is a Deny, present from the first apply. The lock releases by OVERWRITING,
 # never by deleting, so that "free" is a STATE of the object rather than its absence and a
@@ -57,6 +78,9 @@ resource "aws_iam_role_policy" "execution" {
     log_group_arn           = local.file_ops_log_group_wildcard_arn
     admin_bucket_arn        = local.admin_bucket_arn
     lock_prefix             = local.lock_prefix
+    plan_prefix             = local.plan_prefix
+    user_space_bucket_arn   = local.user_space_bucket_arn
+    shared_space_bucket_arn = local.shared_space_bucket_arn
     notifications_queue_arn = var.notifications_queue_arn
     logs_queue_arn          = var.logs_queue_arn
   })

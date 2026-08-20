@@ -1589,6 +1589,29 @@ neither.
 4. **`focommon/outcomes.py` ships `refused`**, which SPEC-188's own enumeration does not list. Add it
    there rather than re-deciding what an into-itself refusal is.
 
+**SPEC-188 IS ALSO COMPLETE, and it settled five things 189 inherits rather than re-decides.**
+
+1. **The plan is the contract between the verbs**, at `{admin_bucket}/file-ops/{requestId}/plan.json`
+   — its shape, its `executionArn`-based reuse guard and its `plan_superseded` check are in
+   `architecture.md` → *Control Planes → File Operations*. Every object already carries its `etag`,
+   so **189 does not need to re-HEAD anything** — but 189 still owes the check SPEC-188 FR-001 AC5
+   names: confirm conditional `DeleteObject` against the live API before relying on it.
+2. **The guard verb is reusable unchanged**, and 189's second pass is a second invocation of it, not
+   a second implementation. It refuses nothing wholesale: a conflicted item comes back as an outcome
+   record, so **189's commit gate is per ITEM** — a skipped item is planned and not copied.
+3. **`FILE_OPS_MAX_TOTAL_BYTES` and `MACHINE_TIMEOUT_SECONDS` are both PROVISIONAL** and re-derive
+   together. The byte cap's makespan already subtracts **two** guard sweeps, so 189 owes the copy and
+   deletion terms rather than the whole computation.
+4. **The machine's placeholders are `TransferPlaceholder` and `DeletePlaceholder`**, both bare
+   `Pass` states reached after the guard. Every Task taken under the lock carries a `Catch` to
+   `ReleaseLockOnFailure`, and a rule over every Task now asserts it — a Task without one has no edge
+   to a terminal, so the release walk stays green while the space wedges.
+5. **One residual is recorded and deliberately not built here.** FR-002's exclusion set is closed and
+   says nothing about a *nested* protected folder inside a selected one — a `move` or `delete` of a
+   shared-space folder containing a nested `archive/` or `athenaresults/`. The deletion is 189's and
+   so is the per-item failure it would take; decide it there rather than widening the expansion's
+   enumeration, whose four rules were each argued separately.
+
 The shape is the file-send arc's, one spec per reviewable unit: **187** the plane, the contract, the
 lock and validate-authorize; **188** source expansion, the copy plan and the destination guard;
 **189** the transfer, the source deletion and the terminals; **191** notifications, Help and the live

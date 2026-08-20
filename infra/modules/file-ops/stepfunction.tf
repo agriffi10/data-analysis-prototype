@@ -29,6 +29,8 @@ resource "aws_sfn_state_machine" "file_ops" {
     validate_authorize_function_arn = aws_lambda_function.functions["validate-authorize"].arn
     acquire_lock_function_arn       = aws_lambda_function.functions["acquire-lock"].arn
     release_lock_function_arn       = aws_lambda_function.functions["release-lock"].arn
+    inspect_source_function_arn     = aws_lambda_function.functions["inspect-source"].arn
+    check_destinations_function_arn = aws_lambda_function.functions["check-destinations"].arn
     notify_failure_function_arn     = aws_lambda_function.functions["notify-failure"].arn
     # The ASL Wait between re-acquire attempts. Mirrored from focommon/config.py because
     # ASL cannot import Python; a test holds the two equal.
