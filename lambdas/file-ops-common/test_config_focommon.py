@@ -326,3 +326,33 @@ def test_the_protected_folder_lists_are_not_a_union():
     assert picker != undeletable
     assert "saved_queries" in undeletable and "saved_queries" not in picker
     assert config.USER_SETTINGS_FOLDER in picker and config.USER_SETTINGS_FOLDER not in undeletable
+
+
+def test_the_browsers_mirrored_caps_are_never_more_permissive_than_these():
+    """The browser refuses early so the common case fails fast and legibly, but it is not the
+    authority — and it cannot measure the same quantity anyway.
+
+    Its byte cap is over ``JSON.stringify(items)`` alone; this one is over the whole chain, which
+    includes the actor's token, the destination and one outcome record per item. So the property
+    that matters is not equality but DIRECTION: a local refusal must never admit a request the
+    plane would refuse, or the user gets a notification minutes later where they could have had a
+    message immediately.
+    """
+    import pathlib
+    import re
+
+    service = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "apps"
+        / "portal"
+        / "src"
+        / "features"
+        / "file-browser"
+        / "fileOps.service.ts"
+    ).read_text()
+
+    browser_items = int(re.search(r"FILE_OPS_MAX_ITEMS = (\d+)", service).group(1))
+    browser_bytes = eval(re.search(r"FILE_OPS_MAX_SELECTION_BYTES = ([\d *]+);", service).group(1))
+
+    assert browser_items <= config.FILE_OPS_MAX_ITEMS
+    assert browser_bytes <= config.FILE_OPS_MAX_SELECTION_BYTES

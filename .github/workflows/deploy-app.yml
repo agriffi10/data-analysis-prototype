@@ -62,6 +62,7 @@ jobs:
           VITE_TABLE_SHARE_QUEUE_URL: ${{ vars.VITE_TABLE_SHARE_QUEUE_URL }}
           VITE_FILE_SEND_QUEUE_URL: ${{ vars.VITE_FILE_SEND_QUEUE_URL }}
           VITE_ARCHIVE_QUEUE_URL: ${{ vars.VITE_ARCHIVE_QUEUE_URL }}
+          VITE_FILE_OPS_QUEUE_URL: ${{ vars.VITE_FILE_OPS_QUEUE_URL }}
           VITE_DATA_QUALITY_QUEUE_URL: ${{ vars.VITE_DATA_QUALITY_QUEUE_URL }}
 
       - name: Configure AWS credentials

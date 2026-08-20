@@ -7,6 +7,7 @@ import {enqueueNotificationAction} from '../features/notifications/notifications
 import {enqueueSharedSpaceRequest} from '../features/shared-spaces/sharedSpaces.service';
 import {enqueueTableBuild, enqueueTableRefresh} from '../features/table-builder/tableBuild.service';
 import {enqueueTableShare} from '../features/table-share/tableShare.service';
+import {submitFileOperation} from '../features/file-browser/fileOps.service';
 import {enqueueFileSend} from '../features/file-send/fileSend.service';
 import {OPTIONAL_ENV, REQUIRED_ENV, envVar, isPortalConfigured, missingRequiredEnv, warnIfMisconfigured} from './env';
 import type {ServiceResult} from '../types/service.types';
@@ -335,6 +336,17 @@ describe('enqueueFifo', () => {
         enqueueTableRefresh({
           space: {kind: 'personal', bucket: 'bucket', prefix: 'alice/sales/', database: 'alice'},
           tableName: 'sales'
+        })
+    },
+    {
+      name: 'fileOps.service — submitFileOperation',
+      envVar: 'VITE_FILE_OPS_QUEUE_URL',
+      message: 'File operations are not configured',
+      call: () =>
+        submitFileOperation({
+          requestId: 'req-1',
+          operation: 'delete',
+          source: {space: {kind: 'personal', name: 'alice'}, items: [{kind: 'folder', key: 'alice/old/'}]}
         })
     }
   ];
