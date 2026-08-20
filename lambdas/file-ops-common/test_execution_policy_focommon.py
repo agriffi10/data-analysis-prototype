@@ -2,9 +2,16 @@
 
 This role will eventually hold ``DeleteObject`` across the user-space bucket, which is the
 single most dangerous grant in this repo. It does not hold it here, and these tests are what stop
-it arriving early and unreviewed: the machine lists nothing, copies nothing and deletes nothing, so
-a data-bucket grant now would be unreviewable privilege sitting in production ahead of the code
-that justifies it.
+it arriving early and unreviewed.
+
+**THE ROLE NOW READS BOTH DATA BUCKETS, AND THE RULE THAT REPLACED "NO DATA BUCKET AT ALL" IS
+NARROWER RATHER THAN WEAKER.** The machine lists a source folder, heads a selected file and heads
+every destination key; a listing is the only producer of an object list there is, so a grant-free
+version of this stage would be a plane that cannot run its own two verbs. What it must not hold is
+the other direction, and that is asserted twice over: no ``PutObject`` or ``DeleteObject`` Allow
+reaches either data bucket, and an explicit ``Deny`` says so — because "read only" resting on the
+ABSENCE of an Allow is a state a later statement reverses silently, where a Deny has to be deleted
+on purpose.
 
 They read the ``.tftpl`` templates as data. That is deliberate rather than second-best: the plan
 scan in CI evaluates the RENDERED plan and is the authority on findings, but it runs against AWS
@@ -84,25 +91,51 @@ def _sids(path: pathlib.Path) -> set:
 # ── The grant that is not there ──────────────────────────────────────────────
 
 
-def test_the_execution_role_names_NO_data_bucket():
-    """The whole point of this stage. A grant that arrives before the verb that needs it is
-    privilege nobody reviewed against a use.
+def test_the_role_reads_the_data_buckets_and_writes_to_NEITHER():
+    """The rule that replaced "names no data bucket", and the one that has to hold from here on.
 
-    Asserted on the rendered template's own placeholders rather than on a bucket name, because
-    the names are supplied at apply time — if either data bucket's placeholder appears in any
-    resource here, something has reached for user data.
+    Asserted on the rendered template's own placeholders rather than on a bucket name, because the
+    names are supplied at apply time. Every statement naming a data bucket must be a read, and the
+    two verbs that exist need exactly three: list the bucket, get an object, and nothing else.
     """
-    resources = json.dumps([statement["Resource"] for statement in _statements(EXECUTION_POLICY)])
+    reads = {"s3:ListBucket", "s3:GetBucketLocation", "s3:GetObject"}
+    named = []
+    for statement in _statements(EXECUTION_POLICY):
+        resources = json.dumps(statement["Resource"])
+        if "user_space_bucket_arn" not in resources and "shared_space_bucket_arn" not in resources:
+            continue
+        named.append(statement["Sid"])
+        if statement["Effect"] != "Allow":
+            continue
+        actions = statement["Action"]
+        for action in [actions] if isinstance(actions, str) else actions:
+            assert action in reads, f"{statement['Sid']} grants {action!r} on a data bucket"
 
-    assert "user_space_bucket_arn" not in resources
-    assert "shared_space_bucket_arn" not in resources
+    assert named, "the plane heads and lists user data — a policy naming no data bucket cannot run"
 
 
-def test_the_role_holds_no_object_write_or_delete_anywhere():
-    """The complementary negative: no data bucket is named, and no write verb is granted either.
+def test_a_data_bucket_WRITE_is_denied_rather_than_merely_ungranted():
+    """The half that survives the next spec's edit.
 
-    Either one alone is weaker than it looks — a grant on ``*`` names no bucket, and a grant on a
-    bucket with only reads is not the danger.
+    A reviewer reading only Allows sees "no write" as an absence, and an absence is what a widened
+    statement removes without anyone noticing. The transfer spec has to delete this Deny by name,
+    which is a review; adding a Put to an existing Allow is not.
+    """
+    deny = next(
+        s
+        for s in _statements(EXECUTION_POLICY)
+        if s["Effect"] == "Deny" and "user_space_bucket_arn/*" in json.dumps(s["Resource"])
+    )
+
+    assert set(deny["Action"]) == {"s3:PutObject", "s3:DeleteObject"}
+    assert "shared_space_bucket_arn/*" in json.dumps(deny["Resource"])
+
+
+def test_every_object_write_is_confined_to_this_planes_own_admin_prefixes():
+    """No write verb reaches anything but the two objects this plane owns — its lock and its plan.
+
+    Matched as a PATTERN rather than by equality, because ``s3:*``, ``s3:Put*`` and ``s3:Delete*``
+    each grant exactly what this test says is excluded while passing any equality check.
     """
     for statement in _statements(EXECUTION_POLICY):
         if statement["Effect"] != "Allow":
@@ -112,16 +145,13 @@ def test_the_role_holds_no_object_write_or_delete_anywhere():
         for action in actions:
             if not action.startswith("s3:"):
                 continue
-            # Matched as a PATTERN rather than by equality, because `s3:*`, `s3:Put*` and
-            # `s3:Delete*` each grant exactly what this test says is excluded while passing
-            # any equality check — and they name no data bucket either, so the assertion
-            # above would not catch them.
             assert "*" not in action, f"{statement['Sid']} grants the wildcard action {action!r}"
             assert action != "s3:DeleteObject", f"{statement['Sid']} grants DeleteObject"
             if action in ("s3:PutObject", "s3:PutObjectAcl"):
-                assert "lock_prefix" in json.dumps(statement["Resource"]), (
-                    f"{statement['Sid']} may write outside the lock prefix"
-                )
+                resource = json.dumps(statement["Resource"])
+                assert "admin_bucket_arn" in resource and (
+                    "lock_prefix" in resource or "plan_prefix" in resource
+                ), f"{statement['Sid']} may write outside this plane's own admin prefixes"
 
 
 def test_no_statement_uses_a_wildcard_resource():
@@ -166,6 +196,31 @@ def test_the_timeout_door_can_read_the_input_back():
     assert "ReadTimedOutExecutionInput" in _sids(EXECUTION_POLICY)
 
 
+def test_the_plan_prefix_in_the_policy_is_the_one_the_code_writes():
+    """Two homes for one prefix is a plan the verbs write and the policy does not permit, and it
+    fails at the moment the expansion has already done all of its listing.
+
+    The third home is the admin bucket's lifecycle rule, checked with them: a rule filtered on a
+    prefix nothing writes expires nothing, and the plans accumulate forever.
+    """
+    assert f'"{config.PLAN_PREFIX}"' not in EXECUTION_POLICY.read_text()
+    plan_statement = next(s for s in _statements(EXECUTION_POLICY) if s["Sid"] == "PlanReadWrite")
+
+    assert plan_statement["Resource"] == "admin_bucket_arn/plan_prefix/*"
+    assert (MODULE / "locals.tf").read_text().count(f'plan_prefix = "{config.PLAN_PREFIX}"') == 1
+    assert f'prefix = "{config.PLAN_PREFIX}/"' in (
+        ROOT / "infra" / "modules" / "analytics" / "s3.tf"
+    ).read_text()
+
+
+def test_the_plan_prefix_cannot_reach_the_lock_objects():
+    """An S3 lifecycle prefix anchors at the start of the key, so the expiry rule on the plans must
+    not match the locks: a lock is released by OVERWRITING, so that "free" is a state of the object
+    rather than its absence, and an expired lock is a missing one — the compare-and-set that detects
+    a steal would have nothing left to compare."""
+    assert not config.LOCK_PREFIX.startswith(config.PLAN_PREFIX)
+
+
 def test_the_lock_prefix_in_the_policy_is_the_one_the_code_writes():
     """Two homes for one prefix is a lock the verbs write and the policy does not permit — an
     AccessDenied on the one object whose whole purpose is preventing data loss."""
@@ -181,7 +236,7 @@ def test_the_lock_can_never_be_deleted():
     than its absence and a stolen lock stays detectable by compare-and-set. The Deny makes that an
     enforced property instead of a convention, and it is scoped to the ADMIN bucket alone so the
     data-bucket deletes a later spec adds are unaffected."""
-    deny = next(s for s in _statements(EXECUTION_POLICY) if s["Effect"] == "Deny")
+    deny = next(s for s in _statements(EXECUTION_POLICY) if s["Sid"] == "NoLockDelete")
 
     assert deny["Action"] == "s3:DeleteObject"
     assert deny["Resource"] == "admin_bucket_arn/*"

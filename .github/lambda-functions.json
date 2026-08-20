@@ -282,6 +282,20 @@
     ]
   },
   {
+    "name": "file-ops-inspect-source",
+    "layers": [
+      "cpcommon",
+      "focommon"
+    ]
+  },
+  {
+    "name": "file-ops-check-destinations",
+    "layers": [
+      "cpcommon",
+      "focommon"
+    ]
+  },
+  {
     "name": "file-ops-acquire-lock",
     "layers": [
       "cpcommon",

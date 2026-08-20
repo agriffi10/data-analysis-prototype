@@ -34,9 +34,10 @@ locals {
   # lambdas/file-ops-<suffix>/ subdir AND the deploy-lambdas.yml matrix name
   # "file-ops-<suffix>"); value = the handler + the task's real timeout/memory need.
   #
-  # FOUR VERBS, and the machine does no data work yet: the front door, the lock's two
-  # halves, and the notification of last resort. The expansion, the transfer and the
-  # deletion arrive with the specs that own them.
+  # SIX VERBS. The front door, the lock's two halves, the notification of last resort, and
+  # the two that decide WHAT and WHETHER: the expansion that writes the plan, and the
+  # per-item destination guard. Nothing is copied or deleted yet; the transfer and the
+  # source deletion arrive with the spec that owns them.
   #
   # Every module name is plane-qualified so two planes' identically-named verbs cannot
   # collide on sys.modules under one `pytest lambdas/` process. The qualifier is the FULL
@@ -57,6 +58,18 @@ locals {
     # One conditional PutObject that frees the lock. Reached on every terminal path the
     # graph can walk, so it must not be the reason a completed request reports failure.
     "release-lock" = { handler = "file_ops_release_lock.handler", timeout = 15, memory = 256 }
+    # Expands every selected item, derives every destination and writes the plan. Its cost
+    # is a HeadObject per selected FILE and a listing page per thousand objects, and it
+    # holds the whole plan in memory to serialise it.
+    #
+    # THE MEMORY AND THE TIMEOUT ARE BOTH INPUTS TO A CAP, not free choices:
+    # FILE_OPS_MAX_OBJECTS is the MINIMUM of the plan this memory can hold and the sweep
+    # the guard below can do, and a test READS BOTH NUMBERS BACK from this file. Lowering
+    # either without lowering the cap fails the build rather than the invocation.
+    "inspect-source" = { handler = "file_ops_inspect_source.handler", timeout = 600, memory = 1024 }
+    # Heads every derived destination key, eight at a time. Same memory as the expansion
+    # because it loads the same plan back, and the two rows move together.
+    "check-destinations" = { handler = "file_ops_check_destinations.handler", timeout = 600, memory = 1024 }
     # The notification of last resort: one decode + one SQS send, reached only on a
     # whole-request failure path.
     #
@@ -108,6 +121,13 @@ locals {
   # it is reasoned about; a test asserts the two agree, because two homes for one prefix is
   # a lock the verbs write and the policy does not permit.
   lock_prefix = "locks/file-ops"
+
+  # The copy-plan prefix in the admin bucket. Mirrored from focommon/config.py, which is
+  # where it is reasoned about, and again in the admin bucket's own lifecycle rule; a test
+  # holds all three equal. It cannot match `locks/file-ops/` — an S3 lifecycle prefix
+  # anchors at the start of the key — which is what keeps an expiry rule off the lock
+  # objects, whose absence is what makes a lock "free" rather than lost.
+  plan_prefix = "file-ops"
 
   # The ASL `Wait` between re-acquire attempts, in seconds. Mirrored from
   # focommon/config.py because ASL cannot import Python; a test holds the two equal.

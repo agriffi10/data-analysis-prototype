@@ -5,10 +5,11 @@ The shared core — region, user pool identifiers, buckets, the notifications qu
 environment**: this module cannot fail at import, which matters because a shared layer's
 import-time failure surfaces at COLD START, where no test and no deploy can see it.
 
-Every cap below is a whole-request terminal in validate-authorize, raised before any AWS call that
-costs anything, so a refused operation leaves nothing behind. **Neither is written as a literal a
-reader has to trust** — ``test_config_focommon`` computes both against the budget that sizes them
-and names the unit it measures.
+Every cap below is a whole-request terminal — the two request-shape ones in validate-authorize,
+raised before any AWS call that costs anything, and the three expansion ones inside the walk that
+accumulates the list they bound, because a cap checked afterwards is one the verb has already paid
+for. **None of them is written as a literal a reader has to trust** — ``test_config_focommon``
+computes each against the budget that sizes it and names the schedulable unit it measures.
 
 The protected-folder names are duplicated from the browser's ``protectedFolders.ts`` and
 ``writeLockedPrefix.ts``, because Python and TypeScript cannot share a list. A test reads both
@@ -35,6 +36,53 @@ Attributes:
     Functions caps the resulting execution input at 256 KB. The escaping is not a rounding error.
     And this plane's state carries a term file-send's does not: one outcome record per selected
     item rides beside the request from the first verb onward.
+  FILE_OPS_MAX_OBJECTS: Cap on the EXPANDED object count — what the selection actually resolves
+    to, which ``FILE_OPS_MAX_ITEMS`` says nothing about because one selected folder can hold any
+    number of objects. It is the MINIMUM of two budgets held by two different verbs, and naming
+    only one is how a cap comes to certify something it never checked: the plan held in MEMORY by
+    inspect-source, and the destination guard's HEAD SWEEP against check-destinations' timeout at
+    ``FILE_OPS_HEAD_CONCURRENCY``. If memory permitted 200,000 objects the guard could not head
+    them at any concurrency inside Lambda's 900-second ceiling. ``test_config_focommon`` computes
+    both, reads the memory and the timeout back out of ``locals.tf``, and asserts which one binds.
+  FILE_OPS_MAX_TOTAL_BYTES: Cap on the bytes one selection holds, bounding the RUN rather than any
+    one verb: the copy is the long pole and the machine's ``TimeoutSeconds`` is what it has to fit
+    inside. The denominator is a MAKESPAN, not an aggregate bandwidth — one object is handed whole
+    to one worker — so the rate is ``MAP_MAX_CONCURRENCY x CONSERVATIVE_STREAM_BYTES_PER_SECOND``.
+
+    PROVISIONAL, in the same sense ``MACHINE_TIMEOUT_SECONDS`` is: this machine does not copy
+    anything yet, so the terms subtracted from the ceiling — the guard's two sweeps, the serial
+    verbs and the source deletion — are budgets rather than measurements. The spec that adds the
+    transfer re-derives this together with the ceiling, and both move or neither is meaningful.
+  FILE_OPS_MAX_OBJECT_BYTES: Cap on ONE object, and the cap without which the makespan above
+    certifies the distributed case only. A batch is one round of the worker pool and ONE OBJECT IS
+    ONE WORKER, so a single object's copy time is bounded by nothing else: S3 accepts objects up to
+    5 TiB, which at the conservative rate is ~220,000s against a 900-second batch timeout.
+  FILE_OPS_HEAD_CONCURRENCY: Bounded worker pool for the destination guard's existence checks.
+    **The binding constraint is botocore's CONNECTION POOL, not the thread count.** A ``HeadObject``
+    is a small serial round trip, so the obvious model is "workers x timeout / latency" and the
+    obvious value is as many workers as the memory affords — but ``boto3.client("s3")`` takes
+    botocore's default ``max_pool_connections`` of 10, and threads past that do not each get a
+    connection: they contend, and urllib3 opens and discards sockets rather than reusing them. So a
+    wider pool buys throughput the client cannot deliver while every bound computed from it reads
+    as satisfied. This plane creates no client of its own — it uses ``cpcommon.clients.s3()``,
+    which passes no ``Config`` — so the default IS the ceiling.
+  FILE_OPS_ITEM_ROUND_TRIP_SECONDS: The pessimistic serial round trip charged per ITEM when the
+    listing timeout is sized. **Per item, not per page**, which is the term the obvious model drops:
+    a ``file`` item costs its own serial ``HeadObject``, so 200 files is 200 round trips where
+    20,000 objects in one folder is 20 pages.
+  FILE_OPS_CONFLICT_SAMPLE: How many colliding destination paths a conflicted item NAMES. A
+    presentation bound, and a bound on the STATE: every conflicted item carries its sample from the
+    guard to the notification, and Step Functions caps a state at 256 KB. Measured at the selection
+    byte cap with every item conflicted, one full-length path per item is all that fits — so the
+    paths are shortened for display (below) and three of them fit with room over.
+  FILE_OPS_SAMPLE_PATH_CHARS: Length a sampled path is shortened to for display, from the middle,
+    so the basename — the part that identifies the file — survives. An ordinary path is untouched;
+    what this bounds is the pathological key the caps admit and a notification could never render.
+    The refusal says plainly that there may be more, so a sample is never read as exhaustive.
+  PLAN_PREFIX: Key prefix for this plane's copy plans, under the admin bucket. Mirrored in the
+    module's ``locals.tf`` (the IAM grant) and in the admin bucket's lifecycle rule; a test holds
+    all three equal. It cannot match ``LOCK_PREFIX`` — ``locks/file-ops`` does not begin with
+    ``file-ops`` — which is what keeps an expiry rule off the lock objects.
   MAX_TARGET_NAME: Length cap on a per-item destination name. S3 allows 1024 bytes for a whole
     key, and a single path segment approaching that leaves no room for the prefix it sits under.
   ATHENA_RESULTS_FOLDER: The space's own Athena results folder. Refused as a destination and as a
@@ -76,6 +124,22 @@ FILE_OPS_MAX_ITEMS = 200
 FILE_OPS_MAX_SELECTION_BYTES = 64 * 1024
 
 MAX_TARGET_NAME = 255
+
+FILE_OPS_MAX_OBJECTS = 20_000
+
+FILE_OPS_MAX_TOTAL_BYTES = 3 * 1024**4
+
+FILE_OPS_MAX_OBJECT_BYTES = 10 * 1024**3
+
+FILE_OPS_HEAD_CONCURRENCY = 8
+
+FILE_OPS_ITEM_ROUND_TRIP_SECONDS = 0.1
+
+FILE_OPS_CONFLICT_SAMPLE = 3
+
+FILE_OPS_SAMPLE_PATH_CHARS = 120
+
+PLAN_PREFIX = "file-ops"
 
 ATHENA_RESULTS_FOLDER = "athenaresults"
 

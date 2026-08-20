@@ -33,11 +33,21 @@ _FORBIDDEN_CALLS = {
 
 #: Attribute chains that would mean this layer talks to AWS directly where a shared module already
 #: does. The lock's own reader is the deliberate exception and is asserted separately.
+#:
+#: ``put_object`` is deliberately ABSENT, and what replaced it is stricter rather than looser. The
+#: rule was never "this layer does not write" — it was that a CONDITIONAL write is the lock
+#: protocol and belongs to ``cpcommon.lock``. The plan module writes this plane's own artifact at a
+#: key that is a pure function of the request id, unconditionally, exactly as the file-send layer
+#: owns its own copy-plan write. So the rule below asserts the thing that actually matters: no
+#: module here passes a precondition to S3.
 _FORBIDDEN_ATTRS = {
-    "put_object": "a conditional write belongs to cpcommon.lock",
     "delete_objects": "this layer performs no deletion",
     "start_execution": "this layer starts nothing",
 }
+
+#: The arguments that turn a write into a compare-and-set. One of these anywhere in this layer means
+#: the lock protocol has been re-implemented beside the module that binds it.
+_CONDITIONAL_WRITE_ARGS = ("IfNoneMatch", "IfMatch", "CopySourceIfMatch")
 
 
 def _modules():
@@ -105,6 +115,34 @@ def test_no_algorithm_is_forked_into_this_layer(forbidden, why):
 def test_this_layer_does_not_reach_for_aws_where_a_shared_module_already_does(forbidden, why):
     for path, tree in _modules():
         assert forbidden not in _called_names(tree), f"{path.name} calls {forbidden!r} — {why}"
+
+
+def test_no_module_makes_a_write_CONDITIONAL():
+    """The rule ``put_object`` used to stand in for, asserted directly.
+
+    A plain write of this plane's own artifact is this layer's business; a write carrying a
+    precondition is the compare-and-set that decides who holds a space's lock, and a second copy of
+    that is a second place a lock can be lost. Asserted over the arguments rather than the call, so
+    the plan module's unconditional write passes and a CAS hidden inside it does not.
+    """
+    for path, tree in _modules():
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            named = {keyword.arg for keyword in node.keywords}
+
+            assert not named.intersection(_CONDITIONAL_WRITE_ARGS), (
+                f"{path.name} makes a conditional write — that protocol belongs to cpcommon.lock"
+            )
+
+
+def test_the_only_module_that_writes_is_the_one_that_owns_an_artifact():
+    """Guard-the-guard for the rule above: it is a negative, so a layer where nothing writes at all
+    would satisfy it while proving nothing. One module writes, it is the plan, and a second one
+    appearing is a decision rather than an accident."""
+    writers = {path.name for path, tree in _modules() if "put_object" in _called_names(tree)}
+
+    assert writers == {"plan.py"}, f"unexpected writers in this layer: {sorted(writers)}"
 
 
 def test_the_lock_module_binds_the_shared_protocol_rather_than_repeating_it():

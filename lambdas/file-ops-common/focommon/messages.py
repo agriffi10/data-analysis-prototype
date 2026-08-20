@@ -81,6 +81,36 @@ _BODIES = {
         "that file is there to protect a folder. It cannot be copied, moved or deleted - a copy "
         "of it could never be removed either."
     ),
+    "overlapping_items": (
+        "one of the folders you selected already contains another one. Please select them one at "
+        "a time, or select just the folder that holds them."
+    ),
+    "too_many_objects": (
+        "those folders hold more than {maxObjects} files between them. Please work on fewer "
+        "folders at a time."
+    ),
+    "selection_too_large_to_expand": (
+        "those folders hold too much data to do in one go. Please work on fewer folders at a time."
+    ),
+    "object_too_large": (
+        "one of those files is larger than this can handle in one go. Please move or copy it on "
+        "its own."
+    ),
+    "source_missing": "one of those files is no longer there. Please refresh and try again.",
+    "source_empty": "there was nothing inside it.",
+    "destination_occupied": (
+        "something is already there: {sample}. There may be more. Please clear those out of the "
+        "way, or choose a different destination."
+    ),
+    "plan_unreadable": "the working list for that could not be read back.",
+    "plan_superseded": (
+        "another request for that space was already in flight. Nothing was changed. Please try "
+        "again."
+    ),
+    "request_id_reused": (
+        "that looks like a repeat of a request already in flight. Nothing was changed. Please "
+        "refresh and try again."
+    ),
     "operation_timed_out": (
         "it took too long and was stopped part-way, so some of it may have happened and some may "
         "not. Please look at the folder before trying again, and give it a few minutes - that "
@@ -109,7 +139,10 @@ def _markers() -> dict:
     Raises:
       None.
     """
-    return {"maxItems": str(config.FILE_OPS_MAX_ITEMS)}
+    return {
+        "maxItems": str(config.FILE_OPS_MAX_ITEMS),
+        "maxObjects": f"{config.FILE_OPS_MAX_OBJECTS:,}",
+    }
 
 
 copy_resolver = _cpmessages.register(

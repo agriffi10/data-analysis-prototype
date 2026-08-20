@@ -157,6 +157,30 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
     }
   }
 
+  # The file-ops copy plan — the expanded object list inspect-source hands to the
+  # destination guard and, later, to the transfer. Same reasoning as the three rules above
+  # and the same retention: execution-scoped, read minutes after it is written, kept only
+  # so an operator can inspect the plan of a failed operation.
+  #
+  # THE PREFIX CANNOT REACH THIS PLANE'S LOCKS, and that is worth stating because the two
+  # names look alike. An S3 lifecycle prefix anchors at the START of the key, so `file-ops/`
+  # does not match `locks/file-ops/`. It must not: that lock is released by OVERWRITING
+  # rather than deleting, so that "free" is a state of the object rather than its absence —
+  # an expiry rule reaching it would turn a released lock into a missing one and break the
+  # compare-and-set that detects a steal.
+  rule {
+    id     = "expire-file-ops-plans"
+    status = "Enabled"
+
+    filter {
+      prefix = "file-ops/"
+    }
+
+    expiration {
+      days = var.admin_results_retention_days
+    }
+  }
+
   # Bucket-wide, and deliberately UNFILTERED (CKV_AWS_300). An abandoned multipart upload
   # leaves orphaned parts that are billed and invisible to every listing, anywhere in the
   # bucket — so scoping this to the prefixes we happen to know about today would leave a new
