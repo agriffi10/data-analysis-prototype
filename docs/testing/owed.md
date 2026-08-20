@@ -27,6 +27,10 @@ same property, and a Chromium run standing in for Safari are all recorded here, 
 | **The `DO_NOT_DELETE.txt` Deny on the portal role**, personal and shared (SPEC-173) | The portal issues **zero** `DeleteObject` against the marker — it is hidden by basename and the folder delete is refused client-side first. The Deny is the layer that matters if the SPA is ever wrong. | §2.1 |
 | **Refresh-lock contention** (SPEC-157) | Two UI submits 2 s apart both return independently — a small table's refresh finishes inside that window, so the lock is never contended. Nothing that runs today proves two real executions serialize. | §2.2 |
 | **A malformed message on a request DLQ** (SPEC-133 Phase 5; also discharges SPEC-126's) | The user is notified, the message is gone, and the redacted body is in `logs/service=dlq-drain/`. Nothing in the app can send a malformed request. | §2.2 |
+| **The file-operations plane, end to end** (SPEC-187) — a valid request reaching the placeholder terminal, an unauthorized source notifying the ACTOR rather than the body's claim, each protected-location rule refusing PER ITEM while the ordinary item beside it proceeds, and the space root refused outright | Nothing in the browser reaches this plane: the enqueue service exists and no gesture calls it until SPEC-190. Every check is a hand-crafted envelope. And a shared layer's import-time failure only shows at COLD START, so no offline test can tell you a verb shipped without `focommon`. | [`fixtures/spec-187-file-ops-plane.sh`](fixtures/spec-187-file-ops-plane.sh) §1–5 |
+| **Two file operations in one space do not run at once** (SPEC-187 FR-009) | The obvious technique does not work and must not be re-derived: two submits seconds apart both return independently, because this machine does no work yet and the window is milliseconds — worse than the table-builder's equivalent, which is already recorded as unrunnable from the UI. Needs ONE `send-message-batch`, same group, distinct dedup ids. **The load-bearing assertion is the negative one**: while the first holds the lock there is no second execution operating on the space. | Script §6 |
+| **A wedged lock makes the waiter GIVE UP rather than time out** (SPEC-187 FR-009) | The give-up bound is deliberately well under the machine's ceiling, and nothing offline proves the inequality holds in a real run — a bare `TIMED_OUT` instead of the refusal would mean it has been broken. The wedged holder must be a DEAD execution: a live waiter re-claims its own lock every attempt and so refreshes `acquiredAt`, and would never be stolen. | Script §7 |
+| **A cross-space move takes TWO locks and releases both** (SPEC-187 FR-009) | Needs a shared space the acting user belongs to. Without the destination lock, a concurrent delete in that space runs alongside the move — which is this FR's own failure mode on the side the group id does not cover. | Script §8 |
 | **The archive/restore negative assertion** — for a refused restore, **no** `RestoreObject` for that archive id | A refusal that had already begun retrieval is invisible from the UI and costs 3–5 billed hours. Read the audit trail, never `head-object`. | §2.4 |
 | **The vault prefix is swept after a restore** (SPEC-171 FR-005) | Nothing human can read `dat-prod-archive`, and the browser sees only the receipt folder, which survives by design. `aws s3api list-objects-v2 --bucket dat-prod-archive --prefix "personal/$USERNAME/archive/$ARCHIVE_ID/" --max-keys 5` → **`KeyCount: 0`**, `_manifest.json` included. Needs a principal on that bucket's allowlist, which no human identity is. | — |
 | **`head-object` on user-space or archive** — restored objects back at `STANDARD`, content type survived, byte-identical | The laptop identity is explicitly denied on both buckets, and the UI cannot show a storage class. | — |
@@ -140,7 +144,7 @@ Afterwards, both markers are still present (they are hidden in the portal, so co
 ### 2.2 Hand-crafted control-plane requests
 
 The only way to stage a malformed request, or two executions that genuinely contend. Every plane
-takes one FIFO queue — **but the token field is NOT the same on all six**, and the wrong one is
+takes one FIFO queue — **but the token field is NOT the same on all seven**, and the wrong one is
 refused at the front door in a way that reads exactly like the check failing.
 
 | Plane | Queue | Token field |
@@ -151,10 +155,11 @@ refused at the front door in a way that reads exactly like the check failing.
 | Table share | `dat-prod-table-share-requests.fifo` | `actor` (flat, raw) |
 | File send | `dat-prod-file-send-requests.fifo` | `actor` (flat, raw) |
 | Archive / restore | `dat-prod-archive-requests.fifo` | `actor` (flat, raw) |
+| File operations | `dat-prod-file-ops-requests.fifo` | `actor` (flat, raw) |
 
-On the three `actor` planes the value is the **raw** token at the top level — never
+On the four `actor` planes the value is the **raw** token at the top level — never
 `{"idToken": …}`, which the front door refuses, and which SPEC-126's drain would write to
-CloudWatch while notifying nobody. Verified against the six `validate-authorize` handlers.
+CloudWatch while notifying nobody. Verified against the seven `validate-authorize` handlers.
 
 ```bash
 QUEUE=$(aws sqs get-queue-url --queue-name dat-prod-table-builder-requests.fifo --query QueueUrl --output text)
