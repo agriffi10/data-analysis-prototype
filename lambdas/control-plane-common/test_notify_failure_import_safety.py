@@ -51,7 +51,6 @@ import pytest
 
 LAYER_ROOT = pathlib.Path(__file__).resolve().parent
 LAMBDAS = LAYER_ROOT.parent
-WORKFLOW = LAMBDAS.parent / ".github" / "workflows" / "deploy-lambdas.yml"
 #: The deploy table the shard jobs read. It moved out of the workflow's `strategy.matrix`
 #: when the per-function jobs were sharded for Actions cost; `test_deploy_matrix.py` reads
 #: the same file, and the two must not drift back to different sources.

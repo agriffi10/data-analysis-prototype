@@ -18,9 +18,23 @@ on:
   # That is not hypothetical — #320 bumped every action in the repo off the EOL node20
   # runtime, and this file's eight `configure-aws-credentials` call sites went to main
   # completely unexercised, because changing a workflow is not changing `lambdas/**`.
+  #
+  # The two JSON tables and the two scripts are in the filter for exactly that reason,
+  # and the reason is stronger for them than for the workflow: this workflow's real
+  # behaviour now lives in them. Editing lambda-functions.json is how a function is
+  # added or its layers changed, and editing lambda-layers.json is how a layer's
+  # contents change — both of which must deploy, and neither of which touches
+  # `lambdas/**`. Without these entries a merge that only re-points a layer would go to
+  # main having deployed nothing, and the next unrelated lambdas/ push would carry it.
   push:
     branches: [main]
-    paths: ['lambdas/**', '.github/workflows/deploy-lambdas.yml']
+    paths:
+      - 'lambdas/**'
+      - '.github/workflows/deploy-lambdas.yml'
+      - '.github/lambda-functions.json'
+      - '.github/lambda-layers.json'
+      - '.github/scripts/deploy-lambda.sh'
+      - '.github/scripts/build-layer.sh'
   workflow_dispatch:
 
 # Resource names are derived deterministically from the same project/environment
@@ -38,6 +52,12 @@ env:
 # `cancel-in-progress: false` is deliberate and is not the cost setting: cancelling a
 # deploy mid-shard leaves some functions on the new code and some on the old, which is
 # the one outcome worse than waiting. The cost fix here is the sharding below.
+#
+# Known consequence, so nobody diagnoses it as a fault: GitHub holds at most ONE pending
+# run per group, so three merges in quick succession evict the middle one as `cancelled`.
+# That is benign here — the third run's commit is a superset of the second's — but it
+# does put a cancelled Deploy Lambdas run on main, which the project's "always confirm
+# main went green" rule would otherwise send someone chasing.
 concurrency:
   group: deploy-lambdas
   cancel-in-progress: false
@@ -160,7 +180,17 @@ jobs:
   deploy:
     needs: [layers]
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Sized against a SHARD, not a function, which is the change sharding makes to this
+    # number. Thirteen functions at ~20s each is ~4.5 min; the infra race adds up to 5
+    # min ONCE (the first function waits for Deploy Infrastructure, the rest find it
+    # already there), so ~10 min is the realistic worst case and this is 3x it.
+    #
+    # Deliberately NOT the pathological sum. Each function can in principle spend 5 min
+    # in the get-function loop plus three `aws lambda wait` calls at up to 5 min each,
+    # which across thirteen functions is hours — but that only happens when Lambda's API
+    # is degraded, where failing the shard is the correct outcome and burning three
+    # billed hours to discover it is not.
+    timeout-minutes: 30
     permissions:
       id-token: write
       contents: read

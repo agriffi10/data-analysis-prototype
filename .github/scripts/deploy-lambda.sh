@@ -28,13 +28,37 @@ BUILD_DIR="build/${NAME}"
 FUNCTION="${PROJECT_NAME}-${ENVIRONMENT}-${NAME}"
 KEY="${NAME}/${GITHUB_SHA}.zip"
 
-# The layer flags this function attaches, in the JSON's own order.
+# The function's row. Read as a whole first so that "not in the table" and "in the table
+# with no layers" are distinguishable — they have the same empty output but very
+# different meanings, and one of them must never be survivable.
+#
+# `jq` runs in a COMMAND SUBSTITUTION, not a process substitution: `set -e` does not
+# cover the exit status of `< <(...)`, so a jq failure there is silently swallowed and
+# the loop simply reads nothing. Empty FLAGS then sends this script down the
+# bundle-requirements branch AND leaves LAYERS empty, so the layer attachment is skipped
+# whole — new code, no layers, exit 0. That is SPEC-137 verbatim, reached from a
+# malformed table instead of a missing flag.
+if ! ENTRY=$(jq -ce --arg n "$NAME" '.[] | select(.name==$n)' "$FUNCTIONS_JSON"); then
+  echo "::error::${NAME} has no row in ${FUNCTIONS_JSON} (or the file is malformed) — refusing to deploy a function whose layer set is unknown."
+  exit 1
+fi
+
 # A read loop rather than `mapfile`, which is bash 4+: the runner has bash 5, but this
 # script is worth being able to dry-run on a Mac (bash 3.2) before pushing it.
 FLAGS=()
 while IFS= read -r flag; do
   [ -n "$flag" ] && FLAGS+=("$flag")
-done < <(jq -r --arg n "$NAME" '.[] | select(.name==$n) | .layers[]' "$FUNCTIONS_JSON")
+done <<<"$(jq -r '.layers[]? // empty' <<<"$ENTRY")"
+
+# Every function in this fleet attaches at least cpcommon, so an empty set is a bug in
+# the table, not a valid configuration. Refused rather than tolerated because the
+# consequence — a function deployed with no layer — is invisible until cold start. A
+# function that genuinely needs no layer should fail here and have this rule revisited
+# deliberately, which is the whole point of an ACCEPTED tripwire.
+if [ "${#FLAGS[@]}" -eq 0 ]; then
+  echo "::error::${NAME} resolves to NO layers. Every function in this fleet attaches at least one, so this is a malformed table rather than a valid row — refusing rather than deploying code that cannot import at cold start."
+  exit 1
+fi
 
 has() {
   local f

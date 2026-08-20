@@ -30,6 +30,8 @@ import ast
 import json
 import pathlib
 import re
+import shutil
+import subprocess
 
 import pytest
 
@@ -42,6 +44,9 @@ FUNCTIONS = LAMBDAS.parent / ".github" / "lambda-functions.json"
 #: the same rounding reason as the deploy matrix; the per-layer build differences turned out
 #: to be three shapes over this table.
 LAYERS = LAMBDAS.parent / ".github" / "lambda-layers.json"
+#: The script that attaches layers, whose hardcoded order is the one that actually reaches
+#: `update-function-configuration`.
+DEPLOY_SCRIPT = LAMBDAS.parent / ".github" / "scripts" / "deploy-lambda.sh"
 
 #: Top-level package (or flat module) name → the matrix flag whose layer provides it.
 #:
@@ -292,7 +297,7 @@ def test_every_lambda_directory_is_in_the_deploy_matrix(name):
     """A function with code and no matrix row is never deployed at all — the quietest failure
     of the set, because everything about it looks finished.
     """
-    assert name in MATRIX, f"lambdas/{name}/ has a handler but no row in {WORKFLOW.name}"
+    assert name in MATRIX, f"lambdas/{name}/ has a handler but no row in {FUNCTIONS.name}"
 
 
 @pytest.mark.parametrize("name", _DIR_IDS)
@@ -319,7 +324,7 @@ def test_every_imported_layer_package_is_attached(name):
             missing.append(f"{root} (needs `{flag}: true`)")
 
     assert not missing, (
-        f"lambdas/{name}/ imports {', '.join(missing)} but its {WORKFLOW.name} row does not "
+        f"lambdas/{name}/ imports {', '.join(missing)} but its {FUNCTIONS.name} row does not "
         f"attach the layer — the function will raise ModuleNotFoundError at cold start"
     )
 
@@ -353,31 +358,60 @@ def test_the_shard_list_and_the_shard_count_agree():
     )
 
 
+def _shard_selection(shard, count):
+    """Run the WORKFLOW'S OWN jq filter for one shard and return the names it selects.
+
+    Re-implementing ``index % count == shard`` in Python here made the test tautological: it
+    asserted a fact about modular arithmetic, not about the deploy. Mutating the workflow's
+    filter to ``!= $s`` (every function deployed six times, concurrently) or pinning
+    ``SHARD: 0`` (sixty functions never deployed) both left it green. Extracting the real
+    filter and the real shard binding is what makes the two assertions below reachable.
+    """
+    text = WORKFLOW.read_text()
+    match = re.search(r"jq -r --argjson s \"\$SHARD\" --argjson n \"\$SHARD_COUNT\" \\\n\s*'([^']+)'", text)
+    assert match, "could not extract the shard jq filter from the workflow"
+    binding = re.search(r"^\s*SHARD:\s*(.+?)\s*$", text, re.MULTILINE)
+    assert binding, "could not find the SHARD binding in the workflow"
+    assert binding.group(1) == "${{ matrix.shard }}", (
+        f"SHARD is bound to {binding.group(1)!r}, not the matrix value — every shard job "
+        f"would select the same slice, so most functions are never deployed"
+    )
+    jq = shutil.which("jq")
+    assert jq, "jq is not on PATH — the workflow's own shard filter cannot be evaluated"
+    out = subprocess.run(  # noqa: S603
+        [jq, "-r", "--argjson", "s", str(shard), "--argjson", "n", str(count),
+         match.group(1), str(FUNCTIONS)],
+        capture_output=True, text=True, check=True,
+    )
+    return out.stdout.split()
+
+
 def test_every_function_lands_in_exactly_one_shard():
     """The sharded deploy must be a COVERING PARTITION of the table.
 
     Under one job per function this was true by construction. Sharding makes it an expression
     that can be wrong in two directions, both of them quiet: a function in no shard is never
-    deployed (the same silent failure ``test_every_lambda_directory_is_in_the_deploy_matrix``
-    exists for), and a function in two shards is deployed twice concurrently, which races
+    deployed, and a function in two shards is deployed twice concurrently, which races
     ``update-function-code`` against ``update-function-configuration`` on one function.
 
-    Mirrors the workflow's own ``to_entries[] | select(.key % $n == $s)`` against the shards the
-    matrix ACTUALLY lists, so an unlisted remainder shows up here as unplaced functions.
+    Runs the workflow's own filter through ``jq`` rather than restating it, so both of those
+    are actually reachable from here.
     """
     names = [entry["name"] for entry in json.loads(FUNCTIONS.read_text())]
     listed, count = _shard_config()
 
     placements = {}
     for shard in listed:
-        for index, name in enumerate(names):
-            if index % count == shard:
-                placements.setdefault(name, []).append(shard)
+        for name in _shard_selection(shard, count):
+            placements.setdefault(name, []).append(shard)
 
     unplaced = sorted(set(names) - set(placements))
     assert not unplaced, f"never deployed — in no shard: {unplaced}"
     duplicated = sorted(n for n, shards in placements.items() if len(shards) > 1)
     assert not duplicated, f"deployed concurrently by two shards: {duplicated}"
+    assert set(placements) == set(names), (
+        f"the shard filter selected names not in the table: {sorted(set(placements) - set(names))}"
+    )
 
 
 def test_the_deploy_table_has_no_duplicate_names():
@@ -389,3 +423,92 @@ def test_the_deploy_table_has_no_duplicate_names():
     names = [entry["name"] for entry in json.loads(FUNCTIONS.read_text())]
     duplicated = sorted({n for n in names if names.count(n) > 1})
     assert not duplicated, f"duplicate rows in {FUNCTIONS.name}: {duplicated}"
+
+
+def test_the_deploy_workflow_triggers_on_everything_it_reads():
+    """A file the deploy reads but does not trigger on is a change that never deploys.
+
+    The workflow's behaviour moved out of the YAML and into two JSON tables and two shell
+    scripts. A merge that only re-points a layer, adds a function, or fixes the deploy script
+    touches none of ``lambdas/**`` — so without these in the path filter it reaches main having
+    deployed nothing, and the change rides silently on whatever unrelated push comes next.
+
+    This is the trap #320 hit from the other side: the workflow itself was added to the filter
+    after an action bump merged completely unexercised.
+    """
+    text = WORKFLOW.read_text()
+    trigger = text[: text.index("jobs:")]
+    required = [
+        "lambdas/**",
+        ".github/workflows/deploy-lambdas.yml",
+        ".github/lambda-functions.json",
+        ".github/lambda-layers.json",
+        ".github/scripts/deploy-lambda.sh",
+        ".github/scripts/build-layer.sh",
+    ]
+    missing = [path for path in required if path not in trigger]
+    assert not missing, (
+        f"{WORKFLOW.name}'s push path filter does not name {missing} — a change to those "
+        f"deploys nothing and goes green"
+    )
+
+
+def _attach_order():
+    """The layer order ``deploy-lambda.sh`` actually attaches in.
+
+    Extracted from the script rather than restated here: the whole point of this pair of
+    tests is that the order in the script is the one that reaches AWS, so a copy in the test
+    would let the two drift while both looked right.
+    """
+    match = re.search(r"^for flag in ((?:\w+ ?)+); do$", DEPLOY_SCRIPT.read_text(), re.MULTILINE)
+    assert match, "no literal attach-order loop found in deploy-lambda.sh"
+    return match.group(1).split()
+
+
+def test_the_attach_order_is_the_layer_table_order():
+    """Layer order is load-bearing and was previously asserted only in a comment.
+
+    Layers land on ``/opt`` in the order given and a later one shadows an earlier one's
+    modules — and ``cpcommon``, ``polars`` and ``dqpolars`` all pip-install into the same
+    ``python/`` root, so a shared transitive dependency at two versions is decided by exactly
+    this order.
+
+    Holding the script's literal loop equal to the table's order is what lets the loop be
+    rewritten as ``for flag in "${FLAGS[@]}"`` — an obvious-looking simplification, since the
+    same script already iterates ``FLAGS`` for the size guard — without silently changing
+    which version of a shared dependency wins. Before the function rows were normalised, 17 of
+    them stored their layers in the opposite order, so that refactor would NOT have been a
+    no-op.
+    """
+    assert _attach_order() == [entry["flag"] for entry in json.loads(LAYERS.read_text())], (
+        "deploy-lambda.sh's attach order and the layer table disagree — one of them changed "
+        "without the other, and layer shadowing on /opt follows the script"
+    )
+
+
+def test_every_function_stores_its_layers_in_attach_order():
+    """The stored order and the attach order must be the same list.
+
+    They are two independent orderings over the same set, and nothing forces them to agree.
+    Keeping them identical is what makes the distinction unable to matter — and makes the
+    `FLAGS`-order refactor above provably safe rather than merely currently harmless.
+    """
+    order = _attach_order()
+    wrong = {
+        entry["name"]: entry["layers"]
+        for entry in json.loads(FUNCTIONS.read_text())
+        if entry["layers"] != [flag for flag in order if flag in entry["layers"]]
+    }
+    assert not wrong, f"stored out of attach order: {wrong}"
+
+
+def test_no_function_row_has_an_empty_layer_set():
+    """Offline mirror of deploy-lambda.sh's runtime refusal.
+
+    Every function in this fleet attaches at least cpcommon. An empty set sends the deploy
+    down the bundle-requirements branch AND skips the layer attachment whole, so the function
+    ships with no layer and the run goes green — SPEC-137, reached from a malformed table.
+    Caught here, it costs nothing; caught at cold start, it broke real signups.
+    """
+    empty = [e["name"] for e in json.loads(FUNCTIONS.read_text()) if not e["layers"]]
+    assert not empty, f"functions with no layers: {empty}"

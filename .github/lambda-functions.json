@@ -305,22 +305,22 @@
   {
     "name": "archive-validate-authorize",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
     "name": "archive-inspect-source",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
     "name": "archive-build-transfer-manifest",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
@@ -332,99 +332,99 @@
   {
     "name": "archive-collect-transfer-results",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
     "name": "archive-rollback",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
     "name": "archive-write-manifest",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
     "name": "archive-delete-source",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
     "name": "archive-write-receipt",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
     "name": "archive-inspect-archive",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
     "name": "archive-check-destination-clear",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
     "name": "archive-build-restore-manifest",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
     "name": "archive-initiate-restore",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
     "name": "archive-poll-restore",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
     "name": "archive-delete-archived",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
     "name": "archive-update-receipt",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
     "name": "archive-notify",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
     "name": "archive-notify-failure",
     "layers": [
-      "arcommon",
-      "cpcommon"
+      "cpcommon",
+      "arcommon"
     ]
   },
   {
