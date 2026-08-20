@@ -523,3 +523,40 @@ def test_no_function_row_has_an_empty_layer_set():
     """
     empty = [e["name"] for e in json.loads(FUNCTIONS.read_text()) if not e["layers"]]
     assert not empty, f"functions with no layers: {empty}"
+
+
+def test_every_json_written_to_github_output_is_compact():
+    """A pretty-printed value breaks ``$GITHUB_OUTPUT``, and it breaks it LATE.
+
+    ``$GITHUB_OUTPUT`` is a ``key=value`` file, so a multi-line value fails the step with
+    "Invalid format". jq PRETTY-PRINTS BY DEFAULT, so the bug is an omitted ``-c`` — and it
+    surfaced only after all ten layers had already published new versions, because the write
+    is the last thing the step does. The deploy job then had no layer map at all.
+
+    Checks the shape rather than one instance: every ``jq`` whose result reaches
+    ``$GITHUB_OUTPUT`` must be compact.
+    """
+    text = WORKFLOW.read_text()
+
+    # Assignments whose value comes from jq and are later written to $GITHUB_OUTPUT.
+    written = set(re.findall(r"printf\s+'(\w+)=", text))
+    assert written, "no $GITHUB_OUTPUT writes found — did the workflow change?"
+
+    offenders = []
+    for name in sorted(written):
+        # `printf 'x=%s' "$FOO"` — find what FOO was assigned from, if it was a jq call.
+        for match in re.finditer(rf"^\s*{name.upper()}=\$\(.*?\bjq\b(?P<flags>[^']*)'", text,
+                                 re.MULTILINE | re.DOTALL):
+            if "c" not in match.group("flags").replace("--", ""):
+                offenders.append(name)
+
+    # The map is built into MAP and written as `layers=`; check it by name too, since the
+    # assignment and the write use different identifiers.
+    for var in re.findall(r"^\s*(\w+)=\$\(printf[^\n]*\|\s*jq\s+(-\S+)", text, re.MULTILINE):
+        if "c" not in var[1]:
+            offenders.append(var[0])
+
+    assert not offenders, (
+        f"jq output written to $GITHUB_OUTPUT without -c: {sorted(set(offenders))} — jq "
+        f"pretty-prints by default and a multi-line value fails the step with 'Invalid format'"
+    )

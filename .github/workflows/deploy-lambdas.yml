@@ -284,8 +284,11 @@ jobs:
             exit 1
           fi
 
-          # flag -> {arn, kb}, as one compact json value on one line.
-          MAP=$(printf '%s' "$RESULTS" | jq -Rn '
+          # flag -> {arn, kb}. `-c` is LOAD-BEARING, not tidiness: jq pretty-prints by
+          # default, and a multi-line value breaks $GITHUB_OUTPUT's `key=value` format with
+          # "Invalid format" — after every layer has already published. Guarded by
+          # lambdas/test_deploy_matrix.py.
+          MAP=$(printf '%s' "$RESULTS" | jq -cRn '
             [inputs | select(length > 0) | split("\t")
              | {key: .[0], value: {arn: .[1], kb: .[2]}}] | from_entries')
 
