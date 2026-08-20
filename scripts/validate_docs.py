@@ -23,6 +23,10 @@ Attributes:
     folds its script into ``e2e.md`` when it closes (``docs/process.md`` §5 step 8). Only a
     ``*-e2e.md`` name counts as one — a dated session file is refused on its name alone, and
     does not merely consume the slot, because the slot may be free.
+  FIXTURES_MAX_SCRIPTS: How many CLI check scripts ``docs/testing/fixtures/`` may hold. A
+    ratchet at the measured level, and the unit is the PLANE: four specs build one control
+    plane, and a script each would be four files sharing a token, a queue URL, a group digest
+    and an envelope builder. A spec that owes a CLI check adds a SECTION to its plane's script.
   CLAUDE_MAX_BYTES: The always-loaded file's budget. It was 121,098 bytes before the cut.
   DIGEST_MAX_CHARS: The longest a single Key Decisions line may be. The digest is a reminder
     with the reasoning in ``decisions.md``; past this length it has become the reasoning.
@@ -46,6 +50,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 TESTING_PERMANENT = frozenset({"e2e.md", "owed.md", "sessions.md"})
 TESTING_INFLIGHT_MAX = 1
+
+FIXTURES_MAX_SCRIPTS = 1
 CLAUDE_MAX_BYTES = 52_000
 DIGEST_MAX_CHARS = 900
 DELIVERY_MAX_LINES = 260
@@ -109,6 +115,47 @@ def check_testing_layout() -> list[str]:
             f"docs/testing/ holds {len(inflight)} arc scripts ({', '.join(inflight)}); "
             f"at most {TESTING_INFLIGHT_MAX} is allowed, and only while that arc is in flight. "
             "Fold a live check into e2e.md, or an unrunnable one into owed.md."
+        )
+    return errors
+
+
+def check_fixture_scripts() -> list[str]:
+    """Refuse a per-SPEC script in ``docs/testing/fixtures/``, and cap how many exist.
+
+    The directory holds the CLI checks a signed-in browser session cannot run. Its regrowth
+    pressure is the same one that took ``docs/testing/`` to sixteen files, arriving one spec at a
+    time: each spec in an arc owes a check, each check needs a token, a queue URL, a group digest
+    and an envelope, and copying the previous spec's script is the path of least resistance. Four
+    copies later the digest is computed four ways and only one of them is right.
+
+    So the unit is the PLANE. A spec adds a SECTION to its plane's script and points its
+    ``owed.md`` row at that section.
+
+    Args:
+      None.
+
+    Returns:
+      One message per offending file, plus one if the directory has grown, empty when it has not.
+
+    Raises:
+      None.
+    """
+    fixtures = ROOT / "docs" / "testing" / "fixtures"
+    if not fixtures.is_dir():
+        return []
+    scripts = sorted(p.name for p in fixtures.glob("*.sh"))
+    errors = [
+        f"docs/testing/fixtures/{name} is named after a SPEC. These scripts are per PLANE — four "
+        "specs build one plane, and a file each is four copies of one token read, one queue URL "
+        "and one group digest. Add a section to the plane's script and point the owed.md row at it."
+        for name in scripts
+        if re.match(r"spec-\d+", name)
+    ]
+    if len(scripts) > FIXTURES_MAX_SCRIPTS:
+        errors.append(
+            f"docs/testing/fixtures/ holds {len(scripts)} scripts ({', '.join(scripts)}) against a "
+            f"ratchet of {FIXTURES_MAX_SCRIPTS}. If a second PLANE genuinely needs one, raise the "
+            "ratchet in this file deliberately; do not let the directory grow a spec at a time."
         )
     return errors
 
@@ -419,6 +466,7 @@ def main() -> int:
     errors: list[str] = []
     for check in (
         check_testing_layout,
+        check_fixture_scripts,
         check_claude_budget,
         check_decisions_register,
         check_arcs,

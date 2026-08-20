@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
-# Live checks for the file-operations control plane's foundation.
+# Live checks for the file-operations control plane. ONE SCRIPT FOR THE PLANE, NOT ONE PER SPEC.
 #
-# WHY THIS IS A SCRIPT AND NOT A LIST OF STEPS IN e2e.md: nothing in the browser reaches this
-# plane yet. The enqueue service exists and no gesture calls it, so every check here is a
-# hand-crafted envelope on the CLI. Each one is also an `owed.md` row; running this is what
-# discharges them.
+# It is named for the plane deliberately. Four specs build this thing, and a script per spec would
+# be four files that share a token, a queue URL, a group digest and an envelope builder — the same
+# regrowth that took docs/testing/ to sixteen files of four genres. A spec that owes a CLI check
+# ADDS A SECTION HERE and points its owed.md row at that section; it does not add a file.
+# scripts/validate_docs.py refuses a spec-numbered name in this directory so the next session
+# cannot re-derive the other answer.
+#
+# WHY A SCRIPT AND NOT STEPS IN e2e.md: nothing in the browser reaches this plane yet. The enqueue
+# service exists and no gesture calls it, so every check here is a hand-crafted envelope on the
+# CLI. Each one is also an `owed.md` row; running this is what discharges them.
+#
+# WHEN IT GOES AWAY: the spec that gives the browser its async model makes most of this reachable
+# from a signed-in session. At that point the checks that can be driven from the UI move into
+# e2e.md's file-browser section and this file keeps only what a browser still cannot express.
 #
 # A SHARED LAYER'S IMPORT-TIME FAILURE ONLY SHOWS AT COLD START. Offline tests cannot see a verb
 # shipped without its layer — the fleet has an outage on record for exactly that — so these are
@@ -16,7 +26,7 @@
 #        JSON.parse(Object.entries(localStorage).find(([k]) => k.endsWith('.idToken'))[1])
 #      or, if Amplify stores it under a keyed entry:
 #        localStorage.getItem(Object.keys(localStorage).find(k => k.includes('idToken')))
-#   3. USERNAME=alice ./spec-187-file-ops-plane.sh
+#   3. USERNAME=alice ./file-ops-plane.sh
 #
 # The token is read, never minted: the plane verifies it offline against the pool's JWKS, and a
 # token this script forged would be refused at the front door in a way that reads exactly like the

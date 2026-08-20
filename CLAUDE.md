@@ -88,7 +88,7 @@ one.
   SPA and API, retiring CloudFront and the Identity Pool. Acceptance script:
   `docs/testing/arc-b-api-container-e2e.md`.
 
-Read the arc entry in `ARCS.md` before starting either; both carry settled decisions.
+Read the arc entry in `ARCS.md` first; both carry settled decisions.
 
 ### Live checks
 
@@ -235,8 +235,8 @@ silently checks nothing. CI now runs it too (#363). Watch every PR to completion
 4. If it added reusable services/hooks/components, add a one-line row to the `docs/component-inventory/<area>.md` **matching the component's path** — a `features/query/` row belongs in the query file, nowhere else (the router only gains a row if a whole new area appeared).
 5. A *new architectural decision* gets the full entry in `@docs/decisions.md` **first**, then **one line** in Key Decisions above — the digest line is **never the only home of a fact**, and never a paragraph. If it **supersedes an earlier decision**, add an in-place superseded marker (short blockquote) at every doc site still stating the old claim (`ARCS.md` arcs, architecture.md sections). Reasoning belongs in the spec/delivery doc.
 6. **Prune `## Specs` → Current work:** delete what the closed spec made stale. It tracks *only* what is live and undocumented elsewhere — never append a changelog; INDEX.md has status and `ARCS.md` has narrative.
-7. **Live checks fold into the one guide:** add the steps to the matching feature section of `@docs/testing/e2e.md` — **never a new per-spec or per-arc file**, which is how that directory grew to sixteen. A check that can't be run from a signed-in browser session becomes a row in `@docs/testing/owed.md` saying why and what it would take.
-8. **User-facing docs sweep:** if the spec changed anything a user can see, update the in-app **Help & guides** content (`apps/portal/src/features/help/helpContent.ts`, SPEC-074) and any onboarding copy — add a guide for a newly-shipped feature, fix steps/labels for a changed flow, delete a removed one. Document only what's shipped + wired end-to-end (SPEC-074 FR-005). If nothing user-facing changed, note that and skip.
+7. **Live checks fold into the one guide:** add the steps to the matching feature section of `@docs/testing/e2e.md` — **never a new per-spec or per-arc file**, which is how that directory grew to sixteen. A check that can't be run from a signed-in session becomes a row in `@docs/testing/owed.md`; a CLI script it needs is named for the **plane**, never the spec — add a section to that plane's.
+8. **User-facing docs sweep:** if the spec changed anything a user can see, update the in-app **Help & guides** content (`apps/portal/src/features/help/helpContent.ts`, SPEC-074) and any onboarding copy — add a guide for a shipped feature, fix a changed flow's steps, delete a removed one. Document only what's shipped + wired end-to-end. If nothing user-facing changed, note that and skip.
 
 **Doc-size guardrail:** `CLAUDE.md` is the always-loaded file — if an edit pushes a section past a
 few lines, the detail belongs in a `docs/` file behind a pointer. Same for `INDEX.md` (status rows
