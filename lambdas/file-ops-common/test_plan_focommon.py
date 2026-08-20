@@ -223,6 +223,64 @@ def test_a_plan_that_is_not_json_is_refused():
     assert err.value.reason == "plan_unreadable"
 
 
+def test_a_plan_that_is_not_an_OBJECT_is_refused():
+    """A JSON array parses, and every ``.get`` on it would raise inside the verb rather than here."""
+    _install({"file-ops/req-1/plan.json": b"[1, 2]"})
+
+    with pytest.raises(TerminalError) as err:
+        plan.load("file-ops/req-1/plan.json", _request())
+
+    assert err.value.reason == "plan_unreadable"
+
+
+def test_a_deterministic_read_fault_is_a_terminal_rather_than_an_absent_plan():
+    """A 403 on the plan key is not "there is no plan" — reading it as one would have the verb behave
+    as though the expansion had never run."""
+    _install({"file-ops/req-1/plan.json": _S3Error("AccessDenied", 403)})
+
+    with pytest.raises(TerminalError) as err:
+        plan.load("file-ops/req-1/plan.json", _request())
+
+    assert err.value.reason == "plan_unreadable"
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        {"items": "not a list"},
+        {"items": [{"itemKey": "alice/a/"}]},
+        {"items": [{"objects": []}]},
+    ],
+)
+def test_a_plan_whose_ITEMS_lost_their_shape_is_refused(damage):
+    """Each of these is a shape a later verb would read straight past: an item with no object list
+    plans nothing, and one with no key attributes its outcome to nobody."""
+    fake = _install()
+    key = _write(fake)
+    body = json.loads(fake.objects[key])
+    body.update(damage)
+    fake.objects[key] = json.dumps(body).encode()
+
+    with pytest.raises(TerminalError) as err:
+        plan.load(key, _request())
+
+    assert err.value.reason == "plan_unreadable"
+
+
+def test_a_write_fault_that_is_retryable_stays_retryable():
+    """The key is a pure function of the request id and the verb is read-only besides this write, so
+    a retry is safe — but only if the fault is one the machine's Retry recognises."""
+
+    class _Failing(_FakeS3):
+        def put_object(self, Bucket, Key, Body, ContentType):
+            raise _S3Error("SlowDown", 503)
+
+    clients._s3 = _Failing()
+
+    with pytest.raises(TransientError):
+        _write(clients._s3)
+
+
 @pytest.mark.parametrize(
     "field,value",
     [
@@ -240,6 +298,25 @@ def test_a_plan_describing_a_different_run_is_refused(field, value):
     body[field] = value
     if field == "objectCount":
         body["items"][0]["objects"].extend([{"srcKey": "x"}] * 98)
+    fake.objects[key] = json.dumps(body).encode()
+
+    with pytest.raises(TerminalError) as err:
+        plan.load(key, _request())
+
+    assert err.value.reason == "plan_superseded"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [("bucket", "shared-bkt"), ("root", "bob/")],
+)
+def test_a_plan_naming_a_different_SOURCE_is_refused(field, value):
+    """The deletion this plane will eventually do is scoped to the plan's own root, in whichever
+    space bucket — so a plan describing another one is the shape that deletes the wrong thing."""
+    fake = _install()
+    key = _write(fake)
+    body = json.loads(fake.objects[key])
+    body["source"][field] = value
     fake.objects[key] = json.dumps(body).encode()
 
     with pytest.raises(TerminalError) as err:

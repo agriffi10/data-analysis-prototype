@@ -1,9 +1,13 @@
 """Paginated S3 listing, the size of one named object, and the shared rules for what counts
 as a data object.
 
-The two reads sit together because every plane that expands a selection into a copy plan needs
-both: ``list_data_objects`` for a folder item and ``object_size`` for a file item, which costs
-its own serial ``HeadObject``.
+The reads sit together because every plane that expands a selection into a copy plan needs them:
+a listing for a folder item and a head for a file item, which costs its own serial ``HeadObject``.
+
+``list_data_records`` is the paginator; ``list_data_objects`` is that function projected onto the
+``(key, size)`` pairs most callers read. There is one place that pages, and the projection exists
+so that a plane needing the ETag — to make a later write or delete conditional on the object not
+having changed — does not have to fork the pagination to get a field the response already carried.
 
 The single source of the ignore rules for every control plane's source listing: the prefix
 marker, the results and settings sub-trees, zero-byte placeholders, and hidden or partial

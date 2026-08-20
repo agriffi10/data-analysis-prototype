@@ -99,8 +99,8 @@ _BODIES = {
     "source_missing": "one of those files is no longer there. Please refresh and try again.",
     "source_empty": "there was nothing inside it.",
     "destination_occupied": (
-        "something is already there: {sample}. There may be more. Please clear those out of the "
-        "way, or choose a different destination."
+        "something is already in the way there. Please move what is there, or choose a different "
+        "destination."
     ),
     "plan_unreadable": "the working list for that could not be read back.",
     "plan_superseded": (

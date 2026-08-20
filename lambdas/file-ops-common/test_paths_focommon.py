@@ -186,12 +186,6 @@ def test_a_file_lands_as_a_file():
     assert paths.destination_key("alice/out/", "q1.csv", "", is_folder=False) == "alice/out/q1.csv"
 
 
-def test_the_layout_is_unaffected_by_the_sources_own_depth():
-    """Moving ``alice/deep/nested/q1.csv`` into ``alice/out/`` yields ``alice/out/q1.csv``, not a
-    rebuilt copy of the path it came from."""
-    assert paths.destination_key("alice/out/", "q1.csv", "", is_folder=False) == "alice/out/q1.csv"
-
-
 def test_the_destination_prefix_is_normalised_rather_than_trusted():
     assert paths.destination_key("alice/out", "r", "a.csv", is_folder=True) == "alice/out/r/a.csv"
 

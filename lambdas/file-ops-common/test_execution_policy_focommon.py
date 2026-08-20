@@ -127,7 +127,12 @@ def test_a_data_bucket_WRITE_is_denied_rather_than_merely_ungranted():
         if s["Effect"] == "Deny" and "user_space_bucket_arn/*" in json.dumps(s["Resource"])
     )
 
-    assert set(deny["Action"]) == {"s3:PutObject", "s3:DeleteObject"}
+    assert set(deny["Action"]) == {
+        "s3:Put*",
+        "s3:Delete*",
+        "s3:Restore*",
+        "s3:AbortMultipartUpload",
+    }, "the Deny is narrower than the claim made for it — every write verb, not two of them"
     assert "shared_space_bucket_arn/*" in json.dumps(deny["Resource"])
 
 

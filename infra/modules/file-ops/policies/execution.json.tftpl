@@ -56,8 +56,10 @@
       "Sid": "NoDataObjectWrite",
       "Effect": "Deny",
       "Action": [
-        "s3:PutObject",
-        "s3:DeleteObject"
+        "s3:Put*",
+        "s3:Delete*",
+        "s3:Restore*",
+        "s3:AbortMultipartUpload"
       ],
       "Resource": [
         "${user_space_bucket_arn}/*",

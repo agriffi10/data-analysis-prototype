@@ -43,6 +43,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from cpcommon import clients, errors, observability
+from cpcommon.errors import TerminalError
 from focommon import notify, outcomes, plan
 from focommon.config import (
     FILE_OPS_CONFLICT_SAMPLE,
@@ -74,30 +75,36 @@ def _status(err) -> int:
     return int((meta.get("ResponseMetadata") or {}).get("HTTPStatusCode") or 0)
 
 
-def _submitted_at(request: dict, loaded: dict) -> datetime | None:
+def _submitted_at(loaded: dict) -> datetime:
     """Returns the instant the overwrite predicate is measured against.
 
-    Taken from the PLAN rather than the state, because the plan is the object that knows which
-    request its destination keys were derived for — taking it off the state instead is the very
-    substitution the supersession check exists to catch.
+    **Taken from the PLAN and from nowhere else, with no fallback to the state.** The plan is the
+    object that knows which request its destination keys were derived for, and reading this off the
+    state instead is the very substitution the supersession check exists to catch — a fallback would
+    reintroduce it on exactly the runs where the two disagree.
+
+    **An unusable instant refuses the request rather than degrading the mode.** Falling back to
+    ``None`` would silently apply refuse semantics under an overwrite answer the user has already
+    confirmed, and — worse — would take the short-circuit that overwrite must never take, reporting
+    a partial sample as though the sweep had finished.
 
     Args:
-      request: The running request, used only when the plan carries no instant.
       loaded: The parsed plan.
 
     Returns:
-      The parsed instant, or None when there is none to parse.
+      The parsed instant, always time-zone aware.
 
     Raises:
-      None.
+      TerminalError: ``plan_unreadable`` when the plan names no usable submission time under an
+        overwrite answer.
     """
-    value = loaded.get("submittedAt") or request.get("submittedAt")
+    value = loaded.get("submittedAt")
     if not isinstance(value, str) or not value:
-        return None
+        raise TerminalError("plan_unreadable", "the plan names no submission time to overwrite from")
     try:
         parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None
+    except ValueError as err:
+        raise TerminalError("plan_unreadable", f"{value!r} is not an instant") from err
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
@@ -169,7 +176,9 @@ def _sample_path(key: str, root: str) -> str:
     return f"{path[:keep]}...{path[-keep:]}"
 
 
-def _collisions(bucket: str, dest_keys: list, submitted_at: datetime | None) -> tuple[list, bool]:
+def _collisions(
+    bucket: str, dest_keys: list, submitted_at: datetime | None
+) -> tuple[list, bool, int]:
     """Heads one item's destination keys and returns the ones that are occupied.
 
     **Under ``refuse`` it short-circuits on the round that fills the sample; under ``overwrite`` it
@@ -191,8 +200,10 @@ def _collisions(bucket: str, dest_keys: list, submitted_at: datetime | None) -> 
       submitted_at: The submission instant under ``overwrite``, or None under ``refuse``.
 
     Returns:
-      ``(occupied_keys, more)`` — the collisions found, and whether there may be more than the
-      caller will name.
+      ``(occupied_keys, more, checked)`` — the collisions found, whether there may be more than the
+      caller will name, and how many keys were actually headed. The last is reported rather than
+      inferred from the plan, because under the short-circuit those two numbers differ by three
+      orders of magnitude and the plan's is the one that is wrong.
 
     Raises:
       TransientError: On a throttle or 5xx from any head.
@@ -212,41 +223,45 @@ def _collisions(bucket: str, dest_keys: list, submitted_at: datetime | None) -> 
         return _occupied(bucket, key, submitted_at)
 
     found: list = []
+    checked = 0
     with ThreadPoolExecutor(max_workers=FILE_OPS_HEAD_CONCURRENCY) as pool:
         for start in range(0, len(dest_keys), FILE_OPS_HEAD_CONCURRENCY):
             batch = dest_keys[start : start + FILE_OPS_HEAD_CONCURRENCY]
             for key, occupied in zip(batch, pool.map(check, batch), strict=True):
                 if occupied:
                     found.append(key)
-            stopped = start + len(batch)
+            checked += len(batch)
             if submitted_at is None and len(found) >= FILE_OPS_CONFLICT_SAMPLE:
-                return found, stopped < len(dest_keys)
-    return found, False
+                return found, checked < len(dest_keys), checked
+    return found, False, checked
 
 
-def _guard(loaded: dict, request: dict) -> list:
+def _guard(loaded: dict, request: dict) -> tuple[list, int]:
     """Decides every planned item's outcome against the destination.
 
     Args:
       loaded: The parsed plan, which holds the derived destination keys.
-      request: The running request.
+      request: The running request, which carries the destination root the sample is rendered
+        against.
 
     Returns:
-      One outcome record per planned item — the cleared ones unchanged, the conflicted ones
-      carrying a bounded sample.
+      ``(decided, checked)`` — one outcome record per planned item, the cleared ones unchanged and
+      the conflicted ones carrying a bounded sample, and how many keys were headed in total.
 
     Raises:
+      TerminalError: ``plan_unreadable`` when an overwrite answer has no usable instant behind it.
       TransientError: On a throttle or 5xx from any head.
     """
     destination = loaded.get("destination") or {}
     bucket = destination.get("bucket")
     root = (request.get("destination") or {}).get("root") or ""
-    submitted_at = _submitted_at(request, loaded) if loaded.get("onConflict") == "overwrite" else None
+    submitted_at = _submitted_at(loaded) if loaded.get("onConflict") == "overwrite" else None
 
-    decided = []
+    decided, checked = [], 0
     for item in loaded["items"]:
         dest_keys = [entry["destKey"] for entry in item["objects"] if entry.get("destKey")]
-        occupied, more = _collisions(bucket, dest_keys, submitted_at)
+        occupied, more, headed = _collisions(bucket, dest_keys, submitted_at)
+        checked += headed
         if not occupied:
             decided.append(outcomes.outcome(item["itemKey"], item["label"], outcomes.CLEARED))
             continue
@@ -261,7 +276,7 @@ def _guard(loaded: dict, request: dict) -> list:
                 more=more or len(occupied) > len(sample),
             )
         )
-    return decided
+    return decided, checked
 
 
 @observability.traced("check-destinations")
@@ -279,8 +294,8 @@ def handler(event, context) -> dict:
       context: The Lambda context, unused.
 
     Returns:
-      The request with the COMPLETE outcome list, conflicts included, and how many keys were
-      checked. Every item conflicting is an ordinary result reaching the ordinary terminal — there
+      The request with the COMPLETE outcome list, conflicts included, and how many destination keys
+      were actually headed. Every item conflicting is an ordinary result reaching the ordinary terminal — there
       is no whole-request refusal on this path.
 
     Raises:
@@ -306,12 +321,12 @@ def _check_destinations(event) -> dict:
     actor = (event.get("actor") or {}).get("username")
     loaded = plan.load(event.get("planKey"), event)
 
-    decided = _guard(loaded, event)
+    decided, checked = _guard(loaded, event)
     conflicted = [record for record in decided if record["outcome"] == outcomes.CONFLICT]
 
     logger.info(
         "checked %d destination(s) for %s: %d of %d item(s) conflicted",
-        loaded.get("objectCount"),
+        checked,
         actor,
         len(conflicted),
         len(decided),
@@ -323,10 +338,11 @@ def _check_destinations(event) -> dict:
         on_conflict=loaded.get("onConflict"),
         items=len(decided),
         objects=loaded.get("objectCount"),
+        checked=checked,
         conflicted=len(conflicted),
     )
     return {
         **event,
-        "checkedCount": loaded.get("objectCount"),
+        "checkedCount": checked,
         "outcomes": outcomes.carry_forward(event.get("outcomes"), decided),
     }

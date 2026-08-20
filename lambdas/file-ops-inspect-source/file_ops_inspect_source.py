@@ -30,6 +30,13 @@ Attributes:
     that reaches them from above. The rule is a deliberate SECOND one rather than a duplicate of
     the selection rule: that one anchors on the item the user named, and selecting an ANCESTOR is
     not covered by it. Different anchor, different question.
+
+    **It is defence in depth rather than a live rule, and saying so is the honest version.** The
+    only key that is a strict ancestor of these two is the space root, and the selection rules
+    refuse the space root as an item outright — so nothing the front door accepts reaches this
+    today. It is kept because the two rules close the ancestor class from opposite ends: that one
+    would have to be deleted for this one to matter, and a plane that swept a user's notification
+    inbox into a move would find out from the user.
 """
 
 import logging
@@ -53,6 +60,52 @@ logger.setLevel(logging.INFO)
 observability.init(service="file-ops")
 
 _PORTAL_MANAGED_FOLDERS = (ATHENA_RESULTS_FOLDER, USER_SETTINGS_FOLDER)
+
+_ABSENT_CODES = ("NoSuchKey", "404", "NotFound")
+
+
+def _status(err) -> int:
+    """Reads an S3 error's HTTP status, or 0 when it carries none.
+
+    Args:
+      err: The exception an S3 call raised.
+
+    Returns:
+      The HTTP status code, or 0.
+
+    Raises:
+      None.
+    """
+    meta = getattr(err, "response", None) or {}
+    return int((meta.get("ResponseMetadata") or {}).get("HTTPStatusCode") or 0)
+
+
+def _listed(bucket: str, key: str, ignore):
+    """Yields the listing's records, mapping a retryable S3 fault to one the machine retries.
+
+    **The shared paginator propagates a raw ``ClientError`` and says so**, because mapping it is the
+    caller's job — and this machine's ``Retry`` names ``TransientError``, not ``ClientError``. A
+    single throttle on page twelve of a twenty-page folder would otherwise be a permanent failure
+    for a fault that succeeds on the next attempt, on the largest folders, which are the ones this
+    plane exists for.
+
+    Args:
+      bucket: The source bucket.
+      key: The selected folder's key, which is the listing prefix.
+      ignore: This item's exclusion predicate.
+
+    Yields:
+      The listing's ``{"key", "size", "etag"}`` records.
+
+    Raises:
+      TransientError: On a throttle or 5xx.
+      ClientError: Any deterministic fault propagates.
+    """
+    try:
+        yield from s3_listing.list_data_records(bucket, key, ignore=ignore)
+    except Exception as err:
+        errors.raise_if_transient(err, f"list {bucket}/{key}")
+        raise
 
 
 def _excluder(root: str, item_key: str):
@@ -164,6 +217,12 @@ def _assert_no_overlap(items: list) -> None:
     A WHOLE-REQUEST refusal, because it is a property of the request rather than of an item:
     neither of the two is the wrong one, so there is no item to fail.
 
+    **It is asked of the WHOLE selection, before the items an earlier verb decided are dropped**,
+    for the same reason: an item can be decided and still be the container. A move of
+    ``saved_queries/`` and ``saved_queries/2026/`` has the parent refused as a protected folder and
+    the child untouched by any rule, so a check over the survivors alone would see one item and
+    move a subtree out of the folder whose own refusal exists to keep it where it is.
+
     Args:
       items: The collapsed selection.
 
@@ -191,6 +250,12 @@ def _head(bucket: str, key: str) -> tuple[int, str]:
     an ``int`` and discards the ETag from the very response that carried it, and it raises a
     WHOLE-REQUEST terminal where this plane owes a per-item outcome.
 
+    **ONLY A PROVEN ABSENCE IS "MISSING", and the distinction is the same one the destination guard
+    makes for the same reason.** A 403, a KMS refusal or a malformed request are all answers that the
+    object could not be READ, which is not the same statement as "it is no longer there" — and
+    reporting them as a per-item miss drops the file from the plan silently, moves everything else,
+    and tells the user a cause that is false. Anything but a 404 fails the whole request instead.
+
     Args:
       bucket: The source bucket.
       key: The selected file's key.
@@ -200,14 +265,17 @@ def _head(bucket: str, key: str) -> tuple[int, str]:
 
     Raises:
       TransientError: On a retryable S3 fault, so the caller's Retry re-runs the verb.
-      TerminalError: ``source_missing`` naming the key, which the caller catches and records
-        against the one item rather than the request.
+      TerminalError: ``source_missing`` naming the key when it is proven absent, which the caller
+        catches and records against the one item; ``forbidden`` for any other deterministic fault,
+        which fails the whole request.
     """
     try:
         head = clients.s3().head_object(Bucket=bucket, Key=key)
     except Exception as err:
         errors.raise_if_transient(err, f"head {bucket}/{key}")
-        raise TerminalError("source_missing", f"{key!r}: {err}") from err
+        if errors.error_code(err) in _ABSENT_CODES or _status(err) == 404:
+            raise TerminalError("source_missing", f"{key!r}: {err}") from err
+        raise TerminalError("forbidden", f"{key!r} could not be read: {err}") from err
     return int(head["ContentLength"]), head.get("ETag")
 
 
@@ -318,8 +386,9 @@ def _expand_item(
       ``(objects, total_bytes)`` for this item alone.
 
     Raises:
-      TerminalError: ``source_missing`` for an absent file, a cap reason, or ``forbidden`` for a
-        listed key that fails the re-check.
+      TerminalError: ``source_missing`` for an absent file, a cap reason, ``invalid_items`` when an
+        item's ``kind`` and its key disagree, or ``forbidden`` for a listed key that fails the
+        re-check.
       TransientError: On a retryable S3 fault.
     """
     bucket, root = source["bucket"], normalize_root(source["root"])
@@ -328,12 +397,14 @@ def _expand_item(
     total_bytes = 0
 
     if item["kind"] == "file":
+        if key.endswith("/"):
+            raise TerminalError("invalid_items", f"{key!r} is named as a file but is a folder key")
         size, etag = _head(bucket, key)
-        records = [({"key": key, "size": size, "etag": etag}, "")]
+        records = iter([({"key": key, "size": size, "etag": etag}, "")])
     else:
         records = (
             (record, paths.relative_key(key, assert_inside_root(root, record["key"])))
-            for record in s3_listing.list_data_records(bucket, key, ignore=_excluder(root, key))
+            for record in _listed(bucket, key, _excluder(root, key))
         )
 
     for record, rel_key in records:
@@ -447,8 +518,9 @@ def _inspect_source(event) -> dict:
     execution_arn = (event.get("execution") or {}).get("arn")
 
     already = outcomes.decided_keys(event.get("outcomes"))
-    items = _collapse([item for item in source["items"] if item["key"] not in already])
-    _assert_no_overlap(items)
+    selection = _collapse(source["items"])
+    _assert_no_overlap(selection)
+    items = [item for item in selection if item["key"] not in already]
 
     plan_items, decided = _expand(event, items)
     plan.assert_request_id_unused(event, execution_arn)

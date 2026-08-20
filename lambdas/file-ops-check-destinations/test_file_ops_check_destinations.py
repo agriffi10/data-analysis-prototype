@@ -31,6 +31,10 @@ from focommon import config, notify
 _EXECUTION = "arn:aws:states:us-east-1:1:execution:file-ops:run-1"
 _SUBMITTED = "2026-08-20T10:00:00+00:00"
 _BEFORE = datetime(2026, 8, 20, 9, 0, tzinfo=UTC)
+
+#: A head that answers without the field the overwrite predicate turns on. S3 always sends one, so
+#: this is the fail-closed branch rather than a case the API produces.
+_NO_LAST_MODIFIED = object()
 _AFTER = datetime(2026, 8, 20, 11, 0, tzinfo=UTC)
 
 
@@ -67,6 +71,8 @@ class _FakeS3:
             raise _S3Error("NoSuchKey", 404)
         if isinstance(answer, Exception):
             raise answer
+        if answer is _NO_LAST_MODIFIED:
+            return {"ContentLength": 1}
         return {"ContentLength": 1, "LastModified": answer}
 
 
@@ -155,7 +161,10 @@ def test_a_clear_item_is_cleared_and_every_key_was_actually_checked():
     result = m._check_destinations(_event())
 
     assert _outcome(result, "alice/reports/")["outcome"] == "cleared"
-    assert fake.heads == ["alice/out/reports/a", "alice/out/reports/b"]
+    # Sorted, because the heads are appended from inside the worker pool: the ORDER they land in is
+    # the scheduler's, and only `pool.map`'s results are ordered. What this asserts is coverage.
+    assert sorted(fake.heads) == ["alice/out/reports/a", "alice/out/reports/b"]
+    assert result["checkedCount"] == 2
 
 
 def test_one_item_conflicting_leaves_every_other_item_alone():
@@ -220,12 +229,32 @@ def test_a_403_counts_as_OCCUPIED():
     assert _outcome(result, "alice/a/")["outcome"] == "conflict"
 
 
-def test_a_403_conflicts_the_item_under_OVERWRITE_too():
-    """It yields no ``LastModified``, so it can never satisfy the predicate — and "an existing
-    object" must not be read as "the ones we could head"."""
+@pytest.mark.parametrize("on_conflict", ["refuse", "overwrite"])
+@pytest.mark.parametrize("fault", [_S3Error("AccessDenied", 403), _S3Error("InvalidRequest", 400)])
+def test_an_unreadable_destination_conflicts_the_item_in_BOTH_modes(fault, on_conflict):
+    """Only a proven 404 clears a key. Everything else — a 403, a malformed request, a KMS refusal —
+    is an answer about what could be READ, and "an existing object" must never be read as "the ones
+    we could head". Under ``overwrite`` the predicate is not even reached: there is no
+    ``LastModified`` to compare, so the item conflicts before the comparison rather than by failing
+    it, which is the one difference between this and an ordinary collision."""
     _install(
         [_item("alice/a/", "a", ["alice/out/a/x"])],
-        {"alice/out/a/x": _S3Error("AccessDenied", 403)},
+        {"alice/out/a/x": fault},
+        on_conflict=on_conflict,
+    )
+
+    result = m._check_destinations(_event(on_conflict=on_conflict))
+
+    assert _outcome(result, "alice/a/")["outcome"] == "conflict"
+
+
+def test_a_destination_with_no_LastModified_conflicts_under_OVERWRITE():
+    """S3 always returns one; a response that did not would leave the predicate with nothing to
+    compare, and the fallback has to be the occupied one. This is the fail-closed branch, and it is
+    unreachable through the API on purpose — which is exactly why it needs a test."""
+    _install(
+        [_item("alice/a/", "a", ["alice/out/a/x"])],
+        {"alice/out/a/x": _NO_LAST_MODIFIED},
         on_conflict="overwrite",
     )
 
@@ -234,16 +263,34 @@ def test_a_403_conflicts_the_item_under_OVERWRITE_too():
     assert _outcome(result, "alice/a/")["outcome"] == "conflict"
 
 
-def test_a_head_fault_that_is_neither_404_nor_403_refuses_the_item():
-    """It never falls through to clear."""
+def test_a_naive_LastModified_is_compared_as_UTC_rather_than_raising():
+    """Comparing an aware instant with a naive one is a ``TypeError``, raised inside a worker while
+    the guard is deciding whether to overwrite somebody's file."""
     _install(
         [_item("alice/a/", "a", ["alice/out/a/x"])],
-        {"alice/out/a/x": _S3Error("InvalidRequest", 400)},
+        {"alice/out/a/x": datetime(2026, 8, 20, 9, 0)},  # noqa: DTZ001 - naive IS the case
+        on_conflict="overwrite",
     )
 
-    result = m._check_destinations(_event())
+    result = m._check_destinations(_event(on_conflict="overwrite"))
 
-    assert _outcome(result, "alice/a/")["outcome"] == "conflict"
+    assert _outcome(result, "alice/a/")["outcome"] == "cleared"
+
+
+@pytest.mark.parametrize("value", [None, "not-an-instant"])
+def test_an_OVERWRITE_whose_plan_names_no_usable_instant_refuses_the_request(value):
+    """Degrading to refuse semantics would apply a rule the user did not choose, and — worse — would
+    take the short-circuit that overwrite must never take, reporting a partial sample as though the
+    sweep had finished."""
+    fake = _install(
+        [_item("alice/a/", "a", ["alice/out/a/x"])], {}, on_conflict="overwrite"
+    )
+    fake._plan["submittedAt"] = value
+
+    with pytest.raises(TerminalError) as err:
+        m._check_destinations(_event(on_conflict="overwrite"))
+
+    assert err.value.reason == "plan_unreadable"
 
 
 def test_a_throttle_retries_the_whole_verb_rather_than_clearing_anything():
@@ -303,10 +350,15 @@ def test_overwrite_CANNOT_short_circuit():
     assert len(fake.heads) == len(keys)
 
 
-def test_the_submission_time_is_read_from_the_PLAN_not_the_state():
+def test_the_submission_time_is_read_from_the_PLAN_with_no_fallback_to_the_state():
     """The plan is the object that knows which request its destination keys were derived for, and
     taking the instant off the state instead is the substitution the supersession check exists to
-    catch."""
+    catch — which nothing else closes, because the plan's own identity check does not compare it.
+
+    Asserted by making the two DISAGREE: the state says the request was submitted at 10:00 and the
+    plan says 23:00, and the destination was modified at 11:00. Reading the state would conflict the
+    item; reading the plan clears it.
+    """
     fake = _install(
         [_item("alice/a/", "a", ["alice/out/a/x"])],
         {"alice/out/a/x": _AFTER},
@@ -347,6 +399,20 @@ def test_the_short_circuit_survives_a_fixture_whose_collisions_INTERLEAVE():
 
     assert len(record["sample"]) == config.FILE_OPS_CONFLICT_SAMPLE
     assert len(fake.heads) < len(keys), "the sweep did not stop once the sample was full"
+
+
+def test_the_checked_count_is_what_was_HEADED_rather_than_what_was_planned():
+    """The short-circuit means the two differ by orders of magnitude, and the plan's number is the
+    one that is wrong: a 40-key item that collides on the first round would report forty checks
+    after eight, onto a state a later verb reads and into the only operator view of the work done.
+    """
+    keys = [f"alice/out/a/{n:03d}" for n in range(40)]
+    _install([_item("alice/a/", "a", keys)], dict.fromkeys(keys, _BEFORE))
+
+    result = m._check_destinations(_event())
+
+    assert result["checkedCount"] == config.FILE_OPS_HEAD_CONCURRENCY
+    assert result["checkedCount"] < 40
 
 
 def test_a_pathological_path_is_shortened_from_the_MIDDLE():
@@ -436,6 +502,16 @@ def test_a_cleared_item_stays_where_it_was_in_the_list():
     result = m._check_destinations(_event(outcomes=incoming))
 
     assert [o["itemKey"] for o in result["outcomes"]] == ["alice/a/", "alice/b/"]
+
+
+def test_the_handler_runs_the_whole_decorated_stack():
+    """Every other test calls the orchestration directly, so without this the tracing and
+    failure-notification decorators the handler's docstring argues about are never executed."""
+    _install([_item("alice/a/", "a", ["alice/out/a/x"])], {})
+
+    result = m.handler(_event(), None)
+
+    assert _outcome(result, "alice/a/")["outcome"] == "cleared"
 
 
 if __name__ == "__main__":

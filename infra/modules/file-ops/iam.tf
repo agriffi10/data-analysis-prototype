@@ -47,6 +47,12 @@
 # from them. The spec that adds the transfer removes this Deny deliberately, which is a
 # review a widened Allow would never have had.
 #
+# ITS ACTIONS ARE WILDCARDS ON PURPOSE, which is the opposite of the rule for an Allow. Naming
+# PutObject and DeleteObject alone would leave PutObjectAcl, PutObjectTagging,
+# DeleteObjectVersion and AbortMultipartUpload outside a statement whose whole claim is that
+# this role changes nothing in a user's space — and a Deny that is narrower than its own
+# comment is worse than no Deny, because it is read as covering the case it misses.
+#
 # NoLockDelete is a Deny, present from the first apply. The lock releases by OVERWRITING,
 # never by deleting, so that "free" is a STATE of the object rather than its absence and a
 # stolen lock stays detectable by compare-and-set. Writing the Deny now makes that an

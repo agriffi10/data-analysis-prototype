@@ -24,7 +24,7 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 import file_ops_inspect_source as m
 import pytest
 from cpcommon import clients
-from cpcommon.errors import TerminalError
+from cpcommon.errors import TerminalError, TransientError
 from focommon import config, notify
 
 _EXECUTION = "arn:aws:states:us-east-1:1:execution:file-ops:run-1"
@@ -276,8 +276,13 @@ def test_the_default_ignore_predicate_is_NOT_the_one_this_plane_uses():
 
 def test_the_portal_managed_folders_are_swept_out_of_an_expansion_that_reaches_them_from_ABOVE():
     """The second anchor, and a deliberate second rule rather than a duplicate: the selection rules
-    anchor on the item the user named and none of them looks up. An ancestor sweeps the notification
-    inbox and the connections cache into a move."""
+    anchor on the item the user named and none of them looks up.
+
+    **The input is one the front door cannot produce, and that is the point rather than a flaw in
+    the test.** The only strict ancestor of these two folders is the space root, which the selection
+    rules refuse as an item — so this asserts the second half of a pair that closes the ancestor
+    class from both ends, and it is what would catch the day the first half was relaxed.
+    """
     fake = _install(
         {
             "alice/reports/a.csv": 1,
@@ -403,6 +408,95 @@ def test_a_missing_file_fails_ITS_ITEM_and_the_rest_proceed():
         ("alice/reports/", "cleared"),
     ]
     assert [item["itemKey"] for item in _plan(fake)["items"]] == ["alice/reports/"]
+
+
+def test_a_source_file_that_cannot_be_READ_fails_the_whole_request():
+    """Only a proven absence is "missing". A 403 or a KMS refusal reported as a per-item miss drops
+    the file from the plan silently, moves everything else, and tells the user a cause that is
+    false."""
+    _install({"alice/reports/a.csv": 1})
+    clients._s3._objects["alice/denied.csv"] = 1
+
+    class _Denied(type(clients._s3)):
+        def head_object(self, Bucket, Key):
+            raise _S3Error("AccessDenied", 403)
+
+    clients._s3.__class__ = _Denied
+
+    with pytest.raises(TerminalError) as err:
+        m._inspect_source(_event([{"kind": "file", "key": "alice/denied.csv"}]))
+
+    assert err.value.reason == "forbidden"
+
+
+def test_a_throttle_while_listing_is_RETRYABLE_rather_than_a_permanent_failure():
+    """The shared paginator propagates a raw ``ClientError`` and says mapping it is the caller's job;
+    this machine's Retry names ``TransientError``. One throttle on page twelve of a twenty-page
+    folder would otherwise permanently fail a request that succeeds on the next attempt — on the
+    largest folders, which are the ones this plane exists for."""
+    fake = _install({"alice/reports/a.csv": 1})
+
+    class _Throttled:
+        def paginate(self, Bucket, Prefix):
+            raise _S3Error("SlowDown", 503)
+            yield
+
+    fake.get_paginator = lambda name: _Throttled()
+
+    with pytest.raises(TransientError):
+        m._inspect_source(_event())
+
+
+def test_a_FILE_item_whose_key_names_a_folder_is_refused():
+    """The request's two fields disagree, and every rule downstream turns on which one is right: the
+    head succeeds against the folder's own zero-byte placeholder, and the destination builder — told
+    it is a file — drops the trailing slash, so the placeholder lands as a slash-less object the
+    browser renders as a file. For a move, the source folder then loses its marker."""
+    _install({"alice/reports/": 0})
+
+    with pytest.raises(TerminalError) as err:
+        m._inspect_source(_event([{"kind": "file", "key": "alice/reports/"}]))
+
+    assert err.value.reason == "invalid_items"
+
+
+def test_the_kind_and_key_pair_still_survives_the_collapse():
+    """The refusal above must not be reached by collapsing the pair away first: one key arriving with
+    two kinds has to stay two entries, or the rule that catches it never runs."""
+    collapsed = m._collapse(
+        [{"kind": "file", "key": "alice/reports/"}, {"kind": "folder", "key": "alice/reports/"}]
+    )
+
+    assert len(collapsed) == 2
+
+
+def test_an_overlap_is_refused_even_when_the_CONTAINING_item_was_already_decided():
+    """The rule is a property of the request, not of the items that survived an earlier verb. A move
+    of ``saved_queries/`` and ``saved_queries/2026/`` has the parent refused as a protected folder
+    and the child untouched by any rule — so a check over the survivors alone would move a subtree
+    out of the folder whose own refusal exists to keep it where it is."""
+    _install({"alice/saved_queries/2026/q.sql": 1})
+    incoming = [
+        {
+            "itemKey": "alice/saved_queries/",
+            "label": "saved_queries",
+            "outcome": "protected",
+            "reason": "source_folder_undeletable",
+        }
+    ]
+
+    with pytest.raises(TerminalError) as err:
+        m._inspect_source(
+            _event(
+                [
+                    {"kind": "folder", "key": "alice/saved_queries/"},
+                    {"kind": "folder", "key": "alice/saved_queries/2026/"},
+                ],
+                outcomes=incoming,
+            )
+        )
+
+    assert err.value.reason == "overlapping_items"
 
 
 def test_an_item_that_resolves_to_nothing_is_a_per_item_FAILURE():
@@ -579,6 +673,16 @@ def test_THIS_executions_own_retry_rewrites_its_plan_rather_than_refusing_it():
 
     assert result["planKey"] == "file-ops/req-1/plan.json"
     assert len(fake.puts) == 2
+
+
+def test_the_handler_runs_the_whole_decorated_stack():
+    """Every other test calls the orchestration directly, so without this the tracing and
+    failure-notification decorators the handler's docstring argues about are never executed."""
+    _install({"alice/reports/a.csv": 1})
+
+    result = m.handler(_event(), None)
+
+    assert result["objectCount"] == 1
 
 
 if __name__ == "__main__":

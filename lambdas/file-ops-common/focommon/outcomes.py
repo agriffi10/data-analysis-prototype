@@ -100,7 +100,9 @@ def outcome(item_key: str, label: str, name: str, reason: str | None = None, **e
       **extra: Fields an outcome of this kind carries beyond the four every record has — today the
         conflict's ``sample`` and its ``more`` flag. Taken here rather than merged by the caller so
         that every record on the state is built by one function, which is what makes the shape
-        assertable at all.
+        assertable at all. These are DATA for the producer that words the notification, never
+        message markers: the resolver substitutes by ``str.replace``, so a list reaching one would
+        raise at the one moment a sentence is being composed to report a failure.
 
     Returns:
       The record, carrying ``reason`` and any extras only when there are some.
