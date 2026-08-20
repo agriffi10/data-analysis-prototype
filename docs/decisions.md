@@ -167,6 +167,11 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 - [A column name is user data, and the renderer must be safe without it being validated (2026-08-19)](#a-column-name-is-user-data-and-the-renderer-must-be-safe-without-it-being-validated-2026-08-19)
 - [Athena's two dialects need two escapers in the browser, and the second was missing (2026-08-19)](#athenas-two-dialects-need-two-escapers-in-the-browser-and-the-second-was-missing-2026-08-19)
 - [A table's LOCATION is read recursively, so the space root is not a data folder (2026-08-19)](#a-tables-location-is-read-recursively-so-the-space-root-is-not-a-data-folder-2026-08-19)
+- [The lock protocol is `cpcommon`'s, extracted ahead of its second consumer (SPEC-187)](#the-lock-protocol-is-cpcommons-extracted-ahead-of-its-second-consumer-spec-187)
+- [A file operation on more than one file belongs on a plane, and the boundary is the SELECTION (SPEC-187)](#a-file-operation-on-more-than-one-file-belongs-on-a-plane-and-the-boundary-is-the-selection-spec-187)
+- [The file-ops lock's loser WAITS where the table-builder's is refused (SPEC-187)](#the-file-ops-locks-loser-waits-where-the-table-builders-is-refused-spec-187)
+- [An item copied into itself is refused PER ITEM, where a containment breach fails the request (SPEC-187)](#an-item-copied-into-itself-is-refused-per-item-where-a-containment-breach-fails-the-request-spec-187)
+- [The source deletion removes only CONFIRMED-COPIED keys, never a prefix listing (SPEC-187, diverging from SPEC-169)](#the-source-deletion-removes-only-confirmed-copied-keys-never-a-prefix-listing-spec-187-diverging-from-spec-169)
 
 ---
 
@@ -589,6 +594,13 @@ STANDARD state machine workflows", so making the Pipe synchronous means converti
 EXPRESS — rejected on two independent grounds, its 5-minute ceiling against `inspect-source`, and its
 **at-least-once** semantics, which would introduce the duplicate executions this spec exists to
 prevent. A finer `MessageGroupId` would change nothing, because delivery is already ordered.
+
+> **The PROTOCOL moved to `cpcommon.lock` (SPEC-187).** Everything below still describes what the
+> table-builder's lock does and why; what changed is where the code lives. The three-way acquire, the
+> 412/409 mapping, the staleness and future-date rules, the re-claim and the release-by-overwrite are
+> now shared, and `tbcommon.table_lock` binds them to this plane's key, thresholds and wording. Its two
+> suites were not rewritten — the protocol moved out from under them — which is what makes the move
+> provably behaviour-preserving.
 
 **The lock releases by OVERWRITING, and that is forced rather than chosen.** The execution role
 carries an explicit `Deny` on `s3:DeleteObject` for the whole admin bucket, which SPEC-149 kept when it
@@ -4058,3 +4070,151 @@ refusal rather than a hidden control: the button is where a user standing at the
 and a control that vanishes teaches nothing about where to go instead. **Creates only** — a refresh
 reads the location the table already has, so refusing one would strand any root table already in a
 catalog with no way to repair it.
+
+### The lock protocol is `cpcommon`'s, extracted ahead of its second consumer (SPEC-187)
+
+SPEC-187 needs a per-space lock, which made the file-operations plane the second consumer of a
+protocol that had lived on `tbcommon.table_lock` since SPEC-157. Copying it would have left **two
+full compare-and-set lock implementations in the fleet** — the deliberate twin SPEC-156 spent a spec
+discharging, in the one module whose entire purpose is preventing a concurrency bug.
+
+So the protocol moved to `cpcommon.lock`, parameterised by bucket, key, stale threshold, wording and
+identifying fields; each domain keeps its key layout, its own thresholds and its own sentences. It
+was extracted **ahead of** the second caller rather than after it, which is this repo's recorded
+pattern: building the caller first means importing a leaf domain's module, and that is the
+undeclared shared layer SPEC-155 had to unpick.
+
+**Two seams the shape had to grow, both forced by what a caller's tests need.** The reader is
+**injected**, called as `read(key)` — pinning the read is the only way to reach the concurrent case,
+two acquires seeing one stale tag decided by the compare-and-set rather than the age check. Had the
+protocol read S3 itself, that seam would not exist and `test_two_simultaneous_steals_and_only_one_wins`
+would have degraded into two sequential calls that still pass every assertion, which is worse than a
+failure. And the wording is **six sentences plus a fields mapping**, not one label: the six are
+emitted from seven call sites with different fields, and a caller's tests assert them by message.
+
+**The proof of behaviour preservation is that table-builder's two lock suites were not rewritten.**
+One assertion did have to move — a grep for `delete_object` pointing at a module that no longer holds
+any write code, which would have kept passing while asserting nothing.
+
+### A file operation on more than one file belongs on a plane, and the boundary is the SELECTION (SPEC-187)
+
+An operation stays in the browser **if and only if the selection is exactly one item and that item is
+a file**. It is a property of the selection, never of the operation: the same selection routes the
+same way for copy, move and delete.
+
+**The first draft of this rule was measured against the wrong quantity.** It said an operation goes
+async only when it must LIST to know what it touches — coherent, and wrong: a file-only copy or move
+of K files is a sequential loop of `HeadObject` + `CopyObject` + `DeleteObject`, up to 3K round trips
+from the user's laptop, which is precisely the cost the plane exists to remove.
+
+A single folder is enqueued, **including a folder rename** — forced rather than chosen, since a
+rename is one `CopyObject` per contained object and cannot be bounded without listing. It is the case
+a reader assumes is synchronous, so the rule's test names it.
+
+**The empty selection is a precondition, not an answer.** Without it, "not exactly one item" routes a
+zero-item selection to the plane, which refuses an empty source as a request-shape error minutes
+later, by notification.
+
+The rule has **one home**, and the sweep that enforces it counts IMPORTERS rather than parsing for
+the rule: a boolean over `kind` and `length` has no recognisable syntactic signature, so an AST sweep
+would fire on every legitimate branch in the file browser. That is the opposite call from SPEC-165's
+key-builder sweep, where the signature *is* recognisable.
+
+### The file-ops lock's loser WAITS where the table-builder's is refused (SPEC-187)
+
+Both locks exist because delivery ordering is not execution ordering. They differ on what happens to
+the loser, and the difference is the scope of the lock rather than a preference.
+
+SPEC-157's lock is per **table**, and a contended refresh is a genuine conflict: two runs would
+compute an identical definition from the same files, so refusing is the honest answer. This lock is
+per **space** and covers all three operations — so deleting a folder in `alice/a/` and then copying
+one in `alice/b/` is disjoint and entirely safe, and refusing it would produce a reliable
+out-of-band refusal after the UI had already accepted the request.
+
+So the loser **waits and retries**, with a bounded give-up that then refuses with a notification.
+Three consequences that only hold together:
+
+- **The waiter steals a stale lock itself**, on every re-acquire rather than only the first. That is
+  what makes the give-up bound independent of the steal threshold.
+- **The give-up bound is strictly LESS than the machine's `TimeoutSeconds`.** The naive chain is
+  unsatisfiable and must not be re-derived: requiring give-up ≥ the steal threshold, with the
+  threshold > the ceiling, forces give-up > the ceiling — and the waiter is a state *inside* the
+  machine, so the ceiling would kill it before its refusal could fire, surfacing as a bare
+  `TIMED_OUT` rather than the message the design promises.
+- **Waiters are unordered, and that is accepted.** The Pipe starts executions `FIRE_AND_FORGET`, so N
+  submissions against one space become N concurrent waiters polling one key with no queue discipline.
+  Ordering would need a real queue; the browser's own busy gate already makes this rare from one
+  session.
+
+**A cross-space copy or move takes TWO locks, in digest-sorted order, or neither.** Keying only on
+the source leaves the destination unserialized — A moves `alice/reports/` into `marketing/` while B
+deletes `marketing/reports/`, different source digests, both run. Sorted order is what makes two
+locks safe: unordered acquisition deadlocks when two requests cross in opposite directions. The verb
+releases the first if it cannot claim the second, so a waiter never holds a lock across the `Wait`
+and the give-up path has nothing left to free.
+
+**One case can still strand a lock and is accepted rather than solved:** a fault inside the acquire
+verb between the two claims returns nothing, so no tag reaches the state and the first lock is held
+with nobody able to name it. The staleness steal is the recovery, and it is the same universal
+recovery the top-level timeout needs — splitting the claims into two states would double the loop
+and reintroduce the partial hold the design avoids.
+
+### An item copied into itself is refused PER ITEM, where a containment breach fails the request (SPEC-187)
+
+The plane's front door has two kinds of refusal and the split is not stylistic.
+
+**Whole-request, raised:** a key outside the actor's own root, a dot segment, a `targetName` that is
+not one usable segment, and two selected items whose derived destinations collide. These are
+statements about the REQUEST — there is no sensible partial execution of one that names a key outside
+the actor's space, and where two items collide neither of them is the wrong one, so there is no item
+to fail and no way to choose.
+
+**Per item, returned as an outcome record:** a protected folder, a same-key no-op, and an item whose
+destination is inside its own subtree. The browser has always carried on with the rest — a select-all
+delete at a space root deletes what it may and reports the folders it may not — and a whole-request
+refusal would turn that into deleting nothing.
+
+The into-itself case is the one that could have gone either way. It is per item because it is a
+statement about ONE item's own pairing rather than about the request's legitimacy, which makes it a
+**user-visible divergence from today's browser**, where it refuses the whole gesture.
+
+**A collision is between two DIFFERENT items, and an exact repeat is not one.** The identity is
+`(kind, key)`, never the derived key alone: the same item named twice lands on itself, which is
+idempotent, while two different items landing on one key lose a file. Collapsing on the derived key
+alone refuses a request that does exactly what it says — and it is the same rule SPEC-165 recorded
+for file-send, arrived at from the other direction.
+
+**The protected-location rules run FIRST, before either pairing rule.** An item the user may not
+touch should be told so rather than told that nothing happened: `move alice/archive/ → alice/`
+derives its own key, so a pairing-first order answers "no-op" to a request the plane actually
+refuses, and two protected folders answer the same request differently depending on which list they
+are on.
+
+**The space root is refused as an item, and it is the third way to select a protected folder.** Every
+protected rule matches the named folder or something below it; none looks UP. So one item of
+`alice/` passes all of them while naming a subtree containing `athenaresults/`, `user_settings/`,
+`archive/` and every marker — a request this plane's own IAM refuses part-way through, which is the
+mismatch those rules exist to prevent. The browser cannot express it, so refusing costs nothing.
+
+### The source deletion removes only CONFIRMED-COPIED keys, never a prefix listing (SPEC-187, diverging from SPEC-169)
+
+Recorded here because SPEC-188 and SPEC-189 must honour it and neither is written yet.
+
+SPEC-169's archive rollback lists the source prefix precisely so it catches objects a batch copied
+before it died. **Here the same technique loses data.** An object written into the source folder
+between expansion and commit — by an upload, a single-file operation, or another plane, none of which
+take this plane's lock — was never copied, and a prefix-listing delete would remove it silently and
+unrecoverably, with versioning off.
+
+The accepted cost is an **orphan**: it survives, stranded in a folder the user believes moved, which
+is visible and recoverable where the alternative is neither.
+
+**It forbids LISTING THE SOURCE PREFIX at deletion time. It does not forbid re-reading the PLAN**,
+which is how the keys actually arrive — the transfer engine reports counts and never keys, because a
+failed-key list is the unbounded term that breaches the state limit on the Map.
+
+**And the gate is per ITEM, not one boolean over the run.** SPEC-169's is all-or-nothing because
+before per-item outcomes the planned set and the confirmed-copied set were identical. They are not
+here: a skipped item is planned and not copied, so deleting plan keys would remove the user's source
+file while the destination still holds the colliding object that displaced it — a direct,
+unrecoverable substitution.

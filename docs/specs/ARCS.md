@@ -1571,6 +1571,24 @@ never copied, and a prefix-listing delete would remove it silently, unrecoverabl
 off. The accepted cost is an orphan, which is visible and recoverable where the alternative is
 neither.
 
+**SPEC-187 IS COMPLETE AND DEPLOYED, and four things it found are worth carrying forward.**
+
+1. **The lock protocol moved to `cpcommon`** rather than being copied — this plane was its second
+   consumer, and two full compare-and-set implementations is the twin SPEC-156 spent a spec
+   removing. That was escalated rather than decided, because the extraction meant editing a shipped
+   plane.
+2. **This machine has no `Validated` Pass**, unlike every neighbour. Three of the contract's fields
+   are absent for a `delete`, and a `Pass` reading an absent path raises an uncatchable
+   `States.Runtime` — the very first delete would have died before the notifier. 188 and 189 add
+   states to this machine: read the rule that replaced it before adding a `Pass`.
+3. **The space root is refused as a selectable item.** Every protected rule matches the named folder
+   or below it, never above, so one item of `alice/` named a subtree containing all of them. That
+   closes the ancestor class for root-anchored rules only — a folder containing a *nested* protected
+   folder is 188's problem, and the spec already says a nested marker is excluded from the plan
+   rather than refused.
+4. **`focommon/outcomes.py` ships `refused`**, which SPEC-188's own enumeration does not list. Add it
+   there rather than re-deciding what an into-itself refusal is.
+
 The shape is the file-send arc's, one spec per reviewable unit: **187** the plane, the contract, the
 lock and validate-authorize; **188** source expansion, the copy plan and the destination guard;
 **189** the transfer, the source deletion and the terminals; **191** notifications, Help and the live

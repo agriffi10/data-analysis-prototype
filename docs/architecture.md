@@ -123,6 +123,11 @@ catalog-wide Describe, which fixes the `AccessDenied`-vs-`EntityNotFound` read f
 
 ## Control Planes (privileged async pipelines)
 
+> **SEVEN, not six, since SPEC-187 (2026-08-20).** The file-operations plane is live — its queue,
+> Pipe, machine, per-space lock and `validate-authorize` are deployed, and the browser has an enqueue
+> service nothing calls yet. The full section is SPEC-191's to write, as the arc's closer; this
+> marker exists so the count below is not read as current.
+
 Six features perform privileged, cross-user, multi-step AWS work that browser-scoped credentials
 must not: shared-space lifecycle, table creation, table sharing, data-quality checks, sending files
 to another person or space, and archiving a file or folder into Glacier (with its restore). Each is a deliberate, recorded reversal of "no backend" for its
@@ -156,6 +161,10 @@ mutations only — the rest of the app stays browser-direct.
   failure-message resolver, the results-location builder, the JWKS path, the SQS parser, the Athena
   DDL runner and the dedup-id builder each exist once now; a domain layer holds its *tables and
   wording*, not its own copy of the algorithm.
+- **One lock protocol.** A plane that must serialize its own executions binds `cpcommon.lock`
+  (SPEC-187, extracted from `tbcommon.table_lock` at its second consumer): the three-way conditional
+  acquire, the 412/409 mapping, the staleness steal and release-by-overwrite. Each domain keeps its
+  key layout, its thresholds — derived from *its* machine's ceiling — and its own wording.
 - **Replay-safe.** Verbs tolerate already-exists/already-absent; `CREATE … IF NOT EXISTS`;
   deterministic S3 keys; shared JSON mutates under **ETag compare-and-swap** (`cpcommon.cas`,
   SPEC-082; consolidated from three copies by SPEC-156 FR-001).

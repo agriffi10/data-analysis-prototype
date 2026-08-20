@@ -1,7 +1,7 @@
 # Spec: File Operations — the Plane, the Request Contract & validate-authorize
 
 **ID:** SPEC-187
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-17
 **Depends On:** SPEC-164/165/166/167 (the file-send plane as the pattern), SPEC-107/125/156 (`cpcommon`), SPEC-126 (DLQ drain), SPEC-152 (`NotifyFailure` on every plane), SPEC-157 (the per-target lock, and why FIFO is not serialization), SPEC-160/161 (`cpcommon.transfer`), SPEC-168 (`mode`-branching one plane; a role that ships with no S3 grant), SPEC-169 (the commit gate, and the delete-Deny set), SPEC-150/172/173 (the protected-folder rules this plane must now enforce)
 
@@ -359,7 +359,7 @@ note, and `fscommon.authz`'s docstring records the same warning. The rule is the
       and FR-013 has SPEC-189 adding exactly those Denies to this plane's own role. Without this the
       plane accepts requests its own IAM refuses **mid-operation**, the mismatch AC4 invokes to
       justify writing the `user_settings/` rule by hand.
-- [ ] **That source rule carries the SAME bucket asymmetry as AC7's destination rule** — root-anchored
+- [ ] **That source rule carries the SAME bucket asymmetry as AC10's destination rule** — root-anchored
       in a personal space, any depth in a shared one — because it is the same predicate
       (`isWriteLockedPrefix`) asked from the other side. Do not simplify it to "at any depth" for
       both: in the personal bucket the prefix **is** the principal tag, so `alice/backups/archive/x`
