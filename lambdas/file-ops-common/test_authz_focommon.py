@@ -114,8 +114,8 @@ def test_a_missing_space_and_an_unreachable_one_refuse_BYTE_IDENTICALLY():
 
     assert absent.reason == closed.reason
     assert absent.detail == closed.detail
-    assert messages.failure_message("copy", absent.reason, absent.detail) == messages.failure_message(
-        "copy", closed.reason, closed.detail
+    assert messages.failure_message("copy", absent.reason) == messages.failure_message(
+        "copy", closed.reason
     )
 
 

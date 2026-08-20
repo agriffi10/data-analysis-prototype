@@ -78,6 +78,11 @@ _BODIES = {
         "that file is there to protect a folder. It cannot be copied, moved or deleted - a copy "
         "of it could never be removed either."
     ),
+    "operation_timed_out": (
+        "it took too long and was stopped part-way, so some of it may have happened and some may "
+        "not. Please look at the folder before trying again, and give it a few minutes - that "
+        "space stays busy for a short while afterwards."
+    ),
     "lock_wait_exhausted": (
         "something else was already working in that space and had not finished. Nothing was "
         "changed. Please try again in a few minutes."
@@ -151,14 +156,19 @@ def resolver_for(operation: object) -> _cpmessages.Resolver:
     return _RESOLVERS.get(operation, copy_resolver) if isinstance(operation, str) else copy_resolver
 
 
-def failure_message(operation: object, reason: str, detail: str = "") -> str:
+def failure_message(operation: object, reason: str, tokens: dict | None = None) -> str:
     """Composes the whole sentence an actor reads for a failed request.
+
+    **The exception's DETAIL is not a source here, and that separation is deliberate.** A detail
+    can quote a folder name the actor supplied and exists for the logs and the Step Functions
+    record; it is operator text, and rendering it would put raw internals in front of a user. The
+    ``tokens`` mapping is the opposite channel — values a raise site provides precisely because a
+    body names a marker for them.
 
     Args:
       operation: The request's operation, which selects the wording.
       reason: The stable reason code.
-      detail: Operator text from the raise site, used only where a body names a marker filled from
-        it rather than from config.
+      tokens: Marker fills from the raise site, for the bodies that name one.
 
     Returns:
       The user-facing sentence.
@@ -166,4 +176,4 @@ def failure_message(operation: object, reason: str, detail: str = "") -> str:
     Raises:
       None.
     """
-    return resolver_for(operation).message(reason, **_markers(), itemName=detail)
+    return resolver_for(operation).message(reason, **_markers(), **(tokens or {}))

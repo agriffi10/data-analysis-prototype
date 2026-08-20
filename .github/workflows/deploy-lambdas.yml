@@ -765,6 +765,13 @@ jobs:
           - { name: file-send-collect-transfer-results, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           - { name: file-send-notify, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
           - { name: file-send-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
+          # File-operations verbs. `focommon` on every one: all four reach the wording table
+          # through one import chain or another, and a verb missing its domain layer crashes at
+          # COLD START, where no test and no deploy can see it.
+          - { name: file-ops-validate-authorize, layer: false, polars: false, tbcommon: false, cpcommon: true, focommon: true }
+          - { name: file-ops-acquire-lock, layer: false, polars: false, tbcommon: false, cpcommon: true, focommon: true }
+          - { name: file-ops-release-lock, layer: false, polars: false, tbcommon: false, cpcommon: true, focommon: true }
+          - { name: file-ops-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, focommon: true }
           # Archive verbs (SPEC-168 front door, SPEC-169 the transfer and the deletion,
           # SPEC-170 the restore arm's lookup and destination guard).
           # `arcommon: true` attaches the archive-common layer — every verb but the batch
