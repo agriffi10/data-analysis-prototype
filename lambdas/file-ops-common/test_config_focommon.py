@@ -352,7 +352,10 @@ def test_the_browsers_mirrored_caps_are_never_more_permissive_than_these():
     ).read_text()
 
     browser_items = int(re.search(r"FILE_OPS_MAX_ITEMS = (\d+)", service).group(1))
-    browser_bytes = eval(re.search(r"FILE_OPS_MAX_SELECTION_BYTES = ([\d *]+);", service).group(1))
+    factors = re.search(r"FILE_OPS_MAX_SELECTION_BYTES = ([\d* ]+);", service).group(1)
+    browser_bytes = 1
+    for factor in factors.split("*"):
+        browser_bytes *= int(factor.strip())
 
     assert browser_items <= config.FILE_OPS_MAX_ITEMS
     assert browser_bytes <= config.FILE_OPS_MAX_SELECTION_BYTES
