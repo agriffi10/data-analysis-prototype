@@ -15,6 +15,20 @@ on:
   pull_request:
     branches: [main]
 
+# A new push to a PR branch makes the run already in flight worthless — its result is
+# about a commit nobody will merge. Without this, every superseded run went to
+# completion and was billed in full: measured over 28 days, 91 of 289 CI runs were
+# followed by another push to the same branch, and 9 of those were still executing when
+# it landed. `security.yml` has had this since it shipped; `ci.yml` never got it.
+#
+# Safe here in a way it would NOT be in the deploy workflows: this workflow only runs
+# tests, lint and a build. Cancelling a `tofu apply` or an `update-function-code`
+# mid-flight is how you get a half-applied deploy, which is why deploy-app.yml sets
+# `cancel-in-progress: false` rather than true.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     runs-on: ubuntu-latest

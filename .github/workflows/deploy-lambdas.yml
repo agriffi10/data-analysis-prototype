@@ -30,6 +30,18 @@ env:
   PROJECT_NAME: ${{ vars.TF_VAR_project_name || 'dat' }}
   ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
 
+# Two merges landing close together used to run two deploys at once, racing
+# `update-function-code` and `update-function-configuration` on the same functions —
+# and the loser's `wait function-updated` can return against the WINNER's version, so
+# the older commit's code silently wins. Queue instead.
+#
+# `cancel-in-progress: false` is deliberate and is not the cost setting: cancelling a
+# deploy mid-shard leaves some functions on the new code and some on the old, which is
+# the one outcome worse than waiting. The cost fix here is the sharding below.
+concurrency:
+  group: deploy-lambdas
+  cancel-in-progress: false
+
 jobs:
   # ── Shared-code layer (SPEC-062) ───────────────────────────────────────────
   # Publishes the `shared-space-common` layer = external deps (PyJWT[crypto]) +
@@ -666,164 +678,68 @@ jobs:
           echo "Published ${ARN}"
           echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
 
+  # ── Function deploy, SHARDED ───────────────────────────────────────────────
+  # This job used to be a matrix of ONE JOB PER FUNCTION, and it was the single
+  # largest line on the Actions bill. GitHub rounds every job up to a full billed
+  # minute, and all 73 of these finish in ~29 seconds — so the shape cost 73 minutes
+  # for ~22 minutes of work, and it grew by a permanent minute with every function
+  # the project added. Measured over 28 days it was 46% of the repo's Actions spend,
+  # and 53% of that was rounding alone.
+  #
+  # The functions are now sharded: each job deploys its share sequentially, so the
+  # per-job minute is amortised over a dozen functions instead of paid per function.
+  # Shard COUNT is the tuning knob and the cost curve is flat between ~4 and ~8 (each
+  # job comfortably exceeds a minute either way); six keeps every shard around four
+  # minutes, which leaves room for the function count to grow without a shard
+  # crossing a minute boundary and re-inflating the bill.
+  #
+  # The function table moved to .github/lambda-functions.json. A `strategy.matrix`
+  # cannot express "these twelve in one job", and the table was always read as data
+  # by lambdas/test_deploy_matrix.py — which now parses JSON instead of regexing YAML.
   deploy:
     needs: [layer, polars_layer, table_builder_layer, table_share_layer, file_send_layer, file_ops_layer, archive_layer, cpcommon_layer, dqcommon_layer, dq_polars_layer]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     permissions:
       id-token: write
       contents: read
 
     strategy:
+      # A function that fails must not cancel the shards deploying unrelated ones.
+      # Under one-job-per-function the default cancelled 72 PENDING jobs; with six
+      # shards in flight it would cancel work already half-done, which leaves a
+      # partial deploy in more places rather than fewer.
+      fail-fast: false
       matrix:
-        # One entry per function. `name` is both the lambdas/ subdir and the
-        # function-name suffix ({project}-{env}-{name}). `layer: true` functions
-        # (SPEC-062) get deps + shared code from the shared-space-common layer instead
-        # of bundling the shared requirements, and attach it after deploy. `polars: true`
-        # functions (SPEC-066) attach the table-builder-polars layer after deploy.
-        lambda:
-          # The first three SINGLETON functions — no control plane, no domain layer. They
-          # attach cpcommon for `observability` (SPEC-137 FR-001), and notifications-writer
-          # also for `auth`/`clients` since SPEC-156 FR-004. They are safe here because
-          # `cpcommon/__init__.py` imports no submodules and `cpcommon.config` resolves each
-          # variable on FIRST ACCESS rather than at import — so a function that sets three of
-          # the six (notifications-writer) or none of them (the two Cognito triggers) imports
-          # fine, and what it must set is only what it reads. Until SPEC-156 the `_require` ran
-          # at import (PR #196), which is exactly why notifications-writer could not use the
-          # layer's verifier and grew a second copy of it.
-          # (SPEC-146's user-directory-build is a singleton on different terms — see below.)
-          #
-          # SPEC-137 shipped the instrumented CODE without these three flags, so all three
-          # deployed `from cpcommon import observability` with no cpcommon layer attached —
-          # ModuleNotFoundError at cold start. On pre-signup that is a Cognito trigger, so it
-          # failed real user signups. Nothing caught it: pytest puts the layer on sys.path
-          # (lambdas/conftest.py), and `update-function-code` succeeds against a function that
-          # cannot import. The guard is now test_deploy_matrix_cpcommon.py, which reads THIS
-          # matrix and fails when a module importing cpcommon is missing the flag.
-          - { name: pre-signup, layer: false, polars: false, tbcommon: false, cpcommon: true }
-          - { name: post-confirmation, layer: false, polars: false, tbcommon: false, cpcommon: true }
-          - { name: notifications-writer, layer: false, polars: false, tbcommon: false, cpcommon: true }
-          # user-directory-build is a singleton too, but NOT of the kind above: it imports
-          # `config` and `clients` alongside `observability` and READS the bucket names, so it
-          # needs the variables the two Cognito triggers do not. (Before SPEC-156 the layer's
-          # `_require` ran at import and the distinction was cold-start crash vs. no crash; now
-          # it is a failure at the read, on whichever branch reads first — narrower, and still
-          # a failure.) All six are therefore set in modules/user-directory/lambda.tf,
-          # and lambdas/user-directory-build/test_build_directory.py asserts that file against
-          # config.py's own `_require` list rather than against a hand-kept copy — so a seventh
-          # required variable fails a test instead of a cold start (SPEC-146 FR-008).
-          - { name: user-directory-build, layer: false, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-validate, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-create, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-add-members, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-remove-members, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-leave, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-delete, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-forget, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-acknowledge-membership, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-notify-failure, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          # Table-builder verbs. `tbcommon: true` attaches the table-builder-common layer
-          # — ALL five verbs use the shared tbcommon package now (config/clients/errors +
-          # notify, SPEC-067/068/069/070/072). infer-schema ALSO attaches the polars layer
-          # (both layers, SPEC-069). execute-ddl imports `from tbcommon import config`
-          # (SPEC-070) + `notify` (SPEC-072), so it needs the layer too.
-          - { name: table-builder-validate-authorize, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-check-table-absent, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-load-table-definition, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-acquire-refresh-lock, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-release-refresh-lock, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-inspect-source, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-infer-schema, layer: false, polars: true, tbcommon: true, cpcommon: true }
-          - { name: table-builder-diff-schema, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-apply-refresh, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-execute-ddl, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-notify-failure, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          # Table-share verbs (SPEC-088). `tscommon: true` attaches the table-share-common
-          # layer — every verb that carries this plane's WORDING or key layout needs it.
-          # copy-objects is the exception since SPEC-160: it became the shared batch copier
-          # over cpcommon.transfer and imports no tscommon at all, which is the property that
-          # lets the file-send and archive planes reuse it. `tscommon: false` there is
-          # deliberate, and its suite asserts the import stays gone.
-          - { name: table-share-validate-authorize, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          - { name: table-share-inspect-source, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          - { name: table-share-check-target-absent, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          - { name: table-share-build-transfer-manifest, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          - { name: table-share-copy-objects, layer: false, polars: false, tbcommon: false, tscommon: false, cpcommon: true }
-          - { name: table-share-collect-transfer-results, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          - { name: table-share-create-table, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          - { name: table-share-notify-failure, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          # File-send verbs (SPEC-164→166). The front door, the source resolution, and the
-          # transfer. `fscommon: false` on copy-objects is the same deliberate row table-share
-          # carries on its own batch copier: the copier is cpcommon.transfer with a reason code,
-          # it reaches for nothing on this plane, and a test asserts that — so attaching the
-          # domain layer would be cold-start cost for an import it does not make.
-          - { name: file-send-validate-authorize, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          - { name: file-send-inspect-source, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          - { name: file-send-check-target-absent, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          - { name: file-send-build-transfer-manifest, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          - { name: file-send-copy-objects, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: false }
-          - { name: file-send-collect-transfer-results, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          - { name: file-send-notify, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          - { name: file-send-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          # File-operations verbs. `focommon` on every one: all four reach the wording table
-          # through one import chain or another, and a verb missing its domain layer crashes at
-          # COLD START, where no test and no deploy can see it.
-          - { name: file-ops-validate-authorize, layer: false, polars: false, tbcommon: false, cpcommon: true, focommon: true }
-          - { name: file-ops-acquire-lock, layer: false, polars: false, tbcommon: false, cpcommon: true, focommon: true }
-          - { name: file-ops-release-lock, layer: false, polars: false, tbcommon: false, cpcommon: true, focommon: true }
-          - { name: file-ops-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, focommon: true }
-          # Archive verbs (SPEC-168 front door, SPEC-169 the transfer and the deletion,
-          # SPEC-170 the restore arm's lookup and destination guard).
-          # `arcommon: true` attaches the archive-common layer — every verb but the batch
-          # copier carries this plane's wording, its key layout or its caps. Key
-          # containment is NOT in that layer: it is cpcommon.paths, shared with file-send,
-          # because a second copy of the rule that decides whether a key is inside the
-          # caller's own space is a second place a cross-tenant read can be introduced.
-          #
-          # archive-copy-objects is `arcommon: false` and that is deliberate rather than an
-          # omission: it is cpcommon.transfer with a reason code, and knows nothing about
-          # the request — every destination and the storage class were resolved upstream
-          # and written into the manifest. file-send-copy-objects carries the same shape.
-          - { name: archive-validate-authorize, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-inspect-source, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-build-transfer-manifest, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-copy-objects, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: false }
-          - { name: archive-collect-transfer-results, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-rollback, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-write-manifest, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-delete-source, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-write-receipt, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-inspect-archive, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-check-destination-clear, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-build-restore-manifest, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-initiate-restore, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-poll-restore, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-delete-archived, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-update-receipt, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-notify, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          # Data-quality verbs (SPEC-108). All nine attach cpcommon + dqcommon; only
-          # inspect-source also attaches the data-quality polars layer (it must read
-          # Parquet footers — Athena needs an explicit column list). Stub handlers now;
-          # real logic lands with SPEC-109→112/114.
-          - { name: data-quality-validate-authorize, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          - { name: data-quality-inspect-source, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true, dqpolars: true }
-          - { name: data-quality-create-temp-tables, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          - { name: data-quality-start-profile-query, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          - { name: data-quality-check-query, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          - { name: data-quality-byte-scan, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          - { name: data-quality-assemble-report, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          - { name: data-quality-drop-temp-tables, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          - { name: data-quality-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          # Control-plane DLQ drain (SPEC-126). ONE function on all four request DLQs.
-          # cpcommon only — it verifies the dead-lettered token and emits a notification,
-          # and touches no domain surface at all.
-          - { name: control-plane-dlq-drain, layer: false, polars: false, tbcommon: false, cpcommon: true }
-          # Structured-logging sweep (SPEC-127). cpcommon only — it needs
-          # cpcommon.observability (which is where log-foundry is pinned) and clients, and
-          # touches no domain surface. It is also the only PRODUCER in SPEC-127: it instruments
-          # itself, which is what proves the pipe end to end without instrumenting a plane.
-          - { name: log-sweep, layer: false, polars: false, tbcommon: false, cpcommon: true }
+        shard: [0, 1, 2, 3, 4, 5]
+
+    env:
+      SHARD: ${{ matrix.shard }}
+      SHARD_COUNT: 6
+      # Each layer's published version ARN and unzipped size, read once here rather
+      # than per function. deploy-lambda.sh refuses to deploy a function whose layer
+      # ARN is empty — a missing layer fails at COLD START, where no test and no
+      # deploy can see it (SPEC-137 broke real Cognito signups exactly that way).
+      ARN_layer: ${{ needs.layer.outputs.layer_arn }}
+      KB_layer: ${{ needs.layer.outputs.unzipped_kb }}
+      ARN_polars: ${{ needs.polars_layer.outputs.layer_arn }}
+      KB_polars: ${{ needs.polars_layer.outputs.unzipped_kb }}
+      ARN_tbcommon: ${{ needs.table_builder_layer.outputs.layer_arn }}
+      KB_tbcommon: ${{ needs.table_builder_layer.outputs.unzipped_kb }}
+      ARN_tscommon: ${{ needs.table_share_layer.outputs.layer_arn }}
+      KB_tscommon: ${{ needs.table_share_layer.outputs.unzipped_kb }}
+      ARN_cpcommon: ${{ needs.cpcommon_layer.outputs.layer_arn }}
+      KB_cpcommon: ${{ needs.cpcommon_layer.outputs.unzipped_kb }}
+      ARN_dqcommon: ${{ needs.dqcommon_layer.outputs.layer_arn }}
+      KB_dqcommon: ${{ needs.dqcommon_layer.outputs.unzipped_kb }}
+      ARN_dqpolars: ${{ needs.dq_polars_layer.outputs.layer_arn }}
+      KB_dqpolars: ${{ needs.dq_polars_layer.outputs.unzipped_kb }}
+      ARN_fscommon: ${{ needs.file_send_layer.outputs.layer_arn }}
+      KB_fscommon: ${{ needs.file_send_layer.outputs.unzipped_kb }}
+      ARN_focommon: ${{ needs.file_ops_layer.outputs.layer_arn }}
+      KB_focommon: ${{ needs.file_ops_layer.outputs.unzipped_kb }}
+      ARN_arcommon: ${{ needs.archive_layer.outputs.layer_arn }}
+      KB_arcommon: ${{ needs.archive_layer.outputs.unzipped_kb }}
 
     steps:
       - name: Checkout
@@ -834,132 +750,74 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build package
-        run: |
-          set -euo pipefail
-          BUILD_DIR="build/${{ matrix.lambda.name }}"
-          rm -rf "$BUILD_DIR" && mkdir -p "$BUILD_DIR"
-          # Layer functions get their deps from a layer; others bundle the shared
-          # requirements. `cpcommon: true` is part of this test because cpcommon is where
-          # PyJWT[crypto] is declared now (SPEC-107 FR-001) — a function attaching it must
-          # NOT also bundle a second copy (it would double-count against the combined
-          # size guard below, and drift).
-          if [ "${{ matrix.lambda.layer }}" != "true" ] \
-             && [ "${{ matrix.lambda.tbcommon }}" != "true" ] \
-             && [ "${{ matrix.lambda.tscommon }}" != "true" ] \
-             && [ "${{ matrix.lambda.cpcommon }}" != "true" ]; then
-            pip install --quiet --requirement lambdas/requirements.txt --target "$BUILD_DIR"
-          fi
-          cp lambdas/${{ matrix.lambda.name }}/*.py "$BUILD_DIR"/
-          # Never ship tests.
-          rm -f "$BUILD_DIR"/test_*.py
-          # SPEC-186 FR-005: the build stamp travels IN THE PACKAGE, not in the function's
-          # environment. Tofu owns the environment map and `update-function-configuration
-          # --environment` REPLACES it whole, so writing a version there would either race
-          # Tofu or be reverted by the next apply; and Deploy Infrastructure is path-filtered
-          # to infra/**, so a Tofu-set sha would name the last INFRA commit rather than the
-          # code that is running. A file beside the handler is the artefact's own identity.
-          # `cpcommon.observability` reads it at import (see BUILD_VERSION there).
-          echo "${GITHUB_SHA}" > "$BUILD_DIR/BUILD_VERSION"
-          (cd "$BUILD_DIR" && zip --quiet --recurse-paths "../${{ matrix.lambda.name }}.zip" .)
-
-      # ── Combined per-function size guard (SPEC-107 FR-004) ────────────────────
-      # Lambda's 250 MB unzipped ceiling is per FUNCTION — the function package PLUS
-      # every attached layer, combined. The per-LAYER guards (polars job, etc.) measure
-      # one layer in isolation and CANNOT see a combined overflow (e.g. cpcommon +
-      # fccommon + polars on one function). This sums the package + the layers THIS
-      # function attaches and fails above 240 MB, naming the function, its layers, and
-      # the measured total — BEFORE anything publishes or attaches.
-      - name: Combined layer + package size guard
-        run: |
-          set -euo pipefail
-          BUILD_DIR="build/${{ matrix.lambda.name }}"
-          PKG_KB=$(du -sk "$BUILD_DIR" | cut -f1)
-          TOTAL_KB=$PKG_KB
-          NAMES="package(${PKG_KB}KB)"
-          add() { TOTAL_KB=$((TOTAL_KB + $1)); NAMES="${NAMES} + $2(${1}KB)"; }
-          [ "${{ matrix.lambda.layer }}" = "true" ]    && add "${{ needs.layer.outputs.unzipped_kb }}" shared-space-common
-          [ "${{ matrix.lambda.polars }}" = "true" ]   && add "${{ needs.polars_layer.outputs.unzipped_kb }}" table-builder-polars
-          [ "${{ matrix.lambda.tbcommon }}" = "true" ] && add "${{ needs.table_builder_layer.outputs.unzipped_kb }}" table-builder-common
-          [ "${{ matrix.lambda.tscommon }}" = "true" ] && add "${{ needs.table_share_layer.outputs.unzipped_kb }}" table-share-common
-          [ "${{ matrix.lambda.cpcommon }}" = "true" ] && add "${{ needs.cpcommon_layer.outputs.unzipped_kb }}" control-plane-common
-          [ "${{ matrix.lambda.dqcommon }}" = "true" ] && add "${{ needs.dqcommon_layer.outputs.unzipped_kb }}" data-quality-common
-          [ "${{ matrix.lambda.dqpolars }}" = "true" ] && add "${{ needs.dq_polars_layer.outputs.unzipped_kb }}" data-quality-polars
-          [ "${{ matrix.lambda.fscommon }}" = "true" ] && add "${{ needs.file_send_layer.outputs.unzipped_kb }}" file-send-common
-          [ "${{ matrix.lambda.focommon }}" = "true" ] && add "${{ needs.file_ops_layer.outputs.unzipped_kb }}" file-ops-common
-          [ "${{ matrix.lambda.arcommon }}" = "true" ] && add "${{ needs.archive_layer.outputs.unzipped_kb }}" archive-common
-          echo "${{ matrix.lambda.name }} combined unzipped: $((TOTAL_KB / 1024)) MB  [${NAMES}]"
-          if [ "$TOTAL_KB" -gt 245760 ]; then
-            echo "::error::${{ matrix.lambda.name }} exceeds 240 MB unzipped: $((TOTAL_KB / 1024)) MB across ${NAMES} (Lambda's hard limit is 250 MB per function, package + all layers)."
-            exit 1
-          fi
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          # Cap the OIDC assume-role retries. The default is 12, and on 2026-07-27 a
+          # connect timeout to STS cost ~7 minutes per attempt, so one job spent 82
+          # minutes failing. Three still retries a fast-failing transient; the slow
+          # case is bounded by `timeout-minutes` above.
           retry-max-attempts: 3
 
-      - name: Upload artifact and deploy
+      - name: Deploy this shard
         run: |
           set -euo pipefail
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          BUCKET="${PROJECT_NAME}-lambda-artifacts-${ACCOUNT_ID}"
-          FUNCTION="${PROJECT_NAME}-${ENVIRONMENT}-${{ matrix.lambda.name }}"
-          KEY="${{ matrix.lambda.name }}/${GITHUB_SHA}.zip"
 
-          # The function + artifacts bucket are created by deploy-infra.yml. When a
-          # merge touches both infra/ and lambdas/, both workflows fire on the same
-          # push and this one can win the race — so wait for the infrastructure to
-          # exist (up to ~5 min) before deploying, instead of failing with
-          # NoSuchBucket / ResourceNotFound.
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          export BUCKET="${PROJECT_NAME}-lambda-artifacts-${ACCOUNT_ID}"
+
+          # Wait for the artifacts bucket ONCE per shard rather than once per
+          # function. Same race as before (a merge touching infra/ and lambdas/ fires
+          # both workflows on one push), but the bucket is shared by every function in
+          # the shard, so polling it per function was 12 redundant round trips.
           for attempt in $(seq 1 30); do
-            if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null \
-               && aws lambda get-function --function-name "$FUNCTION" >/dev/null 2>&1; then
-              echo "Infrastructure ready for ${FUNCTION}."
+            if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+              echo "Artifacts bucket ready."
               break
             fi
             if [ "$attempt" -eq 30 ]; then
-              echo "::error::Bucket ${BUCKET} or function ${FUNCTION} not ready after ~5 min. Run Deploy Infrastructure first."
+              echo "::error::Bucket ${BUCKET} not ready after ~5 min. Run Deploy Infrastructure first."
               exit 1
             fi
-            echo "Waiting for infrastructure (attempt ${attempt}/30)…"
+            echo "Waiting for ${BUCKET} (attempt ${attempt}/30)…"
             sleep 10
           done
 
-          # A just-created function can still be in state Pending/Creating (the same
-          # push's Deploy Infrastructure run), and update-function-code then fails
-          # with ResourceConflictException — wait for Active first (hit on SPEC-088).
-          aws lambda wait function-active-v2 --function-name "$FUNCTION"
+          # A read loop rather than `mapfile` (bash 4+), matching deploy-lambda.sh, so the
+          # whole path can be dry-run on a Mac before it is pushed.
+          FUNCS=()
+          while IFS= read -r fn; do
+            [ -n "$fn" ] && FUNCS+=("$fn")
+          done < <(jq -r --argjson s "$SHARD" --argjson n "$SHARD_COUNT" \
+            'to_entries[] | select(.key % $n == $s) | .value.name' .github/lambda-functions.json)
 
-          aws s3 cp "build/${{ matrix.lambda.name }}.zip" "s3://${BUCKET}/${KEY}"
-          aws lambda update-function-code \
-            --function-name "$FUNCTION" \
-            --s3-bucket "$BUCKET" \
-            --s3-key "$KEY" \
-            --publish
-          aws lambda wait function-updated --function-name "$FUNCTION"
-
-          # Attach the function's layers. update-function-configuration --layers REPLACES
-          # the whole list, so a function needing more than one layer (infer-schema =
-          # cpcommon + table-builder-common + polars, SPEC-069/107) must pass them
-          # together in one call. Every table-builder / table-share verb now also attaches
-          # the cpcommon layer (SPEC-107).
-          LAYERS=()
-          [ "${{ matrix.lambda.cpcommon }}" = "true" ] && LAYERS+=("${{ needs.cpcommon_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.layer }}" = "true" ]    && LAYERS+=("${{ needs.layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.polars }}" = "true" ]   && LAYERS+=("${{ needs.polars_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.tbcommon }}" = "true" ] && LAYERS+=("${{ needs.table_builder_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.tscommon }}" = "true" ] && LAYERS+=("${{ needs.table_share_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.dqcommon }}" = "true" ] && LAYERS+=("${{ needs.dqcommon_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.dqpolars }}" = "true" ] && LAYERS+=("${{ needs.dq_polars_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.fscommon }}" = "true" ] && LAYERS+=("${{ needs.file_send_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.focommon }}" = "true" ] && LAYERS+=("${{ needs.file_ops_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.arcommon }}" = "true" ] && LAYERS+=("${{ needs.archive_layer.outputs.layer_arn }}")
-          if [ "${#LAYERS[@]}" -gt 0 ]; then
-            aws lambda update-function-configuration \
-              --function-name "$FUNCTION" \
-              --layers "${LAYERS[@]}"
-            aws lambda wait function-updated --function-name "$FUNCTION"
+          if [ "${#FUNCS[@]}" -eq 0 ]; then
+            echo "::error::Shard ${SHARD}/${SHARD_COUNT} selected no functions — the table or the sharding expression is wrong, and a silently empty shard deploys nothing while reporting success."
+            exit 1
           fi
+
+          echo "Shard ${SHARD} of ${SHARD_COUNT}: ${#FUNCS[@]} functions"
+          printf '  %s\n' "${FUNCS[@]}"
+
+          # Every function gets its attempt even after one fails, and the shard fails
+          # at the end naming all of them. Under one-job-per-function an unrelated
+          # failure never stopped a deploy, and sharding must not quietly change that.
+          FAILED=()
+          for NAME in "${FUNCS[@]}"; do
+            echo "::group::${NAME}"
+            if bash .github/scripts/deploy-lambda.sh "$NAME"; then
+              echo "✓ ${NAME}"
+            else
+              echo "::error::${NAME} failed to deploy."
+              FAILED+=("$NAME")
+            fi
+            echo "::endgroup::"
+          done
+
+          if [ "${#FAILED[@]}" -gt 0 ]; then
+            echo "::error::Shard ${SHARD} failed for: ${FAILED[*]}"
+            exit 1
+          fi
+          echo "Shard ${SHARD}: all ${#FUNCS[@]} functions deployed."

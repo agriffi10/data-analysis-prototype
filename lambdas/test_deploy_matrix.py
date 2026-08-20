@@ -16,12 +16,18 @@ still true:
 * **The instrumentation harness cannot see it.** ``test_instrumentation_coverage.py`` asserts
   these modules are *instrumented*, which is exactly what put the unresolvable import there.
 
-So this test reads the workflow's matrix as data and joins it against what each module actually
+So this test reads the deploy table as data and joins it against what each module actually
 imports. It is the only place in the suite where a Lambda's PACKAGING is checked rather than its
 behaviour.
+
+The table lives in ``.github/lambda-functions.json`` rather than in the workflow's
+``strategy.matrix``, because the per-function jobs are now sharded — see ``_matrix_rows``. That
+move added a second way to deploy nothing while reporting success (a shard expression that
+selects no functions), which ``test_every_function_lands_in_exactly_one_shard`` closes.
 """
 
 import ast
+import json
 import pathlib
 import re
 
@@ -29,6 +35,9 @@ import pytest
 
 LAMBDAS = pathlib.Path(__file__).resolve().parent
 WORKFLOW = LAMBDAS.parent / ".github" / "workflows" / "deploy-lambdas.yml"
+#: The function table the deploy shards read. Split out of the workflow's `strategy.matrix`
+#: when the per-function jobs were sharded for cost — see `_matrix_rows`.
+FUNCTIONS = LAMBDAS.parent / ".github" / "lambda-functions.json"
 
 #: Top-level package (or flat module) name → the matrix flag whose layer provides it.
 #:
@@ -71,25 +80,21 @@ _NOT_SHIPPED = ("test_", "conftest.py", "fakes.py", "__init__.py")
 #: `polars`, data-quality's attaches `dqpolars`. Either satisfies the import.
 POLARS_FLAGS = ("polars", "dqpolars")
 
-_ROW_RE = re.compile(r"^\s*-\s*\{\s*name:\s*([a-z0-9-]+)\s*,(.*)\}\s*$")
-_FLAG_RE = re.compile(r"(\w+)\s*:\s*(true|false)")
-
 
 def _matrix_rows():
-    """Every ``- { name: …, flag: bool, … }`` row in the deploy matrix, as (name, flags).
+    """Every function in the deploy table, as ``{name: {flag: True}}``.
 
-    Deliberately a regex over the raw file rather than a YAML parse: PyYAML is not a test
-    dependency, and the rows are a fixed one-line shape that a reader can check by eye. A row
-    reformatted onto several lines stops matching — which the row-count guard below turns into a
-    failure rather than a silent skip.
+    The table used to be a ``strategy.matrix`` in the workflow and this used to be a regex over
+    the raw YAML. It moved to ``.github/lambda-functions.json`` when the per-function matrix was
+    sharded for cost: a matrix creates one job per entry, GitHub bills every job a whole minute,
+    and 73 twenty-nine-second jobs were 46% of the repo's Actions spend. A shard job has to read
+    its share of the table as DATA, which a matrix cannot express.
+
+    Only true flags are stored, so a flag is absent rather than ``False``. Every consumer below
+    reads through ``.get()``, for which the two are the same answer.
     """
-    rows = {}
-    for line in WORKFLOW.read_text().splitlines():
-        match = _ROW_RE.match(line)
-        if match:
-            name, rest = match.groups()
-            rows[name] = {k: v == "true" for k, v in _FLAG_RE.findall(rest)}
-    return rows
+    table = json.loads(FUNCTIONS.read_text())
+    return {entry["name"]: dict.fromkeys(entry["layers"], True) for entry in table}
 
 
 MATRIX = _matrix_rows()
@@ -139,18 +144,15 @@ def _imported_roots(paths):
 
 
 def test_the_matrix_was_actually_parsed():
-    """Guards the guard: a regex that matches nothing makes every test below vacuous."""
-    assert len(MATRIX) >= 30, f"only parsed {len(MATRIX)} matrix rows from {WORKFLOW.name}"
-    # A row with a known-good, multi-layer shape, so a partial parse fails here rather than
+    """Guards the guard: a table that loads empty makes every test below vacuous."""
+    assert len(MATRIX) >= 30, f"only read {len(MATRIX)} rows from {FUNCTIONS.name}"
+    # A row with a known-good, multi-layer shape, so a partial read fails here rather than
     # passing a function whose flags were silently dropped.
     assert MATRIX.get("data-quality-inspect-source") == {
-        "layer": False,
-        "polars": False,
-        "tbcommon": False,
         "cpcommon": True,
         "dqcommon": True,
         "dqpolars": True,
-    }, "the reference row did not parse as expected — the matrix format changed"
+    }, "the reference row did not read as expected — the table format changed"
 
 
 def _copy_list(directory):
@@ -270,3 +272,70 @@ def test_every_imported_layer_package_is_attached(name):
         f"lambdas/{name}/ imports {', '.join(missing)} but its {WORKFLOW.name} row does not "
         f"attach the layer — the function will raise ModuleNotFoundError at cold start"
     )
+
+
+def _shard_config():
+    """The deploy job's shard list and its ``SHARD_COUNT``, read from the workflow.
+
+    Read rather than duplicated: these two are only correct RELATIVE TO EACH OTHER, and a
+    constant here would keep asserting a covering partition after someone changed the workflow.
+    """
+    text = WORKFLOW.read_text()
+    count = re.search(r"^\s*SHARD_COUNT:\s*(\d+)\s*$", text, re.MULTILINE)
+    assert count, f"no SHARD_COUNT found in {WORKFLOW.name} — did the deploy job change?"
+    listed = re.search(r"^\s*shard:\s*\[([\d,\s]+)\]\s*$", text, re.MULTILINE)
+    assert listed, f"no `shard:` matrix list found in {WORKFLOW.name} — did the deploy job change?"
+    return [int(s) for s in listed.group(1).split(",")], int(count.group(1))
+
+
+def test_the_shard_list_and_the_shard_count_agree():
+    """The two halves of the sharding are declared separately and must describe one partition.
+
+    ``SHARD_COUNT`` is the divisor in the job's ``select(.key % $n == $s)``; the matrix's
+    ``shard:`` list is which remainders actually get a job. Nothing in Actions relates them, so
+    ``SHARD_COUNT: 6`` beside ``shard: [0, 1, 2, 3]`` is valid YAML that silently never deploys a
+    third of the fleet — green, because every job that ran, succeeded.
+    """
+    listed, count = _shard_config()
+    assert sorted(listed) == list(range(count)), (
+        f"shard list {listed} does not cover 0..{count - 1} — functions whose index mod "
+        f"{count} is unlisted are never deployed, and the run still goes green"
+    )
+
+
+def test_every_function_lands_in_exactly_one_shard():
+    """The sharded deploy must be a COVERING PARTITION of the table.
+
+    Under one job per function this was true by construction. Sharding makes it an expression
+    that can be wrong in two directions, both of them quiet: a function in no shard is never
+    deployed (the same silent failure ``test_every_lambda_directory_is_in_the_deploy_matrix``
+    exists for), and a function in two shards is deployed twice concurrently, which races
+    ``update-function-code`` against ``update-function-configuration`` on one function.
+
+    Mirrors the workflow's own ``to_entries[] | select(.key % $n == $s)`` against the shards the
+    matrix ACTUALLY lists, so an unlisted remainder shows up here as unplaced functions.
+    """
+    names = [entry["name"] for entry in json.loads(FUNCTIONS.read_text())]
+    listed, count = _shard_config()
+
+    placements = {}
+    for shard in listed:
+        for index, name in enumerate(names):
+            if index % count == shard:
+                placements.setdefault(name, []).append(shard)
+
+    unplaced = sorted(set(names) - set(placements))
+    assert not unplaced, f"never deployed — in no shard: {unplaced}"
+    duplicated = sorted(n for n, shards in placements.items() if len(shards) > 1)
+    assert not duplicated, f"deployed concurrently by two shards: {duplicated}"
+
+
+def test_the_deploy_table_has_no_duplicate_names():
+    """Two rows for one function would make the shard partition above unprovable.
+
+    The table is a list, so a duplicated name survives the file but collapses in every dict
+    built from it — including ``MATRIX``, which would then check one row and deploy the other.
+    """
+    names = [entry["name"] for entry in json.loads(FUNCTIONS.read_text())]
+    duplicated = sorted({n for n in names if names.count(n) > 1})
+    assert not duplicated, f"duplicate rows in {FUNCTIONS.name}: {duplicated}"
