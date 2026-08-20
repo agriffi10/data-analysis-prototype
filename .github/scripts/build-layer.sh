@@ -100,17 +100,31 @@ if [ "$PUBLISH" != "true" ]; then
   # Unchanged: reuse the version already published, so the functions attaching this layer
   # stay pointed where they are and need no redeploy.
   #
-  # `max_by(Version)` rather than `LayerVersions[0]` with `--max-items 1`: the
-  # ListLayerVersions API documents NO ordering, the CLI's own pagination guide warns that
-  # a service "might not return items in the same order each time", and `--max-items` is
-  # CLIENT-SIDE truncation — so `[0]` is whichever element the service happened to put
-  # first. Picking wrong would re-point every function at an arbitrary older version, which
-  # is SPEC-137's failure class produced by the mechanism built to avoid it. Asking for the
-  # highest Version is ordering-independent.
+  # The version is picked by MAX rather than by position: the ListLayerVersions API
+  # documents NO ordering, the CLI's own pagination guide warns that a service "might not
+  # return items in the same order each time", and `--max-items` is CLIENT-SIDE truncation
+  # — so `[0]` is whichever element the service happened to put first. Picking wrong would
+  # re-point every function at an arbitrary older version, which is SPEC-137's failure class
+  # produced by the mechanism built to avoid it.
+  #
+  # THE MAX IS TAKEN HERE, NOT IN --query, AND THAT IS THE WHOLE POINT OF THIS SHAPE. The
+  # CLI auto-paginates, and with `--output text` it applies `--query` to EACH PAGE and
+  # prints one result per page — so a single-value query like `max_by(...).LayerVersionArn`
+  # returns one ARN PER PAGE, not one ARN. A layer with 127 versions is three pages, and the
+  # variable below held three lines: the reuse message printed as three, and the tab-separated
+  # record this script exists to emit became three records keyed by an ARN. It is asked for
+  # every (version, arn) row instead — every page prints its rows, so sorting numerically and
+  # taking the first is correct however the pages arrive.
+  # The reduction is ONE awk rather than `sort | head`, and that is about `pipefail`, which
+  # is set at the top of this file: `head` closes the pipe after its first line, `sort` takes
+  # SIGPIPE, and the pipeline reports failure on a call that actually succeeded — sending the
+  # script down the "could not list" path and publishing a version nothing needed.
   if LISTED=$(aws lambda list-layer-versions \
     --layer-name "$LAYER_NAME" \
-    --query 'max_by(LayerVersions, &Version).LayerVersionArn' --output text 2>/dev/null); then
-    [ "$LISTED" = "None" ] || ARN="$LISTED"
+    --query 'LayerVersions[].[Version,LayerVersionArn]' --output text 2>/dev/null); then
+    ARN=$(printf '%s\n' "$LISTED" | awk -F'\t' '
+      $2 ~ /^arn:/ && $1 + 0 > highest { highest = $1 + 0; latest = $2 }
+      END { if (latest != "") print latest }')
     if [ -n "$ARN" ]; then
       echo "Reusing ${ARN} (unchanged)" >&2
     else
@@ -137,6 +151,15 @@ if [ -z "$ARN" ]; then
     --compatible-runtimes python3.12 \
     --query LayerVersionArn --output text)
   echo "Published ${ARN}" >&2
+fi
+
+# ONE RECORD, ASSERTED. The caller collects these lines into the layer map every function's
+# deploy reads, so a value carrying a newline does not fail here — it silently becomes extra
+# entries keyed by whatever the stray line held, and the failure surfaces at the end of the job
+# as a map that counts wrong. Refusing here names the layer and the value instead.
+if [ "$(printf '%s' "$ARN" | wc -l | tr -d ' ')" != "0" ] || [ -z "$ARN" ]; then
+  echo "::error::layer '${FLAG}' resolved to a layer ARN that is not one value: ${ARN}" >&2
+  exit 1
 fi
 
 printf '%s\t%s\t%s\n' "$FLAG" "$ARN" "$UNZIPPED_KB"
