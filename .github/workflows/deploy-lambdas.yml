@@ -35,6 +35,11 @@ on:
       - '.github/lambda-layers.json'
       - '.github/scripts/deploy-lambda.sh'
       - '.github/scripts/build-layer.sh'
+      # The planner decides what this workflow does. Without it here, a push that fixes a
+      # planner bug never runs the workflow — and plan_deploy.py's own HARD_GLOBAL_PATHS
+      # entry, which exists so its bug cannot suppress the deploy that fixes it, is
+      # unreachable in exactly that case.
+      - '.github/scripts/plan_deploy.py'
   workflow_dispatch:
 
 # Resource names are derived deterministically from the same project/environment
@@ -55,9 +60,14 @@ env:
 #
 # Known consequence, so nobody diagnoses it as a fault: GitHub holds at most ONE pending
 # run per group, so three merges in quick succession evict the middle one as `cancelled`.
-# That is benign here — the third run's commit is a superset of the second's — but it
-# does put a cancelled Deploy Lambdas run on main, which the project's "always confirm
-# main went green" rule would otherwise send someone chasing.
+# It puts a cancelled Deploy Lambdas run on main, which the project's "always confirm main
+# went green" rule would otherwise send someone chasing.
+#
+# It is NOT benign on the strength of "the third commit is a superset of the second", which
+# is true of the TREE and false of the DIFF. The evicted run's changes would fall into a
+# gap no later diff covers. What makes it safe is that the `plan` job anchors its diff to
+# the last SUCCESSFUL run rather than to the previous tip — an evicted or failed run leaves
+# the base where it was, and the next run re-covers the range.
 concurrency:
   group: deploy-lambdas
   cancel-in-progress: false
@@ -84,6 +94,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      # To find the last run of this workflow that actually succeeded — see below.
+      actions: read
     outputs:
       functions: ${{ steps.plan.outputs.functions }}
       publish: ${{ steps.plan.outputs.publish }}
@@ -101,27 +113,55 @@ jobs:
       - name: Work out what changed
         id: plan
         env:
-          BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
+          # ── The diff BASE is the last commit this workflow actually deployed ───────
+          # NOT `github.event.before`, which is merely the previous tip. The two differ
+          # exactly when a run does not deploy: this workflow queues rather than cancels
+          # (`concurrency` above), and GitHub holds only ONE pending run per group — so
+          # three merges in quick succession EVICT the middle one. A shard can also fail,
+          # and `fail-fast: false` means the rest of the run still goes green.
+          #
+          # While every run deployed all 73 functions that was harmless, and the
+          # concurrency comment above said so. Change detection is what makes it unsafe:
+          # against `before`, the evicted or failed run's commits fall into a gap that no
+          # later diff ever covers, and those functions run stale code until something
+          # unrelated happens to touch them. Invisible until a cold start.
+          #
+          # Anchoring to the last SUCCESSFUL run makes this a reconciler rather than a
+          # change detector: a failed or evicted run simply leaves the base where it was,
+          # and the next run re-covers the whole range.
+          BASE=""
+          if [ "${{ github.event_name }}" = "push" ]; then
+            BASE=$(gh api \
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-lambdas.yml/runs?branch=main&status=success&event=push&per_page=1" \
+              --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null || true)
+          fi
+
           FORCE=""
-          # A dispatch carries no diff, and a `before` that is absent, all-zeros or no
-          # longer in the history (force-push, first push on a new branch) is not a diff
-          # either. Treating any of those as "nothing changed" would silently deploy
-          # nothing, so they all mean "deploy everything".
           if [ "${{ github.event_name }}" != "push" ]; then
             FORCE="--all"
             echo "Not a push — planning a full deploy."
-          elif [ -z "${BEFORE:-}" ] || [ "${BEFORE}" = "0000000000000000000000000000000000000000" ] \
-               || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+          elif [ -z "$BASE" ]; then
             FORCE="--all"
-            echo "No usable previous commit (${BEFORE:-unset}) — planning a full deploy."
+            echo "No previous successful run of this workflow — planning a full deploy."
+          elif ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            FORCE="--all"
+            echo "Last successful run's commit ${BASE} is not in this history (force-push?) — planning a full deploy."
+          else
+            echo "Diffing against the last successfully deployed commit: ${BASE}"
           fi
+          BEFORE="$BASE"
 
           OLD_ARGS=()
           if [ -z "$FORCE" ]; then
-            git diff --name-only "${BEFORE}" "${GITHUB_SHA}" > changed.txt
+            # `--no-renames` because a rename is reported by DESTINATION only, so a file
+            # moved OUT of a watched prefix would leave the layer or function that lost it
+            # neither rebuilt nor redeployed. One word, and it restores the deploy-too-much
+            # bias every other rule here is written to.
+            git diff --no-renames --name-only "${BEFORE}" "${GITHUB_SHA}" > changed.txt
             echo "Changed paths:"; sed 's/^/  /' changed.txt
             # The tables as they were, so a table change narrows to the rows that moved
             # instead of forcing the fleet. If either cannot be read the planner falls

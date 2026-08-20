@@ -143,6 +143,11 @@ files = [
     # above and for its reason: added later it is a baseline of existing errors to argue about;
     # added now it is free, and this one entered at zero too.
     "lambdas/file-ops-common/focommon",
+    # Not a layer, and here for the same reason the layers are: it joins the ratchet WITH
+    # the change that creates it, where it enters at zero. This one module decides which
+    # Lambdas a push deploys, so it is the last place in the fleet that should be the one
+    # the type checker cannot see.
+    ".github/scripts/plan_deploy.py",
 ]
 # The suites and the test doubles are not shipped and are not the contract.
 exclude = '(/test_[^/]*\.py|/conftest\.py|/fakes\.py)$'

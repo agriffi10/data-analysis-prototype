@@ -141,10 +141,10 @@ def _table_deltas(
             return None
         before = _by_name(old_functions, "name")
         for row in functions:
-            previous = before.get(row["name"])
-            # A new row, or one whose layer set moved — a function whose row is byte-identical
-            # is unaffected by someone else's row changing, which is the entire point.
-            if previous is None or previous.get("layers") != row["layers"]:
+            # A new row, or one that changed in ANY field — matching how the layer table is
+            # compared below. Testing only `layers` is correct for today's two-field row and
+            # would silently ignore a third field the moment one is added.
+            if before.get(row["name"]) != row:
                 selected.add(row["name"])
 
     if _touched(changed, ".github/lambda-layers.json"):
@@ -183,20 +183,20 @@ def plan(
       A dict with ``functions`` (names to deploy), ``publish`` (layer flags needing a new
       version), ``shards``, ``shard_count`` and ``reason``.
     """
-    everything = None
+    everything: str | None = None
+    deltas: tuple[set[str], set[str]] | None = None
+
     if force_all:
         everything = "manual dispatch, or the changed set was unavailable"
     elif any(_touched(changed, path) for path in HARD_GLOBAL_PATHS):
         hit = sorted(p for p in HARD_GLOBAL_PATHS if _touched(changed, p))
         everything = f"{', '.join(hit)} changed"
-
-    deltas = None
-    if everything is None:
+    else:
         deltas = _table_deltas(changed, functions, layers, old_functions, old_layers)
         if deltas is None:
             everything = "a table changed and its previous content was unavailable"
 
-    if everything is not None:
+    if everything is not None or deltas is None:
         reason = f"deploying every function: {everything}"
         selected = [f["name"] for f in functions]
         publish = [layer["flag"] for layer in layers]

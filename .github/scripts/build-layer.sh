@@ -97,23 +97,34 @@ LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-${LAYER_NAME_SUFFIX}"
 
 ARN=""
 if [ "$PUBLISH" != "true" ]; then
-  # Unchanged: reuse the newest version already published. `list-layer-versions` returns
-  # newest first, so this is the version every function attaching this layer is already
-  # pointing at — re-pointing them is a no-op, which is the point.
-  ARN=$(aws lambda list-layer-versions \
+  # Unchanged: reuse the version already published, so the functions attaching this layer
+  # stay pointed where they are and need no redeploy.
+  #
+  # `max_by(Version)` rather than `LayerVersions[0]` with `--max-items 1`: the
+  # ListLayerVersions API documents NO ordering, the CLI's own pagination guide warns that
+  # a service "might not return items in the same order each time", and `--max-items` is
+  # CLIENT-SIDE truncation — so `[0]` is whichever element the service happened to put
+  # first. Picking wrong would re-point every function at an arbitrary older version, which
+  # is SPEC-137's failure class produced by the mechanism built to avoid it. Asking for the
+  # highest Version is ordering-independent.
+  if LISTED=$(aws lambda list-layer-versions \
     --layer-name "$LAYER_NAME" \
-    --max-items 1 \
-    --query 'LayerVersions[0].LayerVersionArn' --output text 2>/dev/null || true)
-  if [ "$ARN" = "None" ]; then
-    ARN=""
-  fi
-  if [ -n "$ARN" ]; then
-    echo "Reusing ${ARN} (unchanged)" >&2
+    --query 'max_by(LayerVersions, &Version).LayerVersionArn' --output text 2>/dev/null); then
+    [ "$LISTED" = "None" ] || ARN="$LISTED"
+    if [ -n "$ARN" ]; then
+      echo "Reusing ${ARN} (unchanged)" >&2
+    else
+      # Never published — a brand-new layer on a push that did not appear to change it.
+      # Publishing is the only correct answer; the alternative is an empty ARN, and
+      # deploy-lambda.sh would refuse every function attaching it.
+      echo "No published version of ${LAYER_NAME} exists — publishing despite no detected change." >&2
+    fi
   else
-    # Never published — a brand-new layer on a push that did not appear to change it.
-    # Publishing is the only correct answer; the alternative is an empty ARN, and
-    # deploy-lambda.sh would refuse every function attaching it.
-    echo "No published version of ${LAYER_NAME} exists — publishing despite no detected change." >&2
+    # The call FAILED (throttle, credentials, network) — which is not the same as "there
+    # are none", and saying so would send whoever reads this log looking for a missing
+    # layer. Publishing is still the safe answer: the extra version is byte-identical to
+    # the one being reused elsewhere, so it costs a version number and nothing else.
+    echo "::warning::Could not list versions of ${LAYER_NAME} — publishing a fresh version rather than assuming none exists." >&2
   fi
 fi
 

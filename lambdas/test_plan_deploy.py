@@ -88,7 +88,33 @@ def test_a_shared_space_module_republishes_only_via_its_listed_modules():
     assert unlisted["publish"] == []
 
 
-@pytest.mark.parametrize("path", plan_deploy.GLOBAL_PATHS)
+#: Restated as a LITERAL rather than imported from the module under test. Parametrizing
+#: over ``plan_deploy.GLOBAL_PATHS`` meant deleting an entry deleted its own test case:
+#: four of the five hard-global paths could be removed with the whole suite green.
+EXPECTED_GLOBAL_PATHS = (
+    ".github/workflows/deploy-lambdas.yml",
+    ".github/scripts/deploy-lambda.sh",
+    ".github/scripts/build-layer.sh",
+    ".github/scripts/plan_deploy.py",
+    "lambdas/requirements.txt",
+    ".github/lambda-functions.json",
+    ".github/lambda-layers.json",
+)
+
+
+def test_the_global_path_list_is_exactly_what_is_expected():
+    """Guards the guard below, which can only test the paths it is given.
+
+    Removing a path from the planner silently removes the protection it provides; this is
+    the assertion that notices, and it must be a literal to do so.
+    """
+    assert set(plan_deploy.GLOBAL_PATHS) == set(EXPECTED_GLOBAL_PATHS), (
+        "the planner's global-path set changed — a REMOVAL means some change no longer "
+        "forces a full deploy, which is how a function comes to run stale code"
+    )
+
+
+@pytest.mark.parametrize("path", EXPECTED_GLOBAL_PATHS)
 def test_every_global_path_falls_back_to_the_whole_fleet(path):
     """These change what the plan is computed FROM, so no narrower answer is trustworthy.
 

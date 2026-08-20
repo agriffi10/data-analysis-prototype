@@ -276,6 +276,10 @@ def test_every_layer_a_function_attaches_actually_exists():
         f"functions attach layers that {LAYERS.name} does not define: {sorted(used - defined)} — "
         f"they would deploy with the layer missing and fail at cold start"
     )
+    # Not merely tidiness, since change detection: the `layers` job is gated on the
+    # FUNCTION list being non-empty, so a layer with no attaching function could be marked
+    # for republishing and never republished — going stale silently. Deleting this
+    # assertion as harmless would open that hole.
     assert not (defined - used), (
         f"{LAYERS.name} builds layers no function attaches: {sorted(defined - used)}"
     )
@@ -442,15 +446,18 @@ def test_the_deploy_workflow_triggers_on_everything_it_reads():
     """
     text = WORKFLOW.read_text()
     trigger = text[: text.index("jobs:")]
-    required = [
-        "lambdas/**",
-        ".github/workflows/deploy-lambdas.yml",
-        ".github/lambda-functions.json",
-        ".github/lambda-layers.json",
-        ".github/scripts/deploy-lambda.sh",
-        ".github/scripts/build-layer.sh",
+
+    # Derived from the planner rather than restated, so the two cannot drift: EVERY path
+    # that forces a full deploy must also be able to TRIGGER one. A path the planner treats
+    # as global but the filter does not name is the worst combination available — the
+    # planner would correctly demand a full deploy, on a run that never starts.
+    required = ["lambdas/**", *plan_deploy.GLOBAL_PATHS]
+    missing = [
+        path
+        for path in required
+        # `lambdas/**` covers anything beneath it, so a global path there needs no entry.
+        if path not in trigger and not (path.startswith("lambdas/") and "lambdas/**" in trigger)
     ]
-    missing = [path for path in required if path not in trigger]
     assert not missing, (
         f"{WORKFLOW.name}'s push path filter does not name {missing} — a change to those "
         f"deploys nothing and goes green"
