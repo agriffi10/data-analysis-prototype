@@ -267,6 +267,92 @@ def test_the_same_key_rule_is_decided_BEFORE_the_into_itself_rule():
     assert result["outcomes"][0]["outcome"] == "noop"
 
 
+def test_a_CROSS_BUCKET_copy_is_not_reported_as_a_no_op():
+    """The guard a mutation test found unprotected, and the scenario is reachable: nothing stops a
+    shared space being named ``alice`` while a user is also called ``alice`` — the two live in
+    separate namespaces under the same identifier rule.
+
+    Source ``alice/`` in the user-space bucket, destination ``alice/`` in the shared-space bucket:
+    every derived key equals its source key as a STRING, so without the same-bucket guard the whole
+    copy reports ``noop`` and nothing is copied, silently.
+    """
+    result = _run(
+        spaces={"alice": {"status": "active", "members": ["alice"]}},
+        items=[{"kind": "file", "key": "alice/q1.csv"}],
+        destination={"space": {"kind": "shared", "name": "alice"}, "prefix": "alice/"},
+    )
+
+    assert result["outcomes"] == []
+    assert result["source"]["bucket"] != result["destination"]["bucket"]
+
+
+def test_a_CROSS_BUCKET_folder_is_not_reported_as_inside_itself():
+    """The same string coincidence, on the other pairing rule."""
+    result = _run(
+        spaces={"alice": {"status": "active", "members": ["alice"]}},
+        items=[{"kind": "folder", "key": "alice/reports/"}],
+        destination={"space": {"kind": "shared", "name": "alice"}, "prefix": "alice/reports/sub/"},
+    )
+
+    assert result["outcomes"] == []
+
+
+def test_the_SPACE_ROOT_is_refused_as_an_item():
+    """The third way to select a protected folder, and the one no rule looks for.
+
+    Every protected-location rule matches the named folder or something below it; none looks UP.
+    A single item of ``alice/`` passes all of them while naming a subtree containing
+    ``athenaresults/``, ``user_settings/``, ``archive/`` and every marker — a request this plane's
+    own IAM refuses part-way through. The browser cannot express it, so refusing costs nothing.
+    """
+    assert _refused(operation="delete", items=[{"kind": "folder", "key": "alice/"}]) == "space_root_not_an_item"
+
+
+def test_a_PROTECTED_source_is_reported_as_protected_rather_than_as_a_no_op():
+    """The ordering the docstring now describes. ``move alice/archive/ -> alice/`` derives its own
+    key, so a pairing-first order would answer "nothing happened" to a request the plane actually
+    refuses — and two protected folders would answer the same request differently depending on
+    which list they were on."""
+    result = _run(
+        operation="move",
+        items=[{"kind": "folder", "key": "alice/archive/"}],
+        destination={"space": {"kind": "personal", "name": "alice"}, "prefix": "alice/"},
+    )
+
+    assert result["outcomes"][0]["outcome"] == "protected"
+    assert result["outcomes"][0]["reason"] == "source_folder_undeletable"
+
+
+def test_a_destination_the_pickers_own_rules_forbid_is_refused():
+    """The verb's WIRING of the destination rule, which the rule's own tests cannot cover."""
+    reason = _refused(
+        destination={"space": {"kind": "personal", "name": "alice"}, "prefix": "alice/shared_tables/"}
+    )
+
+    assert reason == "destination_folder_locked"
+
+
+def test_a_folder_key_without_its_trailing_slash_is_normalised():
+    """Load-bearing for every rule below it: an unslashed folder key would compare as a file and
+    match a prefix rule it should not."""
+    result = _run(
+        operation="move",
+        items=[{"kind": "folder", "key": "alice/reports"}],
+        destination={"space": {"kind": "personal", "name": "alice"}, "prefix": "alice/"},
+    )
+
+    assert result["source"]["items"][0]["key"] == "alice/reports/"
+    assert result["outcomes"][0]["outcome"] == "noop"
+
+
+def test_a_request_with_no_usable_id_is_refused():
+    assert _refused(requestId="") == "malformed_event"
+
+
+def test_a_copy_with_a_malformed_destination_is_refused():
+    assert _refused(destination={"space": {"kind": "personal", "name": "alice"}}) == "invalid_destination"
+
+
 def test_a_marker_file_is_refused_per_item_for_a_COPY_too():
     """The one place a copy is not free on this plane: copying a marker mints a new permanently
     undeletable object, because both bucket policies deny the basename at any depth."""
@@ -328,3 +414,48 @@ def test_nothing_from_the_untrusted_body_identifies_the_caller():
         v._validate_and_authorize([{"body": json.dumps(body)}])
 
     assert caught.value.reason == "forbidden"
+
+
+# ── The contract with the state machine ──────────────────────────────────────
+
+
+def test_the_output_supplies_every_path_the_MACHINE_reads_of_it():
+    """The cross-check the neighbouring planes get from their `Validated` Pass, which this machine
+    deliberately does not have.
+
+    Without it the verb and the ASL drift silently in the worst direction: dropping ``requestId``
+    from the output leaves every unit test green, and then every post-identity failure path raises
+    an uncatchable ``States.Runtime`` BEFORE the notifier — so the user hears nothing about a
+    request that already failed. Mutation-checked: removing a key from the emitted shape reddens
+    this test and nothing else.
+
+    Read from the rendered ASL rather than a hand-listed set, so a state that starts reading a new
+    path is covered by existing rather than by being remembered.
+    """
+    import pathlib
+    import re
+
+    template = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "infra"
+        / "modules"
+        / "file-ops"
+        / "state-machine.asl.json.tftpl"
+    ).read_text()
+
+    # READ paths only. A bare `$.x` search also matches every `ResultPath`, which is where a
+    # state WRITES — `$.notifyError` is written by the notifier's own catch and read by nothing,
+    # so counting it would demand the verb emit a field that exists to be created later.
+    read = set(re.findall(r'"\w+\.\$": "\$\.(\w+)', template))
+    read |= set(re.findall(r'"Variable": "\$\.(\w+)', template))
+    produced = set(_run().keys()) | {"lock", "error", "execution", "raw"}
+
+    assert read <= produced, f"the machine reads {sorted(read - produced)}, which this verb never emits"
+
+
+def test_a_delete_supplies_those_paths_too():
+    """The operation whose request carries three fewer fields. The machine no longer reads them,
+    but the state has to stay one shape for the verbs that will."""
+    result = _run(operation="delete")
+
+    assert set(result) == set(_run().keys())

@@ -82,7 +82,9 @@ def handler(event, context) -> dict:
 
     **The tags are REPLACED on every attempt, never accumulated.** A re-claim rewrites the lock
     object and so returns a new tag; releasing against an earlier one is a silent no-op that
-    leaves the space locked until the staleness rule recovers it, which is hours.
+    leaves the space locked until the staleness rule recovers it, which is hours. Each tag rides
+    beside the space it belongs to in ``spaces``, which is the only shape the release reads —
+    a parallel list of bare tags would be a second place for the pairing to drift.
 
     Args:
       event: The running request object, carrying the resolved source, the optional destination
@@ -94,13 +96,21 @@ def handler(event, context) -> dict:
 
     Raises:
       ValueError: If the execution ARN is missing, which would write a lock every later reader
-        correctly interprets as unheld.
+        correctly interprets as unheld; or if no space on the event can be identified, which
+        would otherwise report a successful claim while holding nothing and let the machine
+        proceed unlocked. Failing closed here matches the machine's own third Choice clause,
+        which exists to route an acquire output that lost its shape to the give-up rather than
+        to let it look like progress.
     """
     holder = (event.get("execution") or {}).get("arn")
     attempt = int((event.get("lock") or {}).get(_ATTEMPT, 0)) + 1
 
+    targets = _targets(event)
+    if not targets:
+        raise ValueError("no identifiable space to lock")
+
     held: list = []
-    for bucket, root in _targets(event):
+    for bucket, root in targets:
         acquired, etag = lock.acquire(bucket, root, holder)
         if not acquired:
             for prior_bucket, prior_root, prior_etag in held:
@@ -117,7 +127,6 @@ def handler(event, context) -> dict:
                     _ATTEMPT: attempt,
                     "acquired": False,
                     "exhausted": attempt >= LOCK_MAX_ATTEMPTS,
-                    "etags": [],
                 },
             }
         held.append((bucket, root, etag))
@@ -130,6 +139,5 @@ def handler(event, context) -> dict:
             "acquired": True,
             "exhausted": False,
             "spaces": [{"bucket": b, "root": r, "etag": e} for b, r, e in held],
-            "etags": [e for _, _, e in held],
         },
     }

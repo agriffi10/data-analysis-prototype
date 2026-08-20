@@ -43,7 +43,7 @@ from datetime import UTC, datetime
 
 from cpcommon import auth, events, observability
 from cpcommon.errors import TerminalError
-from cpcommon.paths import assert_inside_root, has_dot_segment, normalize_root
+from cpcommon.paths import assert_inside_root, normalize_root
 from focommon import authz, notify, outcomes, paths, protected
 from focommon.config import (
     FILE_OPS_MAX_ITEMS,
@@ -179,6 +179,15 @@ def _normalize_items(items, root: str) -> list:
     Containment is a WHOLE-REQUEST terminal rather than a per-item skip: a request naming a key
     outside the actor's own space is not a request with one bad row in it.
 
+    **THE SPACE ROOT IS REFUSED AS AN ITEM, and it is the third way to select a protected folder.**
+    Every protected-location rule matches the named folder or something below it; none of them
+    looks UP. So a single item of ``alice/`` passes all of them while naming a subtree that
+    contains ``athenaresults/``, ``user_settings/``, ``archive/`` and every marker file — a
+    request this plane's own IAM refuses part-way through, which is the mismatch those rules exist
+    to prevent. The browser cannot express it (select-all selects the children, not the root), so
+    refusing it costs nothing and closes the class for every root-anchored rule at once. The
+    file-send plane records the same ancestor trap for its own results-folder rule.
+
     Args:
       items: The raw selection from the request.
       root: The authorized source root prefix.
@@ -214,6 +223,8 @@ def _normalize_items(items, root: str) -> list:
         if kind == "folder" and not key.endswith("/"):
             key = f"{key}/"
         assert_inside_root(root, key)
+        if key == normalize_root(root):
+            raise TerminalError("space_root_not_an_item", "the space itself is not a selectable item")
         item = {"kind": kind, "key": key}
         if entry.get("targetName") is not None:
             item["targetName"] = paths.validate_target_name(entry["targetName"])
@@ -243,12 +254,13 @@ def _check_destination_prefix(root: str, prefix: str) -> str:
       The prefix, normalised to a trailing slash.
 
     Raises:
-      TerminalError: ``forbidden`` when the prefix is outside the root or carries a dot segment.
+      TerminalError: ``forbidden`` when the prefix is outside the root. The dot-segment rule is
+        part of that same check rather than a separate one here — the shared containment helper
+        refuses a dot segment over the identical string, so a second test would be unreachable
+        code presenting itself as enforcement.
     """
     normalized = prefix if prefix.endswith("/") else f"{prefix}/"
     assert_inside_root(root, normalized)
-    if has_dot_segment(normalized):
-        raise TerminalError("forbidden", f"{prefix!r} carries a dot segment")
     return normalized
 
 
@@ -294,14 +306,24 @@ def _per_item_outcomes(
 ) -> list:
     """Decides each item's own outcome, in the order the rules must run.
 
-    **The ORDER is the rule, not an implementation detail.** Same-key precedes into-itself,
-    because the subtree comparison matches the equal case too and would turn a rename-to-the-
-    same-name into an error. It precedes the conflict evaluation a later verb adds for a second
-    reason: under an overwrite answer S3 rejects a copy whose source and destination are
-    identical, so the no-op has to be recognised before anything asks about collisions.
+    **The ORDER is the rule, not an implementation detail.**
 
-    The protected-location rules come last because they are about the item's own location rather
-    than the pairing, and an item that is going nowhere does not need them.
+    The protected-location rules run FIRST, all of them, because they are about the item itself
+    rather than about where it is going — and an item the user may not touch should be reported as
+    such rather than as a no-op. ``move alice/archive/ -> alice/`` derives its own key, so a
+    pairing-first order would answer "nothing happened" to a request the plane actually refuses,
+    and two protected folders would answer the same request differently depending on which list
+    they were on.
+
+    Then same-key precedes into-itself, because the subtree comparison matches the equal case too
+    and would turn a rename-to-the-same-name into an error. It precedes the conflict evaluation a
+    later verb adds for a second reason: under an overwrite answer S3 rejects a copy whose source
+    and destination are identical, so the no-op has to be recognised before anything asks about
+    collisions.
+
+    Both pairing rules are confined to ONE bucket. Across buckets the same key string names a
+    different object, so a personal space and a shared space that happen to share a name would
+    otherwise report every item of a real cross-space copy as a no-op and copy nothing.
 
     Args:
       items: The normalised selection.
@@ -320,28 +342,24 @@ def _per_item_outcomes(
     decided = []
     for item in items:
         label = paths.item_name(item["key"])
-        refusal = protected.settings_source_refusal(source["root"], item["key"]) or protected.marker_refusal(
-            item["key"]
-        )
-        if refusal is None and destination is not None:
-            derived = paths.derived_destination_key(destination["prefix"], item)
-            same_bucket = source["bucket"] == destination["bucket"]
-            if same_bucket and derived == item["key"]:
-                decided.append(outcomes.outcome(item["key"], label, outcomes.NOOP))
-                continue
-            if same_bucket and derived.startswith(normalize_root(item["key"])) and item["kind"] == "folder":
-                decided.append(
-                    outcomes.outcome(
-                        item["key"], label, outcomes.REFUSED, "destination_inside_source"
-                    )
-                )
-                continue
-        refusal = refusal or protected.source_refusal(
-            source["root"], item["key"], operation, space_kind
+        refusal = (
+            protected.settings_source_refusal(source["root"], item["key"])
+            or protected.marker_refusal(item["key"])
+            or protected.source_refusal(source["root"], item["key"], operation, space_kind)
         )
         if refusal is not None:
+            decided.append(outcomes.outcome(item["key"], label, outcomes.PROTECTED, refusal.reason))
+            continue
+
+        if destination is None or source["bucket"] != destination["bucket"]:
+            continue
+
+        derived = paths.derived_destination_key(destination["prefix"], item)
+        if derived == item["key"]:
+            decided.append(outcomes.outcome(item["key"], label, outcomes.NOOP))
+        elif item["kind"] == "folder" and derived.startswith(normalize_root(item["key"])):
             decided.append(
-                outcomes.outcome(item["key"], label, outcomes.PROTECTED, refusal.reason)
+                outcomes.outcome(item["key"], label, outcomes.REFUSED, "destination_inside_source")
             )
     return decided
 
@@ -437,10 +455,6 @@ def _validate_and_authorize(event) -> dict:
         "actor": {"username": actor},
         "operation": operation,
         "source": source,
-        # Explicit nulls for a delete, so the state is one shape for all three operations and no
-        # later Choice has to ask whether the field is there. A Pass reading an absent path
-        # raises an uncatchable States.Runtime, and the cheapest way never to meet that is for
-        # this verb to leave nothing absent.
         "destination": destination,
         "onConflict": req.get("onConflict"),
         "submittedAt": req.get("submittedAt"),

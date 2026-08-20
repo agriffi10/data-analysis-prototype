@@ -152,7 +152,7 @@ def test_a_refused_claim_reports_not_yet_rather_than_raising(calls):
 
     result = v.handler(_event(), None)
 
-    assert result["lock"] == {"attempt": 1, "acquired": False, "exhausted": False, "etags": []}
+    assert result["lock"] == {"attempt": 1, "acquired": False, "exhausted": False}
 
 
 def test_the_attempt_count_comes_from_the_verb_not_an_intrinsic(calls):
@@ -195,5 +195,17 @@ def test_the_tags_are_replaced_on_every_attempt_never_accumulated(calls):
     first = v.handler(_event(), None)
     second = v.handler({**_event(), "lock": first["lock"]}, None)
 
-    assert len(second["lock"]["etags"]) == 1
-    assert second["lock"]["etags"] != first["lock"]["etags"]
+    # Asserted against `spaces`, the field the release actually presents — the earlier version of
+    # this test checked a parallel `etags` list that nothing read, so it could not have caught a
+    # stale tag reaching the release.
+    assert len(second["lock"]["spaces"]) == 1
+    assert second["lock"]["spaces"][0]["etag"] != first["lock"]["spaces"][0]["etag"]
+
+
+def test_an_unidentifiable_space_FAILS_CLOSED(calls):
+    """Reporting a successful claim while holding nothing would let the machine proceed unlocked
+    — which is the one thing the lock exists to prevent, arrived at by looking like progress."""
+    with pytest.raises(ValueError, match="no identifiable space"):
+        v.handler({**_event(), "source": {}}, None)
+
+    assert calls["acquired"] == []

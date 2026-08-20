@@ -42,6 +42,9 @@ _BODIES = {
         "that selection is too large to submit in one go. Please select fewer files or folders."
     ),
     "invalid_operation": "that is not something this can do.",
+    "space_root_not_an_item": (
+        "a whole space can't be worked on in one go. Please pick the folders and files inside it."
+    ),
     "invalid_destination": "no destination was given, or it is malformed.",
     "unexpected_destination": "a destination was given for something that does not take one.",
     "invalid_conflict": "the request did not say what to do about files that already exist.",

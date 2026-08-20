@@ -1,4 +1,4 @@
-"""Unit tests for file-ops notify-failure (SPEC-152 on this plane).
+"""Unit tests for file-ops notify-failure (the spec on this plane).
 
 This is the notification of last resort — the one that fires when no verb's decorator could,
 because no verb code ran. The tests that matter are the three ways it can go wrong: telling
@@ -78,7 +78,7 @@ def test_the_actor_is_recovered_from_the_request_when_no_verb_produced_one():
     """THE CASE THIS STATE ACTUALLY SEES. Every failure it exists for — a cold-start import
     error, a state timeout, a task that could not be invoked — happens before an actor exists,
     so the recorded object carries actor: null. Recovering the actor from the verified token
-    in the captured request is the difference between SPEC-152's guarantee holding here and
+    in the captured request is the difference between the spec's guarantee holding here and
     reading as satisfied while telling nobody anything."""
     sent = _capture()
     n.auth.verified_username_ignoring_expiry = lambda token, **kw: "alice"
@@ -156,7 +156,7 @@ def test_a_non_dict_event_does_not_raise():
 
 
 def test_the_message_carries_no_raw_engine_text():
-    """SPEC-106: the Cause is for the logs and the SFN record, never the user's sentence."""
+    """the spec: the Cause is for the logs and the SFN record, never the user's sentence."""
     sent = _capture()
 
     n.handler(_request({"Error": "Lambda.Unknown", "Cause": "Task timed out after 15.00 seconds"}), None)
@@ -165,7 +165,7 @@ def test_the_message_carries_no_raw_engine_text():
 
 
 def test_the_emit_is_the_shared_swallowing_one():
-    """A failing send must never fail this state — the execution has already failed, and an
+    """A failing notification must never fail this state — the execution has already failed, and an
     exception here would replace a recorded failure with an unhandled one.
 
     Asserted as an IDENTITY rather than by stubbing a raising emitter, which is the version
@@ -184,7 +184,7 @@ if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
 
 
-# ── SPEC-166 FR-005: the second door ────────────────────────────────────────
+# ── The timeout door: the second door ────────────────────────────────────────
 
 
 def _timed_out(input_json=None, included=True):
@@ -203,7 +203,7 @@ def test_a_timed_out_execution_notifies_the_actor():
     """The failure the ASL door CANNOT reach. Step Functions catchers cover Task, Parallel and
     Map states but not top-level execution failures, so a run that exhausts TimeoutSeconds is
     terminated outright: no state runs, no Catch fires, and without this door the actor is told
-    nothing at all — the exact silence SPEC-152 exists to close."""
+    nothing at all — the exact silence the spec exists to close."""
     sent = _capture()
     n.auth.verified_username_ignoring_expiry = lambda token, **kw: "alice"
 
@@ -214,8 +214,8 @@ def test_a_timed_out_execution_notifies_the_actor():
 
 
 def test_the_timeout_message_is_not_the_generic_failure_sentence():
-    """A timeout is the one whole-request failure that can leave a recipient holding PART of a
-    send — the guard and the copy may both have run — so "try again" alone would be wrong
+    """A timeout is the one whole-request failure that can leave a space PART-CHANGED — on a move,
+    objects may have been copied and not yet deleted — so "try again" alone would be wrong
     advice, and trying again would then conflict on what did arrive."""
     sent = _capture()
     n.auth.verified_username_ignoring_expiry = lambda token, **kw: "alice"
@@ -288,8 +288,8 @@ def test_the_asl_door_is_unaffected_by_the_second_one():
 
 
 def test_a_timed_out_execution_whose_input_was_omitted_is_read_back():
-    """The ordinary case for a large send, not an edge one. EventBridge caps an event at 256 KB
-    and drops the input rather than exceed it, while SEND_MAX_ITEM_BYTES deliberately allows a
+    """The ordinary case for a large selection, not an edge one. EventBridge caps an event at 256 KB
+    and drops the input rather than exceed it, while FILE_OPS_MAX_SELECTION_BYTES deliberately allows a
     Pipe record approaching 200 KB — so the sends most likely to run for three hours are exactly
     the ones the event alone cannot attribute.
 

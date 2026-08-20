@@ -25,6 +25,7 @@ they see no response to their second attempt. Inherited from the neighbouring pl
 introduced here.
 """
 
+import json
 import logging
 
 from cpcommon.errors import TerminalError
@@ -71,8 +72,6 @@ def operation_of(event) -> object:
         return event["operation"]
     raw = event.get("raw")
     if isinstance(raw, list) and raw and isinstance(raw[0], dict):
-        import json
-
         try:
             body = json.loads(raw[0].get("body") or "{}")
         except Exception:  # noqa: BLE001
