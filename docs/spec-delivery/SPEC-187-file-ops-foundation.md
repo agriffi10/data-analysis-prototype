@@ -18,7 +18,7 @@ synchronous paths, so no user-visible behaviour changed.
 - **Four verbs** — `validate-authorize`, `acquire-lock`, `release-lock`, `fo_notify_failure`.
 - **`fileOps.service.ts` + `fileOpRouting.ts`** — the enqueue path and the sync/async predicate,
   plus `lib/spaceDigest.ts`, which file-send now shares.
-- **`docs/testing/fixtures/spec-187-file-ops-plane.sh`** — nine live checks, all CLI-only, all
+- **`docs/testing/fixtures/file-ops-plane.sh`** — nine live checks, all CLI-only, all
   recorded as **owed**.
 
 ## What changed that a reader would not expect

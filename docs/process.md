@@ -329,11 +329,20 @@ When a spec is done, in the same pass:
    flight may keep one temporary script of its own (`docs/testing/<arc>-e2e.md`); it is folded into
    `e2e.md` and deleted when the arc closes.
 
+   **A CLI script in `docs/testing/fixtures/` is named for the PLANE, never for a spec.** Four
+   specs build one control plane, and a script each is four files sharing a token read, a queue
+   URL, a group digest and an envelope builder — four copies of one digest, of which one is
+   eventually wrong. A spec that owes a CLI check adds a **section** to its plane's script and
+   points its `owed.md` row at that section. The count is a ratchet: a second plane needing one is
+   a deliberate edit to `validate_docs.py`, not a directory that grew a spec at a time.
+
 **Anti-regrowth & doc hygiene** (each rule below was earned by a defect the 2026-08-03 doc sweep found).
 
 > **`scripts/validate_docs.py` enforces the structural half of these rules and runs on every PR**
 > (`ci.yml` → *Validate the documentation layout*). It holds: `docs/testing/` to the guide, the
-> ledger, the log and at most **one** in-flight arc script; `CLAUDE.md` to a byte budget and each
+> ledger, the log and at most **one** in-flight arc script; `docs/testing/fixtures/` to
+> plane-named scripts within a ratchet, refusing a spec-numbered one outright; `CLAUDE.md` to a
+> byte budget and each
 > Key Decisions line to a length; every `decisions.md` entry to one heading level and a resolving
 > Contents entry; every `ARCS.md` arc to a status-free heading that is in the arc list; every spec
 > header to agreeing with its `INDEX.md` row and every Completed spec to having a delivery doc;
