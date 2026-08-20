@@ -38,6 +38,10 @@ WORKFLOW = LAMBDAS.parent / ".github" / "workflows" / "deploy-lambdas.yml"
 #: The function table the deploy shards read. Split out of the workflow's `strategy.matrix`
 #: when the per-function jobs were sharded for cost — see `_matrix_rows`.
 FUNCTIONS = LAMBDAS.parent / ".github" / "lambda-functions.json"
+#: The layer table the single `layers` job builds from. Ten one-minute jobs became one for
+#: the same rounding reason as the deploy matrix; the per-layer build differences turned out
+#: to be three shapes over this table.
+LAYERS = LAMBDAS.parent / ".github" / "lambda-layers.json"
 
 #: Top-level package (or flat module) name → the matrix flag whose layer provides it.
 #:
@@ -65,13 +69,13 @@ LAYER_PACKAGES = {
     ),
 }
 
-#: Layer source directories packaged by an EXPLICIT per-file copy list in deploy-lambdas.yml,
-#: mapped to the shell loop that names the files. Every other layer copies a whole package
-#: directory (``cp -r lambdas/<x>-common/<x>common``) or pip-installs into the layer root, so a
-#: new module there ships automatically and there is no list to drift from — those are exempt for
-#: that named reason, and ``test_no_unchecked_explicit_copy_list_was_added`` fails if a second
-#: explicit list appears without being added here.
-EXPLICIT_COPY_LISTS = {"shared-space-common": re.compile(r"for m in ([a-z0-9_ ]+); do")}
+#: Layer source directories packaged by an EXPLICIT per-file module list (a ``modules`` key in
+#: the layer table), mapped to that list. Every other layer copies a whole package directory or
+#: pip-installs into the layer root, so a new module there ships automatically and there is no
+#: list to drift from — those are exempt for that named reason, and
+#: ``test_no_unchecked_explicit_copy_list_was_added`` fails if a second explicit list appears
+#: without being added here.
+EXPLICIT_COPY_LISTS = {"shared-space-common"}
 
 #: Files under a layer source directory that are deliberately NOT shipped.
 _NOT_SHIPPED = ("test_", "conftest.py", "fakes.py", "__init__.py")
@@ -155,11 +159,19 @@ def test_the_matrix_was_actually_parsed():
     }, "the reference row did not read as expected — the table format changed"
 
 
+def _layer_table():
+    """Every layer definition, keyed by its flag."""
+    return {entry["flag"]: entry for entry in json.loads(LAYERS.read_text())}
+
+
 def _copy_list(directory):
-    """The module names the layer job copies for ``directory``, as a set."""
-    match = EXPLICIT_COPY_LISTS[directory].search(WORKFLOW.read_text())
-    assert match, f"no copy list found for {directory} in {WORKFLOW.name} — did the job change?"
-    return set(match.group(1).split())
+    """The module names the layer build copies for ``directory``, as a set."""
+    for entry in json.loads(LAYERS.read_text()):
+        if entry.get("sourceDir", "").endswith(directory):
+            listed = set(entry.get("modules", []))
+            assert listed, f"the layer entry for {directory} names no modules"
+            return listed
+    raise AssertionError(f"no layer entry with a sourceDir for {directory} in {LAYERS.name}")
 
 
 def _shipped_modules(directory):
@@ -186,7 +198,7 @@ def test_the_layer_copy_list_matches_the_layer_directory(directory):
     """
     listed, present = _copy_list(directory), _shipped_modules(directory)
     assert listed == present, (
-        f"{WORKFLOW.name}'s layer copy list and lambdas/{directory}/ disagree — "
+        f"{LAYERS.name}'s layer copy list and lambdas/{directory}/ disagree — "
         f"in the directory but never shipped: {sorted(present - listed) or 'none'}; "
         f"listed but absent from the directory: {sorted(listed - present) or 'none'}"
     )
@@ -226,11 +238,49 @@ def test_no_lambda_directory_shadows_a_flat_layer_module():
 
 def test_no_unchecked_explicit_copy_list_was_added():
     """A second per-file layer list must join ``EXPLICIT_COPY_LISTS``, not drift unchecked."""
-    loops = re.findall(r"for m in [a-z0-9_ ]+; do", WORKFLOW.read_text())
-    assert len(loops) == len(EXPLICIT_COPY_LISTS), (
-        f"{WORKFLOW.name} has {len(loops)} per-file layer copy loops but "
-        f"{len(EXPLICIT_COPY_LISTS)} are checked — add the new one to EXPLICIT_COPY_LISTS"
+    listed = {e["flag"] for e in json.loads(LAYERS.read_text()) if e.get("modules")}
+    checked = {
+        e["flag"]
+        for e in json.loads(LAYERS.read_text())
+        if any(e.get("sourceDir", "").endswith(d) for d in EXPLICIT_COPY_LISTS)
+    }
+    assert listed == checked, (
+        f"{LAYERS.name} has per-file module lists for {sorted(listed)} but "
+        f"{sorted(checked)} are checked — add the new one to EXPLICIT_COPY_LISTS"
     )
+
+
+def test_every_layer_a_function_attaches_actually_exists():
+    """The two tables are joined by flag, and nothing in Actions checks that join.
+
+    A function row naming a flag the layer table does not define deploys with that layer
+    silently absent — SPEC-137's failure, arrived at from the other side. The reverse (a layer
+    nothing attaches) is harmless but is a minute of build time every run, so it is reported
+    too rather than tolerated indefinitely.
+    """
+    defined = set(_layer_table())
+    used = {flag for flags in MATRIX.values() for flag in flags}
+    assert not (used - defined), (
+        f"functions attach layers that {LAYERS.name} does not define: {sorted(used - defined)} — "
+        f"they would deploy with the layer missing and fail at cold start"
+    )
+    assert not (defined - used), (
+        f"{LAYERS.name} builds layers no function attaches: {sorted(defined - used)}"
+    )
+
+
+def test_every_layer_entry_builds_something():
+    """A layer entry naming no source publishes an EMPTY layer, which attaches fine.
+
+    The build script refuses at runtime; this is the same refusal offline, where it costs no
+    deploy. Each entry must carry at least one of the three shapes.
+    """
+    empty = [
+        e["flag"]
+        for e in json.loads(LAYERS.read_text())
+        if not (e.get("requirements") or e.get("package") or e.get("modules"))
+    ]
+    assert not empty, f"layer entries that would build empty: {empty}"
 
 
 def test_the_handler_sweep_found_the_fleet():

@@ -10,14 +10,19 @@
 # report success. As a file run under its own `bash -euo pipefail`, it stops.
 #
 # Reads the layer set for the function from .github/lambda-functions.json, and each
-# layer's published ARN + unzipped size from the environment (ARN_<flag> / KB_<flag>),
-# which the shard job populates once from the layer jobs' outputs.
+# layer's published ARN + unzipped size from LAYERS_JSON — the flag -> {arn, kb} map the
+# layers job emits once for the whole run.
 #
-# Required env: PROJECT_NAME, ENVIRONMENT, GITHUB_SHA, BUCKET, and ARN_*/KB_* per flag.
+# Required env: PROJECT_NAME, ENVIRONMENT, GITHUB_SHA, BUCKET, LAYERS_JSON.
 set -euo pipefail
 
 NAME="${1:?usage: deploy-lambda.sh <function-name>}"
 FUNCTIONS_JSON="${FUNCTIONS_JSON:-.github/lambda-functions.json}"
+
+LAYERS_JSON="${LAYERS_JSON:?LAYERS_JSON is unset — the layers job produced no map, and every function would deploy with no layer attached}"
+
+# arn / kb for one layer flag, empty if the map does not carry it.
+layer_field() { jq -r --arg f "$1" --arg k "$2" '.[$f][$k] // ""' <<<"$LAYERS_JSON"; }
 
 BUILD_DIR="build/${NAME}"
 FUNCTION="${PROJECT_NAME}-${ENVIRONMENT}-${NAME}"
@@ -74,10 +79,9 @@ PKG_KB=$(du -sk "$BUILD_DIR" | cut -f1)
 TOTAL_KB=$PKG_KB
 NAMES="package(${PKG_KB}KB)"
 for flag in ${FLAGS[@]+"${FLAGS[@]}"}; do
-  kb_var="KB_${flag}"
-  kb="${!kb_var:-}"
+  kb=$(layer_field "$flag" kb)
   if [ -z "$kb" ]; then
-    echo "::error::${NAME} attaches layer flag '${flag}' but ${kb_var} is empty — the layer job did not report a size, so the combined 250 MB guard cannot be evaluated."
+    echo "::error::${NAME} attaches layer flag '${flag}' but the layer map carries no size for it, so the combined 250 MB guard cannot be evaluated."
     exit 1
   fi
   TOTAL_KB=$((TOTAL_KB + kb))
@@ -129,10 +133,9 @@ aws lambda wait function-updated --function-name "$FUNCTION"
 LAYERS=()
 for flag in cpcommon layer polars tbcommon tscommon dqcommon dqpolars fscommon focommon arcommon; do
   has "$flag" || continue
-  arn_var="ARN_${flag}"
-  arn="${!arn_var:-}"
+  arn=$(layer_field "$flag" arn)
   if [ -z "$arn" ]; then
-    echo "::error::${NAME} attaches layer flag '${flag}' but ${arn_var} is empty — refusing to deploy a function with a missing layer, which fails at COLD START where no test and no deploy can see it."
+    echo "::error::${NAME} attaches layer flag '${flag}' but the layer map carries no ARN for it — refusing to deploy a function with a missing layer, which fails at COLD START where no test and no deploy can see it."
     exit 1
   fi
   LAYERS+=("$arn")

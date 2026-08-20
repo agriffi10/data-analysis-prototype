@@ -43,20 +43,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # ── Shared-code layer (SPEC-062) ───────────────────────────────────────────
-  # Publishes the `shared-space-common` layer = external deps (PyJWT[crypto]) +
-  # the shared common modules, published once. The shared-space functions attach
-  # the resulting version ARN (below). Repo's first Lambda layer; a later spec
-  # reuses the mechanism for heavier external libraries.
-  layer:
+  # ── Layers, ALL of them, in one job ────────────────────────────────────────
+  # This was ten separate jobs. Each took 14-29 seconds and GitHub bills a whole
+  # minute per job, so ten layers cost ten billed minutes for about three minutes of
+  # work — the same rounding tax the deploy matrix below was paying, one order down.
+  #
+  # Separate jobs looked justified because each layer built differently. Written out
+  # as a table it is three shapes: pip-install a requirements file, copy a package
+  # directory, or copy an explicit list of flat modules — and two layers use two of
+  # them at once. The table is .github/lambda-layers.json and the shapes are
+  # .github/scripts/build-layer.sh.
+  #
+  # The job publishes every layer and emits ONE json output mapping flag -> {arn, kb},
+  # which the deploy shards read. Ten jobs meant twenty `needs.*.outputs.*` references
+  # in the deploy job; a missing one of those is a function deployed without its layer,
+  # which fails at COLD START where no test and no deploy can see it (SPEC-137 broke
+  # real Cognito signups exactly that way). One map, one lookup, and deploy-lambda.sh
+  # refuses any function whose layer resolves to an empty ARN.
+  layers:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       id-token: write
       contents: read
     outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
+      layers: ${{ steps.publish.outputs.layers }}
 
     steps:
       - name: Checkout
@@ -67,619 +78,69 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build layer package
-        id: build
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          # Cap the OIDC assume-role retries. The default is 12, and on 2026-07-27 a
+          # connect timeout to STS cost ~7 minutes per attempt, so one job spent 82
+          # minutes failing. Three still retries a fast-failing transient; the slow
+          # case is bounded by `timeout-minutes` above.
+          retry-max-attempts: 3
+
+      - name: Build and publish every layer
+        id: publish
         run: |
           set -euo pipefail
-          LAYER_DIR="build/layer/python"
-          rm -rf build/layer && mkdir -p "$LAYER_DIR"
-          # SPEC-125: NO pip install here any more. PyJWT[crypto] was this layer's only
-          # external dep, and it is now declared once in the cpcommon layer that every
-          # shared-space function also attaches — installing it twice would put two copies
-          # of cryptography on the same function's 250 MB ceiling.
-          # Shared common modules — PRODUCTION files only (never test_*.py / fakes.py).
-          # Keep this list in sync with lambdas/shared-space-common/. `clients` is gone
-          # (SPEC-125 deleted it in favour of cpcommon.clients).
-          for m in config casio auth registry membership cache notify messages teardown; do
-            cp "lambdas/shared-space-common/$m.py" "$LAYER_DIR"/
+
+          FLAGS=()
+          while IFS= read -r flag; do
+            [ -n "$flag" ] && FLAGS+=("$flag")
+          done < <(jq -r '.[].flag' .github/lambda-layers.json)
+
+          if [ "${#FLAGS[@]}" -eq 0 ]; then
+            echo "::error::no layers in .github/lambda-layers.json — every function would deploy with no layer attached and fail at cold start."
+            exit 1
+          fi
+
+          # Every layer is attempted even after one fails, so a broken layer reports
+          # alongside the others instead of hiding them behind the first error.
+          RESULTS=""
+          FAILED=()
+          for FLAG in "${FLAGS[@]}"; do
+            echo "::group::${FLAG}"
+            if line=$(bash .github/scripts/build-layer.sh "$FLAG"); then
+              RESULTS="${RESULTS}${line}"$'\n'
+            else
+              echo "::error::layer ${FLAG} failed to build or publish."
+              FAILED+=("$FLAG")
+            fi
+            echo "::endgroup::"
           done
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/layer && zip --quiet --recurse-paths ../shared-space-common-layer.zip .)
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          # Cap the OIDC assume-role retries. The default is 12, and on 2026-07-27 a connect
-          # timeout to STS cost ~7 minutes per attempt, so one job spent 82 minutes failing.
-          # Three still retries a fast-failing transient; the slow case is bounded by
-          # `timeout-minutes` above, because v4 has no wall-clock option of its own
-          # (`action-timeout-s` arrived after it).
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-shared-space-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared-space DOMAIN code (registry/cache/membership/teardown/casio/auth-adapter). Deps + the shared client/config/JWT surface come from the cpcommon layer (SPEC-062, slimmed by SPEC-125)." \
-            --zip-file "fileb://build/shared-space-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── polars layer (SPEC-066) ────────────────────────────────────────────────
-  # Publishes the `table-builder-polars` layer = polars (Rust-native Parquet/CSV/JSON
-  # readers, no pyarrow), attached ONLY to the table-builder infer-schema function
-  # (SPEC-069). Built the same way as the shared-space-common layer (the heavy artifact
-  # can't be vendored into Terraform), pinned via lambdas/table-builder-infer-schema/
-  # requirements.txt, with the unzipped size measured + capped well under Lambda's
-  # 250 MB limit (SPEC-066 FR-003).
-  polars_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build polars layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/polars-layer/python"
-          rm -rf build/polars-layer && mkdir -p "$LAYER_DIR"
-          # Plain pip install on the linux x86_64 / python3.12 runner pulls the
-          # manylinux polars wheel, ABI-compatible with the python3.12 Lambda runtime
-          # (Amazon Linux 2023) — the same proven approach as the shared-space-common
-          # layer job above. (polars ships no pyarrow dep, so the layer stays small.)
-          pip install --quiet \
-            --requirement lambdas/table-builder-infer-schema/requirements.txt \
-            --target "$LAYER_DIR"
-          UNZIPPED_KB=$(du -sk "$LAYER_DIR" | cut -f1)
-          echo "table-builder-polars layer unzipped size: $((UNZIPPED_KB / 1024)) MB"
-          echo "unzipped_kb=${UNZIPPED_KB}" >> "$GITHUB_OUTPUT"
-          # Lambda's hard limit is 250 MB unzipped (layers + function); fail early with
-          # headroom (240 MB) if a future polars bump blows past it (SPEC-066 FR-003).
-          # NOTE: this per-layer check is NOT sufficient on its own — the 250 MB ceiling
-          # is per-FUNCTION across ALL attached layers plus code, so the deploy job below
-          # also runs a COMBINED per-function guard (SPEC-107 FR-004).
-          if [ "$UNZIPPED_KB" -gt 245760 ]; then
-            echo "::error::table-builder-polars layer exceeds 240 MB unzipped ($((UNZIPPED_KB / 1024)) MB)."
+          if [ "${#FAILED[@]}" -gt 0 ]; then
+            echo "::error::layers failed: ${FAILED[*]}"
             exit 1
           fi
-          (cd build/polars-layer && zip --quiet --recurse-paths ../table-builder-polars-layer.zip .)
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
+          # flag -> {arn, kb}, as one compact json value on one line.
+          MAP=$(printf '%s' "$RESULTS" | jq -Rn '
+            [inputs | select(length > 0) | split("\t")
+             | {key: .[0], value: {arn: .[1], kb: .[2]}}] | from_entries')
 
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-table-builder-polars"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "polars (Parquet/CSV/JSON readers) for the table-builder infer-schema verb (SPEC-066/069)." \
-            --zip-file "fileb://build/table-builder-polars-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── table-builder-common layer (SPEC-067) ──────────────────────────────────
-  # Publishes the `table-builder-common` layer = external deps (PyJWT[crypto]) + the
-  # `tbcommon` package (shared auth/registry/clients/config/errors for the verb
-  # Lambdas). The table-builder verbs with real code (validate-authorize now; more in
-  # SPEC-068/070) attach it instead of bundling. A PACKAGE (python/tbcommon/), not flat
-  # modules, so its names don't collide with shared-space-common's under pytest.
-  table_builder_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/tbcommon-layer/python"
-          rm -rf build/tbcommon-layer && mkdir -p "$LAYER_DIR"
-          # No external deps here — PyJWT[crypto] is declared ONCE in the cpcommon layer
-          # (SPEC-107 FR-001), which every table-builder verb also attaches. This layer
-          # carries only the domain package (production code, no __pycache__).
-          cp -r lambdas/table-builder-common/tbcommon "$LAYER_DIR"/tbcommon
-          find "$LAYER_DIR"/tbcommon -name '__pycache__' -type d -prune -exec rm -rf {} +
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/tbcommon-layer && zip --quiet --recurse-paths ../table-builder-common-layer.zip .)
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-table-builder-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared tbcommon package + deps (PyJWT) for the table-builder verb Lambdas (SPEC-067)." \
-            --zip-file "fileb://build/table-builder-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── table-share-common layer (SPEC-088) ────────────────────────────────────
-  # Publishes the `table-share-common` layer = external deps (PyJWT[crypto]) + the
-  # `tscommon` package (shared config/clients/auth/registry/copy/notify namespaces
-  # for the table-share verb Lambdas — stubs in SPEC-088, filled by SPEC-089→094).
-  # A PACKAGE (python/tscommon/), not flat modules, so its names don't collide with
-  # shared-space-common's or tbcommon's under pytest. All five table-share verbs
-  # attach it (matrix `tscommon: true`).
-  table_share_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/tscommon-layer/python"
-          rm -rf build/tscommon-layer && mkdir -p "$LAYER_DIR"
-          # No external deps here — PyJWT[crypto] is declared ONCE in the cpcommon layer
-          # (SPEC-107 FR-001), which every table-share verb also attaches. This layer
-          # carries only the domain package (production code, no __pycache__).
-          cp -r lambdas/table-share-common/tscommon "$LAYER_DIR"/tscommon
-          find "$LAYER_DIR"/tscommon -name '__pycache__' -type d -prune -exec rm -rf {} +
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/tscommon-layer && zip --quiet --recurse-paths ../table-share-common-layer.zip .)
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-table-share-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared tscommon package + deps (PyJWT) for the table-share verb Lambdas (SPEC-088)." \
-            --zip-file "fileb://build/table-share-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── archive-common layer (SPEC-168) ────────────────────────────────────────
-  # Publishes the `archive-common` layer = the `arcommon` package (this plane's config,
-  # source authorization, archive key layout and wording). No external deps:
-  # PyJWT[crypto] is declared ONCE in the cpcommon layer (SPEC-107 FR-001), which every
-  # archive verb also attaches, and containment lives in cpcommon.paths rather than being
-  # copied here. A PACKAGE (python/arcommon/), not flat modules, so its names cannot
-  # collide with another domain layer's under pytest.
-  #
-  # NAMED AFTER THE PLANE, NOT THE PACKAGE. The deploy role's layer grant is scoped to
-  # `{project}-*-archive-*` (modules/base), so a layer called `dat-prod-arcommon` would
-  # fail publish with an implicit deny rather than a clear error.
-  archive_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/arcommon-layer/python"
-          rm -rf build/arcommon-layer && mkdir -p "$LAYER_DIR"
-          # A whole-package copy, not a per-file list: a new arcommon module ships by
-          # existing. SPEC-153 FR-002 requires set equality against the directory for any
-          # layer packaged by an EXPLICIT list, and this is exempt for that named reason.
-          cp -r lambdas/archive-common/arcommon "$LAYER_DIR"/arcommon
-          find "$LAYER_DIR"/arcommon -name '__pycache__' -type d -prune -exec rm -rf {} +
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/arcommon-layer && zip --quiet --recurse-paths ../archive-common-layer.zip .)
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-archive-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared arcommon package for the archive verb Lambdas (SPEC-168)." \
-            --zip-file "fileb://build/archive-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── file-send-common layer (SPEC-164) ──────────────────────────────────────
-  # Publishes the `file-send-common` layer = the `fscommon` package (this plane's config,
-  # source authorization, key containment, wording and notification glue). No external
-  # deps: PyJWT[crypto] is declared ONCE in the cpcommon layer (SPEC-107 FR-001), which
-  # every file-send verb also attaches. A PACKAGE (python/fscommon/), not flat modules, so
-  # its names cannot collide with another domain layer's under pytest.
-  #
-  # NAMED AFTER THE PLANE, NOT THE PACKAGE. The deploy role's layer grant is scoped to
-  # `{project}-*-file-send-*` (modules/base, SPEC-164 PR1), so a layer called
-  # `dat-prod-fscommon` would fail publish with an implicit deny rather than a clear error.
-  file_send_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/fscommon-layer/python"
-          rm -rf build/fscommon-layer && mkdir -p "$LAYER_DIR"
-          # A whole-package copy, not a per-file list: a new fscommon module ships by
-          # existing. SPEC-153 FR-002 requires set equality against the directory for any
-          # layer packaged by an EXPLICIT list, and this is exempt for that named reason.
-          cp -r lambdas/file-send-common/fscommon "$LAYER_DIR"/fscommon
-          find "$LAYER_DIR"/fscommon -name '__pycache__' -type d -prune -exec rm -rf {} +
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/fscommon-layer && zip --quiet --recurse-paths ../file-send-common-layer.zip .)
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-file-send-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared fscommon package for the file-send verb Lambdas (SPEC-164)." \
-            --zip-file "fileb://build/file-send-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  file_ops_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/focommon-layer/python"
-          rm -rf build/focommon-layer && mkdir -p "$LAYER_DIR"
-          # A whole-package copy, not a per-file list: a new focommon module ships by
-          # existing. SPEC-153 FR-002 requires set equality against the directory for any
-          # layer packaged by an EXPLICIT list, and this is exempt for that named reason.
-          cp -r lambdas/file-ops-common/focommon "$LAYER_DIR"/focommon
-          find "$LAYER_DIR"/focommon -name '__pycache__' -type d -prune -exec rm -rf {} +
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/focommon-layer && zip --quiet --recurse-paths ../file-ops-common-layer.zip .)
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-file-ops-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared focommon package for the file-ops verb Lambdas." \
-            --zip-file "fileb://build/file-ops-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── control-plane-common layer (SPEC-107) ──────────────────────────────────
-  # Publishes the `control-plane-common` layer = external deps (PyJWT[crypto],
-  # declared ONCE here) + the `cpcommon` package (shared auth/clients/config/errors/
-  # registry/s3_listing/notify/messages/events for EVERY control-plane verb). All ten
-  # table-builder + table-share verbs attach it alongside their domain layer; the future
-  # data-quality / file-converter verbs will too. A PACKAGE (python/cpcommon/), not flat
-  # modules, so its names don't collide with the domain layers' under pytest.
-  cpcommon_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/cpcommon-layer/python"
-          rm -rf build/cpcommon-layer && mkdir -p "$LAYER_DIR"
-          # External deps (manylinux wheels, python3.12-compatible) — PyJWT[crypto],
-          # declared once for all control planes (SPEC-107 FR-001).
-          pip install --quiet --requirement lambdas/control-plane-common/requirements.txt --target "$LAYER_DIR"
-          # The shared package — production code only (no __pycache__).
-          cp -r lambdas/control-plane-common/cpcommon "$LAYER_DIR"/cpcommon
-          find "$LAYER_DIR"/cpcommon -name '__pycache__' -type d -prune -exec rm -rf {} +
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/cpcommon-layer && zip --quiet --recurse-paths ../control-plane-common-layer.zip .)
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-control-plane-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared cpcommon package + deps (PyJWT) for every control-plane verb Lambda (SPEC-107)." \
-            --zip-file "fileb://build/control-plane-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── data-quality-common layer (SPEC-108) ───────────────────────────────────
-  # Publishes the `data-quality-common` layer = the `dqcommon` package (the DOMAIN
-  # surface: config caps, sql, report, messages, index_store). NO external deps: PyJWT
-  # lives once in cpcommon (SPEC-107 FR-001), polars is its own layer below (attached to
-  # inspect-source only), and this arc has no Excel engine. All nine data-quality verbs
-  # attach this alongside cpcommon.
-  dqcommon_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/dqcommon-layer/python"
-          rm -rf build/dqcommon-layer && mkdir -p "$LAYER_DIR"
-          # No pip install — dqcommon declares no external dependencies (see above).
-          cp -r lambdas/data-quality-common/dqcommon "$LAYER_DIR"/dqcommon
-          find "$LAYER_DIR"/dqcommon -name '__pycache__' -type d -prune -exec rm -rf {} +
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/dqcommon-layer && zip --quiet --recurse-paths ../data-quality-common-layer.zip .)
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-data-quality-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared dqcommon domain package for the data-quality verb Lambdas (SPEC-108)." \
-            --zip-file "fileb://build/data-quality-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── data-quality polars layer (SPEC-108 FR-003) ────────────────────────────
-  # polars for the data-quality inspect-source verb ONLY. Unavoidable: Athena requires an
-  # explicit column list for Parquet/JSON external tables and does not auto-detect a
-  # Parquet schema, so inspect-source must read Parquet footers itself. No fastexcel —
-  # this arc does not support Excel. A SEPARATE layer from the table-builder polars layer
-  # so each arc's deploy-role grant stays name-scoped to its own arc.
-  dq_polars_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build polars layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/dq-polars-layer/python"
-          rm -rf build/dq-polars-layer && mkdir -p "$LAYER_DIR"
-          pip install --quiet \
-            --requirement lambdas/data-quality-polars/requirements.txt \
-            --target "$LAYER_DIR"
-          UNZIPPED_KB=$(du -sk "$LAYER_DIR" | cut -f1)
-          echo "data-quality-polars layer unzipped size: $((UNZIPPED_KB / 1024)) MB"
-          echo "unzipped_kb=${UNZIPPED_KB}" >> "$GITHUB_OUTPUT"
-          # Per-layer sanity cap. NOT sufficient on its own — the 250 MB ceiling is per
-          # FUNCTION across all layers plus code, which the combined guard in the deploy
-          # job checks (SPEC-107 FR-004). inspect-source (cpcommon + dqcommon + polars) is
-          # the function that guard actually has to work for.
-          if [ "$UNZIPPED_KB" -gt 245760 ]; then
-            echo "::error::data-quality-polars layer exceeds 240 MB unzipped ($((UNZIPPED_KB / 1024)) MB)."
+          # Refuse to hand the deploy an incomplete map rather than letting it discover
+          # a missing layer per function.
+          expected=$(jq 'length' .github/lambda-layers.json)
+          actual=$(jq 'length' <<<"$MAP")
+          if [ "$actual" -ne "$expected" ]; then
+            echo "::error::published ${actual} layers but the table names ${expected} — refusing to deploy against an incomplete layer map."
             exit 1
           fi
-          (cd build/dq-polars-layer && zip --quiet --recurse-paths ../data-quality-polars-layer.zip .)
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
+          echo "$MAP" | jq .
+          printf 'layers=%s\n' "$MAP" >> "$GITHUB_OUTPUT"
 
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-data-quality-polars"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "polars (Parquet footer / CSV / JSON probe) for the data-quality inspect-source verb (SPEC-108/110)." \
-            --zip-file "fileb://build/data-quality-polars-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── Function deploy, SHARDED ───────────────────────────────────────────────
-  # This job used to be a matrix of ONE JOB PER FUNCTION, and it was the single
   # largest line on the Actions bill. GitHub rounds every job up to a full billed
   # minute, and all 73 of these finish in ~29 seconds — so the shape cost 73 minutes
   # for ~22 minutes of work, and it grew by a permanent minute with every function
@@ -697,7 +158,7 @@ jobs:
   # cannot express "these twelve in one job", and the table was always read as data
   # by lambdas/test_deploy_matrix.py — which now parses JSON instead of regexing YAML.
   deploy:
-    needs: [layer, polars_layer, table_builder_layer, table_share_layer, file_send_layer, file_ops_layer, archive_layer, cpcommon_layer, dqcommon_layer, dq_polars_layer]
+    needs: [layers]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -716,30 +177,11 @@ jobs:
     env:
       SHARD: ${{ matrix.shard }}
       SHARD_COUNT: 6
-      # Each layer's published version ARN and unzipped size, read once here rather
-      # than per function. deploy-lambda.sh refuses to deploy a function whose layer
-      # ARN is empty — a missing layer fails at COLD START, where no test and no
-      # deploy can see it (SPEC-137 broke real Cognito signups exactly that way).
-      ARN_layer: ${{ needs.layer.outputs.layer_arn }}
-      KB_layer: ${{ needs.layer.outputs.unzipped_kb }}
-      ARN_polars: ${{ needs.polars_layer.outputs.layer_arn }}
-      KB_polars: ${{ needs.polars_layer.outputs.unzipped_kb }}
-      ARN_tbcommon: ${{ needs.table_builder_layer.outputs.layer_arn }}
-      KB_tbcommon: ${{ needs.table_builder_layer.outputs.unzipped_kb }}
-      ARN_tscommon: ${{ needs.table_share_layer.outputs.layer_arn }}
-      KB_tscommon: ${{ needs.table_share_layer.outputs.unzipped_kb }}
-      ARN_cpcommon: ${{ needs.cpcommon_layer.outputs.layer_arn }}
-      KB_cpcommon: ${{ needs.cpcommon_layer.outputs.unzipped_kb }}
-      ARN_dqcommon: ${{ needs.dqcommon_layer.outputs.layer_arn }}
-      KB_dqcommon: ${{ needs.dqcommon_layer.outputs.unzipped_kb }}
-      ARN_dqpolars: ${{ needs.dq_polars_layer.outputs.layer_arn }}
-      KB_dqpolars: ${{ needs.dq_polars_layer.outputs.unzipped_kb }}
-      ARN_fscommon: ${{ needs.file_send_layer.outputs.layer_arn }}
-      KB_fscommon: ${{ needs.file_send_layer.outputs.unzipped_kb }}
-      ARN_focommon: ${{ needs.file_ops_layer.outputs.layer_arn }}
-      KB_focommon: ${{ needs.file_ops_layer.outputs.unzipped_kb }}
-      ARN_arcommon: ${{ needs.archive_layer.outputs.layer_arn }}
-      KB_arcommon: ${{ needs.archive_layer.outputs.unzipped_kb }}
+      # flag -> {arn, kb} for every published layer, from the one layers job.
+      # deploy-lambda.sh refuses to deploy a function whose layer is missing from this
+      # map rather than shipping it to fail at COLD START, where no test and no deploy
+      # can see it — which is how SPEC-137 broke real Cognito signups.
+      LAYERS_JSON: ${{ needs.layers.outputs.layers }}
 
     steps:
       - name: Checkout
