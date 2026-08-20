@@ -18,9 +18,28 @@ on:
   # That is not hypothetical — #320 bumped every action in the repo off the EOL node20
   # runtime, and this file's eight `configure-aws-credentials` call sites went to main
   # completely unexercised, because changing a workflow is not changing `lambdas/**`.
+  #
+  # The two JSON tables and the two scripts are in the filter for exactly that reason,
+  # and the reason is stronger for them than for the workflow: this workflow's real
+  # behaviour now lives in them. Editing lambda-functions.json is how a function is
+  # added or its layers changed, and editing lambda-layers.json is how a layer's
+  # contents change — both of which must deploy, and neither of which touches
+  # `lambdas/**`. Without these entries a merge that only re-points a layer would go to
+  # main having deployed nothing, and the next unrelated lambdas/ push would carry it.
   push:
     branches: [main]
-    paths: ['lambdas/**', '.github/workflows/deploy-lambdas.yml']
+    paths:
+      - 'lambdas/**'
+      - '.github/workflows/deploy-lambdas.yml'
+      - '.github/lambda-functions.json'
+      - '.github/lambda-layers.json'
+      - '.github/scripts/deploy-lambda.sh'
+      - '.github/scripts/build-layer.sh'
+      # The planner decides what this workflow does. Without it here, a push that fixes a
+      # planner bug never runs the workflow — and plan_deploy.py's own HARD_GLOBAL_PATHS
+      # entry, which exists so its bug cannot suppress the deploy that fixes it, is
+      # unreachable in exactly that case.
+      - '.github/scripts/plan_deploy.py'
   workflow_dispatch:
 
 # Resource names are derived deterministically from the same project/environment
@@ -30,21 +49,176 @@ env:
   PROJECT_NAME: ${{ vars.TF_VAR_project_name || 'dat' }}
   ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
 
+# Two merges landing close together used to run two deploys at once, racing
+# `update-function-code` and `update-function-configuration` on the same functions —
+# and the loser's `wait function-updated` can return against the WINNER's version, so
+# the older commit's code silently wins. Queue instead.
+#
+# `cancel-in-progress: false` is deliberate and is not the cost setting: cancelling a
+# deploy mid-shard leaves some functions on the new code and some on the old, which is
+# the one outcome worse than waiting. The cost fix here is the sharding below.
+#
+# Known consequence, so nobody diagnoses it as a fault: GitHub holds at most ONE pending
+# run per group, so three merges in quick succession evict the middle one as `cancelled`.
+# It puts a cancelled Deploy Lambdas run on main, which the project's "always confirm main
+# went green" rule would otherwise send someone chasing.
+#
+# It is NOT benign on the strength of "the third commit is a superset of the second", which
+# is true of the TREE and false of the DIFF. The evicted run's changes would fall into a
+# gap no later diff covers. What makes it safe is that the `plan` job anchors its diff to
+# the last SUCCESSFUL run rather than to the previous tip — an evicted or failed run leaves
+# the base where it was, and the next run re-covers the range.
+concurrency:
+  group: deploy-lambdas
+  cancel-in-progress: false
+
 jobs:
-  # ── Shared-code layer (SPEC-062) ───────────────────────────────────────────
-  # Publishes the `shared-space-common` layer = external deps (PyJWT[crypto]) +
-  # the shared common modules, published once. The shared-space functions attach
-  # the resulting version ARN (below). Repo's first Lambda layer; a later spec
-  # reuses the mechanism for heavier external libraries.
-  layer:
+  # ── What does this push actually need? ──────────────────────────────────────
+  # This workflow rebuilt and redeployed all 73 functions on every push. The median
+  # push touches four function directories, so ~69 were re-uploading identical code.
+  #
+  # The reason that was not simply wasteful is the thing to understand before changing
+  # anything here: `publish-layer-version` MINTS A NEW VERSION on every call, a function
+  # pins its layers by ARN, so republishing all ten layers every run meant every function
+  # genuinely DID need re-pointing. Skipping functions is only correct because unchanged
+  # layers now resolve to the version already published instead of a fresh one — the two
+  # halves are one change and neither works alone.
+  #
+  # The rules live in .github/scripts/plan_deploy.py, which is pure and offline so that
+  # lambdas/test_plan_deploy.py can drive it over the real tables. Everything it cannot
+  # reason about confidently falls back to the whole fleet: a function it wrongly omits
+  # keeps running against a layer that has moved on, and that is invisible until a cold
+  # start (SPEC-137 broke real Cognito signups exactly that way).
+  plan:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      # To find the last run of this workflow that actually succeeded — see below.
+      actions: read
+    outputs:
+      functions: ${{ steps.plan.outputs.functions }}
+      publish: ${{ steps.plan.outputs.publish }}
+      shards: ${{ steps.plan.outputs.shards }}
+      shard_count: ${{ steps.plan.outputs.shard_count }}
+      any: ${{ steps.plan.outputs.any }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # The plan is a diff against the previous commit, so the history has to be here.
+          fetch-depth: 0
+
+      - name: Work out what changed
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # ── The diff BASE is the last commit this workflow actually deployed ───────
+          # NOT `github.event.before`, which is merely the previous tip. The two differ
+          # exactly when a run does not deploy: this workflow queues rather than cancels
+          # (`concurrency` above), and GitHub holds only ONE pending run per group — so
+          # three merges in quick succession EVICT the middle one. A shard can also fail,
+          # and `fail-fast: false` means the rest of the run still goes green.
+          #
+          # While every run deployed all 73 functions that was harmless, and the
+          # concurrency comment above said so. Change detection is what makes it unsafe:
+          # against `before`, the evicted or failed run's commits fall into a gap that no
+          # later diff ever covers, and those functions run stale code until something
+          # unrelated happens to touch them. Invisible until a cold start.
+          #
+          # Anchoring to the last SUCCESSFUL run makes this a reconciler rather than a
+          # change detector: a failed or evicted run simply leaves the base where it was,
+          # and the next run re-covers the whole range.
+          BASE=""
+          if [ "${{ github.event_name }}" = "push" ]; then
+            BASE=$(gh api \
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-lambdas.yml/runs?branch=main&status=success&event=push&per_page=1" \
+              --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null || true)
+          fi
+
+          FORCE=""
+          if [ "${{ github.event_name }}" != "push" ]; then
+            FORCE="--all"
+            echo "Not a push — planning a full deploy."
+          elif [ -z "$BASE" ]; then
+            FORCE="--all"
+            echo "No previous successful run of this workflow — planning a full deploy."
+          elif ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            FORCE="--all"
+            echo "Last successful run's commit ${BASE} is not in this history (force-push?) — planning a full deploy."
+          else
+            echo "Diffing against the last successfully deployed commit: ${BASE}"
+          fi
+          BEFORE="$BASE"
+
+          OLD_ARGS=()
+          if [ -z "$FORCE" ]; then
+            # `--no-renames` because a rename is reported by DESTINATION only, so a file
+            # moved OUT of a watched prefix would leave the layer or function that lost it
+            # neither rebuilt nor redeployed. One word, and it restores the deploy-too-much
+            # bias every other rule here is written to.
+            git diff --no-renames --name-only "${BEFORE}" "${GITHUB_SHA}" > changed.txt
+            echo "Changed paths:"; sed 's/^/  /' changed.txt
+            # The tables as they were, so a table change narrows to the rows that moved
+            # instead of forcing the fleet. If either cannot be read the planner falls
+            # back on its own — the flag is simply not passed.
+            if git show "${BEFORE}:.github/lambda-functions.json" > old-functions.json 2>/dev/null; then
+              OLD_ARGS+=(--old-functions old-functions.json)
+            fi
+            if git show "${BEFORE}:.github/lambda-layers.json" > old-layers.json 2>/dev/null; then
+              OLD_ARGS+=(--old-layers old-layers.json)
+            fi
+          else
+            : > changed.txt
+          fi
+
+          PLAN=$(python3 .github/scripts/plan_deploy.py \
+            ${FORCE:+$FORCE} ${OLD_ARGS[@]+"${OLD_ARGS[@]}"} --changed-from changed.txt)
+
+          echo "$PLAN" | jq .
+          echo "$(jq -r .reason <<<"$PLAN")" >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            printf 'functions=%s\n' "$(jq -c .functions <<<"$PLAN")"
+            printf 'publish=%s\n'   "$(jq -c .publish   <<<"$PLAN")"
+            printf 'shards=%s\n'    "$(jq -c .shards    <<<"$PLAN")"
+            printf 'shard_count=%s\n' "$(jq -r .shard_count <<<"$PLAN")"
+            printf 'any=%s\n'       "$(jq -r 'if (.functions | length) > 0 then "true" else "false" end' <<<"$PLAN")"
+          } >> "$GITHUB_OUTPUT"
+
+  # ── Layers, ALL of them, in one job ────────────────────────────────────────
+  # This was ten separate jobs. Each took 14-29 seconds and GitHub bills a whole
+  # minute per job, so ten layers cost ten billed minutes for about three minutes of
+  # work — the same rounding tax the deploy matrix below was paying, one order down.
+  #
+  # Separate jobs looked justified because each layer built differently. Written out
+  # as a table it is three shapes: pip-install a requirements file, copy a package
+  # directory, or copy an explicit list of flat modules — and two layers use two of
+  # them at once. The table is .github/lambda-layers.json and the shapes are
+  # .github/scripts/build-layer.sh.
+  #
+  # The job publishes every layer and emits ONE json output mapping flag -> {arn, kb},
+  # which the deploy shards read. Ten jobs meant twenty `needs.*.outputs.*` references
+  # in the deploy job; a missing one of those is a function deployed without its layer,
+  # which fails at COLD START where no test and no deploy can see it (SPEC-137 broke
+  # real Cognito signups exactly that way). One map, one lookup, and deploy-lambda.sh
+  # refuses any function whose layer resolves to an empty ARN.
+  layers:
+    needs: [plan]
+    # Nothing to deploy means nothing to publish. Skipped rather than run-and-no-op so a
+    # docs-only push that happens to touch lambdas/ costs no billed minutes at all.
+    if: needs.plan.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       id-token: write
       contents: read
     outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
+      layers: ${{ steps.publish.outputs.layers }}
 
     steps:
       - name: Checkout
@@ -55,775 +229,134 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build layer package
-        id: build
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          # Cap the OIDC assume-role retries. The default is 12, and on 2026-07-27 a
+          # connect timeout to STS cost ~7 minutes per attempt, so one job spent 82
+          # minutes failing. Three still retries a fast-failing transient; the slow
+          # case is bounded by `timeout-minutes` above.
+          retry-max-attempts: 3
+
+      - name: Build and publish every layer
+        id: publish
         run: |
           set -euo pipefail
-          LAYER_DIR="build/layer/python"
-          rm -rf build/layer && mkdir -p "$LAYER_DIR"
-          # SPEC-125: NO pip install here any more. PyJWT[crypto] was this layer's only
-          # external dep, and it is now declared once in the cpcommon layer that every
-          # shared-space function also attaches — installing it twice would put two copies
-          # of cryptography on the same function's 250 MB ceiling.
-          # Shared common modules — PRODUCTION files only (never test_*.py / fakes.py).
-          # Keep this list in sync with lambdas/shared-space-common/. `clients` is gone
-          # (SPEC-125 deleted it in favour of cpcommon.clients).
-          for m in config casio auth registry membership cache notify messages teardown; do
-            cp "lambdas/shared-space-common/$m.py" "$LAYER_DIR"/
+
+          FLAGS=()
+          while IFS= read -r flag; do
+            [ -n "$flag" ] && FLAGS+=("$flag")
+          done < <(jq -r '.[].flag' .github/lambda-layers.json)
+
+          # Which of them the plan says actually changed. Every layer is still BUILT —
+          # the combined per-function size guard needs its unzipped size either way — but
+          # only these are PUBLISHED. The rest resolve to the version already published,
+          # which is what leaves the functions attaching them correctly pointed without
+          # redeploying any of them.
+          PUBLISH_SET=$(jq -r '.[]' <<<'${{ needs.plan.outputs.publish }}' | tr '\n' ' ')
+          echo "Publishing: ${PUBLISH_SET:-none (all reused)}"
+
+          if [ "${#FLAGS[@]}" -eq 0 ]; then
+            echo "::error::no layers in .github/lambda-layers.json — every function would deploy with no layer attached and fail at cold start."
+            exit 1
+          fi
+
+          # Every layer is attempted even after one fails, so a broken layer reports
+          # alongside the others instead of hiding them behind the first error.
+          RESULTS=""
+          FAILED=()
+          for FLAG in "${FLAGS[@]}"; do
+            echo "::group::${FLAG}"
+            case " $PUBLISH_SET " in *" $FLAG "*) DO_PUBLISH=true ;; *) DO_PUBLISH=false ;; esac
+            if line=$(bash .github/scripts/build-layer.sh "$FLAG" "$DO_PUBLISH"); then
+              RESULTS="${RESULTS}${line}"$'\n'
+            else
+              echo "::error::layer ${FLAG} failed to build or publish."
+              FAILED+=("$FLAG")
+            fi
+            echo "::endgroup::"
           done
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/layer && zip --quiet --recurse-paths ../shared-space-common-layer.zip .)
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          # Cap the OIDC assume-role retries. The default is 12, and on 2026-07-27 a connect
-          # timeout to STS cost ~7 minutes per attempt, so one job spent 82 minutes failing.
-          # Three still retries a fast-failing transient; the slow case is bounded by
-          # `timeout-minutes` above, because v4 has no wall-clock option of its own
-          # (`action-timeout-s` arrived after it).
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-shared-space-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared-space DOMAIN code (registry/cache/membership/teardown/casio/auth-adapter). Deps + the shared client/config/JWT surface come from the cpcommon layer (SPEC-062, slimmed by SPEC-125)." \
-            --zip-file "fileb://build/shared-space-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── polars layer (SPEC-066) ────────────────────────────────────────────────
-  # Publishes the `table-builder-polars` layer = polars (Rust-native Parquet/CSV/JSON
-  # readers, no pyarrow), attached ONLY to the table-builder infer-schema function
-  # (SPEC-069). Built the same way as the shared-space-common layer (the heavy artifact
-  # can't be vendored into Terraform), pinned via lambdas/table-builder-infer-schema/
-  # requirements.txt, with the unzipped size measured + capped well under Lambda's
-  # 250 MB limit (SPEC-066 FR-003).
-  polars_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build polars layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/polars-layer/python"
-          rm -rf build/polars-layer && mkdir -p "$LAYER_DIR"
-          # Plain pip install on the linux x86_64 / python3.12 runner pulls the
-          # manylinux polars wheel, ABI-compatible with the python3.12 Lambda runtime
-          # (Amazon Linux 2023) — the same proven approach as the shared-space-common
-          # layer job above. (polars ships no pyarrow dep, so the layer stays small.)
-          pip install --quiet \
-            --requirement lambdas/table-builder-infer-schema/requirements.txt \
-            --target "$LAYER_DIR"
-          UNZIPPED_KB=$(du -sk "$LAYER_DIR" | cut -f1)
-          echo "table-builder-polars layer unzipped size: $((UNZIPPED_KB / 1024)) MB"
-          echo "unzipped_kb=${UNZIPPED_KB}" >> "$GITHUB_OUTPUT"
-          # Lambda's hard limit is 250 MB unzipped (layers + function); fail early with
-          # headroom (240 MB) if a future polars bump blows past it (SPEC-066 FR-003).
-          # NOTE: this per-layer check is NOT sufficient on its own — the 250 MB ceiling
-          # is per-FUNCTION across ALL attached layers plus code, so the deploy job below
-          # also runs a COMBINED per-function guard (SPEC-107 FR-004).
-          if [ "$UNZIPPED_KB" -gt 245760 ]; then
-            echo "::error::table-builder-polars layer exceeds 240 MB unzipped ($((UNZIPPED_KB / 1024)) MB)."
+          if [ "${#FAILED[@]}" -gt 0 ]; then
+            echo "::error::layers failed: ${FAILED[*]}"
             exit 1
           fi
-          (cd build/polars-layer && zip --quiet --recurse-paths ../table-builder-polars-layer.zip .)
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
+          # flag -> {arn, kb}, as one compact json value on one line.
+          MAP=$(printf '%s' "$RESULTS" | jq -Rn '
+            [inputs | select(length > 0) | split("\t")
+             | {key: .[0], value: {arn: .[1], kb: .[2]}}] | from_entries')
 
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-table-builder-polars"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "polars (Parquet/CSV/JSON readers) for the table-builder infer-schema verb (SPEC-066/069)." \
-            --zip-file "fileb://build/table-builder-polars-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── table-builder-common layer (SPEC-067) ──────────────────────────────────
-  # Publishes the `table-builder-common` layer = external deps (PyJWT[crypto]) + the
-  # `tbcommon` package (shared auth/registry/clients/config/errors for the verb
-  # Lambdas). The table-builder verbs with real code (validate-authorize now; more in
-  # SPEC-068/070) attach it instead of bundling. A PACKAGE (python/tbcommon/), not flat
-  # modules, so its names don't collide with shared-space-common's under pytest.
-  table_builder_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/tbcommon-layer/python"
-          rm -rf build/tbcommon-layer && mkdir -p "$LAYER_DIR"
-          # No external deps here — PyJWT[crypto] is declared ONCE in the cpcommon layer
-          # (SPEC-107 FR-001), which every table-builder verb also attaches. This layer
-          # carries only the domain package (production code, no __pycache__).
-          cp -r lambdas/table-builder-common/tbcommon "$LAYER_DIR"/tbcommon
-          find "$LAYER_DIR"/tbcommon -name '__pycache__' -type d -prune -exec rm -rf {} +
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/tbcommon-layer && zip --quiet --recurse-paths ../table-builder-common-layer.zip .)
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-table-builder-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared tbcommon package + deps (PyJWT) for the table-builder verb Lambdas (SPEC-067)." \
-            --zip-file "fileb://build/table-builder-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── table-share-common layer (SPEC-088) ────────────────────────────────────
-  # Publishes the `table-share-common` layer = external deps (PyJWT[crypto]) + the
-  # `tscommon` package (shared config/clients/auth/registry/copy/notify namespaces
-  # for the table-share verb Lambdas — stubs in SPEC-088, filled by SPEC-089→094).
-  # A PACKAGE (python/tscommon/), not flat modules, so its names don't collide with
-  # shared-space-common's or tbcommon's under pytest. All five table-share verbs
-  # attach it (matrix `tscommon: true`).
-  table_share_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/tscommon-layer/python"
-          rm -rf build/tscommon-layer && mkdir -p "$LAYER_DIR"
-          # No external deps here — PyJWT[crypto] is declared ONCE in the cpcommon layer
-          # (SPEC-107 FR-001), which every table-share verb also attaches. This layer
-          # carries only the domain package (production code, no __pycache__).
-          cp -r lambdas/table-share-common/tscommon "$LAYER_DIR"/tscommon
-          find "$LAYER_DIR"/tscommon -name '__pycache__' -type d -prune -exec rm -rf {} +
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/tscommon-layer && zip --quiet --recurse-paths ../table-share-common-layer.zip .)
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-table-share-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared tscommon package + deps (PyJWT) for the table-share verb Lambdas (SPEC-088)." \
-            --zip-file "fileb://build/table-share-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── archive-common layer (SPEC-168) ────────────────────────────────────────
-  # Publishes the `archive-common` layer = the `arcommon` package (this plane's config,
-  # source authorization, archive key layout and wording). No external deps:
-  # PyJWT[crypto] is declared ONCE in the cpcommon layer (SPEC-107 FR-001), which every
-  # archive verb also attaches, and containment lives in cpcommon.paths rather than being
-  # copied here. A PACKAGE (python/arcommon/), not flat modules, so its names cannot
-  # collide with another domain layer's under pytest.
-  #
-  # NAMED AFTER THE PLANE, NOT THE PACKAGE. The deploy role's layer grant is scoped to
-  # `{project}-*-archive-*` (modules/base), so a layer called `dat-prod-arcommon` would
-  # fail publish with an implicit deny rather than a clear error.
-  archive_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/arcommon-layer/python"
-          rm -rf build/arcommon-layer && mkdir -p "$LAYER_DIR"
-          # A whole-package copy, not a per-file list: a new arcommon module ships by
-          # existing. SPEC-153 FR-002 requires set equality against the directory for any
-          # layer packaged by an EXPLICIT list, and this is exempt for that named reason.
-          cp -r lambdas/archive-common/arcommon "$LAYER_DIR"/arcommon
-          find "$LAYER_DIR"/arcommon -name '__pycache__' -type d -prune -exec rm -rf {} +
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/arcommon-layer && zip --quiet --recurse-paths ../archive-common-layer.zip .)
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-archive-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared arcommon package for the archive verb Lambdas (SPEC-168)." \
-            --zip-file "fileb://build/archive-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── file-send-common layer (SPEC-164) ──────────────────────────────────────
-  # Publishes the `file-send-common` layer = the `fscommon` package (this plane's config,
-  # source authorization, key containment, wording and notification glue). No external
-  # deps: PyJWT[crypto] is declared ONCE in the cpcommon layer (SPEC-107 FR-001), which
-  # every file-send verb also attaches. A PACKAGE (python/fscommon/), not flat modules, so
-  # its names cannot collide with another domain layer's under pytest.
-  #
-  # NAMED AFTER THE PLANE, NOT THE PACKAGE. The deploy role's layer grant is scoped to
-  # `{project}-*-file-send-*` (modules/base, SPEC-164 PR1), so a layer called
-  # `dat-prod-fscommon` would fail publish with an implicit deny rather than a clear error.
-  file_send_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/fscommon-layer/python"
-          rm -rf build/fscommon-layer && mkdir -p "$LAYER_DIR"
-          # A whole-package copy, not a per-file list: a new fscommon module ships by
-          # existing. SPEC-153 FR-002 requires set equality against the directory for any
-          # layer packaged by an EXPLICIT list, and this is exempt for that named reason.
-          cp -r lambdas/file-send-common/fscommon "$LAYER_DIR"/fscommon
-          find "$LAYER_DIR"/fscommon -name '__pycache__' -type d -prune -exec rm -rf {} +
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/fscommon-layer && zip --quiet --recurse-paths ../file-send-common-layer.zip .)
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-file-send-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared fscommon package for the file-send verb Lambdas (SPEC-164)." \
-            --zip-file "fileb://build/file-send-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  file_ops_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/focommon-layer/python"
-          rm -rf build/focommon-layer && mkdir -p "$LAYER_DIR"
-          # A whole-package copy, not a per-file list: a new focommon module ships by
-          # existing. SPEC-153 FR-002 requires set equality against the directory for any
-          # layer packaged by an EXPLICIT list, and this is exempt for that named reason.
-          cp -r lambdas/file-ops-common/focommon "$LAYER_DIR"/focommon
-          find "$LAYER_DIR"/focommon -name '__pycache__' -type d -prune -exec rm -rf {} +
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/focommon-layer && zip --quiet --recurse-paths ../file-ops-common-layer.zip .)
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-file-ops-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared focommon package for the file-ops verb Lambdas." \
-            --zip-file "fileb://build/file-ops-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── control-plane-common layer (SPEC-107) ──────────────────────────────────
-  # Publishes the `control-plane-common` layer = external deps (PyJWT[crypto],
-  # declared ONCE here) + the `cpcommon` package (shared auth/clients/config/errors/
-  # registry/s3_listing/notify/messages/events for EVERY control-plane verb). All ten
-  # table-builder + table-share verbs attach it alongside their domain layer; the future
-  # data-quality / file-converter verbs will too. A PACKAGE (python/cpcommon/), not flat
-  # modules, so its names don't collide with the domain layers' under pytest.
-  cpcommon_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/cpcommon-layer/python"
-          rm -rf build/cpcommon-layer && mkdir -p "$LAYER_DIR"
-          # External deps (manylinux wheels, python3.12-compatible) — PyJWT[crypto],
-          # declared once for all control planes (SPEC-107 FR-001).
-          pip install --quiet --requirement lambdas/control-plane-common/requirements.txt --target "$LAYER_DIR"
-          # The shared package — production code only (no __pycache__).
-          cp -r lambdas/control-plane-common/cpcommon "$LAYER_DIR"/cpcommon
-          find "$LAYER_DIR"/cpcommon -name '__pycache__' -type d -prune -exec rm -rf {} +
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/cpcommon-layer && zip --quiet --recurse-paths ../control-plane-common-layer.zip .)
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-control-plane-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared cpcommon package + deps (PyJWT) for every control-plane verb Lambda (SPEC-107)." \
-            --zip-file "fileb://build/control-plane-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── data-quality-common layer (SPEC-108) ───────────────────────────────────
-  # Publishes the `data-quality-common` layer = the `dqcommon` package (the DOMAIN
-  # surface: config caps, sql, report, messages, index_store). NO external deps: PyJWT
-  # lives once in cpcommon (SPEC-107 FR-001), polars is its own layer below (attached to
-  # inspect-source only), and this arc has no Excel engine. All nine data-quality verbs
-  # attach this alongside cpcommon.
-  dqcommon_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/dqcommon-layer/python"
-          rm -rf build/dqcommon-layer && mkdir -p "$LAYER_DIR"
-          # No pip install — dqcommon declares no external dependencies (see above).
-          cp -r lambdas/data-quality-common/dqcommon "$LAYER_DIR"/dqcommon
-          find "$LAYER_DIR"/dqcommon -name '__pycache__' -type d -prune -exec rm -rf {} +
-          echo "unzipped_kb=$(du -sk "$LAYER_DIR" | cut -f1)" >> "$GITHUB_OUTPUT"
-          (cd build/dqcommon-layer && zip --quiet --recurse-paths ../data-quality-common-layer.zip .)
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
-
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-data-quality-common"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "Shared dqcommon domain package for the data-quality verb Lambdas (SPEC-108)." \
-            --zip-file "fileb://build/data-quality-common-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
-  # ── data-quality polars layer (SPEC-108 FR-003) ────────────────────────────
-  # polars for the data-quality inspect-source verb ONLY. Unavoidable: Athena requires an
-  # explicit column list for Parquet/JSON external tables and does not auto-detect a
-  # Parquet schema, so inspect-source must read Parquet footers itself. No fastexcel —
-  # this arc does not support Excel. A SEPARATE layer from the table-builder polars layer
-  # so each arc's deploy-role grant stays name-scoped to its own arc.
-  dq_polars_layer:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      id-token: write
-      contents: read
-    outputs:
-      layer_arn: ${{ steps.publish.outputs.layer_arn }}
-      unzipped_kb: ${{ steps.build.outputs.unzipped_kb }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
-      - name: Build polars layer package
-        id: build
-        run: |
-          set -euo pipefail
-          LAYER_DIR="build/dq-polars-layer/python"
-          rm -rf build/dq-polars-layer && mkdir -p "$LAYER_DIR"
-          pip install --quiet \
-            --requirement lambdas/data-quality-polars/requirements.txt \
-            --target "$LAYER_DIR"
-          UNZIPPED_KB=$(du -sk "$LAYER_DIR" | cut -f1)
-          echo "data-quality-polars layer unzipped size: $((UNZIPPED_KB / 1024)) MB"
-          echo "unzipped_kb=${UNZIPPED_KB}" >> "$GITHUB_OUTPUT"
-          # Per-layer sanity cap. NOT sufficient on its own — the 250 MB ceiling is per
-          # FUNCTION across all layers plus code, which the combined guard in the deploy
-          # job checks (SPEC-107 FR-004). inspect-source (cpcommon + dqcommon + polars) is
-          # the function that guard actually has to work for.
-          if [ "$UNZIPPED_KB" -gt 245760 ]; then
-            echo "::error::data-quality-polars layer exceeds 240 MB unzipped ($((UNZIPPED_KB / 1024)) MB)."
+          # Refuse to hand the deploy an incomplete map rather than letting it discover
+          # a missing layer per function.
+          expected=$(jq 'length' .github/lambda-layers.json)
+          actual=$(jq 'length' <<<"$MAP")
+          if [ "$actual" -ne "$expected" ]; then
+            echo "::error::published ${actual} layers but the table names ${expected} — refusing to deploy against an incomplete layer map."
             exit 1
           fi
-          (cd build/dq-polars-layer && zip --quiet --recurse-paths ../data-quality-polars-layer.zip .)
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          retry-max-attempts: 3
+          echo "$MAP" | jq .
+          printf 'layers=%s\n' "$MAP" >> "$GITHUB_OUTPUT"
 
-      - name: Publish layer version
-        id: publish
-        run: |
-          set -euo pipefail
-          LAYER_NAME="${PROJECT_NAME}-${ENVIRONMENT}-data-quality-polars"
-          ARN=$(aws lambda publish-layer-version \
-            --layer-name "$LAYER_NAME" \
-            --description "polars (Parquet footer / CSV / JSON probe) for the data-quality inspect-source verb (SPEC-108/110)." \
-            --zip-file "fileb://build/data-quality-polars-layer.zip" \
-            --compatible-runtimes python3.12 \
-            --query LayerVersionArn --output text)
-          echo "Published ${ARN}"
-          echo "layer_arn=${ARN}" >> "$GITHUB_OUTPUT"
-
+  # largest line on the Actions bill. GitHub rounds every job up to a full billed
+  # minute, and all 73 of these finish in ~29 seconds — so the shape cost 73 minutes
+  # for ~22 minutes of work, and it grew by a permanent minute with every function
+  # the project added. Measured over 28 days it was 46% of the repo's Actions spend,
+  # and 53% of that was rounding alone.
+  #
+  # The functions are now sharded: each job deploys its share sequentially, so the
+  # per-job minute is amortised over a dozen functions instead of paid per function.
+  # Shard COUNT is the tuning knob and the cost curve is flat between ~4 and ~8 (each
+  # job comfortably exceeds a minute either way); six keeps every shard around four
+  # minutes, which leaves room for the function count to grow without a shard
+  # crossing a minute boundary and re-inflating the bill.
+  #
+  # The function table moved to .github/lambda-functions.json. A `strategy.matrix`
+  # cannot express "these twelve in one job", and the table was always read as data
+  # by lambdas/test_deploy_matrix.py — which now parses JSON instead of regexing YAML.
   deploy:
-    needs: [layer, polars_layer, table_builder_layer, table_share_layer, file_send_layer, file_ops_layer, archive_layer, cpcommon_layer, dqcommon_layer, dq_polars_layer]
+    needs: [plan, layers]
+    if: needs.plan.outputs.any == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Sized against a SHARD, not a function, which is the change sharding makes to this
+    # number. Thirteen functions at ~20s each is ~4.5 min; the infra race adds up to 5
+    # min ONCE (the first function waits for Deploy Infrastructure, the rest find it
+    # already there), so ~10 min is the realistic worst case and this is 3x it.
+    #
+    # Deliberately NOT the pathological sum. Each function can in principle spend 5 min
+    # in the get-function loop plus three `aws lambda wait` calls at up to 5 min each,
+    # which across thirteen functions is hours — but that only happens when Lambda's API
+    # is degraded, where failing the shard is the correct outcome and burning three
+    # billed hours to discover it is not.
+    timeout-minutes: 30
     permissions:
       id-token: write
       contents: read
 
     strategy:
+      # A function that fails must not cancel the shards deploying unrelated ones.
+      # Under one-job-per-function the default cancelled 72 PENDING jobs; with six
+      # shards in flight it would cancel work already half-done, which leaves a
+      # partial deploy in more places rather than fewer.
+      fail-fast: false
       matrix:
-        # One entry per function. `name` is both the lambdas/ subdir and the
-        # function-name suffix ({project}-{env}-{name}). `layer: true` functions
-        # (SPEC-062) get deps + shared code from the shared-space-common layer instead
-        # of bundling the shared requirements, and attach it after deploy. `polars: true`
-        # functions (SPEC-066) attach the table-builder-polars layer after deploy.
-        lambda:
-          # The first three SINGLETON functions — no control plane, no domain layer. They
-          # attach cpcommon for `observability` (SPEC-137 FR-001), and notifications-writer
-          # also for `auth`/`clients` since SPEC-156 FR-004. They are safe here because
-          # `cpcommon/__init__.py` imports no submodules and `cpcommon.config` resolves each
-          # variable on FIRST ACCESS rather than at import — so a function that sets three of
-          # the six (notifications-writer) or none of them (the two Cognito triggers) imports
-          # fine, and what it must set is only what it reads. Until SPEC-156 the `_require` ran
-          # at import (PR #196), which is exactly why notifications-writer could not use the
-          # layer's verifier and grew a second copy of it.
-          # (SPEC-146's user-directory-build is a singleton on different terms — see below.)
-          #
-          # SPEC-137 shipped the instrumented CODE without these three flags, so all three
-          # deployed `from cpcommon import observability` with no cpcommon layer attached —
-          # ModuleNotFoundError at cold start. On pre-signup that is a Cognito trigger, so it
-          # failed real user signups. Nothing caught it: pytest puts the layer on sys.path
-          # (lambdas/conftest.py), and `update-function-code` succeeds against a function that
-          # cannot import. The guard is now test_deploy_matrix_cpcommon.py, which reads THIS
-          # matrix and fails when a module importing cpcommon is missing the flag.
-          - { name: pre-signup, layer: false, polars: false, tbcommon: false, cpcommon: true }
-          - { name: post-confirmation, layer: false, polars: false, tbcommon: false, cpcommon: true }
-          - { name: notifications-writer, layer: false, polars: false, tbcommon: false, cpcommon: true }
-          # user-directory-build is a singleton too, but NOT of the kind above: it imports
-          # `config` and `clients` alongside `observability` and READS the bucket names, so it
-          # needs the variables the two Cognito triggers do not. (Before SPEC-156 the layer's
-          # `_require` ran at import and the distinction was cold-start crash vs. no crash; now
-          # it is a failure at the read, on whichever branch reads first — narrower, and still
-          # a failure.) All six are therefore set in modules/user-directory/lambda.tf,
-          # and lambdas/user-directory-build/test_build_directory.py asserts that file against
-          # config.py's own `_require` list rather than against a hand-kept copy — so a seventh
-          # required variable fails a test instead of a cold start (SPEC-146 FR-008).
-          - { name: user-directory-build, layer: false, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-validate, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-create, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-add-members, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-remove-members, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-leave, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-delete, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-forget, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-acknowledge-membership, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          - { name: shared-space-notify-failure, layer: true, polars: false, tbcommon: false, cpcommon: true }
-          # Table-builder verbs. `tbcommon: true` attaches the table-builder-common layer
-          # — ALL five verbs use the shared tbcommon package now (config/clients/errors +
-          # notify, SPEC-067/068/069/070/072). infer-schema ALSO attaches the polars layer
-          # (both layers, SPEC-069). execute-ddl imports `from tbcommon import config`
-          # (SPEC-070) + `notify` (SPEC-072), so it needs the layer too.
-          - { name: table-builder-validate-authorize, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-check-table-absent, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-load-table-definition, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-acquire-refresh-lock, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-release-refresh-lock, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-inspect-source, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-infer-schema, layer: false, polars: true, tbcommon: true, cpcommon: true }
-          - { name: table-builder-diff-schema, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-apply-refresh, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-execute-ddl, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          - { name: table-builder-notify-failure, layer: false, polars: false, tbcommon: true, cpcommon: true }
-          # Table-share verbs (SPEC-088). `tscommon: true` attaches the table-share-common
-          # layer — every verb that carries this plane's WORDING or key layout needs it.
-          # copy-objects is the exception since SPEC-160: it became the shared batch copier
-          # over cpcommon.transfer and imports no tscommon at all, which is the property that
-          # lets the file-send and archive planes reuse it. `tscommon: false` there is
-          # deliberate, and its suite asserts the import stays gone.
-          - { name: table-share-validate-authorize, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          - { name: table-share-inspect-source, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          - { name: table-share-check-target-absent, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          - { name: table-share-build-transfer-manifest, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          - { name: table-share-copy-objects, layer: false, polars: false, tbcommon: false, tscommon: false, cpcommon: true }
-          - { name: table-share-collect-transfer-results, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          - { name: table-share-create-table, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          - { name: table-share-notify-failure, layer: false, polars: false, tbcommon: false, tscommon: true, cpcommon: true }
-          # File-send verbs (SPEC-164→166). The front door, the source resolution, and the
-          # transfer. `fscommon: false` on copy-objects is the same deliberate row table-share
-          # carries on its own batch copier: the copier is cpcommon.transfer with a reason code,
-          # it reaches for nothing on this plane, and a test asserts that — so attaching the
-          # domain layer would be cold-start cost for an import it does not make.
-          - { name: file-send-validate-authorize, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          - { name: file-send-inspect-source, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          - { name: file-send-check-target-absent, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          - { name: file-send-build-transfer-manifest, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          - { name: file-send-copy-objects, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: false }
-          - { name: file-send-collect-transfer-results, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          - { name: file-send-notify, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          - { name: file-send-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, fscommon: true }
-          # File-operations verbs. `focommon` on every one: all four reach the wording table
-          # through one import chain or another, and a verb missing its domain layer crashes at
-          # COLD START, where no test and no deploy can see it.
-          - { name: file-ops-validate-authorize, layer: false, polars: false, tbcommon: false, cpcommon: true, focommon: true }
-          - { name: file-ops-acquire-lock, layer: false, polars: false, tbcommon: false, cpcommon: true, focommon: true }
-          - { name: file-ops-release-lock, layer: false, polars: false, tbcommon: false, cpcommon: true, focommon: true }
-          - { name: file-ops-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, focommon: true }
-          # Archive verbs (SPEC-168 front door, SPEC-169 the transfer and the deletion,
-          # SPEC-170 the restore arm's lookup and destination guard).
-          # `arcommon: true` attaches the archive-common layer — every verb but the batch
-          # copier carries this plane's wording, its key layout or its caps. Key
-          # containment is NOT in that layer: it is cpcommon.paths, shared with file-send,
-          # because a second copy of the rule that decides whether a key is inside the
-          # caller's own space is a second place a cross-tenant read can be introduced.
-          #
-          # archive-copy-objects is `arcommon: false` and that is deliberate rather than an
-          # omission: it is cpcommon.transfer with a reason code, and knows nothing about
-          # the request — every destination and the storage class were resolved upstream
-          # and written into the manifest. file-send-copy-objects carries the same shape.
-          - { name: archive-validate-authorize, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-inspect-source, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-build-transfer-manifest, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-copy-objects, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: false }
-          - { name: archive-collect-transfer-results, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-rollback, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-write-manifest, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-delete-source, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-write-receipt, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-inspect-archive, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-check-destination-clear, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-build-restore-manifest, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-initiate-restore, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-poll-restore, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-delete-archived, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-update-receipt, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-notify, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          - { name: archive-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, arcommon: true }
-          # Data-quality verbs (SPEC-108). All nine attach cpcommon + dqcommon; only
-          # inspect-source also attaches the data-quality polars layer (it must read
-          # Parquet footers — Athena needs an explicit column list). Stub handlers now;
-          # real logic lands with SPEC-109→112/114.
-          - { name: data-quality-validate-authorize, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          - { name: data-quality-inspect-source, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true, dqpolars: true }
-          - { name: data-quality-create-temp-tables, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          - { name: data-quality-start-profile-query, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          - { name: data-quality-check-query, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          - { name: data-quality-byte-scan, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          - { name: data-quality-assemble-report, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          - { name: data-quality-drop-temp-tables, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          - { name: data-quality-notify-failure, layer: false, polars: false, tbcommon: false, cpcommon: true, dqcommon: true }
-          # Control-plane DLQ drain (SPEC-126). ONE function on all four request DLQs.
-          # cpcommon only — it verifies the dead-lettered token and emits a notification,
-          # and touches no domain surface at all.
-          - { name: control-plane-dlq-drain, layer: false, polars: false, tbcommon: false, cpcommon: true }
-          # Structured-logging sweep (SPEC-127). cpcommon only — it needs
-          # cpcommon.observability (which is where log-foundry is pinned) and clients, and
-          # touches no domain surface. It is also the only PRODUCER in SPEC-127: it instruments
-          # itself, which is what proves the pipe end to end without instrumenting a plane.
-          - { name: log-sweep, layer: false, polars: false, tbcommon: false, cpcommon: true }
+        # Computed, not fixed. Sharding four functions across six jobs would spend six
+        # billed minutes to save none — the count scales with the work the plan found.
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+
+    env:
+      SHARD: ${{ matrix.shard }}
+      SHARD_COUNT: ${{ needs.plan.outputs.shard_count }}
+      # The functions THIS PUSH needs, not the whole table.
+      PLANNED: ${{ needs.plan.outputs.functions }}
+      # flag -> {arn, kb} for every published layer, from the one layers job.
+      # deploy-lambda.sh refuses to deploy a function whose layer is missing from this
+      # map rather than shipping it to fail at COLD START, where no test and no deploy
+      # can see it — which is how SPEC-137 broke real Cognito signups.
+      LAYERS_JSON: ${{ needs.layers.outputs.layers }}
 
     steps:
       - name: Checkout
@@ -834,132 +367,74 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build package
-        run: |
-          set -euo pipefail
-          BUILD_DIR="build/${{ matrix.lambda.name }}"
-          rm -rf "$BUILD_DIR" && mkdir -p "$BUILD_DIR"
-          # Layer functions get their deps from a layer; others bundle the shared
-          # requirements. `cpcommon: true` is part of this test because cpcommon is where
-          # PyJWT[crypto] is declared now (SPEC-107 FR-001) — a function attaching it must
-          # NOT also bundle a second copy (it would double-count against the combined
-          # size guard below, and drift).
-          if [ "${{ matrix.lambda.layer }}" != "true" ] \
-             && [ "${{ matrix.lambda.tbcommon }}" != "true" ] \
-             && [ "${{ matrix.lambda.tscommon }}" != "true" ] \
-             && [ "${{ matrix.lambda.cpcommon }}" != "true" ]; then
-            pip install --quiet --requirement lambdas/requirements.txt --target "$BUILD_DIR"
-          fi
-          cp lambdas/${{ matrix.lambda.name }}/*.py "$BUILD_DIR"/
-          # Never ship tests.
-          rm -f "$BUILD_DIR"/test_*.py
-          # SPEC-186 FR-005: the build stamp travels IN THE PACKAGE, not in the function's
-          # environment. Tofu owns the environment map and `update-function-configuration
-          # --environment` REPLACES it whole, so writing a version there would either race
-          # Tofu or be reverted by the next apply; and Deploy Infrastructure is path-filtered
-          # to infra/**, so a Tofu-set sha would name the last INFRA commit rather than the
-          # code that is running. A file beside the handler is the artefact's own identity.
-          # `cpcommon.observability` reads it at import (see BUILD_VERSION there).
-          echo "${GITHUB_SHA}" > "$BUILD_DIR/BUILD_VERSION"
-          (cd "$BUILD_DIR" && zip --quiet --recurse-paths "../${{ matrix.lambda.name }}.zip" .)
-
-      # ── Combined per-function size guard (SPEC-107 FR-004) ────────────────────
-      # Lambda's 250 MB unzipped ceiling is per FUNCTION — the function package PLUS
-      # every attached layer, combined. The per-LAYER guards (polars job, etc.) measure
-      # one layer in isolation and CANNOT see a combined overflow (e.g. cpcommon +
-      # fccommon + polars on one function). This sums the package + the layers THIS
-      # function attaches and fails above 240 MB, naming the function, its layers, and
-      # the measured total — BEFORE anything publishes or attaches.
-      - name: Combined layer + package size guard
-        run: |
-          set -euo pipefail
-          BUILD_DIR="build/${{ matrix.lambda.name }}"
-          PKG_KB=$(du -sk "$BUILD_DIR" | cut -f1)
-          TOTAL_KB=$PKG_KB
-          NAMES="package(${PKG_KB}KB)"
-          add() { TOTAL_KB=$((TOTAL_KB + $1)); NAMES="${NAMES} + $2(${1}KB)"; }
-          [ "${{ matrix.lambda.layer }}" = "true" ]    && add "${{ needs.layer.outputs.unzipped_kb }}" shared-space-common
-          [ "${{ matrix.lambda.polars }}" = "true" ]   && add "${{ needs.polars_layer.outputs.unzipped_kb }}" table-builder-polars
-          [ "${{ matrix.lambda.tbcommon }}" = "true" ] && add "${{ needs.table_builder_layer.outputs.unzipped_kb }}" table-builder-common
-          [ "${{ matrix.lambda.tscommon }}" = "true" ] && add "${{ needs.table_share_layer.outputs.unzipped_kb }}" table-share-common
-          [ "${{ matrix.lambda.cpcommon }}" = "true" ] && add "${{ needs.cpcommon_layer.outputs.unzipped_kb }}" control-plane-common
-          [ "${{ matrix.lambda.dqcommon }}" = "true" ] && add "${{ needs.dqcommon_layer.outputs.unzipped_kb }}" data-quality-common
-          [ "${{ matrix.lambda.dqpolars }}" = "true" ] && add "${{ needs.dq_polars_layer.outputs.unzipped_kb }}" data-quality-polars
-          [ "${{ matrix.lambda.fscommon }}" = "true" ] && add "${{ needs.file_send_layer.outputs.unzipped_kb }}" file-send-common
-          [ "${{ matrix.lambda.focommon }}" = "true" ] && add "${{ needs.file_ops_layer.outputs.unzipped_kb }}" file-ops-common
-          [ "${{ matrix.lambda.arcommon }}" = "true" ] && add "${{ needs.archive_layer.outputs.unzipped_kb }}" archive-common
-          echo "${{ matrix.lambda.name }} combined unzipped: $((TOTAL_KB / 1024)) MB  [${NAMES}]"
-          if [ "$TOTAL_KB" -gt 245760 ]; then
-            echo "::error::${{ matrix.lambda.name }} exceeds 240 MB unzipped: $((TOTAL_KB / 1024)) MB across ${NAMES} (Lambda's hard limit is 250 MB per function, package + all layers)."
-            exit 1
-          fi
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          # Cap the OIDC assume-role retries. The default is 12, and on 2026-07-27 a
+          # connect timeout to STS cost ~7 minutes per attempt, so one job spent 82
+          # minutes failing. Three still retries a fast-failing transient; the slow
+          # case is bounded by `timeout-minutes` above.
           retry-max-attempts: 3
 
-      - name: Upload artifact and deploy
+      - name: Deploy this shard
         run: |
           set -euo pipefail
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          BUCKET="${PROJECT_NAME}-lambda-artifacts-${ACCOUNT_ID}"
-          FUNCTION="${PROJECT_NAME}-${ENVIRONMENT}-${{ matrix.lambda.name }}"
-          KEY="${{ matrix.lambda.name }}/${GITHUB_SHA}.zip"
 
-          # The function + artifacts bucket are created by deploy-infra.yml. When a
-          # merge touches both infra/ and lambdas/, both workflows fire on the same
-          # push and this one can win the race — so wait for the infrastructure to
-          # exist (up to ~5 min) before deploying, instead of failing with
-          # NoSuchBucket / ResourceNotFound.
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          export BUCKET="${PROJECT_NAME}-lambda-artifacts-${ACCOUNT_ID}"
+
+          # Wait for the artifacts bucket ONCE per shard rather than once per
+          # function. Same race as before (a merge touching infra/ and lambdas/ fires
+          # both workflows on one push), but the bucket is shared by every function in
+          # the shard, so polling it per function was 12 redundant round trips.
           for attempt in $(seq 1 30); do
-            if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null \
-               && aws lambda get-function --function-name "$FUNCTION" >/dev/null 2>&1; then
-              echo "Infrastructure ready for ${FUNCTION}."
+            if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+              echo "Artifacts bucket ready."
               break
             fi
             if [ "$attempt" -eq 30 ]; then
-              echo "::error::Bucket ${BUCKET} or function ${FUNCTION} not ready after ~5 min. Run Deploy Infrastructure first."
+              echo "::error::Bucket ${BUCKET} not ready after ~5 min. Run Deploy Infrastructure first."
               exit 1
             fi
-            echo "Waiting for infrastructure (attempt ${attempt}/30)…"
+            echo "Waiting for ${BUCKET} (attempt ${attempt}/30)…"
             sleep 10
           done
 
-          # A just-created function can still be in state Pending/Creating (the same
-          # push's Deploy Infrastructure run), and update-function-code then fails
-          # with ResourceConflictException — wait for Active first (hit on SPEC-088).
-          aws lambda wait function-active-v2 --function-name "$FUNCTION"
+          # A read loop rather than `mapfile` (bash 4+), matching deploy-lambda.sh, so the
+          # whole path can be dry-run on a Mac before it is pushed.
+          FUNCS=()
+          while IFS= read -r fn; do
+            [ -n "$fn" ] && FUNCS+=("$fn")
+          done < <(jq -r --argjson s "$SHARD" --argjson n "$SHARD_COUNT" \
+            'to_entries[] | select(.key % $n == $s) | .value' <<<"$PLANNED")
 
-          aws s3 cp "build/${{ matrix.lambda.name }}.zip" "s3://${BUCKET}/${KEY}"
-          aws lambda update-function-code \
-            --function-name "$FUNCTION" \
-            --s3-bucket "$BUCKET" \
-            --s3-key "$KEY" \
-            --publish
-          aws lambda wait function-updated --function-name "$FUNCTION"
-
-          # Attach the function's layers. update-function-configuration --layers REPLACES
-          # the whole list, so a function needing more than one layer (infer-schema =
-          # cpcommon + table-builder-common + polars, SPEC-069/107) must pass them
-          # together in one call. Every table-builder / table-share verb now also attaches
-          # the cpcommon layer (SPEC-107).
-          LAYERS=()
-          [ "${{ matrix.lambda.cpcommon }}" = "true" ] && LAYERS+=("${{ needs.cpcommon_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.layer }}" = "true" ]    && LAYERS+=("${{ needs.layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.polars }}" = "true" ]   && LAYERS+=("${{ needs.polars_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.tbcommon }}" = "true" ] && LAYERS+=("${{ needs.table_builder_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.tscommon }}" = "true" ] && LAYERS+=("${{ needs.table_share_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.dqcommon }}" = "true" ] && LAYERS+=("${{ needs.dqcommon_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.dqpolars }}" = "true" ] && LAYERS+=("${{ needs.dq_polars_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.fscommon }}" = "true" ] && LAYERS+=("${{ needs.file_send_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.focommon }}" = "true" ] && LAYERS+=("${{ needs.file_ops_layer.outputs.layer_arn }}")
-          [ "${{ matrix.lambda.arcommon }}" = "true" ] && LAYERS+=("${{ needs.archive_layer.outputs.layer_arn }}")
-          if [ "${#LAYERS[@]}" -gt 0 ]; then
-            aws lambda update-function-configuration \
-              --function-name "$FUNCTION" \
-              --layers "${LAYERS[@]}"
-            aws lambda wait function-updated --function-name "$FUNCTION"
+          if [ "${#FUNCS[@]}" -eq 0 ]; then
+            echo "::error::Shard ${SHARD}/${SHARD_COUNT} selected no functions — the table or the sharding expression is wrong, and a silently empty shard deploys nothing while reporting success."
+            exit 1
           fi
+
+          echo "Shard ${SHARD} of ${SHARD_COUNT}: ${#FUNCS[@]} functions"
+          printf '  %s\n' "${FUNCS[@]}"
+
+          # Every function gets its attempt even after one fails, and the shard fails
+          # at the end naming all of them. Under one-job-per-function an unrelated
+          # failure never stopped a deploy, and sharding must not quietly change that.
+          FAILED=()
+          for NAME in "${FUNCS[@]}"; do
+            echo "::group::${NAME}"
+            if bash .github/scripts/deploy-lambda.sh "$NAME"; then
+              echo "✓ ${NAME}"
+            else
+              echo "::error::${NAME} failed to deploy."
+              FAILED+=("$NAME")
+            fi
+            echo "::endgroup::"
+          done
+
+          if [ "${#FAILED[@]}" -gt 0 ]; then
+            echo "::error::Shard ${SHARD} failed for: ${FAILED[*]}"
+            exit 1
+          fi
+          echo "Shard ${SHARD}: all ${#FUNCS[@]} functions deployed."

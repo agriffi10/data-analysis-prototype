@@ -1,0 +1,506 @@
+[
+  {
+    "name": "pre-signup",
+    "layers": [
+      "cpcommon"
+    ]
+  },
+  {
+    "name": "post-confirmation",
+    "layers": [
+      "cpcommon"
+    ]
+  },
+  {
+    "name": "notifications-writer",
+    "layers": [
+      "cpcommon"
+    ]
+  },
+  {
+    "name": "user-directory-build",
+    "layers": [
+      "cpcommon"
+    ]
+  },
+  {
+    "name": "shared-space-validate",
+    "layers": [
+      "cpcommon",
+      "layer"
+    ]
+  },
+  {
+    "name": "shared-space-create",
+    "layers": [
+      "cpcommon",
+      "layer"
+    ]
+  },
+  {
+    "name": "shared-space-add-members",
+    "layers": [
+      "cpcommon",
+      "layer"
+    ]
+  },
+  {
+    "name": "shared-space-remove-members",
+    "layers": [
+      "cpcommon",
+      "layer"
+    ]
+  },
+  {
+    "name": "shared-space-leave",
+    "layers": [
+      "cpcommon",
+      "layer"
+    ]
+  },
+  {
+    "name": "shared-space-delete",
+    "layers": [
+      "cpcommon",
+      "layer"
+    ]
+  },
+  {
+    "name": "shared-space-forget",
+    "layers": [
+      "cpcommon",
+      "layer"
+    ]
+  },
+  {
+    "name": "shared-space-acknowledge-membership",
+    "layers": [
+      "cpcommon",
+      "layer"
+    ]
+  },
+  {
+    "name": "shared-space-notify-failure",
+    "layers": [
+      "cpcommon",
+      "layer"
+    ]
+  },
+  {
+    "name": "table-builder-validate-authorize",
+    "layers": [
+      "cpcommon",
+      "tbcommon"
+    ]
+  },
+  {
+    "name": "table-builder-check-table-absent",
+    "layers": [
+      "cpcommon",
+      "tbcommon"
+    ]
+  },
+  {
+    "name": "table-builder-load-table-definition",
+    "layers": [
+      "cpcommon",
+      "tbcommon"
+    ]
+  },
+  {
+    "name": "table-builder-acquire-refresh-lock",
+    "layers": [
+      "cpcommon",
+      "tbcommon"
+    ]
+  },
+  {
+    "name": "table-builder-release-refresh-lock",
+    "layers": [
+      "cpcommon",
+      "tbcommon"
+    ]
+  },
+  {
+    "name": "table-builder-inspect-source",
+    "layers": [
+      "cpcommon",
+      "tbcommon"
+    ]
+  },
+  {
+    "name": "table-builder-infer-schema",
+    "layers": [
+      "cpcommon",
+      "polars",
+      "tbcommon"
+    ]
+  },
+  {
+    "name": "table-builder-diff-schema",
+    "layers": [
+      "cpcommon",
+      "tbcommon"
+    ]
+  },
+  {
+    "name": "table-builder-apply-refresh",
+    "layers": [
+      "cpcommon",
+      "tbcommon"
+    ]
+  },
+  {
+    "name": "table-builder-execute-ddl",
+    "layers": [
+      "cpcommon",
+      "tbcommon"
+    ]
+  },
+  {
+    "name": "table-builder-notify-failure",
+    "layers": [
+      "cpcommon",
+      "tbcommon"
+    ]
+  },
+  {
+    "name": "table-share-validate-authorize",
+    "layers": [
+      "cpcommon",
+      "tscommon"
+    ]
+  },
+  {
+    "name": "table-share-inspect-source",
+    "layers": [
+      "cpcommon",
+      "tscommon"
+    ]
+  },
+  {
+    "name": "table-share-check-target-absent",
+    "layers": [
+      "cpcommon",
+      "tscommon"
+    ]
+  },
+  {
+    "name": "table-share-build-transfer-manifest",
+    "layers": [
+      "cpcommon",
+      "tscommon"
+    ]
+  },
+  {
+    "name": "table-share-copy-objects",
+    "layers": [
+      "cpcommon"
+    ]
+  },
+  {
+    "name": "table-share-collect-transfer-results",
+    "layers": [
+      "cpcommon",
+      "tscommon"
+    ]
+  },
+  {
+    "name": "table-share-create-table",
+    "layers": [
+      "cpcommon",
+      "tscommon"
+    ]
+  },
+  {
+    "name": "table-share-notify-failure",
+    "layers": [
+      "cpcommon",
+      "tscommon"
+    ]
+  },
+  {
+    "name": "file-send-validate-authorize",
+    "layers": [
+      "cpcommon",
+      "fscommon"
+    ]
+  },
+  {
+    "name": "file-send-inspect-source",
+    "layers": [
+      "cpcommon",
+      "fscommon"
+    ]
+  },
+  {
+    "name": "file-send-check-target-absent",
+    "layers": [
+      "cpcommon",
+      "fscommon"
+    ]
+  },
+  {
+    "name": "file-send-build-transfer-manifest",
+    "layers": [
+      "cpcommon",
+      "fscommon"
+    ]
+  },
+  {
+    "name": "file-send-copy-objects",
+    "layers": [
+      "cpcommon"
+    ]
+  },
+  {
+    "name": "file-send-collect-transfer-results",
+    "layers": [
+      "cpcommon",
+      "fscommon"
+    ]
+  },
+  {
+    "name": "file-send-notify",
+    "layers": [
+      "cpcommon",
+      "fscommon"
+    ]
+  },
+  {
+    "name": "file-send-notify-failure",
+    "layers": [
+      "cpcommon",
+      "fscommon"
+    ]
+  },
+  {
+    "name": "file-ops-validate-authorize",
+    "layers": [
+      "cpcommon",
+      "focommon"
+    ]
+  },
+  {
+    "name": "file-ops-acquire-lock",
+    "layers": [
+      "cpcommon",
+      "focommon"
+    ]
+  },
+  {
+    "name": "file-ops-release-lock",
+    "layers": [
+      "cpcommon",
+      "focommon"
+    ]
+  },
+  {
+    "name": "file-ops-notify-failure",
+    "layers": [
+      "cpcommon",
+      "focommon"
+    ]
+  },
+  {
+    "name": "archive-validate-authorize",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-inspect-source",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-build-transfer-manifest",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-copy-objects",
+    "layers": [
+      "cpcommon"
+    ]
+  },
+  {
+    "name": "archive-collect-transfer-results",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-rollback",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-write-manifest",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-delete-source",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-write-receipt",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-inspect-archive",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-check-destination-clear",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-build-restore-manifest",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-initiate-restore",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-poll-restore",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-delete-archived",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-update-receipt",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-notify",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "archive-notify-failure",
+    "layers": [
+      "cpcommon",
+      "arcommon"
+    ]
+  },
+  {
+    "name": "data-quality-validate-authorize",
+    "layers": [
+      "cpcommon",
+      "dqcommon"
+    ]
+  },
+  {
+    "name": "data-quality-inspect-source",
+    "layers": [
+      "cpcommon",
+      "dqcommon",
+      "dqpolars"
+    ]
+  },
+  {
+    "name": "data-quality-create-temp-tables",
+    "layers": [
+      "cpcommon",
+      "dqcommon"
+    ]
+  },
+  {
+    "name": "data-quality-start-profile-query",
+    "layers": [
+      "cpcommon",
+      "dqcommon"
+    ]
+  },
+  {
+    "name": "data-quality-check-query",
+    "layers": [
+      "cpcommon",
+      "dqcommon"
+    ]
+  },
+  {
+    "name": "data-quality-byte-scan",
+    "layers": [
+      "cpcommon",
+      "dqcommon"
+    ]
+  },
+  {
+    "name": "data-quality-assemble-report",
+    "layers": [
+      "cpcommon",
+      "dqcommon"
+    ]
+  },
+  {
+    "name": "data-quality-drop-temp-tables",
+    "layers": [
+      "cpcommon",
+      "dqcommon"
+    ]
+  },
+  {
+    "name": "data-quality-notify-failure",
+    "layers": [
+      "cpcommon",
+      "dqcommon"
+    ]
+  },
+  {
+    "name": "control-plane-dlq-drain",
+    "layers": [
+      "cpcommon"
+    ]
+  },
+  {
+    "name": "log-sweep",
+    "layers": [
+      "cpcommon"
+    ]
+  }
+]

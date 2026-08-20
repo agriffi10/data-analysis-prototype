@@ -120,26 +120,67 @@ jobs:
   # Semgrep OSS. Registry rulesets rather than hand-written rules: p/owasp-top-ten is the
   # OWASP coverage this spec was asked for, and the per-language sets carry the framework
   # idioms. No account or token is needed for registry rulesets.
-  sast:
-    name: SAST (Semgrep)
+  # ── Every scanner, in ONE job ────────────────────────────────────────────────
+  # These were five separate jobs. Each finished in 12-71 seconds and GitHub bills a
+  # whole minute per job, so the five cost five billed minutes for about three minutes
+  # of scanning — 55% of this workflow's bill was rounding, on every PR.
+  #
+  # Merging them changes NO coverage: the same five scanners, the same versions, the
+  # same gates, the same artifacts. What it changes is that they now share one checkout
+  # and one toolchain setup instead of repeating both five times.
+  #
+  # `gates` deliberately stays a separate job. It is the one thing that must be known
+  # good BEFORE any scanner runs, and `needs: gates` is a hard ordering that no
+  # arrangement of steps inside a single job reproduces — every step here is
+  # `if: always()`, which would run them straight through a failed validation.
+  #
+  # EVERY step is `if: always()`. In five separate jobs no scanner could be skipped by
+  # another's failure; merged, the default `success()` would let one broken scanner
+  # silently skip the four after it, and this workflow's rule is that "did not run" is
+  # never "clean" (SPEC-138). A failing scanner still fails the job — and now the four
+  # that follow it still report.
+  scan:
+    name: Scanners (Semgrep, npm audit, pip-audit, gitleaks, Checkov)
     needs: gates
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # NOT the sum of the five it replaces (85). Serialising them means a single hung
+    # scanner now burns the whole budget as BILLED minutes, where before it burned its
+    # own job's 20 and the other four still finished — so the merge has to bring the
+    # ceiling down, not carry it over. The five together measure ~3 minutes at p90;
+    # 30 is ten times that, and a scanner that genuinely needs more should fail here
+    # and be looked at rather than quietly costing half an hour a run.
+    timeout-minutes: 30
     permissions:
       contents: read
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        # gitleaks scans the branch's FULL HISTORY, so its checkout must not be shallow.
+        # It had its own job and its own checkout before; sharing one now means this
+        # setting is load-bearing for the whole job.
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          # `.nvmrc`, exactly as the npm-audit job had it. Pinning a literal here would
+          # let the audit run against a different Node than the one the repo targets.
+          node-version-file: .nvmrc
+
+      # ── Semgrep ─────────────────────────────────────────────────────
       - name: Install Semgrep
+        if: always()
         run: pip install "semgrep==${SEMGREP_VERSION}"
 
       - name: Scan the SPA
+        if: always()
         # --metrics=off: semgrep's default ("auto") phones home when registry rules are
         # used. This is a private repository; its file paths and rule hits are not usage
         # telemetry we are choosing to send.
@@ -174,6 +215,7 @@ jobs:
           fi
 
       - name: Scan the Lambdas
+        if: always()
         # --exclude-rule: the one accepted false positive, and the reason GATE_SEMGREP can be
         # `block`. `p/owasp-top-ten` pulls Flask's rules in as part of its Python set, and
         # `directly-returned-format-string` is a template-injection check about returning a
@@ -201,7 +243,7 @@ jobs:
             exit $rc
           fi
 
-      - name: Summarize
+      - name: Summarize (Semgrep)
         if: always()
         run: |
           total=0
@@ -245,7 +287,7 @@ jobs:
           done
           echo "SEMGREP_FINDINGS=$total" >> "$GITHUB_ENV"
 
-      - name: Upload raw output
+      - name: Upload raw output (Semgrep)
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -254,7 +296,7 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-      - name: Apply gate
+      - name: Apply gate (Semgrep)
         if: always()
         run: .github/scripts/apply-gate.sh Semgrep "$GATE_SEMGREP" "${SEMGREP_FINDINGS:-0}"
 
@@ -265,26 +307,14 @@ jobs:
   # Today that distinction is live: react-router (high) ships to the browser, while
   # postcss and brace-expansion (also high) are build-time only. One combined number would
   # lose exactly the fact that decides what to fix first.
-  deps-npm:
-    name: Dependencies (npm audit)
-    needs: gates
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version-file: '.nvmrc'
-
+      # ── npm audit ───────────────────────────────────────────────────
       - name: Install dependencies
+        if: always()
         run: npm ci
 
-      - name: Audit
+      - name: Audit (npm audit)
+        if: always()
         run: |
           set +e
           npm audit --json --omit=dev > npm-audit-runtime.json
@@ -300,7 +330,7 @@ jobs:
             fi
           done
 
-      - name: Summarize
+      - name: Summarize (npm audit)
         if: always()
         run: |
           total=0
@@ -331,7 +361,7 @@ jobs:
           # published above regardless.
           echo "NPM_FINDINGS=$(jq '.metadata.vulnerabilities.total' npm-audit-runtime.json)" >> "$GITHUB_ENV"
 
-      - name: Upload raw output
+      - name: Upload raw output (npm audit)
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -340,31 +370,19 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-      - name: Apply gate
+      - name: Apply gate (npm audit)
         if: always()
         run: .github/scripts/apply-gate.sh "npm audit" "$GATE_NPM_AUDIT" "${NPM_FINDINGS:-0}"
 
   # ── DEPENDENCIES (Python) ────────────────────────────────────────────────────────
-  deps-python:
-    name: Dependencies (pip-audit)
-    needs: gates
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
 
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
+      # ── pip-audit ───────────────────────────────────────────────────
       - name: Install pip-audit
+        if: always()
         run: pip install "pip-audit==${PIP_AUDIT_VERSION}"
 
       - name: Audit every requirements file
+        if: always()
         # DISCOVERED BY GLOB, never listed. A new layer's requirements.txt must be audited
         # the day it is added — this fleet grows a layer per control plane, and a list here
         # would silently stop covering the newest one. That is how ci.yml's install block
@@ -388,7 +406,7 @@ jobs:
             exit 1
           fi
 
-      - name: Summarize
+      - name: Summarize (pip-audit)
         if: always()
         run: |
           count=$(jq '[.dependencies[] | select(.vulns | length > 0)] | length' pip-audit.json)
@@ -407,7 +425,7 @@ jobs:
           .github/scripts/summary-section.sh "pip-audit — $audited package(s) audited" "$count" body.md
           echo "PIP_FINDINGS=$count" >> "$GITHUB_ENV"
 
-      - name: Upload raw output
+      - name: Upload raw output (pip-audit)
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -416,29 +434,15 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-      - name: Apply gate
+      - name: Apply gate (pip-audit)
         if: always()
         run: .github/scripts/apply-gate.sh pip-audit "$GATE_PIP_AUDIT" "${PIP_FINDINGS:-0}"
 
   # ── SECRETS ──────────────────────────────────────────────────────────────────────
-  secrets:
-    name: Secrets (gitleaks)
-    needs: gates
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          # FULL HISTORY. A credential committed in one PR and "removed" in the next is
-          # still in the pack file and still valid; scanning only the diff would miss every
-          # secret this repo has ever actually had. Measured at 357 commits / 9.5 MB in
-          # 1.6s, so there is no reason to scan anything narrower.
-          fetch-depth: 0
 
+      # ── gitleaks ────────────────────────────────────────────────────
       - name: Install gitleaks
+        if: always()
         # The binary directly, not gitleaks-action: that action requires a GITLEAKS_LICENSE
         # for organization accounts. This repo is on a personal account today, and coupling
         # the secret scan to that fact would break it the day the repo moves to an org.
@@ -448,7 +452,8 @@ jobs:
           tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks version
 
-      - name: Scan
+      - name: Scan (gitleaks)
+        if: always()
         # --redact: a secret scanner that prints the secret into a CI log has widened the
         # exposure, not closed it. The repo's own field rule (decisions.md — tokens and
         # emails never leave the process) applies to CI output for the same reason.
@@ -463,7 +468,7 @@ jobs:
             exit $rc
           fi
 
-      - name: Summarize
+      - name: Summarize (gitleaks)
         if: always()
         run: |
           count=0
@@ -481,7 +486,7 @@ jobs:
           .github/scripts/summary-section.sh "gitleaks — full history" "$count" body.md
           echo "GITLEAKS_FINDINGS=$count" >> "$GITHUB_ENV"
 
-      - name: Upload raw output
+      - name: Upload raw output (gitleaks)
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -490,7 +495,7 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
-      - name: Apply gate
+      - name: Apply gate (gitleaks)
         if: always()
         run: .github/scripts/apply-gate.sh gitleaks "$GATE_GITLEAKS" "${GITLEAKS_FINDINGS:-0}"
 
@@ -513,26 +518,14 @@ jobs:
   # together — they are complementary, and neither subsumes the other. This one runs on
   # every PR and weekly; that one runs only when infra/** changes, which is the only way
   # an IAM policy can change.
-  iac:
-    name: IaC (Checkov)
-    needs: gates
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
 
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
-
+      # ── Checkov ─────────────────────────────────────────────────────
       - name: Install Checkov
+        if: always()
         run: pip install "checkov==${CHECKOV_VERSION}"
 
       - name: Scan infra/
+        if: always()
         # --soft-fail: checkov exits 1 merely because checks failed, which under
         # gate=report is not a job failure. The count comes from the JSON instead, and the
         # "did it actually run" question is answered by the JSON being parseable — not by
@@ -554,7 +547,7 @@ jobs:
             exit 1
           fi
 
-      - name: Summarize
+      - name: Summarize (Checkov)
         if: always()
         run: |
           norm='(if type=="array" then .[0] else . end)'
@@ -608,12 +601,14 @@ jobs:
       # success, and the empty value it wrote wins over the pessimistic record above. An
       # assignment is the one construct whose substitution failure `set -e` acts on. Every
       # hard error this script raises reached the gate as a silent green until this changed.
+
       - name: Narrow to the enforced checks
+        if: always()
         run: |
           findings=$(.github/scripts/checkov-enforced.sh checkov.json .github/checkov-enforced.txt)
           echo "CHECKOV_FINDINGS=$findings" >> "$GITHUB_ENV"
 
-      - name: Upload raw output
+      - name: Upload raw output (Checkov)
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -622,7 +617,7 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-      - name: Apply gate
+      - name: Apply gate (Checkov)
         if: always()
         # `no-count`, not `0`. `:-` substitutes on empty as well as unset, so a default of 0
         # turns "the narrowing step never wrote a number" into "clean" — the exact shape this
@@ -641,6 +636,7 @@ jobs:
   # response headers, so what it can find is essentially OWASP A05 Security
   # Misconfiguration: CSP, HSTS, X-Content-Type-Options, X-Frame-Options, cookie flags.
   # A green run here is NOT evidence about anything behind the login.
+
   dast:
     name: DAST (OWASP ZAP baseline)
     needs: gates

@@ -16,19 +16,44 @@ still true:
 * **The instrumentation harness cannot see it.** ``test_instrumentation_coverage.py`` asserts
   these modules are *instrumented*, which is exactly what put the unresolvable import there.
 
-So this test reads the workflow's matrix as data and joins it against what each module actually
+So this test reads the deploy table as data and joins it against what each module actually
 imports. It is the only place in the suite where a Lambda's PACKAGING is checked rather than its
 behaviour.
+
+The table lives in ``.github/lambda-functions.json`` rather than in the workflow's
+``strategy.matrix``, because the per-function jobs are now sharded — see ``_matrix_rows``. That
+move added a second way to deploy nothing while reporting success (a shard expression that
+selects no functions), which ``test_every_function_lands_in_exactly_one_shard`` closes.
 """
 
 import ast
+import importlib.util
+import json
 import pathlib
 import re
+import shutil
+import subprocess
 
 import pytest
 
 LAMBDAS = pathlib.Path(__file__).resolve().parent
 WORKFLOW = LAMBDAS.parent / ".github" / "workflows" / "deploy-lambdas.yml"
+#: The function table the deploy shards read. Split out of the workflow's `strategy.matrix`
+#: when the per-function jobs were sharded for cost — see `_matrix_rows`.
+FUNCTIONS = LAMBDAS.parent / ".github" / "lambda-functions.json"
+#: The layer table the single `layers` job builds from. Ten one-minute jobs became one for
+#: the same rounding reason as the deploy matrix; the per-layer build differences turned out
+#: to be three shapes over this table.
+LAYERS = LAMBDAS.parent / ".github" / "lambda-layers.json"
+#: The script that attaches layers, whose hardcoded order is the one that actually reaches
+#: `update-function-configuration`.
+DEPLOY_SCRIPT = LAMBDAS.parent / ".github" / "scripts" / "deploy-lambda.sh"
+
+_plan_spec = importlib.util.spec_from_file_location(
+    "plan_deploy", LAMBDAS.parent / ".github" / "scripts" / "plan_deploy.py"
+)
+plan_deploy = importlib.util.module_from_spec(_plan_spec)
+_plan_spec.loader.exec_module(plan_deploy)
 
 #: Top-level package (or flat module) name → the matrix flag whose layer provides it.
 #:
@@ -56,13 +81,13 @@ LAYER_PACKAGES = {
     ),
 }
 
-#: Layer source directories packaged by an EXPLICIT per-file copy list in deploy-lambdas.yml,
-#: mapped to the shell loop that names the files. Every other layer copies a whole package
-#: directory (``cp -r lambdas/<x>-common/<x>common``) or pip-installs into the layer root, so a
-#: new module there ships automatically and there is no list to drift from — those are exempt for
-#: that named reason, and ``test_no_unchecked_explicit_copy_list_was_added`` fails if a second
-#: explicit list appears without being added here.
-EXPLICIT_COPY_LISTS = {"shared-space-common": re.compile(r"for m in ([a-z0-9_ ]+); do")}
+#: Layer source directories packaged by an EXPLICIT per-file module list (a ``modules`` key in
+#: the layer table), mapped to that list. Every other layer copies a whole package directory or
+#: pip-installs into the layer root, so a new module there ships automatically and there is no
+#: list to drift from — those are exempt for that named reason, and
+#: ``test_no_unchecked_explicit_copy_list_was_added`` fails if a second explicit list appears
+#: without being added here.
+EXPLICIT_COPY_LISTS = {"shared-space-common"}
 
 #: Files under a layer source directory that are deliberately NOT shipped.
 _NOT_SHIPPED = ("test_", "conftest.py", "fakes.py", "__init__.py")
@@ -71,25 +96,21 @@ _NOT_SHIPPED = ("test_", "conftest.py", "fakes.py", "__init__.py")
 #: `polars`, data-quality's attaches `dqpolars`. Either satisfies the import.
 POLARS_FLAGS = ("polars", "dqpolars")
 
-_ROW_RE = re.compile(r"^\s*-\s*\{\s*name:\s*([a-z0-9-]+)\s*,(.*)\}\s*$")
-_FLAG_RE = re.compile(r"(\w+)\s*:\s*(true|false)")
-
 
 def _matrix_rows():
-    """Every ``- { name: …, flag: bool, … }`` row in the deploy matrix, as (name, flags).
+    """Every function in the deploy table, as ``{name: {flag: True}}``.
 
-    Deliberately a regex over the raw file rather than a YAML parse: PyYAML is not a test
-    dependency, and the rows are a fixed one-line shape that a reader can check by eye. A row
-    reformatted onto several lines stops matching — which the row-count guard below turns into a
-    failure rather than a silent skip.
+    The table used to be a ``strategy.matrix`` in the workflow and this used to be a regex over
+    the raw YAML. It moved to ``.github/lambda-functions.json`` when the per-function matrix was
+    sharded for cost: a matrix creates one job per entry, GitHub bills every job a whole minute,
+    and 73 twenty-nine-second jobs were 46% of the repo's Actions spend. A shard job has to read
+    its share of the table as DATA, which a matrix cannot express.
+
+    Only true flags are stored, so a flag is absent rather than ``False``. Every consumer below
+    reads through ``.get()``, for which the two are the same answer.
     """
-    rows = {}
-    for line in WORKFLOW.read_text().splitlines():
-        match = _ROW_RE.match(line)
-        if match:
-            name, rest = match.groups()
-            rows[name] = {k: v == "true" for k, v in _FLAG_RE.findall(rest)}
-    return rows
+    table = json.loads(FUNCTIONS.read_text())
+    return {entry["name"]: dict.fromkeys(entry["layers"], True) for entry in table}
 
 
 MATRIX = _matrix_rows()
@@ -139,25 +160,30 @@ def _imported_roots(paths):
 
 
 def test_the_matrix_was_actually_parsed():
-    """Guards the guard: a regex that matches nothing makes every test below vacuous."""
-    assert len(MATRIX) >= 30, f"only parsed {len(MATRIX)} matrix rows from {WORKFLOW.name}"
-    # A row with a known-good, multi-layer shape, so a partial parse fails here rather than
+    """Guards the guard: a table that loads empty makes every test below vacuous."""
+    assert len(MATRIX) >= 30, f"only read {len(MATRIX)} rows from {FUNCTIONS.name}"
+    # A row with a known-good, multi-layer shape, so a partial read fails here rather than
     # passing a function whose flags were silently dropped.
     assert MATRIX.get("data-quality-inspect-source") == {
-        "layer": False,
-        "polars": False,
-        "tbcommon": False,
         "cpcommon": True,
         "dqcommon": True,
         "dqpolars": True,
-    }, "the reference row did not parse as expected — the matrix format changed"
+    }, "the reference row did not read as expected — the table format changed"
+
+
+def _layer_table():
+    """Every layer definition, keyed by its flag."""
+    return {entry["flag"]: entry for entry in json.loads(LAYERS.read_text())}
 
 
 def _copy_list(directory):
-    """The module names the layer job copies for ``directory``, as a set."""
-    match = EXPLICIT_COPY_LISTS[directory].search(WORKFLOW.read_text())
-    assert match, f"no copy list found for {directory} in {WORKFLOW.name} — did the job change?"
-    return set(match.group(1).split())
+    """The module names the layer build copies for ``directory``, as a set."""
+    for entry in json.loads(LAYERS.read_text()):
+        if entry.get("sourceDir", "").endswith(directory):
+            listed = set(entry.get("modules", []))
+            assert listed, f"the layer entry for {directory} names no modules"
+            return listed
+    raise AssertionError(f"no layer entry with a sourceDir for {directory} in {LAYERS.name}")
 
 
 def _shipped_modules(directory):
@@ -184,7 +210,7 @@ def test_the_layer_copy_list_matches_the_layer_directory(directory):
     """
     listed, present = _copy_list(directory), _shipped_modules(directory)
     assert listed == present, (
-        f"{WORKFLOW.name}'s layer copy list and lambdas/{directory}/ disagree — "
+        f"{LAYERS.name}'s layer copy list and lambdas/{directory}/ disagree — "
         f"in the directory but never shipped: {sorted(present - listed) or 'none'}; "
         f"listed but absent from the directory: {sorted(listed - present) or 'none'}"
     )
@@ -224,11 +250,53 @@ def test_no_lambda_directory_shadows_a_flat_layer_module():
 
 def test_no_unchecked_explicit_copy_list_was_added():
     """A second per-file layer list must join ``EXPLICIT_COPY_LISTS``, not drift unchecked."""
-    loops = re.findall(r"for m in [a-z0-9_ ]+; do", WORKFLOW.read_text())
-    assert len(loops) == len(EXPLICIT_COPY_LISTS), (
-        f"{WORKFLOW.name} has {len(loops)} per-file layer copy loops but "
-        f"{len(EXPLICIT_COPY_LISTS)} are checked — add the new one to EXPLICIT_COPY_LISTS"
+    listed = {e["flag"] for e in json.loads(LAYERS.read_text()) if e.get("modules")}
+    checked = {
+        e["flag"]
+        for e in json.loads(LAYERS.read_text())
+        if any(e.get("sourceDir", "").endswith(d) for d in EXPLICIT_COPY_LISTS)
+    }
+    assert listed == checked, (
+        f"{LAYERS.name} has per-file module lists for {sorted(listed)} but "
+        f"{sorted(checked)} are checked — add the new one to EXPLICIT_COPY_LISTS"
     )
+
+
+def test_every_layer_a_function_attaches_actually_exists():
+    """The two tables are joined by flag, and nothing in Actions checks that join.
+
+    A function row naming a flag the layer table does not define deploys with that layer
+    silently absent — SPEC-137's failure, arrived at from the other side. The reverse (a layer
+    nothing attaches) is harmless but is a minute of build time every run, so it is reported
+    too rather than tolerated indefinitely.
+    """
+    defined = set(_layer_table())
+    used = {flag for flags in MATRIX.values() for flag in flags}
+    assert not (used - defined), (
+        f"functions attach layers that {LAYERS.name} does not define: {sorted(used - defined)} — "
+        f"they would deploy with the layer missing and fail at cold start"
+    )
+    # Not merely tidiness, since change detection: the `layers` job is gated on the
+    # FUNCTION list being non-empty, so a layer with no attaching function could be marked
+    # for republishing and never republished — going stale silently. Deleting this
+    # assertion as harmless would open that hole.
+    assert not (defined - used), (
+        f"{LAYERS.name} builds layers no function attaches: {sorted(defined - used)}"
+    )
+
+
+def test_every_layer_entry_builds_something():
+    """A layer entry naming no source publishes an EMPTY layer, which attaches fine.
+
+    The build script refuses at runtime; this is the same refusal offline, where it costs no
+    deploy. Each entry must carry at least one of the three shapes.
+    """
+    empty = [
+        e["flag"]
+        for e in json.loads(LAYERS.read_text())
+        if not (e.get("requirements") or e.get("package") or e.get("modules"))
+    ]
+    assert not empty, f"layer entries that would build empty: {empty}"
 
 
 def test_the_handler_sweep_found_the_fleet():
@@ -240,7 +308,7 @@ def test_every_lambda_directory_is_in_the_deploy_matrix(name):
     """A function with code and no matrix row is never deployed at all — the quietest failure
     of the set, because everything about it looks finished.
     """
-    assert name in MATRIX, f"lambdas/{name}/ has a handler but no row in {WORKFLOW.name}"
+    assert name in MATRIX, f"lambdas/{name}/ has a handler but no row in {FUNCTIONS.name}"
 
 
 @pytest.mark.parametrize("name", _DIR_IDS)
@@ -267,6 +335,191 @@ def test_every_imported_layer_package_is_attached(name):
             missing.append(f"{root} (needs `{flag}: true`)")
 
     assert not missing, (
-        f"lambdas/{name}/ imports {', '.join(missing)} but its {WORKFLOW.name} row does not "
+        f"lambdas/{name}/ imports {', '.join(missing)} but its {FUNCTIONS.name} row does not "
         f"attach the layer — the function will raise ModuleNotFoundError at cold start"
     )
+
+
+def _shard_bindings():
+    """The deploy job's three sharding inputs, as written in the workflow.
+
+    All three now come from the SAME plan job, which is what makes them unable to
+    disagree — the earlier design declared the shard list and the divisor independently,
+    so ``SHARD_COUNT: 6`` beside ``shard: [0, 1, 2, 3]`` was valid YAML that silently never
+    deployed a third of the fleet.
+    """
+    text = WORKFLOW.read_text()
+    found = {}
+    for name, pattern in (
+        ("shards", r"^\s*shard:\s*(.+?)\s*$"),
+        ("count", r"^\s*SHARD_COUNT:\s*(.+?)\s*$"),
+        ("planned", r"^\s*PLANNED:\s*(.+?)\s*$"),
+    ):
+        match = re.search(pattern, text, re.MULTILINE)
+        assert match, f"no {name} binding found in {WORKFLOW.name} — did the deploy job change?"
+        found[name] = match.group(1)
+    return found
+
+
+def test_the_sharding_inputs_all_come_from_the_one_plan():
+    """Three values that must describe one partition, so all three have one source.
+
+    If the shard list came from anywhere other than the job that computed the divisor and
+    the function list, the three could disagree and the run would still go green — every
+    job that ran would have succeeded, having deployed a subset nobody asked for.
+    """
+    bindings = _shard_bindings()
+    assert bindings["shards"] == "${{ fromJSON(needs.plan.outputs.shards) }}"
+    assert bindings["count"] == "${{ needs.plan.outputs.shard_count }}"
+    assert bindings["planned"] == "${{ needs.plan.outputs.functions }}"
+
+
+def test_the_shard_filter_selects_from_the_PLAN_not_the_whole_table():
+    """Reading the table here would deploy all 73 regardless of what the plan decided."""
+    text = WORKFLOW.read_text()
+    assert '<<<"$PLANNED"' in text, (
+        "the shard filter no longer reads $PLANNED — if it reads the function table "
+        "instead, every push deploys the whole fleet and the plan job is decorative"
+    )
+
+
+@pytest.mark.parametrize("size", [1, 4, 12, 13, 25, 73, 200])
+def test_the_workflows_own_filter_partitions_the_plan(size):
+    """The real jq filter, over the real planner's shard count, for many fleet sizes.
+
+    Re-implementing ``index % count == shard`` in Python made this vacuous: it asserted a
+    fact about modular arithmetic rather than about the deploy. Extracting the filter is
+    what makes the two failures below reachable — a function in no shard is never deployed,
+    and a function in two shards is deployed twice concurrently, racing
+    ``update-function-code`` against ``update-function-configuration`` on one function.
+    """
+    table = [{"name": f"fn-{i}", "layers": ["cpcommon"]} for i in range(size)]
+    computed = plan_deploy.plan(set(), table, json.loads(LAYERS.read_text()), force_all=True)
+    names = computed["functions"]
+
+    match = re.search(
+        r"jq -r --argjson s \"\$SHARD\" --argjson n \"\$SHARD_COUNT\" \\\n\s*'([^']+)'",
+        WORKFLOW.read_text(),
+    )
+    assert match, "could not extract the shard jq filter from the workflow"
+    jq = shutil.which("jq")
+    assert jq, "jq is not on PATH — the workflow's own shard filter cannot be evaluated"
+
+    placements = {}
+    for shard in computed["shards"]:
+        out = subprocess.run(  # noqa: S603
+            [jq, "-r", "--argjson", "s", str(shard),
+             "--argjson", "n", str(computed["shard_count"]), match.group(1)],
+            input=json.dumps(names), capture_output=True, text=True, check=True,
+        )
+        for name in out.stdout.split():
+            placements.setdefault(name, []).append(shard)
+
+    assert set(placements) == set(names), (
+        f"never deployed: {sorted(set(names) - set(placements))}"
+    )
+    duplicated = sorted(n for n, s in placements.items() if len(s) > 1)
+    assert not duplicated, f"deployed concurrently by two shards: {duplicated}"
+
+
+def test_the_deploy_table_has_no_duplicate_names():
+    """Two rows for one function would make the shard partition above unprovable.
+
+    The table is a list, so a duplicated name survives the file but collapses in every dict
+    built from it — including ``MATRIX``, which would then check one row and deploy the other.
+    """
+    names = [entry["name"] for entry in json.loads(FUNCTIONS.read_text())]
+    duplicated = sorted({n for n in names if names.count(n) > 1})
+    assert not duplicated, f"duplicate rows in {FUNCTIONS.name}: {duplicated}"
+
+
+def test_the_deploy_workflow_triggers_on_everything_it_reads():
+    """A file the deploy reads but does not trigger on is a change that never deploys.
+
+    The workflow's behaviour moved out of the YAML and into two JSON tables and two shell
+    scripts. A merge that only re-points a layer, adds a function, or fixes the deploy script
+    touches none of ``lambdas/**`` — so without these in the path filter it reaches main having
+    deployed nothing, and the change rides silently on whatever unrelated push comes next.
+
+    This is the trap #320 hit from the other side: the workflow itself was added to the filter
+    after an action bump merged completely unexercised.
+    """
+    text = WORKFLOW.read_text()
+    trigger = text[: text.index("jobs:")]
+
+    # Derived from the planner rather than restated, so the two cannot drift: EVERY path
+    # that forces a full deploy must also be able to TRIGGER one. A path the planner treats
+    # as global but the filter does not name is the worst combination available — the
+    # planner would correctly demand a full deploy, on a run that never starts.
+    required = ["lambdas/**", *plan_deploy.GLOBAL_PATHS]
+    missing = [
+        path
+        for path in required
+        # `lambdas/**` covers anything beneath it, so a global path there needs no entry.
+        if path not in trigger and not (path.startswith("lambdas/") and "lambdas/**" in trigger)
+    ]
+    assert not missing, (
+        f"{WORKFLOW.name}'s push path filter does not name {missing} — a change to those "
+        f"deploys nothing and goes green"
+    )
+
+
+def _attach_order():
+    """The layer order ``deploy-lambda.sh`` actually attaches in.
+
+    Extracted from the script rather than restated here: the whole point of this pair of
+    tests is that the order in the script is the one that reaches AWS, so a copy in the test
+    would let the two drift while both looked right.
+    """
+    match = re.search(r"^for flag in ((?:\w+ ?)+); do$", DEPLOY_SCRIPT.read_text(), re.MULTILINE)
+    assert match, "no literal attach-order loop found in deploy-lambda.sh"
+    return match.group(1).split()
+
+
+def test_the_attach_order_is_the_layer_table_order():
+    """Layer order is load-bearing and was previously asserted only in a comment.
+
+    Layers land on ``/opt`` in the order given and a later one shadows an earlier one's
+    modules — and ``cpcommon``, ``polars`` and ``dqpolars`` all pip-install into the same
+    ``python/`` root, so a shared transitive dependency at two versions is decided by exactly
+    this order.
+
+    Holding the script's literal loop equal to the table's order is what lets the loop be
+    rewritten as ``for flag in "${FLAGS[@]}"`` — an obvious-looking simplification, since the
+    same script already iterates ``FLAGS`` for the size guard — without silently changing
+    which version of a shared dependency wins. Before the function rows were normalised, 17 of
+    them stored their layers in the opposite order, so that refactor would NOT have been a
+    no-op.
+    """
+    assert _attach_order() == [entry["flag"] for entry in json.loads(LAYERS.read_text())], (
+        "deploy-lambda.sh's attach order and the layer table disagree — one of them changed "
+        "without the other, and layer shadowing on /opt follows the script"
+    )
+
+
+def test_every_function_stores_its_layers_in_attach_order():
+    """The stored order and the attach order must be the same list.
+
+    They are two independent orderings over the same set, and nothing forces them to agree.
+    Keeping them identical is what makes the distinction unable to matter — and makes the
+    `FLAGS`-order refactor above provably safe rather than merely currently harmless.
+    """
+    order = _attach_order()
+    wrong = {
+        entry["name"]: entry["layers"]
+        for entry in json.loads(FUNCTIONS.read_text())
+        if entry["layers"] != [flag for flag in order if flag in entry["layers"]]
+    }
+    assert not wrong, f"stored out of attach order: {wrong}"
+
+
+def test_no_function_row_has_an_empty_layer_set():
+    """Offline mirror of deploy-lambda.sh's runtime refusal.
+
+    Every function in this fleet attaches at least cpcommon. An empty set sends the deploy
+    down the bundle-requirements branch AND skips the layer attachment whole, so the function
+    ships with no layer and the run goes green — SPEC-137, reached from a malformed table.
+    Caught here, it costs nothing; caught at cold start, it broke real signups.
+    """
+    empty = [e["name"] for e in json.loads(FUNCTIONS.read_text()) if not e["layers"]]
+    assert not empty, f"functions with no layers: {empty}"

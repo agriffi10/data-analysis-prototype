@@ -41,9 +41,9 @@ import demands from anyone.) Scrubbing here would assert the opposite of the con
 is under test is PACKAGING, and ``sys.path`` is the only thing scrubbed.
 """
 
+import json
 import os
 import pathlib
-import re
 import subprocess
 import sys
 
@@ -51,7 +51,10 @@ import pytest
 
 LAYER_ROOT = pathlib.Path(__file__).resolve().parent
 LAMBDAS = LAYER_ROOT.parent
-WORKFLOW = LAMBDAS.parent / ".github" / "workflows" / "deploy-lambdas.yml"
+#: The deploy table the shard jobs read. It moved out of the workflow's `strategy.matrix`
+#: when the per-function jobs were sharded for Actions cost; `test_deploy_matrix.py` reads
+#: the same file, and the two must not drift back to different sources.
+FUNCTIONS = LAMBDAS.parent / ".github" / "lambda-functions.json"
 
 #: The functions SPEC-152 added, and the module Lambda loads for each. SPEC-164's file-send
 #: notifier joins them: a plane's LAST-RESORT notifier failing at import is the one failure
@@ -79,22 +82,17 @@ LAYER_ROOTS = {
     "layer": LAMBDAS / "shared-space-common",
 }
 
-_ROW_RE = re.compile(r"^\s*-\s*\{\s*name:\s*([a-z0-9-]+)\s*,(.*)\}\s*$")
-_FLAG_RE = re.compile(r"(\w+)\s*:\s*(true|false)")
-
-
 def _matrix_row(function: str) -> dict:
-    """The deploy matrix's flags for one function, read from the workflow as data.
+    """The deploy table's layer flags for one function, read as data.
 
-    A regex over the raw file rather than a YAML parse, matching ``test_deploy_matrix.py``:
-    PyYAML is not a test dependency and the rows are a fixed one-line shape. A row that
-    stops matching yields no flags, which the caller turns into a failure rather than a
-    vacuous pass.
+    Only true flags are present, so a flag is absent rather than ``False`` — every caller
+    reads through ``.get()`` or iterates the granted set, for which the two are the same
+    answer. A function missing from the table yields no flags, which the caller turns into
+    a failure rather than a vacuous pass.
     """
-    for line in WORKFLOW.read_text().splitlines():
-        match = _ROW_RE.match(line)
-        if match and match.group(1) == function:
-            return {k: v == "true" for k, v in _FLAG_RE.findall(match.group(2))}
+    for entry in json.loads(FUNCTIONS.read_text()):
+        if entry["name"] == function:
+            return dict.fromkeys(entry["layers"], True)
     return {}
 
 
@@ -130,9 +128,8 @@ def test_a_notify_failure_verb_imports_from_only_the_layers_its_row_grants(funct
     """A cold start, simulated honestly: only the granted layer roots are importable."""
     flags = _matrix_row(function)
     assert flags, (
-        f"{function} has no row in {WORKFLOW.name} (or the row was reformatted onto "
-        "several lines and no longer matches). It cannot deploy, and this probe would "
-        "otherwise pass by testing nothing."
+        f"{function} has no row in {FUNCTIONS.name}. It cannot deploy, and this probe "
+        "would otherwise pass by testing nothing."
     )
 
     granted = [str(LAYER_ROOTS[flag]) for flag, on in flags.items() if on and flag in LAYER_ROOTS]

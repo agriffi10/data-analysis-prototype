@@ -53,6 +53,19 @@ env:
     (if type=="array" then .[0] else . end)
     | (if has("summary") then . else {summary: ., results: {failed_checks: [], passed_checks: []}} end)
 
+# This workflow had NO concurrency group, so two merges landing close together ran two
+# `tofu apply`s against one remote state. The S3 backend's lock turns that into a hard
+# failure rather than corruption, but the failure is a lost apply and a lock that may
+# need clearing by hand — and the deploy role's own IAM is exactly where a half-applied
+# change is worst (the refresh-deadlock lever in CLAUDE.md is the recovery for it).
+#
+# `cancel-in-progress: false` is the whole point: queue the second run, never cancel the
+# first. Cancelling an apply mid-flight is the one outcome worse than waiting for it.
+# This is a correctness fix, not a cost one — a queued run still bills.
+concurrency:
+  group: deploy-infra
+  cancel-in-progress: false
+
 jobs:
   # fmt-check / validate / plan are PR-only checks. main does not re-run them —
   # it applies what the PR already planned. A manual workflow_dispatch skips them
