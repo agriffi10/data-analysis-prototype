@@ -193,7 +193,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 185 — Copy, Export, Help & the Arc's Live Checks | Completed |
 | 186 — Live-Check Reachability, Refusal Affordances & Observability Fields | Completed |
 | 187 — File Operations: the Plane, the Request Contract & validate-authorize | Completed |
-| 188 — File Operations: Source Expansion, the Copy Plan & the Destination Guard | Draft |
+| 188 — File Operations: Source Expansion, the Copy Plan & the Destination Guard | Completed |
 | 189 — File Operations: the Transfer, the Source Deletion & the Terminals | Draft |
 | 190 — File Operations: the Browser's Async Model & In-Flight State | Draft |
 | 191 — File Operations: Notifications, Help & the Arc's Live Checks | Draft |

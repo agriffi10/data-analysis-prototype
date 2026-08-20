@@ -72,33 +72,31 @@ Status is authoritative in `@docs/specs/INDEX.md` and in each spec file's own he
 is in `@docs/specs/ARCS.md`. What a spec delivered is in `@docs/spec-delivery/`. Live checks are in
 `@docs/testing/`.
 
-**This section carries only what is live and recorded nowhere else.** When a spec closes, prune it
-here rather than appending — it is not a changelog, and it regrew to 370 lines once by being treated
-as one.
+**This section carries only what is live and recorded nowhere else.** When a spec closes, prune here
+rather than appending — it is not a changelog, and it regrew to 370 lines once by being treated as
+one.
 
 ### Current work
 
-**Everything through SPEC-186 is Completed.** Two arcs are fully specced and not yet built:
+**Everything through SPEC-188 is Completed.** Two arcs remain:
 
-- **File-operations control plane (188 → 191)** — **187 is Completed and deployed**: the plane, the
-  request contract, the per-space lock and validate-authorize are live, and the browser has an
-  enqueue service nothing calls yet. 188 → 191 add the expansion, the transfer, the browser's async
-  model and the notifications. **Build 191 BEFORE 190** — see `ARCS.md`.
+- **File-operations control plane (189 → 191)** — **187 and 188 are Completed**: the plane, the lock,
+  validate-authorize, the expansion, the plan and the destination guard are in, and the browser's
+  enqueue service is still called by nothing. 189 → 191 add the transfer, the deletion, the
+  terminals, the notifications and the browser's async model. **Build 191 BEFORE 190** (`ARCS.md`).
 - **API layer & containerisation (192 → 202)** — "Arc B": a real API in front of AWS, containerised
-  SPA and API, retiring CloudFront and the Identity Pool. `docs/testing/arc-b-api-container-e2e.md`
-  is its acceptance script.
+  SPA and API, retiring CloudFront and the Identity Pool. Acceptance script:
+  `docs/testing/arc-b-api-container-e2e.md`.
 
-Read the arc entry in `ARCS.md` before starting either; both carry settled decisions that are easy
-to re-litigate by accident.
+Read the arc entry in `ARCS.md` before starting either; both carry settled decisions.
 
 ### Live checks
 
-`@docs/testing/e2e.md` is **the** guide — one signed-in account, keyed by feature, run start to
-finish. `@docs/testing/owed.md` is the ledger of what a signed-in session cannot settle and what it
-would take; `@docs/testing/sessions.md` is what has actually been run.
+`@docs/testing/e2e.md` is **the** guide — one signed-in account, keyed by feature. `owed.md` is the
+ledger of what a signed-in session cannot settle; `sessions.md` is what has been run.
 
-**Do not restate an owed check here.** A check is owed until someone runs it and moves the row — a
-second copy in the always-loaded file is how this section grew.
+**Do not restate an owed check here** — a second copy in the always-loaded file is how this section
+grew.
 
 
 ## Key Decisions (settled — don't re-litigate)
@@ -194,11 +192,13 @@ before working in that area; the line here is a reminder, not the spec.
 - **Column geometry is keyed by NAME, a NULL is not an empty string, and an unwatched page is not "no rows" (180):** the grid keys width/pin/hide by column **name**, which makes "geometry for a column this result no longer has is discarded" true by construction — so it reuses `features/catalog/`'s sizing constants and `ColumnResizeHandle` (moved there, generic over its key, and now carrying the `aria-valuenow` a **focusable** separator requires) but **not** `useColumnWidths`, which is index-keyed and per-execution.
 - **The second extraction's point is the SIGNATURE, and one moved constant must not be renamed (177):** `features/saved-queries/` takes the `.sql` store out of `features/query/` on 176's pattern, and `useSaveQuery` takes **`{sql, link}`** instead of a `QueryTab` — a shape the Data Explorer cannot produce, so moving the module unchanged would leave SPEC-183 reimplementing SPEC-175's collision-and-confirm path.
 - **A default an empty string can defeat is not a default, a refusal must arrive BEFORE the confirm, and a check nobody can run reads as a pass (186):** `cx()` returns **`undefined`, not `''`** (and `Modal` uses `||`) — `??` does not fall back on the empty string, which cost **nine dialogs** their `max-w-md` to `w-full`; the *bypassing* dialogs were unaffected, which is the argument for fixing the shared layer.
-- **The lock protocol is `cpcommon`'s, extracted AHEAD of its second consumer (187):** the three-way acquire, the 412/409 mapping, staleness and release-by-overwrite move out of `tbcommon`; the reader is **injected** (pinning it is the only way to reach the concurrent case) and the wording is **six sentences plus a fields map**, not one label. Proof of preservation: table-builder's two lock suites were **not rewritten**.
-- **A file operation goes async unless the selection is exactly ONE FILE (187):** a property of the *selection*, never the operation; a single folder — **including a rename** — is enqueued, because a rename is one `CopyObject` per contained object. The first draft ("does it need a listing?") measured the wrong quantity: K files is up to **3K** round trips.
-- **This lock's loser WAITS where SPEC-157's is refused (187):** per **space**, not per table, so two disjoint folders are safe and an out-of-band refusal would be wrong. The waiter **steals stale locks itself**, the give-up is **strictly under** the machine ceiling (the naive chain is unsatisfiable), and a cross-space move takes **two locks in digest-sorted order or neither**.
-- **Whole-request raises, per-item returns a record (187):** containment, dot segments, a bad `targetName` and two items colliding fail the REQUEST; a protected folder, a same-key no-op and into-itself are PER ITEM — a select-all delete must still delete what it may. A collision is `(kind, key)`, never the derived key alone. **The space root is refused as an item** — the third way to select a protected folder, since no rule looks UP.
-- **The source deletion removes only CONFIRMED-COPIED keys, never a prefix listing (187, diverging from 169):** an object written into the source between expansion and commit was never copied, and a prefix delete removes it unrecoverably. Accepted cost is an **orphan**. Forbids listing the prefix, **not** re-reading the plan; and the gate is per **ITEM**, because a skipped item is planned and not copied.
+- **The lock protocol is `cpcommon`'s, extracted AHEAD of its second consumer (187):** the acquire, the 412/409 mapping, staleness and release-by-overwrite left `tbcommon`; the reader is **injected**, and table-builder's two lock suites were **not rewritten** — which is the proof it preserved behaviour.
+- **A file operation goes async unless the selection is exactly ONE FILE (187):** a property of the *selection*, never the operation; a single folder — **including a rename** — is enqueued, because a rename is one `CopyObject` per contained object.
+- **This lock's loser WAITS where SPEC-157's is refused (187):** per **space**, not per table, so two disjoint folders are safe; the waiter **steals stale locks itself**, the give-up is strictly under the machine ceiling, and a cross-space move takes **two locks in digest-sorted order or neither**.
+- **Whole-request raises, per-item returns a record (187):** containment, dot segments, a bad `targetName` and two items colliding fail the REQUEST; a protected folder, a same-key no-op and into-itself are PER ITEM — a select-all delete must still delete what it may. A collision is `(kind, key)`. **The space root is refused as an item**, since no rule looks UP.
+- **The source deletion removes only CONFIRMED-COPIED keys, never a prefix listing (187, diverging from 169):** an object written into the source between expansion and commit was never copied, and a prefix delete removes it unrecoverably; the accepted cost is an **orphan**. The gate is per **ITEM**.
+- **The collision unit is the derived destination KEY, never the subtree (188):** heading each key preserves **merging into an existing folder**, which a listing cannot answer (no per-key 403, no `LastModified` on `CommonPrefixes`); a **403 is occupied in both modes**, `overwrite` **cannot short-circuit**, and `submittedAt` comes from the **plan** with no fallback.
+- **Three verbs produce per-item outcomes and NONE creates the list (188):** each takes it and returns all of it, a **decided item is never expanded**, the overlap check runs on the **whole** selection, only a proven **404** is `source_missing`, and the plan carries the **execution ARN** so the machine's own `Retry` is not refused as a reused id.
 - **A stale result is not served AT ALL, and a reload fixing it is not a fix (2026-08-19):** the Explorer's execution cache evicts the tab **on screen** too — `resetQueries`, because removal only re-runs an observed query if something re-renders after it — so the eviction is narrowed by the TABLE in the key instead (`invalidateSchema(client, db, table?)`); the async build's completion is caught by `armCatalogCatchUp`, **module state** drained once in `ProtectedLayout` because both controls that arm it unmount when the user leaves.
 - **A column name is user data, and the RENDERER is safe on its own (2026-08-19):** `cpcommon.columns` refuses empty/whitespace/non-`[a-z0-9_]`/over-255/fold-collision names on **creates only** (a refresh would strand a pre-rule table; selected on the storage descriptor, never `mode`) — stricter than AWS on purpose — **and** `ddl.quote` now doubles an inner backtick, because DQ's partition keys come from S3 folder names and get their own reason code.
 - **Athena's two dialects need TWO escapers in the browser (2026-08-19):** `CREATE VIEW` is Trino (`sqlIdentifier`), `DROP` is Hive (`sqlDdlIdentifier`, inner backtick doubled); the database is the identifier that matters — a shared space's name is format-checked **nowhere** server-side. A quoting fix is not done until every statement built from the same value is swept.

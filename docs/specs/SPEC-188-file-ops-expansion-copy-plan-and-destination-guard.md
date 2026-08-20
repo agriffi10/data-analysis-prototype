@@ -1,7 +1,7 @@
 # Spec: File Operations — Source Expansion, the Copy Plan & the Destination Guard
 
 **ID:** SPEC-188
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-17
 **Depends On:** SPEC-187 (the validated request, the authorized roots, the per-item model and its five Premises), SPEC-165 (the expansion and copy-plan precedent), SPEC-090 (copy-plan-as-pointer), SPEC-160/161 (`cpcommon.transfer`), SPEC-170 (the destination guard — its HEAD shape, its concurrency bound and its short-circuit), SPEC-150/172/173 (protected folders)
 
