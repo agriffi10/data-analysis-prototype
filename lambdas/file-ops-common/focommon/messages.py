@@ -102,6 +102,26 @@ _BODIES = {
         "something is already in the way there. Please move what is there, or choose a different "
         "destination."
     ),
+    "destination_occupied_late": (
+        "something was put in the way there while this was being prepared. Please look at the "
+        "destination, then try again."
+    ),
+    "copy_failed": "some of the files could not be copied.",
+    "transfer_results_unreadable": (
+        "the files were copied but the record of what happened could not be read back, so nothing "
+        "was removed. Please look at the destination before trying again."
+    ),
+    "source_changed": (
+        "it was changed while this was running, so the original was left where it is. You now have "
+        "it in both places - please check which one you want to keep."
+    ),
+    "source_delete_failed": (
+        "the copy worked but the original could not be removed. You now have it in both places - "
+        "please check which one you want to keep."
+    ),
+    "delete_refused": (
+        "part of it is managed for you and cannot be removed, so it was left alone."
+    ),
     "plan_unreadable": "the working list for that could not be read back.",
     "plan_superseded": (
         "another request for that space was already in flight. Nothing was changed. Please try "

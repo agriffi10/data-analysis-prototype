@@ -27,8 +27,32 @@ same object with the same content rather than leaving a second plan behind.
 codes, and a terminal error validates its reason at construction. Without the import, a process
 importing only this module raises a validation error where it meant to write a refusal.
 
+**THIS MODULE OWNS EVERY ADMIN-BUCKET KEY LAYOUT ON THIS PLANE** — the plan, the transfer
+manifest, the Map Run's result export and the transfer-results document — for one reason: one
+module, one place a key can be wrong. Where they live is this plane's business; a manifest's BYTES
+and an export's reader belong to ``cpcommon.transfer``, which is shared with three other planes.
+
+**Two of the four are pure functions of the request id and two are keyed by the EXECUTION as well.**
+The plan and the results prefix are execution-stable, so a ``Retry`` rewrites the same object rather
+than leaving a second one behind. The manifest and the transfer-results document are
+execution-unique, because two overlapping executions of one request must not clobber each other's
+dataset while a Map is reading it.
+
 Attributes:
   BASENAME: The plan object's basename, under ``{PLAN_PREFIX}/{requestId}/``.
+  MANIFEST_BASENAME: The transfer manifest's basename, under the EXECUTION's folder.
+  RESULTS_BASENAME: The transfer-results document's basename, under the EXECUTION's folder. It
+    holds what the collector decided and what the deletion did — the deletable item keys, the
+    per-item object counts and the per-item deletion records.
+
+    **It exists because those three terms cannot ride on the state.** Measured at the selection
+    cap they are ~156 KB on top of a state already holding the selection and one outcome record
+    per item, which is over Step Functions' 256 KB limit — and the overflow would land on the
+    collector's result AFTER the copy, or on delete-source's AFTER the deletion, where
+    ``States.DataLimitExceeded`` escapes every ``Catch`` and the user is told nothing at all. Only
+    the COUNT rides.
+  RESULTS_FOLDER: The folder the Distributed Map's ``ResultWriter`` exports into. Step Functions
+    appends its own Map Run component below it, so this is a prefix rather than a key.
 """
 
 import json
@@ -42,8 +66,26 @@ from . import messages  # noqa: F401
 from .config import PLAN_PREFIX
 
 BASENAME = "plan.json"
+MANIFEST_BASENAME = "transfer-manifest.jsonl"
+RESULTS_BASENAME = "transfer-results.json"
+RESULTS_FOLDER = "results"
 
-__all__ = ["BASENAME", "assert_describes", "assert_request_id_unused", "load", "plan_key", "write"]
+__all__ = [
+    "BASENAME",
+    "MANIFEST_BASENAME",
+    "RESULTS_BASENAME",
+    "RESULTS_FOLDER",
+    "assert_describes",
+    "assert_request_id_unused",
+    "load",
+    "load_results",
+    "plan_key",
+    "transfer_manifest_key",
+    "transfer_results_key",
+    "transfer_results_prefix",
+    "write",
+    "write_results",
+]
 
 
 def _request_folder(request: dict) -> str:
@@ -319,3 +361,132 @@ def load(key: str, request: dict) -> dict:
                 "plan_unreadable", f"plan {key} holds {held} {what} but records {recorded!r}"
             )
     return assert_describes(plan, request, key)
+
+
+def _execution_folder(request: dict, execution_name, what: str) -> str:
+    """Derives the EXECUTION-unique folder a per-run artifact sits in.
+
+    Args:
+      request: The validated request.
+      execution_name: The execution's name, stamped onto the state by a ``Pass`` — never read from
+        ``$$`` inside the task's own ``Parameters``, which wraps the payload and would put the
+        request one level below where every notify path reads it.
+      what: The artifact being keyed, for the refusal's detail.
+
+    Returns:
+      The folder under the admin bucket, ending in a slash.
+
+    Raises:
+      TerminalError: ``malformed_event`` when the request carries no usable id, or when the
+        execution name is missing. It refuses rather than falling back to the bare request id: the
+        fallback is exactly the collision the execution segment exists to prevent, and it would
+        appear only under concurrency.
+    """
+    folder = _request_folder(request)
+    if not isinstance(execution_name, str) or not execution_name.strip():
+        raise TerminalError(events.MALFORMED, f"a {what} key needs the execution name")
+    return f"{folder}{execution_name.strip()}/"
+
+
+def transfer_manifest_key(request: dict, execution_name) -> str:
+    """Derives the transfer manifest's key, which is EXECUTION-unique where the plan is not.
+
+    Args:
+      request: The validated request.
+      execution_name: The execution's name.
+
+    Returns:
+      The manifest key under the admin bucket.
+
+    Raises:
+      TerminalError: ``malformed_event`` when the request carries no usable id or execution name.
+    """
+    return f"{_execution_folder(request, execution_name, 'transfer manifest')}{MANIFEST_BASENAME}"
+
+
+def transfer_results_key(request: dict, execution_name) -> str:
+    """Derives the transfer-results document's key, EXECUTION-unique for the manifest's reason.
+
+    Args:
+      request: The validated request.
+      execution_name: The execution's name.
+
+    Returns:
+      The document's key under the admin bucket.
+
+    Raises:
+      TerminalError: ``malformed_event`` when the request carries no usable id or execution name.
+    """
+    return f"{_execution_folder(request, execution_name, 'transfer results')}{RESULTS_BASENAME}"
+
+
+def transfer_results_prefix(request: dict) -> str:
+    """Derives the prefix the Map Run's ``ResultWriter`` exports into.
+
+    Request-stable rather than execution-unique, because Step Functions appends its own Map Run
+    component below whatever prefix it is given — so two runs of one request cannot collide here
+    even though they share this prefix.
+
+    Args:
+      request: The validated request.
+
+    Returns:
+      The results prefix under the admin bucket.
+
+    Raises:
+      TerminalError: ``malformed_event`` when the request carries no usable id.
+    """
+    return f"{_request_folder(request)}{RESULTS_FOLDER}"
+
+
+def write_results(key: str, results: dict) -> None:
+    """Writes the transfer-results document, which is what keeps three unbounded terms off the state.
+
+    Args:
+      key: The document's key, from ``transfer_results_key``.
+      results: The document — the deletable item keys, the per-item object counts and, once the
+        deletion has run, its per-item records.
+
+    Returns:
+      None.
+
+    Raises:
+      TransientError: On a retryable S3 fault, so the caller's Retry re-runs the verb — safe,
+        because the key is a pure function of the request and the execution.
+      ClientError: Any deterministic fault propagates.
+    """
+    body = json.dumps(results, separators=(",", ":")).encode()
+    try:
+        clients.s3().put_object(
+            Bucket=cpconfig.ADMIN_BUCKET, Key=key, Body=body, ContentType="application/json"
+        )
+    except Exception as err:
+        errors.raise_if_transient(err, f"put {cpconfig.ADMIN_BUCKET}/{key}")
+        raise
+
+
+def load_results(key: str) -> dict:
+    """Reads the transfer-results document back.
+
+    **An absent or unreadable document is a WHOLE-REQUEST terminal, never an empty one.** The
+    deletion reads its permission to delete from this object: an empty read would present as "no
+    item may be deleted", which on a ``move`` silently leaves every source in place after a
+    successful copy and reports it as done.
+
+    Args:
+      key: The document's key.
+
+    Returns:
+      The parsed document.
+
+    Raises:
+      TerminalError: ``plan_unreadable`` when the document is absent, unparseable, or carries no
+        deletable list.
+      TransientError: On a retryable S3 fault.
+    """
+    results = _read(key)
+    if results is None:
+        raise TerminalError("plan_unreadable", f"transfer results {key} are not there")
+    if not isinstance(results.get("deletable"), list):
+        raise TerminalError("plan_unreadable", f"transfer results {key} carry no deletable list")
+    return results

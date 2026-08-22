@@ -3,12 +3,10 @@
 # uses), plus the Step Function role and the Pipe role. Trust + permission policies are
 # .tftpl templates rendered with templatefile() (no inline jsonencode IAM).
 #
-# THIS ROLE HOLDS NO GRANT ON EITHER DATA BUCKET, AND THAT IS THE POINT AT THIS STAGE.
-# It will eventually hold DeleteObject across the user-space bucket — the single most
-# dangerous grant in this repo — and it does not get it here. The machine lists nothing,
-# copies nothing and deletes nothing, so a grant would be unreviewable privilege sitting
-# in production ahead of the code that justifies it. A test asserts the rendered policy
-# names no data bucket, so it cannot arrive early and unnoticed.
+# THIS ROLE NOW HOLDS DeleteObject ACROSS BOTH DATA BUCKETS — the single most dangerous
+# grant in this repo — and it arrives GRANTS-FIRST, together with the code that justifies
+# it and the Denies that bound it. The two earlier specs deliberately shipped without it,
+# so this widening is a review of its own rather than a line inside a larger change.
 #
 # WHAT IT DOES HOLD, AND WHY EACH ONE IS NOT AN EXCEPTION TO THAT:
 #
@@ -22,12 +20,16 @@
 #   - PlanReadWrite. The copy plan, scoped to its own prefix in the same bucket. The
 #     expansion writes it and every verb after reads it back; without this the plane
 #     cannot record what it is about to do.
-#   - ReadSpaceObjects. THE FIRST GRANT THIS ROLE HOLDS ON USER DATA, and it is READ
-#     ONLY. The expansion lists a source folder and heads a selected file; the guard heads
-#     every destination key. Both are reads, and neither has any other producer — a
-#     listing is where the object list comes from, and the ETag it carries is what lets a
-#     later deletion be conditional. The write and delete grants a transfer needs are still
-#     absent, and NoDataObjectWrite below makes that a rule rather than a gap.
+#   - ReadSpaceObjects. The expansion lists a source folder and heads a selected file; the
+#     guard heads every destination key; the deletion heads every source key to compare it
+#     against the ETag the plan recorded. It is ALSO a hard requirement of a conditional
+#     delete: AWS documents that a valued If-Match delete needs BOTH s3:DeleteObject AND
+#     s3:GetObject, so narrowing this grant later would silently break every conditional
+#     deletion rather than failing loudly.
+#   - WriteSpaceObjects / DeleteSpaceObjects. What the transfer and the source deletion
+#     actually do. ListMultipartUploadParts and AbortMultipartUpload are there because an
+#     object over 5 GiB copies through UploadPartCopy, and an aborted upload that cannot be
+#     cleaned up accrues storage the user never sees.
 #   - ReadTimedOutExecutionInput. The ONE grant the timeout door needs, and it is on THIS
 #     role rather than the state machine's because it is the notify-failure LAMBDA that
 #     makes the call — invoked by EventBridge, outside any execution. It reads back the
@@ -41,17 +43,35 @@
 # directory. The neighbouring planes carry AdminGetUser because they resolve a RECIPIENT;
 # there is no recipient here.
 #
-# NoDataObjectWrite is the second Deny, and it exists because "read only" asserted by the
-# ABSENCE of an Allow is not a rule — it is a state a later statement reverses silently. The
-# machine plans and guards; it writes nothing into either space bucket and deletes nothing
-# from them. The spec that adds the transfer removes this Deny deliberately, which is a
-# review a widened Allow would never have had.
+# NoDataObjectWrite IS GONE, deliberately and by name. It was the blanket "this role writes
+# nothing into a user's space" Deny, and the transfer is exactly what it forbade. Removing a
+# Deny is the kind of edit that should be hard to do by accident, which is why the two specs
+# before this one left it in place and said in this file that the transfer spec would take
+# it out.
 #
-# ITS ACTIONS ARE WILDCARDS ON PURPOSE, which is the opposite of the rule for an Allow. Naming
-# PutObject and DeleteObject alone would leave PutObjectAcl, PutObjectTagging,
-# DeleteObjectVersion and AbortMultipartUpload outside a statement whose whole claim is that
-# this role changes nothing in a user's space — and a Deny that is narrower than its own
-# comment is worse than no Deny, because it is read as covering the case it misses.
+# WHAT REPLACES IT IS NARROWER BUT NOT WEAKER WHERE IT MATTERS: the portal's own folders are
+# still unwritable and undeletable by this role, now stated as their own two Denies.
+#
+# THE PORTAL-MANAGED DENIES ARE ANY-DEPTH ON BOTH BUCKETS, AND THAT IS STRICTER THAN THE
+# BROWSER'S OWN RULE IN ONE CASE. The browser refuses athenaresults/ root-anchored in a
+# personal space (its policy is written against ${aws:PrincipalTag/username}, which pins it
+# to one segment) and at any depth in a shared one. This role carries no principal tag, and
+# an IAM Resource wildcard matches "/" — there is no way to say "exactly one path segment"
+# — so the personal case cannot be expressed root-anchored here and the strict side is
+# taken. The consequence is real and is handled rather than hidden: a personal folder
+# holding a NESTED athenaresults/ is undeletable by this plane, so focommon/delete.py
+# mirrors THIS POLICY rather than the browser's rule and refuses such an item per item,
+# before anything is copied. Mirroring the browser instead would produce an AccessDenied
+# part way through a batch, after the copy, with the source half gone.
+#
+# THE s3:if-match BUCKET-POLICY ENFORCEMENT IS DECLINED, and the reason is recorded here
+# rather than left for someone to re-propose. The documented pattern —
+# "Null": {"s3:if-match": "false"} — denies any delete that carries no condition header. It
+# cannot be used because this plane has TWO delete paths with different conditionality on
+# purpose: a move's deletion is conditional on the ETag the plan recorded, and a delete
+# operation's is deliberately unconditional (there is no copy to protect, and an object
+# modified since the expansion is still one the user asked to remove). A bucket-wide
+# condition cannot express both, so enabling it would 403 every delete-operation deletion.
 #
 # NoLockDelete is a Deny, present from the first apply. The lock releases by OVERWRITING,
 # never by deleting, so that "free" is a STATE of the object rather than its absence and a
@@ -112,14 +132,21 @@ resource "aws_iam_role_policy" "sfn" {
   name = "permissions"
   role = aws_iam_role.sfn.id
 
-  # InvokeFunction on the verbs + log delivery, and NOTHING ELSE. The neighbouring planes
-  # also carry the Distributed Map's own permissions on this role — StartExecution for the
-  # children, and the ItemReader/ResultWriter S3 access — because it is the state machine
-  # that makes those calls. There is no Map here yet, so those statements are absent; the
-  # spec that adds the transfer adds them, on THIS role rather than the Lambda one.
+  # InvokeFunction on the verbs, the Distributed Map's own permissions, and log delivery.
+  #
+  # THE MAP'S GRANTS BELONG ON THIS ROLE AND NOT ON THE EXECUTION ROLE, and getting that
+  # wrong is invisible until runtime: it is the STATE MACHINE that starts the child
+  # executions and that reads the manifest through the ItemReader and writes the export
+  # through the ResultWriter. Put them on the Lambda role instead and the module renders,
+  # applies and unit-tests green, then AccessDenies at the ItemReader on the first real
+  # transfer.
   policy = templatefile("${path.module}/policies/sfn-permissions.json.tftpl", {
-    function_arns_json = jsonencode(local.file_ops_function_arns)
-    sfn_log_group_arn  = local.sfn_log_group_arn
+    function_arns_json           = jsonencode(local.file_ops_function_arns)
+    sfn_log_group_arn            = local.sfn_log_group_arn
+    state_machine_arn            = local.state_machine_arn
+    child_execution_arn_wildcard = local.child_execution_arn_wildcard
+    admin_bucket_arn             = local.admin_bucket_arn
+    plan_prefix                  = local.plan_prefix
   })
 }
 

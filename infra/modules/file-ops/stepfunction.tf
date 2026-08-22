@@ -32,6 +32,18 @@ resource "aws_sfn_state_machine" "file_ops" {
     inspect_source_function_arn     = aws_lambda_function.functions["inspect-source"].arn
     check_destinations_function_arn = aws_lambda_function.functions["check-destinations"].arn
     notify_failure_function_arn     = aws_lambda_function.functions["notify-failure"].arn
+
+    build_transfer_manifest_function_arn  = aws_lambda_function.functions["build-transfer-manifest"].arn
+    copy_objects_function_arn             = aws_lambda_function.functions["copy-objects"].arn
+    collect_transfer_results_function_arn = aws_lambda_function.functions["collect-transfer-results"].arn
+    delete_source_function_arn            = aws_lambda_function.functions["delete-source"].arn
+    finalise_outcomes_function_arn        = aws_lambda_function.functions["finalise-outcomes"].arn
+
+    # The Map's shape. Mirrored from cpcommon/transfer/config.py — ASL cannot import
+    # Python, and a test asserts the rendered numbers still equal the constants the batch
+    # verb's own bounds are computed against.
+    transfer_max_items_per_batch = local.transfer_max_items_per_batch
+    transfer_map_max_concurrency = local.transfer_map_max_concurrency
     # The ASL Wait between re-acquire attempts. Mirrored from focommon/config.py because
     # ASL cannot import Python; a test holds the two equal.
     lock_wait_seconds = local.lock_wait_seconds

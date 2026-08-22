@@ -49,10 +49,12 @@ Attributes:
     inside. The denominator is a MAKESPAN, not an aggregate bandwidth — one object is handed whole
     to one worker — so the rate is ``MAP_MAX_CONCURRENCY x CONSERVATIVE_STREAM_BYTES_PER_SECOND``.
 
-    PROVISIONAL, in the same sense ``MACHINE_TIMEOUT_SECONDS`` is: this machine does not copy
-    anything yet, so the terms subtracted from the ceiling — the guard's two sweeps, the serial
-    verbs and the source deletion — are budgets rather than measurements. The spec that adds the
-    transfer re-derives this together with the ceiling, and both move or neither is meaningful.
+    **DERIVED, no longer provisional — and it is the number that MOVED when the joint budget was
+    finally computed.** At 3 TiB the whole run came to ~12,700s against a 10,800s ceiling: the
+    copy's makespan, two guard sweeps, every serial verb's timeout and the lock give-up, which the
+    earlier version of this budget omitted entirely. Raising the ceiling instead would have raised
+    ``STALE_LOCK_SECONDS`` with it, and a longer stale window on a SHARED space blocks everyone who
+    works in it rather than only the person whose run wedged. So the cap came down to 2 TiB.
   FILE_OPS_MAX_OBJECT_BYTES: Cap on ONE object, and the cap without which the makespan above
     certifies the distributed case only. A batch is one round of the worker pool and ONE OBJECT IS
     ONE WORKER, so a single object's copy time is bounded by nothing else: S3 accepts objects up to
@@ -104,9 +106,10 @@ Attributes:
     interval is an ASL field and must be mirrored; the cap is the verb's own decision, and a
     second home for it in Terraform is a number that can drift.
   MACHINE_TIMEOUT_SECONDS: The file-ops state machine's ``TimeoutSeconds``, mirrored here because
-    a steal threshold is only meaningful against a bounded execution. PROVISIONAL: this machine
-    does no work yet, so the number is taken from the two transfer-bearing planes that do, and
-    the spec that adds the transfer re-derives it together with the two constants below.
+    a steal threshold is only meaningful against a bounded execution. **No longer provisional**:
+    the transfer and the deletion exist, so ``test_config_focommon`` computes the joint budget
+    against it rather than borrowing a number from a neighbouring plane. It did not move —
+    ``FILE_OPS_MAX_TOTAL_BYTES`` did, for the reason recorded there.
   STALE_LOCK_SECONDS: Age past which a held lock is stolen — the machine ceiling plus a margin
     for the delay between an execution's last state and its timeout being observed. Strictly
     greater than the ceiling, asserted by a test: a threshold below it steals a RUNNING
@@ -127,7 +130,7 @@ MAX_TARGET_NAME = 255
 
 FILE_OPS_MAX_OBJECTS = 20_000
 
-FILE_OPS_MAX_TOTAL_BYTES = 3 * 1024**4
+FILE_OPS_MAX_TOTAL_BYTES = 2 * 1024**4
 
 FILE_OPS_MAX_OBJECT_BYTES = 10 * 1024**3
 

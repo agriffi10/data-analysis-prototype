@@ -444,17 +444,50 @@ def _plan_entry_bytes() -> int:
     return len(json.dumps(entry, separators=(",", ":")).encode())
 
 
+#: Every verb that holds the parsed plan in memory. The cap is the MINIMUM over all of them, so a
+#: new plan-holder that is not listed here would have FILE_OPS_MAX_OBJECTS certify memory it never
+#: checked — which is the exact failure this budget exists to prevent.
+_PLAN_HOLDING_VERBS = (
+    "inspect-source",
+    "check-destinations",
+    "build-transfer-manifest",
+    "collect-transfer-results",
+    "delete-source",
+)
+
+
 def _memory_budget_objects() -> int:
-    """How many objects the smaller of the two plan-holding verbs can hold at once.
+    """How many objects the smallest of the plan-holding verbs can hold at once.
 
     The expansion builds the whole list of dicts, serialises it to a string and encodes that — three
-    live copies at the moment of the write — and the guard loads the same plan back. Half the
-    configured memory is left for the interpreter, boto3 and its response buffers, which is not a
-    rounding allowance: a cold Lambda with botocore loaded is already tens of megabytes.
+    live copies at the moment of the write — and every verb after it loads the same plan back. Half
+    the configured memory is left for the interpreter, boto3 and its response buffers, which is not
+    a rounding allowance: a cold Lambda with botocore loaded is already tens of megabytes.
     """
     per_object = _plan_entry_bytes() * (_PARSED_OBJECT_OVERHEAD + 2)
-    memory = min(_verb_row(verb)[1] for verb in ("inspect-source", "check-destinations"))
+    memory = min(_verb_row(verb)[1] for verb in _PLAN_HOLDING_VERBS)
     return int((memory * 1024**2 / 2) // per_object)
+
+
+def test_every_verb_that_HOLDS_THE_PLAN_is_in_the_memory_budget():
+    """The budget above is a ``min()``, so a plan-holder left out of it is invisible to the cap.
+
+    Read from the SOURCE rather than restated: any file-ops verb importing ``plan`` and calling
+    ``load`` holds the parsed plan, and this asserts the list of them is exactly what the budget
+    measures. A sixth plan-holder therefore fails the build rather than the invocation.
+    """
+    holders = set()
+    for verb_dir in sorted((_MODULE.parents[2] / "lambdas").glob("file-ops-*")):
+        for source in verb_dir.glob("file_ops_*.py"):
+            body = source.read_text()
+            if "plan.load(" in body or "plan.write(" in body:
+                holders.add(verb_dir.name.removeprefix("file-ops-"))
+
+    assert holders == set(_PLAN_HOLDING_VERBS), (
+        f"the plan-holding verbs are {sorted(holders)} but the memory budget measures "
+        f"{sorted(_PLAN_HOLDING_VERBS)} — a plan-holder outside the min() is one the object cap "
+        "never checked"
+    )
 
 
 def _guard_budget_objects() -> int:
@@ -531,17 +564,54 @@ def test_the_expansions_timeout_is_sized_PER_ITEM_rather_than_per_page():
     )
 
 
-def test_the_byte_cap_is_a_MAKESPAN_against_the_machines_own_ceiling():
-    """The denominator is not an aggregate bandwidth: one object is handed WHOLE to one worker and
-    the multipart loop inside it is serial, so the rate is the Map's concurrency times one stream —
-    not the far larger number multiplying every constant together suggests.
+def _serial_verb_seconds() -> int:
+    """Every verb timeout a run spends END TO END, read back from locals.tf rather than restated.
 
-    Every other term of the run is subtracted, including the guard TWICE: the spec that adds the
-    transfer re-runs it immediately before the copy, seconds rather than hours later, and a budget
-    counting one sweep would be spent by the second.
+    The Map's own batch verb is deliberately absent: its time is inside the copy makespan, which is
+    computed from the Map's concurrency, and counting it here would charge it twice.
+    """
+    return sum(
+        _verb_row(verb)[0]
+        for verb in (
+            "validate-authorize",
+            "inspect-source",
+            "check-destinations",
+            "check-destinations",
+            "build-transfer-manifest",
+            "collect-transfer-results",
+            "delete-source",
+            "finalise-outcomes",
+            "notify-failure",
+        )
+    )
 
-    PROVISIONAL, exactly as the ceiling it is measured against is: nothing copies anything yet, so
-    the copy and the deletion are budgets rather than measurements. Both re-derive together.
+
+def _give_up_seconds() -> int:
+    """The longest a waiter can spend before it refuses, which the earlier budget omitted entirely.
+
+    A run that waits for the space and THEN copies is not an alternative worst case to a run that
+    copies — it is the ordinary sequence, so the two terms add.
+    """
+    acquire_timeout = _verb_row("acquire-lock")[0]
+    worst_attempt = config.LOCK_WAIT_SECONDS + (4 * acquire_timeout + 14)
+    return config.LOCK_MAX_ATTEMPTS * worst_attempt
+
+
+def test_the_JOINT_budget_fits_the_machines_own_ceiling():
+    """SPEC-187 FR-001's joint budget, computed for the first time against a machine that copies.
+
+    Every term a single execution can spend, added: the lock give-up, TWO guard sweeps, every other
+    serial verb's timeout, the copy's makespan at the byte cap, and the deletion. The copy's
+    denominator is a MAKESPAN and not an aggregate bandwidth — one object is handed WHOLE to one
+    worker and the multipart loop inside it is serial, so the rate is the Map's concurrency times
+    one stream, not the far larger number multiplying every constant together suggests.
+
+    **The deletion term is delete-source's TIMEOUT, not a computed makespan**, because what the
+    ceiling has to budget is what that Task can actually spend.
+
+    This is the computation that moved FILE_OPS_MAX_TOTAL_BYTES from 3 TiB to 2 TiB. Raising the
+    ceiling instead would have raised STALE_LOCK_SECONDS with it, and a longer stale window on a
+    shared space blocks everyone who works in it.
     """
     from cpcommon.transfer.config import (
         CONSERVATIVE_STREAM_BYTES_PER_SECOND,
@@ -552,19 +622,53 @@ def test_the_byte_cap_is_a_MAKESPAN_against_the_machines_own_ceiling():
     copy_seconds = config.FILE_OPS_MAX_TOTAL_BYTES / (
         MAP_MAX_CONCURRENCY * CONSERVATIVE_STREAM_BYTES_PER_SECOND
     )
-    guard_seconds = 2 * _verb_row("check-destinations")[0]
-    serial_seconds = 15 + _verb_row("inspect-source")[0] + 60
-    deletion_seconds = (
-        config.FILE_OPS_MAX_OBJECTS / config.FILE_OPS_HEAD_CONCURRENCY
-    ) * _HEAD_LATENCY_SECONDS
-    run = copy_seconds + guard_seconds + serial_seconds + deletion_seconds
+    run = copy_seconds + _serial_verb_seconds() + _give_up_seconds()
 
     assert run < config.MACHINE_TIMEOUT_SECONDS, (
-        f"a worst-case run is ~{run:,.0f}s against a {config.MACHINE_TIMEOUT_SECONDS}s ceiling"
+        f"a worst-case run is ~{run:,.0f}s against a {config.MACHINE_TIMEOUT_SECONDS}s ceiling — "
+        "lower FILE_OPS_MAX_TOTAL_BYTES, or raise the ceiling and STALE_LOCK_SECONDS together"
     )
     assert config.FILE_OPS_MAX_OBJECT_BYTES / CONSERVATIVE_STREAM_BYTES_PER_SECOND < (
         COPY_TIMEOUT_SECONDS / 2
     ), "one object is one worker, and the largest legal one no longer fits a single batch"
+
+
+def test_the_lock_wait_is_a_TERM_of_that_budget_rather_than_an_alternative_to_it():
+    """The term the first version of this budget left out, pinned so it cannot quietly leave again.
+
+    Waiting 2,000s for a busy space and then copying 2 TiB is one execution, not two scenarios.
+    Without the give-up term the budget read as satisfied at a cap that was in fact ~2,000s over.
+    """
+    assert _give_up_seconds() > 0
+    from cpcommon.transfer.config import (
+        CONSERVATIVE_STREAM_BYTES_PER_SECOND,
+        MAP_MAX_CONCURRENCY,
+    )
+
+    without = config.FILE_OPS_MAX_TOTAL_BYTES / (
+        MAP_MAX_CONCURRENCY * CONSERVATIVE_STREAM_BYTES_PER_SECOND
+    ) + _serial_verb_seconds()
+
+    assert without + _give_up_seconds() < config.MACHINE_TIMEOUT_SECONDS
+
+
+def test_the_transfer_maps_rendered_numbers_equal_the_constants_the_batch_verb_is_bounded_by():
+    """Terraform cannot import Python, so the Map's shape lives in locals.tf as literals. Two homes
+    for one number is how a batch silently grows past the limit it was sized against."""
+    from cpcommon.transfer import config as transfer_config
+
+    locals_tf = (_MODULE / "locals.tf").read_text()
+    for name, expected in (
+        ("transfer_max_items_per_batch", transfer_config.MAX_ITEMS_PER_BATCH),
+        ("transfer_map_max_concurrency", transfer_config.MAP_MAX_CONCURRENCY),
+    ):
+        found = re.search(rf"{name}\s*=\s*(\d+)", locals_tf)
+        assert found, f"{name} is not in locals.tf"
+        assert int(found.group(1)) == expected, f"{name} disagrees with cpcommon.transfer.config"
+
+    assert _verb_row("copy-objects")[0] == transfer_config.COPY_TIMEOUT_SECONDS, (
+        "the batch verb's timeout is what its own batch-size bound is computed against"
+    )
 
 
 def test_the_per_object_cap_binds_a_case_the_byte_cap_cannot_see():
@@ -652,3 +756,118 @@ def test_the_shortening_rule_is_what_makes_a_SAMPLE_of_more_than_one_possible():
 
     assert _state_with_outcomes(worst, full_length) < _STATE_LIMIT
     assert _state_with_outcomes(worst, full_length * 2) > _STATE_LIMIT
+
+
+# ── The SECOND budget: bytes on the state, which the transfer is what stresses ────────────
+
+
+def _state_after_the_transfer(selection: list, sample: list | None) -> int:
+    """Returns the size of the worst state a run reaches AFTER the copy and the deletion.
+
+    The three terms this spec adds are what make this measurable at all: the deletable item keys,
+    the per-item object counts and the per-item deletion records. Measured with every item
+    CONFLICTED, because a conflict record carries a sample on top of everything else.
+    """
+    outcomes = []
+    for item in selection:
+        record = {"itemKey": item["key"], "label": item["key"], "outcome": "cleared"}
+        if sample is not None:
+            record.update(
+                {
+                    "outcome": "conflict",
+                    "reason": "destination_occupied_late",
+                    "sample": sample,
+                    "more": True,
+                }
+            )
+        outcomes.append(record)
+    return _serialised(
+        {
+            "requestId": "0" * 36,
+            "actor": {"username": "a" * 64},
+            "operation": "move",
+            "source": {"bucket": "b" * 63, "root": ("r" * 63) + "/", "items": selection},
+            "destination": {"bucket": "b" * 63, "prefix": ("p" * 512) + "/"},
+            "onConflict": "overwrite",
+            "submittedAt": "2026-08-19T12:00:00Z",
+            "planKey": f"file-ops/{'0' * 36}/plan.json",
+            "transferResultsKey": f"file-ops/{'0' * 36}/{'e' * 80}/transfer-results.json",
+            "transfer": {
+                "manifestBucket": "b" * 63,
+                "manifestKey": f"file-ops/{'0' * 36}/{'e' * 80}/transfer-manifest.jsonl",
+                "resultsBucket": "b" * 63,
+                "resultsPrefix": f"file-ops/{'0' * 36}/results",
+                "itemCount": config.FILE_OPS_MAX_OBJECTS,
+                "itemLines": [
+                    {"itemKey": item["key"], "lines": config.FILE_OPS_MAX_OBJECTS}
+                    for item in selection
+                ],
+            },
+            "mapRun": {
+                "MapRunArn": "arn:aws:states:us-east-1:1:mapRun:file-ops/" + ("m" * 40),
+                "ResultWriterDetails": {"Bucket": "b" * 63, "Key": "k" * 200},
+            },
+            "deletableCount": len(selection),
+            "deletedCount": config.FILE_OPS_MAX_OBJECTS,
+            "guardPass": 2,
+            "itemCount": len(selection),
+            "objectCount": config.FILE_OPS_MAX_OBJECTS,
+            "totalBytes": config.FILE_OPS_MAX_TOTAL_BYTES,
+            "checkedCount": config.FILE_OPS_MAX_OBJECTS,
+            "outcomes": outcomes,
+            "execution": {"arn": "arn:aws:states:us-east-1:1:execution:file-ops:" + "e" * 80,
+                          "name": "e" * 80},
+            "lock": {"attempt": 20, "acquired": True, "exhausted": False, "etags": ['"e"' * 8] * 2},
+        }
+    )
+
+
+def test_the_state_still_fits_AFTER_the_transfer_and_the_deletion():
+    """WHY the deletable list, the per-item counts and the deletion records travel BY POINTER.
+
+    Measured on the state, they are ~156 KB on top of a state already carrying the selection and one
+    outcome record per item — over the limit, at the caps this plane already accepts. And the place
+    it would break is the worst one available: ``States.DataLimitExceeded`` on the collector's
+    result lands AFTER the copy, and on delete-source's result AFTER the deletion. That error
+    escapes every ``Catch``, so the user would be told nothing at all about an operation that had
+    already moved or removed their data.
+
+    This asserts the state as it is actually built — scalars and keys only — still fits.
+    """
+    for key_char in ("\x01", "k"):
+        worst = _items_at_the_byte_cap(key_char)
+        sample = [key_char * config.FILE_OPS_SAMPLE_PATH_CHARS] * config.FILE_OPS_CONFLICT_SAMPLE
+        measured = _state_after_the_transfer(worst, sample)
+
+        assert measured < _STATE_LIMIT, (
+            f"the post-deletion state reaches {measured} bytes with {len(worst)} items, over the "
+            f"{_STATE_LIMIT}-byte limit — something else has to travel by pointer"
+        )
+
+
+def test_the_three_pointer_borne_terms_would_NOT_have_fitted_on_the_state():
+    """The measurement that decided the pointer, kept because it is the whole argument for one.
+
+    A future reader who finds ``deletableCount`` beside a key in S3 and thinks the list itself would
+    be simpler will find this instead of rediscovering it in production — where the failure arrives
+    after the data has already moved.
+    """
+    worst = _items_at_the_byte_cap("k")
+    sample = ["k" * config.FILE_OPS_SAMPLE_PATH_CHARS] * config.FILE_OPS_CONFLICT_SAMPLE
+    on_the_state = _state_after_the_transfer(worst, sample) + _serialised(
+        {
+            "deletable": [item["key"] for item in worst],
+            "items": [
+                {"itemKey": item["key"], "objects": 1200, "failed": 0} for item in worst
+            ],
+            "deletions": [
+                {"itemKey": item["key"], "deleted": 1200, "failed": 0, "reason": ""}
+                for item in worst
+            ],
+        }
+    )
+
+    assert on_the_state > _STATE_LIMIT, (
+        "the three terms now fit on the state; re-derive the decision rather than deleting the "
+        "pointer, because the caps that made them too big may simply have moved"
+    )
