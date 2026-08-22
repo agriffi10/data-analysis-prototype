@@ -40,6 +40,7 @@ sys.path.insert(
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "control-plane-common"),
 )
 
+from cpcommon.errors import TerminalError
 from focommon import config
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -91,14 +92,34 @@ def _sids(path: pathlib.Path) -> set:
 # ── The grant that is not there ──────────────────────────────────────────────
 
 
-def test_the_role_reads_the_data_buckets_and_writes_to_NEITHER():
-    """The rule that replaced "names no data bucket", and the one that has to hold from here on.
+#: What this role may do to an object in a user's space, now that the transfer exists. Read, write,
+#: delete, and the two multipart verbs an object over 5 GiB needs — and nothing else. Stated as a
+#: closed set so a widening is a diff against this list rather than one more entry in an Allow.
+_DATA_BUCKET_ACTIONS = {
+    "s3:ListBucket",
+    "s3:GetBucketLocation",
+    "s3:GetObject",
+    "s3:PutObject",
+    "s3:DeleteObject",
+    "s3:AbortMultipartUpload",
+    "s3:ListMultipartUploadParts",
+}
 
-    Asserted on the rendered template's own placeholders rather than on a bucket name, because the
-    names are supplied at apply time. Every statement naming a data bucket must be a read, and the
-    two verbs that exist need exactly three: list the bucket, get an object, and nothing else.
+#: The folders this role may never write to or delete from, at any depth, in either data bucket.
+#: SPEC-169's set. Held as data so the two Denies are checked against one list rather than each
+#: being read on its own and quietly diverging.
+_PORTAL_MANAGED = ("athenaresults", "user_settings", "archive")
+
+
+def test_the_role_may_do_exactly_what_the_transfer_and_the_deletion_NEED():
+    """The rule that replaced "reads the data buckets and writes to NEITHER", which the transfer is
+    what made false.
+
+    The previous version of this test was the review gate for exactly this edit, and it is replaced
+    rather than deleted: the claim moves from "no write" to "these seven verbs", still asserted as a
+    closed set on the rendered template's own placeholders, because the bucket names arrive at apply
+    time.
     """
-    reads = {"s3:ListBucket", "s3:GetBucketLocation", "s3:GetObject"}
     named = []
     for statement in _statements(EXECUTION_POLICY):
         resources = json.dumps(statement["Resource"])
@@ -109,35 +130,139 @@ def test_the_role_reads_the_data_buckets_and_writes_to_NEITHER():
             continue
         actions = statement["Action"]
         for action in [actions] if isinstance(actions, str) else actions:
-            assert action in reads, f"{statement['Sid']} grants {action!r} on a data bucket"
+            assert action in _DATA_BUCKET_ACTIONS, (
+                f"{statement['Sid']} grants {action!r} on a data bucket, which is outside what the "
+                "transfer and the source deletion need"
+            )
 
-    assert named, "the plane heads and lists user data — a policy naming no data bucket cannot run"
+    assert named, "the plane copies and deletes user data — a policy naming no data bucket cannot run"
 
 
-def test_a_data_bucket_WRITE_is_denied_rather_than_merely_ungranted():
-    """The half that survives the next spec's edit.
+def test_the_blanket_write_Deny_is_GONE_and_the_portal_managed_ones_replaced_it():
+    """The Deny this spec had to remove by name, and what stands in its place.
 
-    A reviewer reading only Allows sees "no write" as an absence, and an absence is what a widened
-    statement removes without anyone noticing. The transfer spec has to delete this Deny by name,
-    which is a review; adding a Put to an existing Allow is not.
+    ``NoDataObjectWrite`` forbade every write into a user's space, which is precisely what the
+    transfer does. Removing a Deny should be hard to do by accident — that is why the two earlier
+    specs left it in place and said in this module's own IAM that the transfer spec would take it
+    out. What replaces it is narrower in scope and identical in strength where it matters: the
+    portal's own folders stay unwritable and undeletable.
     """
-    deny = next(
-        s
-        for s in _statements(EXECUTION_POLICY)
-        if s["Effect"] == "Deny" and "user_space_bucket_arn/*" in json.dumps(s["Resource"])
+    sids = {statement["Sid"] for statement in _statements(EXECUTION_POLICY)}
+
+    assert "NoDataObjectWrite" not in sids, (
+        "the blanket write Deny is back; it cannot coexist with the transfer's PutObject"
     )
-
-    assert set(deny["Action"]) == {
-        "s3:Put*",
-        "s3:Delete*",
-        "s3:Restore*",
-        "s3:AbortMultipartUpload",
-    }, "the Deny is narrower than the claim made for it — every write verb, not two of them"
-    assert "shared_space_bucket_arn/*" in json.dumps(deny["Resource"])
+    assert {"NeverOverwritePortalManagedObjects", "NeverDeletePortalManagedObjects"} <= sids
 
 
-def test_every_object_write_is_confined_to_this_planes_own_admin_prefixes():
-    """No write verb reaches anything but the two objects this plane owns — its lock and its plan.
+@pytest.mark.parametrize("folder", _PORTAL_MANAGED)
+@pytest.mark.parametrize(
+    "sid,action",
+    [
+        ("NeverOverwritePortalManagedObjects", "s3:PutObject"),
+        ("NeverDeletePortalManagedObjects", "s3:DeleteObject"),
+    ],
+)
+def test_each_portal_managed_folder_is_denied_in_BOTH_buckets(sid, action, folder):
+    """One list, two Denies, two buckets — checked as a cross product rather than by reading each
+    statement and trusting it looks complete. A folder present in one Deny and missing from the
+    other is the shape this catches."""
+    statement = next(s for s in _statements(EXECUTION_POLICY) if s["Sid"] == sid)
+    resources = json.dumps(statement["Resource"])
+
+    assert statement["Action"] == action
+    for bucket in ("user_space_bucket_arn", "shared_space_bucket_arn"):
+        assert f"{bucket}/*/{folder}/*" in resources, (
+            f"{sid} does not deny {action} under {folder}/ in {bucket}"
+        )
+
+
+def test_the_marker_Deny_matches_a_PATH_SEGMENT_rather_than_a_suffix():
+    """`*/DO_NOT_DELETE.txt`, never `*DO_NOT_DELETE.txt`, and the difference is a real user file.
+
+    The suffix form — which the archive plane uses — also matches
+    ``alice/reports/backupDO_NOT_DELETE.txt``. Every code rule on this plane matches the BASENAME
+    exactly, so under the suffix form such a key would pass the pre-delete check, get copied, and
+    then take an ``AccessDenied`` mid-batch: the item reported as a ``duplicate`` with an orphan
+    left behind, which is exactly the mid-batch denial the pre-check exists to prevent.
+
+    Asserted as an inequality between the two forms rather than as one string, because the wrong
+    form is a superset of the right one and a substring check would pass on either.
+    """
+    statement = next(
+        s for s in _statements(EXECUTION_POLICY) if s["Sid"] == "NeverDeletePortalManagedObjects"
+    )
+    resources = statement["Resource"]
+
+    for bucket in ("user_space_bucket_arn", "shared_space_bucket_arn"):
+        assert f"{bucket}/*/DO_NOT_DELETE.txt" in resources
+        assert f"{bucket}/*DO_NOT_DELETE.txt" not in resources
+
+
+def test_the_marker_Deny_and_the_CODE_rule_agree_on_which_keys_are_protected():
+    """The pre-delete check exists so a denied key never reaches a batch. That only holds while the
+    two rules describe the same set — a policy stricter than the code is a mid-batch AccessDenied
+    after the copy, and a policy looser than the code is a marker this role could delete."""
+    from cpcommon.errors import TerminalError as _TE
+    from focommon import delete
+
+    statement = next(
+        s for s in _statements(EXECUTION_POLICY) if s["Sid"] == "NeverDeletePortalManagedObjects"
+    )
+    patterns = [r for r in statement["Resource"] if r.endswith("DO_NOT_DELETE.txt")]
+
+    def denied_by_iam(key: str) -> bool:
+        """True when the rendered Deny's marker patterns match this key."""
+        import fnmatch
+
+        return any(fnmatch.fnmatch(f"user_space_bucket_arn/{key}", p) for p in patterns)
+
+    def refused_by_code(key: str) -> bool:
+        """True when the pre-delete check refuses this key."""
+        try:
+            delete.assert_item_deletable([key], "alice/")
+        except _TE:
+            return True
+        return False
+
+    for key in (
+        "alice/DO_NOT_DELETE.txt",
+        "alice/deep/nested/DO_NOT_DELETE.txt",
+        "alice/reports/backupDO_NOT_DELETE.txt",
+        "alice/reports/ordinary.txt",
+    ):
+        assert denied_by_iam(key) == refused_by_code(key), (
+            f"IAM and the pre-delete check disagree about {key!r}"
+        )
+
+
+def test_the_delete_Deny_is_ANY_DEPTH_and_the_domain_rule_MIRRORS_IT():
+    """The deliberate divergence, pinned so it reads as a decision rather than an oversight.
+
+    IAM cannot express "athenaresults/ at the space root only": this role carries no principal tag,
+    and a ``Resource`` wildcard matches "/". So the personal-space Deny is any-depth, which is
+    STRICTER than the browser's own rule — ``protected.source_refusal`` deliberately permits
+    deleting a nested personal ``alice/reports/athenaresults/``.
+
+    What makes that safe is that the deletion module mirrors THIS POLICY rather than the browser
+    rule, so such an item is refused per item before anything is copied. Mirroring the browser
+    instead would produce an AccessDenied part way through a batch, after the copy, with the source
+    half gone.
+    """
+    from focommon import delete, protected
+
+    assert set(delete._UNDELETABLE_FOLDERS) == set(_PORTAL_MANAGED), (
+        "the deletion module no longer mirrors the IAM Deny set"
+    )
+    # The browser rule and the deletion rule now disagree on exactly this key, on purpose.
+    nested = "alice/reports/athenaresults/r.csv"
+    assert protected.source_refusal("alice/", nested, "delete", "personal") is None
+    with pytest.raises(TerminalError):
+        delete.assert_item_deletable([nested], "alice/")
+
+
+def test_every_object_write_is_confined_to_a_bucket_this_plane_has_a_reason_to_touch():
+    """No write verb reaches anything but the two data buckets and this plane's own admin prefixes.
 
     Matched as a PATTERN rather than by equality, because ``s3:*``, ``s3:Put*`` and ``s3:Delete*``
     each grant exactly what this test says is excluded while passing any equality check.
@@ -151,12 +276,15 @@ def test_every_object_write_is_confined_to_this_planes_own_admin_prefixes():
             if not action.startswith("s3:"):
                 continue
             assert "*" not in action, f"{statement['Sid']} grants the wildcard action {action!r}"
-            assert action != "s3:DeleteObject", f"{statement['Sid']} grants DeleteObject"
-            if action in ("s3:PutObject", "s3:PutObjectAcl"):
+            if action in ("s3:PutObject", "s3:PutObjectAcl", "s3:DeleteObject"):
                 resource = json.dumps(statement["Resource"])
-                assert "admin_bucket_arn" in resource and (
+                admin = "admin_bucket_arn" in resource and (
                     "lock_prefix" in resource or "plan_prefix" in resource
-                ), f"{statement['Sid']} may write outside this plane's own admin prefixes"
+                )
+                data = "user_space_bucket_arn" in resource or "shared_space_bucket_arn" in resource
+                assert admin or data, (
+                    f"{statement['Sid']} may write outside this plane's buckets"
+                )
 
 
 def test_no_statement_uses_a_wildcard_resource():

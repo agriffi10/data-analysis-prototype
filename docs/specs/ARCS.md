@@ -1537,6 +1537,9 @@ already-granted `{username}/athenaresults/` prefix, and the only non-app change 
 
 ## File-operations control-plane arc (SPEC-187 → 191)
 
+> **187, 188 and 189 are COMPLETE.** The plane copies, moves and deletes end to end; the browser's
+> enqueue service is still called by nothing. Remaining: **191** (notifications, Help), then **190**.
+
 Recursive folder copy, move and delete are the last bulk data operations this product performs in
 the **browser**. `copyFolder` issues one `CopyObject` per object in a strictly sequential loop,
 `moveFolder` does that and then deletes, and `deleteFolder` lists the whole subtree before batching
@@ -1588,6 +1591,24 @@ neither.
    rather than refused.
 4. **`focommon/outcomes.py` ships `refused`**, which SPEC-188's own enumeration does not list. Add it
    there rather than re-deciding what an into-itself refusal is.
+
+**SPEC-189 IS COMPLETE, and four of its findings change what 190 and 191 can assume.**
+
+1. **The terminal carries everything the producer needs and it reads no second source** — the
+   complete outcome list, the `operation`, BOTH spaces as `(kind, name)`, the destination prefix,
+   each item's `targetName` and `kind`, and the per-item counts. `ReleaseLock` runs **before**
+   anything that notifies, and a test pins that ordering: **191 inserts its producer AFTER it.**
+2. **The outcome vocabulary is 13 members, not SPEC-188's 7**, and it gained `delete_failed` beyond
+   what SPEC-189's own FR-008 enumerated — a `delete` that removed nothing is not a `duplicate`,
+   because nothing was copied. Every member has a body in `focommon.messages`; 191 words them, it
+   does not invent them.
+3. **`CONDITIONAL_DELETE_ENABLED` is `False` and the HEAD-compare path is live.** Until the owed
+   enforcement probe passes, a `move` has a race window between the head and the delete. That is a
+   deliberate, recorded state — do not flip the flag without running §14 of the plane's script.
+4. **The byte cap is 2 TiB, down from 3.** The joint budget had no lock-give-up term and came to
+   ~12,700s against a 10,800s ceiling. Any spec adding a state to this machine re-runs
+   `test_the_JOINT_budget_fits_the_machines_own_ceiling` — it reads every verb timeout back out of
+   `locals.tf`, so a new verb is counted automatically but a raised timeout is not free.
 
 **SPEC-188 IS ALSO COMPLETE, and it settled five things 189 inherits rather than re-decides.**
 

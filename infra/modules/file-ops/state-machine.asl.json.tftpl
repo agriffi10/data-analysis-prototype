@@ -37,7 +37,8 @@
     "StampExecution": {
       "Type": "Pass",
       "Parameters": {
-        "arn.$": "$$.Execution.Id"
+        "arn.$": "$$.Execution.Id",
+        "name.$": "$$.Execution.Name"
       },
       "ResultPath": "$.execution",
       "Next": "AcquireLock"
@@ -175,10 +176,17 @@
             { "Variable": "$.operation", "IsPresent": true },
             { "Variable": "$.operation", "StringEquals": "delete" }
           ],
-          "Next": "DeletePlaceholder"
+          "Next": "BuildTransferManifest"
         }
       ],
-      "Default": "CheckDestinations"
+      "Default": "SeedFirstGuardPass"
+    },
+
+    "SeedFirstGuardPass": {
+      "Type": "Pass",
+      "Result": 1,
+      "ResultPath": "$.guardPass",
+      "Next": "CheckDestinations"
     },
 
     "CheckDestinations": {
@@ -210,16 +218,290 @@
           "Next": "ReleaseLockOnFailure"
         }
       ],
-      "Next": "TransferPlaceholder"
+      "Next": "SeedSecondGuardPass"
     },
 
-    "TransferPlaceholder": {
+    "SeedSecondGuardPass": {
       "Type": "Pass",
-      "Next": "ReleaseLock"
+      "Result": 2,
+      "ResultPath": "$.guardPass",
+      "Next": "CheckDestinationsAgain"
     },
 
-    "DeletePlaceholder": {
-      "Type": "Pass",
+    "CheckDestinationsAgain": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${check_destinations_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseLockOnFailure"
+        }
+      ],
+      "Next": "BuildTransferManifest"
+    },
+
+    "BuildTransferManifest": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${build_transfer_manifest_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseLockOnFailure"
+        }
+      ],
+      "Next": "HasTransferItems"
+    },
+
+    "HasTransferItems": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.transfer.itemCount", "IsPresent": true },
+            { "Variable": "$.transfer.itemCount", "NumericGreaterThan": 0 }
+          ],
+          "Next": "TransferObjects"
+        }
+      ],
+      "Default": "CollectTransferResults"
+    },
+
+    "TransferObjects": {
+      "Type": "Map",
+      "ItemReader": {
+        "Resource": "arn:aws:states:::s3:getObject",
+        "ReaderConfig": {
+          "InputType": "JSONL"
+        },
+        "Parameters": {
+          "Bucket.$": "$.transfer.manifestBucket",
+          "Key.$": "$.transfer.manifestKey"
+        }
+      },
+      "ItemBatcher": {
+        "MaxItemsPerBatch": ${transfer_max_items_per_batch}
+      },
+      "MaxConcurrency": ${transfer_map_max_concurrency},
+      "ToleratedFailurePercentage": 100,
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "StartAt": "CopyObjects",
+        "States": {
+          "CopyObjects": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Parameters": {
+              "FunctionName": "${copy_objects_function_arn}",
+              "Payload.$": "$"
+            },
+            "OutputPath": "$.Payload",
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException",
+                  "TransientError"
+                ],
+                "IntervalSeconds": 2,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "ResultWriter": {
+        "Resource": "arn:aws:states:::s3:putObject",
+        "Parameters": {
+          "Bucket.$": "$.transfer.resultsBucket",
+          "Prefix.$": "$.transfer.resultsPrefix"
+        }
+      },
+      "ResultPath": "$.mapRun",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseLockOnFailure"
+        }
+      ],
+      "Next": "CollectTransferResults"
+    },
+
+    "CollectTransferResults": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${collect_transfer_results_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseLockOnFailure"
+        }
+      ],
+      "Next": "NeedsSourceDeletion"
+    },
+
+    "NeedsSourceDeletion": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.operation", "IsPresent": true },
+            { "Variable": "$.operation", "StringEquals": "move" }
+          ],
+          "Next": "HasDeletableItems"
+        },
+        {
+          "And": [
+            { "Variable": "$.operation", "IsPresent": true },
+            { "Variable": "$.operation", "StringEquals": "delete" }
+          ],
+          "Next": "HasDeletableItems"
+        }
+      ],
+      "Default": "FinaliseOutcomes"
+    },
+
+    "HasDeletableItems": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            { "Variable": "$.deletableCount", "IsPresent": true },
+            { "Variable": "$.deletableCount", "NumericGreaterThan": 0 }
+          ],
+          "Next": "DeleteSource"
+        }
+      ],
+      "Default": "FinaliseOutcomes"
+    },
+
+    "DeleteSource": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${delete_source_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseLockOnFailure"
+        }
+      ],
+      "Next": "FinaliseOutcomes"
+    },
+
+    "FinaliseOutcomes": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${finalise_outcomes_function_arn}",
+        "Payload.$": "$"
+      },
+      "OutputPath": "$.Payload",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException",
+            "TransientError"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "ReleaseLockOnFailure"
+        }
+      ],
       "Next": "ReleaseLock"
     },
 

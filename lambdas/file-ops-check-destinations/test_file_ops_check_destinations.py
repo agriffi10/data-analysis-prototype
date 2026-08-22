@@ -516,3 +516,117 @@ def test_the_handler_runs_the_whole_decorated_stack():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+# ── The second pass ──────────────────────────────────────────────────────────
+
+
+def _cleared(item_key, label="a"):
+    return {"itemKey": item_key, "label": label, "outcome": "cleared"}
+
+
+def test_the_second_pass_conflicts_under_its_OWN_reason_code():
+    """"The guard has not run" and "the guard ran and found nothing" are indistinguishable inside a
+    handler, so the two passes' collisions have to be tellable apart by the code alone."""
+    items = [_item("alice/a/", "a", ["alice/out/a/0"])]
+    _install(items, {"alice/out/a/0": _BEFORE})
+
+    first = m._check_destinations({**_event(outcomes=[_cleared("alice/a/")]), "guardPass": 1})
+    second = m._check_destinations({**_event(outcomes=[_cleared("alice/a/")]), "guardPass": 2})
+
+    assert _outcome(first, "alice/a/")["reason"] == "destination_occupied"
+    assert _outcome(second, "alice/a/")["reason"] == "destination_occupied_late"
+
+
+def test_the_second_pass_does_NOT_re_head_an_item_the_first_pass_conflicted():
+    """It may NARROW, never widen. The colliding object may have been deleted in between, and
+    resurrecting the item would overwrite a terminal that was already decided — the rule this fleet
+    states as "an earlier terminal is never overwritten".
+
+    Asserted on the HEADS, not just the outcome: an implementation that re-headed and then discarded
+    the answer would still be spending the destination's sweep twice.
+    """
+    items = [_item("alice/a/", "a", ["alice/out/a/0"]), _item("alice/b/", "b", ["alice/out/b/0"])]
+    # `a` collided on pass one; nothing is in the way any more.
+    fake = _install(items, {})
+    arrived = [
+        {
+            "itemKey": "alice/a/",
+            "label": "a",
+            "outcome": "conflict",
+            "reason": "destination_occupied",
+            "sample": ["out/a/0"],
+        },
+        _cleared("alice/b/", "b"),
+    ]
+
+    result = m._check_destinations({**_event(outcomes=arrived), "guardPass": 2})
+
+    assert fake.heads == ["alice/out/b/0"], "the second pass re-headed a decided item"
+    assert _outcome(result, "alice/a/")["outcome"] == "conflict"
+    assert _outcome(result, "alice/a/")["reason"] == "destination_occupied"
+    assert _outcome(result, "alice/b/")["outcome"] == "cleared"
+
+
+def test_the_second_pass_leaves_every_NON_cleared_outcome_exactly_as_it_arrived():
+    """Not only conflicts: a protected location, a no-op and a missing source were all decided
+    before this verb ever ran, and each must survive the sweep byte for byte."""
+    items = [_item("alice/a/", "a", ["alice/out/a/0"])]
+    _install(items, {})
+    arrived = [
+        {"itemKey": "alice/p/", "label": "p", "outcome": "protected", "reason": "archive_read_only"},
+        {"itemKey": "alice/n/", "label": "n", "outcome": "noop"},
+        {"itemKey": "alice/m/", "label": "m", "outcome": "source_missing", "reason": "source_missing"},
+        _cleared("alice/a/"),
+    ]
+
+    result = m._check_destinations({**_event(outcomes=arrived), "guardPass": 2})
+
+    for record in arrived[:3]:
+        assert _outcome(result, record["itemKey"]) == record
+
+
+def test_an_ABSENT_guardPass_is_the_FIRST_pass():
+    """The seed arrives from the ASL. A verb invoked without it must behave as the pass that
+    considers every planned item — reading a missing seed as "the second pass" would silently skip
+    every item on a machine whose first guard had not yet run."""
+    items = [_item("alice/a/", "a", ["alice/out/a/0"])]
+    fake = _install(items, {})
+
+    result = m._check_destinations(_event(outcomes=[]))
+
+    assert fake.heads == ["alice/out/a/0"]
+    assert _outcome(result, "alice/a/")["outcome"] == "cleared"
+
+
+def test_the_FIRST_pass_judges_every_planned_item_even_with_no_outcomes_yet():
+    """The first pass must not be filtered by the cleared set: the expansion's records arrive with
+    it, but a first pass that trusted them would decide nothing on a state where they were absent."""
+    items = [_item("alice/a/", "a", ["alice/out/a/0"]), _item("alice/b/", "b", ["alice/out/b/0"])]
+    fake = _install(items, {})
+
+    result = m._check_destinations({**_event(outcomes=[]), "guardPass": 1})
+
+    assert sorted(fake.heads) == ["alice/out/a/0", "alice/out/b/0"]
+    assert len(result["outcomes"]) == 2
+
+
+def test_an_absent_seed_CHECKS_EVERY_DESTINATION_rather_than_skipping_the_guard():
+    """Why the fallback is pass ONE, stated as a test because the opposite reads more safely.
+
+    "The second pass may only narrow, so default to it and nothing can be resurrected" is true and
+    beside the point: the second pass evaluates only items the incoming list marks ``cleared``, so on
+    a state whose list is empty it evaluates NOTHING — every item keeps the ``cleared`` it arrived
+    with and the transfer copies it over whatever is already there, having headed no key at all.
+
+    Resurrecting a conflict misreports one item. Skipping the guard overwrites a user's files.
+    """
+    items = [_item("alice/a/", "a", ["alice/out/a/0"]), _item("alice/b/", "b", ["alice/out/b/0"])]
+    fake = _install(items, {"alice/out/a/0": _BEFORE})
+
+    result = m._check_destinations({**_event(outcomes=[]), "guardPass": None})
+
+    assert sorted(fake.heads) == ["alice/out/a/0", "alice/out/b/0"], (
+        "an absent seed skipped the destination guard"
+    )
+    assert _outcome(result, "alice/a/")["outcome"] == "conflict"

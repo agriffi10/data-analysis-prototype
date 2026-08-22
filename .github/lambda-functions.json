@@ -317,6 +317,40 @@
     ]
   },
   {
+    "name": "file-ops-build-transfer-manifest",
+    "layers": [
+      "cpcommon",
+      "focommon"
+    ]
+  },
+  {
+    "name": "file-ops-copy-objects",
+    "layers": [
+      "cpcommon"
+    ]
+  },
+  {
+    "name": "file-ops-collect-transfer-results",
+    "layers": [
+      "cpcommon",
+      "focommon"
+    ]
+  },
+  {
+    "name": "file-ops-delete-source",
+    "layers": [
+      "cpcommon",
+      "focommon"
+    ]
+  },
+  {
+    "name": "file-ops-finalise-outcomes",
+    "layers": [
+      "cpcommon",
+      "focommon"
+    ]
+  },
+  {
     "name": "archive-validate-authorize",
     "layers": [
       "cpcommon",

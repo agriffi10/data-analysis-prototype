@@ -35,8 +35,34 @@ Attributes:
     of the selection is still exactly what the user asked for.
   SOURCE_EMPTY: The item resolved to no objects at all. Deliberately not a success — on a plane,
     "nothing happened" must be distinguishable from "it worked".
+  MOVED: Terminal success for a ``move`` — copied, and the source removed.
+  COPIED: Terminal success for a ``copy``.
+  DELETED: Terminal success for a ``delete``.
+  COPY_FAILED: At least one of the item's objects did not copy. The source is untouched, which is
+    the safe direction and the reason no rollback exists.
+  DUPLICATE: The item COPIED but its source was not removed, so the user now holds the data in two
+    places. A state no earlier code describes and one they must be told about — it is not a
+    success, and it is not a failure that changed nothing.
+  DELETE_FAILED: A ``delete`` whose objects were not removed. Deliberately NOT ``DUPLICATE``:
+    nothing was copied, so "you have it twice" would be a false sentence, and ``COPY_FAILED`` names
+    a copy that never happened. One state, one code — the rule that put ``source_changed`` and
+    ``source_delete_failed`` on ``DUPLICATE`` as REASONS is the same rule that forces this to be an
+    outcome of its own.
+  TERMINALS: The outcomes a run may END on. Every one of them is a statement about what happened
+    to the user's data.
+  GATE_VERDICTS: The outcomes that mean "this item has been decided, but not yet acted on".
+    **None of them may reach a terminal** — ``cleared`` means "may proceed", and an item still
+    wearing it when the machine finishes is indistinguishable from "moved successfully" to the
+    producer that words the notification.
   MEMBERS: Every outcome this plane may carry. Closed and asserted, because an outcome nothing can
     word is a notification the user never gets.
+
+**A WHOLE-REQUEST TERMINAL IS REACHABLE ONLY FROM A CAUSE THAT IS A PROPERTY OF THE REQUEST, NEVER
+OF AN ITEM.** Stated as the rule rather than as a list of causes: they are spread across the
+containment checks, the lock give-up, the overlapping-item refusal, the supersession guards and
+every cap, and an enumeration here is wrong on the day someone adds the next one. What follows from
+it is that no member of the vocabulary above may ever appear as the reason on a failure seed — a
+per-item outcome is by construction not a statement about the request.
 """
 
 from dataclasses import dataclass
@@ -49,19 +75,56 @@ CONFLICT = "conflict"
 SOURCE_MISSING = "source_missing"
 SOURCE_EMPTY = "source_empty"
 
-MEMBERS = frozenset(
-    {NOOP, PROTECTED, REFUSED, CLEARED, CONFLICT, SOURCE_MISSING, SOURCE_EMPTY}
+MOVED = "moved"
+COPIED = "copied"
+DELETED = "deleted"
+COPY_FAILED = "copy_failed"
+DUPLICATE = "duplicate"
+DELETE_FAILED = "delete_failed"
+
+GATE_VERDICTS = frozenset({CLEARED})
+
+TERMINALS = frozenset(
+    {
+        NOOP,
+        PROTECTED,
+        REFUSED,
+        CONFLICT,
+        SOURCE_MISSING,
+        SOURCE_EMPTY,
+        MOVED,
+        COPIED,
+        DELETED,
+        COPY_FAILED,
+        DUPLICATE,
+        DELETE_FAILED,
+    }
 )
+
+MEMBERS = GATE_VERDICTS | TERMINALS
+
+#: What a still-``cleared`` item becomes when its operation committed. The finaliser reads this
+#: rather than branching, so "every operation has a terminal success" is a property of the table.
+TERMINAL_SUCCESS = {"move": MOVED, "copy": COPIED, "delete": DELETED}
 
 __all__ = [
     "CLEARED",
     "CONFLICT",
+    "COPIED",
+    "COPY_FAILED",
+    "DELETED",
+    "DELETE_FAILED",
+    "DUPLICATE",
+    "GATE_VERDICTS",
     "MEMBERS",
+    "MOVED",
     "NOOP",
     "PROTECTED",
     "REFUSED",
     "SOURCE_EMPTY",
     "SOURCE_MISSING",
+    "TERMINALS",
+    "TERMINAL_SUCCESS",
     "Refusal",
     "carry_forward",
     "decided_keys",

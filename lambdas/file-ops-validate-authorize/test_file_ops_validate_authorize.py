@@ -448,7 +448,19 @@ def test_the_output_supplies_every_path_the_MACHINE_reads_of_it():
     # so counting it would demand the verb emit a field that exists to be created later.
     read = set(re.findall(r'"\w+\.\$": "\$\.(\w+)', template))
     read |= set(re.findall(r'"Variable": "\$\.(\w+)', template))
-    produced = set(_run().keys()) | {"lock", "error", "execution", "raw"}
+
+    # Paths a LATER state creates, each named with the state that emits it rather than pooled into
+    # one allowance. A path that arrives here without a producer named is one nobody writes.
+    created_later = {
+        "lock": "AcquireLock",
+        "error": "every Catch's ResultPath",
+        "execution": "StampExecution",
+        "raw": "the failure seeds",
+        "guardPass": "SeedFirstGuardPass / SeedSecondGuardPass",
+        "transfer": "BuildTransferManifest",
+        "deletableCount": "CollectTransferResults",
+    }
+    produced = set(_run().keys()) | set(created_later)
 
     assert read <= produced, f"the machine reads {sorted(read - produced)}, which this verb never emits"
 

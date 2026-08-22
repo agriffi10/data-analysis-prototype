@@ -28,10 +28,36 @@ object" must never be read as "the ones we could head". A head that faults for a
 refuses its item; it never falls through to clear, which is the one mistake here that ends in data
 loss.
 
+**IT RUNS TWICE, AND THE SECOND PASS MAY ONLY NARROW.** The first runs after the expansion; the
+second runs immediately before the transfer, because a guard separated from its copy has expired —
+and pass one separates them by its own duration, which at the object cap is a full sweep of every
+destination key. The second pass therefore evaluates **only items currently ``cleared``**. An item
+the first pass conflicted is not re-headed and cannot be resurrected: the colliding object may have
+been deleted in between, and the governing rule on this fleet is that an earlier terminal is never
+overwritten.
+
+**Which pass is running is SEEDED BY THE ASL, never inferred**, and a conflict found by the second
+carries its own reason code. "The guard has not run" and "the guard ran and found nothing" are
+indistinguishable inside a handler, so the pass has to arrive as data.
+
 The service name is the control plane, not the function, so one operation's invocations stay one
 queryable set. The per-verb identity rides as the ``verb`` field.
 
 Attributes:
+  SECOND_PASS: The ``guardPass`` value that means "immediately before the transfer".
+
+    **AN ABSENT OR UNUSABLE SEED READS AS THE FIRST PASS, AND THAT IS THE SAFE DIRECTION — THE
+    OBVIOUS ARGUMENT FOR THE OTHER ONE IS BACKWARDS.** It runs: "the second pass may only narrow, so
+    defaulting to it can never resurrect a decided conflict." True, and beside the point. The second
+    pass evaluates only items the incoming outcome list marks ``cleared``, so on a state whose list
+    is absent or empty it evaluates **nothing at all** — every item keeps the ``cleared`` it arrived
+    with and the transfer copies it having checked **no destination**, over whatever is already
+    there. Defaulting to the first pass heads every planned key instead. Resurrecting a conflict
+    misreports one item; skipping the guard overwrites a user's files.
+  _CONFLICT_REASONS: The reason code each pass records a collision under. Two codes rather than
+    one because the second pass's collision is a different event — something arrived while the
+    operation was being prepared, which is worth wording differently from something that was
+    already there when the user pressed the button.
   _ABSENT_STATUSES: The HTTP statuses that mean the key is not there. ``403`` is deliberately not
     among them, and the reason is above. In this plane's own buckets a 403 has become unlikely
     rather than impossible — the execution role holds bucket-wide read — so the branch is a
@@ -57,6 +83,10 @@ logger.setLevel(logging.INFO)
 observability.init(service="file-ops")
 
 _ABSENT_STATUSES = (404,)
+
+SECOND_PASS = 2
+
+_CONFLICT_REASONS = {1: "destination_occupied", 2: "destination_occupied_late"}
 
 
 def _status(err) -> int:
@@ -236,17 +266,45 @@ def _collisions(
     return found, False, checked
 
 
-def _guard(loaded: dict, request: dict) -> tuple[list, int]:
-    """Decides every planned item's outcome against the destination.
+def _still_cleared(existing) -> set:
+    """Returns the item keys that are still provisionally cleared.
+
+    **The second pass's whole safety property is built on this set.** Anything already decided —
+    a conflict from the first pass, a protected location, a no-op — is absent from it, so the
+    second pass cannot re-head those keys and cannot turn an earlier terminal back into a
+    ``cleared``.
+
+    Args:
+      existing: The outcome list as it arrived.
+
+    Returns:
+      The item keys whose current outcome is ``cleared``.
+
+    Raises:
+      None.
+    """
+    return {
+        record["itemKey"]
+        for record in (existing or [])
+        if isinstance(record, dict) and record.get("outcome") == outcomes.CLEARED
+    }
+
+
+def _guard(loaded: dict, request: dict, guard_pass: int) -> tuple[list, int]:
+    """Decides every eligible item's outcome against the destination.
 
     Args:
       loaded: The parsed plan, which holds the derived destination keys.
       request: The running request, which carries the destination root the sample is rendered
         against.
+      guard_pass: Which sweep this is. On the second, only items still ``cleared`` are considered
+        and a collision is recorded under the later reason code.
 
     Returns:
-      ``(decided, checked)`` — one outcome record per planned item, the cleared ones unchanged and
-      the conflicted ones carrying a bounded sample, and how many keys were headed in total.
+      ``(decided, checked)`` — one outcome record per item this pass judged, the cleared ones
+      unchanged and the conflicted ones carrying a bounded sample, and how many keys were headed in
+      total. On the second pass an item that is no longer ``cleared`` produces NO record, so
+      carrying the result forward leaves its earlier outcome untouched.
 
     Raises:
       TerminalError: ``plan_unreadable`` when an overwrite answer has no usable instant behind it.
@@ -256,9 +314,15 @@ def _guard(loaded: dict, request: dict) -> tuple[list, int]:
     bucket = destination.get("bucket")
     root = (request.get("destination") or {}).get("root") or ""
     submitted_at = _submitted_at(loaded) if loaded.get("onConflict") == "overwrite" else None
+    eligible = (
+        _still_cleared(request.get("outcomes")) if guard_pass >= SECOND_PASS else None
+    )
+    reason = _CONFLICT_REASONS.get(guard_pass, _CONFLICT_REASONS[SECOND_PASS])
 
     decided, checked = [], 0
     for item in loaded["items"]:
+        if eligible is not None and item["itemKey"] not in eligible:
+            continue
         dest_keys = [entry["destKey"] for entry in item["objects"] if entry.get("destKey")]
         occupied, more, headed = _collisions(bucket, dest_keys, submitted_at)
         checked += headed
@@ -271,7 +335,7 @@ def _guard(loaded: dict, request: dict) -> tuple[list, int]:
                 item["itemKey"],
                 item["label"],
                 outcomes.CONFLICT,
-                "destination_occupied",
+                reason,
                 sample=sample,
                 more=more or len(occupied) > len(sample),
             )
@@ -320,12 +384,15 @@ def _check_destinations(event) -> dict:
     """
     actor = (event.get("actor") or {}).get("username")
     loaded = plan.load(event.get("planKey"), event)
+    seeded = event.get("guardPass")
+    guard_pass = seeded if isinstance(seeded, int) and not isinstance(seeded, bool) else 1
 
-    decided, checked = _guard(loaded, event)
+    decided, checked = _guard(loaded, event, guard_pass)
     conflicted = [record for record in decided if record["outcome"] == outcomes.CONFLICT]
 
     logger.info(
-        "checked %d destination(s) for %s: %d of %d item(s) conflicted",
+        "pass %d checked %d destination(s) for %s: %d of %d item(s) conflicted",
+        guard_pass,
         checked,
         actor,
         len(conflicted),
@@ -335,6 +402,7 @@ def _check_destinations(event) -> dict:
         "destinations checked",
         actor=actor,
         operation=event.get("operation"),
+        guard_pass=guard_pass,
         on_conflict=loaded.get("onConflict"),
         items=len(decided),
         objects=loaded.get("objectCount"),

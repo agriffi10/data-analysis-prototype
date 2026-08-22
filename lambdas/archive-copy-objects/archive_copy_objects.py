@@ -61,7 +61,7 @@ def handler(event, context) -> dict:
       TransientError: When any item failed retryably, so the Map retries the whole batch.
     """
     items = event.get("Items") or []
-    outcome = copy_mod.copy_batch(items, COPY_FAILED)
+    outcome = copy_mod.copy_batch(items, COPY_FAILED, echo_fields=())
 
     logger.info("copied %d of %d items in this batch", outcome["copied"], len(items))
     observability.info(

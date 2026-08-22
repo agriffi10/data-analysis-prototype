@@ -326,23 +326,6 @@ def test_a_release_never_fails_the_request_and_never_clobbers_the_real_error(sta
         assert catch["ResultPath"] is None
 
 
-def test_the_placeholders_carry_no_result_or_parameters():
-    """A bare Pass, and this is not stylistic. Either field would replace or reshape the state and
-    destroy ``$.lock`` — so ``ReleaseLock`` would free nothing and every SUCCESSFUL request would
-    wedge its space until the lock went stale.
-
-    A rule over every placeholder rather than a list of their names: the states they stand in for
-    arrive one spec at a time, and a list is what goes stale silently while reading as enforcement.
-    """
-    placeholders = [name for name in STATES if name.endswith("Placeholder")]
-
-    assert placeholders, "the machine has no placeholder left — this rule now checks nothing"
-    for name in placeholders:
-        assert "Result" not in STATES[name]
-        assert "Parameters" not in STATES[name]
-        assert STATES[name]["Next"] == "ReleaseLock"
-
-
 def test_every_task_taken_under_the_lock_can_reach_a_terminal_at_all():
     """The hole the release walk above is structurally blind to.
 
@@ -396,11 +379,14 @@ def test_the_delete_branch_routes_PAST_the_destination_guard_on_the_operation():
     choice = STATES["NeedsDestinationGuard"]
     routes = {clause["Next"] for clause in choice["Choices"]}
 
-    assert routes == {"DeletePlaceholder"}
+    assert routes == {"BuildTransferManifest"}
     assert all(
         clause["And"][1]["Variable"] == "$.operation" for clause in choice["Choices"]
     ), "the branch past the guard reads a field a delete does not carry"
-    assert choice["Default"] == "CheckDestinations"
+    assert choice["Default"] == "SeedFirstGuardPass"
+    assert STATES["SeedFirstGuardPass"]["Next"] == "CheckDestinations", (
+        "the Default no longer reaches the guard, so an operation that lost its shape skips it"
+    )
 
 
 def test_every_choice_comparison_is_guarded_by_IsPresent():
@@ -420,3 +406,253 @@ def test_every_choice_comparison_is_guarded_by_IsPresent():
             )
 
             assert guarded, f"{name} compares an unguarded path: {choice}"
+
+
+# ── The commit gate, and the ONE property its graph can actually prove ────────────────────
+
+
+def _reaches(start: str, target: str) -> bool:
+    """Reports whether any path from one state can arrive at another.
+
+    Args:
+      start: The state to walk from.
+      target: The state to look for.
+
+    Returns:
+        True when target is reachable.
+
+    Raises:
+      None.
+    """
+    seen, stack = set(), [start]
+    while stack:
+        name = stack.pop()
+        if name == target:
+            return True
+        if name in seen or name not in STATES:
+            continue
+        seen.add(name)
+        stack.extend(_successors(name))
+    return False
+
+
+def test_an_EMPTY_deletable_set_cannot_reach_the_deletion():
+    """The ONE property this walk asserts, and the spec says so in as many words.
+
+    SPEC-169's gate was one boolean over the whole run and its guarantee was graph-level: the
+    rollback arm could not REACH the delete. A per-item plane produces runs that are simultaneously
+    committing and non-committing, and Step Functions has no per-item ``Choice`` over a list — so
+    that guarantee is not available here and this test deliberately claims less.
+
+    **It does NOT assert the per-item property.** "An item with one failed object is not deleted"
+    is a collector unit test with a named mutation, plus the subset assertion in delete-source, at
+    two layers. A walk claiming more than it proves is worse than one claiming less.
+    """
+    gate = STATES["HasDeletableItems"]
+    positive = [choice["Next"] for choice in gate["Choices"]]
+
+    assert positive == ["DeleteSource"], "the gate's only positive arm is no longer the deletion"
+    assert not _reaches(gate["Default"], "DeleteSource"), (
+        "an empty deletable set can reach DeleteSource"
+    )
+
+
+def test_the_gate_is_a_COUNT_guarded_by_IsPresent_rather_than_an_array_probe():
+    """A bare ``$.deletable[0]`` IsPresent is a construct nothing in this repo uses and one the
+    fleet's own Choice rule does not accept. The count is the shape ``HasTransferItems`` uses one
+    state earlier, and it is also what keeps the key list off the state entirely."""
+    clause = STATES["HasDeletableItems"]["Choices"][0]["And"]
+
+    assert {"Variable": "$.deletableCount", "IsPresent": True} in clause
+    assert {"Variable": "$.deletableCount", "NumericGreaterThan": 0} in clause
+
+
+def test_a_copy_can_never_reach_a_state_that_DELETES():
+    """This one IS a whole-request property, so the graph really does prove it.
+
+    A copy is additive by nature; there is nothing to remove and no path that could. Asserted from
+    the operation gate rather than by reading the verb, because the verb is not what decides it.
+    """
+    gate = STATES["NeedsSourceDeletion"]
+    operations = {
+        clause["StringEquals"]
+        for choice in gate["Choices"]
+        for clause in choice["And"]
+        if "StringEquals" in clause
+    }
+
+    assert operations == {"move", "delete"}, "the deleting operations are no longer enumerated"
+    assert not _reaches(gate["Default"], "DeleteSource")
+
+
+def _successors_closure(start: str) -> set:
+    """Returns every state reachable from one, itself excluded unless it is part of a cycle.
+
+    Args:
+      start: The state to walk from.
+
+    Returns:
+      The reachable state names.
+
+    Raises:
+      None.
+    """
+    seen, stack = set(), list(_successors(start))
+    while stack:
+        name = stack.pop()
+        if name in seen or name not in STATES:
+            continue
+        seen.add(name)
+        stack.extend(_successors(name))
+    return seen
+
+
+def test_no_gate_between_the_copy_and_the_deletion_DEFAULTS_into_deleting():
+    """The fail-closed rule, scoped to the gates that actually decide whether a source is removed.
+
+    A ``Default`` is where a state that lost its shape ends up — an ``operation`` that went missing,
+    a verb that stopped echoing a field, a future ``Parameters`` edit. Every neighbouring gate on
+    this fleet defaults to the safe side, and a machine that deletes user data with versioning off
+    is the last place to make the exception.
+
+    **Scoped rather than fleet-wide, and the scope is the honest part.** ``LockAcquired``'s Default
+    is the wait loop, which re-enters the machine from the top and therefore "reaches" everything —
+    that is the loop working, not a fail-open path. The gates this rule is about are the ones AFTER
+    the copy, and the set is asserted so a new one cannot be added outside it.
+    """
+    deciding = {
+        name
+        for name in _successors_closure("CollectTransferResults")
+        if STATES.get(name, {}).get("Type") == "Choice"
+    }
+
+    assert deciding == {"NeedsSourceDeletion", "HasDeletableItems"}, (
+        f"the gates between the copy and the deletion are now {sorted(deciding)}; a new one has to "
+        "be held to this rule too"
+    )
+    for name in deciding:
+        assert not _reaches(STATES[name]["Default"], "DeleteSource"), (
+            f"{name}'s Default can reach DeleteSource, so a state that lost its shape deletes"
+        )
+
+
+def test_the_transfer_Map_is_declared_at_the_TOP_level():
+    """A Distributed Map nested inside another Map is a different service limit and a different
+    failure mode. This plane has exactly one Map and it is top-level."""
+    maps = [name for name, state in STATES.items() if state.get("Type") == "Map"]
+
+    assert maps == ["TransferObjects"]
+    processor = STATES["TransferObjects"]["ItemProcessor"]
+    assert processor["ProcessorConfig"]["Mode"] == "DISTRIBUTED"
+    for state in processor["States"].values():
+        assert state.get("Type") != "Map", "a Distributed Map is nested inside another Map"
+
+
+def test_the_Map_is_skipped_by_an_IsPresent_guarded_numeric_test():
+    """``IsPresent`` BEFORE the numeric comparison: a numeric test against an absent path raises,
+    and it would raise on exactly the runs where nothing was cleared to copy."""
+    clause = STATES["HasTransferItems"]["Choices"][0]["And"]
+
+    assert clause[0] == {"Variable": "$.transfer.itemCount", "IsPresent": True}
+    assert clause[1] == {"Variable": "$.transfer.itemCount", "NumericGreaterThan": 0}
+    assert STATES["HasTransferItems"]["Default"] == "CollectTransferResults", (
+        "a run with nothing to copy must still reach the collector — for a delete that IS the run"
+    )
+
+
+def test_the_second_guard_pass_runs_BEFORE_the_manifest_is_written():
+    """So a newly conflicted item never contributes a line. Ordering is the whole value of the
+    second pass: run after the manifest, it would refuse an item whose objects were already listed
+    for the copy."""
+    assert STATES["CheckDestinations"]["Next"] == "SeedSecondGuardPass"
+    assert STATES["SeedSecondGuardPass"]["Next"] == "CheckDestinationsAgain"
+    assert STATES["CheckDestinationsAgain"]["Next"] == "BuildTransferManifest"
+
+
+def test_the_guard_pass_is_seeded_by_a_Pass_rather_than_merged_beside_the_payload():
+    """Merging a literal into ``Parameters`` next to ``Payload.$: "$"`` is the wrapping trap this
+    fleet has already paid for once: it puts the request one level below where every notify path
+    reads it. A ``Pass`` with ``ResultPath`` merges without reshaping."""
+    for name, value in (("SeedFirstGuardPass", 1), ("SeedSecondGuardPass", 2)):
+        state = STATES[name]
+        assert state["Type"] == "Pass"
+        assert state["Result"] == value
+        assert state["ResultPath"] == "$.guardPass"
+        assert "Parameters" not in state
+
+    for name in ("CheckDestinations", "CheckDestinationsAgain"):
+        assert STATES[name]["Parameters"] == {
+            "FunctionName": STATES[name]["Parameters"]["FunctionName"],
+            "Payload.$": "$",
+        }
+
+
+def test_a_delete_skips_BOTH_guard_passes():
+    """A delete has no destination to guard. Skipped whole by the same ``IsPresent``-guarded Choice
+    that skipped the first pass before this spec existed."""
+    gate = STATES["NeedsDestinationGuard"]
+    delete_branch = next(
+        choice["Next"]
+        for choice in gate["Choices"]
+        if any(c.get("StringEquals") == "delete" for c in choice["And"])
+    )
+
+    assert delete_branch == "BuildTransferManifest"
+    assert not _reaches(delete_branch, "CheckDestinations")
+    assert not _reaches(delete_branch, "CheckDestinationsAgain")
+
+
+def test_the_lock_is_released_BEFORE_anything_that_would_notify():
+    """FR-000's ordering, pinned here because the spec that adds the notification producer inserts it
+    after ``ReleaseLock`` — and a producer inserted before it would hold the space for the whole time
+    the messages take to write."""
+    assert STATES["FinaliseOutcomes"]["Next"] == "ReleaseLock"
+    assert STATES["ReleaseLock"]["Next"] == "Succeeded"
+
+
+def test_the_wait_loop_still_has_the_shape_SPEC_187_gave_it():
+    """Unchanged by this spec, and pinned so that adding six states around it cannot quietly move
+    it. The loop is reachable ONLY from the Choice's Default — any other edge into the Wait would be
+    a second way to spin."""
+    assert STATES["WaitForLock"]["Next"] == "AcquireLock"
+    assert STATES["LockAcquired"]["Default"] == "WaitForLock"
+
+    into_the_wait = {
+        name for name in STATES if "WaitForLock" in _successors(name) and name != "LockAcquired"
+    }
+    assert not into_the_wait, f"{into_the_wait} can also enter the wait loop"
+
+
+def test_no_per_item_outcome_code_can_seed_a_WHOLE_REQUEST_failure():
+    """FR-008's rule, enforced rather than stated: a whole-request terminal is reachable only from a
+    cause that is a property of the REQUEST, never of an item.
+
+    Deliberately NOT an enumeration of the causes — they are spread across three specs and a list
+    would be wrong the day someone adds the next one. What is asserted instead is the direction: no
+    member of the per-item vocabulary appears as the ``Error`` on any failure seed.
+    """
+    from focommon import outcomes
+
+    seeds = {name: state for name, state in STATES.items() if name.endswith("Seed")}
+
+    assert len(seeds) == 4, (
+        f"the failure seeds are now {sorted(seeds)}; this rule has to cover every one of them"
+    )
+    for name, state in seeds.items():
+        # A seed carries its error under Result (merged with ResultPath) OR under Parameters
+        # (rebuilt). Selecting only one shape reads as a fleet-wide rule while covering a quarter
+        # of it — which is what this test did until a reviewer counted them.
+        carried = state.get("Result") if isinstance(state.get("Result"), dict) else {}
+        parameters = state.get("Parameters") if isinstance(state.get("Parameters"), dict) else {}
+        literal = carried.get("Error") or (parameters.get("error") or {}).get("Error")
+        assert literal is None or literal not in outcomes.MEMBERS, (
+            f"{name} uses the per-item outcome {literal!r} as a whole-request failure reason"
+        )
+
+
+def test_the_terminal_path_walk_has_not_become_the_slow_one():
+    """Six new states each carrying a Catch multiply the simple-path count this suite walks. Pinned
+    so the growth is visible in a review rather than felt as a slow build."""
+    paths = _paths_to_terminals()
+
+    assert len(paths) < 400, f"the walk now enumerates {len(paths)} paths"

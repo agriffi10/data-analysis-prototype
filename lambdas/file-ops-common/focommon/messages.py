@@ -16,6 +16,14 @@ Writing bodies that complete three different prefixes is a real constraint on th
 formatting detail: a clause naming the operation ("...so nothing was copied") reads wrong under two
 of the three prefixes, so the bodies say what is true of the ITEM instead.
 
+**AND A BODY MAY NOT ASSERT THAT A COPY HAPPENED.** The two reasons a source survives —
+``source_changed`` and ``source_delete_failed`` — arise on a ``move``, where the data now exists
+twice, AND on a ``delete``, where nothing was copied at all. A body saying "you now have it in both
+places" is a FALSE SENTENCE under the delete prefix, and it reinstates precisely the confusion the
+separate ``delete_failed`` outcome exists to prevent. That clause belongs to the ``duplicate``
+OUTCOME, which is per-item wording the notification spec owns; these bodies say only that the
+original is still there.
+
 **No raw AWS text is ever interpolated into any of these**: the detail on the exception is for the
 logs and the Step Functions record, and the sentence the user reads is composed here.
 
@@ -101,6 +109,26 @@ _BODIES = {
     "destination_occupied": (
         "something is already in the way there. Please move what is there, or choose a different "
         "destination."
+    ),
+    "destination_occupied_late": (
+        "something was put in the way there while this was being prepared. Please look at the "
+        "destination, then try again."
+    ),
+    "copy_failed": "some of the files could not be copied.",
+    "transfer_results_unreadable": (
+        "the files were copied but the record of what happened could not be read back, so nothing "
+        "was removed. Please look at the destination before trying again."
+    ),
+    "source_changed": (
+        "it was changed while this was running, so the original was left where it is. Please look "
+        "at it before trying again."
+    ),
+    "source_delete_failed": (
+        "the original could not be removed, so it is still where it was. Please look at it before "
+        "trying again."
+    ),
+    "delete_refused": (
+        "part of it is managed for you and cannot be removed, so it was left alone."
     ),
     "plan_unreadable": "the working list for that could not be read back.",
     "plan_superseded": (

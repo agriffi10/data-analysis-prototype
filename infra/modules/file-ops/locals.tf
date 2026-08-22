@@ -34,10 +34,15 @@ locals {
   # lambdas/file-ops-<suffix>/ subdir AND the deploy-lambdas.yml matrix name
   # "file-ops-<suffix>"); value = the handler + the task's real timeout/memory need.
   #
-  # SIX VERBS. The front door, the lock's two halves, the notification of last resort, and
-  # the two that decide WHAT and WHETHER: the expansion that writes the plan, and the
-  # per-item destination guard. Nothing is copied or deleted yet; the transfer and the
-  # source deletion arrive with the spec that owns them.
+  # ELEVEN VERBS. The front door, the lock's two halves, the notification of last resort,
+  # the two that decide WHAT and WHETHER, and the five that make it happen: the manifest,
+  # the Map's batch copier, the attribution, the source deletion and the terminals.
+  #
+  # THREE OF THE FIVE HOLD THE PARSED PLAN, and their memory rows are therefore INPUTS TO
+  # FILE_OPS_MAX_OBJECTS rather than free choices — test_config_focommon takes the MINIMUM
+  # over every plan-holding verb and reads these numbers back out of this file. Adding a
+  # sixth plan-holder without adding it to that set would have the cap certify memory it
+  # never checked.
   #
   # Every module name is plane-qualified so two planes' identically-named verbs cannot
   # collide on sys.modules under one `pytest lambdas/` process. The qualifier is the FULL
@@ -70,6 +75,31 @@ locals {
     # Heads every derived destination key, eight at a time. Same memory as the expansion
     # because it loads the same plan back, and the two rows move together.
     "check-destinations" = { handler = "file_ops_check_destinations.handler", timeout = 600, memory = 1024 }
+    # Writes one JSONL line per object of every cleared item, and refuses an item whose
+    # source it may not delete BEFORE anything is copied.
+    #
+    # THE WORST OF THE THREE PLAN-HOLDERS FOR MEMORY: it holds the parsed plan AND the
+    # joined manifest body at once, because cpcommon.transfer.manifest builds the whole
+    # payload with "\n".join(...).encode() before the PUT. Both terms are charged in the
+    # cap's own test rather than assumed to fit.
+    "build-transfer-manifest" = { handler = "file_ops_build_transfer_manifest.handler", timeout = 300, memory = 1024 }
+    # The Distributed Map's batch copier. No object bytes pass through it — every copy is
+    # server-side — so its memory is the runtime's floor rather than a function of the
+    # data. The timeout is cpcommon.transfer.config's COPY_TIMEOUT_SECONDS, which the
+    # batch-size bound is computed against; a test holds the two equal.
+    "copy-objects" = { handler = "file_ops_copy_objects.handler", timeout = 900, memory = 512 }
+    # Reads the Map Run's export, attributes every failed object to its item and decides
+    # which items may have their source removed. Holds the parsed plan.
+    "collect-transfer-results" = { handler = "file_ops_collect_transfer_results.handler", timeout = 300, memory = 1024 }
+    # The only verb that deletes a user's own files. Holds the parsed plan; its cost is a
+    # HEAD sweep over every source key plus one DeleteObjects per thousand keys per item.
+    #
+    # ITS TIMEOUT IS A TERM IN THE MACHINE'S CEILING, not a free choice: the joint budget
+    # subtracts what this Task can actually spend, and test_config_focommon reads it back.
+    "delete-source" = { handler = "file_ops_delete_source.handler", timeout = 600, memory = 1024 }
+    # Turns every gate verdict into a terminal and shapes the summary. String work over a
+    # bounded outcome list plus one small read.
+    "finalise-outcomes" = { handler = "file_ops_finalise_outcomes.handler", timeout = 60, memory = 256 }
     # The notification of last resort: one decode + one SQS send, reached only on a
     # whole-request failure path.
     #
@@ -149,12 +179,31 @@ locals {
   # timeout terminates the run outright, so no state runs and no Catch fires. The actor is
   # told by the EventBridge TIMED_OUT rule in stepfunction.tf.
   #
-  # PROVISIONAL, and saying so is the honest version. This machine does no data work yet,
-  # so the number cannot be derived from a makespan that does not exist — it is taken from
-  # the two transfer-bearing planes that do, and the spec that adds the transfer re-derives
-  # it together with the stale threshold and the give-up bound, which are both computed
-  # from it. All three move together or none of them is meaningful.
+  # NO LONGER PROVISIONAL. The transfer and the deletion exist now, so the ceiling is
+  # derived rather than borrowed: test_config_focommon computes the JOINT budget — the lock
+  # give-up, plus TWO guard sweeps, plus every serial verb timeout above, plus the copy's
+  # makespan at FILE_OPS_MAX_TOTAL_BYTES, plus the deletion — and asserts it fits here.
+  #
+  # THE CAP MOVED, NOT THE CEILING, and that was a decision rather than an accident. At the
+  # 3 TiB the byte cap started at, the joint budget came to ~12,700s against this 10,800s.
+  # Raising the ceiling instead would have raised STALE_LOCK_SECONDS with it — that
+  # threshold must exceed the ceiling or a running execution's lock gets stolen — and a
+  # longer stale window on a SHARED space blocks everyone else who works in it, not just
+  # the person whose run wedged. So FILE_OPS_MAX_TOTAL_BYTES came down to 2 TiB.
   state_machine_timeout_seconds = 10800
+
+  # The Distributed Map's shape, mirrored from cpcommon/transfer/config.py because ASL
+  # cannot import Python; a test asserts the rendered numbers still equal the constants the
+  # batch verb is bounded against. Two homes for one number is how a batch silently grows
+  # past the limit it was sized for.
+  transfer_max_items_per_batch = 8
+  transfer_map_max_concurrency = 20
+
+  # The Map's child executions, which the STATE MACHINE role must be able to start and
+  # describe. Not the execution role: it is the state machine that makes those calls, and
+  # putting them on the Lambda role renders, applies and unit-tests green before failing at
+  # the ItemReader with AccessDenied.
+  child_execution_arn_wildcard = "arn:aws:states:${var.aws_region}:${var.account_id}:execution:${local.state_machine_name}/*"
 
   sfn_log_group_name = "/aws/vendedlogs/states/${local.state_machine_name}"
   sfn_log_group_arn  = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:${local.sfn_log_group_name}"

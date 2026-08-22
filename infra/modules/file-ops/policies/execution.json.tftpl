@@ -53,17 +53,57 @@
       ]
     },
     {
-      "Sid": "NoDataObjectWrite",
-      "Effect": "Deny",
+      "Sid": "WriteSpaceObjects",
+      "Effect": "Allow",
       "Action": [
-        "s3:Put*",
-        "s3:Delete*",
-        "s3:Restore*",
-        "s3:AbortMultipartUpload"
+        "s3:PutObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
       ],
       "Resource": [
         "${user_space_bucket_arn}/*",
         "${shared_space_bucket_arn}/*"
+      ]
+    },
+    {
+      "Sid": "DeleteSpaceObjects",
+      "Effect": "Allow",
+      "Action": "s3:DeleteObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*",
+        "${shared_space_bucket_arn}/*"
+      ]
+    },
+    {
+      "Sid": "NeverOverwritePortalManagedObjects",
+      "Effect": "Deny",
+      "Action": "s3:PutObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*/athenaresults/*",
+        "${shared_space_bucket_arn}/*/athenaresults/*",
+        "${user_space_bucket_arn}/*/user_settings/*",
+        "${shared_space_bucket_arn}/*/user_settings/*",
+        "${user_space_bucket_arn}/*/archive/*",
+        "${shared_space_bucket_arn}/*/archive/*",
+        "${user_space_bucket_arn}/_config/*",
+        "${user_space_bucket_arn}/_directory/*"
+      ]
+    },
+    {
+      "Sid": "NeverDeletePortalManagedObjects",
+      "Effect": "Deny",
+      "Action": "s3:DeleteObject",
+      "Resource": [
+        "${user_space_bucket_arn}/*/athenaresults/*",
+        "${shared_space_bucket_arn}/*/athenaresults/*",
+        "${user_space_bucket_arn}/*/user_settings/*",
+        "${shared_space_bucket_arn}/*/user_settings/*",
+        "${user_space_bucket_arn}/*/archive/*",
+        "${shared_space_bucket_arn}/*/archive/*",
+        "${user_space_bucket_arn}/*/DO_NOT_DELETE.txt",
+        "${shared_space_bucket_arn}/*/DO_NOT_DELETE.txt",
+        "${user_space_bucket_arn}/_config/*",
+        "${user_space_bucket_arn}/_directory/*"
       ]
     },
     {

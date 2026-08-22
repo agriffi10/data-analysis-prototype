@@ -12,7 +12,7 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 
 ## Contents
 
-153 entries, one heading each. **Jump to the one you need — never read this file whole.**
+157 entries, one heading each. **Jump to the one you need — never read this file whole.**
 
 - [Auth](#auth)
 - [Hosted UI = Managed Login v2](#hosted-ui--managed-login-v2)
@@ -174,6 +174,10 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 - [The source deletion removes only CONFIRMED-COPIED keys, never a prefix listing (SPEC-187, diverging from SPEC-169)](#the-source-deletion-removes-only-confirmed-copied-keys-never-a-prefix-listing-spec-187-diverging-from-spec-169)
 - [The collision unit is the derived destination KEY, and that is what preserves merging (SPEC-188)](#the-collision-unit-is-the-derived-destination-key-and-that-is-what-preserves-merging-spec-188)
 - [A conflict is one item's outcome, and the list is created once and carried forward (SPEC-188)](#a-conflict-is-one-items-outcome-and-the-list-is-created-once-and-carried-forward-spec-188)
+- [The engine's attribution vocabulary belongs to the CALLER, not to cpcommon (SPEC-189)](#the-engines-attribution-vocabulary-belongs-to-the-caller-not-to-cpcommon-spec-189)
+- [The commit gate is per ITEM, so the graph proves less than SPEC-169's did (SPEC-189)](#the-commit-gate-is-per-item-so-the-graph-proves-less-than-spec-169s-did-spec-189)
+- [The source deletion: what it removes, and what it is conditional on (SPEC-189)](#the-source-deletion-what-it-removes-and-what-it-is-conditional-on-spec-189)
+- [Two budgets, and both were wrong before they were computed (SPEC-189)](#two-budgets-and-both-were-wrong-before-they-were-computed-spec-189)
 
 ---
 
@@ -4308,3 +4312,118 @@ it is the only cheap producer of the field a later conditional delete turns on. 
 way is a `HeadObject` per object, which is a round trip per object where a listing is one per
 thousand. `cpcommon.s3_listing` gained `list_data_records` for it, and `list_data_objects` is now a
 projection of that function, so there is still exactly one paginator in the fleet.
+
+
+### The engine's attribution vocabulary belongs to the CALLER, not to cpcommon (SPEC-189)
+
+`cpcommon.transfer.copy_batch` and `results._from_input` built their failure records as
+`{recipient, kind, reason}`, hardcoded to table-share's vocabulary. This plane attributes to a
+**selected item**, and there was no field to carry it: an `itemKey` on a manifest line rode into the
+child input and was dropped on the way out. The engine now takes a caller-supplied `echo_fields` set
+in **both** halves — they are separately implemented, one copying what the batch verb wrote and one
+rebuilding it, which is exactly the pair that drifts, and a drifted record is one the caller
+silently cannot attribute.
+
+**`echo_fields` has no default.** A default hands a new caller either table-share's vocabulary or an
+empty set, and both are wrong without a review. Table-share and file-send pass
+`("recipient", "kind")` and their records are byte-identical, measured by rendering both rather than
+argued. **Archive passes the empty set and its records change**: its manifest carries neither field,
+so every archive failure used to read `{"recipient": null, "kind": null, …}`. A named test says the
+two nulls are gone on purpose.
+
+**The echoed fields must stay bounded.** The list rides the exported result and then the state, where
+a key list is the unbounded term that breaches the 256 KB limit **on the Map** — destroying every
+per-item outcome the export exists to preserve. Echo a name, never a key set.
+
+### The commit gate is per ITEM, so the graph proves less than SPEC-169's did (SPEC-189)
+
+SPEC-169's gate is one boolean over the whole run and its guarantee is **graph-level**: the rollback
+arm cannot *reach* `DeleteSource`. A per-item plane produces runs that are simultaneously committing
+and non-committing, and **Step Functions has no per-item `Choice` over a list** — so that guarantee
+is not available here. Rather than inherit a sentence that no longer holds, this plane asserts the
+weaker property honestly and buys the rest at two other layers:
+
+- **the walk asserts exactly one thing** — an empty `deletable` set cannot reach `DeleteSource` — and
+  says in its own docstring that it does **not** assert the per-item property. A walk claiming more
+  than it proves is worse than one claiming less;
+- **the per-item half is a collector unit test with a named mutation** (an item with one failed
+  object must not appear in `deletable`), plus **`delete-source`'s subset assertion at the boto
+  boundary** — checked against the keys actually handed to `DeleteObjects`, never over the filter's
+  own output, which would re-check the filter with the filter.
+
+**Both gates enumerate their positive cases and default to not deleting.** `NeedsSourceDeletion`
+names `move` and `delete` explicitly; a state whose `operation` was lost or mistyped reaches
+`FinaliseOutcomes`. The first draft had the deleting arm as the `Default` — fail-open, and the
+opposite of every neighbouring gate on this fleet.
+
+**The skip branch is recognised positively.** A `delete` reaches the collector with the Map skipped
+and every still-`cleared` item deletable. Implemented as the natural negative — *no `mapRun`,
+therefore the skip branch* — a `move` arriving without an export would mark every cleared item
+deletable and the next state would delete a source nothing had copied.
+
+### The source deletion: what it removes, and what it is conditional on (SPEC-189)
+
+**It deletes the plan's keys, never a prefix listing** (SPEC-187 Premise 1). This plane's lock
+serialises its own executions and nothing else — not uploads, not create-folder, not the six other
+control planes — so an object written into a source folder between the expansion and the commit was
+never copied, and a prefix delete would remove it silently and unrecoverably with versioning off.
+The accepted cost is an **orphan**, which is visible and recoverable where the alternative is
+neither. A plan **re-read** is not a prefix listing, and per-item gating makes "the plan keys of a
+fully-succeeded item" and "the keys confirmed copied" the same set.
+
+**A conditional delete is NOT replay-safe the way an unconditional one is.** `arcommon.delete` rests
+its whole `Retry` story on S3 reporting an already-absent key as deleted — true only *without* a
+condition. With one, a key the previous attempt removed comes back on the **error** side, so a verb
+that deleted five batches of twenty, hit a throttle and retried would report every one of those five
+as a failure and the user would be told a completed move half-failed. "Gone" is therefore success and
+only a genuine mismatch is `source_changed`.
+
+**409 is handled distinctly from 412, diverging from `cpcommon.cas.is_precondition` on purpose.**
+That predicate collapses them and is right to: a compare-and-set retries on either. A conditional
+delete is not a CAS — a **412** means the object changed, terminal for that item because its
+destination copy now holds stale bytes; a **409** means a concurrent delete or put won the race,
+which is retryable. One module answering "did my write lose?" and another answering "why did my
+delete not happen?" are different questions, and a shared helper would have to give one answer to
+both.
+
+**The HEAD-compare path is ACTIVE and the conditional one ships behind a flag.** Reading
+`ObjectIdentifier`'s members off the live service model proves botocore will *serialize* the ETag; it
+does not prove S3 *enforces* it, and a serialized-but-ignored condition deletes a changed source
+silently. `CONDITIONAL_DELETE_ENABLED` flips only once a live probe shows a wrong-ETag delete is
+genuinely refused on these buckets.
+
+**A `delete` operation's deletions are unconditional, and conditionality is the CALLER's explicit
+flag.** A move's condition protects bytes that were just copied; a delete has no copy, and an object
+modified since the expansion is still one the user asked to remove. Inferring the flag from whether
+ETags happened to be supplied made a delete conditional on an empty string, which mismatched every
+object and reported `source_changed` having removed nothing — found by a fixture, not by reasoning.
+
+**`assert_item_deletable` is per item and runs BEFORE the transfer.** A whole-list refusal would be
+the whole-request reversion this arc's model forbids — and on a `move` it runs after the copy, so it
+would leave every item copied and nothing deleted: a full duplicate of the entire selection. The
+placement matters as much as the scope: a personal folder holding a **nested** `athenaresults/`
+passes the front door (the browser's rule is root-anchored in a personal space) and expands into the
+plan, so a post-copy-only refusal would leave it fully duplicated and undeletable — a state the user
+cannot resolve through this plane at all.
+
+**It mirrors the IAM POLICY, not the browser rule.** IAM cannot express "at the space root only": a
+`Resource` wildcard matches `/`, and this role carries no principal tag to pin one segment the way
+the portal role's `${aws:PrincipalTag/username}` does. The strict side is taken — any-depth on both
+buckets — and the divergence is handled per item rather than hidden.
+
+### Two budgets, and both were wrong before they were computed (SPEC-189)
+
+**The joint budget:** the lock give-up, two guard sweeps, every serial verb timeout, the copy's
+makespan and the deletion, added. At 3 TiB it came to ~12,700 s against a 10,800 s ceiling — and the
+earlier version carried **no give-up term at all**, though a waiter can spend 2,080 s. Waiting for a
+busy space and *then* copying is one execution, not two scenarios. **The cap moved to 2 TiB, not the
+ceiling**, because the ceiling also sets `STALE_LOCK_SECONDS` and a longer stale window on a shared
+space blocks everyone who works in it, not only the person whose run wedged.
+
+**The state budget, which no earlier spec owned:** the deletable list, the per-item counts and the
+per-item deletion records measure **287,532 bytes** at the selection cap against 262,144 (307,083
+with conflict samples). All three travel by pointer, on this plane's own recorded rule that
+everything unbounded on the state does. Where it would have broken is the worst place available:
+`States.DataLimitExceeded` on the collector's result lands **after the copy**, and on delete-source's
+**after the deletion**, and that error escapes every `Catch` — so the user would be told nothing at
+all about an operation that had already moved their data.

@@ -167,8 +167,13 @@ def test_an_outcome_without_a_reason_carries_no_reason_key():
 
 
 def test_every_outcome_this_plane_can_produce_is_in_the_closed_set():
-    """Three verbs produce outcomes and every one of them has to be wordable, or the record arrives
-    at the notifier as silence."""
+    """Every verb that produces outcomes has to produce wordable ones, or the record arrives at the
+    notifier as silence.
+
+    The ratchet moved 7 -> 13 when the transfer, the deletion and the terminals arrived. It is
+    RAISED deliberately, with each new member's wording decided in the same change — never
+    loosened to let one through.
+    """
     for member in (
         outcomes.NOOP,
         outcomes.PROTECTED,
@@ -177,10 +182,54 @@ def test_every_outcome_this_plane_can_produce_is_in_the_closed_set():
         outcomes.CONFLICT,
         outcomes.SOURCE_MISSING,
         outcomes.SOURCE_EMPTY,
+        outcomes.MOVED,
+        outcomes.COPIED,
+        outcomes.DELETED,
+        outcomes.COPY_FAILED,
+        outcomes.DUPLICATE,
+        outcomes.DELETE_FAILED,
     ):
         assert member in outcomes.MEMBERS
 
-    assert len(outcomes.MEMBERS) == 7, "an outcome was added without deciding how it is worded"
+    assert len(outcomes.MEMBERS) == 13, "an outcome was added without deciding how it is worded"
+
+
+def test_a_gate_verdict_is_never_also_a_terminal():
+    """``cleared`` means "may proceed". An item still wearing it when the machine finishes is
+    indistinguishable from "moved successfully" to the producer that words the notification, so the
+    two sets are disjoint by construction rather than by care."""
+    assert not (outcomes.GATE_VERDICTS & outcomes.TERMINALS)
+    assert outcomes.GATE_VERDICTS | outcomes.TERMINALS == outcomes.MEMBERS
+    assert outcomes.CLEARED in outcomes.GATE_VERDICTS
+
+
+def test_every_operation_has_a_terminal_success():
+    """A ``cleared`` item that committed has to become something, and a missing row would leave it
+    ``cleared`` at a terminal — the defect the disjointness above exists to make visible."""
+    from focommon import config
+
+    assert set(outcomes.TERMINAL_SUCCESS) == set(config.OPERATIONS)
+    assert set(outcomes.TERMINAL_SUCCESS.values()) <= outcomes.TERMINALS
+
+
+def test_the_new_reason_codes_each_resolve_to_a_SENTENCE_rather_than_the_fallback():
+    """A reason code with no body resolves to the fallback, which tells the user nothing. These six
+    arrive with the transfer and the deletion, and two of them (``copy_failed``,
+    ``transfer_results_unreadable``) are the ones a plane most easily forgets — they are produced
+    by the engine and the collector rather than by a refusal someone was already wording."""
+    fallback = messages.copy_resolver.message("a_code_that_does_not_exist")
+    for reason in (
+        "destination_occupied_late",
+        "copy_failed",
+        "transfer_results_unreadable",
+        "source_changed",
+        "source_delete_failed",
+        "delete_refused",
+    ):
+        for operation in ("copy", "move", "delete"):
+            sentence = messages.failure_message(operation, reason)
+            assert sentence != fallback, f"{reason} resolves to the fallback under {operation}"
+            assert sentence.endswith((".", "!")), reason
 
 
 def test_a_conflicts_extra_fields_come_out_of_the_ONE_record_builder():
@@ -261,3 +310,38 @@ def test_the_decided_keys_are_what_the_expansion_must_never_see():
 
     assert outcomes.decided_keys(existing) == {"alice/old/"}
     assert outcomes.decided_keys(None) == set()
+
+
+def test_no_body_ASSERTS_A_COPY_HAPPENED_under_the_delete_prefix():
+    """The check the "not the fallback, ends with a period" test above structurally cannot make.
+
+    ``source_changed`` and ``source_delete_failed`` arise on a ``move``, where the data now exists
+    twice, AND on a ``delete``, where nothing was copied at all. Both once read "You now have it in
+    both places" — a FALSE SENTENCE under the delete prefix, and one that reinstates exactly the
+    confusion the separate ``delete_failed`` outcome was added to prevent.
+
+    So this asserts the property rather than the wording: no sentence a delete can produce may claim
+    a copy exists. Swept over the WHOLE table, not the two reasons that were wrong, because the next
+    body someone adds is the one this is for.
+    """
+    # Phrases that assert a copy EXISTS, not ones that merely name copying as an operation:
+    # "it cannot be copied, moved or deleted" is a correct sentence under all three prefixes.
+    claims_a_copy = ("both places", "the copy worked", "was copied")
+    for reason in messages._BODIES:
+        sentence = messages.failure_message("delete", reason).lower()
+        for claim in claims_a_copy:
+            assert claim not in sentence, (
+                f"the delete wording for {reason!r} claims a copy exists: {sentence!r}"
+            )
+
+
+def test_the_two_source_survived_reasons_read_correctly_under_ALL_THREE_prefixes():
+    """The pair that has to work everywhere: they say only that the original is still there, which is
+    true whether or not anything was copied. The "in both places" clause belongs to the ``duplicate``
+    OUTCOME, which is per-item wording the notification spec owns."""
+    for reason in ("source_changed", "source_delete_failed"):
+        for operation in ("copy", "move", "delete"):
+            sentence = messages.failure_message(operation, reason)
+            assert "still" in sentence or "left where it is" in sentence, (
+                f"{reason} under {operation} no longer says the original survived: {sentence!r}"
+            )

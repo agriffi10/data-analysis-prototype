@@ -40,8 +40,16 @@ _FORBIDDEN_CALLS = {
 #: key that is a pure function of the request id, unconditionally, exactly as the file-send layer
 #: owns its own copy-plan write. So the rule below asserts the thing that actually matters: no
 #: module here passes a precondition to S3.
+#: ``delete_objects`` is deliberately ABSENT, and what replaced it is narrower rather than looser.
+#: The rule was "this layer performs no deletion", and the transfer spec is what made that false —
+#: the source deletion is this plane's own algorithm and cannot be shared. ``arcommon.delete`` looks
+#: like the same thing and is not: it refuses over the WHOLE list, where this one is scoped per item
+#: because a whole-list refusal on a move would leave every item copied and nothing deleted. So the
+#: rules below assert what still holds — the deletion is BATCHED, and the copy is not this layer's.
 _FORBIDDEN_ATTRS = {
-    "delete_objects": "this layer performs no deletion",
+    "delete_object": "deletion is batched; a per-object delete is a second deletion path",
+    "copy_object": "the transfer engine belongs to cpcommon.transfer",
+    "upload_part_copy": "the transfer engine belongs to cpcommon.transfer",
     "start_execution": "this layer starts nothing",
 }
 

@@ -202,9 +202,25 @@ def test_the_precondition_predicate_has_not_reappeared():
         # by full path: a function directory's own fakes.py WOULD ship, so the bare name is too
         # wide a hole to leave.
         and path != lambdas / "shared-space-common" / "fakes.py"
+        # file-ops' conditional DELETE classifier names these codes to tell them APART, which is
+        # the opposite of what this predicate does. cas.is_precondition deliberately collapses 409
+        # and 412 because a compare-and-set retries on either. A conditional delete must not: a 412
+        # means the object changed, which is terminal for that item because its destination copy now
+        # holds stale bytes, while a 409 means a concurrent delete or put won the race and is
+        # retryable. Binding that module to the shared predicate would give one answer to two
+        # questions. Exempted by FULL PATH, and the assertion below keeps the exemption honest.
+        and path != lambdas / "file-ops-common" / "focommon" / "delete.py"
         and any(
             code in path.read_text()
             for code in ("ConditionalRequestConflict", "PreconditionFailed")
         )
     )
     assert not offenders, f"a precondition predicate reappeared in {offenders}"
+
+    # The exemption above is only safe while that module is not a compare-and-set. If it ever grows
+    # a read-modify-write loop it must use the shared one, and this is what says so.
+    conditional_delete = (lambdas / "file-ops-common" / "focommon" / "delete.py").read_text()
+    assert "cas" not in conditional_delete.split('"""')[2], (
+        "focommon.delete has started doing compare-and-set; it must bind to cpcommon.cas, and its "
+        "exemption from the sweep above has to be re-argued"
+    )
