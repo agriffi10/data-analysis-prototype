@@ -38,6 +38,11 @@ GIB = 1024**3
 _FAILED = "copy_failed"
 _UNREADABLE = "transfer_results_unreadable"
 
+#: The attribution vocabulary these tests exercise. The engine no longer has one of its own
+#: (SPEC-189), so the suite passes a caller's — table-share's, which is what it was written
+#: against — and two dedicated tests below cover a DIFFERENT set and the empty set.
+_ECHO = ("recipient", "kind")
+
 messages.register(
     {_FAILED: "copying the data failed.", _UNREADABLE: "the transfer results were unreadable."},
     prefix="Test: ",
@@ -191,6 +196,98 @@ def test_a_worst_case_batch_stays_under_the_input_limit():
     assert len(batch.encode()) < 256 * 1024 // 2, "a worst-case batch is not far below the limit"
 
 
+def test_a_worst_case_batch_stays_under_the_limit_with_the_WIDEST_echoed_field():
+    """SPEC-189: the bound above was computed against table-share's vocabulary, and the engine no
+    longer has one.
+
+    A caller now names the fields echoed onto a failure record, and those fields ride the manifest
+    line INTO the child input — so the payload the bound was computed against grows by whatever the
+    widest caller echoes. The file-operations plane echoes ``itemKey``, which is an S3 key and may
+    be 1024 bytes, on every item. Recomputed here rather than assumed still-true, because the
+    original bound's own docstring says raising the batch size without re-checking must fail.
+    """
+    worst = {
+        "itemKey": "i" * 1024,
+        "srcBucket": "b" * 63,
+        "srcKey": "s" * 1024,
+        "destBucket": "d" * 63,
+        "destKey": "k" * 1024,
+        "size": 5 * GIB,
+    }
+    batch = json.dumps({"Items": [worst] * transfer_config.MAX_ITEMS_PER_BATCH})
+    assert len(batch.encode()) < 256 * 1024 // 2, (
+        "a worst-case batch carrying the widest echoed field is no longer far below the limit"
+    )
+
+
+def test_the_engine_echoes_the_CALLERS_fields_and_nothing_of_its_own(monkeypatch):
+    """SPEC-189 FR-002: the attribution vocabulary belongs to the plane, not to cpcommon.
+
+    Asserted by rendering, not argued (SPEC-156's precedent): the record a failure produces must
+    carry exactly the caller's fields plus the reason, in that order, and no field the engine
+    decided on its own.
+    """
+    def boom(item):
+        raise RuntimeError("deterministic")
+
+    monkeypatch.setattr(copy_mod, "_copy_item", boom)
+    item = {"itemKey": "alice/reports/", "recipient": "bob", "kind": "user", "srcKey": "x"}
+
+    outcome = copy_mod.copy_batch([item], "copy_failed", echo_fields=("itemKey",))
+
+    assert outcome["failures"] == [{"itemKey": "alice/reports/", "reason": "copy_failed"}]
+    assert list(outcome["failures"][0]) == ["itemKey", "reason"]
+
+
+def test_an_EMPTY_echo_set_drops_the_two_nulls_the_archive_used_to_emit(monkeypatch):
+    """SPEC-189 FR-002's NAMED exception, and the one caller whose records deliberately change.
+
+    The archive's manifest carries no recipient and no kind — it has one destination — so the
+    hardcoded engine wrote ``{"recipient": null, "kind": null, "reason": ...}`` onto every archive
+    failure. Passing the empty set removes both. This test exists so that change reads as intended
+    rather than as a regression someone repairs.
+    """
+    def boom(item):
+        raise RuntimeError("deterministic")
+
+    monkeypatch.setattr(copy_mod, "_copy_item", boom)
+
+    outcome = copy_mod.copy_batch([{"srcKey": "x"}], "copy_failed", echo_fields=())
+
+    assert outcome["failures"] == [{"reason": "copy_failed"}]
+    assert "recipient" not in outcome["failures"][0]
+
+
+def test_the_two_HALVES_of_the_export_produce_the_SAME_record_shape(monkeypatch):
+    """A batch that failed as a whole is attributed from its INPUT and one that succeeded from its
+    OUTPUT, and the caller joins both into one list.
+
+    So the two halves must agree on the record shape. They are separately implemented — the output
+    half copies what the batch verb already wrote, the input half rebuilds it — which is exactly
+    the pair that drifts, and a drifted record is one the caller silently cannot attribute.
+    """
+    fields = ("itemKey",)
+
+    def boom(item):
+        raise RuntimeError("deterministic")
+
+    monkeypatch.setattr(copy_mod, "_copy_item", boom)
+    from_output = copy_mod.copy_batch(
+        [{"itemKey": "alice/a/"}], "copy_failed", echo_fields=fields
+    )["failures"]
+
+    from_input, covered = results_mod._from_input(
+        {"Input": json.dumps({"Items": [{"itemKey": "alice/a/"}]})},
+        "copy_failed",
+        "transfer_results_unreadable",
+        fields,
+    )
+
+    assert [list(r) for r in from_output] == [list(r) for r in from_input]
+    assert from_output == from_input
+    assert covered == 1
+
+
 def test_a_worst_case_batch_copies_inside_the_verb_timeout():
     """SPEC-161: the batch's OTHER bound, computed as a MAKESPAN rather than a bandwidth.
 
@@ -268,7 +365,7 @@ def test_the_copy_timeout_constant_matches_the_deployed_verb():
 
 def test_every_item_is_copied_to_its_own_destination():
     fake = _setup()
-    out = copy_mod.copy_batch([_item("bob", "a.parquet"), _item("carol", "year=2025/b.parquet")], _FAILED)
+    out = copy_mod.copy_batch([_item("bob", "a.parquet"), _item("carol", "year=2025/b.parquet")], _FAILED, echo_fields=_ECHO)
 
     assert out == {"copied": 2, "failures": []}
     assert sorted((c["CopySource"]["Key"], c["Key"]) for c in fake.copies) == [
@@ -281,7 +378,7 @@ def test_every_item_is_copied_to_its_own_destination():
 def test_a_large_object_still_multipart_copies():
     fake = _setup()
     size = 5 * GIB + 512
-    copy_mod.copy_batch([_item(rel="big.parquet", size=size)], _FAILED)
+    copy_mod.copy_batch([_item(rel="big.parquet", size=size)], _FAILED, echo_fields=_ECHO)
 
     parts = [c for c in fake.multipart if "PartNumber" in c and "complete" not in c]
     complete = [c for c in fake.multipart if "complete" in c]
@@ -308,7 +405,7 @@ def test_an_item_with_no_storage_class_names_no_storage_class_at_all():
     """
     fake = _setup()
 
-    copy_mod.copy_batch([_item()], _FAILED)
+    copy_mod.copy_batch([_item()], _FAILED, echo_fields=_ECHO)
 
     assert set(fake.copies[0]) == {"Bucket", "Key", "CopySource", "MetadataDirective"}
     assert fake.copies[0]["MetadataDirective"] == "COPY"
@@ -317,7 +414,7 @@ def test_an_item_with_no_storage_class_names_no_storage_class_at_all():
 def test_an_item_carrying_a_storage_class_passes_it_to_the_copy():
     fake = _setup()
 
-    copy_mod.copy_batch([{**_item(), "storageClass": "GLACIER"}], _FAILED)
+    copy_mod.copy_batch([{**_item(), "storageClass": "GLACIER"}], _FAILED, echo_fields=_ECHO)
 
     assert fake.copies[0]["StorageClass"] == "GLACIER"
 
@@ -338,7 +435,9 @@ def test_the_storage_class_is_set_on_the_MULTIPART_CREATE_not_the_part_copies():
     fake.create_multipart_upload = lambda **kw: creates.append(kw) or real_create(**kw)
 
     copy_mod.copy_batch(
-        [{**_item(rel="big.parquet", size=6 * GIB), "storageClass": "GLACIER"}], _FAILED
+        [{**_item(rel="big.parquet", size=6 * GIB), "storageClass": "GLACIER"}],
+        _FAILED,
+        echo_fields=_ECHO,
     )
 
     assert creates[0]["StorageClass"] == "GLACIER"
@@ -354,7 +453,7 @@ def test_a_large_object_with_no_storage_class_creates_the_upload_it_always_did()
     real_create = fake.create_multipart_upload
     fake.create_multipart_upload = lambda **kw: creates.append(kw) or real_create(**kw)
 
-    copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED)
+    copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED, echo_fields=_ECHO)
 
     assert set(creates[0]) == {"Bucket", "Key"}
 
@@ -368,7 +467,7 @@ def test_a_single_copy_carries_the_sources_metadata_by_directive():
     strip every object's content type on a copy that otherwise looked identical."""
     fake = _setup()
 
-    copy_mod.copy_batch([_item()], _FAILED)
+    copy_mod.copy_batch([_item()], _FAILED, echo_fields=_ECHO)
 
     assert fake.copies[0]["MetadataDirective"] == "COPY"
     assert fake.heads == [], "a single copy needs no HeadObject — the directive does the work"
@@ -396,7 +495,7 @@ def test_a_multipart_copy_restates_the_sources_content_type_and_metadata():
     real_create = fake.create_multipart_upload
     fake.create_multipart_upload = lambda **kw: creates.append(kw) or real_create(**kw)
 
-    copy_mod.copy_batch([_item(rel="big.csv", size=6 * GIB)], _FAILED)
+    copy_mod.copy_batch([_item(rel="big.csv", size=6 * GIB)], _FAILED, echo_fields=_ECHO)
 
     assert fake.heads, "the multipart path did not read the source — this test measures nothing"
     assert creates[0]["ContentType"] == "text/csv; charset=utf-8"
@@ -437,7 +536,7 @@ def _round_trip(size):
     fake.create_multipart_upload = _observed
 
     archived = {**_item(rel="q1.parquet", size=size), "storageClass": "GLACIER"}
-    copy_mod.copy_batch([archived], _FAILED)
+    copy_mod.copy_batch([archived], _FAILED, echo_fields=_ECHO)
     copy_mod.copy_batch(
         [
             {
@@ -450,6 +549,7 @@ def _round_trip(size):
             }
         ],
         _FAILED,
+        echo_fields=_ECHO,
     )
     return fake, creates
 
@@ -463,12 +563,12 @@ def test_the_multipart_paths_new_HEAD_is_a_real_failure_point_and_is_handled():
     fake.head_object = lambda **kw: (_ for _ in ()).throw(_S3Error("SlowDown"))
 
     with pytest.raises(TransientError):
-        copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED)
+        copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED, echo_fields=_ECHO)
 
     fake = _setup()
     fake.head_object = lambda **kw: (_ for _ in ()).throw(_S3Error("NoSuchKey"))
 
-    out = copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED)
+    out = copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED, echo_fields=_ECHO)
 
     assert out["copied"] == 0
     assert out["failures"] == [{"recipient": "bob", "kind": "user", "reason": _FAILED}]
@@ -485,7 +585,7 @@ def test_a_source_header_the_object_does_not_carry_is_not_stamped_over_the_defau
     real_create = fake.create_multipart_upload
     fake.create_multipart_upload = lambda **kw: creates.append(kw) or real_create(**kw)
 
-    copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED)
+    copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED, echo_fields=_ECHO)
 
     assert set(creates[0]) == {"Bucket", "Key"}
 
@@ -497,7 +597,9 @@ def test_the_storage_class_travels_per_ITEM_and_not_per_batch():
     fake = _setup()
 
     copy_mod.copy_batch(
-        [{**_item(rel="a.parquet"), "storageClass": "GLACIER"}, _item(rel="b.parquet")], _FAILED
+        [{**_item(rel="a.parquet"), "storageClass": "GLACIER"}, _item(rel="b.parquet")],
+        _FAILED,
+        echo_fields=_ECHO,
     )
 
     assert [c.get("StorageClass") for c in fake.copies] == ["GLACIER", None]
@@ -519,6 +621,7 @@ def test_one_bad_item_never_costs_its_siblings_their_copy():
     out = copy_mod.copy_batch(
         [_item("bob", "good-1.parquet"), _item("carol", "bad.parquet"), _item("bob", "good-2.parquet")],
         _FAILED,
+        echo_fields=_ECHO,
     )
 
     assert out["copied"] == 2
@@ -528,19 +631,19 @@ def test_one_bad_item_never_costs_its_siblings_their_copy():
 
 def test_a_failure_names_the_recipient_and_never_the_key():
     _setup(copy_error=_S3Error("AccessDenied"))
-    out = copy_mod.copy_batch([_item("bob", "secret-name.parquet")], _FAILED)
+    out = copy_mod.copy_batch([_item("bob", "secret-name.parquet")], _FAILED, echo_fields=_ECHO)
     assert out["failures"] == [{"recipient": "bob", "kind": "user", "reason": _FAILED}]
 
 
 def test_a_throttled_item_raises_so_the_batch_retries():
     _setup(copy_error=_S3Error("SlowDown"))
     with pytest.raises(TransientError):
-        copy_mod.copy_batch([_item()], _FAILED)
+        copy_mod.copy_batch([_item()], _FAILED, echo_fields=_ECHO)
 
 
 def test_a_malformed_line_fails_its_own_item_only():
     fake = _setup()
-    out = copy_mod.copy_batch([{"recipient": "bob"}, _item("carol")], _FAILED)
+    out = copy_mod.copy_batch([{"recipient": "bob"}, _item("carol")], _FAILED, echo_fields=_ECHO)
 
     assert out["copied"] == 1
     assert out["failures"] == [{"recipient": "bob", "kind": None, "reason": _FAILED}]
@@ -550,7 +653,7 @@ def test_a_malformed_line_fails_its_own_item_only():
 def test_a_failed_multipart_upload_is_aborted():
     fake = _setup()
     fake.upload_part_copy = lambda **kwargs: (_ for _ in ()).throw(_S3Error("AccessDenied"))
-    out = copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED)
+    out = copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED, echo_fields=_ECHO)
 
     assert out["failures"] == [{"recipient": "bob", "kind": "user", "reason": _FAILED}]
     assert len(fake.aborted) == 1
@@ -562,7 +665,7 @@ def test_a_failed_abort_never_hides_the_copy_failure():
     fake.upload_part_copy = lambda **kwargs: (_ for _ in ()).throw(_S3Error("AccessDenied"))
     fake.abort_multipart_upload = lambda **kwargs: (_ for _ in ()).throw(_S3Error("AccessDenied"))
 
-    out = copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED)
+    out = copy_mod.copy_batch([_item(rel="big.parquet", size=6 * GIB)], _FAILED, echo_fields=_ECHO)
 
     assert out["failures"] == [{"recipient": "bob", "kind": "user", "reason": _FAILED}]
 
@@ -589,7 +692,7 @@ def test_the_pool_is_bounded():
                 state["in_flight"] -= 1
 
     fake.copy_object = _observed
-    out = copy_mod.copy_batch([_item(rel=f"p{i}.parquet") for i in range(20)], _FAILED, concurrency=2)
+    out = copy_mod.copy_batch([_item(rel=f"p{i}.parquet") for i in range(20)], _FAILED, echo_fields=_ECHO, concurrency=2)
 
     assert out["copied"] == 20
     assert state["peak"] <= 2, f"the pool exceeded its bound: {state['peak']} in flight"
@@ -640,6 +743,7 @@ def _read_outcome(objects):
         "table-share/h/exec/results/manifest.json",
         batch_failure_reason=_FAILED,
         unreadable_reason=_UNREADABLE,
+        echo_fields=_ECHO,
     )
 
 
@@ -686,6 +790,7 @@ def test_the_reader_parses_a_real_map_run_manifest():
         "results/manifest.json",
         batch_failure_reason=_FAILED,
         unreadable_reason=_UNREADABLE,
+        echo_fields=_ECHO,
     )
 
     assert outcome == {"failures": [], "items": 2}
@@ -902,6 +1007,7 @@ def test_a_throttled_results_read_is_transient():
             "k.json",
             batch_failure_reason=_FAILED,
             unreadable_reason=_UNREADABLE,
+            echo_fields=_ECHO,
         )
 
 

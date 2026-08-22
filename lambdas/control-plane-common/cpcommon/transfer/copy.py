@@ -238,7 +238,13 @@ def _copy_item(item: dict) -> None:
     )
 
 
-def copy_batch(items: list, failure_reason: str, concurrency: int = COPY_CONCURRENCY) -> dict:
+def copy_batch(
+    items: list,
+    failure_reason: str,
+    *,
+    echo_fields: tuple,
+    concurrency: int = COPY_CONCURRENCY,
+) -> dict:
     """Copies every item in a batch, isolating deterministic per-item failures.
 
     Transient faults are collected across the whole batch and re-raised once every in-flight
@@ -246,18 +252,34 @@ def copy_batch(items: list, failure_reason: str, concurrency: int = COPY_CONCURR
     A batch carrying both kinds raises: the transient item deserves its retry, and the
     deterministic ones will simply be re-reported next time round.
 
+    **THE ATTRIBUTION VOCABULARY IS THE CALLER'S, NOT THIS MODULE'S.** It used to be table-share's
+    ``recipient``/``kind`` hardcoded here, which made the engine unusable by a plane that
+    attributes to something else: a field placed on a manifest line rode into the child input and
+    was dropped on the way out. The file-operations plane attributes to a selected ITEM, so the
+    caller now names the fields to echo. ``echo_fields`` has **no default** — a default would hand a
+    new caller either table-share's vocabulary or an empty set, and either is wrong without a
+    review.
+
+    **The echoed fields must stay BOUNDED**, and that is a rule rather than a convention: this list
+    rides the exported result and then the state, where a key list is the unbounded term that
+    breaches the 256 KB limit ON the Map and destroys every per-item outcome the export exists to
+    preserve. Echo a name, never a key set.
+
     Args:
       items: The batch's transfer items.
       failure_reason: The domain's reason code for a failed item, carried into each outcome —
         cpcommon owns the algorithm, the calling plane owns the wording.
+      echo_fields: The manifest-line fields copied onto each failure record, in the order the
+        caller wants them. An EMPTY tuple is meaningful and is what a plane with one destination
+        passes — the archive needs only the count, and echoing two fields its manifest never
+        carried wrote ``{"recipient": null, "kind": null}`` onto every archive failure.
       concurrency: Worker pool size.
 
     Returns:
-      ``{"copied": n, "failures": [{"recipient": …, "kind": …, "reason": …}, …]}``. Failures name
-      the recipient and never the key: the list rides the exported result and then the state, and
-      keys are the unbounded term. The ``kind`` travels with the name because a destination is a
-      ``(kind, name)`` pair — nothing stops a shared space being named after a user, and attributing
-      on the name alone would deny one of them a transfer the other lost.
+      ``{"copied": n, "failures": [{<echoed fields>, "reason": …}, …]}``. Where a caller echoes a
+      destination it echoes the ``(kind, name)`` PAIR, because a destination is that pair — nothing
+      stops a shared space being named after a user, and attributing on the name alone would deny
+      one of them a transfer the other lost.
 
     Raises:
       TransientError: When any item failed retryably, after every in-flight copy has settled.
@@ -275,11 +297,10 @@ def copy_batch(items: list, failure_reason: str, concurrency: int = COPY_CONCURR
                 logger.warning(
                     "copy failed for %s/%s: %s", item.get("srcBucket"), item.get("srcKey"), exc
                 )
-                failures.append({
-                    "recipient": item.get("recipient"),
-                    "kind": item.get("kind"),
-                    "reason": failure_reason,
-                })
+                failures.append(
+                    {field: item.get(field) for field in echo_fields}
+                    | {"reason": failure_reason}
+                )
     if transient is not None:
         raise transient
     return {"copied": len(items) - len(failures), "failures": failures}

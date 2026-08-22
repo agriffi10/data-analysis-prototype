@@ -95,6 +95,7 @@ def _failed_item_counts(event, accepted: int) -> Counter:
         key,
         batch_failure_reason=COPY_FAILED,
         unreadable_reason=RESULTS_UNREADABLE,
+        echo_fields=("recipient", "kind"),
     )
     if outcome["items"] != expected:
         raise TerminalError(

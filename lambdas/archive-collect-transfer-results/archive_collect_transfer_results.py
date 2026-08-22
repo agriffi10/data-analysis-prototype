@@ -131,6 +131,7 @@ def _collect_transfer_results(event) -> dict:
         key,
         batch_failure_reason=COPY_FAILED,
         unreadable_reason=RESULTS_UNREADABLE,
+        echo_fields=(),
     )
     failed = len(outcome["failures"])
     unaccounted = expected - outcome["items"]

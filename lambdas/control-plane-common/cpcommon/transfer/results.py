@@ -167,7 +167,9 @@ def _from_output(record: dict, unreadable_reason: str) -> tuple:
     return failures, copied + len(failures)
 
 
-def _from_input(record: dict, batch_failure_reason: str, unreadable_reason: str) -> tuple:
+def _from_input(
+    record: dict, batch_failure_reason: str, unreadable_reason: str, echo_fields: tuple
+) -> tuple:
     """Turns a whole-batch failure into one failure entry per item it carried.
 
     Every item in the batch fails, including any the child had already copied before it died. That
@@ -178,6 +180,9 @@ def _from_input(record: dict, batch_failure_reason: str, unreadable_reason: str)
       record: One exported ``FAILED`` or ``PENDING`` record.
       batch_failure_reason: The domain reason code for an item whose batch never completed.
       unreadable_reason: The domain reason code for an unattributable record.
+      echo_fields: The manifest-line fields copied onto each failure record — the SAME set
+        ``copy_batch`` echoes, because the caller joins the two halves of the export into one list
+        and a record shaped differently on one half is one it cannot attribute.
 
     Returns:
       ``(failures, items covered)``.
@@ -193,11 +198,7 @@ def _from_input(record: dict, batch_failure_reason: str, unreadable_reason: str)
             "a failed child execution's input carries no item batch to attribute",
         )
     failures = [
-        {
-            "recipient": item.get("recipient"),
-            "kind": item.get("kind"),
-            "reason": batch_failure_reason,
-        }
+        {field: item.get(field) for field in echo_fields} | {"reason": batch_failure_reason}
         for item in items
         if isinstance(item, dict)
     ]
@@ -205,7 +206,12 @@ def _from_input(record: dict, batch_failure_reason: str, unreadable_reason: str)
 
 
 def read_failed_items(
-    bucket: str, manifest_key: str, *, batch_failure_reason: str, unreadable_reason: str
+    bucket: str,
+    manifest_key: str,
+    *,
+    batch_failure_reason: str,
+    unreadable_reason: str,
+    echo_fields: tuple,
 ) -> dict:
     """Reads a Map Run's export and returns every failed item, attributed to its recipient.
 
@@ -221,9 +227,13 @@ def read_failed_items(
       manifest_key: The run manifest's key from the same place.
       batch_failure_reason: The reason code for an item whose whole batch failed.
       unreadable_reason: The reason code for an export that cannot be read or attributed.
+      echo_fields: The manifest-line fields each failure record carries, which is the caller's
+        attribution vocabulary rather than this module's. It must match what the batch verb echoed:
+        the two halves of the export are joined into one list, and a record shaped differently on
+        one half is one the caller cannot attribute.
 
     Returns:
-      ``{"failures": [{"recipient", "kind", "reason"}, …], "items": n}`` — ``failures`` empty when
+      ``{"failures": [{<echoed fields>, "reason"}, …], "items": n}`` — ``failures`` empty when
       every item copied, ``items`` the number of manifest items the export accounted for.
 
     Raises:
@@ -258,7 +268,9 @@ def read_failed_items(
                 found, covered = (
                     _from_output(record, unreadable_reason)
                     if group == _SUCCEEDED
-                    else _from_input(record, batch_failure_reason, unreadable_reason)
+                    else _from_input(
+                        record, batch_failure_reason, unreadable_reason, echo_fields
+                    )
                 )
                 failures.extend(found)
                 items += covered
