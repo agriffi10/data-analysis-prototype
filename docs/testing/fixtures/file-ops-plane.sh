@@ -184,3 +184,82 @@ echo "== 9. Everything above appears in the structured log =="
 echo "   s3://$ADMIN_BUCKET/logs/service=file-ops/year=$(date -u +%Y)/month=$(date -u +%m)/day=$(date -u +%d)/data.jsonl"
 echo "   Every record must carry a populated \`env\` and \`version\`. An empty \`env\` means the"
 echo "   verbs shipped without ENV_NAME, which no offline test can see."
+
+# ── SPEC-189: the transfer, the source deletion and the terminals ────────────────────────────────
+#
+# These six are what the offline suites structurally cannot settle. The first four need a real Map
+# Run; the fifth needs S3 itself to answer a question the docs do not; the sixth needs the deployed
+# role.
+
+echo
+echo "== 10. A real move of a folder past the 1,000-key pagination boundary =="
+echo "   FIXTURE: create >1,000 objects under \$USERNAME/fileops-big/ first, e.g."
+echo "     seq 1 1200 | xargs -P 16 -I{} aws s3 cp /dev/null s3://$USER_SPACE_BUCKET/$USERNAME/fileops-big/{}.txt"
+echo "   Then send a move of that folder to \$USERNAME/fileops-out/ and watch the execution."
+echo "   PASS: every object arrives at the destination, the SOURCE FOLDER IS EMPTY afterwards, and"
+echo "   the terminal's outcome list names the item 'moved'. The Map Run's export under"
+echo "   s3://$ADMIN_BUCKET/file-ops/<requestId>/results/ must account for EVERY manifest line —"
+echo "   a shortfall is a whole-request failure by design, so a green run with missing objects"
+echo "   would mean the reconciliation is not running."
+
+echo
+echo "== 11. The batch path's error CODE strings — the check no doc can replace =="
+echo "   AWS documents that DeleteObjects answers HTTP 200 with a failed object in an <Error>"
+echo "   element, and does NOT document the Code string it uses. TWO strings are needed:"
+echo "     (a) the PRECONDITION MISMATCH code, for a conditional delete whose ETag has moved;"
+echo "     (b) the ALREADY-GONE code, for a key a previous attempt already removed."
+echo "   (b) matters as much as (a): a retried delete-source meets keys its predecessor deleted, and"
+echo "   reading those as failures reports correctly-moved items to the user as 'duplicate'."
+echo "   RECIPE (run as an operator, not as the plane):"
+echo "     aws s3 cp /dev/null s3://$USER_SPACE_BUCKET/$USERNAME/probe.txt"
+echo "     ETAG=\$(aws s3api head-object --bucket $USER_SPACE_BUCKET --key $USERNAME/probe.txt --query ETag --output text)"
+echo "     aws s3 cp /dev/null s3://$USER_SPACE_BUCKET/$USERNAME/probe.txt   # change it"
+echo "     aws s3api delete-objects --bucket $USER_SPACE_BUCKET \\"
+echo "       --delete \"{\\\"Objects\\\":[{\\\"Key\\\":\\\"$USERNAME/probe.txt\\\",\\\"ETag\\\":\\\$ETAG}],\\\"Quiet\\\":false}\""
+echo "     # then repeat against a key that is ALREADY DELETED for (b)."
+echo "   PASS: both codes are members of focommon/delete.py's _PRECONDITION_CODES and _ALREADY_GONE."
+echo "   If either is not, ADD IT — an unrecognised code currently fails the item, which is the safe"
+echo "   direction but reports a false failure."
+
+echo
+echo "== 12. A move whose source is MODIFIED between the copy and the delete =="
+echo "   RECIPE: send a move of a large folder, then while the Map is running overwrite one of its"
+echo "   source objects."
+echo "   PASS: that item ends as 'duplicate' with reason 'source_changed' — NOT a silent skip and"
+echo "   NOT a success. The user holds the data in two places and only they can choose which to"
+echo "   keep, so the outcome has to say so."
+
+echo
+echo "== 13. A delete of a folder holding a NESTED DO_NOT_DELETE.txt =="
+echo "   FIXTURE:"
+echo "     aws s3 cp /dev/null s3://$USER_SPACE_BUCKET/$USERNAME/fileops-marked/keep/DO_NOT_DELETE.txt"
+echo "     aws s3 cp /dev/null s3://$USER_SPACE_BUCKET/$USERNAME/fileops-marked/ordinary.txt"
+echo "   Send a delete of \$USERNAME/fileops-marked/."
+echo "   PASS: the marker SURVIVES and ordinary.txt is GONE. Only true because assert_item_deletable"
+echo "   is scoped per item — a whole-list refusal would leave the whole folder untouched, and no"
+echo "   refusal at all would fail the batch part way through."
+
+echo
+echo "== 14. Does S3 ENFORCE the conditional delete on these buckets? =="
+echo "   THE GATE ON CONDITIONAL_DELETE_ENABLED. focommon/delete.py ships with the HEAD-compare path"
+echo "   ACTIVE because a service model carrying ObjectIdentifier.ETag proves only that botocore"
+echo "   will SERIALIZE the condition — not that S3 honours it. A serialized-but-ignored condition"
+echo "   deletes a changed source silently, with versioning off, which is this plane's worst outcome."
+echo "   RECIPE: take a real ETag, change the object, then delete it WITH the stale ETag (see §11)."
+echo "   PASS: the delete is REFUSED. Only then flip CONDITIONAL_DELETE_ENABLED to True."
+echo "   FAIL, or ambiguous: leave it False. The HEAD-compare path is correct, merely racier."
+
+echo
+echo "== 15. The execution role's IAM simulation, every denial PAIRED with a control =="
+echo "   Against the DEPLOYED role, because a rendered policy is not the role that exists."
+echo "   ROLE=arn:aws:iam::<account>:role/<project>-<env>-file-ops-execution-role"
+echo "   Each denial below must be run beside an ALLOWED control on the same action — an implicitDeny"
+echo "   alone cannot tell an ungranted action from a wrong resource ARN."
+echo "     DENY:  s3:DeleteObject on $USER_SPACE_BUCKET/alice/athenaresults/r.csv"
+echo "     ALLOW: s3:DeleteObject on $USER_SPACE_BUCKET/alice/reports/r.csv"
+echo "     DENY:  s3:DeleteObject on $USER_SPACE_BUCKET/alice/anything/DO_NOT_DELETE.txt"
+echo "     DENY:  s3:PutObject   on $USER_SPACE_BUCKET/alice/user_settings/s.json"
+echo "     ALLOW: s3:PutObject   on $USER_SPACE_BUCKET/alice/out/r.csv"
+echo "   Repeat every row against $SHARED_SPACE_BUCKET — the two buckets' Denies are written"
+echo "   separately and a folder present in one and missing from the other is exactly the shape"
+echo "   this catches."

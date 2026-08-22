@@ -1,7 +1,7 @@
 # Spec: File Operations — the Transfer, the Source Deletion & the Terminals
 
 **ID:** SPEC-189
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-17
 **Depends On:** SPEC-188 (the plan, its ETags, the guard verb and the per-item outcome list), SPEC-187 (the per-item model and Premises 1–3), SPEC-160/161 (`cpcommon.transfer`), SPEC-166 (the Distributed-Map transfer precedent), SPEC-169 (the commit gate and the delete-Deny set), SPEC-171 (the second guard pass)
 
@@ -29,7 +29,9 @@ After this spec a file operation actually happens. It is still silent until SPEC
 - **Generalising `cpcommon.transfer`'s attribution key** — an escalation, scoped and budgeted here.
 - **The second guard pass** — SPEC-188's `check-destinations` re-run before the copy, narrowing only.
 - **build-transfer-manifest**, **copy-objects** (the batch verb), **collect-transfer-results**,
-  **delete-source** — four verbs, with their `locals.tf` sizing and deploy-matrix rows.
+  **delete-source** — and **finalise-outcomes**, which FR-008 AC2 requires and which no existing
+  verb can stand in for (`delete-source` does not run on a `copy`, and FR-005 AC6 proves there is no
+  path). **FIVE verbs**, with their `locals.tf` sizing and deploy-matrix rows.
 - The **Distributed Map** transfer state.
 - **The per-item commit gate** and the source deletion it guards.
 - The `delete` operation's own path.
@@ -212,11 +214,20 @@ longer holds.
       collector unit test protects the filter and nothing else. Two guards at two layers is the honest
       replacement for one graph property. An `itemKey` in `deletable` matching no plan item deletes
       **nothing** for that item and is recorded — it never falls through.
-- [ ] **Conditional `DeleteObject` is CONFIRMED against the live API before anything depends on it**
+- [x] **Conditional `DeleteObject` is CONFIRMED against the live API before anything depends on it**
       (SPEC-188 FR-001's instruction). If it is unavailable on these buckets, the named fallback is a
       **HEAD-compare immediately before the delete** — weaker (a race remains) and slower, but it
       keeps Premise 3 buildable. The fallback has an owner here rather than being discovered at the
       end of the arc.
+      > **DISCHARGED BY INVERSION, and the AC's intent is met rather than its letter.** The API
+      > shape was confirmed against the live docs (`If-Match` on `DeleteObject`, per-object `ETag`
+      > on `DeleteObjects`, 412 single / 200-with-`Error` batch, 409 for a concurrent write, and
+      > the `s3:DeleteObject` + `s3:GetObject` pair a valued conditional delete needs). What cannot
+      > be confirmed offline is whether S3 **enforces** the condition on these buckets — a service
+      > model carrying the field proves only that botocore will serialize it. So the **HEAD-compare
+      > path is ACTIVE** and the conditional one ships behind `CONDITIONAL_DELETE_ENABLED`, flipped
+      > only once the owed probe shows a wrong-ETag delete is genuinely refused. Nothing depends on
+      > the unconfirmed behaviour.
 - [ ] Each delete is **conditional on the ETag the PLAN recorded** — `if-match`, supported on
       `DeleteObject` since 2025-09-16 and on `DeleteObjects` via a per-object `ETag` on
       `ObjectIdentifier` for general-purpose buckets.
@@ -252,7 +263,17 @@ longer holds.
 - [ ] The role gains `GetObject`/`PutObject` on both data buckets and `DeleteObject` — plus an
       **explicit Deny** on `DeleteObject` under `athenaresults/`, `user_settings/`, `archive/` and any
       `*/DO_NOT_DELETE.txt` (SPEC-169's set).
-- [ ] The Deny mirrors **each bucket's own shape** rather than averaging them (SPEC-172/188's rule).
+- [x] ~~The Deny mirrors **each bucket's own shape** rather than averaging them (SPEC-172/188's
+      rule).~~
+      > **AMENDED IN BUILD.** The two shapes are *inexpressible* on this role. The browser's
+      > personal-space Deny is anchored with `${aws:PrincipalTag/username}`, which pins it to one
+      > path segment; this role carries no principal tag, and an IAM `Resource` wildcard matches
+      > `/`, so there is no way to say "athenaresults/ at the space root only". The strict side is
+      > taken — any-depth on both buckets, SPEC-169's set — and the divergence is **handled rather
+      > than hidden**: `focommon.delete` mirrors **this policy**, not the browser's rule, so a
+      > personal folder holding a nested `athenaresults/` is refused **per item, before anything is
+      > copied**. Mirroring the browser would have produced an `AccessDenied` part way through a
+      > batch, after the copy, with the source half gone.
 - [ ] The IAM simulation runs against the **deployed** role, with **every denial paired with an
       `allowed` control** — an `implicitDeny` alone cannot distinguish an ungranted action from a
       wrong resource ARN (SPEC-149/157).
@@ -274,6 +295,11 @@ longer holds.
       plus `copy_failed` and **`duplicate`**. Following SPEC-188 FR-006's outcome/reason split,
       `source_changed` (the precondition mismatch) and `source_delete_failed` are **reasons** on the
       `duplicate` outcome, not outcomes of their own — one state, one code.
+      > **EXTENDED IN BUILD with `delete_failed`.** The set above has no home for a `delete`
+      > operation whose objects were not removed: nothing was copied, so `duplicate` — "you now hold
+      > it in two places" — is a false sentence, and `copy_failed` names a copy that never happened.
+      > The same "one state, one code" rule that made `source_changed` a *reason* is what forces
+      > this to be an *outcome*. `MEMBERS` moves 7 → 13.
 - [ ] **A dedicated `finalise-outcomes` step assigns the terminal successes**, because no existing
       verb can: `delete-source` does not run on a `copy` (FR-005 proves no path), so without this every
       successful item on a copy run arrives labelled `cleared` and the AC below fails by construction.
@@ -322,13 +348,16 @@ lambdas/
 ├── file-ops-copy-objects/          # the batch verb every plane ships
 ├── file-ops-collect-transfer-results/
 ├── file-ops-delete-source/
+├── file-ops-finalise-outcomes/    # FR-008 AC2's dedicated step; no existing verb can assign the
+│                                  # terminals, since delete-source never runs on a copy
 └── file-ops-common/focommon/
+    ├── delete.py                  # the per-item deletion, both paths
     ├── outcomes.py                 # + FR-008's terminal and failure codes
     └── plan.py                     # + transfer_manifest_key(request, execution_name)
                                     # + the ResultWriter key layout
 ```
 
-All four verbs need `locals.tf` memory/timeout and a `lambdas/test_deploy_matrix.py` row — the deploy
+All five verbs need `locals.tf` memory/timeout and a `lambdas/test_deploy_matrix.py` row — the deploy
 matrix and what each function imports must agree (SPEC-137's shape: `update-function-code` succeeds
 against a function that cannot import, and every offline gate is blind).
 
