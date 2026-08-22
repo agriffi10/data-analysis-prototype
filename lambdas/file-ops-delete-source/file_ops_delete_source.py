@@ -95,6 +95,10 @@ def handler(event, context) -> dict:
 def _delete_source(event) -> dict:
     """Deletes the plan's keys for every confirmed item, one item at a time.
 
+    The subset guard is called immediately before each item's keys reach S3, inside the loop rather
+    than once above it. Hoisted, it would check the filtered set against the set it was filtered by
+    — true by construction — and the property that matters is that removing the skip makes it fire.
+
     Per item rather than across the selection, so a refusal or a precondition mismatch costs its own
     item and no other — and so ``Errors[].Key`` attributes back with no join. An item key in the
     confirmed set that names no plan item deletes NOTHING and is recorded rather than falling
@@ -128,8 +132,6 @@ def _delete_source(event) -> dict:
             continue
         keys = [obj["srcKey"] for obj in item["objects"] if obj.get("srcKey")]
         etags = {obj["srcKey"]: obj.get("etag") or "" for obj in item["objects"]}
-        # The guard sits HERE, immediately before the keys reach S3, rather than over the filter
-        # above — a check placed after the filter would re-check the filter with itself.
         _assert_subset({item_key}, deletable)
         try:
             removed = delete.delete_item_keys(

@@ -45,6 +45,15 @@ queryable set. The per-verb identity rides as the ``verb`` field.
 
 Attributes:
   SECOND_PASS: The ``guardPass`` value that means "immediately before the transfer".
+
+    **AN ABSENT OR UNUSABLE SEED READS AS THE FIRST PASS, AND THAT IS THE SAFE DIRECTION — THE
+    OBVIOUS ARGUMENT FOR THE OTHER ONE IS BACKWARDS.** It runs: "the second pass may only narrow, so
+    defaulting to it can never resurrect a decided conflict." True, and beside the point. The second
+    pass evaluates only items the incoming outcome list marks ``cleared``, so on a state whose list
+    is absent or empty it evaluates **nothing at all** — every item keeps the ``cleared`` it arrived
+    with and the transfer copies it having checked **no destination**, over whatever is already
+    there. Defaulting to the first pass heads every planned key instead. Resurrecting a conflict
+    misreports one item; skipping the guard overwrites a user's files.
   _CONFLICT_REASONS: The reason code each pass records a collision under. Two codes rather than
     one because the second pass's collision is a different event — something arrived while the
     operation was being prepared, which is worth wording differently from something that was
@@ -375,7 +384,8 @@ def _check_destinations(event) -> dict:
     """
     actor = (event.get("actor") or {}).get("username")
     loaded = plan.load(event.get("planKey"), event)
-    guard_pass = event.get("guardPass") if isinstance(event.get("guardPass"), int) else 1
+    seeded = event.get("guardPass")
+    guard_pass = seeded if isinstance(seeded, int) and not isinstance(seeded, bool) else 1
 
     decided, checked = _guard(loaded, event, guard_pass)
     conflicted = [record for record in decided if record["outcome"] == outcomes.CONFLICT]

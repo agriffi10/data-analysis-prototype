@@ -252,11 +252,28 @@ def test_an_export_SHORT_of_the_manifest_fails_the_WHOLE_request():
 
 def test_an_item_whose_manifest_lines_DISAGREE_with_the_plan_is_not_deletable():
     """The second shortfall that keeps an item out: the copy reported no failure, but fewer lines
-    were written for it than the plan holds objects, so something was never offered to the Map."""
+    were written for it than the plan holds objects, so something was never offered to the Map.
+
+    **The two sides of this check must come from different places or it proves nothing.** The plan's
+    per-item ``objectCount`` is one side; the other is what ``build-transfer-manifest`` actually
+    WROTE, counted from the lines themselves. An earlier version reported the plan's own
+    ``objectCount`` back as the line count, which made the comparison a tautology no fixture could
+    fail honestly — the input below was one the builder could not emit.
+
+    The divergence this catches is real and unguarded elsewhere: ``plan.load`` sums actual objects
+    against the TOP-LEVEL count only, never per item, so an item whose ``objectCount`` disagrees with
+    its own object list passes the plan reader.
+    """
     items = [_item("alice/a/", "a", 3)]
+    # An item whose recorded count exceeds its actual objects: the plan reader accepts it (its own
+    # check is the top-level total), and the builder writes one line per real object.
+    items[0]["objectCount"] = 4
+    plan = _plan(items)
+    plan["objectCount"] = 3
     transfer = _transfer(items)
-    transfer["itemLines"] = [{"itemKey": "alice/a/", "lines": 2}]
-    _install(_plan(items), _export([{"Output": json.dumps({"copied": 3, "failures": []})}]))
+    transfer["itemCount"] = 3
+    transfer["itemLines"] = [{"itemKey": "alice/a/", "lines": 3}]
+    _install(plan, _export([{"Output": json.dumps({"copied": 3, "failures": []})}]))
 
     result = m._collect_transfer_results(_event(items, transfer=transfer))
 

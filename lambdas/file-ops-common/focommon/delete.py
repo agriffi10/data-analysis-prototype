@@ -30,6 +30,16 @@ of twenty, hit a throttle and retried would report every one of those five as a 
 user would be told a completed move half-failed. "Gone" is therefore success and only a genuine
 mismatch is ``source_changed``.
 
+**ONE THING TO SETTLE BEFORE THE CONDITIONAL PATH IS SWITCHED ON.** A 409 raises ``TransientError``,
+which is right for the object — the write is retryable — but it escalates to the whole REQUEST: after
+the state's retries, ``DeleteSource``'s ``Catch`` reaches the failure path and the finaliser never
+runs, so a ``move`` in which most items deleted cleanly reports a whole-request failure with no
+per-item terminals. That is against this plane's rule that a whole-request terminal comes only from a
+property of the request. It is unreachable today — ``ConditionalRequestConflict`` is a
+conditional-request code and ``CONDITIONAL_DELETE_ENABLED`` is ``False`` — and it must be resolved,
+by collecting the conflict as a per-item retryable outcome rather than raising, before that flag
+flips.
+
 **Counts and reasons, never keys.** What this returns reaches a user-facing message and the Step
 Functions record; a failure naming file paths is a disclosure this plane has no reason to make.
 
@@ -45,8 +55,11 @@ Attributes:
   DELETE_REFUSED: Reason for an item refused before any delete was issued, because one of its keys
     is somewhere this plane may not delete.
   _PRECONDITION_CODES: What S3 answers when the ETag does not match. 412 on the single-object path;
-    on the batch path the ``Code`` string is UNDOCUMENTED, so the set is deliberately generous and
-    anything unrecognised still FAILS the object rather than passing it.
+    on the batch path the ``Code`` string is UNDOCUMENTED and an owed live probe settles it.
+    **Deliberately NOT generous**: a generic code such as ``InvalidRequest`` mapped here would tell
+    the user their file "was changed while this was running" for a fault that has nothing to do with
+    the ETag. Anything unrecognised falls to ``SOURCE_DELETE_FAILED``, which fails the object just
+    as firmly and claims only what is known.
   _CONFLICT_CODES: A concurrent delete or put that beat this one. AWS documents it as a 409 and it
     is NOT a precondition mismatch — it is retryable, where a mismatch is terminal for that object.
   _ALREADY_GONE: The object is not there. On the unconditional path S3 never says this; on the
@@ -94,9 +107,7 @@ SOURCE_CHANGED = "source_changed"
 SOURCE_DELETE_FAILED = "source_delete_failed"
 DELETE_REFUSED = "delete_refused"
 
-_PRECONDITION_CODES = frozenset(
-    {"PreconditionFailed", "412", "PreconditionNotMet", "InvalidRequest"}
-)
+_PRECONDITION_CODES = frozenset({"PreconditionFailed", "412", "PreconditionNotMet"})
 
 _CONFLICT_CODES = frozenset({"ConditionalRequestConflict", "409"})
 

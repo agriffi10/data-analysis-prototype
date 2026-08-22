@@ -38,6 +38,7 @@ import logging
 
 from cpcommon import config, observability
 from cpcommon.errors import TerminalError
+from cpcommon.paths import normalize_root
 from cpcommon.transfer import manifest as manifest_mod
 from focommon import delete, notify, outcomes, plan
 
@@ -180,7 +181,7 @@ def _build_transfer_manifest(event) -> dict:
     operation = event.get("operation")
     loaded = plan.load(event.get("planKey"), event)
     cleared = _cleared_keys(event.get("outcomes"))
-    root = (loaded.get("source") or {}).get("root") or ""
+    root = normalize_root((loaded.get("source") or {})["root"])
 
     decided, items, lines = [], [], []
     for item in loaded["items"]:
@@ -192,14 +193,12 @@ def _build_transfer_manifest(event) -> dict:
             except TerminalError as err:
                 decided.append(_refusal(item, err))
                 continue
-        items.append(item)
-        lines.extend(_lines(item) if operation != "delete" else [])
+        written = _lines(item) if operation != "delete" else []
+        items.append((item, len(written)))
+        lines.extend(written)
 
     results_prefix = plan.transfer_results_prefix(event)
-    item_lines = [
-        {"itemKey": item["itemKey"], "lines": item["objectCount"] if operation != "delete" else 0}
-        for item in items
-    ]
+    item_lines = [{"itemKey": item["itemKey"], "lines": count} for item, count in items]
 
     key = ""
     if lines:

@@ -609,3 +609,24 @@ def test_the_FIRST_pass_judges_every_planned_item_even_with_no_outcomes_yet():
 
     assert sorted(fake.heads) == ["alice/out/a/0", "alice/out/b/0"]
     assert len(result["outcomes"]) == 2
+
+
+def test_an_absent_seed_CHECKS_EVERY_DESTINATION_rather_than_skipping_the_guard():
+    """Why the fallback is pass ONE, stated as a test because the opposite reads more safely.
+
+    "The second pass may only narrow, so default to it and nothing can be resurrected" is true and
+    beside the point: the second pass evaluates only items the incoming list marks ``cleared``, so on
+    a state whose list is empty it evaluates NOTHING — every item keeps the ``cleared`` it arrived
+    with and the transfer copies it over whatever is already there, having headed no key at all.
+
+    Resurrecting a conflict misreports one item. Skipping the guard overwrites a user's files.
+    """
+    items = [_item("alice/a/", "a", ["alice/out/a/0"]), _item("alice/b/", "b", ["alice/out/b/0"])]
+    fake = _install(items, {"alice/out/a/0": _BEFORE})
+
+    result = m._check_destinations({**_event(outcomes=[]), "guardPass": None})
+
+    assert sorted(fake.heads) == ["alice/out/a/0", "alice/out/b/0"], (
+        "an absent seed skipped the destination guard"
+    )
+    assert _outcome(result, "alice/a/")["outcome"] == "conflict"

@@ -73,6 +73,14 @@
 # modified since the expansion is still one the user asked to remove). A bucket-wide
 # condition cannot express both, so enabling it would 403 every delete-operation deletion.
 #
+# THE MARKER DENY MATCHES A PATH SEGMENT, NOT A SUFFIX. `*/DO_NOT_DELETE.txt` and not
+# `*DO_NOT_DELETE.txt`, which is the form the archive plane uses: the suffix form also matches
+# `alice/reports/backupDO_NOT_DELETE.txt`, a perfectly ordinary user file. Every code rule on this
+# plane matches the BASENAME exactly, so the suffix form would let such a key pass the pre-delete
+# check, get copied, and then take an AccessDenied mid-batch — leaving the item reported as a
+# duplicate with an orphan behind it. That is precisely the mid-batch denial the pre-check exists to
+# prevent. Both bucket policies already use the segment form; this now agrees with them.
+#
 # NoLockDelete is a Deny, present from the first apply. The lock releases by OVERWRITING,
 # never by deleting, so that "free" is a STATE of the object rather than its absence and a
 # stolen lock stays detectable by compare-and-set. Writing the Deny now makes that an

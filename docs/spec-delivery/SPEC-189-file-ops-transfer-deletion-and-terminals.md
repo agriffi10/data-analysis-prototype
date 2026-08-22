@@ -87,11 +87,46 @@ and a serialized-but-ignored condition deletes a changed source silently, with v
 - **`test_the_placeholders_carry_no_result_or_parameters`** was retired with the placeholders it
   guarded.
 
+## What the diff review caught
+
+Five real defects, each fixed and each with a test that would have caught it:
+
+1. **Two reason bodies were false sentences under the `delete` prefix** — "You now have it in both
+   places" on a `delete`, which is the exact confusion `delete_failed` was added to prevent. The
+   bodies now say only that the original survived; a sweep over the whole table forbids any body
+   claiming a copy exists.
+2. **The manifest-versus-plan check was a tautology.** `itemLines` reported the plan's own
+   `objectCount` back, so both sides of the comparison read the same field. It now counts the lines
+   actually written — and `plan.load` validates the object count only at the top level, so the
+   per-item divergence this catches is unguarded anywhere else.
+3. **The marker Deny matched a suffix, not a path segment.** `*DO_NOT_DELETE.txt` also matches
+   `alice/reports/backupDO_NOT_DELETE.txt` — an ordinary user file, which would have passed the
+   pre-delete check, been copied, then taken an `AccessDenied` mid-batch. A new test holds IAM and
+   the code rule to the same key set.
+4. **The manifest builder failed OPEN on the containment root** where `delete-source` fails closed:
+   an empty root makes `startswith` a no-op.
+5. **The whole-request-terminal test checked one of four failure seeds** — the other three carry
+   their error under `Parameters` rather than `Result` and were silently skipped.
+
+**One finding was rejected in writing.** The reviewer suggested defaulting an absent `guardPass` to
+the *second* pass, on the ground that it can only narrow. The argument is backwards: the second pass
+evaluates only items already marked `cleared`, so on a state with an empty outcome list it evaluates
+**nothing** — every item keeps its `cleared` and the transfer copies it having headed no key at all.
+Resurrecting a conflict misreports one item; skipping the guard overwrites a user's files. Applying
+the change reddened 22 existing tests, which is the codebase saying the same thing. The fallback
+stays at pass one, with the reasoning in the module and a test pinning it.
+
 ## Verification
 
-`pytest lambdas/` (4,351 passed, exit 0), `ruff`, `mypy`, `tofu validate`, `tofu fmt -check` and
-`scripts/validate_docs.py` green locally. Two fresh-context plan reviews (spec-conformance and
-engineering-risk frames); every finding fixed or rejected in writing.
+`pytest lambdas/` (4,357 passed, exit 0), `ruff`, `mypy`, `tofu validate`, `tofu fmt -check`,
+`scripts/validate_docs.py` and `npm run build` green locally. Three fresh-context reviews — two of
+the plan (spec-conformance and engineering-risk frames) and one of the diff; every finding fixed or
+rejected in writing.
+
+**The named mutations were executed, not described.** Removing the collector's filter, the
+delete-source skip, the second pass's `cleared` filter and the shortfall check each reddens the test
+named for it — and the subset guard's test fails when the guard is HOISTED above the loop, which is
+the shape an "is it called?" test still passes.
 
 **Help & guides sweep: checked and skipped.** Nothing a user can see changed — no gesture reaches
 this plane until SPEC-190 — so there is no shipped, wired-end-to-end behaviour to document.

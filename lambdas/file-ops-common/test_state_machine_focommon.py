@@ -633,14 +633,20 @@ def test_no_per_item_outcome_code_can_seed_a_WHOLE_REQUEST_failure():
     """
     from focommon import outcomes
 
-    seeds = [
-        state for name, state in STATES.items()
-        if name.endswith("Seed") and isinstance(state.get("Result"), dict)
-    ]
-    assert seeds, "the failure seeds have moved; this rule now checks nothing"
-    for seed in seeds:
-        assert seed["Result"].get("Error") not in outcomes.MEMBERS, (
-            "a per-item outcome is being used as a whole-request failure reason"
+    seeds = {name: state for name, state in STATES.items() if name.endswith("Seed")}
+
+    assert len(seeds) == 4, (
+        f"the failure seeds are now {sorted(seeds)}; this rule has to cover every one of them"
+    )
+    for name, state in seeds.items():
+        # A seed carries its error under Result (merged with ResultPath) OR under Parameters
+        # (rebuilt). Selecting only one shape reads as a fleet-wide rule while covering a quarter
+        # of it — which is what this test did until a reviewer counted them.
+        carried = state.get("Result") if isinstance(state.get("Result"), dict) else {}
+        parameters = state.get("Parameters") if isinstance(state.get("Parameters"), dict) else {}
+        literal = carried.get("Error") or (parameters.get("error") or {}).get("Error")
+        assert literal is None or literal not in outcomes.MEMBERS, (
+            f"{name} uses the per-item outcome {literal!r} as a whole-request failure reason"
         )
 
 

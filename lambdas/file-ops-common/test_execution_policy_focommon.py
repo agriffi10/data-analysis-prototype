@@ -177,17 +177,63 @@ def test_each_portal_managed_folder_is_denied_in_BOTH_buckets(sid, action, folde
         )
 
 
-def test_the_marker_is_undeletable_in_both_buckets_by_BASENAME():
-    """Both bucket policies already deny it, and this role denies it too. Belt and braces on the one
-    file whose whole purpose is to make a folder undeletable — and matched by basename at any depth,
-    because a marker anywhere protects the folder it sits in."""
+def test_the_marker_Deny_matches_a_PATH_SEGMENT_rather_than_a_suffix():
+    """`*/DO_NOT_DELETE.txt`, never `*DO_NOT_DELETE.txt`, and the difference is a real user file.
+
+    The suffix form — which the archive plane uses — also matches
+    ``alice/reports/backupDO_NOT_DELETE.txt``. Every code rule on this plane matches the BASENAME
+    exactly, so under the suffix form such a key would pass the pre-delete check, get copied, and
+    then take an ``AccessDenied`` mid-batch: the item reported as a ``duplicate`` with an orphan
+    left behind, which is exactly the mid-batch denial the pre-check exists to prevent.
+
+    Asserted as an inequality between the two forms rather than as one string, because the wrong
+    form is a superset of the right one and a substring check would pass on either.
+    """
     statement = next(
         s for s in _statements(EXECUTION_POLICY) if s["Sid"] == "NeverDeletePortalManagedObjects"
     )
-    resources = json.dumps(statement["Resource"])
+    resources = statement["Resource"]
 
     for bucket in ("user_space_bucket_arn", "shared_space_bucket_arn"):
-        assert f"{bucket}/*DO_NOT_DELETE.txt" in resources
+        assert f"{bucket}/*/DO_NOT_DELETE.txt" in resources
+        assert f"{bucket}/*DO_NOT_DELETE.txt" not in resources
+
+
+def test_the_marker_Deny_and_the_CODE_rule_agree_on_which_keys_are_protected():
+    """The pre-delete check exists so a denied key never reaches a batch. That only holds while the
+    two rules describe the same set — a policy stricter than the code is a mid-batch AccessDenied
+    after the copy, and a policy looser than the code is a marker this role could delete."""
+    from cpcommon.errors import TerminalError as _TE
+    from focommon import delete
+
+    statement = next(
+        s for s in _statements(EXECUTION_POLICY) if s["Sid"] == "NeverDeletePortalManagedObjects"
+    )
+    patterns = [r for r in statement["Resource"] if r.endswith("DO_NOT_DELETE.txt")]
+
+    def denied_by_iam(key: str) -> bool:
+        """True when the rendered Deny's marker patterns match this key."""
+        import fnmatch
+
+        return any(fnmatch.fnmatch(f"user_space_bucket_arn/{key}", p) for p in patterns)
+
+    def refused_by_code(key: str) -> bool:
+        """True when the pre-delete check refuses this key."""
+        try:
+            delete.assert_item_deletable([key], "alice/")
+        except _TE:
+            return True
+        return False
+
+    for key in (
+        "alice/DO_NOT_DELETE.txt",
+        "alice/deep/nested/DO_NOT_DELETE.txt",
+        "alice/reports/backupDO_NOT_DELETE.txt",
+        "alice/reports/ordinary.txt",
+    ):
+        assert denied_by_iam(key) == refused_by_code(key), (
+            f"IAM and the pre-delete check disagree about {key!r}"
+        )
 
 
 def test_the_delete_Deny_is_ANY_DEPTH_and_the_domain_rule_MIRRORS_IT():

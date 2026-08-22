@@ -639,7 +639,6 @@ def test_the_lock_wait_is_a_TERM_of_that_budget_rather_than_an_alternative_to_it
     Waiting 2,000s for a busy space and then copying 2 TiB is one execution, not two scenarios.
     Without the give-up term the budget read as satisfied at a cap that was in fact ~2,000s over.
     """
-    assert _give_up_seconds() > 0
     from cpcommon.transfer.config import (
         CONSERVATIVE_STREAM_BYTES_PER_SECOND,
         MAP_MAX_CONCURRENCY,
@@ -648,8 +647,15 @@ def test_the_lock_wait_is_a_TERM_of_that_budget_rather_than_an_alternative_to_it
     without = config.FILE_OPS_MAX_TOTAL_BYTES / (
         MAP_MAX_CONCURRENCY * CONSERVATIVE_STREAM_BYTES_PER_SECOND
     ) + _serial_verb_seconds()
+    headroom = config.MACHINE_TIMEOUT_SECONDS - without
 
-    assert without + _give_up_seconds() < config.MACHINE_TIMEOUT_SECONDS
+    # Restating the budget's own inequality would prove nothing the test above does not. What is
+    # asserted instead is that the term is MATERIAL: it consumes most of the headroom the rest of
+    # the run leaves, which is why omitting it let a 3 TiB cap read as satisfied.
+    assert _give_up_seconds() > headroom / 2, (
+        f"the give-up term is {_give_up_seconds()}s against {headroom:,.0f}s of headroom — if it "
+        "has become negligible, re-derive the budget rather than deleting this test"
+    )
 
 
 def test_the_transfer_maps_rendered_numbers_equal_the_constants_the_batch_verb_is_bounded_by():

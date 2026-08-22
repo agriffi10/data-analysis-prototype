@@ -310,3 +310,38 @@ def test_the_decided_keys_are_what_the_expansion_must_never_see():
 
     assert outcomes.decided_keys(existing) == {"alice/old/"}
     assert outcomes.decided_keys(None) == set()
+
+
+def test_no_body_ASSERTS_A_COPY_HAPPENED_under_the_delete_prefix():
+    """The check the "not the fallback, ends with a period" test above structurally cannot make.
+
+    ``source_changed`` and ``source_delete_failed`` arise on a ``move``, where the data now exists
+    twice, AND on a ``delete``, where nothing was copied at all. Both once read "You now have it in
+    both places" — a FALSE SENTENCE under the delete prefix, and one that reinstates exactly the
+    confusion the separate ``delete_failed`` outcome was added to prevent.
+
+    So this asserts the property rather than the wording: no sentence a delete can produce may claim
+    a copy exists. Swept over the WHOLE table, not the two reasons that were wrong, because the next
+    body someone adds is the one this is for.
+    """
+    # Phrases that assert a copy EXISTS, not ones that merely name copying as an operation:
+    # "it cannot be copied, moved or deleted" is a correct sentence under all three prefixes.
+    claims_a_copy = ("both places", "the copy worked", "was copied")
+    for reason in messages._BODIES:
+        sentence = messages.failure_message("delete", reason).lower()
+        for claim in claims_a_copy:
+            assert claim not in sentence, (
+                f"the delete wording for {reason!r} claims a copy exists: {sentence!r}"
+            )
+
+
+def test_the_two_source_survived_reasons_read_correctly_under_ALL_THREE_prefixes():
+    """The pair that has to work everywhere: they say only that the original is still there, which is
+    true whether or not anything was copied. The "in both places" clause belongs to the ``duplicate``
+    OUTCOME, which is per-item wording the notification spec owns."""
+    for reason in ("source_changed", "source_delete_failed"):
+        for operation in ("copy", "move", "delete"):
+            sentence = messages.failure_message(operation, reason)
+            assert "still" in sentence or "left where it is" in sentence, (
+                f"{reason} under {operation} no longer says the original survived: {sentence!r}"
+            )
