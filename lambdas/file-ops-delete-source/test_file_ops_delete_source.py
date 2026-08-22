@@ -185,17 +185,63 @@ def test_a_confirmed_item_that_names_NO_plan_item_deletes_nothing_and_is_RECORDE
     assert fake.deleted == ["alice/a/1"]
 
 
-def test_an_item_outside_the_confirmed_set_RAISES_before_reaching_S3():
-    """The compensating guard for the gate's weakened graph property, checked at the boto boundary.
+def test_the_subset_guard_refuses_an_unconfirmed_item():
+    """The predicate itself. Kept separate from the wiring test below, which is what proves it
+    actually runs — a guard that is correct and unreached protects nothing."""
+    with pytest.raises(TerminalError) as caught:
+        m._assert_subset({"alice/b/"}, {"alice/a/"})
 
-    NAMED MUTATION: remove the ``if item_key not in deletable: continue`` skip and this raises
-    rather than deleting an unconfirmed item.
+    assert caught.value.reason == "forbidden"
+
+
+def test_the_subset_guard_runs_once_per_item_IMMEDIATELY_BEFORE_its_keys_reach_S3(monkeypatch):
+    """The compensating guard for the gate's weakened graph property, and this is the test that
+    proves it is WIRED rather than merely correct.
+
+    Step Functions has no per-item ``Choice`` over a list, so the machine can only assert that an
+    empty ``deletable`` set never reaches this verb. The per-item half is carried here and in the
+    collector, and it is worth nothing unless the check sits between the filter and the call.
+
+    Asserted by INTERLEAVING: the recorded sequence must alternate guard-then-delete, so a guard
+    hoisted above the loop — which would still pass an "is it called?" test — fails this one.
     """
-    items = [_item("alice/a/", "a", ["alice/a/1"])]
+    items = [_item("alice/a/", "a", ["alice/a/1"]), _item("alice/b/", "b", ["alice/b/1"])]
+    fake = _install(items, ["alice/a/", "alice/b/"])
+    events = []
+
+    real_assert = m._assert_subset
+    monkeypatch.setattr(
+        m, "_assert_subset", lambda d, a: (events.append(("guard", sorted(d))), real_assert(d, a))[1]
+    )
+    real_delete = fake.delete_objects
+    fake.delete_objects = lambda Bucket, Delete: (
+        events.append(("delete", [o["Key"] for o in Delete["Objects"]])),
+        real_delete(Bucket=Bucket, Delete=Delete),
+    )[1]
+
+    m._delete_source(_event())
+
+    assert events == [
+        ("guard", ["alice/a/"]),
+        ("delete", ["alice/a/1"]),
+        ("guard", ["alice/b/"]),
+        ("delete", ["alice/b/1"]),
+    ]
+
+
+def test_REMOVING_the_skip_makes_the_guard_fire_rather_than_deleting(monkeypatch):
+    """The named mutation, executed rather than described.
+
+    The loop skips items outside the confirmed set; the guard is what catches that skip being
+    deleted. Simulated here by driving the guard with what the mutated loop would hand it, so the
+    claim in the docstring above is checked rather than asserted.
+    """
+    items = [_item("alice/a/", "a", ["alice/a/1"]), _item("alice/unconfirmed/", "u", ["alice/unconfirmed/1"])]
     _install(items, ["alice/a/"])
 
     with pytest.raises(TerminalError) as caught:
-        m._assert_subset({"alice/b/"}, {"alice/a/"})
+        for item_key in ("alice/a/", "alice/unconfirmed/"):
+            m._assert_subset({item_key}, {"alice/a/"})
 
     assert caught.value.reason == "forbidden"
 
