@@ -426,3 +426,33 @@ def test_a_destination_prefix_with_no_final_segment_still_produces_a_message(sen
     )
 
     assert sent[0][1] == "Moved 1 item."
+
+
+def test_the_EMITTED_payload_never_exceeds_the_budget_it_was_probed_against():
+    """The flag is set after the loop, so a probe that omitted it would let every payload carrying
+    a dropped conflict finish a few bytes over the budget it had just been checked against."""
+    records = _records(*[(f"alice/{'f' * 200}{i}.csv", "conflict", {"sample": ["s" * 120] * 3}) for i in range(9)])
+    summary = _summary(items=[{"itemKey": f"alice/{'f' * 200}{i}.csv", "kind": "file"} for i in range(9)])
+    payload = notify.outcome_payload(summary, records, "r-1")
+
+    assert payload["more"] is True, "this case is only meaningful when something was dropped"
+    assert len(json.dumps(payload).encode()) <= config.FILE_OPS_NOTIFIED_PAYLOAD_BYTES
+
+
+def test_a_destination_prefix_no_legal_KEY_could_sit_under_is_not_carried():
+    """The head's one unbounded term, and the failure it causes is the worst available: nothing
+    validates a prefix's LENGTH on the way in, so a hand-crafted envelope would push the payload
+    past the writer's ceiling and lose the WHOLE message — on the queue whose dead-letter queue is
+    deliberately undrained, after the data had already moved.
+
+    A prefix longer than S3's own key limit cannot produce a legal destination key, so the run it
+    describes copied nothing and a re-submit of it would be meaningless.
+    """
+    summary = _summary(destination_prefix="finance/" + "p" * (config.FILE_OPS_NOTIFIED_PREFIX_BYTES + 1))
+    payload = notify.outcome_payload(summary, _records(("alice/reports/", "conflict", {})), "r-1")
+
+    assert "destination" not in payload
+    assert payload["requestId"] == "r-1", "the request id rides whatever else does not"
+
+    within = _summary(destination_prefix="finance/" + "p" * 100)
+    assert "destination" in notify.outcome_payload(within, _records(), "r-1")

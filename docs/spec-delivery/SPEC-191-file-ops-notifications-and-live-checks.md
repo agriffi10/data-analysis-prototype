@@ -33,14 +33,23 @@ spec's own AC4 forbids documenting what is not wired end to end. The criteria tr
 arbitrary UTF-8 and JSON escaping turns a control character into six. So the payload is bounded by
 **bytes as well as count**, enforced by adding conflicted items only while they fit and setting
 `more` when any are dropped — which is what makes the pathological case *safe* rather than merely
-small. `FILE_OPS_NOTIFIED_PAYLOAD_BYTES` is **2 KiB**, derived from the marginal budget: the field
-may not add more to the worst-case inbox than the row already costs without it.
+small. `FILE_OPS_NOTIFIED_PAYLOAD_BYTES` is **1 KiB**, from the marginal budget: the field may not
+add more to the worst-case inbox than the row costs **with no payload at all**.
 
-**And the binding case is the PLAIN one, not the escape-heavy one.** The first number written down
-was 4 KiB; the test that computes the allowance refused it at 3,047 bytes. A control character
-expands **six** times inside the JSON payload but only **three** times in the percent-encoded link
-beside it, so the row a payload competes against is *smaller* when the keys are hostile. The
-estimate had the comparison backwards.
+**The estimate was overturned twice, both times by measuring.** 4 KiB was written down first and
+the first measurement refused it — and the binding case turned out to be the **plain** one, not the
+escape-heavy one, because a control character expands six times inside the JSON payload and only
+three in the percent-encoded link beside it, so the row a payload competes against is *smaller*
+when the keys are hostile. The diff review then found the second error: that measurement compared
+against a row **already carrying the payload head**, weighing the field against itself. The honest
+allowance is **1,674 bytes**, not 3,047.
+
+**The head's one unbounded term is capped separately.** Dropping conflicts cannot help when the head
+alone is over budget, and nothing validates a destination prefix's LENGTH on the way in. A
+hand-crafted envelope with a multi-kilobyte prefix would have pushed the payload past the writer's
+ceiling and lost the **whole message**, on the queue whose DLQ is undrained, after the data had
+moved. `FILE_OPS_NOTIFIED_PREFIX_BYTES` is S3's key limit — a longer prefix cannot produce a legal
+destination key, so that run copied nothing and a re-submit of it is meaningless.
 
 **`ReleaseLock`'s CATCH had to move too, not just its `Next`.** Left pointing at `Succeeded`, a
 release that exhausts its `Retry` — one throttle is enough — completes the operation and tells the
@@ -88,10 +97,34 @@ comment above that IAM grant asserts the opposite. Out of scope; what this spec 
 make `apply_create` **refuse** (never truncate) an oversize payload, which is the only server-side
 gate the field will ever have.
 
+## What the diff review caught, and it was not cosmetic
+
+**A resolved space carried no `kind` or `name`, so every notification would have shipped with NO
+LINK.** `authz` resolved a space to `{bucket, root}`; the producer reads `kind`/`name`, got `None`,
+refused to mint a link, and put nulls in the payload where a re-submit's spaces belong — **with a
+green suite**, because every fixture in the notifier's tests hand-wrote the shape it wanted. FR-004
+would have shipped as a no-op and FR-001 AC4's fields as nulls. The identity now rides out of the
+resolver, where the claim has been authorized; the guard is one test that builds the notifier's
+input from the real `authorize_source` and the real finaliser rather than a literal, verified by
+mutation to fail without the fix.
+
+**The summary sentence contradicted itself on `duplicate`.** Partitioning on "the success outcome,
+or not" put it in the residue and opened with "Nothing was moved" — false, since its objects did
+land and the link points at them, and flatly contradicted by the next clause. A `noop` read as a
+failure for the same reason. The opening is neutral now (`N need your attention`), which is true of
+every member of the residue.
+
+**Three smaller ones rode along**: the `more` flag was set after the size check (so a trimmed
+payload finished a few bytes over its own budget); the payload's declared TypeScript types promised
+far more than `normalize` validated, which SPEC-190 would have trusted when it renders `itemKey` and
+`sample` — the payload is now rebuilt field-by-field like the row around it, and a list shortened by
+that rebuild sets `more` so it is never read as complete; and the writer's ceiling is now read out
+of the Lambda by matching its two operands rather than evaluating them.
+
 ## Verification
 
-`pytest lambdas/` (4,457 passing, 97.5% against a 95 floor), `ruff check`, `mypy`, the portal suite
-(2,766 passing; coverage 92.86/89.19/92.28/94.79 against 91/86/89/93), `npm run build`,
+`pytest lambdas/` (4,465 passing, 97.5% against a 95 floor), `ruff check`, `mypy`, the portal suite
+(2,767 passing; coverage 92.86/89.19/92.28/94.79 against 91/86/89/93), `npm run build`,
 `tofu -chdir=infra validate`, `scripts/validate_docs.py`.
 
 **Live checks are written and OWED, not run** — the plane is reachable only by hand-crafted

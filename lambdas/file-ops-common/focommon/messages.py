@@ -339,6 +339,14 @@ def outcome_summary(
     **A mixed run names what SUCCEEDED as well as what did not.** "2 of 5" answers the question a
     user actually has, where a message listing only refusals reads as though nothing worked.
 
+    **AND THE OPENING IS NEUTRAL RATHER THAN A DENIAL, because the residue is not all failure.**
+    Partitioning on "the operation's success outcome, or not" is the obvious split and it makes the
+    sentence contradict itself on the two outcomes that matter most: a ``duplicate`` DID reach the
+    destination — the link even points there — so "Nothing was moved" is false and is followed
+    immediately by a clause saying the data is now in both places; and a ``noop`` is a success that
+    did nothing, which a denial reports as a failure. "N need your attention" is true of every
+    member of the residue, which is the only thing they have in common.
+
     Args:
       operation: The request's operation.
       records: Every item's terminal outcome record.
@@ -362,13 +370,13 @@ def outcome_summary(
 
     if not rest:
         return f"{verb} {_plural(len(done))}{where}."
+    needs = "needs" if len(rest) == 1 else "need"
     if not done:
-        opening = f"Nothing was {verb.lower()}:"
+        opening = f"{_plural(len(rest))} {needs} your attention:"
     else:
-        was = "was" if len(rest) == 1 else "were"
         opening = (
             f"{verb} {len(done)} of {_plural(len(records))}{where}. "
-            f"{len(rest)} {was} not {verb.lower()}:"
+            f"{len(rest)} {needs} your attention:"
         )
 
     lines = [

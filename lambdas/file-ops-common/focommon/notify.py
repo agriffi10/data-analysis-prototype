@@ -298,7 +298,6 @@ def outcome_link(summary: dict, records: list) -> str | None:
     return f"{_FILES_ROUTE}?prefix={encoded}"
 
 
-
 def _serialised(payload: dict) -> int:
     """Returns how many bytes a payload occupies in the document the browser downloads.
 
@@ -334,6 +333,12 @@ def outcome_payload(summary: dict, records: list, request_id: object) -> dict:
     at ordinary key lengths and ~12,000 at this plane's caps, so a count alone bounds nothing;
     ``more`` says plainly that some were dropped, for either reason.
 
+    **The head is mandatory and rides whatever it costs, so its one unbounded term is capped
+    here.** Dropping conflicts cannot help when the head alone is over budget, and nothing
+    validates the LENGTH of a destination prefix on the way in — only its containment. Left
+    unbounded, a hand-crafted envelope would push this past the writer's ceiling and lose the whole
+    message rather than its conflict list.
+
     Args:
       summary: The terminal summary.
       records: Every item's terminal outcome record.
@@ -348,11 +353,12 @@ def outcome_payload(summary: dict, records: list, request_id: object) -> dict:
     source, destination = summary.get("source") or {}, summary.get("destination") or {}
     payload = {"requestId": request_id, "operation": summary.get("operation")}
     payload["source"] = {"kind": source.get("kind"), "name": source.get("name")}
-    if destination.get("prefix"):
+    prefix = destination.get("prefix")
+    if prefix and len(prefix.encode()) <= config.FILE_OPS_NOTIFIED_PREFIX_BYTES:
         payload["destination"] = {
             "kind": destination.get("kind"),
             "name": destination.get("name"),
-            "prefix": destination.get("prefix"),
+            "prefix": prefix,
         }
 
     shapes = {
@@ -375,9 +381,10 @@ def outcome_payload(summary: dict, records: list, request_id: object) -> dict:
             entry["sample"] = record["sample"]
         if record.get("more"):
             entry["more"] = True
-        if _serialised({**payload, "conflicts": [*carried, entry]}) > (
-            config.FILE_OPS_NOTIFIED_PAYLOAD_BYTES
-        ):
+        # Probed WITH the ``more`` flag, because it is set below and would otherwise push the
+        # emitted payload past the budget the loop just checked it against.
+        candidate = {**payload, "conflicts": [*carried, entry], "more": True}
+        if _serialised(candidate) > config.FILE_OPS_NOTIFIED_PAYLOAD_BYTES:
             dropped = True
             break
         carried.append(entry)

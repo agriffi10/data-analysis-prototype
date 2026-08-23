@@ -101,13 +101,26 @@ Attributes:
     cannot tell those apart.
 
     The budget it is derived from is the MARGINAL one — the structured field may not add more to
-    the worst-case inbox than the row already costs without it. **The measurement is what set the
-    number, and it disagreed with the estimate that preceded it**: the binding case is not the
-    escape-heavy one but the PLAIN one, at 3,047 bytes, because a control character expands six
-    times in the payload and only three times in the percent-encoded link beside it. ``test_config_focommon`` computes the allowance, asserts which of the two
-    bounds binds at each end of the range, and asserts the result stays under the ceiling the
-    notifications writer refuses above, so a pathological run loses its conflict list and never
-    its message.
+    the worst-case inbox than the row already costs **without any payload at all**. That last
+    clause is the whole measurement: compared against a row carrying a payload with an empty
+    conflict list, the field is being weighed against itself, and a first attempt at this landed on
+    a number nearly twice what the rule allows.
+
+    **The binding case is the PLAIN one, not the escape-heavy one**, and that is the second thing
+    the measurement overturned. A control character expands SIX times inside the JSON payload and
+    only THREE times in the percent-encoded link beside it, so the row a payload competes against
+    is *smaller* when the keys are hostile: **1,674 bytes**, against 5,522.
+
+    ``test_config_focommon`` computes that allowance, asserts which of the two bounds binds at each
+    end of the range, and asserts the result stays under the ceiling the notifications writer
+    refuses above — so a pathological run loses its conflict list and never its message.
+  FILE_OPS_NOTIFIED_PREFIX_BYTES: Longest destination prefix the payload will carry, and the one
+    term of its mandatory head that is otherwise unbounded. Nothing validates the length of a
+    prefix on the way in: containment is checked, not size. A hand-crafted envelope with a
+    multi-kilobyte prefix would push the head past the writer's ceiling and lose the WHOLE message
+    on the queue whose dead-letter queue is deliberately undrained — after the data had moved.
+    Set to S3's own key limit, because a prefix longer than a legal key cannot produce a legal
+    destination key: such a request copied nothing, and a re-submit of it would be meaningless.
   PLAN_PREFIX: Key prefix for this plane's copy plans, under the admin bucket. Mirrored in the
     module's ``locals.tf`` (the IAM grant) and in the admin bucket's lifecycle rule; a test holds
     all three equal. It cannot match ``LOCK_PREFIX`` — ``locks/file-ops`` does not begin with
@@ -173,7 +186,9 @@ FILE_OPS_NOTIFIED_ITEMS = 3
 
 FILE_OPS_NOTIFIED_CONFLICTS = 3
 
-FILE_OPS_NOTIFIED_PAYLOAD_BYTES = 2 * 1024
+FILE_OPS_NOTIFIED_PAYLOAD_BYTES = 1024
+
+FILE_OPS_NOTIFIED_PREFIX_BYTES = 1024
 
 PLAN_PREFIX = "file-ops"
 

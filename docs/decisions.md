@@ -180,6 +180,8 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 - [Two budgets, and both were wrong before they were computed (SPEC-189)](#two-budgets-and-both-were-wrong-before-they-were-computed-spec-189)
 - [One producer, after the release, reached from BOTH of ReleaseLock's edges (SPEC-191)](#one-producer-after-the-release-reached-from-both-of-releaselocks-edges-spec-191)
 - [A notification payload is bounded by BYTES, and the binding case is the PLAIN one (SPEC-191)](#a-notification-payload-is-bounded-by-bytes-and-the-binding-case-is-the-plain-one-spec-191)
+- [The run's ONE sentence opens neutrally, because its residue is not all failure (SPEC-191)](#the-runs-one-sentence-opens-neutrally-because-its-residue-is-not-all-failure-spec-191)
+- [A resolved space carries its own IDENTITY, not only its location (SPEC-191)](#a-resolved-space-carries-its-own-identity-not-only-its-location-spec-191)
 - [`requestId` rides on every row, including a clean run's and a failed run's (SPEC-191)](#requestid-rides-on-every-row-including-a-clean-runs-and-a-failed-runs-spec-191)
 - [The outcome link: destination, source, or the common folder of the items' PARENTS (SPEC-191)](#the-outcome-link-destination-source-or-the-common-folder-of-the-items-parents-spec-191)
 - [The outcome wording reuses the failure bodies and is deliberately NOT a resolver (SPEC-191)](#the-outcome-wording-reuses-the-failure-bodies-and-is-deliberately-not-a-resolver-spec-191)
@@ -4478,11 +4480,23 @@ more to the worst-case inbox than the row already costs without it. An absolute 
 chosen and then defended, and the row's own fixed cost (a percent-encoded link, a 1,024-byte
 destination prefix) is not something this spec controls.
 
-**And the estimate that preceded the measurement had the comparison backwards.** 4 KiB was written
-down first; the test that computes the allowance refused it at **3,047 bytes**. The binding case is
-not the escape-heavy one but the **plain** one, because a control character expands *six* times
-inside the JSON payload and only *three* times in the percent-encoded link beside it — so the row a
-payload competes against is **smaller** when the keys are hostile. The cap is 2 KiB.
+**The estimate was overturned twice, and both corrections came from measuring rather than
+reasoning.** 4 KiB was written down first. The first measurement refused it — and the binding case
+turned out to be the **plain** one, not the escape-heavy one, because a control character expands
+*six* times inside the JSON payload and only *three* times in the percent-encoded link beside it, so
+the row a payload competes against is **smaller** when the keys are hostile. Then a reviewer found
+the second error: that measurement compared the budget against a row **that already carried the
+payload head**, which weighs the field against itself. Measured against a row carrying no payload at
+all, the allowance is **1,674 bytes**, not 3,047. **The cap is 1 KiB.**
+
+**The head is mandatory, so its one unbounded term is capped separately.** Dropping conflicts cannot
+help when the head alone is over budget, and nothing validates the LENGTH of a destination prefix on
+the way in — only its containment. Left unbounded, a hand-crafted envelope with a multi-kilobyte
+prefix would push the payload past the writer's ceiling and lose the **whole message**, on the queue
+whose dead-letter queue is deliberately undrained, after the data had already moved.
+`FILE_OPS_NOTIFIED_PREFIX_BYTES` is S3's own key limit: a prefix longer than a legal key cannot
+produce a legal destination key, so the run it describes copied nothing and a re-submit of it would
+be meaningless.
 
 **The producer's bound and the writer's refusal are two numbers in two languages.** A payload the
 producer considers fine and the writer refuses does not lose its conflict list, it loses the
@@ -4490,6 +4504,40 @@ producer considers fine and the writer refuses does not lose its conflict list, 
 `notifications_writer.MAX_PAYLOAD_BYTES` **rejects** (never truncates) an oversize payload, and a
 test reads that ceiling back out of the Lambda and asserts the largest payload this plane can emit
 sits under it.
+
+### The run's ONE sentence opens neutrally, because its residue is not all failure (SPEC-191)
+
+Partitioning a run's outcomes into "the operation's success outcome, or not" is the obvious split,
+and it makes the sentence contradict itself on the two outcomes that matter most.
+
+A **`duplicate`** reached the destination — the notification's own link points there — so an opening
+of "Nothing was moved" is false, and it is followed two clauses later by "This data is now in both
+places". A **`noop`** is a success that did nothing, which this plane's vocabulary says in as many
+words; reported as a denial it reads as exactly the failure the wording rules exist to prevent.
+
+So the opening is `N need your attention`, which is true of every member of the residue and is the
+only thing they have in common. What succeeded is still named first on a mixed run — "2 of 5"
+answers the question a user actually has, where a message listing only refusals reads as though
+nothing worked.
+
+### A resolved space carries its own IDENTITY, not only its location (SPEC-191)
+
+`authz` resolved a space to `{bucket, root}`. A root is not a name and a bucket is not a kind, and
+the difference surfaces only at the far end of the plane: the producer has to say which space a run
+touched and link into it, and a re-submit built from that notification needs the **source** space,
+which no absolute key contains.
+
+Left as it was, `kind` and `name` reached the summary as `None`, the link builder refused to mint
+anything, and **every notification shipped with no link at all** while the payload carried nulls
+where a re-submit's spaces belong — with a full green suite, because every fixture in the notifier's
+tests hand-wrote the shape it wanted. That is the test-that-cannot-fail class: the fixture asserts a
+shape the producer does not emit.
+
+They ride from the resolver rather than being re-read off the request, because that is the point at
+which the claim has been **authorized** — a later verb reading the untrusted body would be naming a
+space the actor may never have been granted. The guard against the fixture problem recurring is one
+test that builds the notifier's input from the real `authorize_source` and the real finaliser
+instead of a literal.
 
 ### `requestId` rides on every row, including a clean run's and a failed run's (SPEC-191)
 

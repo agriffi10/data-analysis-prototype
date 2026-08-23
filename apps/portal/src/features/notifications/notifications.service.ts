@@ -3,7 +3,12 @@ import {ok} from '../../lib/serviceResult';
 import {enqueueFifoRequest} from '../../lib/enqueueFifo';
 import {userSpaceBucket, userSettingsKey} from '../../lib/userSpace';
 import type {ServiceResult} from '../../types/service.types';
-import type {EnqueueNotificationInput, Notification, NotificationPayload} from './notifications.types';
+import type {
+  EnqueueNotificationInput,
+  Notification,
+  NotificationConflict,
+  NotificationPayload
+} from './notifications.types';
 
 // Browser data layer for the per-user notifications inbox. The browser never writes
 // notifications.json — the writer Lambda is the sole writer. This service only reads
@@ -45,7 +50,7 @@ function normalize(row: Notification): Notification {
     read: row.read === true,
     timestamp: row.timestamp,
     ...(typeof row.link === 'string' ? {link: row.link} : {}),
-    ...(isPayload(row.payload) ? {payload: row.payload} : {})
+    ...(normalizePayload(row.payload) ? {payload: normalizePayload(row.payload)} : {})
   };
 }
 
@@ -56,7 +61,8 @@ function normalize(row: Notification): Notification {
 //
 // The id is shape-checked rather than merely non-empty because it does not stay data: the
 // row interpolates it into a URL. It arrives from outside the SPA, read back out of S3, on
-// a queue the portal role can also write to.
+// a queue the portal role can also write to — the writer trusts the body's username for a
+// `create`, so any signed-in user can already put a row in anyone's inbox.
 //
 // The rule is "characters that cannot change a URL", NOT "a UUID". Every plane mints
 // `crypto.randomUUID()` today, and a regex for that exact shape would be a reader coupled to
@@ -64,10 +70,56 @@ function normalize(row: Notification): Notification {
 // the day a plane mints anything else. The render site encodes the value as well.
 const ID_SHAPE = /^[A-Za-z0-9_-]{1,64}$/;
 
-function isPayload(payload: unknown): payload is NotificationPayload {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
-  const {requestId} = payload as Partial<NotificationPayload>;
-  return typeof requestId === 'string' && ID_SHAPE.test(requestId);
+// The payload is rebuilt FIELD BY FIELD, exactly like the row around it, and for the same
+// reason the row is: what arrives is untrusted data whose declared type is a promise nobody
+// checked. Carrying the object through unexamined would let `conflicts` be a string, or an
+// array of nulls, or objects with no `itemKey` — all of which type as `NotificationConflict[]`
+// to the next reader, which renders those fields.
+function normalizePayload(payload: unknown): NotificationPayload | undefined {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+  const {requestId, operation, source, destination, conflicts, more} = payload as Record<string, unknown>;
+  if (typeof requestId !== 'string' || !ID_SHAPE.test(requestId)) return undefined;
+
+  const conflictRows = Array.isArray(conflicts) ? conflicts.map(normalizeConflict).filter(isPresent) : [];
+  return {
+    requestId,
+    ...(typeof operation === 'string' ? {operation} : {}),
+    ...(normalizeSpace(source) ? {source: normalizeSpace(source)} : {}),
+    ...(normalizeSpace(destination) ? {destination: normalizeSpace(destination)} : {}),
+    ...(conflictRows.length > 0 ? {conflicts: conflictRows} : {}),
+    // True when the producer said so, and ALSO when this reader dropped a malformed entry —
+    // otherwise a list silently shortened here reads as the complete one.
+    ...(more === true || conflictRows.length !== (Array.isArray(conflicts) ? conflicts.length : 0) ? {more: true} : {})
+  };
+}
+
+function normalizeSpace(space: unknown): {kind?: string; name?: string; prefix?: string} | undefined {
+  if (!space || typeof space !== 'object' || Array.isArray(space)) return undefined;
+  const {kind, name, prefix} = space as Record<string, unknown>;
+  return {
+    ...(typeof kind === 'string' ? {kind} : {}),
+    ...(typeof name === 'string' ? {name} : {}),
+    ...(typeof prefix === 'string' ? {prefix} : {})
+  };
+}
+
+// `itemKey` is the one required field: it is this entry's identity, and an entry without one
+// is not a shorter record, it is an unusable one.
+function normalizeConflict(row: unknown): NotificationConflict | undefined {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return undefined;
+  const {itemKey, kind, targetName, sample, more} = row as Record<string, unknown>;
+  if (typeof itemKey !== 'string' || itemKey.length === 0) return undefined;
+  return {
+    itemKey,
+    ...(typeof kind === 'string' ? {kind} : {}),
+    ...(typeof targetName === 'string' ? {targetName} : {}),
+    ...(Array.isArray(sample) ? {sample: sample.filter((s): s is string => typeof s === 'string')} : {}),
+    ...(more === true ? {more: true} : {})
+  };
+}
+
+function isPresent<T>(value: T | undefined): value is T {
+  return value !== undefined;
 }
 
 // Forgiving parse: missing/corrupt/non-array → empty list. Returned newest-first —

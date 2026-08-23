@@ -452,7 +452,7 @@ def test_a_MIXED_run_names_what_SUCCEEDED_as_well_as_what_did_not():
     ]
     sentence = messages.outcome_summary("move", records, "reports")
 
-    assert sentence.startswith('Moved 2 of 3 items to "reports". 1 was not moved:')
+    assert sentence.startswith('Moved 2 of 3 items to "reports". 1 needs your attention:')
     assert '"c.csv"' in sentence
 
 
@@ -468,7 +468,7 @@ def test_the_sample_is_BOUNDED_and_says_how_many_it_did_not_name():
 def test_a_run_where_nothing_could_be_done_is_a_RESULT_rather_than_a_broken_sentence():
     sentence = messages.outcome_summary("delete", [_record("protected", "archive_read_only")])
 
-    assert sentence.startswith("Nothing was deleted:")
+    assert sentence.startswith("1 item needs your attention:")
 
 
 def test_a_label_no_message_could_render_whole_is_shortened_rather_than_dropped():
@@ -485,3 +485,31 @@ def test_no_outcome_clause_carries_a_smart_quote_or_non_ascii():
     """The inbox renders plain text, and a smart quote arrives as mojibake."""
     for clause in [*messages._OUTCOME_CLAUSES.values(), *messages._OUTCOME_ADDITIONS.values()]:
         assert clause.isascii(), f"{clause!r} is not ASCII"
+
+
+@pytest.mark.parametrize(
+    ("outcome", "reason"),
+    [("duplicate", "source_changed"), ("noop", None)],
+)
+def test_the_opening_never_DENIES_something_the_rest_of_the_sentence_asserts(outcome, reason):
+    """The two outcomes the obvious success/failure split words FALSELY.
+
+    A ``duplicate`` reached the destination — the notification's own link points there — so an
+    opening of "Nothing was moved" is untrue and is contradicted two clauses later by "this data is
+    now in both places". A ``noop`` is a success that did nothing, and this plane's vocabulary says
+    so; reported as a denial it reads as the failure the wording rules exist to prevent.
+    """
+    sentence = messages.outcome_summary("move", [_record(outcome, reason)], "reports")
+
+    assert "Nothing was" not in sentence
+    assert sentence.startswith("1 item needs your attention:")
+
+
+def test_the_residue_agrees_with_itself_in_NUMBER():
+    """"1 item need your attention" is the shape a hardcoded verb produces beside a pluralising
+    count, and it is the kind of thing only a reader notices."""
+    one = messages.outcome_summary("delete", [_record("protected", "archive_read_only")])
+    two = messages.outcome_summary("delete", [_record("protected", "archive_read_only")] * 2)
+
+    assert one.startswith("1 item needs")
+    assert two.startswith("2 items need ")

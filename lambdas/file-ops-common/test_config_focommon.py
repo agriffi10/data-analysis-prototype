@@ -907,20 +907,28 @@ def _writer_payload_ceiling() -> int:
     source = (
         pathlib.Path(__file__).resolve().parents[1] / "notifications-writer" / "notifications_writer.py"
     ).read_text()
-    found = re.search(r"^MAX_PAYLOAD_BYTES\s*=\s*(.+)$", source, re.MULTILINE)
+    # Matched as the two operands it is written as, rather than evaluated: a reader that ran the
+    # expression would happily accept a form this assertion should be failing on.
+    found = re.search(r"^MAX_PAYLOAD_BYTES\s*=\s*(\d+)\s*\*\s*(\d+)\s*$", source, re.MULTILINE)
     assert found, "the notifications writer no longer caps a payload — re-derive this budget"
-    return int(eval(found.group(1), {"__builtins__": {}}, {}))  # noqa: S307
+    return int(found.group(1)) * int(found.group(2))
 
 
-def _notification_row(conflicts: int, key_char: str) -> int:
+def _notification_row(conflicts: int | None, key_char: str) -> int:
     """Returns the worst-case ESCAPED size of one stored notification row.
 
-    Every term a row can carry at this plane's caps: the writer's own four fields, the message
-    with its full complement of named items, the percent-encoded link, and the payload's mandatory
-    head — the request, both spaces and a destination prefix at S3's key limit.
+    Every term a row can carry at this plane's caps: the writer's own four fields, the message with
+    its full complement of named items, and the percent-encoded link — plus, when ``conflicts`` is
+    not None, the payload with that many conflicted items in it.
+
+    ``None`` is the case the marginal budget is measured AGAINST, and passing 0 instead is the
+    mistake that made the first version of this measurement meaningless: a payload carrying zero
+    conflicts still carries its mandatory head, so comparing the budget to that row compares the
+    field against itself.
 
     Args:
-      conflicts: How many conflicted items the payload carries.
+      conflicts: How many conflicted items the payload carries, or None for a row with NO payload
+        at all.
       key_char: The character every key and name is filled with.
 
     Returns:
@@ -948,7 +956,7 @@ def _notification_row(conflicts: int, key_char: str) -> int:
                 "more": True,
             }
         ]
-        * conflicts,
+        * (conflicts or 0),
         "more": True,
     }
     row = {
@@ -959,8 +967,9 @@ def _notification_row(conflicts: int, key_char: str) -> int:
         # The link carries the same prefix percent-encoded, which is three ASCII bytes per source
         # byte — a different expansion from JSON's and one this row pays on top.
         "link": f"/files?space=finance&prefix={quote(key_char * _MAX_KEY_BYTES, safe='/')}",
-        "payload": payload,
     }
+    if conflicts is not None:
+        row["payload"] = payload
     # json.dumps ESCAPES here rather than leaving the value literal, which is the difference that
     # matters: a control character becomes six bytes in the document the browser downloads.
     return len(json.dumps(row).encode())
@@ -979,7 +988,7 @@ def test_the_payload_budget_is_the_MARGINAL_one_and_the_constant_sits_under_it()
     not something this spec controls.
     """
     for key_char in ("\x01", "k"):
-        without = _notification_row(0, key_char)
+        without = _notification_row(None, key_char)
 
         assert without > config.FILE_OPS_NOTIFIED_PAYLOAD_BYTES, (
             f"the payload budget of {config.FILE_OPS_NOTIFIED_PAYLOAD_BYTES} bytes exceeds the "
@@ -1031,7 +1040,15 @@ def test_a_payload_at_the_budget_is_one_the_WRITER_still_accepts():
         "requestId": "0" * 36,
         "operation": "move",
         "source": {"kind": "personal", "name": "a" * 63},
-        "destination": {"kind": "shared", "name": "b" * 63, "prefix": "\x01" * _MAX_KEY_BYTES},
+        # The prefix is the head's one otherwise-unbounded term, and the producer refuses to carry
+        # one longer than this. Measured AT that bound rather than at S3's key limit by
+        # coincidence: they are the same number for the same reason, and reading the constant back
+        # is what keeps them so.
+        "destination": {
+            "kind": "shared",
+            "name": "b" * 63,
+            "prefix": "\x01" * config.FILE_OPS_NOTIFIED_PREFIX_BYTES,
+        },
         "more": True,
     }
     # The producer adds a conflict only while the result stays inside its own budget, so the

@@ -137,6 +137,31 @@ describe('getNotifications', () => {
     }
   });
 
+  it('rebuilds the payload field-by-field, dropping entries that promise more than they carry', async () => {
+    // The declared type is a promise nobody checked: this is untrusted data, on a queue the portal
+    // role can write to. Carried through unexamined, `conflicts` could be a string or an array of
+    // nulls and still type as `NotificationConflict[]` to the reader that renders those fields.
+    // Deliberately typed `unknown`: this is what ARRIVES, not what the type says arrives, and the
+    // whole point of the rebuild is that the two are different things.
+    const hostile: unknown = {
+      requestId: '11111111-2222-3333-4444-555555555555',
+      operation: 'move',
+      source: {kind: 'personal', name: 'alice', junk: 1},
+      destination: 'not-an-object',
+      conflicts: [{itemKey: 'alice/a.csv', kind: 'file', sample: ['out/a.csv', 42]}, {kind: 'file'}, null, 'a string']
+    };
+    fakeS3({body: JSON.stringify([{...note({id: 'mixed'}), payload: hostile}])});
+    const result = await getNotifications(USER);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const {payload} = result.data[0];
+    expect(payload?.source).toEqual({kind: 'personal', name: 'alice'});
+    expect(payload).not.toHaveProperty('destination');
+    expect(payload?.conflicts).toEqual([{itemKey: 'alice/a.csv', kind: 'file', sample: ['out/a.csv']}]);
+    // Three entries went in and one came out, so the list on screen is NOT the whole list.
+    expect(payload?.more).toBe(true);
+  });
+
   it('normalises a row written before the payload field byte-identically', async () => {
     // The reader half of "a row lacking the field is unchanged and valid". Six other planes write
     // rows and none of them was modified, so every notification already sitting in an inbox has
