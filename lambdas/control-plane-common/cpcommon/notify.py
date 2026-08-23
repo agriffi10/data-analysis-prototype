@@ -86,7 +86,11 @@ def actor_of(event) -> str:
 
 
 def emit_notification(
-    username: str, message: str, dedup_id: str | None = None, link: str | None = None
+    username: str,
+    message: str,
+    dedup_id: str | None = None,
+    link: str | None = None,
+    payload: dict | None = None,
 ) -> None:
     """Sends a create envelope to the FIFO notifications queue, grouped by username.
 
@@ -106,6 +110,12 @@ def emit_notification(
         here: the browser decides what is safe to render as a link, and duplicating that
         rule in a Lambda would give two places to keep in step. Producers pass in-app paths
         only, never an absolute URL.
+      payload: Optional structured object the row carries beside its message, for a reader
+        that knows the producing plane's shape. Omitted from the body rather than sent as
+        null, for the same reason as the link: the writer treats a present non-empty object
+        as one to persist, and an absent key is unambiguous where a null is not. **A plane
+        that passes one owns its own size bound** — the writer enforces a ceiling and refuses
+        anything over it, which dead-letters the message rather than delivering half a field.
 
     Returns:
       None. Also returns without sending when the queue URL is unset.
@@ -120,9 +130,11 @@ def emit_notification(
         logger.info("no recipient; skipping notify")
         return
     try:
-        body = {"action": "create", "username": username, "message": message}
+        body: dict = {"action": "create", "username": username, "message": message}
         if link:
             body["link"] = link
+        if payload:
+            body["payload"] = payload
         kwargs = {
             "QueueUrl": config.NOTIFICATIONS_QUEUE_URL,
             "MessageBody": json.dumps(body),

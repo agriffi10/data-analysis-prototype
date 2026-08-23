@@ -40,8 +40,9 @@ and the role's policy scopes access with `${aws:PrincipalTag/username}`. No per-
 **Two browser-facing data buckets.** Bucket 1 (user-space) is self-contained — IAM enforces per-user
 prefix isolation by the Cognito username. Bucket 2 (shared-space, `dat-prod-shared-space`) holds
 user-created shared spaces; every mutation goes through a privileged async **control plane** — the
-deliberate, scoped exceptions to "no backend" (§ Control Planes). Four planes exist: **Shared
-Spaces**, **Table Builder**, **Table Share**, and **Data Quality**; all share one pattern, the
+deliberate, scoped exceptions to "no backend" (§ Control Planes). **Seven** planes exist: **Shared
+Spaces**, **Table Builder**, **Table Share**, **Data Quality**, **Send Files**, **Archive** and
+**File Operations**; all share one pattern, the
 `cpcommon` layer, a DLQ-drain sweep (SPEC-126), and structured logging (SPEC-127→137). An
 admin-only bucket (SPEC-032) holds Athena results, the shared-space registry, and the `logs/` store.
 
@@ -124,15 +125,15 @@ catalog-wide Describe, which fixes the `AccessDenied`-vs-`EntityNotFound` read f
 
 ## Control Planes (privileged async pipelines)
 
-> **SEVEN, not six, since SPEC-187 (2026-08-20).** The file-operations plane is live — its queue,
-> Pipe, machine, per-space lock and `validate-authorize` are deployed, and the browser has an enqueue
-> service nothing calls yet. The full section is SPEC-191's to write, as the arc's closer; this
-> marker exists so the count below is not read as current.
-
-Six features perform privileged, cross-user, multi-step AWS work that browser-scoped credentials
+SEVEN features perform privileged, cross-user, multi-step AWS work that browser-scoped credentials
 must not: shared-space lifecycle, table creation, table sharing, data-quality checks, sending files
-to another person or space, and archiving a file or folder into Glacier (with its restore). Each is a deliberate, recorded reversal of "no backend" for its
+to another person or space, archiving a file or folder into Glacier (with its restore), and copying,
+moving or deleting files and folders. Each is a deliberate, recorded reversal of "no backend" for its
 mutations only — the rest of the app stays browser-direct.
+
+> **The seventh is complete server-side and reaches no user yet.** File operations run end to end
+> and notify, but the browser's enqueue service is still called by nothing: every gesture in the file
+> browser takes the old synchronous path until SPEC-190 lands.
 
 ### The shared pattern
 
@@ -633,7 +634,7 @@ only through a restore request that takes **hours**, not a click.
   cannot deliver while every bound computed from it reads as satisfied. 8 workers; the guard's
   600 s **timeout** is what pays for 20,000 heads. A test reads the ceiling off botocore.
 
-### File Operations — SPEC-187 → 191 (187–188 complete; 189–191 pending)
+### File Operations — SPEC-187 → 191 (187–189, 191 complete; 190 — the browser — pending)
 
 "Move / copy / delete these files and folders": the last bulk data operations this product performed
 in the **browser**. `copyFolder` issued one `CopyObject` per object in a strictly sequential loop
@@ -657,8 +658,10 @@ operation half-done with no record it had started.
   reading a path a delete does not carry raises an uncatchable `States.Runtime`, so the very first
   delete would have died before the notifier. Read that rule before adding a `Pass` here.
 - **SFN:** `ValidateAuthorize → StampExecution → AcquireLock ⇄ WaitForLock → ChooseOperation →
-  InspectSource → NeedsDestinationGuard → CheckDestinations → …placeholder… → ReleaseLock →
-  Succeeded`, with three release states (one ASL state has one `Next`) and
+  InspectSource → NeedsDestinationGuard → CheckDestinations ×2 → BuildTransferManifest →
+  TransferObjects (Distributed Map) → CollectTransferResults → NeedsSourceDeletion → DeleteSource →
+  FinaliseOutcomes → ReleaseLock → NotifyOutcomes → Succeeded`, with three release states (one ASL
+  state has one `Next`) and
   `ValidateFailureSeed`/`RequestFailureSeed`/`GiveUpFailureSeed → RecordFailure → NotifyFailure →
   Failed`. **Every Task taken under the lock carries a `Catch`**: a Task without one has no edge to
   any terminal, so the graph walk that proves no path reaches a terminal holding the lock stays
@@ -685,6 +688,24 @@ reads them from there and **not** from the state — reading them off the state 
 every Task retries three times, so refusing any occupied prefix would refuse the request the verb
 had itself just planned. `etag` rides because `ListObjectsV2` already returned it, and it is the
 field a later conditional delete turns on.
+
+**The notification is the completion channel, and one producer says it.** `NotifyOutcomes` is the
+last state and it sits **after** the release — before it, the space would be held for as long as the
+messages take to write — and **both** of `ReleaseLock`'s edges reach it, because a release that
+exhausts its `Retry` still has to notify or a completed operation tells the user nothing. It cannot
+fail the run (`ResultPath: null`, a `Catch` to the terminal, no `@notifies_on_failure`): by the time
+it runs a `move` has already deleted its sources. It is also the one Task whose catch reaches a
+terminal rather than a release — the lock is free, and a release is an *overwrite*, so a second one
+would clobber whichever execution had since acquired that space.
+
+**ONE message per run, not per item**, carrying a link and an optional structured `payload` on the
+notification row: `requestId` always (a reader settles its in-flight record by matching it, and a
+clean run has nothing to re-submit), plus what a re-submit needs — the operation, both spaces, the
+destination prefix and the **bounded** conflicted items. Bounded by **bytes as well as count**,
+because one conflicted item is ~200 bytes at ordinary key lengths and ~12,000 at this plane's caps.
+The link is the destination when anything landed, the source otherwise, and for a `delete` the
+common folder of the items' **parents**; its prefix is **percent-encoded**, which no other plane's
+link needs, because this is the only one built from an arbitrary user-controlled key.
 
 **The execution role reads both data buckets and writes to neither** — `ListBucket` +
 `GetBucketLocation` + `GetObject`, with an explicit `Deny` on every write verb, so the transfer

@@ -107,6 +107,48 @@ describe('getNotifications', () => {
     expect(byId['bad-type']).not.toHaveProperty('link');
   });
 
+  it('carries a payload through, and drops one whose request id could change a URL', async () => {
+    // Same rule the link follows and the same reason for pinning it: `normalize` rebuilds each
+    // row field-by-field, so a field it does not name vanishes between S3 and the row with the
+    // whole suite still green. Here that would present as an operation whose conflicts are
+    // unreachable for anyone who closed the submitting tab.
+    //
+    // The id is shape-checked because the row interpolates it into a URL. A row carrying a bad
+    // one still ARRIVES — only the field is dropped.
+    const payload = {requestId: '11111111-2222-3333-4444-555555555555', operation: 'move'};
+    fakeS3({
+      body: JSON.stringify([
+        note({id: 'carried', payload}),
+        note({id: 'plain'}),
+        {...note({id: 'not-an-object'}), payload: 'req-1'},
+        {...note({id: 'an-array'}), payload: [payload]},
+        {...note({id: 'no-id'}), payload: {operation: 'move'}},
+        {...note({id: 'hostile-id'}), payload: {requestId: 'a&b=c'}}
+      ])
+    });
+    const result = await getNotifications(USER);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    const byId = Object.fromEntries(result.data.map((n) => [n.id, n]));
+    expect(byId.carried.payload).toEqual(payload);
+    for (const id of ['plain', 'not-an-object', 'an-array', 'no-id', 'hostile-id']) {
+      expect(byId[id]).not.toHaveProperty('payload');
+      expect(byId[id]).toBeDefined();
+    }
+  });
+
+  it('normalises a row written before the payload field byte-identically', async () => {
+    // The reader half of "a row lacking the field is unchanged and valid". Six other planes write
+    // rows and none of them was modified, so every notification already sitting in an inbox has
+    // to come back exactly as it did before.
+    const before = {id: 'old', message: 'Table created', read: true, timestamp: '2026-01-01T00:00:00.000Z'};
+    fakeS3({body: JSON.stringify([before])});
+    const result = await getNotifications(USER);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(JSON.stringify(result.data[0])).toBe(JSON.stringify(before));
+  });
+
   it('drops malformed rows but keeps valid ones', async () => {
     fakeS3({body: JSON.stringify([{nope: true}, note({id: 'ok'})])});
     const result = await getNotifications(USER);

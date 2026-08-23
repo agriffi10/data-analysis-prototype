@@ -20,6 +20,55 @@ export type Notification = {
    * both render exactly as they always have.
    */
   link?: string;
+  /**
+   * Optional structured field a trusted producer attaches beside the message, for a
+   * reader that knows the producing plane's shape. Persisted verbatim by the writer,
+   * which bounds its SIZE and refuses anything over that — never its contents.
+   *
+   * Like `link`, it is absent on every notification written before the field existed and
+   * on every producer that supplies none, and both render exactly as they always have.
+   * Unlike `link` it is not a safety decision: it becomes no anchor and no markup. What
+   * the reader owes it is a field-by-field rebuild, which is what `normalize` does.
+   */
+  payload?: NotificationPayload;
+};
+
+/**
+ * What a payload carries. Owned by the WRITER's wire contract rather than by any one
+ * feature — a notification row must never import from the feature its producer belongs to.
+ *
+ * Today one plane sends one: file operations, whose runs are asynchronous and whose result
+ * a user has to be able to act on after the submitting tab is gone. Every field beyond
+ * `requestId` is what rebuilding that request needs, and `requestId` itself is on EVERY row
+ * that plane writes — including a wholly successful run's, which has nothing to re-submit
+ * but which a reader still has to settle against its own record of the request.
+ */
+export type NotificationPayload = {
+  /** The run this notification is about. Always present. */
+  requestId: string;
+  operation?: string;
+  /** The space the items came from — NOT derivable from an absolute key. */
+  source?: {kind?: string; name?: string};
+  /** Absent for an operation that has no destination, i.e. a delete. */
+  destination?: {kind?: string; name?: string; prefix?: string};
+  /**
+   * The items something already occupied the destination of. BOUNDED at the producer, by
+   * bytes as well as by count — one entry is a couple of hundred bytes at ordinary key
+   * lengths and thousands at the plane's caps — so `more` says whether any were dropped.
+   */
+  conflicts?: NotificationConflict[];
+  more?: boolean;
+};
+
+/** One conflicted item, carrying what a re-submit of it needs. */
+export type NotificationConflict = {
+  itemKey: string;
+  kind?: string;
+  /** The name the item was to take, which a rename has no other source for. */
+  targetName?: string;
+  /** A bounded sample of the colliding keys, already shortened for display. */
+  sample?: string[];
+  more?: boolean;
 };
 
 /**

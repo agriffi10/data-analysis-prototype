@@ -351,6 +351,13 @@
     ]
   },
   {
+    "name": "file-ops-notify",
+    "layers": [
+      "cpcommon",
+      "focommon"
+    ]
+  },
+  {
     "name": "archive-validate-authorize",
     "layers": [
       "cpcommon",

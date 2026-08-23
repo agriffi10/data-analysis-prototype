@@ -3,7 +3,7 @@ import {ok} from '../../lib/serviceResult';
 import {enqueueFifoRequest} from '../../lib/enqueueFifo';
 import {userSpaceBucket, userSettingsKey} from '../../lib/userSpace';
 import type {ServiceResult} from '../../types/service.types';
-import type {EnqueueNotificationInput, Notification} from './notifications.types';
+import type {EnqueueNotificationInput, Notification, NotificationPayload} from './notifications.types';
 
 // Browser data layer for the per-user notifications inbox. The browser never writes
 // notifications.json — the writer Lambda is the sole writer. This service only reads
@@ -15,6 +15,12 @@ function inboxKey(username: string): string {
 
 // A corrupt or partial row is dropped, not fatal — the writer owns the format; the
 // reader is defensive.
+//
+// IT REQUIRES THE FOUR CORE FIELDS AND NOTHING MORE, DELIBERATELY. The document is a bare
+// array with no version, so a reader that met an unknown field and refused the row would
+// drop notifications the moment a producer started sending one — which is exactly what
+// happened here when `link` arrived, and again when `payload` did. Tightening this into
+// validating the optional fields would trade a rendering decision for a data-loss one.
 function isValidRow(row: unknown): row is Notification {
   const o = row as Partial<Notification> | null;
   return (
@@ -38,8 +44,30 @@ function normalize(row: Notification): Notification {
     message: row.message,
     read: row.read === true,
     timestamp: row.timestamp,
-    ...(typeof row.link === 'string' ? {link: row.link} : {})
+    ...(typeof row.link === 'string' ? {link: row.link} : {}),
+    ...(isPayload(row.payload) ? {payload: row.payload} : {})
   };
+}
+
+// A payload is carried only when it is a plain object whose `requestId` is a string of the
+// shape the producer mints — a 32-character hex UUID. Everything else is dropped, and the
+// ROW SURVIVES either way: this keeps the field's type honest exactly as the `link` clause
+// does, it does not police the producer.
+//
+// The id is shape-checked rather than merely non-empty because it does not stay data: the
+// row interpolates it into a URL. It arrives from outside the SPA, read back out of S3, on
+// a queue the portal role can also write to.
+//
+// The rule is "characters that cannot change a URL", NOT "a UUID". Every plane mints
+// `crypto.randomUUID()` today, and a regex for that exact shape would be a reader coupled to
+// one producer's id format — which fails closed in the worst way, dropping the field silently
+// the day a plane mints anything else. The render site encodes the value as well.
+const ID_SHAPE = /^[A-Za-z0-9_-]{1,64}$/;
+
+function isPayload(payload: unknown): payload is NotificationPayload {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+  const {requestId} = payload as Partial<NotificationPayload>;
+  return typeof requestId === 'string' && ID_SHAPE.test(requestId);
 }
 
 // Forgiving parse: missing/corrupt/non-array → empty list. Returned newest-first —

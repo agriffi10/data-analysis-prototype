@@ -81,6 +81,33 @@ Attributes:
     so the basename — the part that identifies the file — survives. An ordinary path is untouched;
     what this bounds is the pathological key the caps admit and a notification could never render.
     The refusal says plainly that there may be more, so a sample is never read as exhaustive.
+  FILE_OPS_NOTIFIED_ITEMS: How many refused items the ONE notification a run produces NAMES
+    before it says how many it did not. A presentation bound: the sentence has to stay readable
+    at a 200-item selection, and a sample a reader could mistake for the whole list is worse than
+    a count alone.
+  FILE_OPS_NOTIFIED_CONFLICTS: How many conflicted items the notification's structured payload
+    carries, for a reader rebuilding a re-submit. **The COUNT is the bound that binds at ordinary
+    key lengths and says nothing at the caps**, which is why it ships beside a byte budget rather
+    than alone.
+  FILE_OPS_NOTIFIED_PAYLOAD_BYTES: Budget for that payload's SERIALISED size, enforced by
+    dropping conflicted items until it fits rather than by trusting the count.
+
+    **A count cap cannot bound this and the arithmetic says why.** The inbox is capped at 200 rows
+    and the browser fetches and parses the WHOLE document on every 60-second poll, from the header
+    bell, on every page — so a worst-case inbox is a recurring per-minute download rather than a
+    one-off read. And one conflicted item is ~200 bytes at ordinary key lengths and ~12,000 at the
+    caps, because S3 keys are 1,024 bytes of arbitrary UTF-8 and JSON escaping turns a control
+    character into six. Three items is therefore either negligible or 36 KB, and the count alone
+    cannot tell those apart.
+
+    The budget it is derived from is the MARGINAL one — the structured field may not add more to
+    the worst-case inbox than the row already costs without it. **The measurement is what set the
+    number, and it disagreed with the estimate that preceded it**: the binding case is not the
+    escape-heavy one but the PLAIN one, at 3,047 bytes, because a control character expands six
+    times in the payload and only three times in the percent-encoded link beside it. ``test_config_focommon`` computes the allowance, asserts which of the two
+    bounds binds at each end of the range, and asserts the result stays under the ceiling the
+    notifications writer refuses above, so a pathological run loses its conflict list and never
+    its message.
   PLAN_PREFIX: Key prefix for this plane's copy plans, under the admin bucket. Mirrored in the
     module's ``locals.tf`` (the IAM grant) and in the admin bucket's lifecycle rule; a test holds
     all three equal. It cannot match ``LOCK_PREFIX`` — ``locks/file-ops`` does not begin with
@@ -141,6 +168,12 @@ FILE_OPS_ITEM_ROUND_TRIP_SECONDS = 0.1
 FILE_OPS_CONFLICT_SAMPLE = 3
 
 FILE_OPS_SAMPLE_PATH_CHARS = 120
+
+FILE_OPS_NOTIFIED_ITEMS = 3
+
+FILE_OPS_NOTIFIED_CONFLICTS = 3
+
+FILE_OPS_NOTIFIED_PAYLOAD_BYTES = 2 * 1024
 
 PLAN_PREFIX = "file-ops"
 

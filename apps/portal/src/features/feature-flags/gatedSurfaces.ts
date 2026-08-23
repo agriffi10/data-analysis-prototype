@@ -53,6 +53,11 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // page. The notification itself is never gated: the record of what happened outlives the
     // surface that would show it.
     {name: 'Received files link on a notification', kind: 'control', path: '/notifications'},
+    // A SECOND, SEPARATELY NAMED control on a notification row — not the link clause above, which
+    // is a mechanism already registered twice. This one appears only on a notification whose
+    // producer named items it could not do, and it goes to a view that lives behind this flag, so
+    // it is a surface in its own right and gets a row like any other.
+    {name: 'Review conflicts on a notification', kind: 'control', path: '/notifications'},
     // The entry point itself. In the FILE BROWSER, like "Check data quality" and
     // unlike "Create table", which is a Query capability wearing a file-browser button.
     {name: 'Send selected items to someone', kind: 'control', path: '/files'},

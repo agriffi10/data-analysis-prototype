@@ -215,6 +215,7 @@ def test_no_Pass_state_reads_a_field_a_DELETE_request_does_not_carry():
         "ReleaseLockOnGiveUp",
         "ReleaseLockOnFailure",
         "NotifyFailure",
+        "NotifyOutcomes",
     ],
 )
 def test_every_task_retries_a_transient_lambda_fault(state):
@@ -336,10 +337,15 @@ def test_every_task_taken_under_the_lock_can_reach_a_terminal_at_all():
     catch, and the two that decide what an operation will do are exactly where forgetting one is
     invisible.
     """
+    # NotifyOutcomes is excluded for a reason worth writing down rather than inferring: it runs
+    # AFTER the release, so it holds no lock — and a catch of its own into a release state would
+    # be actively wrong, because a release is an OVERWRITE rather than a compare-and-set on the
+    # holder, and by then a different execution may hold that space.
     under_lock = [
         name
         for name, state in STATES.items()
-        if state["Type"] == "Task" and name not in ("ValidateAuthorize", "NotifyFailure")
+        if state["Type"] == "Task"
+        and name not in ("ValidateAuthorize", "NotifyFailure", "NotifyOutcomes")
     ]
 
     assert "InspectSource" in under_lock and "CheckDestinations" in under_lock
@@ -603,11 +609,42 @@ def test_a_delete_skips_BOTH_guard_passes():
 
 
 def test_the_lock_is_released_BEFORE_anything_that_would_notify():
-    """FR-000's ordering, pinned here because the spec that adds the notification producer inserts it
-    after ``ReleaseLock`` — and a producer inserted before it would hold the space for the whole time
-    the messages take to write."""
+    """FR-000's ordering. The producer is inserted after ``ReleaseLock`` — before it, the space
+    would be held for the whole time the messages take to write."""
     assert STATES["FinaliseOutcomes"]["Next"] == "ReleaseLock"
-    assert STATES["ReleaseLock"]["Next"] == "Succeeded"
+    assert STATES["ReleaseLock"]["Next"] == "NotifyOutcomes"
+    assert STATES["NotifyOutcomes"]["Next"] == "Succeeded"
+
+
+def test_BOTH_of_the_releases_edges_reach_the_producer():
+    """The half that is easy to miss, and it costs the user the whole message.
+
+    ``ReleaseLock`` carries a ``Catch`` so that a failed release cannot fail a request that did its
+    work. Routed to the terminal, that catch skips the producer — so a release whose ``Retry`` is
+    exhausted by one throttle completes the operation and tells the user NOTHING, while a browser
+    waiting on that message to settle its in-flight record holds the space's submit gate until the
+    machine's own ceiling. The lock is already free either way, so this costs nothing.
+    """
+    caught = {catch["Next"] for catch in STATES["ReleaseLock"]["Catch"]}
+
+    assert caught == {"NotifyOutcomes"}, f"a failed release skips the producer and reaches {caught}"
+
+
+def test_the_producer_cannot_fail_the_run_or_replace_its_output():
+    """By the time it runs, a ``move`` has already deleted its sources.
+
+    So the state may neither fail the execution nor rewrite what the finaliser shaped: ``ResultPath:
+    null`` on the state AND on its catch, and a catch that leads to the terminal rather than to a
+    release — the lock is free, and releasing again would clobber whichever execution has since
+    acquired it.
+    """
+    producer = STATES["NotifyOutcomes"]
+
+    assert producer["ResultPath"] is None
+    assert {catch["Next"] for catch in producer["Catch"]} == {"Succeeded"}
+    for catch in producer["Catch"]:
+        assert catch["ResultPath"] is None
+    assert not (RELEASE_STATES & set(_successors("NotifyOutcomes")))
 
 
 def test_the_wait_loop_still_has_the_shape_SPEC_187_gave_it():

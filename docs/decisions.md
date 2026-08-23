@@ -178,6 +178,12 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 - [The commit gate is per ITEM, so the graph proves less than SPEC-169's did (SPEC-189)](#the-commit-gate-is-per-item-so-the-graph-proves-less-than-spec-169s-did-spec-189)
 - [The source deletion: what it removes, and what it is conditional on (SPEC-189)](#the-source-deletion-what-it-removes-and-what-it-is-conditional-on-spec-189)
 - [Two budgets, and both were wrong before they were computed (SPEC-189)](#two-budgets-and-both-were-wrong-before-they-were-computed-spec-189)
+- [One producer, after the release, reached from BOTH of ReleaseLock's edges (SPEC-191)](#one-producer-after-the-release-reached-from-both-of-releaselocks-edges-spec-191)
+- [A notification payload is bounded by BYTES, and the binding case is the PLAIN one (SPEC-191)](#a-notification-payload-is-bounded-by-bytes-and-the-binding-case-is-the-plain-one-spec-191)
+- [`requestId` rides on every row, including a clean run's and a failed run's (SPEC-191)](#requestid-rides-on-every-row-including-a-clean-runs-and-a-failed-runs-spec-191)
+- [The outcome link: destination, source, or the common folder of the items' PARENTS (SPEC-191)](#the-outcome-link-destination-source-or-the-common-folder-of-the-items-parents-spec-191)
+- [The outcome wording reuses the failure bodies and is deliberately NOT a resolver (SPEC-191)](#the-outcome-wording-reuses-the-failure-bodies-and-is-deliberately-not-a-resolver-spec-191)
+- [A pre-existing notifications spoofing gap, recorded and not fixed here (SPEC-191)](#a-pre-existing-notifications-spoofing-gap-recorded-and-not-fixed-here-spec-191)
 
 ---
 
@@ -4427,3 +4433,115 @@ everything unbounded on the state does. Where it would have broken is the worst 
 `States.DataLimitExceeded` on the collector's result lands **after the copy**, and on delete-source's
 **after the deletion**, and that error escapes every `Catch` — so the user would be told nothing at
 all about an operation that had already moved their data.
+
+
+### One producer, after the release, reached from BOTH of ReleaseLock's edges (SPEC-191)
+
+The plane's outcome producer is the last state before `Succeeded` and it sits **after**
+`ReleaseLock` — before it, the space would be held for as long as the messages take to write. The
+half that is easy to miss is that `ReleaseLock`'s **`Catch`** had to move with its `Next`. That
+catch exists so a failed release cannot fail a request that did its work; pointed at the terminal,
+it skips the producer, and a release whose `Retry` one throttle exhausts then **completes the
+operation and tells the user nothing**. The browser's per-space gate, which settles on a
+notification carrying the `requestId`, would hold that space until the machine's ceiling — the exact
+wedge the always-present `requestId` exists to prevent, arriving through the one path nobody looked
+at. Both edges reach the producer now, and a test asserts it.
+
+**It is also the one Task on this plane whose catch reaches a terminal rather than a release**, and
+that is not an oversight to be tidied. The lock is free by the time it runs, and a release is an
+**overwrite**, not a compare-and-set on the holder — so a second one would clobber whichever
+execution had since acquired that space. The graph walk's not-under-the-lock set names it with the
+reason, beside validate-authorize and the failure notifier.
+
+It cannot fail the run: `ResultPath: null` on the state *and* on the catch, and **no**
+`@notifies_on_failure` — by the time it runs a `move` has already deleted its sources, so a raise
+would report a completed operation as a failed one. And it reads the **state and nothing else**: a
+verb that loaded the plan would join the set whose smallest memory sizes `FILE_OPS_MAX_OBJECTS`,
+shrinking a cap that has nothing to do with notifying. A test derives that set from the source.
+
+### A notification payload is bounded by BYTES, and the binding case is the PLAIN one (SPEC-191)
+
+The inbox is capped at 200 rows and the browser fetches and `JSON.parse`s the **whole** document on
+every 60-second poll, from the header bell, on every page — so a worst-case inbox is a recurring
+per-minute download rather than a one-off read. Against that, one conflicted item is ~200 bytes at
+ordinary key lengths and ~12,000 at this plane's caps: S3 keys are 1,024 bytes of arbitrary UTF-8
+and JSON escaping turns a control character into six. A count of three is therefore either
+negligible or 36 KB, and the count alone cannot tell those apart.
+
+So the payload is bounded by **bytes as well as count**, enforced at mint by adding conflicted items
+only while the serialised payload still fits and setting `more` when any are dropped — for either
+reason. That is what makes the pathological case *safe* rather than merely small: a run whose keys
+are at S3's limit carries fewer items than the count allows, or none, and says so.
+
+**The budget the byte cap is derived from is the MARGINAL one** — the structured field may not add
+more to the worst-case inbox than the row already costs without it. An absolute number would be one
+chosen and then defended, and the row's own fixed cost (a percent-encoded link, a 1,024-byte
+destination prefix) is not something this spec controls.
+
+**And the estimate that preceded the measurement had the comparison backwards.** 4 KiB was written
+down first; the test that computes the allowance refused it at **3,047 bytes**. The binding case is
+not the escape-heavy one but the **plain** one, because a control character expands *six* times
+inside the JSON payload and only *three* times in the percent-encoded link beside it — so the row a
+payload competes against is **smaller** when the keys are hostile. The cap is 2 KiB.
+
+**The producer's bound and the writer's refusal are two numbers in two languages.** A payload the
+producer considers fine and the writer refuses does not lose its conflict list, it loses the
+**whole message** — on the one queue whose dead-letter queue is deliberately undrained. So
+`notifications_writer.MAX_PAYLOAD_BYTES` **rejects** (never truncates) an oversize payload, and a
+test reads that ceiling back out of the Lambda and asserts the largest payload this plane can emit
+sits under it.
+
+### `requestId` rides on every row, including a clean run's and a failed run's (SPEC-191)
+
+A reader settles its in-flight record by matching it, and a clean run has nothing to re-submit — so
+scoping the field to "what a re-submit needs" would leave successful operations unsettled. The same
+argument applies one path over, to a run that **failed** before the producer ever ran, which settles
+nothing otherwise; so the two failure emitters carry a minimal `{requestId}` payload too. That is
+beyond the spec's own acceptance criteria and was built deliberately.
+
+### The outcome link: destination, source, or the common folder of the items' PARENTS (SPEC-191)
+
+A copy or move that landed anything links to the **destination**; anything else links to the
+**source**, because that is where the items still are. One message per run means one link, so the
+rule is about the run rather than about an item — and a `duplicate` counts as landed, since its
+objects *are* at the destination and that is exactly where the user has to look to choose which copy
+to keep.
+
+**A `delete` links to the deepest folder its items shared, computed over the items' PARENTS.** Over
+the keys themselves, a single-item delete yields the item — linking the user into the folder that
+was just removed, an empty listing where a folder used to be. Taking parents first makes the
+one-item and many-item cases the same computation. A common prefix is also cut back to its last
+slash: two siblings named `report-a` and `report-b` share `report-`, which names no folder.
+
+**`?space=` is minted FIRST, and that is not cosmetic.** `NotificationRow` gates the shared-space
+variant on the literal `?space=`; the other parameter order slips the gate, the route never reads
+the space, resolves the personal one, discards a prefix that does not start with it, and lands the
+user in their own files with no banner while the message names a shared space.
+
+**This is the fleet's first link built from an arbitrary KEY**, so the prefix is **percent-encoded**
+at mint — every other plane interpolates catalog-constrained names. An unencoded `?`, `#` or `&`
+truncates the link into one that resolves elsewhere, and the browser's `isSafeInAppPath` cannot see
+it: that guard inspects only the first two characters.
+
+### The outcome wording reuses the failure bodies and is deliberately NOT a resolver (SPEC-191)
+
+Six per-item outcomes carry a reason the failure table already words — `source_missing`,
+`source_empty`, `copy_failed`, `source_changed`, `source_delete_failed`, `delete_refused` — so the
+item clause resolves through that same table and only the outcomes with no body of their own are
+written out. A second table would be one code with two sentences, inside one module.
+
+**The outcome table is not registered as a `Resolver`.** `Resolver.__init__` ends by marking every
+key it is given a globally valid reason code, so registering these would let
+`TerminalError("duplicate")` pass raise-time validation — undercutting `outcomes.py`'s rule that no
+member of the per-item vocabulary may ever be a whole-request failure reason. That a success
+sentence cannot open with "Couldn't move that: " is the lesser argument.
+
+### A pre-existing notifications spoofing gap, recorded and not fixed here (SPEC-191)
+
+The portal role holds an **unconditioned** `sqs:SendMessage` on the notifications request queue, and
+the writer takes the body's `username` verbatim for a `create`. A signed-in browser can therefore
+already plant a notification — message and clickable in-app link — in another user's inbox. The
+comment directly above that IAM grant asserts the opposite, which is the dangerous combination: a
+reader checking the IaC is told the hole is closed. IAM cannot condition on a message body, so the
+fix is a second queue or a token on `create`, and it changes a plane seven features share. Recorded
+rather than absorbed into this spec; the payload ceiling above is the only part of it this spec owes.

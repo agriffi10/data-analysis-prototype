@@ -3,7 +3,7 @@ import {formatRelativeTime} from '../../lib/format';
 import {cx} from '../../lib/cx';
 import {useIsMobile} from '../../lib/useBreakpoint';
 import {useFeature} from '../feature-flags';
-import {isSafeInAppPath} from './notificationLink';
+import {isSafeInAppPath, reviewHref} from './notificationLink';
 import type {Notification} from './notifications.types';
 
 type NotificationRowProps = {
@@ -50,6 +50,23 @@ export function NotificationRow({notification, onMarkRead}: NotificationRowProps
     // like any other, and gating it on a flag it does not depend on would drop a working link.
     (link?.includes('?space=') && !flags.sharedWorkspaces);
   const to = !gated && isSafeInAppPath(link) ? link : undefined;
+  // A notification whose producer named the items it could not do gets a second, SEPARATE
+  // control into the view that can act on them. It is a SIBLING of the message anchor and never
+  // nested inside it: the message is deliberately the whole link, so an interactive control
+  // within it is `nested-interactive` — an axe failure this repo has shipped twice.
+  //
+  // The href is the row's own destination with the request id attached, built with
+  // URLSearchParams rather than by picking a separator: appending to a link that may already
+  // carry `?space=` is exactly where a hand-rolled `?` produces a URL nobody validated. The
+  // value is encoded on the way in, and the reader has already refused anything that could
+  // change a URL — two gates, because this one arrives from outside the SPA.
+  //
+  // Falling back to the file browser's root is deliberate. Reachability of the conflicts must
+  // not depend on a PREFIX link, which is a strictly more failure-prone thing than the request
+  // id the view actually needs — a user who closed the submitting tab has nowhere else to go.
+  const {payload} = notification;
+  const hasConflicts = (payload?.conflicts?.length ?? 0) > 0;
+  const review = payload && hasConflicts && !gated && flags.files ? reviewHref(to, payload.requestId) : undefined;
   // Mark-read is a compact trailing control at ≥ tablet; below the message as a
   // full-width touch target on mobile. Mount-gated so exactly
   // one button exists (a CSS swap would duplicate it in the DOM).
@@ -89,6 +106,16 @@ export function NotificationRow({notification, onMarkRead}: NotificationRowProps
           )}
         </p>
         <p className="mt-1 text-xs text-text-3">{formatRelativeTime(timestamp)}</p>
+
+        {review && (
+          <p className="mt-2">
+            <Link
+              to={review}
+              className="text-xs font-medium underline underline-offset-2 hover:text-accent-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+              Review conflicts
+            </Link>
+          </p>
+        )}
 
         {/* Mobile: full-width 34px button below the message + timestamp. */}
         {!read && isMobile && (

@@ -1537,8 +1537,9 @@ already-granted `{username}/athenaresults/` prefix, and the only non-app change 
 
 ## File-operations control-plane arc (SPEC-187 → 191)
 
-> **187, 188 and 189 are COMPLETE.** The plane copies, moves and deletes end to end; the browser's
-> enqueue service is still called by nothing. Remaining: **191** (notifications, Help), then **190**.
+> **187, 188, 189 and 191 are COMPLETE.** The plane copies, moves, deletes and **notifies** end to
+> end; the browser's enqueue service is still called by nothing. Remaining: **190** alone — the
+> browser's async model, which now also carries **191's FR-005 (Help & guides)**.
 
 Recursive folder copy, move and delete are the last bulk data operations this product performs in
 the **browser**. `copyFolder` issues one `CopyObject` per object in a strictly sequential loop,
@@ -1637,6 +1638,24 @@ The shape is the file-send arc's, one spec per reviewable unit: **187** the plan
 lock and validate-authorize; **188** source expansion, the copy plan and the destination guard;
 **189** the transfer, the source deletion and the terminals; **191** notifications, Help and the live
 checks; **190** the browser's async model and its in-flight state.
+
+**SPEC-191 IS COMPLETE, and three of its findings change what 190 inherits.**
+
+1. **Its FR-005 (Help & guides) MOVED TO 190, by the user's decision, and the reason generalises.**
+   Building 191 first means nothing it ships is user-reachable — the browser enqueues nothing.
+   Help is the sole exception: it deploys immediately, and a guide saying folder operations run in
+   the background would have been false for as long as 190 was unbuilt, which SPEC-074 FR-005
+   forbids. **A spec built out of dependency order should expect its user-facing half to travel
+   with the behaviour, not with the machinery.**
+2. **`ReleaseLock`'s CATCH reaches the producer too, not just its `Next`** — a release that
+   exhausts its `Retry` would otherwise complete the operation and tell the user nothing, and 190's
+   per-space gate settles on a notification carrying the `requestId`, so it would hold that space
+   until the ceiling. 190 must not "tidy" that edge.
+3. **The payload is bounded by BYTES as well as count**, so a re-submit built from a notification
+   covers at most the carried conflicts — fewer than the count cap when the keys are pathological,
+   and `more` says so. 190's conflict view is already specified as bounded; the submitting tab keeps
+   the full list, and the notification is the durable fallback. **`requestId` is on every row,
+   including a failed run's**, which is what lets 190 settle an in-flight entry either way.
 
 **Build 191 BEFORE 190 — the numbering is not the build order, and the arc review is why.** SPEC-190
 consumes 191's extended notification wire shape and its producer: its conflict view is reachable from

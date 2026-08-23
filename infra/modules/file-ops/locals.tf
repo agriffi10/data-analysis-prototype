@@ -34,9 +34,10 @@ locals {
   # lambdas/file-ops-<suffix>/ subdir AND the deploy-lambdas.yml matrix name
   # "file-ops-<suffix>"); value = the handler + the task's real timeout/memory need.
   #
-  # ELEVEN VERBS. The front door, the lock's two halves, the notification of last resort,
-  # the two that decide WHAT and WHETHER, and the five that make it happen: the manifest,
-  # the Map's batch copier, the attribution, the source deletion and the terminals.
+  # TWELVE VERBS. The front door, the lock's two halves, the notification of last resort,
+  # the two that decide WHAT and WHETHER, the five that make it happen — the manifest, the
+  # Map's batch copier, the attribution, the source deletion and the terminals — and the one
+  # that finally tells the user, after the lock is already free.
   #
   # THREE OF THE FIVE HOLD THE PARSED PLAN, and their memory rows are therefore INPUTS TO
   # FILE_OPS_MAX_OBJECTS rather than free choices — test_config_focommon takes the MINIMUM
@@ -100,6 +101,14 @@ locals {
     # Turns every gate verdict into a terminal and shapes the summary. String work over a
     # bounded outcome list plus one small read.
     "finalise-outcomes" = { handler = "file_ops_finalise_outcomes.handler", timeout = 60, memory = 256 }
+    # The plane's outcome producer: string work over the bounded outcome list plus one SQS
+    # send. It reads the STATE and nothing else — reaching for the plan would put it in the
+    # set whose min() memory sizes FILE_OPS_MAX_OBJECTS, shrinking a cap that has nothing to
+    # do with notifying, and a test derives that set from the source to stop exactly that.
+    #
+    # Its timeout is a term in the machine's ceiling like every other serial verb's, and
+    # test_config_focommon reads it back from here.
+    "notify" = { handler = "file_ops_notify.handler", timeout = 60, memory = 256 }
     # The notification of last resort: one decode + one SQS send, reached only on a
     # whole-request failure path.
     #

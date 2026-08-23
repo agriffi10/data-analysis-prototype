@@ -1,7 +1,7 @@
 # Spec: File Operations — Notifications, Help & the Arc's Live Checks
 
 **ID:** SPEC-191
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-17
 **Depends On:** SPEC-189 (the terminals and their per-item outcome list), SPEC-190 (the browser's async model and its conflict view), SPEC-058/059/061 (the notifications plane, whose wire shape this spec extends), SPEC-114 (the notification-is-the-completion-channel rule), SPEC-106 (user-facing wording), SPEC-074 (Help & guides), SPEC-167/172 (producer precedents)
 
@@ -158,9 +158,19 @@ exactly the scenario the arc exists for.
       `isSafeInAppPath` out of the TypeScript — the link is minted in Python and honoured by a
       TypeScript route rule, and nothing offline connects the two.
 
-### FR-005: Help & guides
+### FR-005: Help & guides — **MOVED TO SPEC-190**
 
-#### Acceptance Criteria:
+> **MOVED, not dropped, and the spec's own AC4 is the reason.** This spec is built BEFORE SPEC-190
+> (`ARCS.md`), so nothing it ships is user-reachable: the browser never enqueues a file operation,
+> and no user can receive one of these notifications. Help is the single exception — it is visible
+> the moment the app deploys, and a guide saying folder operations "run in the background and report
+> by notification" would be false for as long as SPEC-190 is unbuilt. AC4 forbids exactly that.
+>
+> Every criterion below travels to SPEC-190 unchanged, where the behaviour becomes true. The user
+> decided this before the plan was written; it is recorded here, in SPEC-190's scope and in the arc
+> entry.
+
+#### Acceptance Criteria (deferred):
 
 - [ ] **There is exactly one guide covering these operations** — `rename-move-copy-delete` — not four.
       It is updated to say that folder and multi-item operations now run in the background and report
@@ -186,8 +196,15 @@ on it.
 
 #### Acceptance Criteria:
 
-- [ ] `docs/testing/e2e.md` exists, with fixtures, exact labels, expected numbers and a
-      section per spec, and is added to `e2e.md`'s sequence.
+- [ ] The checks exist with fixtures, exact labels, expected numbers and a section per spec, and
+      are registered in `e2e.md`'s sequence.
+
+      > **Read as written this AC is self-referential** — it asks for `e2e.md` inside `e2e.md`, a
+      > leftover from before the sixteen-file consolidation. The live-check home for this plane
+      > already exists and is named for the PLANE, not the spec:
+      > `docs/testing/fixtures/file-ops-plane.sh`, which `scripts/validate_docs.py` enforces by
+      > refusing a spec-numbered name in that directory. So the checks land there, and `e2e.md`
+      > gains the approval gate and a pointer.
 - [ ] **An approval gate.** These checks delete real files with versioning off and no trash;
       `e2e.md` maintains an explicit ask-before-running list and this belongs on it.
 - [ ] **An identity note first, naming the ONE usable path.** A laptop IAM user cannot read or write

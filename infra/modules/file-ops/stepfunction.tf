@@ -38,6 +38,7 @@ resource "aws_sfn_state_machine" "file_ops" {
     collect_transfer_results_function_arn = aws_lambda_function.functions["collect-transfer-results"].arn
     delete_source_function_arn            = aws_lambda_function.functions["delete-source"].arn
     finalise_outcomes_function_arn        = aws_lambda_function.functions["finalise-outcomes"].arn
+    notify_function_arn                   = aws_lambda_function.functions["notify"].arn
 
     # The Map's shape. Mirrored from cpcommon/transfer/config.py — ASL cannot import
     # Python, and a test asserts the rendered numbers still equal the constants the batch

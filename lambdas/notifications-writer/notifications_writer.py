@@ -34,6 +34,12 @@ Attributes:
   USER_ACTIONS: The subset that requires a verified token.
   USER_SPACE_BUCKET: Set by Terraform.
   NOTIFICATIONS_MAX: Inbox cap, set by Terraform.
+  MAX_PAYLOAD_BYTES: Ceiling on one create's serialised ``payload``, enforced here because this
+    is the only server-side gate the field will ever have. A producer's own bound is a design
+    budget in its own layer and constrains nothing that arrives at this queue: the portal role
+    holds an unconditioned ``sqs:SendMessage`` on it. Oversize is REFUSED rather than truncated —
+    a truncated structured field is a half-object a reader has to defend against, where a refusal
+    dead-letters the one message and leaves every other row untouched.
 """
 
 import json
@@ -55,6 +61,8 @@ USER_ACTIONS = frozenset({"markRead", "markAllRead"})
 
 USER_SPACE_BUCKET = os.environ.get("USER_SPACE_BUCKET", "")
 NOTIFICATIONS_MAX = int(os.environ.get("NOTIFICATIONS_MAX", "200"))
+
+MAX_PAYLOAD_BYTES = 16 * 1024
 
 
 class ValidationError(Exception):
@@ -181,7 +189,7 @@ def save_inbox(username, notifications):
     return capped
 
 
-def apply_create(notifications, message, link=None):
+def apply_create(notifications, message, link=None, payload=None):
     """Prepends a new unread notification with a server-assigned id and timestamp.
 
     The link is written only when a producer supplies a non-empty string, so every existing
@@ -190,16 +198,25 @@ def apply_create(notifications, message, link=None):
     safe to turn into an anchor, because that is where it becomes one, and a second opinion in
     this Lambda could only disagree with the one that actually matters.
 
+    **The payload is the same shape of optional field and is written on the same terms**, so a
+    producer that supplies none — six of the seven planes — still writes the four keys it always
+    wrote. What differs is that a payload is a structured object of the producer's own choosing
+    rather than one bounded string, so its SIZE is checked. Its CONTENTS are not: the browser
+    rebuilds the row field by field, which is where a shape decision belongs.
+
     Args:
       notifications: The current list.
       message: The rendered notification body.
       link: Optional in-app path.
+      payload: Optional structured object a producer attaches for a reader that knows its shape.
 
     Returns:
       A new list with the notification at the front.
 
     Raises:
-      None.
+      ValidationError: When a payload is present and serialises to more than ``MAX_PAYLOAD_BYTES``.
+        Raising dead-letters this one message rather than writing an unbounded object into an
+        inbox every poll then downloads whole.
     """
     notification = {
         "id": uuid.uuid4().hex,
@@ -209,6 +226,13 @@ def apply_create(notifications, message, link=None):
     }
     if isinstance(link, str) and link:
         notification["link"] = link
+    if isinstance(payload, dict) and payload:
+        size = len(json.dumps(payload).encode())
+        if size > MAX_PAYLOAD_BYTES:
+            raise ValidationError(
+                f"payload is {size} bytes, over the {MAX_PAYLOAD_BYTES}-byte limit"
+            )
+        notification["payload"] = payload
     return [notification, *notifications]
 
 
@@ -319,7 +343,8 @@ def process(req):
       the match count for a mark-read.
 
     Raises:
-      ValidationError: When a create has no message, or a mark-read has no id.
+      ValidationError: When a create has no message, a create's payload is oversize, or a
+        mark-read has no id.
       AuthorizationError: When a user-originated action's token cannot be verified.
       ClientError: On any S3 fault.
     """
@@ -331,7 +356,9 @@ def process(req):
         message = req.get("message")
         if not message or not isinstance(message, str):
             raise ValidationError("create requires a message")
-        updated = apply_create(load_inbox(username), message, req.get("link"))
+        updated = apply_create(
+            load_inbox(username), message, req.get("link"), req.get("payload")
+        )
     elif action == "markRead":
         notification_id = req.get("id")
         if not notification_id or not isinstance(notification_id, str):

@@ -71,11 +71,8 @@ from datetime import UTC, datetime
 from cpcommon import clients, errors, observability
 from cpcommon.errors import TerminalError
 from focommon import notify, outcomes, plan
-from focommon.config import (
-    FILE_OPS_CONFLICT_SAMPLE,
-    FILE_OPS_HEAD_CONCURRENCY,
-    FILE_OPS_SAMPLE_PATH_CHARS,
-)
+from focommon.config import FILE_OPS_CONFLICT_SAMPLE, FILE_OPS_HEAD_CONCURRENCY
+from focommon.paths import shorten_for_display
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -199,11 +196,7 @@ def _sample_path(key: str, root: str) -> str:
     Raises:
       None.
     """
-    path = key.removeprefix(root)
-    if len(path) <= FILE_OPS_SAMPLE_PATH_CHARS:
-        return path
-    keep = (FILE_OPS_SAMPLE_PATH_CHARS - 3) // 2
-    return f"{path[:keep]}...{path[-keep:]}"
+    return shorten_for_display(key.removeprefix(root))
 
 
 def _collisions(

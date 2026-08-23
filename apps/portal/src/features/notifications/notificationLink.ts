@@ -26,3 +26,22 @@ export function isSafeInAppPath(link: unknown): link is string {
   // Second character decides: anything that can open an authority is out.
   return link[1] !== '/' && link[1] !== '\\';
 }
+
+/**
+ * The href of a notification's own action control: where the row already points, plus the
+ * request the notification is about.
+ *
+ * Built with `URLSearchParams` rather than by choosing a separator, because the base may
+ * already carry a query — `/files?space=finance&prefix=…` is the ordinary case — and a
+ * hand-rolled `?` produces a URL that no gate has seen. The id is encoded on the way in.
+ *
+ * `base` is whatever the row resolved as safe and ungated, and `/files` is the fallback: the
+ * action must stay reachable for someone whose notification carries no usable prefix, because
+ * the alternative is a user who closed the submitting tab having nowhere to go at all.
+ */
+export function reviewHref(base: string | undefined, requestId: string): string {
+  const [path, query] = (base ?? '/files').split('?');
+  const params = new URLSearchParams(query);
+  params.set('requestId', requestId);
+  return `${path}?${params.toString()}`;
+}
