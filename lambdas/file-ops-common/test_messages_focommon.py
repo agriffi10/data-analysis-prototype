@@ -345,3 +345,171 @@ def test_the_two_source_survived_reasons_read_correctly_under_ALL_THREE_prefixes
             assert "still" in sentence or "left where it is" in sentence, (
                 f"{reason} under {operation} no longer says the original survived: {sentence!r}"
             )
+
+
+# ── The per-item wording, and the ONE sentence a run produces ─────────────────────────────
+
+
+def _record(outcome, reason=None, label="q1.csv"):
+    return messages.outcomes.outcome("alice/" + label, label, outcome, reason)
+
+
+@pytest.mark.parametrize("outcome", sorted(messages.outcomes.TERMINALS))
+@pytest.mark.parametrize("operation", ["copy", "move", "delete"])
+def test_every_terminal_outcome_has_wording_under_every_operation(outcome, operation):
+    """An outcome nothing can word is a notification the user never understands. The vocabulary is
+    closed and asserted elsewhere; this walks it rather than listing it, so the member added next
+    fails here instead of resolving to a generic clause in production."""
+    clause = messages.item_clause(operation, _record(outcome, _REASONS.get(outcome)))
+
+    assert clause and clause[-1] == "."
+    assert clause != messages.copy_resolver.body("no_such_reason"), (
+        f"{outcome!r} under {operation!r} falls back to the generic clause and says nothing"
+    )
+
+
+#: The reason each outcome that carries one actually arrives with, taken from the verbs that
+#: produce them. Written here rather than invented, because a clause is only reachable through the
+#: pair.
+_REASONS = {
+    "protected": "archive_read_only",
+    "refused": "destination_inside_source",
+    "conflict": "destination_occupied",
+    "duplicate": "source_changed",
+    "delete_failed": "source_delete_failed",
+}
+
+
+@pytest.mark.parametrize(
+    ("outcome", "reason"),
+    [
+        ("source_missing", None),
+        ("source_empty", None),
+        ("copy_failed", None),
+        ("conflict", "destination_occupied"),
+        ("conflict", "destination_occupied_late"),
+        ("duplicate", "source_changed"),
+        ("duplicate", "source_delete_failed"),
+        ("duplicate", "delete_refused"),
+        ("delete_failed", "source_delete_failed"),
+        ("delete_failed", "delete_refused"),
+        ("protected", "marker_not_deletable"),
+    ],
+)
+def test_a_reason_that_already_has_a_BODY_is_worded_from_that_body_and_not_a_second_table(
+    outcome, reason
+):
+    """The twin this module refuses to grow. Six of these codes are already worded for the failure
+    sentence, and a second table for the item form would be one code with two sentences — which is
+    exactly the drift the one-table rule above exists to stop, arriving inside one module."""
+    clause = messages.item_clause("move", _record(outcome, reason))
+    body = messages.move_resolver.body(reason or outcome)
+
+    assert clause.startswith(body), f"{outcome}/{reason} is worded twice"
+
+
+def test_a_DUPLICATE_says_the_data_is_now_in_two_places():
+    """The one outcome a user cannot infer and must act on — and the sentence the shared bodies are
+    deliberately forbidden from carrying, because the same reasons arise on a delete where nothing
+    was copied at all."""
+    clause = messages.item_clause("move", _record("duplicate", "source_changed"))
+
+    assert "in both places" in clause
+    assert "both places" not in messages.move_resolver.body("source_changed")
+    assert "both places" not in messages.item_clause("delete", _record("delete_failed", "source_changed"))
+
+
+def test_a_NOOP_says_plainly_that_nothing_changed():
+    """A rename to the same name is the ordinary way to reach it, and it reads as a failure
+    otherwise."""
+    clause = messages.item_clause("move", _record("noop"))
+
+    assert "nothing changed" in clause
+
+
+def test_a_CONFLICT_carries_the_statement_that_overwriting_cannot_be_undone():
+    """These buckets have versioning off and no trash. The re-submit the refusal invites is the one
+    gesture on this plane that destroys data, so the message that invites it says so."""
+    clause = messages.item_clause("copy", _record("conflict", "destination_occupied"))
+
+    assert "cannot be undone" in clause
+
+
+def test_a_wholly_successful_run_names_the_operation_and_the_count():
+    records = [_record("moved", label=f"f{i}.csv") for i in range(3)]
+
+    assert messages.outcome_summary("move", records, "reports") == 'Moved 3 items to "reports".'
+    assert messages.outcome_summary("delete", [_record("deleted")]) == "Deleted 1 item."
+
+
+def test_a_MIXED_run_names_what_SUCCEEDED_as_well_as_what_did_not():
+    """A message listing only refusals reads as though nothing worked, which is the question the
+    user actually has."""
+    records = [
+        _record("moved", label="a.csv"),
+        _record("moved", label="b.csv"),
+        _record("conflict", "destination_occupied", label="c.csv"),
+    ]
+    sentence = messages.outcome_summary("move", records, "reports")
+
+    assert sentence.startswith('Moved 2 of 3 items to "reports". 1 needs your attention:')
+    assert '"c.csv"' in sentence
+
+
+def test_the_sample_is_BOUNDED_and_says_how_many_it_did_not_name():
+    """A sample a reader could mistake for the whole list is worse than a count alone."""
+    records = [_record("conflict", "destination_occupied", label=f"f{i}.csv") for i in range(9)]
+    sentence = messages.outcome_summary("delete", records, named=3)
+
+    assert sentence.count(" - ") == 3
+    assert "And 6 others not listed here." in sentence
+
+
+def test_a_run_where_nothing_could_be_done_is_a_RESULT_rather_than_a_broken_sentence():
+    sentence = messages.outcome_summary("delete", [_record("protected", "archive_read_only")])
+
+    assert sentence.startswith("1 item needs your attention:")
+
+
+def test_a_label_no_message_could_render_whole_is_shortened_rather_than_dropped():
+    """The caps admit names of 255 characters. The basename is the half that identifies an item, so
+    the middle goes — the same rule the destination guard's sample uses, from the same function."""
+    long_label = "x" * 400
+    sentence = messages.outcome_summary("delete", [_record("protected", "archive_read_only", long_label)])
+
+    assert "..." in sentence
+    assert long_label not in sentence
+
+
+def test_no_outcome_clause_carries_a_smart_quote_or_non_ascii():
+    """The inbox renders plain text, and a smart quote arrives as mojibake."""
+    for clause in [*messages._OUTCOME_CLAUSES.values(), *messages._OUTCOME_ADDITIONS.values()]:
+        assert clause.isascii(), f"{clause!r} is not ASCII"
+
+
+@pytest.mark.parametrize(
+    ("outcome", "reason"),
+    [("duplicate", "source_changed"), ("noop", None)],
+)
+def test_the_opening_never_DENIES_something_the_rest_of_the_sentence_asserts(outcome, reason):
+    """The two outcomes the obvious success/failure split words FALSELY.
+
+    A ``duplicate`` reached the destination — the notification's own link points there — so an
+    opening of "Nothing was moved" is untrue and is contradicted two clauses later by "this data is
+    now in both places". A ``noop`` is a success that did nothing, and this plane's vocabulary says
+    so; reported as a denial it reads as the failure the wording rules exist to prevent.
+    """
+    sentence = messages.outcome_summary("move", [_record(outcome, reason)], "reports")
+
+    assert "Nothing was" not in sentence
+    assert sentence.startswith("1 item needs your attention:")
+
+
+def test_the_residue_agrees_with_itself_in_NUMBER():
+    """"1 item need your attention" is the shape a hardcoded verb produces beside a pluralising
+    count, and it is the kind of thing only a reader notices."""
+    one = messages.outcome_summary("delete", [_record("protected", "archive_read_only")])
+    two = messages.outcome_summary("delete", [_record("protected", "archive_read_only")] * 2)
+
+    assert one.startswith("1 item needs")
+    assert two.startswith("2 items need ")

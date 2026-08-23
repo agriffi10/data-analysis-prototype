@@ -677,6 +677,29 @@ const RECIPES: Record<string, Recipe> = {
     },
     find: byRole('link', 'alice sent you "reports" (300 files)')
   },
+  'Review conflicts on a notification': {
+    render: () => {
+      renderWithProviders(
+        <NotificationRow
+          notification={{
+            id: 'n4',
+            message: 'Moved 1 of 2 items to "out". 1 was not moved: "q1.csv" - something is already in the way there.',
+            read: false,
+            timestamp: '2026-08-23T00:00:00Z',
+            link: '/files?prefix=alice/out/',
+            payload: {
+              requestId: '11111111-2222-3333-4444-555555555555',
+              operation: 'move',
+              conflicts: [{itemKey: 'alice/q1.csv', kind: 'file'}]
+            }
+          }}
+          onMarkRead={vi.fn()}
+        />,
+        {auth: authenticated('alice'), seedFeatureFlags: false}
+      );
+    },
+    find: byRole('link', 'Review conflicts')
+  },
   'Received files link to a space on a notification': {
     render: () => {
       renderWithProviders(
@@ -890,6 +913,10 @@ describe('the registry itself', () => {
         'Files help section',
         // NOT in the spec's table — SPEC-167's link, recorded in its delivery doc.
         'Received files link on a notification',
+        // NOT in SPEC-163's table either — the file-operations plane's own, recorded in its
+        // delivery doc. A named control rather than a link clause, so the link exemption above
+        // does not reach it.
+        'Review conflicts on a notification',
         'Send selected items to someone',
         'Send files guide',
         // NOT in SPEC-163's table — SPEC-172's own, recorded in its delivery doc. Archive is a

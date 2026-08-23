@@ -44,6 +44,8 @@ def test_a_personal_space_is_only_ever_the_actors_own(authorize):
     assert authorize("alice", {"kind": "personal", "name": "alice"}) == {
         "bucket": config.USER_SPACE_BUCKET,
         "root": "alice/",
+        "kind": "personal",
+        "name": "alice",
     }
     assert _refused(authorize, "alice", {"kind": "personal", "name": "bob"}).reason == "forbidden"
 
@@ -56,6 +58,8 @@ def test_a_shared_space_authorizes_on_active_membership(authorize):
     assert authorize("alice", {"kind": "shared", "name": "sales"}) == {
         "bucket": config.SHARED_SPACE_BUCKET,
         "root": "sales/",
+        "kind": "shared",
+        "name": "sales",
     }
     assert _refused(
         authorize, "alice", {"kind": "shared", "name": "ops"}, {"ops": {"status": "provisioning"}}
@@ -136,3 +140,31 @@ def test_a_malformed_space_is_refused_rather_than_defaulted(space):
     """Guessing a bucket writes one person's files into another's space, so a shape this does not
     recognise fails rather than falling back to a default."""
     assert _refused(authz.authorize_source, "alice", space).reason == "forbidden"
+
+
+def test_the_resolved_space_carries_its_own_IDENTITY_and_not_only_its_location():
+    """THE FIELDS THE FAR END OF THE PLANE CANNOT RECOVER, and a shape test is the only thing that
+    would have caught their absence.
+
+    A root is not a name and a bucket is not a kind. The notification producer says which space a
+    run touched and links into it, and a re-submit built from that notification needs the SOURCE
+    space — which no absolute key contains. Every one of those reads ``kind``/``name`` off the
+    resolved space, so a resolver returning only a location makes them all silently ``None``: the
+    link refuses to mint, the payload ships nulls, and nothing fails.
+    """
+    _spaces({"sales": _active(["alice"])})
+
+    for space in ({"kind": "personal", "name": "alice"}, {"kind": "shared", "name": "sales"}):
+        resolved = authz.authorize_source("alice", space)
+
+        assert resolved["kind"] == space["kind"]
+        assert resolved["name"] == space["name"]
+        assert resolved["root"] == f"{space['name']}/"
+
+
+def test_the_name_that_rides_is_the_AUTHORIZED_one_rather_than_the_requests_claim():
+    """It is stripped here, and it is carried from the point at which membership was checked. A
+    later verb re-reading the untrusted body could name a space the actor was never granted."""
+    _spaces({"sales": _active(["alice"])})
+
+    assert authz.authorize_source("alice", {"kind": "shared", "name": "  sales  "})["name"] == "sales"

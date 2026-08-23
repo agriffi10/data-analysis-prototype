@@ -22,6 +22,7 @@ import os
 import pathlib
 import re
 import sys
+from urllib.parse import quote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(
@@ -581,6 +582,7 @@ def _serial_verb_seconds() -> int:
             "collect-transfer-results",
             "delete-source",
             "finalise-outcomes",
+            "notify",
             "notify-failure",
         )
     )
@@ -876,4 +878,185 @@ def test_the_three_pointer_borne_terms_would_NOT_have_fitted_on_the_state():
     assert on_the_state > _STATE_LIMIT, (
         "the three terms now fit on the state; re-derive the decision rather than deleting the "
         "pointer, because the caps that made them too big may simply have moved"
+    )
+
+
+# ── The THIRD budget: the inbox document a notification lands in ─────────────────────────
+
+
+#: The notifications writer's own ceiling, read back out of the Lambda that enforces it. A
+#: producer's bound is a design budget; this one is the refusal, and a payload over it loses the
+#: whole message rather than its conflict list.
+def _writer_payload_ceiling() -> int:
+    """Returns ``MAX_PAYLOAD_BYTES`` as the notifications writer actually defines it.
+
+    Read from the source rather than restated, because two homes for this number is a producer
+    that believes it is inside a limit the writer has since lowered — and the failure is a message
+    that dead-letters silently, on the queue whose DLQ is deliberately undrained.
+
+    Args:
+      None.
+
+    Returns:
+      The writer's ceiling in bytes.
+
+    Raises:
+      AssertionError: If the constant can no longer be found, which means this budget is being
+        computed against nothing.
+    """
+    source = (
+        pathlib.Path(__file__).resolve().parents[1] / "notifications-writer" / "notifications_writer.py"
+    ).read_text()
+    # Matched as the two operands it is written as, rather than evaluated: a reader that ran the
+    # expression would happily accept a form this assertion should be failing on.
+    found = re.search(r"^MAX_PAYLOAD_BYTES\s*=\s*(\d+)\s*\*\s*(\d+)\s*$", source, re.MULTILINE)
+    assert found, "the notifications writer no longer caps a payload — re-derive this budget"
+    return int(found.group(1)) * int(found.group(2))
+
+
+def _notification_row(conflicts: int | None, key_char: str) -> int:
+    """Returns the worst-case ESCAPED size of one stored notification row.
+
+    Every term a row can carry at this plane's caps: the writer's own four fields, the message with
+    its full complement of named items, and the percent-encoded link — plus, when ``conflicts`` is
+    not None, the payload with that many conflicted items in it.
+
+    ``None`` is the case the marginal budget is measured AGAINST, and passing 0 instead is the
+    mistake that made the first version of this measurement meaningless: a payload carrying zero
+    conflicts still carries its mandatory head, so comparing the budget to that row compares the
+    field against itself.
+
+    Args:
+      conflicts: How many conflicted items the payload carries, or None for a row with NO payload
+        at all.
+      key_char: The character every key and name is filled with.
+
+    Returns:
+      The row's serialised byte length.
+
+    Raises:
+      None.
+    """
+    label = key_char * config.FILE_OPS_SAMPLE_PATH_CHARS
+    sample = [label] * config.FILE_OPS_CONFLICT_SAMPLE
+    message = " ".join(
+        [f'"{label}" - something is already in the way there.'] * config.FILE_OPS_NOTIFIED_ITEMS
+    )
+    payload = {
+        "requestId": "0" * 36,
+        "operation": "move",
+        "source": {"kind": "personal", "name": "a" * 63},
+        "destination": {"kind": "shared", "name": "b" * 63, "prefix": key_char * _MAX_KEY_BYTES},
+        "conflicts": [
+            {
+                "itemKey": key_char * _MAX_KEY_BYTES,
+                "kind": "folder",
+                "targetName": key_char * config.MAX_TARGET_NAME,
+                "sample": sample,
+                "more": True,
+            }
+        ]
+        * (conflicts or 0),
+        "more": True,
+    }
+    row = {
+        "id": "0" * 32,
+        "message": message,
+        "read": False,
+        "timestamp": "2026-08-23T00:00:00.000Z",
+        # The link carries the same prefix percent-encoded, which is three ASCII bytes per source
+        # byte — a different expansion from JSON's and one this row pays on top.
+        "link": f"/files?space=finance&prefix={quote(key_char * _MAX_KEY_BYTES, safe='/')}",
+    }
+    if conflicts is not None:
+        row["payload"] = payload
+    # json.dumps ESCAPES here rather than leaving the value literal, which is the difference that
+    # matters: a control character becomes six bytes in the document the browser downloads.
+    return len(json.dumps(row).encode())
+
+
+def test_the_payload_budget_is_the_MARGINAL_one_and_the_constant_sits_under_it():
+    """WHAT SIZES ``FILE_OPS_NOTIFIED_PAYLOAD_BYTES``, measured rather than chosen.
+
+    The quantity is ``NOTIFICATIONS_MAX`` rows, not one row: the inbox is capped at 200 and the
+    browser fetches and parses the WHOLE document on every 60-second poll, from the header bell, on
+    every page — so a worst-case inbox is a recurring per-minute download.
+
+    The budget is the MARGINAL one: the structured field may not add more to that document than the
+    row already costs without it. Anything absolute would be a number chosen and then defended,
+    and the row's own fixed cost — a percent-encoded link and a 1,024-byte destination prefix — is
+    not something this spec controls.
+    """
+    for key_char in ("\x01", "k"):
+        without = _notification_row(None, key_char)
+
+        assert without > config.FILE_OPS_NOTIFIED_PAYLOAD_BYTES, (
+            f"the payload budget of {config.FILE_OPS_NOTIFIED_PAYLOAD_BYTES} bytes exceeds the "
+            f"{without}-byte row it rides on, so the field would dominate every poll"
+        )
+
+
+def test_WHICH_of_the_two_payload_bounds_binds_depends_on_the_keys_and_both_are_needed():
+    """The measurement that decided there had to be two, kept because it is the whole argument.
+
+    A count cap is what a reader reaches for first, and it bounds nothing here: one conflicted item
+    is a couple of hundred bytes at ordinary key lengths and roughly twelve THOUSAND at this
+    plane's caps, because S3 keys are 1,024 bytes of arbitrary UTF-8 and JSON escaping turns a
+    control character into six. So the count binds at one end of the range and the bytes at the
+    other, and dropping either leaves the payload unbounded in exactly the case that matters.
+    """
+    ordinary = {
+        "itemKey": "alice/reports/2026/q1.csv",
+        "kind": "file",
+        "sample": ["reports/2026/q1.csv"],
+    }
+    worst = {
+        "itemKey": "\x01" * _MAX_KEY_BYTES,
+        "kind": "folder",
+        "targetName": "\x01" * config.MAX_TARGET_NAME,
+        "sample": ["\x01" * config.FILE_OPS_SAMPLE_PATH_CHARS] * config.FILE_OPS_CONFLICT_SAMPLE,
+    }
+    budget = config.FILE_OPS_NOTIFIED_PAYLOAD_BYTES
+
+    assert len(json.dumps([ordinary] * config.FILE_OPS_NOTIFIED_CONFLICTS).encode()) < budget, (
+        "the byte budget refuses an ORDINARY selection's conflicts, so no user ever gets the list"
+    )
+    assert len(json.dumps([worst]).encode()) > budget, (
+        "one worst-case conflicted item now fits the byte budget — re-derive it rather than "
+        "deleting this test, because the caps that made it too big may simply have moved"
+    )
+
+
+def test_a_payload_at_the_budget_is_one_the_WRITER_still_accepts():
+    """The producer's bound and the writer's refusal are two different numbers in two languages.
+
+    A payload the producer considers fine and the writer refuses does not lose its conflict list —
+    it loses the WHOLE message, on the one queue whose dead-letter queue is deliberately undrained.
+    So the mandatory head plus a full complement of conflicts has to sit under the ceiling, and the
+    ceiling is read out of the writer rather than restated here.
+    """
+    ceiling = _writer_payload_ceiling()
+    head = {
+        "requestId": "0" * 36,
+        "operation": "move",
+        "source": {"kind": "personal", "name": "a" * 63},
+        # The prefix is the head's one otherwise-unbounded term, and the producer refuses to carry
+        # one longer than this. Measured AT that bound rather than at S3's key limit by
+        # coincidence: they are the same number for the same reason, and reading the constant back
+        # is what keeps them so.
+        "destination": {
+            "kind": "shared",
+            "name": "b" * 63,
+            "prefix": "\x01" * config.FILE_OPS_NOTIFIED_PREFIX_BYTES,
+        },
+        "more": True,
+    }
+    # The producer adds a conflict only while the result stays inside its own budget, so the
+    # largest payload it can emit is the head — which it always sends — or the budget, whichever
+    # is larger.
+    largest = max(len(json.dumps(head).encode()), config.FILE_OPS_NOTIFIED_PAYLOAD_BYTES)
+
+    assert largest < ceiling, (
+        f"this plane can emit a {largest}-byte payload against the writer's {ceiling}-byte "
+        "ceiling — a run at the caps would lose its entire notification"
     )

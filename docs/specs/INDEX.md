@@ -196,7 +196,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 188 — File Operations: Source Expansion, the Copy Plan & the Destination Guard | Completed |
 | 189 — File Operations: the Transfer, the Source Deletion & the Terminals | Completed |
 | 190 — File Operations: the Browser's Async Model & In-Flight State | Draft |
-| 191 — File Operations: Notifications, Help & the Arc's Live Checks | Draft |
+| 191 — File Operations: Notifications, Help & the Arc's Live Checks | Completed |
 | 192 — Runtime Configuration & the Provider Block | Draft |
 | 193 — The Network, the Compute & the Front Door | Draft |
 | 194 — The SPA Container | Draft |

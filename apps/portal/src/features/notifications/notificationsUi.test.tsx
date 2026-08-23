@@ -1,10 +1,11 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {renderWithProviders} from '../../test/renderWithProviders';
+import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import {MemoryRouter} from 'react-router';
 import {NotificationRow} from './NotificationRow';
 import {NotificationsBell} from './NotificationsBell';
-import {isSafeInAppPath} from './notificationLink';
+import {isSafeInAppPath, reviewHref} from './notificationLink';
 import type {Notification} from './notifications.types';
 
 // ─── from NotificationRow.test.tsx ───
@@ -215,6 +216,117 @@ describe('NotificationsBell', () => {
 });
 
 // ─── from notificationLink.test.ts ───
+describe('the review-conflicts action on a row', () => {
+  const conflicted = (over: Partial<Notification> = {}): Notification => ({
+    id: 'n9',
+    message: 'Moved 1 of 2 items to "out". 1 was not moved: "q1.csv" - something is in the way.',
+    read: false,
+    timestamp: new Date(Date.now() - 60_000).toISOString(),
+    link: '/files?space=finance&prefix=finance/out/',
+    payload: {
+      requestId: '11111111-2222-3333-4444-555555555555',
+      operation: 'move',
+      conflicts: [{itemKey: 'alice/q1.csv', kind: 'file'}]
+    },
+    ...over
+  });
+
+  afterEach(cleanup);
+
+  function rowFor(notification: Notification) {
+    renderWithProviders(
+      <ul>
+        <NotificationRow
+          notification={notification}
+          onMarkRead={vi.fn()}
+        />
+      </ul>
+    );
+  }
+
+  it('is a SIBLING of the message anchor, never nested inside it', () => {
+    // The row deliberately makes the whole message the link, to keep it a single target with an
+    // accessible name that says where it goes. An interactive control inside that anchor is
+    // `nested-interactive` — an axe failure this repo has shipped twice.
+    rowFor(conflicted());
+    const message = screen.getByRole('link', {name: /Moved 1 of 2 items/});
+    const review = screen.getByRole('link', {name: 'Review conflicts'});
+
+    expect(message.contains(review)).toBe(false);
+    expect(review.closest('a')).toBe(review);
+  });
+
+  it('carries the request id into the row own destination without inventing a separator', () => {
+    // The base already carries `?space=`, which is where a hand-rolled `?` produces a URL nobody
+    // validated. Read back through URLSearchParams rather than string-matched, so the assertion
+    // is about what the browser will parse.
+    rowFor(conflicted());
+    const href = screen.getByRole('link', {name: 'Review conflicts'}).getAttribute('href')!;
+    const params = new URLSearchParams(href.split('?')[1]);
+
+    expect(href.startsWith('/files?')).toBe(true);
+    expect(params.get('requestId')).toBe('11111111-2222-3333-4444-555555555555');
+    expect(params.get('space')).toBe('finance');
+    expect(params.get('prefix')).toBe('finance/out/');
+  });
+
+  it('is absent when the run had nothing to review', () => {
+    rowFor(conflicted({payload: {requestId: '11111111-2222-3333-4444-555555555555'}}));
+    expect(screen.queryByRole('link', {name: 'Review conflicts'})).toBeNull();
+
+    cleanup();
+    rowFor(conflicted({payload: undefined}));
+    expect(screen.queryByRole('link', {name: 'Review conflicts'})).toBeNull();
+  });
+
+  it('still offers the action when the notification carries no usable link', () => {
+    // Reachability of the conflicts must not depend on a PREFIX link, which is a strictly more
+    // failure-prone thing than the request id the view actually needs — and a user who closed the
+    // submitting tab has nowhere else to go.
+    rowFor(conflicted({link: undefined}));
+    const href = screen.getByRole('link', {name: 'Review conflicts'}).getAttribute('href')!;
+
+    expect(href.startsWith('/files?')).toBe(true);
+    expect(new URLSearchParams(href.split('?')[1]).get('requestId')).toBe('11111111-2222-3333-4444-555555555555');
+  });
+
+  it('has no axe violations, against the container the row is actually rendered in', async () => {
+    // The DRIVEN container, not a re-render: `expectNoA11yViolations` mounts the element it is
+    // handed a second time, which for a row whose action depends on provider state would check a
+    // tree the user never sees. `renderWithProviders` is also what supplies the feature flags the
+    // gate reads — a bare router throws before axe ever runs.
+    const {container} = renderWithProviders(
+      <ul>
+        <NotificationRow
+          notification={conflicted()}
+          onMarkRead={vi.fn()}
+        />
+      </ul>
+    );
+    expect(screen.getByRole('link', {name: 'Review conflicts'})).toBeInTheDocument();
+
+    await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
+  });
+});
+
+describe('reviewHref', () => {
+  it('adds the request id to a base that has a query, and to one that has none', () => {
+    expect(new URLSearchParams(reviewHref('/files', 'r-1').split('?')[1]).get('requestId')).toBe('r-1');
+    const both = new URLSearchParams(reviewHref('/files?prefix=alice/out/', 'r-2').split('?')[1]);
+    expect(both.get('requestId')).toBe('r-2');
+    expect(both.get('prefix')).toBe('alice/out/');
+  });
+
+  it('falls back to the file browser when the row resolved no link', () => {
+    expect(reviewHref(undefined, 'r-3').startsWith('/files?')).toBe(true);
+  });
+
+  it('replaces rather than appends a request id the base already carried', () => {
+    const href = reviewHref('/files?requestId=stale', 'fresh');
+    expect(new URLSearchParams(href.split('?')[1]).getAll('requestId')).toEqual(['fresh']);
+  });
+});
+
 describe('notificationLink', () => {
   describe('isSafeInAppPath', () => {
     it('accepts an in-app absolute path', () => {

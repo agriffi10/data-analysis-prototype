@@ -78,12 +78,11 @@ one.
 
 ### Current work
 
-**Everything through SPEC-189 is Completed.** Two arcs remain:
+**Everything through SPEC-189 and SPEC-191 is Completed.** Two arcs remain:
 
-- **File-operations control plane (191, then 190)** — **187, 188 and 189 are Completed**: the plane
-  now copies, moves and deletes end to end, and the browser's enqueue service is still called by
-  nothing. 191 adds the notifications and Help; 190 adds the browser's async model. **Build 191
-  BEFORE 190** (`ARCS.md`).
+- **File-operations control plane — only SPEC-190 is left**, the browser's async model. The plane
+  copies, moves, deletes and notifies end to end; nothing calls the enqueue service yet. **190 also
+  inherits 191's FR-005 (Help)**, which could not ship before the behaviour was true.
 - **API layer & containerisation (192 → 202)** — "Arc B": a real API in front of AWS, containerised
   SPA and API, retiring CloudFront and the Identity Pool. Acceptance script:
   `docs/testing/arc-b-api-container-e2e.md`.
@@ -195,6 +194,7 @@ before working in that area; the line here is a reminder, not the spec.
 - **File-operations plane (187→189) — nine fences, consolidated; the full entries are in `@docs/decisions.md` and the arc in `ARCS.md`:** a selection stays synchronous **iff it is exactly one file**; the lock is per **SPACE** and its loser **waits** (the waiter steals stale locks, a cross-space move takes both in digest order or neither); whole-request **raises**, per-item **returns a record**, and the **space root is refused as an item**; the collision unit is the derived destination **KEY** (so merging into an existing folder survives, a **403 is occupied**, `overwrite` cannot short-circuit); **every verb carries the outcome list forward and none creates it**, a decided item is never expanded, and only a proven **404** is `source_missing`.
 - **The engine's attribution vocabulary is the CALLER's (189):** `echo_fields`, **no default**, a NAME never a key set; archive's records lose two nulls on purpose.
 - **A per-item commit gate proves LESS than 169's and says so (189):** the walk asserts only that an **empty `deletable` cannot reach `DeleteSource`**; the rest is a collector mutation test plus a subset assertion at the **boto boundary**.
+- **The notification IS the completion channel, and its payload is bounded by BYTES, not a count (191):** one producer after `ReleaseLock` — reached from **both** its edges, since a failed release that skipped it would complete the work and tell the user nothing — emits **one message per run** whose `payload` always carries `requestId` and drops conflicted items until it fits (~200 B each ordinarily, ~12,000 at the caps; the **plain** case binds). The link is percent-encoded, puts `?space=` **first** because the row's own gate reads that literal, and for a `delete` names the items' **parents**.
 - **The deletion takes CONFIRMED plan keys, 404 is success, 409 is not 412 (189):** a prefix listing would unrecoverably remove an uncopied object (cost: an **orphan**); `assert_item_deletable` runs **before** the transfer mirroring the POLICY, and HEAD-compare stays **ACTIVE** until a probe proves S3 enforces the ETag.
 - **Both of this plane's budgets were wrong until computed (189):** no give-up term (~12,700s vs 10,800s) so the **cap moved to 2 TiB, not the ceiling**; three per-item terms measure **287,532 B** against 262,144 and travel **by pointer**.
 - **A stale result is not served AT ALL, and a reload fixing it is not a fix (2026-08-19):** the Explorer's execution cache evicts the tab **on screen** too — `resetQueries`, because removal only re-runs an observed query if something re-renders after it — so the eviction is narrowed by the TABLE in the key instead (`invalidateSchema(client, db, table?)`); the async build's completion is caught by `armCatalogCatchUp`, **module state** drained once in `ProtectedLayout` because both controls that arm it unmount when the user leaves.

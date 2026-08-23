@@ -81,6 +81,46 @@ Attributes:
     so the basename — the part that identifies the file — survives. An ordinary path is untouched;
     what this bounds is the pathological key the caps admit and a notification could never render.
     The refusal says plainly that there may be more, so a sample is never read as exhaustive.
+  FILE_OPS_NOTIFIED_ITEMS: How many refused items the ONE notification a run produces NAMES
+    before it says how many it did not. A presentation bound: the sentence has to stay readable
+    at a 200-item selection, and a sample a reader could mistake for the whole list is worse than
+    a count alone.
+  FILE_OPS_NOTIFIED_CONFLICTS: How many conflicted items the notification's structured payload
+    carries, for a reader rebuilding a re-submit. **The COUNT is the bound that binds at ordinary
+    key lengths and says nothing at the caps**, which is why it ships beside a byte budget rather
+    than alone.
+  FILE_OPS_NOTIFIED_PAYLOAD_BYTES: Budget for that payload's SERIALISED size, enforced by
+    dropping conflicted items until it fits rather than by trusting the count.
+
+    **A count cap cannot bound this and the arithmetic says why.** The inbox is capped at 200 rows
+    and the browser fetches and parses the WHOLE document on every 60-second poll, from the header
+    bell, on every page — so a worst-case inbox is a recurring per-minute download rather than a
+    one-off read. And one conflicted item is ~200 bytes at ordinary key lengths and ~12,000 at the
+    caps, because S3 keys are 1,024 bytes of arbitrary UTF-8 and JSON escaping turns a control
+    character into six. Three items is therefore either negligible or 36 KB, and the count alone
+    cannot tell those apart.
+
+    The budget it is derived from is the MARGINAL one — the structured field may not add more to
+    the worst-case inbox than the row already costs **without any payload at all**. That last
+    clause is the whole measurement: compared against a row carrying a payload with an empty
+    conflict list, the field is being weighed against itself, and a first attempt at this landed on
+    a number nearly twice what the rule allows.
+
+    **The binding case is the PLAIN one, not the escape-heavy one**, and that is the second thing
+    the measurement overturned. A control character expands SIX times inside the JSON payload and
+    only THREE times in the percent-encoded link beside it, so the row a payload competes against
+    is *smaller* when the keys are hostile: **1,674 bytes**, against 5,522.
+
+    ``test_config_focommon`` computes that allowance, asserts which of the two bounds binds at each
+    end of the range, and asserts the result stays under the ceiling the notifications writer
+    refuses above — so a pathological run loses its conflict list and never its message.
+  FILE_OPS_NOTIFIED_PREFIX_BYTES: Longest destination prefix the payload will carry, and the one
+    term of its mandatory head that is otherwise unbounded. Nothing validates the length of a
+    prefix on the way in: containment is checked, not size. A hand-crafted envelope with a
+    multi-kilobyte prefix would push the head past the writer's ceiling and lose the WHOLE message
+    on the queue whose dead-letter queue is deliberately undrained — after the data had moved.
+    Set to S3's own key limit, because a prefix longer than a legal key cannot produce a legal
+    destination key: such a request copied nothing, and a re-submit of it would be meaningless.
   PLAN_PREFIX: Key prefix for this plane's copy plans, under the admin bucket. Mirrored in the
     module's ``locals.tf`` (the IAM grant) and in the admin bucket's lifecycle rule; a test holds
     all three equal. It cannot match ``LOCK_PREFIX`` — ``locks/file-ops`` does not begin with
@@ -141,6 +181,14 @@ FILE_OPS_ITEM_ROUND_TRIP_SECONDS = 0.1
 FILE_OPS_CONFLICT_SAMPLE = 3
 
 FILE_OPS_SAMPLE_PATH_CHARS = 120
+
+FILE_OPS_NOTIFIED_ITEMS = 3
+
+FILE_OPS_NOTIFIED_CONFLICTS = 3
+
+FILE_OPS_NOTIFIED_PAYLOAD_BYTES = 1024
+
+FILE_OPS_NOTIFIED_PREFIX_BYTES = 1024
 
 PLAN_PREFIX = "file-ops"
 

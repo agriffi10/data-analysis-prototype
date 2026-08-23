@@ -27,6 +27,19 @@ original is still there.
 **No raw AWS text is ever interpolated into any of these**: the detail on the exception is for the
 logs and the Step Functions record, and the sentence the user reads is composed here.
 
+**AND THE OUTCOME WORDING BELOW REUSES THOSE BODIES RATHER THAN RESTATING THEM.** Six of the
+per-item outcomes carry a reason this table already words, and a second table for the item form
+would be one code with two sentences — the twin this fleet spent a whole spec removing, arriving
+inside one module. So an item's clause IS the body, taken through the resolver, and only the outcomes with no
+body of their own are written out.
+
+**The outcome table is NOT registered as a resolver, and that is a decision rather than an
+oversight.** ``Resolver.__init__`` ends by marking every key it was given a globally valid reason
+code, so registering these would make ``TerminalError("duplicate")`` pass raise-time validation —
+and ``outcomes.py``'s rule is that no member of the per-item vocabulary may ever be a whole-request
+failure reason. A success sentence also cannot open with "Couldn't move that: ", but that is the
+lesser argument.
+
 Attributes:
   _BODIES: Reason code to the clause following the prefix. The cap bodies that can name a number
     carry a marker rather than the number, so the sentence is filled from ``config`` and cannot
@@ -34,11 +47,18 @@ Attributes:
   copy_resolver: The domain resolver under copy wording.
   move_resolver: The same table under move wording.
   delete_resolver: The same table under delete wording.
+  _OUTCOME_CLAUSES: The per-item clause for the outcomes whose reason code has no body — the
+    three terminal successes and the no-op. Everything else resolves through the table above.
+  _OUTCOME_ADDITIONS: The sentence an outcome adds AFTER its body. Two exist, and both say the
+    thing the body deliberately does not: that a duplicate leaves the data in two places (a body
+    may not assert a copy happened — see above), and that re-submitting with overwrite cannot be
+    undone.
+  _SUCCESS_VERBS: The past-tense verb each operation's summary opens with.
 """
 
 from cpcommon import messages as _cpmessages
 
-from . import config
+from . import config, outcomes, paths
 
 _BODIES = {
     "no_items": "nothing was selected.",
@@ -241,3 +261,128 @@ def failure_message(operation: object, reason: str, tokens: dict | None = None) 
       None.
     """
     return resolver_for(operation).message(reason, **_markers(), **(tokens or {}))
+
+
+_OUTCOME_CLAUSES = {
+    outcomes.MOVED: "it was moved.",
+    outcomes.COPIED: "it was copied.",
+    outcomes.DELETED: "it was deleted.",
+    outcomes.NOOP: "it is already there under that name, so nothing changed.",
+}
+
+_OUTCOME_ADDITIONS = {
+    outcomes.CONFLICT: (
+        "Sending it again with overwrite turned on replaces what is there, and that cannot be "
+        "undone."
+    ),
+    outcomes.DUPLICATE: (
+        "This data is now in both places, and only you can decide which copy to keep."
+    ),
+}
+
+_SUCCESS_VERBS = {"copy": "Copied", "move": "Moved", "delete": "Deleted"}
+
+
+def item_clause(operation: object, record: dict) -> str:
+    """Composes what one item's line says, after its name.
+
+    An outcome that carries a reason the table already words RESOLVES THROUGH THAT TABLE rather
+    than through a second one — the same code cannot come to have two sentences. Only the
+    outcomes with no body of their own are written out, and two of them append the sentence their
+    body is forbidden from carrying.
+
+    Args:
+      operation: The request's operation, which selects the wording.
+      record: One outcome record, carrying its outcome and any reason.
+
+    Returns:
+      The clause, always a whole sentence or two.
+
+    Raises:
+      None.
+    """
+    outcome = str(record.get("outcome") or "")
+    if outcome in _OUTCOME_CLAUSES:
+        base = _OUTCOME_CLAUSES[outcome]
+    else:
+        base = resolver_for(operation).body(str(record.get("reason") or outcome), **_markers())
+    addition = _OUTCOME_ADDITIONS.get(outcome)
+    return f"{base} {addition}" if addition else base
+
+
+def _plural(count: int, thing: str = "item") -> str:
+    """Renders a count with its noun, so no sentence reads "1 items".
+
+    Args:
+      count: How many.
+      thing: The singular noun.
+
+    Returns:
+      The phrase.
+
+    Raises:
+      None.
+    """
+    return f"{count} {thing}" if count == 1 else f"{count} {thing}s"
+
+
+def outcome_summary(
+    operation: object, records: list, folder: str = "", named: int = 3
+) -> str:
+    """Composes THE ONE SENTENCE a finished run produces, whatever mix of outcomes it holds.
+
+    One message per run rather than one per item: a selection at the cap would otherwise flood an
+    inbox that is capped at 200 rows and read whole on every poll. So the counts carry the run and
+    a BOUNDED sample carries the detail, with an explicit tail saying how many were not named — a
+    sample a reader could mistake for the whole list is worse than a count alone.
+
+    **A mixed run names what SUCCEEDED as well as what did not.** "2 of 5" answers the question a
+    user actually has, where a message listing only refusals reads as though nothing worked.
+
+    **AND THE OPENING IS NEUTRAL RATHER THAN A DENIAL, because the residue is not all failure.**
+    Partitioning on "the operation's success outcome, or not" is the obvious split and it makes the
+    sentence contradict itself on the two outcomes that matter most: a ``duplicate`` DID reach the
+    destination — the link even points there — so "Nothing was moved" is false and is followed
+    immediately by a clause saying the data is now in both places; and a ``noop`` is a success that
+    did nothing, which a denial reports as a failure. "N need your attention" is true of every
+    member of the residue, which is the only thing they have in common.
+
+    Args:
+      operation: The request's operation.
+      records: Every item's terminal outcome record.
+      folder: The destination folder's own name, as a person would say it; empty for a delete,
+        which has none.
+      named: How many refused items the sentence names before it says "and N more".
+
+    Returns:
+      The whole sentence.
+
+    Raises:
+      None.
+    """
+    verb = _SUCCESS_VERBS.get(operation) if isinstance(operation, str) else None
+    verb = verb or _SUCCESS_VERBS["copy"]
+    success = outcomes.TERMINAL_SUCCESS.get(operation) if isinstance(operation, str) else None
+
+    done = [r for r in records if r.get("outcome") == success]
+    rest = [r for r in records if r.get("outcome") != success]
+    where = f' to "{paths.shorten_for_display(folder)}"' if folder else ""
+
+    if not rest:
+        return f"{verb} {_plural(len(done))}{where}."
+    needs = "needs" if len(rest) == 1 else "need"
+    if not done:
+        opening = f"{_plural(len(rest))} {needs} your attention:"
+    else:
+        opening = (
+            f"{verb} {len(done)} of {_plural(len(records))}{where}. "
+            f"{len(rest)} {needs} your attention:"
+        )
+
+    lines = [
+        f'"{paths.shorten_for_display(str(r.get("label") or ""))}" - {item_clause(operation, r)}'
+        for r in rest[:named]
+    ]
+    remaining = len(rest) - len(lines)
+    tail = f" And {_plural(remaining, 'other')} not listed here." if remaining > 0 else ""
+    return f"{opening} {' '.join(lines)}{tail}"

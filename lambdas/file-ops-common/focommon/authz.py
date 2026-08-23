@@ -76,11 +76,37 @@ def _resolve(username: str, space: object, side: str) -> dict:
     if kind == "personal":
         if name != username:
             raise TerminalError("forbidden", _UNREACHABLE)
-        return {"bucket": config.USER_SPACE_BUCKET, "root": normalize_root(name)}
+        return {"bucket": config.USER_SPACE_BUCKET, "root": normalize_root(name), **_identity(kind, name)}
 
     if not reg.is_active_member(reg.load(name), username):
         raise TerminalError("forbidden", _UNREACHABLE)
-    return {"bucket": config.SHARED_SPACE_BUCKET, "root": normalize_root(name)}
+    return {"bucket": config.SHARED_SPACE_BUCKET, "root": normalize_root(name), **_identity(kind, name)}
+
+
+def _identity(kind: str, name: str) -> dict:
+    """Returns the space's own identity, which the resolved bucket and root do NOT carry.
+
+    **A root is not a name and a bucket is not a kind**, and the difference only surfaces at the
+    far end of the plane: the notification producer has to say which space a run touched and link
+    into it, and a re-submit built from that notification needs the SOURCE space — which no
+    absolute key contains. Recovering either by parsing the root back apart would be a second
+    answer to a question this function has already answered.
+
+    They ride from here rather than being re-read off the request, because this is the point at
+    which the request's claim has been AUTHORIZED. A later verb reading the untrusted body would be
+    naming a space the actor may not have been granted.
+
+    Args:
+      kind: The space kind, already checked against the closed set.
+      name: The space name, already stripped and authorized.
+
+    Returns:
+      The identity fields to merge into the resolved location.
+
+    Raises:
+      None.
+    """
+    return {"kind": kind, "name": name}
 
 
 def authorize_source(username: str, space: object) -> dict:

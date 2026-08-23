@@ -32,12 +32,29 @@
 # token this script forged would be refused at the front door in a way that reads exactly like the
 # check failing.
 #
+# WHO YOU ARE WHEN YOU RUN EACH PART, AND IT IS NOT ONE ANSWER. There are three roles here and
+# conflating them is how a session stalls halfway through:
+#
+#   1. THE ACTING USER — the signed-in portal account. Everything in the user-space bucket is
+#      created and inspected THROUGH THE PORTAL UI as this person: upload, new folder, delete. A
+#      laptop IAM user cannot read or write dat-prod-user-space, and the verification role this
+#      would otherwise want is deliberately not created. Do not reach for "an assumed role".
+#   2. THE REQUEST SENDER — the same person, whose ID token this script reads from /tmp/idtoken and
+#      puts in an envelope. The plane verifies it offline against the pool's JWKS, so the token is
+#      READ, never minted.
+#   3. AN OPERATOR — credentials that can write an arbitrary object and call DeleteObjects
+#      directly. ONLY §11 and §14 need this, and only because they probe what S3 itself answers.
+#      Without operator credentials those two rows stay OWED; every other section is runnable
+#      without them.
+#
 # EXPECTED FIXTURES in the acting user's own space, created through the browser beforehand:
 #   {USERNAME}/fileops-check/one.csv      any small file
 #   {USERNAME}/fileops-check/nested/      a folder with at least one file in it
 #   {USERNAME}/fileops-dest/              an empty folder
-# The plane copies and deletes NOTHING at this stage — the machine ends in a placeholder — so
-# these are named in requests and never touched. They exist so the requests are about real keys.
+# THESE ARE REAL AND THE PLANE NOW REALLY MOVES THEM. That was not true when this script was
+# written — the machine ended in a placeholder — so a section that reads as though nothing is
+# touched is a section that has not been re-read since. Treat every fixture below as disposable and
+# recreate it between runs.
 
 set -euo pipefail
 
@@ -82,8 +99,10 @@ send "$(jq -nc --arg r "$(uuid)" --arg t "$(cat "$TOKEN_FILE")" --arg u "$USERNA
   '{requestId:$r, actor:$t, operation:"delete",
     source:{space:{kind:"personal", name:$u},
             items:[{kind:"folder", key:($u+"/fileops-check/nested/")}]}}')"
-echo "   PASS: a SUCCEEDED execution appears below within ~30s, and no notification arrives."
-echo "   (The machine does no work yet — success means it validated, locked, branched and released.)"
+echo "   PASS: a SUCCEEDED execution appears below within ~30s, the folder is GONE from the file"
+echo "   browser, and ONE notification arrives reading \"Deleted 1 item.\""
+echo "   (Both halves matter: the notification is the completion channel, so a run that did the"
+echo "   work and said nothing is a failure of this plane even though the execution is green.)"
 
 echo "== 2. A copy names both sides and is accepted =="
 send "$(jq -nc --arg r "$(uuid)" --arg t "$(cat "$TOKEN_FILE")" --arg u "$USERNAME" --arg s "$(now_iso)" \
@@ -141,9 +160,16 @@ aws sqs send-message-batch --queue-url "$QUEUE" --entries "$(jq -nc --arg a "$BO
   --arg d1 "$(uuid)" --arg d2 "$(uuid)" \
   '[{Id:"a", MessageBody:$a, MessageGroupId:$g, MessageDeduplicationId:$d1},
     {Id:"b", MessageBody:$b, MessageGroupId:$g, MessageDeduplicationId:$d2}]')" >/dev/null
-echo "   PASS: BOTH end SUCCEEDED, and logs/service=file-ops/ shows one \"space lock acquired\""
-echo "   followed by \"space lock refused\" and a later acquire for the same key — never two"
-echo "   acquires with no refusal between them."
+echo "   PASS, AND IT IS NOT THE TABLE-BUILDER'S. That plane REFUSES its loser; this one makes it"
+echo "   WAIT, so the observation is a cycle rather than a refusal:"
+echo "     - both executions end SUCCEEDED;"
+echo "     - execution B's history shows at least one WaitForLock -> AcquireLock cycle;"
+echo "     - logs/service=file-ops/ holds TWO lock claims for this space's key, B's after A's"
+echo "       release, and NO stale-steal warning between them."
+echo "   USE A SEVERAL-HUNDRED-OBJECT SOURCE for A (fileops-big/ below is ideal). With a small"
+echo "   folder A finishes before the Pipe even starts B, both run cleanly, no cycle appears, and"
+echo "   the check passes while measuring nothing — which is exactly how the table-builder's own"
+echo "   equivalent failed."
 
 echo "== 7. A wedged lock makes the waiter give up rather than wait forever =="
 # THE HOLDER MUST BE A DEAD EXECUTION. A live waiter re-claims its own lock on every attempt and
@@ -172,6 +198,16 @@ if [ -n "${SHARED_SPACE:-}" ]; then
   echo "   PASS: SUCCEEDED, and logs/service=file-ops/ shows TWO \"space lock acquired\" events and"
   echo "   TWO \"space lock released\" — the second lock is the destination's, and without it a"
   echo "   concurrent delete in that space would run alongside this move."
+  echo
+  echo "   8b. AND THE HALF THAT PROVES DEADLOCK-FREEDOM: a request that takes the first lock and"
+  echo "   LOSES the second must release the first. Nothing offline proves this — it is the whole"
+  echo "   reason the two are taken in digest-sorted order."
+  echo "   RECIPE: wedge the SHARED space's lock by hand (as in §7, with"
+  echo "     LOCK_KEY=locks/file-ops/\$(space_digest $SHARED_SPACE_BUCKET $SHARED_SPACE).json )"
+  echo "   then send the same cross-space move."
+  echo "   PASS: the execution gives up with \"something else was already working in that space\","
+  echo "   and the PERSONAL space's lock object is FREE afterwards — read it and confirm its holder"
+  echo "   is null. A held personal lock here is the deadlock, and it blocks that user for hours."
 else
   echo "   SKIPPED — no SHARED_SPACE set. This one is owed until it runs."
 fi
@@ -193,8 +229,17 @@ echo "   verbs shipped without ENV_NAME, which no offline test can see."
 
 echo
 echo "== 10. A real move of a folder past the 1,000-key pagination boundary =="
-echo "   FIXTURE: create >1,000 objects under \$USERNAME/fileops-big/ first, e.g."
-echo "     seq 1 1200 | xargs -P 16 -I{} aws s3 cp /dev/null s3://$USER_SPACE_BUCKET/$USERNAME/fileops-big/{}.txt"
+echo "   FIXTURE — BUILT THROUGH THE PORTAL, because the acting user is the only identity that can"
+echo "   write this bucket (see WHO YOU ARE, above):"
+echo "     1. On your laptop:  mkdir -p /tmp/fileops-big && cd /tmp/fileops-big"
+echo "                         seq 1 1200 | xargs -I{} sh -c 'echo {} > f{}.txt'"
+echo "     2. In the portal:   Files -> New folder -> fileops-big -> open it -> Upload -> drag all"
+echo "                         1,200 files onto the drop zone in ONE go."
+echo "     3. EXPECT ~4-7 MINUTES for the queue to drain (it uploads a few at a time and reports"
+echo "        each). Leave the tab FOREGROUNDED and do not navigate away."
+echo "     4. Confirm the count before using it: the folder's Details panel reports the object"
+echo "        count, and it must read 1200 — a partially drained queue is what makes a pagination"
+echo "        check pass while testing one page."
 echo "   Then send a move of that folder to \$USERNAME/fileops-out/ and watch the execution."
 echo "   PASS: every object arrives at the destination, the SOURCE FOLDER IS EMPTY afterwards, and"
 echo "   the terminal's outcome list names the item 'moved'. The Map Run's export under"
@@ -223,8 +268,16 @@ echo "   direction but reports a false failure."
 
 echo
 echo "== 12. A move whose source is MODIFIED between the copy and the delete =="
-echo "   RECIPE: send a move of a large folder, then while the Map is running overwrite one of its"
-echo "   source objects."
+echo "   THE WINDOW HAS TO BE THE RIGHT ONE, and the naive staging passes vacuously. \"Between the"
+echo "   copy and the deletion\" is SECONDS on a small folder. The reachable window is a LONG MAP"
+echo "   RUN: an object copied EARLY, overwritten while the Map is still working through the rest."
+echo "   Modify an object BEFORE it is copied and the new bytes are what copy, the ETags agree, the"
+echo "   item succeeds, and the check reports a pass having tested nothing."
+echo "   RECIPE:"
+echo "     1. Send a move of \$USERNAME/fileops-big/ (§10's 1,200-object fixture)."
+echo "     2. Watch the Map Run; once it reports a few hundred items processed, overwrite an object"
+echo "        from the FIRST batch by re-uploading it through the portal (Upload -> Overwrite)."
+echo "        The single-file upload path takes no lock, which is what makes this reachable at all."
 echo "   PASS: that item ends as 'duplicate' with reason 'source_changed' — NOT a silent skip and"
 echo "   NOT a success. The user holds the data in two places and only they can choose which to"
 echo "   keep, so the outcome has to say so."
@@ -263,3 +316,104 @@ echo "     ALLOW: s3:PutObject   on $USER_SPACE_BUCKET/alice/out/r.csv"
 echo "   Repeat every row against $SHARED_SPACE_BUCKET — the two buckets' Denies are written"
 echo "   separately and a folder present in one and missing from the other is exactly the shape"
 echo "   this catches."
+
+# ── SPEC-191: the notification, its link and its payload ────────────────────────────────────────
+#
+# THE NOTIFICATION IS THE COMPLETION CHANNEL, not a courtesy. Everything below is therefore a
+# failure of the plane when it is missing, even though the execution is green.
+#
+# INSTRUMENT THE TAB FIRST, EVERY TIME. The inbox poll is PAUSED while the tab is hidden, so a
+# perfectly healthy run looks hung the moment you switch windows to read the CLI. Paste this into
+# the console after every full page load (it is §1 of e2e.md):
+#
+#   Object.defineProperty(document,'visibilityState',{get:()=>'visible',configurable:true});
+#   Object.defineProperty(document,'hidden',{get:()=>false,configurable:true});
+#   document.dispatchEvent(new Event('visibilitychange'));
+#
+# AND READ THE RAW ROW, not only the rendered one. The payload is not displayed anywhere until the
+# browser's async model ships, so the only way to see it is the document itself: DevTools ->
+# Network -> notifications.json -> Response. The bell polls every 60s, so it will be there within a
+# minute of the run finishing; hit the refresh control on /notifications to force one sooner.
+
+echo
+echo "== 16. A wholly successful run produces ONE message that names the operation and the count =="
+echo "   DO:  send a copy of \$USERNAME/fileops-check/nested/ into \$USERNAME/fileops-dest/."
+echo "   EXPECT: exactly ONE new notification reading:"
+echo "     Copied 1 item to \"fileops-dest\"."
+echo "   and NOT one message per object, and NOT one per item. Clicking it lands you in"
+echo "   fileops-dest/ — the DESTINATION, because that is where the result is."
+echo "   AND THE PAYLOAD: the row in notifications.json carries payload.requestId equal to the"
+echo "   requestId you sent, on this clean run with nothing to re-submit. Its absence is what would"
+echo "   leave a browser's in-flight record unsettled until the machine's ceiling."
+
+echo
+echo "== 17. A PER-ITEM partial outcome, in ONE request =="
+echo "   THE CHECK THE WHOLE PER-ITEM MODEL EXISTS FOR: one item refused while another completes."
+echo "   FIXTURE (through the portal): create \$USERNAME/fileops-dest/one.csv so it is in the way,"
+echo "   and leave \$USERNAME/fileops-check/nested/ alone."
+echo "   DO:  send ONE copy request whose items are BOTH fileops-check/one.csv and"
+echo "        fileops-check/nested/, destination \$USERNAME/fileops-dest/, onConflict \"refuse\"."
+echo "   EXPECT: ONE notification, naming both halves —"
+echo "     Copied 1 of 2 items to \"fileops-dest\". 1 was not copied: \"one.csv\" - something is"
+echo "     already in the way there. ... Sending it again with overwrite turned on replaces what is"
+echo "     there, and that cannot be undone."
+echo "   AND: nested/ really is at the destination, one.csv at the destination is UNCHANGED (check"
+echo "   its Last modified), and the notification row shows a \"Review conflicts\" link."
+echo "   FAIL: a whole-request refusal — nothing copied — or two separate notifications."
+
+echo
+echo "== 18. The payload carries what a RE-SUBMIT needs =="
+echo "   Read the row for §17 out of notifications.json (Network tab -> Response). Its payload must"
+echo "   carry, at minimum:"
+echo "     requestId, operation:\"copy\","
+echo "     source:{kind:\"personal\", name:\"\$USERNAME\"},"
+echo "     destination:{kind:\"personal\", name:\"\$USERNAME\", prefix:\"\$USERNAME/fileops-dest/\"},"
+echo "     conflicts:[{itemKey:\"\$USERNAME/fileops-check/one.csv\", kind:\"file\", sample:[...]}]"
+echo "   THE SOURCE SPACE IS THE ONE TO CHECK — it is not derivable from an absolute key, and"
+echo "   without it a re-submit built from this notification cannot name where the items came from."
+
+echo
+echo "== 19. A shared-space destination puts ?space= in the link, FIRST =="
+echo "   NEEDS SHARED_SPACE. DO: copy a file from your personal space into the shared one."
+echo "   EXPECT: the notification's link is /files?space=<name>&prefix=<name>/... — space BEFORE"
+echo "   prefix. Click it: you land in the SHARED space, with its name in the header."
+echo "   FAIL, and it is a silent one: landing in your OWN files with no banner. That is what a"
+echo "   link with the prefix first does — the row's feature gate reads the literal \"?space=\", so"
+echo "   the other order slips the gate, the route never reads the space, and it then discards a"
+echo "   prefix that does not start with your personal root."
+
+echo
+echo "== 20. A DELETE links to the folder its items shared, not to what was deleted =="
+echo "   DO:  delete BOTH \$USERNAME/fileops-check/nested/ and \$USERNAME/fileops-check/one.csv in"
+echo "        one request."
+echo "   EXPECT: \"Deleted 2 items.\", and the link lands you in fileops-check/ — the folder that"
+echo "   held them."
+echo "   THEN repeat with a SINGLE folder item. The link must still land you in its PARENT. Landing"
+echo "   inside the folder that was just removed — an empty listing where a folder used to be — is"
+echo "   the defect this rule exists for, and it only appears with one item."
+
+echo
+echo "== 21. A key with a query character survives the round trip =="
+echo "   FIXTURE (through the portal): a folder literally named  a&b?c  holding one file."
+echo "   DO:  copy something into it."
+echo "   EXPECT: the notification's link carries the prefix PERCENT-ENCODED (a%26b%3Fc), and"
+echo "   clicking it lands you in that exact folder — not at your space root, and not in a folder"
+echo "   named \"a\"."
+echo "   This is the one link rule that differs from every other plane's: those interpolate"
+echo "   constrained names, and this one interpolates an arbitrary user-controlled key."
+
+echo
+echo "== 22. A whole-request FAILURE also carries its requestId =="
+echo "   DO:  re-run §5 (the space root refused outright)."
+echo "   EXPECT: the refusal notification's payload carries {requestId: ...} matching what you"
+echo "   sent. Without it, a browser tracking that request in flight never settles it — the run"
+echo "   failed, so no outcome producer ever ran."
+
+echo
+echo "== 23. A message is capped, and says how much it is not showing =="
+echo "   DO:  send a delete of SIX protected folders in one request (repeat §4's shape with"
+echo "        athenaresults, saved_queries, archive, user_settings and two more items)."
+echo "   EXPECT: ONE notification naming THREE of them and ending \"And 3 others not listed here.\""
+echo "   A sample a reader could mistake for the whole list is worse than a count alone — and the"
+echo "   inbox is capped at 200 rows and downloaded whole on every poll, which is what a message"
+echo "   per item would flood."

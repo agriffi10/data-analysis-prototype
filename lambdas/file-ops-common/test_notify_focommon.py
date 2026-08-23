@@ -7,7 +7,10 @@ lookup has to be defensive without being silent.
 
 import json
 import os
+import pathlib
+import re
 import sys
+from urllib.parse import unquote
 
 import pytest
 
@@ -18,13 +21,15 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 os.environ.setdefault("ADMIN_BUCKET", "admin-bkt")
 
 from cpcommon.errors import TerminalError
-from focommon import notify
+from focommon import config, notify
 
 
 @pytest.fixture(autouse=True)
 def sent(monkeypatch):
     log = []
-    monkeypatch.setattr(notify, "emit_notification", lambda user, text, **kw: log.append((user, text)))
+    monkeypatch.setattr(
+        notify, "emit_notification", lambda user, text, *a, **kw: log.append((user, text, kw))
+    )
     return log
 
 
@@ -61,7 +66,7 @@ def test_each_operation_gets_its_own_sentence(sent):
             "validate",
         )
 
-    assert [text.split(":")[0] for _, text in sent] == [
+    assert [text.split(":")[0] for _, text, _ in sent] == [
         "Couldn't copy that",
         "Couldn't move that",
         "Couldn't delete that",
@@ -106,3 +111,348 @@ def test_a_failure_with_no_bound_actor_is_a_no_op_rather_than_a_lost_message(sen
     notify.emit_unexpected({"operation": "copy"}, "validate")
 
     assert sent == [] or sent[0][0] == ""
+
+
+# ── The run's one message: its wording, its link and its payload ──────────────────────────
+
+
+_PORTAL = pathlib.Path(__file__).resolve().parents[2] / "apps" / "portal" / "src"
+
+
+def _summary(operation="move", destination_prefix="finance/reports/", items=None):
+    return {
+        "operation": operation,
+        "source": {"kind": "personal", "name": "alice"},
+        "destination": (
+            {"kind": "shared", "name": "finance", "prefix": destination_prefix}
+            if destination_prefix
+            else {"kind": None, "name": None, "prefix": None}
+        ),
+        "items": items
+        if items is not None
+        else [
+            {"itemKey": "alice/reports/", "kind": "folder", "targetName": "archive-2026"},
+            {"itemKey": "alice/q1.csv", "kind": "file", "targetName": None},
+        ],
+    }
+
+
+def _records(*pairs):
+    return [
+        {"itemKey": key, "label": key.rstrip("/").rsplit("/", 1)[-1], "outcome": outcome, **extra}
+        for key, outcome, extra in pairs
+    ]
+
+
+def test_a_run_that_landed_something_links_to_the_DESTINATION():
+    link = notify.outcome_link(
+        _summary(), _records(("alice/reports/", "moved", {}), ("alice/q1.csv", "conflict", {}))
+    )
+
+    assert link == "/files?space=finance&prefix=finance/reports/"
+
+
+def test_a_run_that_landed_NOTHING_links_to_the_source_where_the_items_still_are():
+    """One message per run means one link, so the rule is about the run rather than an item. A
+    destination nothing reached is the one place the user has no reason to look."""
+    link = notify.outcome_link(_summary(), _records(("alice/reports/", "conflict", {})))
+
+    assert link == "/files?prefix=alice/"
+
+
+def test_a_duplicate_counts_as_LANDED_because_its_objects_are_at_the_destination():
+    """It is neither a success nor a failure, and the destination is exactly where the user has to
+    look to choose which of the two copies to keep."""
+    link = notify.outcome_link(_summary(), _records(("alice/reports/", "duplicate", {})))
+
+    assert link == "/files?space=finance&prefix=finance/reports/"
+
+
+def test_a_delete_links_to_the_folder_its_items_SHARED_rather_than_to_an_item():
+    summary = _summary(
+        operation="delete",
+        destination_prefix=None,
+        items=[{"itemKey": "alice/x/y/", "kind": "folder"}, {"itemKey": "alice/x/z.csv", "kind": "file"}],
+    )
+
+    assert notify.outcome_link(summary, _records(("alice/x/y/", "deleted", {}))) == "/files?prefix=alice/x/"
+
+
+def test_a_SINGLE_item_delete_links_to_the_items_PARENT_and_not_to_the_item():
+    """The hole a longest-common-prefix over the KEYS has, and it only shows with one item: the
+    prefix is then the item itself, which links the user into the folder that was just removed —
+    an empty listing where a folder used to be."""
+    summary = _summary(
+        operation="delete", destination_prefix=None, items=[{"itemKey": "alice/only/", "kind": "folder"}]
+    )
+
+    assert notify.outcome_link(summary, _records(("alice/only/", "deleted", {}))) == "/files?prefix=alice/"
+
+
+def test_a_common_prefix_that_names_no_folder_is_cut_back_to_one():
+    """Two siblings named ``report-a`` and ``report-b`` share ``report-``, which is not a folder."""
+    summary = _summary(
+        operation="delete",
+        destination_prefix=None,
+        items=[{"itemKey": "alice/report-a", "kind": "file"}, {"itemKey": "alice/report-b", "kind": "file"}],
+    )
+
+    assert notify.outcome_link(summary, _records(("alice/report-a", "deleted", {}))) == "/files?prefix=alice/"
+
+
+def test_a_prefix_outside_the_space_root_falls_back_to_the_root_rather_than_being_sent():
+    """The route keeps a ``?prefix=`` only when it starts with the resolved space's root, so a
+    prefix from anywhere else is discarded and the user lands at their root with no idea why.
+    Falling back deliberately gives them the root the route would have given them anyway."""
+    summary = _summary(destination_prefix="somewhere-else/out/")
+
+    assert notify.outcome_link(summary, _records(("alice/reports/", "moved", {}))) == (
+        "/files?space=finance&prefix=finance/"
+    )
+
+
+def test_an_unrecognised_space_name_mints_NOTHING():
+    """The honest answer: the notification still says what happened, it just carries no link."""
+    summary = _summary()
+    summary["destination"]["name"] = "../evil"
+
+    assert notify.outcome_link(summary, _records(("alice/reports/", "moved", {}))) is None
+
+
+def test_the_prefix_is_PERCENT_ENCODED_because_a_key_is_not_a_constrained_name():
+    """Unlike the neighbouring planes' links, this prefix is an arbitrary user-controlled key. An
+    unencoded ``?``, ``#`` or ``&`` in it truncates the link into one that resolves elsewhere."""
+    summary = _summary(destination_prefix="finance/we ird?&#/")
+    link = notify.outcome_link(summary, _records(("alice/reports/", "moved", {})))
+    sent_prefix = link.split("prefix=", 1)[1]
+
+    assert sent_prefix == "finance/we%20ird%3F%26%23/"
+    assert unquote(sent_prefix) == "finance/we ird?&#/", "the browser cannot recover the real key"
+
+
+def test_SPACE_comes_first_in_the_query_string_because_the_rows_own_gate_reads_that_literal():
+    """FR-004 AC4's gating is verified and cited rather than built, and this is the half that
+    verification has to cover. ``NotificationRow`` tests for the LITERAL ``?space=`` — mint the
+    prefix first and the shared-workspaces gate silently never fires, which is the failure the
+    comment above that clause documents: the route does not read ``?space=``, resolves the personal
+    space, discards a prefix that does not start with it, and lands the user in their own files.
+    """
+    row = (_PORTAL / "features" / "notifications" / "NotificationRow.tsx").read_text()
+    assert "'?space='" in row, "the row no longer gates on that literal — re-derive the mint order"
+
+    link = notify.outcome_link(_summary(), _records(("alice/reports/", "moved", {})))
+    assert "?space=" in link, "a shared-space link that slips its own feature gate"
+
+
+def test_the_prefix_is_the_FULL_key_and_the_ROUTES_OWN_RULE_says_why():
+    """THE TEST THAT HOLDS THE TWO LANGUAGES TOGETHER (FR-004 AC5).
+
+    The link is minted in Python and honoured by a TypeScript route rule, and nothing offline
+    connects the two. Both halves are read out of the source rather than restated: the gate, and
+    what ``rootPrefix`` actually is — pinning only the gate leaves a rename of that value passing
+    every assertion here while every link silently lands at a space root.
+    """
+    route = (_PORTAL / "routes" / "FilesPage.tsx").read_text()
+    assert re.search(r"prefixParam && prefixParam\.startsWith\((\w+)\.rootPrefix\)", route), (
+        "the route no longer gates ?prefix= on the space's rootPrefix — re-derive the link"
+    )
+
+    space = (_PORTAL / "features" / "file-browser" / "useFileSpace.ts").read_text()
+    assert "rootPrefix: `${username}/`" in space, "a personal space's root is no longer {username}/"
+    assert "rootPrefix: `${conn.database}/`" in space, "a shared space's root is no longer {name}/"
+
+    for summary, records in (
+        (_summary(), _records(("alice/reports/", "moved", {}))),
+        (_summary(), _records(("alice/reports/", "conflict", {}))),
+    ):
+        prefix = unquote(notify.outcome_link(summary, records).split("prefix=", 1)[1])
+        root = "finance/" if "space=" in notify.outcome_link(summary, records) else "alice/"
+        assert prefix.startswith(root), (
+            f"{prefix!r} does not start with the root the route resolves, so it is discarded"
+        )
+
+
+def test_the_link_is_a_path_the_browsers_own_gate_accepts():
+    """``isSafeInAppPath`` is the second gate and rejects anything that could resolve off this
+    origin. Its rule is read from the TypeScript rather than restated."""
+    guard = (_PORTAL / "features" / "notifications" / "notificationLink.ts").read_text()
+    assert "link[0] !== '/'" in guard and "link[1] !== '/'" in guard
+
+    link = notify.outcome_link(_summary(), _records(("alice/reports/", "moved", {})))
+    assert link.startswith("/") and link[1] not in ("/", "\\")
+
+
+def test_a_planes_notification_link_gets_NO_registry_row_and_the_registry_says_so():
+    """FR-004 AC4 again: the flag gating is verified and CITED, not built. The row already carries
+    the map, already covers ``/files`` and ``?space=``, and the registry records the decision that a
+    row per producer would grow one row per future plane."""
+    registry = (_PORTAL / "features" / "feature-flags" / "gatedSurfaces.ts").read_text()
+
+    assert "a row per producer would grow one row per" in registry
+    row = (_PORTAL / "features" / "notifications" / "NotificationRow.tsx").read_text()
+    assert "'/files'" in row and "flags.files" in row
+
+
+# ── The payload ───────────────────────────────────────────────────────────────────────────
+
+
+def test_the_request_id_rides_on_EVERY_payload_including_a_clean_runs():
+    """A reader settles its in-flight record by matching it, and a clean run has nothing to
+    re-submit — so scoping the field to what a re-submit needs would leave successful operations
+    unsettled and a per-space gate held until the machine's ceiling."""
+    payload = notify.outcome_payload(_summary(), _records(("alice/reports/", "moved", {})), "r-1")
+
+    assert payload["requestId"] == "r-1"
+    assert "conflicts" not in payload
+
+
+def test_the_payload_carries_what_a_RE_SUBMIT_needs_and_the_source_space_is_part_of_it():
+    """The source is not derivable from an absolute key, and ``kind`` and ``targetName`` are
+    required by the request contract — a rename's target name has no other source at all."""
+    payload = notify.outcome_payload(
+        _summary(), _records(("alice/reports/", "conflict", {"sample": ["reports/x"], "more": True})), "r-1"
+    )
+
+    assert payload["operation"] == "move"
+    assert payload["source"] == {"kind": "personal", "name": "alice"}
+    assert payload["destination"] == {"kind": "shared", "name": "finance", "prefix": "finance/reports/"}
+    assert payload["conflicts"] == [
+        {
+            "itemKey": "alice/reports/",
+            "kind": "folder",
+            "targetName": "archive-2026",
+            "sample": ["reports/x"],
+            "more": True,
+        }
+    ]
+
+
+def test_a_delete_carries_no_destination_block_at_all():
+    summary = _summary(operation="delete", destination_prefix=None)
+
+    assert "destination" not in notify.outcome_payload(summary, _records(), "r-1")
+
+
+def test_the_conflicted_items_are_bounded_by_COUNT_at_ordinary_key_lengths():
+    records = _records(*[(f"alice/f{i}.csv", "conflict", {}) for i in range(10)])
+    summary = _summary(items=[{"itemKey": f"alice/f{i}.csv", "kind": "file"} for i in range(10)])
+    payload = notify.outcome_payload(summary, records, "r-1")
+
+    assert len(payload["conflicts"]) == config.FILE_OPS_NOTIFIED_CONFLICTS
+    assert payload["more"] is True, "a bounded list a reader could mistake for the whole one"
+
+
+def test_the_conflicted_items_are_bounded_by_BYTES_when_the_keys_are_pathological():
+    """The bound a count cannot express. One conflicted item is a couple of hundred bytes at
+    ordinary key lengths and roughly twelve thousand at this plane's caps, so a run whose keys are
+    at S3's own limit carries FEWER than the count allows — or none at all — and says so."""
+    key = "\x01" * 1024
+    records = _records(*[(key + str(i), "conflict", {"sample": ["s" * 120] * 3}) for i in range(3)])
+    summary = _summary(items=[{"itemKey": key + str(i), "kind": "folder"} for i in range(3)])
+    payload = notify.outcome_payload(summary, records, "r-1")
+
+    assert len(payload.get("conflicts", [])) < config.FILE_OPS_NOTIFIED_CONFLICTS
+    assert payload["more"] is True
+    # That this bounded payload is one the WRITER accepts is asserted where the two numbers are
+    # compared — test_config_focommon reads the writer's ceiling back out of the Lambda. A second
+    # reader of that constant here would be a second place for it to fall out of step.
+
+
+# ── The emit ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_one_message_per_run_and_one_dedup_token_for_it(sent):
+    """Not one per outcome. A selection at the item cap would otherwise flood an inbox capped at
+    200 rows — and the per-outcome rule belongs to the planes that emit one message per outcome."""
+    notify.emit_outcomes(
+        {
+            "requestId": "r-1",
+            "actor": {"username": "alice"},
+            "summary": _summary(),
+            "outcomes": _records(("alice/reports/", "moved", {}), ("alice/q1.csv", "conflict", {})),
+        }
+    )
+
+    assert len(sent) == 1
+    user, message, kwargs = sent[0]
+    assert user == "alice"
+    assert kwargs["dedup_id"] == "r-1:outcomes"
+    assert message.startswith("Moved 1 of 2 items to \"reports\".")
+    assert kwargs["payload"]["requestId"] == "r-1"
+    assert kwargs["link"] == "/files?space=finance&prefix=finance/reports/"
+
+
+def test_a_whole_request_FAILURE_also_carries_its_request_id(sent):
+    """Same argument, one path over: a run that failed before it reached the producer settles
+    nothing otherwise, and a reader's in-flight record for it is held until its own expiry."""
+    notify.emit_failure(
+        {"requestId": "r-2", "actor": {"username": "alice"}, "operation": "move"},
+        TerminalError("no_items", "nothing selected"),
+        "validate-authorize",
+    )
+
+    assert sent[0][2]["payload"] == {"requestId": "r-2"}
+
+
+def test_the_pre_identity_window_carries_no_payload_because_there_is_nothing_to_correlate(sent):
+    notify.emit_failure(
+        {"raw": _pipe()}, TerminalError("malformed_event", "bad"), "validate-authorize"
+    )
+
+    assert sent[0][2]["payload"] is None
+
+
+def test_a_delete_whose_items_share_no_folder_falls_back_to_the_space_root():
+    """Unreachable through the front door, which refuses a key outside the source root — so the
+    fallback is what stops a hand-crafted envelope minting a link to nowhere rather than a case the
+    plane produces."""
+    for items in ([], [{"itemKey": "no-slash-at-all", "kind": "file"}]):
+        summary = _summary(operation="delete", destination_prefix=None, items=items)
+
+        assert notify.outcome_link(summary, _records()) == "/files?prefix=alice/"
+
+
+def test_a_destination_prefix_with_no_final_segment_still_produces_a_message(sent):
+    """Every emit on this path is best-effort: the run has already happened, so a prefix that lost
+    its shape must cost the sentence its folder name and nothing more."""
+    summary = _summary(destination_prefix="/")
+    notify.emit_outcomes(
+        {
+            "requestId": "r-9",
+            "actor": {"username": "alice"},
+            "summary": summary,
+            "outcomes": _records(("alice/reports/", "moved", {})),
+        }
+    )
+
+    assert sent[0][1] == "Moved 1 item."
+
+
+def test_the_EMITTED_payload_never_exceeds_the_budget_it_was_probed_against():
+    """The flag is set after the loop, so a probe that omitted it would let every payload carrying
+    a dropped conflict finish a few bytes over the budget it had just been checked against."""
+    records = _records(*[(f"alice/{'f' * 200}{i}.csv", "conflict", {"sample": ["s" * 120] * 3}) for i in range(9)])
+    summary = _summary(items=[{"itemKey": f"alice/{'f' * 200}{i}.csv", "kind": "file"} for i in range(9)])
+    payload = notify.outcome_payload(summary, records, "r-1")
+
+    assert payload["more"] is True, "this case is only meaningful when something was dropped"
+    assert len(json.dumps(payload).encode()) <= config.FILE_OPS_NOTIFIED_PAYLOAD_BYTES
+
+
+def test_a_destination_prefix_no_legal_KEY_could_sit_under_is_not_carried():
+    """The head's one unbounded term, and the failure it causes is the worst available: nothing
+    validates a prefix's LENGTH on the way in, so a hand-crafted envelope would push the payload
+    past the writer's ceiling and lose the WHOLE message — on the queue whose dead-letter queue is
+    deliberately undrained, after the data had already moved.
+
+    A prefix longer than S3's own key limit cannot produce a legal destination key, so the run it
+    describes copied nothing and a re-submit of it would be meaningless.
+    """
+    summary = _summary(destination_prefix="finance/" + "p" * (config.FILE_OPS_NOTIFIED_PREFIX_BYTES + 1))
+    payload = notify.outcome_payload(summary, _records(("alice/reports/", "conflict", {})), "r-1")
+
+    assert "destination" not in payload
+    assert payload["requestId"] == "r-1", "the request id rides whatever else does not"
+
+    within = _summary(destination_prefix="finance/" + "p" * 100)
+    assert "destination" in notify.outcome_payload(within, _records(), "r-1")

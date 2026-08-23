@@ -137,6 +137,81 @@ def test_create_without_a_link_writes_no_link_key():
         assert "link" not in note
 
 
+def test_create_persists_a_supplied_payload():
+    # The file-operations plane attaches the structured field a reader needs to ACT on a
+    # notification: which request it was, and which items it could not do. Persisted verbatim —
+    # the shape decision belongs at the reader, which rebuilds the row field by field.
+    s3 = _setup()
+    payload = {"requestId": "r-1", "operation": "move", "conflicts": [{"itemKey": "alice/a/"}]}
+    w.handler(
+        _msg({"action": "create", "username": "alice", "message": "Moved 2 items", "payload": payload}),
+        None,
+    )
+    assert _inbox(s3, "alice")[0]["payload"] == payload
+
+
+def test_a_create_without_a_payload_writes_EXACTLY_the_keys_it_always_wrote():
+    # The writer half of "a row lacking the field is unchanged and valid". Six other planes
+    # write rows and none of them is modified by this spec, so the assertion is on the KEY SET
+    # rather than on the payload's absence — a new key of any name would fail here, which is the
+    # point: this record is read by browsers that predate the field.
+    inbox = w.apply_create([], "no payload")
+    assert set(inbox[0]) == {"id", "message", "read", "timestamp"}
+
+    linked = w.apply_create([], "a link but no payload", "/files?prefix=alice/")
+    assert set(linked[0]) == {"id", "message", "read", "timestamp", "link"}
+
+
+def test_a_payload_that_is_not_a_populated_object_is_treated_as_absent():
+    # Same rule the link follows: an empty or wrong-typed value is absent, never a falsy field
+    # every reader then has to defend against.
+    s3 = _setup()
+    for body in (
+        {"action": "create", "username": "alice", "message": "empty", "payload": {}},
+        {"action": "create", "username": "alice", "message": "a list", "payload": [1, 2]},
+        {"action": "create", "username": "alice", "message": "a string", "payload": "r-1"},
+        {"action": "create", "username": "alice", "message": "null", "payload": None},
+    ):
+        w.handler(_msg(body), None)
+    for note in _inbox(s3, "alice"):
+        assert "payload" not in note
+
+
+def test_an_OVERSIZE_payload_is_refused_rather_than_truncated():
+    # THE ONLY SERVER-SIDE GATE THIS FIELD WILL EVER HAVE. A producer's own bound lives in its
+    # own layer and constrains nothing that arrives here — the portal role holds an
+    # unconditioned sqs:SendMessage on this queue. Refusing dead-letters the one message;
+    # truncating would write a half-object into an inbox every poll downloads whole.
+    s3 = _setup()
+    oversize = {"requestId": "r-1", "conflicts": ["k" * (w.MAX_PAYLOAD_BYTES + 1)]}
+
+    _raises(
+        lambda: w.handler(
+            _msg({"action": "create", "username": "alice", "message": "big", "payload": oversize}),
+            None,
+        ),
+        w.ValidationError,
+        "over the",
+    )
+    assert _inbox(s3, "alice") is None, "the inbox was written despite the refusal"
+
+
+def test_the_payload_ceiling_admits_what_a_producer_can_legitimately_send():
+    # Guard-the-guard: a ceiling below the largest legitimate payload would refuse real
+    # notifications, which presents as a plane that silently stops reporting. Measured against a
+    # payload carrying the request, both spaces, a full-length destination prefix and one
+    # conflicted item at S3's own key limit.
+    legitimate = {
+        "requestId": "0" * 36,
+        "operation": "move",
+        "source": {"kind": "personal", "name": "a" * 63},
+        "destination": {"kind": "shared", "name": "b" * 63, "prefix": "p" * 1024},
+        "conflicts": [{"itemKey": "k" * 1024, "kind": "folder", "targetName": "t" * 255}],
+    }
+
+    assert len(json.dumps(legitimate).encode()) < w.MAX_PAYLOAD_BYTES
+
+
 def test_create_requires_message():
     _setup()
     _raises(

@@ -26,7 +26,7 @@ writing to.
 from cpcommon.errors import TerminalError
 from cpcommon.paths import assert_inside_root, has_dot_segment, normalize_root
 
-from .config import MAX_TARGET_NAME
+from .config import FILE_OPS_SAMPLE_PATH_CHARS, MAX_TARGET_NAME
 
 __all__ = [
     "assert_inside_root",
@@ -36,6 +36,7 @@ __all__ = [
     "item_name",
     "normalize_root",
     "relative_key",
+    "shorten_for_display",
     "validate_target_name",
 ]
 
@@ -226,3 +227,30 @@ def derived_destination_key(destination_prefix: str, item: dict) -> str:
     requested = item.get("targetName")
     name = validate_target_name(requested) if requested is not None else item_name(key)
     return destination_key(destination_prefix, name, "", is_folder=kind == "folder")
+
+
+def shorten_for_display(text: str) -> str:
+    """Shortens one path or name FROM THE MIDDLE so the part that identifies it survives.
+
+    The caps on this plane admit keys and names no message could render whole — 1,024 bytes of
+    arbitrary UTF-8 — and a refusal that fills a notification with one path tells the user less
+    than one that names three. The basename is the half that identifies a file, so the middle is
+    what goes.
+
+    Lives here rather than in the verb that first needed it because the destination guard's
+    sample and the notification's item lines shorten the same values for the same reason; two
+    implementations would be two answers to "what does the user read".
+
+    Args:
+      text: The path or name to render, already relative to whatever root the reader sees.
+
+    Returns:
+      The text, unchanged when it is short enough, else its head and tail joined by an ellipsis.
+
+    Raises:
+      None.
+    """
+    if len(text) <= FILE_OPS_SAMPLE_PATH_CHARS:
+        return text
+    keep = (FILE_OPS_SAMPLE_PATH_CHARS - 3) // 2
+    return f"{text[:keep]}...{text[-keep:]}"

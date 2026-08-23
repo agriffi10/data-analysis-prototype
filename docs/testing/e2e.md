@@ -36,6 +36,10 @@ looks right" is never one. Record the outcome in a dated session file (§5).
 - **Archive** — removes files from a space; the only way back is a billed retrieval.
 - **Restore** — **3–5 hours, billed on request, uncancellable.**
 - **Deleting a shared space** — tears down its Glue database with it.
+- **The file-operations plane's script** ([`fixtures/file-ops-plane.sh`](fixtures/file-ops-plane.sh))
+  — it really moves and deletes files now, on buckets with **versioning off and no trash**. It ends
+  in a placeholder no longer; treat every fixture it names as disposable and recreate them between
+  runs.
 - Anything touching data he did not say is disposable.
 
 Everything else here is safe to run unattended. A missing approval means that part is recorded as
@@ -245,6 +249,12 @@ curl -sSI "$APP_URL" | grep -io "connect-src[^;]*"
 
 **The control is not optional.** Select `marker_control/` beside each one: both controls enabled,
 and its confirm **does** open. Without it a generic failure reads as the guard working.
+
+**The file-operations control plane is NOT reachable from any of the above yet**, and will not be
+until the browser's async model ships — the enqueue service exists and no gesture calls it. Its
+checks are hand-crafted envelopes and live in [`fixtures/file-ops-plane.sh`](fixtures/file-ops-plane.sh),
+behind the approval gate in §0. What §4.2 exercises today is the browser's own synchronous copy,
+move and delete, which is a different code path with the same buttons.
 
 ### 4.3 Query workspace
 

@@ -36,6 +36,25 @@ impossible**; several things become slower to confirm, and that is the accepted 
 ### Out of Scope
 
 - The notification wire-shape change itself — **SPEC-191 FR-001**. This spec consumes it.
+
+> **INHERITED FROM SPEC-191 (2026-08-23): its FR-005, Help & guides, is IN SCOPE HERE.** 191 was
+> built first, and nothing else it ships is user-reachable — the browser does not enqueue until this
+> spec. Help is the exception: it deploys immediately, and a guide saying folder operations "run in
+> the background and report by notification" is false until this spec lands. SPEC-074 FR-005 forbids
+> documenting what is not wired end to end, so the guide work travels with the behaviour. The
+> criteria are in SPEC-191 FR-005, unchanged; in summary:
+>
+> - **ONE guide covers these operations** — `rename-move-copy-delete` — not four. It says folder and
+>   multi-item operations now run in the background and report by notification.
+> - Its warning callout ("Deleting is forever…") is the line that most needs changing, because a
+>   delete now succeeds **partially**. `send-files` and `archive-files` carry good precedents in the
+>   same file.
+> - A guide covers the **conflict round trip**: what a refusal means, and that re-submitting with
+>   overwrite is unrecoverable.
+> - **A guide row costs THREE edits or the suite fails**: the `GATED_SURFACES` row, a `RECIPES` entry
+>   keyed by the exact accessible name, and a line in the transcribed contract table.
+> - SPEC-185's guide-recipe trap does **not** bite: the guide lands in `files`, the section the Help
+>   page opens on.
 - Notifications' wording and links — SPEC-191.
 - Any change to the plane's contract. If the browser needs a field the contract lacks, that is an
   escalation to SPEC-187, not a browser workaround.
@@ -277,6 +296,9 @@ export type InFlightOperation = {
 
 - The notification-reachable conflict view over SPEC-191's wire shape; the re-submit; then FR-006 item
   by item, including the `isBusy` scoping and the pinned access-recovery test.
+- **SPEC-191's FR-005 Help work**, inherited above — it becomes true in this phase, not before.
+  Note the row that already exists: `Review conflicts on a notification` is registered under `files`
+  and points at `/files?…&requestId=…`, which is the entry point this phase has to answer.
 
 ### Phase 5: Verification
 
