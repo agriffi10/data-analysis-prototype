@@ -1657,6 +1657,25 @@ checks; **190** the browser's async model and its in-flight state.
    the full list, and the notification is the durable fallback. **`requestId` is on every row,
    including a failed run's**, which is what lets 190 settle an in-flight entry either way.
 
+**SPEC-190 IS COMPLETE, and the arc is CLOSED.** Three of its findings are worth carrying past it.
+
+1. **The dispatcher is `useFileBrowserDialogs`, and the same-folder prompt's confirm moved there.**
+   The five submission points are not symmetric: the probe that names an auto-numbered copy has to
+   resolve BEFORE the routing decision, because its answer IS the `targetName`. `useCopy` therefore
+   lost its same-folder branch and its source-prefix parameter, and its prompt is data only. The
+   sweep now asserts exactly one importer AND exactly one call.
+2. **FR-006 AC1 is partially delivered, on purpose.** The banner's outcome-grouped body is general
+   over the plane's 13 outcomes, but the notification payload is capped at 1 KiB and carries only
+   the conflicted items — a full per-item outcome list is not something that channel can hold. The
+   run's other outcomes are told in the message. Widening the payload is a change to a shipped
+   plane's contract; **a later spec that wants the browser to render every outcome must start
+   there**, not in the browser.
+3. **The conflict view is gated by `files`, not by the switchover's own flag.** Throwing the kill
+   switch must not strand a conflict raised before it was thrown, and the `Review conflicts` control
+   is already on shipped notification rows. A registry row's `name` is its accessible name and
+   `RECIPES` keys are unique, so one control cannot hold a row under two flags — a spec adding a
+   surface gated by two flags has to pick, or give the second one a different name.
+
 **Build 191 BEFORE 190 — the numbering is not the build order, and the arc review is why.** SPEC-190
 consumes 191's extended notification wire shape and its producer: its conflict view is reachable from
 the notification, and it settles an in-flight entry by matching the `requestId` a notification carries.

@@ -1,8 +1,8 @@
 # Spec: File Operations — the Browser's Async Model & In-Flight State
 
 **ID:** SPEC-190
-**Status:** Draft
-**Last Updated:** 2026-08-17
+**Status:** Completed
+**Last Updated:** 2026-08-23
 **Build order note:** this spec lands **after SPEC-191**, not before — it consumes 191's wire shape and
 its producer, and without them a folder move would acknowledge "you'll get a notification" that never
 arrives, with in-flight entries that never settle.
@@ -211,7 +211,12 @@ Notification-driven invalidation is not the mechanism, and the reason is measura
 
 #### Acceptance Criteria:
 
-- [ ] **Partial outcomes are surfaced**, and `OperationSummaryBanner` is **extended** to do it — it is
+- [~] **PARTIALLY DELIVERED — see the delivery doc.** The banner's outcome-grouped body is general
+      over `FileOpItemResult[]`, but the plane's notification payload is capped at 1 KiB and carries
+      no per-item field beyond the conflicts, so `"3 cleared, 1 noop, 1 protected, 1 conflict"` is
+      not expressible on that channel; the run's other outcomes are told in the message beside it.
+      Widening the payload is a change to a shipped plane's contract and was declined here.
+      **Partial outcomes are surfaced**, and `OperationSummaryBanner` is **extended** to do it — it is
       not already the right shape. Today it renders `{count, errors[]}` with a success/warning binary
       chosen by `errors.length === 0`, and a title of the form `${pastVerb} ${count} items.` That
       cannot express "3 cleared, 1 noop, 1 protected, 1 conflict" — a `noop` is neither success nor

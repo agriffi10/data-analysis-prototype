@@ -234,7 +234,8 @@ curl -sSI "$APP_URL" | grep -io "connect-src[^;]*"
 | Upload a colliding name | Overwrite vs keep-both with a numbered suggestion. **Verify in the listing**, not from the dialog. |
 | Create folders named with a slash, a leading/trailing space, empty, very long, unicode | A specific refusal for each — never raw AWS text. |
 | Download from the row and from **Details** | Read the bytes back in-page (instrument 4). |
-| Rename / move / copy / delete, on a file and on a folder | Folder ops are recursive and **not atomic** — a partial failure is reported per item. |
+| Rename / move / copy / delete **one FILE** | Done in front of you, listing updated on the spot — the synchronous path, unchanged. |
+| Rename / move / copy / delete **a FOLDER, or more than one item** | Accepted immediately: a toast saying *requested*, never *moved*; a card in **File operations in progress**; the listing NOT yet changed. |
 | Open **Details** | Size, type, timestamps, metadata; sizes read consistently across every screen (one TB ceiling, so 3 TB never reads `3072.0 GB` on one screen and `3.0 TB` on another). |
 
 **The managed folders, each by its own rule.** For every refusal below assert all five:
@@ -250,11 +251,33 @@ curl -sSI "$APP_URL" | grep -io "connect-src[^;]*"
 **The control is not optional.** Select `marker_control/` beside each one: both controls enabled,
 and its confirm **does** open. Without it a generic failure reads as the guard working.
 
-**The file-operations control plane is NOT reachable from any of the above yet**, and will not be
-until the browser's async model ships — the enqueue service exists and no gesture calls it. Its
-checks are hand-crafted envelopes and live in [`fixtures/file-ops-plane.sh`](fixtures/file-ops-plane.sh),
-behind the approval gate in §0. What §4.2 exercises today is the browser's own synchronous copy,
-move and delete, which is a different code path with the same buttons.
+**The async switchover — the boundary is "exactly one file", never "is it a folder".** Two rows
+above are the whole of it, and getting the boundary wrong is invisible from the UI, so check the
+Network tab (instrument 2): a single-file gesture issues `CopyObject`/`DeleteObject` from the
+browser, and everything else issues **one** `SendMessage` to the file-ops queue and nothing more.
+
+| Do | Expect |
+|---|---|
+| Move a folder, then navigate away and back | The in-progress card is still there — it lives at the app shell, not on the page. |
+| While it runs, try Copy / Move / Delete / **Archive** in that space | All four `aria-disabled` with a reason naming the in-progress list. **Check quality** and **Send to…** stay enabled — they read, and this lock does not cover them. |
+| Wait for the notification | The card reads *Finished*; the space accepts operations again. |
+| Press **Refresh this folder** (or leave the tab and come back) | The listing now matches. It does **not** update on the notification — that is deliberate, and §4.12's poll is why. |
+| Dismiss a card by hand | It goes, and the space is free again immediately. |
+| Copy a FOLDER into the folder it is already in | The auto-number prompt appears **once** (one `HeadObject`), and confirming enqueues with that name — it is not copied in the browser. |
+| Open **Details** on a folder the plane has just deleted | *This folder no longer exists*, and Rename/Archive are gone. Not merely an empty panel. |
+
+**The conflict round trip.** Move something onto a name that already exists, then open the
+notification and use **Review conflicts** — including from a tab that did not submit it (paste the
+`?requestId=` link into a new tab). Expect the colliding items named, a bounded sample, and
+*Overwrite* saying in words that it cannot be recovered. A rename offers **Use a different name**
+instead, which re-submits safely. Confirm only the conflicted items are re-sent.
+
+**The kill switch.** With `asyncFileOperations` off (§4.14), every one of the rows above reverts:
+a folder move runs in the browser, no card appears, and the listing updates on completion.
+
+**The rest of the plane is still hand-crafted envelopes** — the lock, the give-up, the cross-space
+two-lock path and the pagination boundary are not reachable from the UI. They live in
+[`fixtures/file-ops-plane.sh`](fixtures/file-ops-plane.sh), behind the approval gate in §0.
 
 ### 4.3 Query workspace
 

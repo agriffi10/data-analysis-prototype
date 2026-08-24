@@ -186,6 +186,9 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 - [The outcome link: destination, source, or the common folder of the items' PARENTS (SPEC-191)](#the-outcome-link-destination-source-or-the-common-folder-of-the-items-parents-spec-191)
 - [The outcome wording reuses the failure bodies and is deliberately NOT a resolver (SPEC-191)](#the-outcome-wording-reuses-the-failure-bodies-and-is-deliberately-not-a-resolver-spec-191)
 - [A pre-existing notifications spoofing gap, recorded and not fixed here (SPEC-191)](#a-pre-existing-notifications-spoofing-gap-recorded-and-not-fixed-here-spec-191)
+- [A persistent in-flight surface is NEW scope, with no precedent here (SPEC-190)](#a-persistent-in-flight-surface-is-new-scope-with-no-precedent-here-spec-190)
+- [There is no progress percentage, and there cannot be one (SPEC-190)](#there-is-no-progress-percentage-and-there-cannot-be-one-spec-190)
+- [The kill switch is a flag key, and it is the sixth (SPEC-190)](#the-kill-switch-is-a-flag-key-and-it-is-the-sixth-spec-190)
 
 ---
 
@@ -4593,3 +4596,49 @@ comment directly above that IAM grant asserts the opposite, which is the dangero
 reader checking the IaC is told the hole is closed. IAM cannot condition on a message body, so the
 fix is a second queue or a token on `create`, and it changes a plane seven features share. Recorded
 rather than absorbed into this spec; the payload ceiling above is the only part of it this spec owes.
+
+### A persistent in-flight surface is NEW scope, with no precedent here (SPEC-190)
+
+The three async planes already in the file browser — send, archive, restore — have **no in-flight
+surface at all**. They push a toast and hand off to notifications, which is survivable for an action
+the user chose to fire and forget. The upload queue is not the precedent it looks like either: its
+provider is session-scoped at the shell so uploads survive navigation, but its list renders inside a
+drawer that exists only while it is open.
+
+This one is justified on its own merits, because these gestures **replaced synchronous ones**. A
+user who copies a folder and watches nothing happen has no way to tell "accepted, running in the
+background" from "the click missed" — where before, the listing simply updated. That is the
+regression the surface exists to prevent, and it is the reason a citation would not have done.
+
+It is session-scoped and **not persisted**. The notification is the durable channel; a stored queue
+would be a second writer to state the plane owns, and it would outlive the only thing that can
+settle it. Three bounds keep it from wedging the per-space submit gate: an entry settles when a
+notification carrying its `requestId` arrives, every entry is user-dismissible, and every entry
+expires at the machine's own `TimeoutSeconds` (mirrored in the browser and pinned to `locals.tf` by
+a test). The dismiss is load-bearing rather than tidy — a request that dead-letters produces a
+notification with no payload to correlate against, so it is the only thing that frees that space.
+
+### There is no progress percentage, and there cannot be one (SPEC-190)
+
+`onProgress` went with the browser's own copy loop: the plane reports outcomes at the END of a run
+and nothing in between, so any percentage the browser drew would be invented. The surface says
+**what** is running and **since when** instead. This is not a gap to fill later by polling the
+execution — that would be a second read path to state the notification already reports, on a plane
+whose whole point is that the browser stops watching.
+
+### The kill switch is a flag key, and it is the sixth (SPEC-190)
+
+Five flags are areas; `asyncFileOperations` is a switch over the file browser's copy/move/delete
+routing. It earns a key rather than a build-time constant because its only other kill switch is
+`files: false`, which removes the entire file browser — and because publishing a flag needs no app
+build, which is what makes the largest user-visible change in the product survivable. Default **on**,
+keeping the all-on fallback rule intact: an unreadable document must never change behaviour. Off,
+every gesture keeps the browser's synchronous path exactly as it was.
+
+Its two registry rows are the in-flight surface and the conflicts guide. **The conflict VIEW is
+registered under `files` instead**, deliberately: throwing the switch must not strand a conflict
+raised before it was thrown, and resolving one finishes work the plane already started rather than
+beginning a new gesture — and it keeps the `Review conflicts` control already shipping on
+notification rows from becoming a link to nothing. A row's `name` is its accessible name and
+`RECIPES` keys are unique, so one control cannot hold a row under two flags; the choice had to be
+made rather than hedged.
