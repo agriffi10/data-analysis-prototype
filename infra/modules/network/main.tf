@@ -195,12 +195,15 @@ resource "aws_iam_role_policy" "flow_logs" {
   name = "flow-logs"
   role = aws_iam_role.flow_logs.id
 
-  # `Resource: "*"` is AWS's own minimum for this role, and it is not laziness: the delivery path
-  # calls `logs:DescribeLogGroups`, which is a list operation with no ARN to scope to. Scoping the
-  # three stream actions and leaving the two list ones unscoped would be tidier and would still
-  # need a wildcard statement, for one grant on a role no human can assume and which can do
-  # nothing but write flow logs.
-  policy = templatefile("${path.module}/policies/flow-logs-permissions.json.tftpl", {})
+  # AWS publishes this policy with all five actions on `Resource: "*"`. FOUR OF THEM TAKE AN ARN,
+  # so they are scoped to this log group and the wildcard statement is left holding the one action
+  # that genuinely cannot be scoped: `logs:DescribeLogGroups` is a list operation with no resource
+  # type at all. Copying AWS's document verbatim would have handed a write grant on every log
+  # group in the account to a role whose entire job is one group — and the rendered-plan IAM scan
+  # reports it, which is how this was caught rather than argued about.
+  policy = templatefile("${path.module}/policies/flow-logs-permissions.json.tftpl", {
+    log_group_arn = aws_cloudwatch_log_group.flow_logs.arn
+  })
 }
 
 resource "aws_flow_log" "main" {
