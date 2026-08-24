@@ -56,7 +56,12 @@ describe('runtimeConfig — the document', () => {
 
     await loadRuntimeConfig();
 
-    expect(fetchMock).toHaveBeenCalledWith('/config.json', {cache: 'no-store'});
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/config.json');
+    expect(init.cache).toBe('no-store');
+    // And a deadline, so an origin that accepts the connection and never answers cannot
+    // leave a blank page with an empty console forever.
+    expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
   it('serves every key from the document once loaded', async () => {

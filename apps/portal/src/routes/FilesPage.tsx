@@ -38,17 +38,6 @@ const devConnections: Connection[] = [{id: 'personal', label: 'Files', database:
 const noopSelect = () => {};
 
 /** The file browser page (`/files`) — browses the active space (personal by default, or a shared space picked in the Sidebar / `?space=`). */
-/**
- * What the browser says when the user-space bucket is not configured.
- *
- * The variable NAME used to be in this sentence, which was dev-only advice shown to
- * every user — and a deployed portal no longer reads a variable at all. In production
- * this branch is now unreachable: an unset required key is a boot failure before any
- * route renders. In dev the diagnostic that names the variable is the console line
- * `warnIfMisconfigured` writes.
- */
-const configError = toUserMessage({code: 'RuntimeConfigUnavailable'});
-
 export default function FilesPage() {
   const {user} = useAuth();
   usePageTitle('Files');
@@ -165,6 +154,10 @@ export default function FilesPage() {
 
   const initialPrefix = prefixParam && prefixParam.startsWith(target.rootPrefix) ? prefixParam : target.rootPrefix;
   const ready = !!target.bucket && (devUnauthenticated || !!user);
+  // Resolved inside the component, not at module scope: `toUserMessage` logs the original
+  // in a dev build, so a module-level call warns about an error that has not happened on
+  // every page load and in every test that imports this route.
+  const spaceUnavailable = toUserMessage({code: 'SpaceUnavailable'});
 
   return (
     <>
@@ -210,8 +203,8 @@ export default function FilesPage() {
           <div
             role="alert"
             className="rounded-lg border border-danger bg-danger-soft p-4 text-danger">
-            <p className="font-medium">{configError.title}</p>
-            <p className="mt-1 text-sm">{configError.message}</p>
+            <p className="font-medium">{spaceUnavailable.title}</p>
+            <p className="mt-1 text-sm">{spaceUnavailable.message}</p>
           </div>
         )}
       </main>

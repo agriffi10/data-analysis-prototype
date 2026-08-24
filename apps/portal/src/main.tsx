@@ -29,9 +29,18 @@ void (async () => {
     return;
   }
 
-  // Before the first render, not after: a sign-in that begins against an unconfigured
-  // Amplify fails in a way a warm session never reproduces.
-  configureAmplify();
-  const {default: AppRoot} = await import('./AppRoot');
-  root.render(<AppRoot />);
+  try {
+    // Before the first render, not after: a sign-in that begins against an unconfigured
+    // Amplify fails in a way a warm session never reproduces.
+    configureAmplify();
+    const {AppRoot} = await import('./AppRoot');
+    root.render(<AppRoot />);
+  } catch (error) {
+    // The app has a perfectly good failure screen; the one path that used to skip it was
+    // this one. A chunk request can be rejected outright when a deploy replaces the
+    // hashed assets mid-boot, and the alternative is a blank page and an unhandled
+    // rejection.
+    console.error('[config] the portal could not start (bootstrap)', error);
+    root.render(<BootFailure />);
+  }
 })();

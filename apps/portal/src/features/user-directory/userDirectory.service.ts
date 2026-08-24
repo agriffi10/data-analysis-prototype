@@ -22,7 +22,7 @@ const EMPTY: UserDirectory = {usernames: [], generatedAt: null};
  * out of the way, and every consumer accepts a name that is not in the list anyway.
  *
  * The bucket name is read at CALL time, never at module load: a module-level
- * `import.meta.env` const is captured before `vi.stubEnv` runs.
+ * runtime document is not in hand until the bootstrap resolves it.
  *
  * @returns Always a `ServiceResult`; never throws.
  */

@@ -20,7 +20,7 @@ vi.mock('./AppRoot', () => {
   // Runs on IMPORT, so it stays false unless the dynamic import is actually reached.
   state.appRootEvaluated = true;
   return {
-    default: function AppRootMock() {
+    AppRoot: function AppRootMock() {
       return <div data-testid="app-root" />;
     }
   };
@@ -111,11 +111,18 @@ describe('the bootstrap', () => {
     expect(state.rendered).toEqual(['AppRootMock']);
   });
 
-  it('renders the boot failure and reaches NOTHING in the application graph', async () => {
+  it('renders the boot failure without importing AppRoot, and evaluates no config read on the way', async () => {
     // The test that can only pass because `main.tsx` reaches the app through
     // `await import`. With a static import, the graph is evaluated before the first
     // statement runs — so this would throw on the first module-scope read instead of
     // rendering, in a production build only.
+    //
+    // WHAT IT DOES NOT PROVE: `AppRoot` is mocked here, so the application graph behind
+    // it is evaluated by nothing in this file. What is under test is main.tsx's OWN
+    // static graph — measured: a module-scope `configValue` added to `lib/errorMessages`
+    // (which `BootFailure` pulls in) reddens this test, while one added inside AppRoot's
+    // tree does not, and does not need to: that tree is only ever evaluated after the
+    // document is in hand.
     vi.stubEnv('DEV', false);
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no document')));
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -180,7 +187,7 @@ describe('the bootstrap module graph', () => {
   });
 
   it('reaches the application graph only through a dynamic import', () => {
-    expect(MAIN).toMatch(/await import\('\.\/AppRoot'\)/);
+    expect(MAIN).toMatch(/await import\(['"]\.\/AppRoot['"]\)/);
     expect(MAIN).not.toMatch(/^import .*['"]\.\/AppRoot['"]/m);
   });
 

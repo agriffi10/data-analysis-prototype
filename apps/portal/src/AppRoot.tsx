@@ -19,9 +19,12 @@ import {queryClient} from './lib/queryClient';
  * QueryClientProvider sits inside AuthProvider and outside BrowserRouter so server-state
  * caching is available to every route but independent of navigation.
  *
+ * A NAMED export: default exports are reserved for page-level route components, and this
+ * is the composition above the router rather than a page.
+ *
  * @returns The provider tree around the routed app.
  */
-export default function AppRoot() {
+export function AppRoot() {
   return (
     <StrictMode>
       <AuthProvider>

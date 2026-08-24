@@ -21,9 +21,7 @@ export function AuthProvider({children}: {children: ReactNode}) {
   // browser stays usable.
   const [status, setStatus] = useState<AuthStatus>(configured ? 'loading' : 'unauthenticated');
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [error, setError] = useState<string | null>(
-    configured ? null : 'Authentication is not configured. Set the Cognito environment variables.'
-  );
+  const [error, setError] = useState<string | null>(configured ? null : toUserText({code: 'RuntimeConfigUnavailable'}));
 
   // Derive auth state from the current Amplify session.
   const refresh = useCallback(async () => {
