@@ -545,3 +545,69 @@ resource "time_sleep" "wait_for_verification_grant" {
   depends_on      = [aws_iam_role_policy_attachment.deploy_verification]
   create_duration = "30s"
 }
+
+# ── The container platform: network, compute, and the front door ──────────
+# TWO customer-managed policies, not one, and not more inline JSON. IAM's 10,240-character
+# limit is the AGGREGATE of a role's inline policies and the main deploy-policy alone measures
+# 9,256 — under a kilobyte of headroom, for five new resource families. A managed policy has
+# its own separate 6,144-character budget, which is also why this is two files: the two halves
+# measure 4,823 and 3,879 stripped, and one document would not have fitted. The split is by
+# what the resources ARE — the network and the container runtime here, the API's front door and
+# the roles beside it — and `deploy_platform` keeps that name because the scanner accept list
+# names it.
+#
+# EVERY `Resource: "*"` STATEMENT HOLDS ONLY ACTIONS IAM DEFINES NO RESOURCE TYPE FOR, and each
+# was checked with `simulate-custom-policy` before it was written: 38 actions, each reading
+# `implicitDeny` under a scoped ARN and `allowed` under `"*"`. The `implicitDeny` alone proves
+# nothing — it reads identically to a wrong ARN — so the `allowed` control is what makes the
+# pair evidence. `test_deploy_platform_policies.py` re-derives the same split from the AWS
+# Service Reference, so a scopable action added to a `"*"` statement is a failing test rather
+# than a review someone has to do by eye.
+#
+# THE EC2 MUTATORS ARE SCOPED BY RESOURCE TYPE, NOT BY NAME. An EC2 ARN carries a
+# generated id, so there is no name pattern to scope to and no tag to condition on at create
+# time — but the actions do accept ARNs, so the grant names the nine resource types this spec
+# builds and reaches no EC2 resource of any other kind. `CreateTags`/`DeleteTags` are
+# deliberately UNCONDITIONED: `ec2:CreateAction` does not exist as a condition key on
+# `DeleteTags`, so a condition there is an implicit deny that can never be widened without a
+# refresh that itself needs the grant, and on `CreateTags` it would forbid tagging anything
+# that already exists — which is exactly what `aws_default_security_group` is.
+resource "aws_iam_policy" "deploy_platform" {
+  name        = "${var.project_name}-deploy-platform"
+  description = "Deploy-role grants for the container platform's network and compute (VPC, subnets, route tables, gateway, security groups, VPC endpoints, ALB, target groups, listeners, ECS cluster/service/task definitions, ECR), kept off the role's inline-policy aggregate limit."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-platform.json.tftpl", {
+    project_name = var.project_name
+    aws_region   = var.aws_region
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_platform" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_platform.arn
+}
+
+# The other half. `iam:PassRole` is split into THREE statements rather than one, because a
+# statement carries one condition block and the four roles are passed to three different
+# services — a single `iam:PassedToService` listing all three would let the flow-logs role be
+# handed to ECS. The fourth role is the VPC flow-logs delivery role: flow logs to CloudWatch
+# are delivered AS a role, so one exists even though no resource in the platform's own list
+# names it, and a grant written from that list alone is short by one.
+resource "aws_iam_policy" "deploy_platform_frontdoor" {
+  name        = "${var.project_name}-deploy-platform-frontdoor"
+  description = "Deploy-role grants for the API's front door (HTTP API, regional custom domain, ACM certificates, Route 53 records, access-log delivery, the placeholder API function) and the four roles the platform passes, kept off the role's inline-policy aggregate limit."
+
+  policy = templatefile("${path.module}/policies/github-actions-deploy-platform-frontdoor.json.tftpl", {
+    project_name = var.project_name
+    aws_region   = var.aws_region
+  })
+
+  depends_on = [time_sleep.wait_for_self_grant]
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_platform_frontdoor" {
+  role       = aws_iam_role.github_actions_deploy.name
+  policy_arn = aws_iam_policy.deploy_platform_frontdoor.arn
+}
