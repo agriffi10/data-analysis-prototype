@@ -33,7 +33,8 @@ Attributes:
   INLINE_AGGREGATE_LIMIT: IAM's character budget for all of a role's inline policies together.
   PLATFORM_POLICIES: The two templates this spec adds.
   BASE_IAM: The Terraform that attaches every one of them to the deploy role.
-  MAX_ATTACHED_MANAGED_POLICIES: IAM's hard ceiling on managed policies per role.
+  DEFAULT_ATTACHED_MANAGED_POLICIES: The default quota for managed policies per role.
+  MAX_ATTACHED_MANAGED_POLICIES: The highest that quota can be raised to.
   PLANNED_RESOURCES: The ARN each platform resource will have, keyed by what it is. The grant is
     written against these names, so a module that names one differently is denied.
   NON_SCOPABLE: Every action IAM defines no resource type for, and therefore the only actions
@@ -59,7 +60,8 @@ PLATFORM_POLICIES = (
 )
 
 BASE_IAM = ROOT / "infra" / "modules" / "base" / "iam.tf"
-MAX_ATTACHED_MANAGED_POLICIES = 20
+DEFAULT_ATTACHED_MANAGED_POLICIES = 20
+MAX_ATTACHED_MANAGED_POLICIES = 25
 
 PLANNED_RESOURCES = {
     "VPC": "arn:aws:ec2:us-east-1:696000197480:vpc/vpc-0abc",
@@ -72,6 +74,10 @@ PLANNED_RESOURCES = {
     "load balancer": (
         "arn:aws:elasticloadbalancing:us-east-1:696000197480:loadbalancer/app/dat-prod-spa/50dc6c495c0c9188"
     ),
+    "load balancer, kind-suffixed": (
+        "arn:aws:elasticloadbalancing:us-east-1:696000197480"
+        ":loadbalancer/app/dat-prod-spa-alb/50dc6c495c0c9188"
+    ),
     "target group": (
         "arn:aws:elasticloadbalancing:us-east-1:696000197480:targetgroup/dat-prod-spa-tg/73e2d6bc24d8a067"
     ),
@@ -80,9 +86,17 @@ PLANNED_RESOURCES = {
         "/50dc6c495c0c9188/f2f7dc8efc522ab2"
     ),
     "ECS cluster": "arn:aws:ecs:us-east-1:696000197480:cluster/dat-prod-spa",
+    "ECS cluster, kind-suffixed": "arn:aws:ecs:us-east-1:696000197480:cluster/dat-prod-spa-cluster",
     "ECS service": "arn:aws:ecs:us-east-1:696000197480:service/dat-prod-spa/dat-prod-spa",
+    "ECS service, kind-suffixed": (
+        "arn:aws:ecs:us-east-1:696000197480:service/dat-prod-spa-cluster/dat-prod-spa-service"
+    ),
     "task definition": "arn:aws:ecs:us-east-1:696000197480:task-definition/dat-prod-spa:1",
+    "task definition, kind-suffixed": (
+        "arn:aws:ecs:us-east-1:696000197480:task-definition/dat-prod-spa-task:1"
+    ),
     "ECR repository": "arn:aws:ecr:us-east-1:696000197480:repository/dat-prod-spa",
+    "ECR repository, kind-suffixed": "arn:aws:ecr:us-east-1:696000197480:repository/dat-prod-spa-repo",
     "API function": "arn:aws:lambda:us-east-1:696000197480:function:dat-prod-api",
     "API function role": "arn:aws:iam::696000197480:role/dat-prod-api-role",
     "SPA task role": "arn:aws:iam::696000197480:role/dat-prod-spa-task-role",
@@ -96,6 +110,9 @@ PLANNED_RESOURCES = {
     ),
     "flow-log group": "arn:aws:logs:us-east-1:696000197480:log-group:/aws/vpc/dat-prod-flow-logs",
     "ECS task log group": "arn:aws:logs:us-east-1:696000197480:log-group:/ecs/dat-prod-spa",
+    "ECS task log group, kind-suffixed": (
+        "arn:aws:logs:us-east-1:696000197480:log-group:/ecs/dat-prod-spa-task"
+    ),
     "certificate": (
         "arn:aws:acm:us-east-1:696000197480:certificate/8d0e0a1e-0000-0000-0000-000000000000"
     ),
@@ -229,6 +246,33 @@ def _stripped_length(text: str) -> int:
       None.
     """
     return len(re.sub(r"\s", "", text))
+
+
+def test_the_deploy_role_carries_exactly_one_inline_policy() -> None:
+    """The 10,240 budget is an AGGREGATE, and the test below measures one document.
+
+    That is sound only while there is exactly one inline policy on this role. A second one would
+    make the measurement below an understatement, and the overflow would land at
+    ``PutRolePolicy`` on whichever of the two Terraform happened to write second.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the deploy role gains a second inline policy.
+    """
+    inline = re.findall(
+        r'resource\s+"aws_iam_role_policy"\s+"([^"]+)"[^{]*\{(?:[^{}]|\{[^{}]*\})*?'
+        r'role\s*=\s*aws_iam_role\.github_actions_deploy',
+        BASE_IAM.read_text(),
+    )
+    assert inline == ["github_actions_deploy"], (
+        f"Expected exactly one inline policy on the deploy role, found {inline}. The 10,240-character "
+        "limit is the SUM of them, so a second one makes the length guard below understate the total."
+    )
 
 
 def test_the_inline_deploy_policy_stays_under_the_iam_aggregate() -> None:
@@ -443,9 +487,14 @@ def test_the_grant_covers_every_resource_the_platform_will_create() -> None:
     nothing. Only the ARN-scoped statements count here.
 
     This is the half of the grant no offline check could otherwise reach: a name pattern that
-    matches nothing applies green, plans green, and denies on first use. It is a contract in
-    both directions — the modules that follow must name their resources exactly this way, and
-    each of them asserts its own locals against this same table.
+    matches nothing applies green, plans green, and denies on first use.
+
+    **What it does NOT do is bind the modules.** This table and the patterns it checks were
+    written together, so on its own the pair is self-consistent and says nothing about what
+    Terraform will actually name. What makes it useful is that it carries each resource under
+    BOTH naming shapes the repo uses — the bare ``dat-prod-spa`` a Lambda-style name would take
+    and the ``dat-prod-spa-cluster`` kind-suffixed form every other plane uses — so a pattern
+    that admits only one of them fails here rather than on the apply that uses the other.
 
     Args:
       None.
@@ -479,11 +528,19 @@ def test_the_grant_covers_every_resource_the_platform_will_create() -> None:
 
 
 def test_the_deploy_role_stays_under_the_attached_managed_policy_ceiling() -> None:
-    """A role may carry at most twenty managed policies, and this one is filling up.
+    """A role carries twenty managed policies by default, and this one is filling up.
 
     The same class of apply-time ``LimitExceeded`` as the character budgets above, and the one
     with the least warning: every per-plane grant since the inline policy filled up has taken a
     managed policy, so the count only ever rises.
+
+    Twenty is the DEFAULT quota, not a hard limit — it is raisable to twenty-five in Service
+    Quotas, and requests up to that maximum are auto-approved. So the message this fails with
+    offers the raise as well as consolidation, because sending the next person to consolidate a
+    quota they could simply raise is its own kind of wrong answer.
+
+    The count is file-scoped: attachments declared outside ``infra/modules/base/iam.tf``, or made
+    out of band in the console, are invisible to it.
 
     Args:
       None.
@@ -492,14 +549,15 @@ def test_the_deploy_role_stays_under_the_attached_managed_policy_ceiling() -> No
       None.
 
     Raises:
-      AssertionError: When the deploy role's attachments reach IAM's ceiling.
+      AssertionError: When the deploy role's attachments reach the default quota.
     """
     attachments = re.findall(
         r'resource\s+"aws_iam_role_policy_attachment"\s+"([^"]+)"', BASE_IAM.read_text()
     )
     assert len(attachments) > 1, "Found no attachments — the parse went trivial rather than passing."
-    assert len(attachments) <= MAX_ATTACHED_MANAGED_POLICIES, (
-        f"The deploy role carries {len(attachments)} attached managed policies against IAM's "
-        f"ceiling of {MAX_ATTACHED_MANAGED_POLICIES}: {sorted(attachments)}. Consolidate rather "
-        "than adding another — the limit is not increasable past this."
+    assert len(attachments) <= DEFAULT_ATTACHED_MANAGED_POLICIES, (
+        f"The deploy role carries {len(attachments)} attached managed policies against a default "
+        f"quota of {DEFAULT_ATTACHED_MANAGED_POLICIES}: {sorted(attachments)}. Either raise the "
+        f"quota in Service Quotas (IAM -> 'Managed policies per role', auto-approved up to "
+        f"{MAX_ATTACHED_MANAGED_POLICIES}) and raise this bound with it, or consolidate."
     )

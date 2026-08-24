@@ -551,7 +551,7 @@ resource "time_sleep" "wait_for_verification_grant" {
 # limit is the AGGREGATE of a role's inline policies and the main deploy-policy alone renders to
 # 9,289 — under a kilobyte of headroom, for five new resource families. A managed policy has
 # its own separate 6,144-character budget, which is also why this is two files: the two halves
-# measure 4,823 and 3,879 stripped, and one document would not have fitted. The split is by
+# measure 5,095 and 3,985 stripped, and one document would not have fitted. The split is by
 # what the resources ARE — the network and the container runtime here, the API's front door and
 # the roles beside it — and `deploy_platform` keeps that name because the scanner accept list
 # names it.
@@ -628,3 +628,4 @@ resource "aws_iam_role_policy_attachment" "deploy_platform_frontdoor" {
   role       = aws_iam_role.github_actions_deploy.name
   policy_arn = aws_iam_policy.deploy_platform_frontdoor.arn
 }
+

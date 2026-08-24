@@ -69,7 +69,8 @@
         "arn:aws:ec2:${aws_region}:*:security-group-rule/*",
         "arn:aws:ec2:${aws_region}:*:vpc-endpoint/*",
         "arn:aws:ec2:${aws_region}:*:vpc-flow-log/*",
-        "arn:aws:ec2:${aws_region}:*:network-interface/*"
+        "arn:aws:ec2:${aws_region}:*:network-interface/*",
+        "arn:aws:ec2:${aws_region}:*:prefix-list/*"
       ]
     },
     {
@@ -88,7 +89,8 @@
         "arn:aws:ec2:${aws_region}:*:security-group-rule/*",
         "arn:aws:ec2:${aws_region}:*:vpc-endpoint/*",
         "arn:aws:ec2:${aws_region}:*:vpc-flow-log/*",
-        "arn:aws:ec2:${aws_region}:*:network-interface/*"
+        "arn:aws:ec2:${aws_region}:*:network-interface/*",
+        "arn:aws:ec2:${aws_region}:*:prefix-list/*"
       ]
     },
     {
@@ -127,9 +129,9 @@
         "elasticloadbalancing:RemoveTags"
       ],
       "Resource": [
-        "arn:aws:elasticloadbalancing:${aws_region}:*:loadbalancer/app/${project_name}-*-spa/*",
+        "arn:aws:elasticloadbalancing:${aws_region}:*:loadbalancer/app/${project_name}-*-spa*/*",
         "arn:aws:elasticloadbalancing:${aws_region}:*:targetgroup/${project_name}-*-spa*/*",
-        "arn:aws:elasticloadbalancing:${aws_region}:*:listener/app/${project_name}-*-spa/*/*"
+        "arn:aws:elasticloadbalancing:${aws_region}:*:listener/app/${project_name}-*-spa*/*/*"
       ]
     },
     {
@@ -151,9 +153,9 @@
         "ecs:ListTagsForResource"
       ],
       "Resource": [
-        "arn:aws:ecs:${aws_region}:*:cluster/${project_name}-*-spa",
-        "arn:aws:ecs:${aws_region}:*:service/${project_name}-*-spa",
-        "arn:aws:ecs:${aws_region}:*:task-definition/${project_name}-*-spa:*"
+        "arn:aws:ecs:${aws_region}:*:cluster/${project_name}-*-spa*",
+        "arn:aws:ecs:${aws_region}:*:service/${project_name}-*-spa*",
+        "arn:aws:ecs:${aws_region}:*:task-definition/${project_name}-*-spa*:*"
       ]
     },
     {
@@ -185,7 +187,7 @@
         "ecr:UntagResource",
         "ecr:ListTagsForResource"
       ],
-      "Resource": "arn:aws:ecr:${aws_region}:*:repository/${project_name}-*-spa"
+      "Resource": "arn:aws:ecr:${aws_region}:*:repository/${project_name}-*-spa*"
     },
     {
       "Sid": "PlatformServiceLinkedRoles",
