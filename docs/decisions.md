@@ -12,7 +12,7 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 
 ## Contents
 
-157 entries, one heading each. **Jump to the one you need — never read this file whole.**
+159 entries, one heading each. **Jump to the one you need — never read this file whole.**
 
 - [Auth](#auth)
 - [Hosted UI = Managed Login v2](#hosted-ui--managed-login-v2)
@@ -190,6 +190,8 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 - [There is no progress percentage, and there cannot be one (SPEC-190)](#there-is-no-progress-percentage-and-there-cannot-be-one-spec-190)
 - [The kill switch is a flag key, and it is the sixth (SPEC-190)](#the-kill-switch-is-a-flag-key-and-it-is-the-sixth-spec-190)
 - [The notifications `create` boundary is a runtime check, because IAM cannot express it (SPEC-206)](#the-notifications-create-boundary-is-a-runtime-check-because-iam-cannot-express-it-spec-206)
+- [Configuration is a runtime document, and a production build has no fallback (SPEC-192)](#configuration-is-a-runtime-document-and-a-production-build-has-no-fallback-spec-192)
+- [The provider block is the API's verifier configuration, and it is server-side (SPEC-192)](#the-provider-block-is-the-apis-verifier-configuration-and-it-is-server-side-spec-192)
 
 ---
 
@@ -4709,3 +4711,96 @@ is the **interim** fix: Arc B removes the browser's grant (SPEC-200) and after S
 principal becomes a *service* principal, harmless because every `create` is emitted by execution roles.
 The check stays regardless; that removal is eleven specs out and reversible. Detail:
 `spec-delivery/SPEC-206`.
+
+### Configuration is a runtime document, and a production build has no fallback (SPEC-192)
+
+The SPA reads `/config.json` at startup instead of the `VITE_*` values Vite inlines at build time.
+The whole point is promotion: an artifact carrying one environment's bucket names, queue URLs and
+Cognito ids can only reach the next environment through a rebuild, and a rollback through a rebuild
+of an older commit. Twenty keys, every value a **string** — the task environment that renders the
+document is strings, and a JSON number would add a second parse path with its own failure mode for
+one key.
+
+**A production build has NO fallback, and `configValue` THROWS before the load resolves.** Returning
+`undefined` is the failure the classification exists to prevent — a generic SDK error about a bucket
+named "undefined", surfacing far from its cause — so re-introducing it here would make the mechanism
+decorative. A **dev** build falls back to `import.meta.env`, including when no load has happened at
+all: that is what lets the existing suite read configuration with no bootstrap and without changing a
+single `vi.stubEnv` call site. The consequence is that **the entire test suite exercises the arm that
+will not exist in production**, which is why the production arm is tested by stubbing `DEV` false and
+why the live checks are not optional.
+
+**The fallback is ELIMINATED from the production bundle, and that is asserted on the built output.**
+Guarding it is not enough: `readEnv`'s table and the key→variable map are tables of `VITE_` names as
+*strings*, and they only disappear if every reference to them sits syntactically inside an
+`import.meta.env.DEV` branch. `npm run check:bundle` fails if any `VITE_` name survives in
+`dist/assets/*.js`, and it hard-fails on a missing bundle, because "did not run" is never "clean". It
+detects the *table*, not an unported call site — Vite substitutes the variable's **value**, leaving no
+name behind — so the call sites are pinned separately by a `?raw` sweep to exactly five files.
+
+**A 200 carrying HTML is `unparseable`, not a success.** The distribution answers a missing object
+with its own `index.html` under a **200**, so a deployment that never published the document gets a
+successful response full of markup. A loader keyed on `response.ok` passes every other test and fails
+that one; the fixture is the real `index.html`.
+
+**The document and the feature-flag document look alike and their failure semantics are OPPOSITE.**
+The flag document's degraded path is total and silent by design — an unusable one resolves the
+compiled-in defaults and still reports ready. This one is a **hard boot failure**: `BootFailure`
+renders, no route mounts, and one `console.error` carries the reason and, for a missing required key,
+the key **NAMES** — never a value. That narrows the "production stays silent" rule deliberately: the
+rule exists so a deployed app does not print its configuration, and a key name is not configuration,
+it is the only diagnostic an operator staring at a failed task has.
+
+**`no-store` is not left to the upload's flag.** A document answered from a cache populated in the
+previous environment renders a working, fully-functional portal pointed at the wrong account, and
+nothing on screen distinguishes it. CloudFront's `Managed-CachingOptimized` applies its **1 s MinTTL
+even against an origin `no-store`**, and an object that ever reaches the edge without the header takes
+the **24-hour DefaultTTL** — so `/config.json` has its own `Managed-CachingDisabled` behaviour, with
+`response_headers_policy_id` re-attached because it is per-behaviour and **not inherited** (omitting
+it would serve the document with no CSP or HSTS and stop stripping `Server: AmazonS3`). The
+consequence, recorded rather than glossed: after that behaviour lands **no live check can distinguish
+a present from a missing origin header**, so the `no-store` negative control was withdrawn and the
+header is verified by direct read.
+
+**The bootstrap is a DYNAMIC import, and awaiting the load is not enough on its own.** A module's
+static imports are evaluated before its first statement runs, so `import App from './App.tsx'` would
+evaluate the whole application graph before the document is fetched, and any module-scope read in it
+would throw before the app could render its own failure — in production only, because the fallback
+answers in dev and in CI. `main.tsx` therefore keeps five static imports, pinned by a sweep that fails
+if the set **grows**, and reaches the app through `await import('./AppRoot')`. The three module-scope
+reads that existed are converted as well (`isAmplifyConfigured`, `devS3Client()`, `maxUploadBytes()`),
+belt and braces: the dynamic import also protects a read a later spec adds without thinking about boot
+order. A **deadline** on the fetch ships with it, because nothing renders until the load settles and
+an origin that accepts the connection and never answers would otherwise be a blank page with an empty
+console.
+
+Detail: `spec-delivery/SPEC-192`.
+
+### The provider block is the API's verifier configuration, and it is server-side (SPEC-192)
+
+`OIDC_ISSUER`, `OIDC_AUDIENCE`, `OIDC_JWKS_URI`, `OIDC_USERNAME_CLAIM` — API Lambda environment
+variables, provisioned by the infrastructure spec and consumed by the auth-boundary spec. **None of
+it appears in the browser's document**, because the browser verifies nothing: it sends the ID token
+Amplify already holds. The converse holds too — a verifier configured by reading the browser's
+document has a client-supplied trust anchor.
+
+**This is a VERIFIER, not an OIDC client.** No code exchange, no PKCE verifier, no client secret, no
+redirect URI, no scope list: those belong to Amplify, in the browser, unchanged by this arc. Building
+a client here is the shape of error the small field set exists to prevent.
+
+**`OIDC_JWKS_URI` is a field, not a derivation of `OIDC_ISSUER`.** The well-known path is a
+convention, not a guarantee, and hard-coding it makes the verifier provider-specific in the one place
+that would fail closed and silently.
+
+**The exclusion cuts ONE way only, and that is the whole subtlety.** A test intersects the document's
+key set with the verifier's field names plus a case-insensitive substring rule over `oidc`, `issuer`,
+`audience`, `jwks` and `secret`. It is guarded in **both** directions: a synthetic key set containing
+`issuer` must be flagged (a checker that flags nothing passes the first case forever), and the four
+Cognito values Amplify actually reads must **not** be. That third case can fail today. Adding
+`clientId` to the forbidden set is the specific mistake — `cognitoUserPoolClientId` survives an
+exact-match rule and dies under a substring one — and the visible result is not a failing test but a
+Hosted UI round trip that never completes. `cognitoDomain` is likewise **not** a provider-block field:
+Amplify POSTs the code exchange to it. The forbidden set is about *the API's trust anchors*, not about
+the word Cognito.
+
+Detail: `spec-delivery/SPEC-192`.

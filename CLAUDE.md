@@ -73,27 +73,20 @@ is in `@docs/specs/ARCS.md`. What a spec delivered is in `@docs/spec-delivery/`.
 `@docs/testing/`.
 
 **This section carries only what is live and recorded nowhere else.** When a spec closes, prune here
-rather than appending — it is not a changelog, and it regrew to 370 lines once by being treated as
-one.
+rather than appending.
 
 ### Current work
 
-**The file-operations arc (187 → 191) is CLOSED — everything through SPEC-191 is Completed.** One
-arc remains:
-
 - **API layer & containerisation (192 → 202)** — "Arc B": a real API in front of AWS, containerised
-  SPA and API, retiring CloudFront and the Identity Pool. Acceptance script:
-  `docs/testing/arc-b-api-container-e2e.md`.
-
-Read the arc entry in `ARCS.md` first; it carries settled decisions.
+  SPA and API, retiring CloudFront and the Identity Pool. **192 is Completed** — the SPA reads
+  `/config.json` at runtime. Acceptance script: `docs/testing/arc-b-api-container-e2e.md`; read the
+  arc entry in `ARCS.md` first.
 
 ### Live checks
 
 `@docs/testing/e2e.md` is **the** guide — one signed-in account, keyed by feature. `owed.md` is the
-ledger of what a signed-in session cannot settle; `sessions.md` is what has been run.
-
-**Do not restate an owed check here** — a second copy in the always-loaded file is how this section
-grew.
+ledger of what a signed-in session cannot settle; `sessions.md` is what has been run. **Do not
+restate an owed check here.**
 
 
 ## Key Decisions (settled — don't re-litigate)
@@ -102,7 +95,7 @@ One line each. **Full reasoning + the "do NOT build" fences: `@docs/decisions.md
 before working in that area; the line here is a reminder, not the spec.
 
 - **Auth:** Cognito User Pool → Identity Pool (ABAC); `username` principal tag stamped server-side from the verified claim (unspoofable). One shared role; isolation via `${aws:PrincipalTag/username}`. (SPEC-011)
-- **Hosted UI = Managed Login v2** (`managed_login_version = 2`); classic Hosted UI broke the post-signup redirect. CI re-ensures default branding post-apply.
+- **Hosted UI = Managed Login v2** (`managed_login_version = 2`); classic Hosted UI broke the post-signup redirect.
 - **No backend:** browser → AWS direct. Cognito trigger Lambdas allowed (service config, not an API).
 - **State:** TanStack Query = server state; Context+`useReducer` = UI state. No Redux. (SPEC-015)
 - **File ops = filesystem UX;** S3 has no move/rename → `CopyObject`+`DeleteObject`, folder ops recursive + non-atomic, collisions warn-and-confirm. (architecture.md Known Constraints)
@@ -192,6 +185,8 @@ before working in that area; the line here is a reminder, not the spec.
 - **A default an empty string can defeat is not a default, a refusal must arrive BEFORE the confirm, and a check nobody can run reads as a pass (186):** `cx()` returns **`undefined`, not `''`** (and `Modal` uses `||`) — `??` does not fall back on the empty string, which cost **nine dialogs** their `max-w-md` to `w-full`; the *bypassing* dialogs were unaffected, which is the argument for fixing the shared layer.
 - **File-operations plane (187→191) — the fences, consolidated; full entries in `@docs/decisions.md`, the arc in `ARCS.md`:** synchronous **iff exactly one file**; the lock is per **SPACE** and its loser **waits** (cross-space takes both in digest order or neither); whole-request **raises**, per-item **returns a record**, the **space root is refused as an item**; the collision unit is the derived destination **KEY** (a **403 is occupied**); **every verb carries the outcome list forward and none creates it**, only a proven **404** is `source_missing`; the deletion takes **CONFIRMED plan keys** (a prefix listing orphans an uncopied object) and an **empty `deletable` cannot reach `DeleteSource`**; the cap is **2 TiB**, **computed**; **one producer after `ReleaseLock`, from BOTH edges**, emits one message per run, `?space=` **first**.
 - **The notifications `create` boundary is a runtime check because IAM CANNOT express it (206):** no SQS condition key reaches a message body, so a policy could only deny the browser `SendMessage` outright — the action `markRead` needs. The writer compares the **role-id half** of the `SenderId` SQS stamps (never `startswith`, never the whole value, session half never examined) and a refusal **logs and drops, never raises** — dead-lettering per forged request would let any user drown the one undrained DLQ. A **deny of one principal, not an allow of eight**; three reason codes, the empty role-id half refused **before** the comparison and the config tested **first** (else a broken deploy is logged as a broken message); a second queue is **rejected** (two ESMs racing one inbox).
+- **Configuration is a RUNTIME document and production has NO fallback (192):** `/config.json`, `no-store` via its own CachingDisabled behaviour (MinTTL beats the header), refused **whole** on version; a bad one is a hard boot failure naming key NAMES only, and the dev fallback is deleted from the bundle, measured.
+- **The provider block is the API's VERIFIER, server-side, and its exclusion cuts ONE way (192):** none of it in the browser's document — but a rule forbidding "anything identity-shaped" takes Amplify's own four Cognito keys with it (`clientId` as a substring kills `cognitoUserPoolClientId`).
 - **A stale result is not served AT ALL, and a reload fixing it is not a fix (2026-08-19):** the Explorer's execution cache evicts the tab **on screen** too — `resetQueries`, because removal only re-runs an observed query if something re-renders after it — so the eviction is narrowed by the TABLE in the key instead (`invalidateSchema(client, db, table?)`); the async build's completion is caught by `armCatalogCatchUp`, **module state** drained once in `ProtectedLayout` because both controls that arm it unmount when the user leaves.
 - **A column name is user data, and the RENDERER is safe on its own (2026-08-19):** `cpcommon.columns` refuses empty/whitespace/non-`[a-z0-9_]`/over-255/fold-collision names on **creates only** (a refresh would strand a pre-rule table; selected on the storage descriptor, never `mode`) — stricter than AWS on purpose — **and** `ddl.quote` now doubles an inner backtick, because DQ's partition keys come from S3 folder names and get their own reason code.
 - **Athena's two dialects need TWO escapers in the browser (2026-08-19):** `CREATE VIEW` is Trino (`sqlIdentifier`), `DROP` is Hive (`sqlDdlIdentifier`, inner backtick doubled); the database is the identifier that matters — a shared space's name is format-checked **nowhere** server-side. A quoting fix is not done until every statement built from the same value is swept.
@@ -234,7 +229,7 @@ silently checks nothing. CI now runs it too (#363). Watch every PR to completion
 **Doc-size guardrail:** `CLAUDE.md` is the always-loaded file — if an edit pushes a section past a
 few lines, the detail belongs in a `docs/` file behind a pointer. Same for `INDEX.md` (status rows
 only) and the inventory router. **A Key Decisions line is one sentence and a fence, not a paragraph**,
-and `## Specs` is not a changelog: both regrew past 300 lines once by being appended to, and were cut
-back on 2026-08-18. **`scripts/validate_docs.py` now enforces this on every PR** — the budgets are
+and `## Specs` is not a changelog — both regrew past 300 lines once by being appended to.
+**`scripts/validate_docs.py` enforces this on every PR** — the budgets are
 ratchets at the measured level, so raise the doc's tier, never the cap. Full rule set:
 `@docs/process.md` §5 → *Anti-regrowth & doc hygiene*.

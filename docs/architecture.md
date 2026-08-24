@@ -823,11 +823,63 @@ infra must expand the deploy-role policy** as in-scope work. The SPA deploys as 
 CloudFront (OAC origin; custom error responses 403/404 → `/index.html` for SPA routing; a
 response-headers policy carries the enforcing CSP + security header set — SPEC-140, `decisions.md`).
 `deploy-app.yml` uploads `dist/` in **three prefix-scoped passes** so hashed assets are `immutable`
-and the shell is `no-cache`, with exactly one `--delete` — SPEC-141, `decisions.md`. Build-time
-`VITE_*` vars are GitHub Actions variables (see `.github/workflows/README.md`); resource→spec mapping
-and current values come from `tofu -chdir=infra output`. Security scanning: `security.yml` runs the
+and the shell is `no-cache`, with exactly one `--delete` — SPEC-141, `decisions.md` — and renders and
+publishes `/config.json` (below) alongside them. `VITE_*` vars are GitHub Actions variables (see
+`.github/workflows/README.md`) and are now the **dev fallback only**; resource→spec mapping and
+current values come from `tofu -chdir=infra output`. Security scanning: `security.yml` runs the
 report-only scanner suite (SPEC-138); `deploy-infra.yml`'s plan job Checkov-scans the **rendered**
 `tofu show -json` plan for IAM (SPEC-139) — details in `docs/decisions.md` + `docs/security-baseline.md`.
+
+### Runtime configuration — `/config.json`
+
+The SPA reads its configuration at **runtime**, from a same-origin `/config.json` fetched once before
+the first render. A `VITE_*` variable is inlined into the bundle at build time, so an artifact
+carries one environment's bucket names, queue URLs and Cognito ids everywhere it is promoted; the
+document is what makes `dev → prod` a repoint rather than a rebuild, and a rollback a repoint back.
+
+- **The contract.** A JSON object with a numeric `version` (currently `1`) and **string** values for
+  every classified key. A wrong version is refused **whole**. An empty string reads as unset. A key
+  the build does not classify is **ignored**, so a task definition ahead of an image cannot break it.
+- **Same-origin, and it boots without the API.** The SPA must render its own error states while the
+  API is down, so the document is served by the SPA's own server and is never proxied.
+- **`Cache-Control: no-store`, and the distribution enforces it independently.** A document answered
+  from a cache populated in the previous environment renders a working, fully-functional portal
+  pointed at the wrong account, and nothing on screen distinguishes it. The upload sets the header
+  and `/config.json` has its own `Managed-CachingDisabled` cache behaviour — with the response-headers
+  policy re-attached, because it is per-behaviour and not inherited.
+- **A production boot with bad configuration fails hard.** Unreachable, unparseable, unsupported
+  version or missing a required key each render `BootFailure` and mount no route. One `console.error`
+  carries the reason and the missing key **names** — never a value.
+- **A dev build falls back to `import.meta.env`**, and a production build must not. The fallback's key
+  tables are eliminated from the production bundle, asserted on the built output by
+  `npm run check:bundle`.
+- **A key is wired in five places:** the classification in `lib/runtimeConfig.ts` (+ its `VITE_` name
+  in `lib/env.ts`), `.env.example`, the GitHub repository variable, **both** the build env and the
+  render step in `deploy-app.yml`, and — from the container spec — the ECS task definition. A test
+  compares them.
+
+### The OIDC provider block — the API's token verifier
+
+Server-side configuration for the API Lambda, and **not part of the browser's document at all**. It
+is what the API needs to decide a bearer token is genuine, and it is **provider-agnostic** so a later
+provider swap is a change of values rather than a rewrite of the verifier.
+
+| Variable | What it is |
+|---|---|
+| `OIDC_ISSUER` | the `iss` a token must carry, compared exactly |
+| `OIDC_AUDIENCE` | the `aud` / `client_id` a token must carry |
+| `OIDC_JWKS_URI` | where signing keys are fetched from — **a field, not a path derived from the issuer**: the well-known location is a convention, not a guarantee, and hard-coding it makes the verifier provider-specific in the one place that would fail closed and silently |
+| `OIDC_USERNAME_CLAIM` | which verified claim becomes `actor` |
+
+**This is a verifier, not an OAuth client.** No code exchange, no PKCE verifier, no client secret, no
+redirect URI, no scope list — those belong to Amplify, in the browser, unchanged by this arc.
+Building a client here is the shape of error the small field set exists to prevent.
+
+**The exclusion cuts one way only.** The browser's four Cognito values are Amplify's, they are
+legitimately browser-side, and a test written to forbid "anything that smells of identity" would
+delete them and break sign-in — `cognitoUserPoolClientId` survives an exact-match rule and dies under
+a substring one. `cognitoDomain` is **not** a provider-block field: Amplify POSTs the code exchange
+to it. The forbidden set is about *the API's trust anchors*, not about the word Cognito.
 
 > **CORS:** both browser-facing buckets need CORS or all SDK calls fail — the most common first-time
 > setup issue. Managed in the bucket modules' `.tftpl`/`s3.tf`.
