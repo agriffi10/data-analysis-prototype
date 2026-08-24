@@ -2,7 +2,11 @@
 
 **Status:** Single source of truth for the client transition. Living document; update it in place
 rather than writing a competing one.
-**Last updated:** 2026-08-19 (**live-docs validation pass** — §3.5 gains the correct IAM action
+**Last updated:** 2026-08-24 (**third-party driver pass** — §3.5's incompatibility bullet was
+quoted without its qualifier and read as "the client's Excel, Access and Power BI users lose their
+connection"; it does not say that. New **§3.10** carries what the drivers actually support, the two
+TIP plugins, the version floors and the rollout facts; §1, §5.5's G7 row, §8 and §10 move with it).
+Previously 2026-08-19 (**live-docs validation pass** — §3.5 gains the correct IAM action
 prefix, a corrected replay paragraph, the assertion's permitted token type and a half-answer on the
 `${user_id}` prefix; §3.9, §8 and Phase 0 narrow to the surviving sub-question; §3.3 gains a pointer
 to `docs/target-architecture-variants.md`, which carries the diagrams and the evidence). Previously
@@ -83,6 +87,7 @@ credential-plane split, the reconciler design and the surviving spike gates — 
    - [3.7 How Lake Formation enforces](#37-how-lake-formation-enforces)
    - [3.8 The reconciler](#38-the-reconciler)
    - [3.9 The storage plane — S3 Access Grants](#39-the-storage-plane--s3-access-grants)
+   - [3.10 Third-party driver access — Excel, Access, Power BI and anything else on ODBC/JDBC](#310-third-party-driver-access--excel-access-power-bi-and-anything-else-on-odbcjdbc)
 4. [Deployment topology](#4-deployment-topology)
    - [4.1 The constraint that still settles it](#41-the-constraint-that-still-settles-it)
    - [4.2 What first tenancy buys, and what it obliges](#42-what-first-tenancy-buys-and-what-it-obliges)
@@ -160,6 +165,7 @@ reading them as one is the mistake §3.3 exists to prevent — and the arrival o
 | Who creates the user's Glue database | `post_confirmation.py` | Sync initially, user automation thereafter (it already handles tagging); grants come from a separate permissions control plane (§8) |
 | Per-user IAM identity | One shared role plus a `username` principal tag, minted by the Identity Pool | **Interim (Phases 1–4):** the same shared role and tag, assumed by the API from the verified claim — no Identity Pool. **End state (Phase 5):** one identity-enhanced session, no principal tags, storage on S3 Access Grants (§3.4, §3.9). **Bespoke per-user roles are never created** |
 | Per-user storage isolation | `${aws:PrincipalTag/username}` in the bucket and Glue policies | Same in the interim; **S3 Access Grants** in the end state — plain S3 is denied on an identity-enhanced session (§3.6) |
+| Third-party BI / ODBC clients (Excel, Access, Power BI) | Outside the portal's isolation entirely — a driver session gets no per-user masking | The **same** Lake Formation grants that govern the portal, carried by the drivers' own trusted-identity-propagation plugins (§3.10) |
 | Lake Formation grants | Issued by this app, keyed on the shared role | Same for personal and workspace scopes; core datasets keyed on Identity Center principals (§3), issued by a config-driven reconciler |
 | Shared workspaces | Created and managed by this app's control plane | Same — created by this app in the successor account, contents synced from the old account's workspaces |
 | The data itself | Created in place by users | **Synced from the old account**, re-encrypted under the successor account's KMS key, then cut over (§6.5) |
@@ -514,8 +520,15 @@ consequential as G7:
 - **Users must be assigned to the `IdentityCenterApplicationArn`** returned by `GetWorkGroup`, not
   merely to the account or the Lake Formation application.
 - TIP with Athena is available in a **fixed Region list** (`us-east-1` is on it).
-- `aws:CalledVia` context keys, Athena for Spark workgroups, and federated access through the Athena
-  JDBC/ODBC drivers are all incompatible with TIP as well.
+- `aws:CalledVia` context keys and Athena for Spark workgroups are incompatible with TIP as well. So
+  is *"Federated access to Athena using **Lake Formation and** the Athena JDBC and ODBC drivers"* —
+  and **that qualifier is load-bearing. CORRECTED 2026-08-24.** This bullet used to read *"federated
+  access through the Athena JDBC/ODBC drivers"*, which states, to anyone reading the plan for an
+  answer, that the client's Excel, Access and Power BI users lose their connection at Phase 5. **They
+  do not.** The bullet names the **SAML-2.0 Okta/AD FS** driver feature — the same narrow feature
+  this section already invokes two paragraphs above when it declines the pessimistic reading of G7 —
+  and AWS shipped **native TIP support in the drivers themselves** (JDBC 3.6.0 / ODBC 2.0.5.0,
+  2025-09-11) after this plan was first written. **§3.10 carries it.**
 
 - An IdC-enabled workgroup requires Lake Formation configured for IdC identities **and**
   *"Amazon S3 Access Grants must be configured to use Trusted identity propagation identities."*
@@ -745,6 +758,107 @@ and the choice is real either way.
 
 **What does not change:** the seven control-plane execution roles keep their direct S3 grants and are
 untouched by any of this (§3.4).
+
+### 3.10 Third-party driver access — Excel, Access, Power BI and anything else on ODBC/JDBC
+
+**This section exists because the plan previously implied the wrong answer**, and the wrong answer
+here is expensive: read one way, §3.5's incompatibility bullet says every Excel, Access and Power BI
+user in the organization loses their connection at Phase 5. It does not say that (§3.5's correction
+of 2026-08-24). **Driver users survive the transition, and they arrive better governed than they are
+today** — today an ODBC client sits entirely outside `${aws:PrincipalTag/username}` and gets no
+per-user, per-level masking at all; after Phase 5 the same Lake Formation grants the reconciler
+(§3.8) writes for the portal govern Excel too. One entitlement model, two surfaces.
+
+AWS shipped native trusted-identity-propagation support in the drivers on **2025-09-11**, in **JDBC
+3.6.0** and **ODBC 2.0.5.0** — after this plan was first drafted — and gave it its own page:
+*"When you access Athena from tools like PowerBI, Tableau, or DBeaver, your identity and permissions
+automatically propagate to Athena through IAM Identity Center."*
+
+**Two plugins, and which one a user gets is decided by the machine they sit at.**
+
+| Plugin | `AuthenticationType` | Version floor | Shape | For |
+|---|---|---|---|---|
+| Browser TIP | `BrowserOidcTip` | **ODBC 2.0.6.0** (2025-11-21) | Runs the whole OAuth 2.0 code flow in the user's default browser and fetches the JWT itself | Excel, Access, Power BI **Desktop**, DBeaver — a person at their own machine |
+| JWT TIP | `JWT_TIP` | ODBC 2.0.5.0 | Takes an already-obtained JWT as a **connection parameter**; something else must supply it | Power BI **Server**/gateway, Windows Terminal Server, RDS — anywhere the loopback port is shared |
+
+The split is AWS's own recommendation, not this plan's invention: Browser TIP *"is specifically
+designed for single-user desktop environments"*, and in shared environments the default loopback port
+**7890** is shared between users — *"If these security controls cannot be implemented, we recommend
+using the JWT trusted identity propagation plugin instead."*
+
+**Power BI needs no separate answer because it is ODBC underneath.** The Microsoft Power BI connector
+for Athena takes an **ODBC DSN** as its input; Excel (*Get Data → From ODBC*) and Access (linked
+tables) take one the same way. One driver, one DSN shape, three clients — which is also why the
+version floor and the rollout below are a single piece of work rather than three.
+
+**What the connection needs that this account does not have today:**
+
+- An **Entra app registration for the driver flow**: `client_id`, the
+  `.well-known/openid-configuration` URL, and `http://localhost:7890/athena` allowlisted as a
+  redirect URI. `Scope` must carry `openid` plus whatever claims the Identity Center trusted token
+  issuer mapping reads — **the same claim §6.1 settles for the portal**. That coupling is worth
+  stating plainly: get the claim wrong and both surfaces fail together, which is good for
+  consistency and bad for blast radius.
+- An **Application Role** (performs the JWT exchange, reads the workgroup tags, resolves the access
+  role) and an **Access Role** (the identity-enhanced session that reaches downstream services).
+  These are the driver path's analogue of §3.6's carrier role and they are **separate roles** — the
+  portal's carrier role is not reusable here.
+- A **customer-managed Identity Center application**, needing the management account or a delegated
+  administrator (§4.5). Distinct from the portal's own (§4.5, Phase 5).
+- **Tags on the Athena workgroup.** The plugins take `WorkgroupArn` *and* `Workgroup` as two separate
+  parameters — the ARN points at the workgroup **carrying the TIP configuration tags**, and both must
+  be set even when they name the same workgroup. That is an IaC obligation on the workgroup, easy to
+  miss because nothing else in this plan tags one.
+- AWS publishes a **CloudFormation template** for the driver-side setup. Read it before writing the
+  OpenTofu; it is the closest thing to a reference implementation.
+
+**Six operational facts to plan the rollout around:**
+
+- **The practical version floor is higher than the feature floor.** 2.0.6.0 gets Browser TIP, but
+  **2.1.0.0** (2026-03-20) is a security release AWS says to take *"as soon as possible"* and it
+  carries breaking changes — SSL verification on by default, TLS 1.2 minimum, and Browser SSO OIDC
+  moved from Device Code to Authorization Code with PKCE. Plan the desktop rollout against 2.1.0.0 or
+  later, not 2.0.6.0.
+- **2.3.0.0 (2026-08-21) fixes Power BI specifically** — empty-string filter patterns from ADO.NET
+  clients returning zero rows, and `SQLTables`/`SQLColumns` truncating at 200 tables per schema. It
+  also **changes the driver's `User-Agent`**, which breaks any `aws:UserAgent` IAM condition, log
+  filter or IdP sign-on rule matching the old value. Nothing in this repo matches on it today; check
+  again before assuming that holds in the successor account.
+- **`JwtTipFileCache` on for BI tools, off on shared machines.** Power BI opens multiple processes
+  and re-authenticates in each without it. On a shared host the cache can leak a token between users
+  with similar connection strings. Since 2.1.0.0 it is plaintext JSON under
+  `user-profile/.athena-odbc/`, owner-only permissions.
+- **The 30-minute default / one-hour maximum query timeout is a property of the TIP workgroup**, so
+  it reaches driver users too — and a large Excel or Access pull is likelier to meet it than a portal
+  query is.
+- **Entitlement changes take up to an hour** (§3.5). "I was granted access and Excel still says
+  denied" is expected behaviour and needs saying out loud before it becomes a ticket.
+- **Query results are Access Grants territory.** In an IdC workgroup, results land in the workgroup's
+  location governed by S3 Access Grants, so a driver user needs a grant on the results prefix — and
+  AWS's own sample policy for exactly that case is the `${identitystore:UserId}` form. **This is a
+  second pull toward §3.9's open question resolving differently for results than for the file
+  browser**, and it strengthens the case for deciding both surfaces at once rather than twice.
+
+**What driver users do NOT get, and it is not a regression.** The Access Grants entitlements §3.9 and
+SPEC-204 issue for personal prefixes and shared-space prefixes serve the **portal's file browser**. A
+driver user queries the **catalog**: reaching their personal database or a shared space's database
+from Excel needs the matching Lake Formation grant, which this app already issues. Nothing here gives
+Excel a file browser and nothing in this plan proposes one.
+
+**Two things this section does NOT claim, stated so nobody reads it as settled.**
+
+- **AWS names Power BI, Tableau and DBeaver. It never names Excel or Access.** Both are ordinary ODBC
+  DSN consumers and the Power BI connector's own documentation proves the DSN path works, so the
+  architecture supports them — but *"an ODBC client should work"* is a deduction, not a vendor
+  statement. **Test Excel and Access explicitly, Access first:** linked tables reconnect often, and a
+  browser prompt per reconnection is the failure mode that would make it unusable in practice while
+  passing every architectural test.
+- **This is strong evidence for gate G7, not a substitute for running it.** The driver plugins do
+  precisely what §3.5's step 3 does — exchange a JWT, `AssumeRole` into an identity-enhanced session,
+  then call the Athena API from ordinary client code, with no studio product anywhere in the path.
+  That AWS ships, documents and CloudFormation-templates this makes the pessimistic reading of
+  *"federated access to the Athena API"* very hard to sustain. **Expect G7 to pass. Still run it** —
+  a vendor driver may hold a privileged path our own code does not.
 
 ---
 
@@ -1169,7 +1283,7 @@ invalidate design rather than merely confirm it; the rest belong to Phase 5:
 | G4 | A user with no grant is denied | Default-deny or propagation broken — blocker |
 | G5 | A JOIN across two granted datasets returns in one query | The single-session-spans-grants assumption is wrong |
 | G6 | Session lifetime is workable and silent refresh exists | UX churn; needs a refresh strategy |
-| G7 | A plain `StartQueryExecution` on an IdC-enabled workgroup, issued with identity-enhanced credentials from our own code, runs and is enforced per user (§3.5) | **Blocker, and genuinely uncertain** — the docs list *federated access to the Athena API* as incompatible with TIP, but define that term narrowly elsewhere as SAML-via-JDBC/ODBC, so neither reading is safe to assume. If it fails, Phase 5 needs a different query surface: a studio product, or a broker that re-implements masking (§3.2 point 4). **Run it in Phase 0, not Phase 5** |
+| G7 | A plain `StartQueryExecution` on an IdC-enabled workgroup, issued with identity-enhanced credentials from our own code, runs and is enforced per user (§3.5) | **Blocker, and genuinely uncertain** — the docs list *federated access to the Athena API* as incompatible with TIP, but define that term narrowly elsewhere as SAML-via-JDBC/ODBC, so neither reading is safe to assume. If it fails, Phase 5 needs a different query surface: a studio product, or a broker that re-implements masking (§3.2 point 4). **Run it in Phase 0, not Phase 5**. **Evidence added 2026-08-24 (§3.10):** AWS's own JDBC/ODBC driver TIP plugins do exactly this — exchange a JWT, assume an identity-enhanced session, then call the Athena API from ordinary client code with no studio product in the path. Expect a pass; run it anyway, since a vendor driver may hold a privileged path our own code does not |
 | **G8** | **Can the Entra tenant issue OIDC/OAuth2 JWTs for this application** — an app registration on the **default signing key** (a custom signing key is unsupported for the Entra trusted-token-issuer path), with an audience and an `email`-to-IdC-attribute claim mapping that align? | **This is the variant decider (§3.3), not a blocker.** Pass → **Variant A**, and Cognito is never built. Fail → **Variant B**, and a Cognito bridge is built to be deleted later. Often a per-app-registration or tenant-policy matter rather than a product limitation, so **ask the Entra tenant owner before assuming**. Answer it in **Phase 0**: it decides work in Phase 1 and Phase 5, and building B when A was available is the expensive mistake |
 | **G9** | **Presign an S3 `GET` and a `PUT` from `GetDataAccess`-vended credentials and redeem both from a browser origin** (§3.9) | Presigning is a local SigV4 operation and the session token rides in the query string, so this *should* work and S3 should evaluate the grant's scope at redemption — but it is **unproven**, and the whole "AWS credentials never reach the browser" posture rests on it. If it fails, the fallback is vending the scoped credentials to the browser directly, and **SPEC-202's load-bearing negative live check must be re-worded before it is run**. Cheap; run it in Phase 0 beside G7, on the same throwaway instance |
 
@@ -1754,6 +1868,11 @@ freeze. This is the whole reason the old account survives the quiet period.
   is a conversation with the tenant owner rather than an experiment, and it has the longest lead
   time of anything in this list. Ask first.
 - **Is SCIM provisioning from Entra into Identity Center live** (§2 item 12), and who operates it?
+- **What do the client's Excel, Access and Power BI users connect with TODAY** (§3.10)? If they are
+  on the **SAML / Lake Formation federated** driver path (Okta or AD FS), that path *is* genuinely
+  incompatible with TIP and every one of them must move to a TIP plugin; if they are on static IAM
+  keys or an IAM profile it is a straight swap. This decides the size of the desktop rollout, it has
+  a long lead time, and nobody has asked. Ask it beside G8.
 - **The Access Grants prefix identity** (§3.9): one literal grant per user, or one broad grant
   narrowed by `${identitystore:UserId}` in the **location role's policy**? It decides whether a grant
   is a provisioning step and whether the username survives as the prefix, and it may split between
@@ -1834,6 +1953,13 @@ freeze. This is the whole reason the old account survives the quiet period.
   identity-enhanced session turns out to be unsupported, everything below is moot and §3 is reopened.
 - Who owns **S3 Access Grants** in the successor account — another account-wide singleton to name in
   the coordination contract (§4.4), and one this repo does not touch today.
+- **Who owns the driver path's Identity Center application, its Application Role and its Access Role**
+  (§3.10) — they are separate from the portal's, and the customer-managed application needs the
+  management account or a delegated administrator. Does the Athena workgroup carry the TIP
+  configuration tags the plugins read?
+- **Do Excel and Access actually work on the Browser TIP plugin** (§3.10)? AWS names Power BI,
+  Tableau and DBeaver and never names either. Test Access first — its linked tables reconnect often,
+  and a browser prompt per reconnection would make it unusable while passing every other check.
 
 - Does the successor account already have a Lake Formation Identity Center configuration by the
   time Phase 5 starts, and if so who created it (§4.4)?
@@ -1921,6 +2047,15 @@ Lake Formation:
 Athena:
 [Use IAM Identity Center enabled Athena workgroups](https://docs.aws.amazon.com/athena/latest/ug/workgroups-identity-center.html) ·
 [Use Lake Formation and JDBC or ODBC drivers for federated access to Athena](https://docs.aws.amazon.com/athena/latest/ug/security-athena-lake-formation-jdbc.html)
+
+Athena drivers and trusted identity propagation (§3.10):
+[Use Trusted identity propagation with Amazon Athena drivers](https://docs.aws.amazon.com/athena/latest/ug/using-trusted-identity-propagation.html) ·
+[Browser trusted identity propagation credentials (ODBC)](https://docs.aws.amazon.com/athena/latest/ug/odbc-v2-driver-browser-oidc-tip.html) ·
+[JWT trusted identity propagation credentials provider (ODBC)](https://docs.aws.amazon.com/athena/latest/ug/odbc-v2-driver-jwt-tip.html) ·
+[JWT trusted identity propagation credentials (JDBC)](https://docs.aws.amazon.com/athena/latest/ug/jdbc-v3-driver-jwt-tip-credentials.html) ·
+[Amazon Athena ODBC 2.x release notes](https://docs.aws.amazon.com/athena/latest/ug/odbc-v2-driver-release-notes.html) ·
+[Use the Amazon Athena Power BI connector](https://docs.aws.amazon.com/athena/latest/ug/connect-with-odbc-and-power-bi.html) ·
+[Athena launches single sign-on support for drivers, 11 September 2025](https://aws.amazon.com/about-aws/whats-new/2025/09/amazon-athena-sso-drivers/)
 
 IAM Identity Center:
 [Enable AWS account access for customer managed applications](https://docs.aws.amazon.com/singlesignon/latest/userguide/enable-account-access-customer-managed-apps.html) ·
