@@ -40,3 +40,8 @@ coverage.xml
 # macOS/iCloud "conflicted copy" duplicates (e.g. ".coverage 2", "package-lock 2.json")
 *\ [0-9].json
 .coverage\ [0-9]*
+
+# A locally rendered runtime configuration document. Files under public/ are copied
+# verbatim into dist/, so a committed one would be built into the image and served in
+# preference to the document the container renders.
+apps/portal/public/config.json

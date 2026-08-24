@@ -12,6 +12,7 @@
  * `lib/amplify.ts`'s `isAmplifyConfigured` is a const — Amplify configures itself at
  * import, this does not.
  */
+import type {RuntimeConfigKey} from '../types/runtimeConfig.types';
 
 /**
  * Variables the portal cannot work at all without: the region every SDK client needs,
@@ -117,6 +118,60 @@ function readEnv(): Record<PortalEnvVar, string | undefined> {
     VITE_ARCHIVE_QUEUE_URL: import.meta.env.VITE_ARCHIVE_QUEUE_URL as string | undefined,
     VITE_FILE_OPS_QUEUE_URL: import.meta.env.VITE_FILE_OPS_QUEUE_URL as string | undefined
   };
+}
+
+/**
+ * Which `VITE_*` variable stands in for each runtime-configuration key, in a dev build.
+ *
+ * `null` means the key has no dev fallback at all: nothing in the browser reads
+ * `apiBaseUrl` yet, and a variable nobody reads is dead weight in every `.env` file.
+ * The document is the only source for it.
+ *
+ * Two tables rather than one because Vite can only substitute a LITERAL member
+ * expression (see `readEnv`), so the variable name has to appear once as an expression
+ * and once as a string. Both are `Record<RuntimeConfigKey, …>`, so the compiler makes
+ * them exhaustive and extra-free; that a key is paired with the RIGHT variable is
+ * proved by test, one unique stub per key.
+ */
+export const VITE_NAME: Record<RuntimeConfigKey, PortalEnvVar | null> = {
+  appUrl: 'VITE_APP_URL',
+  awsRegion: 'VITE_AWS_REGION',
+  userSpaceBucket: 'VITE_S3_USER_SPACE_BUCKET',
+  athenaWorkgroup: 'VITE_ATHENA_WORKGROUP',
+  cognitoUserPoolId: 'VITE_COGNITO_USER_POOL_ID',
+  cognitoUserPoolClientId: 'VITE_COGNITO_USER_POOL_CLIENT_ID',
+  cognitoDomain: 'VITE_COGNITO_DOMAIN',
+  apiBaseUrl: null,
+  environment: 'VITE_ENVIRONMENT',
+  maxUploadBytes: 'VITE_MAX_UPLOAD_BYTES',
+  sharedSpaceBucket: 'VITE_S3_SHARED_SPACE_BUCKET',
+  cognitoIdentityPoolId: 'VITE_COGNITO_IDENTITY_POOL_ID',
+  sharedSpaceQueueUrl: 'VITE_SHARED_SPACE_QUEUE_URL',
+  notificationsQueueUrl: 'VITE_NOTIFICATIONS_QUEUE_URL',
+  tableBuildQueueUrl: 'VITE_TABLE_BUILD_QUEUE_URL',
+  tableShareQueueUrl: 'VITE_TABLE_SHARE_QUEUE_URL',
+  dataQualityQueueUrl: 'VITE_DATA_QUALITY_QUEUE_URL',
+  fileSendQueueUrl: 'VITE_FILE_SEND_QUEUE_URL',
+  archiveQueueUrl: 'VITE_ARCHIVE_QUEUE_URL',
+  fileOpsQueueUrl: 'VITE_FILE_OPS_QUEUE_URL'
+};
+
+/**
+ * One configuration key's value from the local `.env`, for a dev build only.
+ *
+ * A container renders the runtime document from its task environment; a laptop has no
+ * container, so `npm run dev` and the test suite answer from `import.meta.env` instead.
+ * EVERY CALLER MUST GATE THIS ON `import.meta.env.DEV` AT THE CALL SITE — not inside,
+ * and not in the consumer beyond. That gate is what lets the bundler delete this
+ * function and `VITE_NAME` from a production build — and `readEnv` with them, once
+ * `envVar` has no callers left. Their deletion is what a production bundle's freedom
+ * from build-time configuration rests on.
+ */
+export function devFallbackValue(key: RuntimeConfigKey): string | undefined {
+  const name = VITE_NAME[key];
+  if (name === null) return undefined;
+  const value = readEnv()[name];
+  return value === '' ? undefined : value;
 }
 
 /** Which required variables are missing right now — empty when the portal is configured. */

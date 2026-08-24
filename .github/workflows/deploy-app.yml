@@ -65,6 +65,75 @@ jobs:
           VITE_FILE_OPS_QUEUE_URL: ${{ vars.VITE_FILE_OPS_QUEUE_URL }}
           VITE_DATA_QUALITY_QUEUE_URL: ${{ vars.VITE_DATA_QUALITY_QUEUE_URL }}
 
+      # THE DOCUMENT PRODUCTION ACTUALLY READS. The build env above is inlined into the
+      # bundle and is the DEV fallback only; every value a deployed portal resolves comes
+      # from here, so a key missing in this block ships a document without it while the
+      # build, `.env.example` and the classification all stay in agreement. A test asserts
+      # this block names every key, and reads each from the same repository variable the
+      # build does.
+      #
+      # One env var per key, `CONFIG_`-prefixed, so the rendering needs no second list of
+      # names to drift from. An unset repository variable interpolates to "", which the
+      # accessor reads as unset — the same rule the build env has always had.
+      #
+      # Rendered OUTSIDE dist/: SPEC-141's passes must each own a disjoint set of keys,
+      # and a file under dist/ would be uploaded by the shell pass as well as by the
+      # upload below, taking whichever --cache-control ran last.
+      - name: Render the runtime configuration document
+        env:
+          CONFIG_apiBaseUrl: ${{ vars.API_BASE_URL }}
+          CONFIG_appUrl: ${{ vars.VITE_APP_URL }}
+          CONFIG_awsRegion: ${{ vars.AWS_REGION }}
+          CONFIG_environment: ${{ vars.VITE_ENVIRONMENT }}
+          CONFIG_maxUploadBytes: ${{ vars.VITE_MAX_UPLOAD_BYTES }}
+          CONFIG_cognitoUserPoolId: ${{ vars.VITE_COGNITO_USER_POOL_ID }}
+          CONFIG_cognitoUserPoolClientId: ${{ vars.VITE_COGNITO_USER_POOL_CLIENT_ID }}
+          CONFIG_cognitoDomain: ${{ vars.VITE_COGNITO_DOMAIN }}
+          CONFIG_cognitoIdentityPoolId: ${{ vars.VITE_COGNITO_IDENTITY_POOL_ID }}
+          CONFIG_userSpaceBucket: ${{ vars.VITE_S3_USER_SPACE_BUCKET }}
+          CONFIG_sharedSpaceBucket: ${{ vars.VITE_S3_SHARED_SPACE_BUCKET }}
+          CONFIG_athenaWorkgroup: ${{ vars.VITE_ATHENA_WORKGROUP }}
+          CONFIG_sharedSpaceQueueUrl: ${{ vars.VITE_SHARED_SPACE_QUEUE_URL }}
+          CONFIG_notificationsQueueUrl: ${{ vars.VITE_NOTIFICATIONS_QUEUE_URL }}
+          CONFIG_tableBuildQueueUrl: ${{ vars.VITE_TABLE_BUILD_QUEUE_URL }}
+          CONFIG_tableShareQueueUrl: ${{ vars.VITE_TABLE_SHARE_QUEUE_URL }}
+          CONFIG_dataQualityQueueUrl: ${{ vars.VITE_DATA_QUALITY_QUEUE_URL }}
+          CONFIG_fileSendQueueUrl: ${{ vars.VITE_FILE_SEND_QUEUE_URL }}
+          CONFIG_archiveQueueUrl: ${{ vars.VITE_ARCHIVE_QUEUE_URL }}
+          CONFIG_fileOpsQueueUrl: ${{ vars.VITE_FILE_OPS_QUEUE_URL }}
+        run: |
+          # The keys the document may carry, named rather than taken from whatever the
+          # runner happens to have. A bare `startswith("CONFIG_")` scoop publishes any
+          # same-prefixed variable a workflow-level env, a composite action or a
+          # self-hosted runner introduces — into a world-readable document. Both lists
+          # below are asserted against the classification by test.
+          KEYS='apiBaseUrl appUrl awsRegion environment maxUploadBytes cognitoUserPoolId cognitoUserPoolClientId cognitoDomain cognitoIdentityPoolId userSpaceBucket sharedSpaceBucket athenaWorkgroup sharedSpaceQueueUrl notificationsQueueUrl tableBuildQueueUrl tableShareQueueUrl dataQualityQueueUrl fileSendQueueUrl archiveQueueUrl fileOpsQueueUrl'
+          REQUIRED='appUrl awsRegion userSpaceBucket athenaWorkgroup cognitoUserPoolId cognitoUserPoolClientId cognitoDomain'
+
+          jq -n --arg keys "$KEYS" '($keys | split(" ")) as $allowed
+            | {version: 1} + ($ENV
+              | with_entries(select(.key | startswith("CONFIG_")))
+              | with_entries(.key |= sub("^CONFIG_"; ""))
+              | with_entries(select(.key as $k | $allowed | index($k))))' > "$RUNNER_TEMP/config.json"
+
+          # The rendering itself, not just the env block above: an edit to the filter that
+          # drops an OPTIONAL key would ship a document without it, past every other check
+          # here, and present as one feature quietly unconfigured.
+          jq -e --arg keys "$KEYS" '((keys - ["version"]) | sort) == ($keys | split(" ") | sort)' \
+            "$RUNNER_TEMP/config.json" > /dev/null
+
+          # REFUSE TO PUBLISH A DOCUMENT THAT CANNOT BOOT. An unset repository variable
+          # renders as "", and a required key rendered empty is a portal that shows every
+          # user a boot failure. Failing the deploy here leaves the live document — and
+          # the live app — untouched.
+          missing=$(jq -r --arg required "$REQUIRED" \
+            '($required | split(" ")) - [to_entries[] | select(.value != "") | .key] | join(", ")' \
+            "$RUNNER_TEMP/config.json")
+          if [ -n "$missing" ]; then
+            echo "::error::config.json would ship without: $missing"
+            exit 1
+          fi
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -124,6 +193,23 @@ jobs:
         run: |
           aws s3 sync apps/portal/dist/assets/ s3://${{ secrets.S3_STATIC_BUCKET }}/assets/ \
             --cache-control 'public, max-age=31536000, immutable'
+
+      # AN UPLOAD, AND DELIBERATELY NOT A SYNC PASS. It carries one object that no other
+      # pass owns: `--delete` is scoped to assets/, and the shell pass only ever sees
+      # dist/, which this file is rendered outside of.
+      #
+      # BEFORE the shell, for the reason the assets pass goes first: a new index.html must
+      # never be live against the previous document.
+      #
+      # `no-store`, because a document answered from a cache populated in the previous
+      # environment renders a working, fully-functional portal pointed at the wrong
+      # account, and nothing on screen distinguishes it from a healthy one. The
+      # distribution has a cache behaviour of its own for this path so that the guarantee
+      # does not rest on this one flag.
+      - name: Publish the runtime configuration document
+        run: |
+          aws s3 cp "$RUNNER_TEMP/config.json" s3://${{ secrets.S3_STATIC_BUCKET }}/config.json \
+            --cache-control 'no-store' --content-type 'application/json'
 
       - name: Sync the shell to S3 (revalidate always)
         run: |
