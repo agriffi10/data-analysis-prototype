@@ -8,10 +8,13 @@ connection"; it does not say that. New **§3.10** carries what the drivers actua
 the client confirmed those users are on the **SAML path today**, the migration that forces. Moved:
 Contents, §1's table, §2 (new item 15), §3.5's bullet **and** its G7 status paragraph, §3.10, §5.5's
 G7 and G8 rows, §8, Phase 0, Phase 5, §10, plus `docs/specs/ARCS.md` and
-`docs/target-architecture-variants.md`. **Two claims in the first draft were corrected at review the
-same day** and are marked in place: the driver path does **not** require an IdC-enabled workgroup, so
-the separate-workgroup topology is our choice to enforce rather than a platform guarantee; and the
-coexistence window comes from the two **accounts**, bounded by §6.5's freeze — not "no flag day").
+`docs/target-architecture-variants.md`, and a pointer line in `CLAUDE.md`. **Three claims in the
+first draft were corrected at review the same day** and each is marked in place: the driver path does
+**not** require an IdC-enabled workgroup, so the separate-workgroup topology is our choice to enforce
+rather than a platform guarantee; the coexistence window comes from the two **accounts**, bounded by
+§6.5's freeze, not "no flag day"; and these users are **not** ungoverned today — they hold a parallel
+SAML-keyed Lake Formation grant set, so the gain is one entitlement model instead of two, not
+masking where there was none).
 Previously 2026-08-19 (**live-docs validation pass** — §3.5 gains the correct IAM action
 prefix, a corrected replay paragraph, the assertion's permitted token type and a half-answer on the
 `${user_id}` prefix; §3.9, §8 and Phase 0 narrow to the surviving sub-question; §3.3 gains a pointer
@@ -494,13 +497,15 @@ half and the driver half of one SAML feature. Trusted identity propagation's own
 identity context, and the console exclusion is explicable by the console's session not being
 identity-enhanced rather than by a prohibition on API callers.
 
-**So: materially at risk, unsettled, and settle it by experiment — gate G7 (§5.5), in Phase 0.**
-**Evidence added 2026-08-24 — the odds moved, the gate did not.** AWS's own JDBC/ODBC trusted-identity-propagation
-plugins are ordinary client code exchanging a JWT, assuming an identity-enhanced session and calling
-the Athena API with no studio product in the path, and AWS documents them for use *"either as
-standalone drivers or with any BI or SQL tool"*. Expect G7 to pass; run it anyway. §3.10 carries it. It is
+**So: materially at risk, unsettled, and settle it by experiment — gate G7 (§5.5), in Phase 0.** It is
 cheap, and if it comes back negative Phase 5 needs a different query surface: a studio product, or a
 broker that re-implements masking (§3.2 point 4), and §3's design is reopened.
+
+**Evidence added 2026-08-24 — the odds moved, the gate did not.** AWS's own JDBC/ODBC
+trusted-identity-propagation plugins are ordinary client code exchanging a JWT, assuming an
+identity-enhanced session and calling the Athena API with no studio product in the path, and AWS
+documents them for use *"either as standalone drivers or with any BI or SQL tool"*. Expect G7 to
+pass; run it anyway. §3.10 carries it.
 
 > **Two supersessions on this passage, both 2026-08-18, and the second is a correction of the first.**
 > It first read *"it is not documented as unsupported either; it is simply unaddressed"* — wrong,
@@ -544,7 +549,7 @@ consequential as G7:
   do not.** The bullet names the **SAML-2.0 Okta/AD FS** driver feature — the same narrow feature
   this section invokes earlier when it declines the pessimistic reading of G7 —
   and AWS shipped **native TIP support in the drivers themselves** (JDBC 3.6.0 / ODBC 2.0.5.0,
-  2025-09-11) after this plan was first written. **§3.10 carries it.**
+  released 2025-09-10) after this plan was first written. **§3.10 carries it.**
 
 - An IdC-enabled workgroup requires Lake Formation configured for IdC identities **and**
   *"Amazon S3 Access Grants must be configured to use Trusted identity propagation identities."*
@@ -783,7 +788,9 @@ user in the organization loses their connection at Phase 5. It does not say that
 of 2026-08-24). **Driver users survive the transition.**
 
 **What they gain is ONE entitlement model where there are currently two** — and stating it any
-more strongly than that would be false. These users are *not* ungoverned today: they reach Athena
+more strongly than that would be false. *(**CORRECTED 2026-08-24, at review.** This paragraph first
+claimed they "arrive better governed than they are today" and that an ODBC client gets "no per-user,
+per-level masking at all". Both were wrong, for the reason the rest of this paragraph gives.)* These users are *not* ungoverned today: they reach Athena
 through SAML federation **with Lake Formation** (§2 item 15), so they already get per-user,
 column-level enforcement — just from a parallel grant set keyed on SAML principals, maintained
 beside the portal's. After Phase 5 both surfaces are governed by the same grants keyed on the same
@@ -840,13 +847,14 @@ version floor and the rollout below are a single piece of work rather than three
   **Identity Center application ARN**. The Application Role walks that chain, which is why it needs
   `athena:ListTags*` and `sso:ListTags*`. Tagging both is not optional polish: AWS's setup page notes
   it is what *"eliminate[s] the need for users to provide `AccessRoleArn` and
-  `CustomerIdcApplicationArn`"* in every desktop's connection string. An IaC obligation on the
-  workgroup, easy to miss because nothing else in this plan tags one.
-- **`WorkgroupArn` and `Workgroup` are two separate parameters on the ODBC browser plugin** — the ARN
-  names the workgroup **carrying the tags**, `Workgroup` names where queries run, and *"both
-  parameters must be set explicitly"* even when they are the same workgroup. Documented on
-  `BrowserOidcTip` only; the JWT plugins do not carry that instruction and JDBC's `WorkgroupArn`
-  defaults to `primary`, which is its own way to fail quietly.
+  `CustomerIdcApplicationArn`"* in every desktop's connection string. An IaC obligation on **both**
+  resources, easy to miss because nothing else in this plan tags either.
+- **`WorkgroupArn` and `Workgroup` are two separate parameters** — the ARN names the workgroup
+  **carrying the tags**, `Workgroup` names where queries run, and *"both parameters must be set
+  explicitly"* even when they are the same workgroup. Stated on **both** browser plugin pages, ODBC
+  and JDBC; the JWT plugin reference pages omit it (though the setup page's DBeaver walkthrough does
+  tell `JWT_TIP` users the two must match), and JDBC's `WorkGroupArn` defaults to `primary` on both
+  its plugins — which is its own way to fail quietly.
 - AWS publishes a **CloudFormation template** for the driver-side setup. Read it before writing the
   OpenTofu; it is the closest thing to a reference implementation.
 
@@ -867,14 +875,25 @@ version floor and the rollout below are a single piece of work rather than three
   account. Same release, relevant to a managed desktop fleet: on Windows the driver now verifies TLS
   against the **Windows system certificate store and ignores `TrustedCerts`**, and on Linux it finds
   the CA bundle at runtime honouring `CURL_CA_BUNDLE` / `SSL_CERT_FILE`.
-- **`JwtTipFileCache` on for BI tools, off on shared machines.** Power BI opens multiple processes
-  and re-authenticates in each without it. On a shared host the cache can leak a token between users
-  with similar connection strings. Since 2.1.0.0 it is plaintext JSON under
-  `user-profile/.athena-odbc/`, owner-only permissions.
+- **Token caching is ODBC-specific advice, and the security caveat does NOT transfer to JDBC.** On
+  ODBC, turn `JwtTipFileCache` on for BI tools — Power BI opens multiple processes and
+  re-authenticates in each without it — and off on shared hosts, where the cache can leak a token
+  between users with similar connection strings; since 2.1.0.0 it is plaintext JSON under
+  `user-profile/.athena-odbc/`, owner-only. **JDBC has no file cache at all:** `JWT_TIP` caches
+  in-memory by default with no parameter, and `BrowserOidcTip` takes `EnableTokenCaching` (default
+  `FALSE`). Nothing is written to disk, so the plaintext-on-disk concern is ODBC's alone.
+- **The two drivers spell the same parameters differently**, which matters now that this section sets
+  a floor for both. ODBC's `client_id` / `client_secret` / `listen_port` / `role_session_name` /
+  `JwtTipFileCache` are JDBC's `OidcClientId` / `OidcClientSecret` / `IdpPortNumber` /
+  `JwtRoleSessionName` / `EnableTokenCaching`. The redirect URI, the 7890 default and the `Scope`
+  default are identical on both — do not build a JDBC connection string from an ODBC example.
 - **The 30-minute default / one-hour maximum query timeout is documented for *Identity Center
   enabled* workgroups**, so it reaches driver users **if** the driver path lands on one — which the
-  migration subsection below shows is a choice, not a given. Decide the workgroup first; a large
-  Excel or Access pull is likelier to meet that ceiling than a portal query is.
+  migration subsection below shows is a choice, not a given. Decide the workgroup first — but do not
+  read that as an escape hatch: AWS words the **one-hour maximum** against *"Trusted identity
+  propagation workgroups"* rather than Identity-Center-enabled ones, so the ceiling may well bite on
+  an IAM-enabled workgroup running TIP too. A large Excel or Access pull is likelier to meet it than
+  a portal query is.
 - **Entitlement changes take up to an hour** (§3.5). "I was granted access and Excel still says
   denied" is expected behaviour and needs saying out loud before it becomes a ticket.
 - **Query results are Access Grants territory** — again only on an IdC-enabled workgroup, where
@@ -902,7 +921,7 @@ session that is both. Every one of those desktops is a cutover.
 
 | | Today (SAML) | After (TIP) |
 |---|---|---|
-| Driver | ODBC **1.1.3+** / JDBC 2.0.14+ | ODBC **2.1.0.0+** — a major-version jump, not an upgrade |
+| Driver | ODBC **1.1.3+** / JDBC 2.0.14+ | ODBC **2.1.0.0+** / JDBC **3.7.0+** — a major-version jump on ODBC, not an upgrade |
 | Auth plugin | `BrowserAzureAD` / ADFS / Okta, with `LakeformationEnabled` | `BrowserOidcTip` (desktop) or `JWT_TIP` (shared host) |
 | IdP protocol | SAML 2.0 | **OIDC** — a different app registration, not a re-pointing of the old one |
 | AWS principal | An IAM role reached by `AssumeRoleWithSAML` | An identity-enhanced session on the Access Role |
@@ -1089,6 +1108,11 @@ Identity Center instance, the Access Grants instance, the Athena workgroup and L
 all be in the same Region.
 
 ### 4.5 A third counterparty — unchanged
+
+> **Note added 2026-08-24.** Where this section says *"the customer-managed application"*, read it as
+> **at least two**: the portal's own, and the driver path's (§3.10). §5.1's brokering capability would
+> be a third. Each needs the management account or a delegated administrator, so the counterparty
+> relationship below is exercised once per application, not once overall.
 
 The customer-managed application still cannot be created from the data account. An organization
 instance of Identity Center lives in the AWS Organizations **management account**, and only
@@ -1676,6 +1700,13 @@ The data sync is three layers, and only the first one copies:
    Anything still keyed on an IAM role ARN would have been stale anyway — the ARNs embed the old
    account ID.
 
+**The freeze has a second precondition besides the delta size, and it is not ours.** The client's
+third-party driver desktops query the **old** account over SAML (§2 item 15), and the successor
+account has no SAML stack for them to land on — so an unmigrated desktop reads frozen data after the
+freeze and nothing after decommission. **The driver fleet must be migrated before the freeze is
+called** (§3.10), or the dual-key fallback costed first. Phase 0 inventories the fleet precisely so
+this date can be set against a known number.
+
 The sequence: repeated delta syncs while the portal is built and verified → a **freeze window**
 on the old account (writes stop) → final delta → verification inventory (object counts and
 checksums per prefix, catalog diff, per-user spot queries) → users flip to the new origin → old
@@ -1725,6 +1756,11 @@ they already were.
   ambiguous (§3.5) and no amount of further reading will settle it. Standing the workgroup up also
   surfaces the S3 Access Grants prerequisite while it is still cheap, and the workgroup's
   authentication method cannot be changed afterwards, so throwaway means throwaway.
+- **Settle single-account coexistence on the same throwaway instance** (§3.10, §8): with the IdC
+  workgroup up, confirm whether a SAML-federated driver session can still query a *different*,
+  regular workgroup in that account. Undocumented either way, and irrelevant while the two paths sit
+  in two accounts — but it is the precondition of the dual-key fallback, and it is nearly free once
+  G7's workgroup exists.
 - **Run gate G9 (§5.5) on the same throwaway instance** — presign an S3 `GET` and a `PUT` from
   `GetDataAccess`-vended credentials and redeem both from a browser origin. Cheap, and the
   "AWS credentials never reach the browser" posture rests on it (§3.9).
@@ -1967,7 +2003,10 @@ on any IAM role. The design is §3; the work items are here.
 - Create the catalog carrier role (§3.6).
 - Create the Lake Formation Identity Center configuration (§4.4) — under this strategy most
   likely a create, not a join.
-- Create an Identity Center enabled Athena workgroup.
+- Create an Identity Center enabled Athena workgroup **for the portal**, and — having decided its
+  kind (§3.10; AWS supports the driver path on either) — a **second** workgroup for the driver path.
+  Two workgroups, because a workgroup's authentication method is fixed at creation (§3.5) and
+  because the documented driver setup otherwise tags whichever one already exists.
 - Add a connection kind in `useConnections` running under the identity-enhanced session.
 - **Stand up the driver path** (§3.10) — **ours**: the OIDC app registration and its
   `localhost:7890/athena` redirect URI, the customer-managed Identity Center application, the
@@ -2013,8 +2052,9 @@ token ever reaches the browser — inspect the network trace, not just the code.
 **Goal:** the successor account becomes authoritative; the old account is retired. Follow §6.5.
 Mostly verification and patience — do not rush the freeze or the decommission to hit a date.
 
-- Delta syncs until the final delta is small; call the freeze; run the final delta; run the full
-  verification inventory.
+- Delta syncs until the final delta is small. **Before calling the freeze, confirm the driver
+  desktop fleet has migrated off the old account's SAML path** (§3.10, §6.5) — the freeze strands
+  whatever has not. Then call the freeze; run the final delta; run the full verification inventory.
 - Flip users to the new origin; the old account goes read-only.
 - Hold through a quiet period with no access failures and no missing-data reports; then
   decommission the old account.
@@ -2039,7 +2079,8 @@ freeze. This is the whole reason the old account survives the quiet period.
   subsection). Its successor is **how many desktops, on which ODBC/JDBC versions, and who can push an
   upgrade**, which Phase 0 now inventories and which §6.5's freeze date must respect.
 - **Can the SAML feature and a TIP workgroup be live in the SAME account** (§3.10)? Undocumented
-  either way. Irrelevant while the two paths sit in two accounts; decisive for the dual-key fallback,
+  either way, so it is settled by experiment, not by reading — Phase 0 now runs it on G7's throwaway
+  workgroup. Irrelevant while the two paths sit in two accounts; decisive for the dual-key fallback,
   which is the only plan that needs both in the successor account.
 - **The Access Grants prefix identity** (§3.9): one literal grant per user, or one broad grant
   narrowed by `${identitystore:UserId}` in the **location role's policy**? It decides whether a grant
@@ -2149,6 +2190,8 @@ freeze. This is the whole reason the old account survives the quiet period.
 **Gating Phase 6:**
 
 - How long a write-freeze window is tolerable, and in which calendar window does it land (§6.5)?
+  **The driver desktop fleet's migration is a precondition of that date** (§3.10) — has it finished,
+  or is the dual-key fallback being costed instead?
 - How long must the old account survive read-only before decommission?
 
 ---
