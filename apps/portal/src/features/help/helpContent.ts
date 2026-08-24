@@ -19,6 +19,13 @@ import type {HelpSection} from './help.types';
 // When a feature is added, changed, or removed, revisit this file so the guides
 // never promise behavior that isn't shipped — the post-spec ritual in
 // docs/process.md includes a check for exactly this.
+//
+// ONE GUIDE COVERS RENAME, MOVE, COPY AND DELETE, and it cannot be gated. The conflict guide
+// beside it follows the async switchover, because a refusal round trip only exists while the
+// routing does — but the four verbs themselves work in either state, so gating their one guide
+// would leave the core of the Files section undocumented whenever the kill switch is thrown. The
+// accepted cost, stated rather than hidden: with that switch off, this guide's background-operation
+// paragraph overstates for as long as it stays off.
 
 /** The authored Help & guides sections, in sidebar order. */
 export const HELP_SECTIONS: HelpSection[] = [
@@ -79,7 +86,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'For <b>Move</b> or <b>Copy</b>, pick a destination folder, then confirm with <b>Move here</b> or <b>Copy here</b>.',
           'To <b>Rename</b> a single item, click <b>Details</b> on its row and choose <b>Rename</b>, then type a <b>New name</b> — a file keeps its original extension automatically.',
           'A single file is done straight away. <b>Anything else — a folder, or more than one item — is handed to the portal to do in the background.</b> You get a note that it has been requested, an entry in the in-progress list, and a notification when it finishes.',
-          'While one of those is running, <b>Copy</b>, <b>Move</b>, <b>Delete</b> and <b>Archive</b> wait their turn in that space. The file list does not update by itself — press <b>Refresh</b>, or leave the tab and come back.',
+          'While one of those is running, <b>Copy</b>, <b>Move</b>, <b>Delete</b> and <b>Archive</b> are unavailable for that space and say so — nothing is queued, so start them again once it has finished. The file list does not update by itself either: press <b>Refresh</b>, or leave the tab and come back.',
           'One folder is managed for you: <b>athenaresults</b>, where your query results are kept. You can browse it, but it can’t be deleted or moved.'
         ],
         callout: {

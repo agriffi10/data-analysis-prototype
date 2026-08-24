@@ -13,7 +13,7 @@ const STALE_TIME_MS = 60 * 60 * 1000;
 const GC_TIME_MS = 4 * STALE_TIME_MS;
 
 export type UseFeatureFlagsResult = {
-  /** Always holds all five keys as booleans, whatever the document said. */
+  /** Always holds every one keys as booleans, whatever the document said. */
   flags: FeatureFlags;
   status: FeatureFlagsStatus;
 };

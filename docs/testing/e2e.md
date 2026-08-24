@@ -272,8 +272,10 @@ notification and use **Review conflicts** — including from a tab that did not 
 *Overwrite* saying in words that it cannot be recovered. A rename offers **Use a different name**
 instead, which re-submits safely. Confirm only the conflicted items are re-sent.
 
-**The kill switch.** With `asyncFileOperations` off (§4.14), every one of the rows above reverts:
-a folder move runs in the browser, no card appears, and the listing updates on completion.
+**The kill switch.** Run the async-off half of §4.14 (`{"asyncFileOperations": false}`, publish,
+hard-reload) and every row above reverts: a folder move runs in the browser — visible as
+`CopyObject`/`DeleteObject` traffic rather than one `SendMessage` — no card appears, and the listing
+updates on completion. Restore it in the same sitting.
 
 **The rest of the plane is still hand-crafted envelopes** — the lock, the give-up, the cross-space
 two-lock path and the pagination boundary are not reachable from the UI. They live in
@@ -618,6 +620,17 @@ is not a pass.
 3. Set it back to `{}`, merge, wait for **Publish Config**, hard-reload. Everything returns, and
    `gh run list --limit 5` shows **Publish Config and no Deploy App**. That restoration is what
    proves `VITE_ENVIRONMENT` reached the bundle — nothing in the all-on pass can.
+
+**`asyncFileOperations` is the sixth key and it is the odd one out** — a kill switch, not an area,
+so what it hides is a behaviour rather than a tab. Its own sitting, and §4.2's async rows are what
+it is checked against:
+
+1. Set `environments.prod` to `{"asyncFileOperations": false}`; publish; hard-reload.
+2. In **Help**, the *Files* section keeps *"Rename, move, copy, or delete"* and loses *"When a move
+   or copy is refused"*. That is the only visible surface until you act.
+3. Move a folder. It runs in the browser — `CopyObject`/`DeleteObject` in the network panel, no
+   `SendMessage`, no in-progress card, and the listing updated when it finishes.
+4. Set it back to `{}`, publish, hard-reload, and confirm §4.2's async rows behave again.
 
 ### 4.15 Responsive, and the Safari pass
 

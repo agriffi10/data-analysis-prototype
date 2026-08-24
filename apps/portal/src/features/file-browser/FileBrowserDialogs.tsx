@@ -82,7 +82,9 @@ export function FileBrowserDialogs({
           // Rename is the fifth submission point, so it carries the plane's per-space gate too —
           // refusing only after the user has typed a new name is the affordance failure the
           // refuse-before-the-confirm rule exists to prevent.
-          writeLockReason={writeLockReason ?? dialogs.spaceBusyReason}
+          writeLockReason={
+            writeLockReason ?? dialogs.spaceBusyReasonFor([{type: 'file', key: dialogs.detailsFile.key}])
+          }
           onClose={dialogs.closeFileDetails}
         />
       )}
@@ -103,7 +105,7 @@ export function FileBrowserDialogs({
             // folder-specific one is the more useful of the two where both apply.
             writeLockReason ??
             undeletableRootFolderRefusal(dialogs.detailsFolder.prefix, rootPrefix, 'move') ??
-            dialogs.spaceBusyReason ??
+            dialogs.spaceBusyReasonFor([{type: 'folder', prefix: dialogs.detailsFolder.prefix}]) ??
             undefined
           }
           onClose={dialogs.closeFolderDetails}

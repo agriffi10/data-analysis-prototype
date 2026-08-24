@@ -61,7 +61,13 @@ export function FolderDetailsPanel({
 }: Props) {
   const presence = useQuery({
     queryKey: fileBrowserKeys.exists(bucket, folder.prefix),
-    queryFn: async () => unwrap(await folderExists({bucket, prefix: folder.prefix}))
+    queryFn: async () => unwrap(await folderExists({bucket, prefix: folder.prefix})),
+    // A point-in-time question, so it never serves a cached answer. The app-wide 30 s would let a
+    // folder deleted and then re-created under the same name keep saying it is gone — and neither
+    // the manual Refresh nor a focus return would clear it, because `invalidateListing` touches
+    // only the listing key.
+    staleTime: 0,
+    gcTime: 0
   });
   const gone = presence.data === false;
 

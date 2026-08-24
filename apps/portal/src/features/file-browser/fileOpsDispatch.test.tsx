@@ -381,12 +381,63 @@ describe('in-flight state', () => {
     await user.click(await screen.findByRole('button', {name: 'Delete'}));
     await screen.findByRole('region', {name: 'File operations in progress'});
 
+    // A second selection that would ENQUEUE — two files.
     await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
+    await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
     const move = screen.getByRole('button', {name: 'Move selected items'});
     await waitFor(() => expect(move).toHaveAttribute('aria-disabled', 'true'));
     expect(move.getAttribute('title')).toMatch(/still running here/);
     // Read-only actions from other planes are NOT gated: this lock does not serialize them.
     expect(screen.getByRole('button', {name: 'Send selected items to someone'})).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('does NOT gate a selection that would stay in the browser', async () => {
+    // The gate exists to keep this session from racing its own plane run. A single file never
+    // reaches the plane, so refusing it would take away something the user could do before — which
+    // is the one thing this switchover may not do.
+    const {user} = render();
+    await selectAnd(user, 'folder docs', 'Delete selected items');
+    await user.click(await screen.findByRole('button', {name: 'Delete'}));
+    await screen.findByRole('region', {name: 'File operations in progress'});
+
+    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
+    expect(screen.getByRole('button', {name: 'Move selected items'})).not.toHaveAttribute('aria-disabled');
+    await user.click(screen.getByRole('button', {name: 'Delete selected items'}));
+    await user.click(await screen.findByRole('button', {name: 'Delete'}));
+    await waitFor(() => expect(mock.deleteObjects).toHaveBeenCalled());
+  });
+
+  it('puts the selection BACK when the enqueue is refused', async () => {
+    // The dialogs clear on the way out, before the request resolves — the timing the synchronous
+    // paths always had. A refusal would otherwise cost the user every tick they made.
+    mockSubmit.mockResolvedValue({
+      success: false,
+      error: {message: 'That selection is too large to do in one go', code: 'SelectionTooLarge'}
+    });
+    const {user} = render();
+    await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
+    await user.click(screen.getByRole('button', {name: 'Move selected items'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', {name: 'Open folder docs'}));
+    await user.click(within(dialog).getByRole('button', {name: 'Move here'}));
+    expect(await screen.findByText('That selection is too large to do in one go')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('2 selected')).toBeInTheDocument());
+  });
+
+  it('runs a move HERE when the chosen destination resolves to no known space', async () => {
+    // A bucket the destination list does not name has no space, and the plane resolves a bucket
+    // FROM a space rather than the other way round. Running it here is what the browser did before
+    // this plane existed; the alternative is a generic failure for a request it could have made.
+    const {user} = render({destinations: []});
+    await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
+    await user.click(screen.getByRole('button', {name: 'Move selected items'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', {name: 'Open folder docs'}));
+    await user.click(within(dialog).getByRole('button', {name: 'Move here'}));
+    await waitFor(() => expect(mock.moveObject).toHaveBeenCalled());
+    expect(mockSubmit).not.toHaveBeenCalled();
   });
 
   it('passes axe with an operation in flight', async () => {
@@ -533,9 +584,39 @@ describe('the conflict round trip', () => {
     expect(request.source.items).toEqual([{kind: 'file', key: 'finance/q1.csv', targetName: 'q1-v2.csv'}]);
   });
 
-  it('passes axe on the driven review dialog', async () => {
-    render({requestId: 'run-1'});
+  it('passes axe on each DRIVEN state of the review, not just the one it opens on', async () => {
+    // Three states, because two of them are reachable only by clicking: the overwrite confirm, and
+    // the rename form. The default state is also the one where the inline "overwrite what is
+    // there" control is NOT rendered, so checking it alone would miss that control entirely.
+    const {user} = render({requestId: 'run-1'});
     const dialog = await screen.findByRole('alertdialog', {name: 'Review conflicts'});
     await expectContainerHasNoA11yViolations(dialog, COMPONENT_AXE_OPTIONS);
+
+    await user.click(within(dialog).getByRole('button', {name: 'Overwrite…'}));
+    const confirm = await screen.findByRole('alertdialog', {name: 'Confirm overwrite'});
+    await expectContainerHasNoA11yViolations(confirm, COMPONENT_AXE_OPTIONS);
+  });
+
+  it('passes axe on the rename form, and on the review that offers it inline', async () => {
+    vi.mocked(getNotifications).mockResolvedValue(
+      ok([
+        {
+          ...CONFLICTED,
+          payload: {
+            ...CONFLICTED.payload,
+            conflicts: [{itemKey: 'finance/q1.csv', kind: 'file', targetName: 'q1.csv'}]
+          }
+        }
+      ])
+    );
+    const {user} = render({requestId: 'run-1'});
+    const dialog = await screen.findByRole('alertdialog', {name: 'Review conflicts'});
+    // This variant DOES carry the inline overwrite control beside the rename affordance.
+    expect(within(dialog).getByRole('button', {name: 'overwrite what is there'})).toBeInTheDocument();
+    await expectContainerHasNoA11yViolations(dialog, COMPONENT_AXE_OPTIONS);
+
+    await user.click(within(dialog).getByRole('button', {name: 'Use a different name…'}));
+    const form = await screen.findByRole('dialog', {name: 'Rename to avoid the conflict'});
+    await expectContainerHasNoA11yViolations(form, COMPONENT_AXE_OPTIONS);
   });
 });

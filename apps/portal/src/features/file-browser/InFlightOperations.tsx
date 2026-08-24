@@ -1,6 +1,6 @@
 import {Link} from 'react-router';
 import {formatRelativeTime} from '../../lib/format';
-import {useFeature} from '../feature-flags';
+import {useAsyncFileOperations} from './useAsyncFileOperations';
 import {useFileOpsInFlight} from './fileOpsInFlightContext';
 import type {InFlightOperation} from './fileOps.types';
 
@@ -48,8 +48,10 @@ function status(operation: InFlightOperation): string {
 export function InFlightOperations() {
   const {operations, dismiss} = useFileOpsInFlight();
   // Gated with the switchover it belongs to, not with `files`: with the routing off nothing can
-  // ever be added here, and a permanently empty region is not something to keep mounted.
-  const enabled = useFeature('asyncFileOperations');
+  // ever be added here, and a permanently empty region is not something to keep mounted. Through
+  // the SHARED reading of the flag, so a gesture can never enqueue into a store whose only surface
+  // is hidden — the dismiss here is what frees a space whose run never correlates.
+  const enabled = useAsyncFileOperations();
   if (!enabled || operations.length === 0) return null;
 
   return (

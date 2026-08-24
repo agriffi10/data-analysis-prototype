@@ -217,16 +217,14 @@ const renderFileBrowser = () => {
   renderWithProviders(
     <UploadQueueProvider>
       <FileOpsInFlightProvider>
-        <FileOpsInFlightProvider>
-          <FileBrowser
-            bucket="user-space"
-            rootPrefix="alice/"
-            username="alice"
-            writable
-            spaceKind="personal"
-          />
-        </FileOpsInFlightProvider>
-      </FileOpsInFlightProvider>{' '}
+        <FileBrowser
+          bucket="user-space"
+          rootPrefix="alice/"
+          username="alice"
+          writable
+          spaceKind="personal"
+        />
+      </FileOpsInFlightProvider>
     </UploadQueueProvider>,
     {auth: authenticated('alice'), seedFeatureFlags: false}
   );
@@ -738,17 +736,15 @@ const RECIPES: Record<string, Recipe> = {
       renderWithProviders(
         <UploadQueueProvider>
           <FileOpsInFlightProvider>
-            <FileOpsInFlightProvider>
-              <FileBrowser
-                bucket="user-space"
-                rootPrefix="alice/"
-                username="alice"
-                writable
-                spaceKind="personal"
-                requestId={CONFLICT_NOTIFICATION.payload.requestId}
-              />
-            </FileOpsInFlightProvider>
-          </FileOpsInFlightProvider>{' '}
+            <FileBrowser
+              bucket="user-space"
+              rootPrefix="alice/"
+              username="alice"
+              writable
+              spaceKind="personal"
+              requestId={CONFLICT_NOTIFICATION.payload.requestId}
+            />
+          </FileOpsInFlightProvider>
         </UploadQueueProvider>,
         {auth: authenticated('alice'), seedFeatureFlags: false}
       );

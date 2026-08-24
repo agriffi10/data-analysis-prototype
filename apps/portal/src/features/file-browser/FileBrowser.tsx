@@ -199,7 +199,10 @@ function FileBrowserContent({
   // wrote a notification for, and for a run that conflicted with nothing — both render no view
   // rather than an empty one, because the id arrives in a URL anyone can type.
   const conflicts = useFileOpConflicts(requestId ?? null);
-  const [conflictsClosed, setConflictsClosed] = useState(false);
+  // The id that was closed, not a boolean: `?requestId=` survives a resolve, so a reload would
+  // otherwise re-open the review for a run the user has already re-submitted — with a second
+  // overwrite one confirm away.
+  const [closedRequestId, setClosedRequestId] = useState<string | null>(null);
 
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
   const destinationLabel = breadcrumbs[breadcrumbs.length - 1]?.label;
@@ -509,14 +512,15 @@ function FileBrowserContent({
           re-submits into. Gated on `files` and not on the switchover, so the control a
           notification already carries never becomes a dead link when the kill switch is thrown:
           resolving a conflict finishes work the plane started, it does not begin a new gesture. */}
-      {conflicts && !conflictsClosed && filesEnabled && (
+      {conflicts && closedRequestId !== conflicts.payload.requestId && filesEnabled && (
         <FileOpConflictsDialog
           conflicts={conflicts}
           busy={dialogs.submitting}
           onResolve={async (choice) => {
-            if (await dialogs.resolveConflict(conflicts.payload, choice)) setConflictsClosed(true);
+            if (await dialogs.resolveConflict(conflicts.payload, choice))
+              setClosedRequestId(conflicts.payload.requestId);
           }}
-          onClose={() => setConflictsClosed(true)}
+          onClose={() => setClosedRequestId(conflicts.payload.requestId)}
         />
       )}
 
@@ -555,14 +559,16 @@ function FileBrowserContent({
             archiveEnabled ? () => archive.open([...selection.selected.values()].map(toArchiveItem)) : undefined
           }
           archiveDisabledReason={
-            archiveRefusal(selectedItems.map(toArchiveItem), rootPrefix) ?? dialogs.spaceBusyReason ?? undefined
+            archiveRefusal(selectedItems.map(toArchiveItem), rootPrefix) ??
+            dialogs.spaceBusyReasonFor(selectedItems) ??
+            undefined
           }
           writeLockReason={writeLockReason}
           // The plane's per-space gate, and it is NOT `isBusy`. `isBusy` reports work this
           // browser is doing and stays false for the minutes a plane run takes, so the two
           // cannot be merged. It reaches Copy, Move, Delete and Archive — the four that write
           // into this space — and deliberately not *Check quality* or *Send to…*, which read.
-          spaceBusyReason={dialogs.spaceBusyReason}
+          spaceBusyReason={dialogs.spaceBusyReasonFor(selectedItems)}
           // The service refuses these too, but only after the user has read the
           // "everything inside it … can't be undone" confirm and pressed Delete.
           deleteDisabledReason={undeletableSelectionRefusal(selectedItems, rootPrefix, 'delete') ?? undefined}

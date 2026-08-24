@@ -42,8 +42,10 @@ export function FileOpsInFlightProvider({children}: {children: ReactNode}) {
   const [operations, setOperations] = useState<InFlightOperation[]>([]);
 
   // Expiry is scheduled per entry rather than swept on an interval: a timer ticking at the shell
-  // would re-render the whole app for a state nothing normally reaches.
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // would re-render the whole app for a state nothing normally reaches. Keyed by request id and
+  // cleared on dismiss, so a dismissed entry's three-hour timer does not survive to wake the shell
+  // for a row that is no longer there.
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   useEffect(() => {
     const held = timers;
     return () => held.current.forEach(clearTimeout);
@@ -51,20 +53,29 @@ export function FileOpsInFlightProvider({children}: {children: ReactNode}) {
 
   const add = useCallback((operation: InFlightOperation) => {
     setOperations((prev) => [operation, ...prev]);
-    timers.current.push(
+    timers.current.set(
+      operation.requestId,
       setTimeout(() => {
-        setOperations((prev) =>
-          prev.map((entry) =>
-            entry.requestId === operation.requestId && entry.state === 'submitted'
-              ? {...entry, state: 'expired'}
-              : entry
-          )
-        );
+        timers.current.delete(operation.requestId);
+        setOperations((prev) => {
+          // Returns `prev` unchanged when the entry has already settled or gone: a fresh array
+          // would re-render the whole shell and hand out a new context value for no new state.
+          const stale = prev.find((entry) => entry.requestId === operation.requestId);
+          if (!stale || stale.state !== 'submitted') return prev;
+          return prev.map((entry) =>
+            entry.requestId === operation.requestId ? {...entry, state: 'expired' as const} : entry
+          );
+        });
       }, FILE_OPS_MACHINE_TIMEOUT_SECONDS * 1000)
     );
   }, []);
 
   const dismiss = useCallback((requestId: string) => {
+    const timer = timers.current.get(requestId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timers.current.delete(requestId);
+    }
     setOperations((prev) => prev.filter((entry) => entry.requestId !== requestId));
   }, []);
 

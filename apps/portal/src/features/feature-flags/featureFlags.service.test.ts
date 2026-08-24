@@ -101,7 +101,7 @@ describe('getFeatureFlags — resolution', () => {
     expect(await getFeatureFlags(undefined)).toEqual({success: true, data: {...allOn, query: false}});
   });
 
-  it('always returns all five keys as booleans, whatever the document named', async () => {
+  it('always returns every key as a boolean, whatever the document named', async () => {
     // The resolver walks the KEY LIST, not the document, so no consumer ever sees undefined.
     send.mockResolvedValue(body(document({defaults: {}, environments: {}})));
 

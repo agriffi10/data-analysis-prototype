@@ -44,7 +44,16 @@ a selection of exactly one file**. This is the arc's last spec and the first one
   *Check quality* or *Send to…*, which read. Named because leaving the toolbar untouched would
   itself have been a change: with async on, `del/move/copy.isBusy` are false for the minutes a plane
   run takes, so those three controls became clickable during an operation where they used to be
-  disabled.
+  disabled. **The gate is answered per SELECTION, not per space**: a selection that would stay in
+  the browser is never refused, because refusing a single-file delete the plane never sees would
+  take away something the user could do before. `spaceBusyReasonFor` asks through the same private
+  `routesToPlane` the dispatcher does, so the two cannot disagree.
+- **FR-006 AC3's second sentence has no code here, and that is the right answer.** "A file
+  operation refused because the plane could not authorize the space surfaces the mapped message" —
+  an authorization refusal arrives as a *notification*, minutes later, worded by
+  `focommon.messages`; it is not an enqueue error and there is nothing for the browser to map. What
+  the browser does map is the enqueue's own failures (`NotConfigured`, `SelectionTooLarge`), and
+  those are tested.
 
 ## What changed from earlier specs?
 
@@ -83,6 +92,12 @@ a bare `/files` when the row carries no usable prefix, and that page resolves th
 wrong per-space lock, and be refused for a space the items were never in. This is the case FR-005
 AC1 exists for, so it is the case that had to work.
 
+**A gesture whose chosen destination resolves to no known space runs in the BROWSER.** The builder
+would otherwise throw and the user would get a generic failure for a request the browser could
+simply have made. Same rule for a refused enqueue: the dialogs clear on the way out, before the
+request resolves — the timing the synchronous paths always had — so a refusal puts the selection
+back rather than costing the user every tick they made.
+
 **The folder-existence probe reads a RAW, unfiltered key.** Reusing the browser's own listing was
 the obvious design and it was wrong: `listFiles` drops a prefix's own marker object and
 `useFileBrowser` filters every `DO_NOT_DELETE.txt`, so an empty "New folder" — and a
@@ -98,14 +113,25 @@ machine's ceiling as its expiry bound; `lambdas/test_file_ops_browser_mirrors.py
 `state_machine_timeout_seconds` back out of `infra/modules/file-ops/locals.tf`, because an entry
 expiring early tells a user an operation is over while it is still running.
 
+**One guide could not be gated, and the cost is stated rather than hidden.**
+`rename-move-copy-delete` is the single guide covering all four verbs, which work in either flag
+state — gating it would leave the core of the Files section undocumented whenever the kill switch is
+thrown. So the conflicts guide follows `asyncFileOperations` (its round trip exists only while the
+routing does) and that one does not, which means its background-operation paragraph overstates for
+as long as the switch is off. Recorded in `helpContent.ts`'s own maintenance note.
+
 ## Verification
 
-`npm run format:check`, `lint`, `test` (2,818 passing, exit 0; coverage 92.86/89.08/92.40/94.79
+`npm run format:check`, `lint`, `test` (2,857 passing, exit 0; coverage 92.80/89.03/92.38/94.74
 against 91/86/89/93) and `build`; `pytest lambdas/` (4,467 passing, 97.48% against 95), `ruff check
 lambdas/`, `mypy`; `scripts/validate_docs.py`; `scripts/validate_feature_flags.py`. No IaC changed.
 
-Two fresh-context reviews — one of the plan (two blockers and nine should-fixes, every one folded
-in) and one of the diff.
+Two fresh-context reviews. The plan's found two blockers and nine should-fixes; the diff's found
+fifteen more, and every one is fixed. The three that mattered: the synchronous delete had stopped
+being awaited (so the confirm's busy state was never seen); the in-flight surface was behind the
+flag while the gate it releases was not (throwing the kill switch mid-session would have held a
+space for three hours with no card to dismiss); and a destination that resolved to no known space
+reached the builder's throw instead of running in the browser.
 
 **Live checks are OWED, not run.** One row in `docs/testing/owed.md`: a real folder move in the
 deployed app, in Safari at 400 px — accepted immediately, in flight across navigation, listing

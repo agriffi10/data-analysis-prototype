@@ -1,6 +1,7 @@
 import {useState} from 'react';
-import {FEATURE_FLAG_DEFAULTS, useFeatureSet} from '../feature-flags';
+import {useToast} from '../../components/toastContext';
 import {useSelection, type SelectableItem} from './selectionContext';
+import {useAsyncFileOperations} from './useAsyncFileOperations';
 import {requiresControlPlane} from './fileOpRouting';
 import {
   buildResubmitRequest,
@@ -84,8 +85,14 @@ export type UseFileBrowserDialogsResult = {
   resolveConflict: (payload: NotificationPayload, choice: ConflictResolution) => Promise<boolean>;
   /** True while an enqueue is resolving — what the four dialogs' busy states read on this path. */
   submitting: boolean;
-  /** Why this space will not take another operation from this session right now, if it will not. */
-  spaceBusyReason: string | undefined;
+  /**
+   * Why this SELECTION cannot be submitted right now, if it cannot — an operation of this
+   * session's is still with the plane in one of the spaces it would touch.
+   *
+   * Answers `undefined` for a selection that would stay in the browser: refusing a single-file
+   * delete the plane never sees would take away something the user could do before.
+   */
+  spaceBusyReasonFor: (items: SelectableItem[]) => string | undefined;
 };
 
 type Params = {
@@ -108,7 +115,9 @@ type Params = {
  * The selection-clearing rules live here because they belong to the dialog's outcome, not to the
  * row: delete, move, rename, a different-folder copy and a started data-quality check all clear
  * it, while a same-folder copy keeps the dialog (and the selection) until its auto-number prompt
- * settles. A dialog that was cancelled — or whose request failed — never clears.
+ * settles. A dialog that was cancelled never clears it, and one whose request was REFUSED puts it
+ * back — the dialogs clear on the way out, before a request resolves, so a refused enqueue would
+ * otherwise cost the user every tick they made.
  *
  * **THIS IS THE ONLY MODULE THAT IMPORTS `requiresControlPlane`, and it consults it once.** A
  * sweep enforces the first half; the second is why the same-folder prompt's confirm was moved
@@ -132,14 +141,9 @@ export function useFileBrowserDialogs({
   copy
 }: Params): UseFileBrowserDialogsResult {
   const selection = useSelection();
+  const toast = useToast();
   const submit = useFileOpSubmit();
-  const {isEnabled, status: flagsStatus} = useFeatureSet();
-  // The compiled-in default rather than `useFeature`'s conservative `false` while the flags are
-  // in flight. The conservative answer elsewhere is "do not offer a control yet"; here it is "run
-  // a folder move as up to three round trips per contained object from the user's laptop", which
-  // is the cost this plane exists to remove.
-  const asyncFileOps =
-    flagsStatus === 'loading' ? FEATURE_FLAG_DEFAULTS.asyncFileOperations : isEnabled('asyncFileOperations');
+  const asyncFileOps = useAsyncFileOperations();
 
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -153,30 +157,64 @@ export function useFileBrowserDialogs({
 
   // The chosen destination bucket, as a space. A move or copy across connections names another
   // space entirely, and the plane resolves a bucket from the space rather than the other way
-  // round — so an unknown bucket has no answer, and the caller falls back to running it here.
-  function destinationSpaceFor(destBucket: string, destPrefix: string): FileOpDestination | null {
+  // round — so a bucket that matches no known target has no answer at all, and the gesture runs
+  // here instead. That is the pre-plane behaviour rather than a refusal, because nothing the user
+  // could do before this plane existed may become impossible.
+  function destinationSpaceFor(destBucket: string, destPrefix: string): FileOpDestination | undefined {
     const target = (destinations ?? []).find((d) => d.bucket === destBucket && destPrefix.startsWith(d.rootPrefix));
-    if (!target) return null;
+    if (!target) return undefined;
     return {space: {kind: target.kind, name: target.label}, prefix: destPrefix};
   }
+
+  /**
+   * Would this selection go to the plane?
+   *
+   * THE ONE PLACE the routing predicate is consulted. Both the dispatcher and the per-space gate's
+   * wording ask through here, so the gate can never disagree with what the gesture would actually
+   * do — a gate that refused a single-file delete the browser would have run synchronously takes
+   * away something the user could do before, which is the one thing this switchover may not do.
+   */
+  function routesToPlane(items: SelectableItem[], targetName?: string): boolean {
+    if (!asyncFileOps || !space || items.length === 0) return false;
+    // AFTER the emptiness guard, never before it: the predicate throws on an empty selection
+    // rather than answering for one, because the plane refuses an empty source minutes later by
+    // notification.
+    return requiresControlPlane(toFileOpItems(items, targetName));
+  }
+
+  /** What a gesture did, which is not the same question as whether it succeeded. */
+  type Dispatched = 'ran-here' | 'enqueued' | 'failed';
 
   /**
    * The single routing decision, above all five submission points.
    *
    * `runHere` is the synchronous path exactly as it was — the same hook call with the same
    * arguments — so a selection of one file behaves byte for byte as it did before this plane
-   * existed.
+   * existed, INCLUDING its timing: its promise is returned, so a caller that awaited the delete
+   * before still awaits it.
+   *
+   * A copy or move whose chosen destination resolves to no known space runs here too. The builder
+   * would otherwise throw, and the user would get a generic failure for a request the browser
+   * could simply have made.
    */
-  function dispatch(gesture: FileOpGesture, runHere: () => void): Promise<boolean> {
-    if (gesture.items.length === 0) return Promise.resolve(false);
-    // AFTER the emptiness guard, never before it: the predicate throws on an empty selection
-    // rather than answering for one, because the plane refuses an empty source minutes later by
-    // notification.
-    if (!asyncFileOps || !space || !requiresControlPlane(toFileOpItems(gesture.items, gesture.targetName))) {
-      runHere();
-      return Promise.resolve(false);
+  async function dispatch(gesture: FileOpGesture, runHere: () => void | Promise<unknown>): Promise<Dispatched> {
+    const needsDestination = gesture.operation !== 'delete';
+    if (!routesToPlane(gesture.items, gesture.targetName) || (needsDestination && !gesture.destination) || !space) {
+      await runHere();
+      return 'ran-here';
     }
-    return submit.submitGesture(gesture, space);
+    return (await submit.submitGesture(gesture, space)) ? 'enqueued' : 'failed';
+  }
+
+  /**
+   * Puts a selection back after an enqueue that never happened.
+   *
+   * The dialogs clear on the way OUT, before the request resolves, because that is the timing the
+   * synchronous paths always had. A refused enqueue — a selection over the plane's caps, a queue
+   * that is not configured — would otherwise cost the user every tick they made.
+   */
+  function restoreOnFailure(outcome: Dispatched, items: SelectableItem[]) {
+    if (outcome === 'failed' && items.length > 0) selection.selectAll(items);
   }
 
   return {
@@ -199,13 +237,15 @@ export function useFileBrowserDialogs({
     confirmDeleteOpen,
     openConfirmDelete: () => setConfirmDeleteOpen(true),
     closeConfirmDelete: () => setConfirmDeleteOpen(false),
-    // Awaited by its dialog where the other three are fire-and-forget, so the close-and-clear
-    // timing has to survive the dispatch: closing first would dismiss the dialog before the
-    // enqueue resolves and lose the busy state the confirm control reads.
+    // Awaited by its dialog where the other three are fire-and-forget, and the dispatch returns
+    // the SYNCHRONOUS delete's own promise as well as the enqueue's — so the close-and-clear waits
+    // for whichever ran. Closing first would dismiss the dialog before either resolved and lose
+    // the busy state the confirm control reads.
     confirmDelete: async () => {
       const items = [...selection.selected.values()];
-      await dispatch({operation: 'delete', items}, () => void del.runDelete(items));
+      const outcome = await dispatch({operation: 'delete', items}, () => del.runDelete(items));
       selection.clear();
+      restoreOnFailure(outcome, items);
       setConfirmDeleteOpen(false);
     },
 
@@ -235,6 +275,8 @@ export function useFileBrowserDialogs({
         () => move.renameItem(item, newName)
       );
       setRenaming(null);
+      // Nothing to restore here: a rename's item comes from the details panel, not from a
+      // selection the user built up tick by tick.
       // The renamed item's key/prefix changes, so its stale id would linger
       // in the selection as a ghost selection (the row is gone from the
       // listing). Clear the selection like move/delete/copy do.
@@ -249,10 +291,9 @@ export function useFileBrowserDialogs({
       const items = moving ?? [];
       setMoving(null);
       selection.clear();
-      const destination = destinationSpaceFor(destBucket, destPrefix);
-      void dispatch({operation: 'move', items, destination: destination ?? undefined}, () =>
+      void dispatch({operation: 'move', items, destination: destinationSpaceFor(destBucket, destPrefix)}, () =>
         move.moveItems(items, destPrefix, destBucket)
-      );
+      ).then((outcome) => restoreOnFailure(outcome, items));
     },
 
     copying,
@@ -273,10 +314,9 @@ export function useFileBrowserDialogs({
       }
       setCopying(null);
       selection.clear();
-      const destination = destinationSpaceFor(destBucket, destPrefix);
-      void dispatch({operation: 'copy', items, destination: destination ?? undefined}, () =>
+      void dispatch({operation: 'copy', items, destination: destinationSpaceFor(destBucket, destPrefix)}, () =>
         copy.copyItems(items, destPrefix, destBucket)
-      );
+      ).then((outcome) => restoreOnFailure(outcome, items));
     },
 
     sameFolderPrompt: copy.sameFolderPrompt && {
@@ -296,7 +336,7 @@ export function useFileBrowserDialogs({
             targetName
           },
           () => copy.runSameFolderCopy(item, currentPrefix, targetName)
-        );
+        ).then((outcome) => restoreOnFailure(outcome, [item]));
       },
       onCancel: () => {
         copy.clearSameFolderPrompt();
@@ -334,7 +374,15 @@ export function useFileBrowserDialogs({
       }
       // Never a delete: `buildResubmitRequest` answers only for a copy or a move, because a
       // delete has no destination to conflict with.
-      if (!request || request.operation === 'delete') return false;
+      if (!request || request.operation === 'delete') {
+        // A destructive confirm that quietly does nothing is the worst outcome available here:
+        // the user presses Overwrite, the dialog stays exactly as it was, and they press it again.
+        toast.push({
+          variant: 'danger',
+          message: 'That notification no longer carries enough detail to request those items again.'
+        });
+        return false;
+      }
       return submit.submitRequest(request, {
         verb: choice.targetName ? 'Rename' : request.operation === 'move' ? 'Move' : 'Copy',
         itemCount: request.source.items.length,
@@ -343,6 +391,6 @@ export function useFileBrowserDialogs({
       });
     },
     submitting: submit.pending,
-    spaceBusyReason: submit.busyReason(space ?? undefined)
+    spaceBusyReasonFor: (items) => (routesToPlane(items) ? submit.busyReason(space ?? undefined) : undefined)
   };
 }
