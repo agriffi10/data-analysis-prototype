@@ -1,6 +1,7 @@
 import {enqueueFifoRequest} from '../../lib/enqueueFifo';
 import type {ServiceResult} from '../../types/service.types';
 import type {DataQualityRequest} from './dataQuality.types';
+import {configValue} from '../../lib/runtimeConfig';
 
 /** Collapse a key to its canonical form so the same folder always hashes the same. */
 function normalizeLocation(location: string): string {
@@ -41,9 +42,7 @@ async function locationGroupId(bucket: string, location: string): Promise<string
  */
 export async function enqueueQualityCheck(req: DataQualityRequest): Promise<ServiceResult<{requestId: string}>> {
   return enqueueFifoRequest({
-    // Read at call time (not module load) so tests can stub the env — a module-level
-    // import.meta.env const is read before vi.stubEnv runs.
-    queueUrl: import.meta.env.VITE_DATA_QUALITY_QUEUE_URL as string | undefined,
+    queueUrl: configValue('dataQualityQueueUrl'),
     notConfiguredMessage: 'Data quality checks are not configured',
     build: async (idToken) => ({
       body: {

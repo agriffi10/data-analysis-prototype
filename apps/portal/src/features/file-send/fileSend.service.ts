@@ -2,6 +2,8 @@ import {enqueueFifoRequest} from '../../lib/enqueueFifo';
 import {spaceDigest} from '../../lib/spaceDigest';
 import type {ServiceResult} from '../../types/service.types';
 import type {FileSendRequest, SendSourceSpace} from './fileSend.types';
+import {configValue} from '../../lib/runtimeConfig';
+import {spaceBuckets} from '../../lib/userSpace';
 
 /**
  * The control plane's own caps, mirrored (`fscommon/config.py`). Terraform and Python already
@@ -23,9 +25,8 @@ const SEND_MAX_ITEM_BYTES = 96 * 1024;
  * never carries a bucket, because the verb resolves it server-side from the verified actor.
  */
 function sourceBucket(space: SendSourceSpace): string {
-  const bucket =
-    space.kind === 'personal' ? import.meta.env.VITE_S3_USER_SPACE_BUCKET : import.meta.env.VITE_S3_SHARED_SPACE_BUCKET;
-  return (bucket as string | undefined) ?? '';
+  const {user, shared} = spaceBuckets();
+  return (space.kind === 'personal' ? user : shared) ?? '';
 }
 
 /**
@@ -51,9 +52,7 @@ export async function enqueueFileSend(req: FileSendRequest): Promise<ServiceResu
   }
 
   return enqueueFifoRequest<void>({
-    // Read at call time (not module load) so tests can stub the env — a module-level
-    // import.meta.env const is read before vi.stubEnv runs.
-    queueUrl: import.meta.env.VITE_FILE_SEND_QUEUE_URL as string | undefined,
+    queueUrl: configValue('fileSendQueueUrl'),
     notConfiguredMessage: 'Sending files is not configured',
     build: async (idToken) => ({
       body: {

@@ -2,7 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, screen, waitFor, within} from '@testing-library/react';
 import {TestProviders, createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {FEATURE_FLAG_DEFAULTS, featureFlagKeys} from '../feature-flags';
-import {envVar} from '../../lib/env';
+import {configValue} from '../../lib/runtimeConfig';
 import {DatabaseNode} from './DatabaseNode';
 import {COMPONENT_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
 import {SchemaBrowser} from './SchemaBrowser';
@@ -195,7 +195,7 @@ describe('DatabaseNode', () => {
       // Seeded through the same key factory the hook reads, with defaults first: the test
       // client runs `gcTime: 0`, so an observer-less seed is evicted before the menu mounts.
       client.setQueryDefaults(featureFlagKeys.all, {gcTime: Infinity, staleTime: Infinity});
-      client.setQueryData(featureFlagKeys.resolved(envVar('VITE_ENVIRONMENT')), {
+      client.setQueryData(featureFlagKeys.resolved(configValue('environment')), {
         ...FEATURE_FLAG_DEFAULTS,
         dataExplorer: false
       });

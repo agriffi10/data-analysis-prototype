@@ -9,7 +9,7 @@ import type {FileListPage, S3FileItem, S3FolderItem} from '../../types/s3.types'
 import * as service from './fileBrowser.service';
 import {featureFlagKeys} from '../feature-flags/featureFlagKeys';
 import {FEATURE_FLAG_DEFAULTS} from '../feature-flags/featureFlagDefaults';
-import {envVar} from '../../lib/env';
+import {configValue} from '../../lib/runtimeConfig';
 
 // ─── from CopyDialog.test.tsx ───
 vi.mock('./fileBrowser.service', async (importActual) => {
@@ -315,7 +315,7 @@ describe('DestinationPicker', () => {
     it('is NOT offered with the query flag off — a destination you cannot see is not one', async () => {
       withFolder();
       const {queryClient} = renderPicker({currentPrefix: 'alice/docs/'});
-      queryClient.setQueryData(featureFlagKeys.resolved(envVar('VITE_ENVIRONMENT')), {
+      queryClient.setQueryData(featureFlagKeys.resolved(configValue('environment')), {
         ...FEATURE_FLAG_DEFAULTS,
         query: false
       });

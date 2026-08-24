@@ -10,6 +10,7 @@ import type {
   SharedSpaceAction,
   SharedSpaceRequest
 } from './sharedSpaces.types';
+import {configValue} from '../../lib/runtimeConfig';
 
 // A constant MessageGroupId serializes ALL shared-space requests so two users can't
 // create the same name concurrently; the requestId doubles as the dedup id so an
@@ -31,9 +32,7 @@ export type EnqueueInput = {
 export async function enqueueSharedSpaceRequest(input: EnqueueInput): Promise<ServiceResult<{requestId: string}>> {
   const requestId = crypto.randomUUID();
   return enqueueFifoRequest({
-    // Read at call time (not module load) so tests can stub the env — a module-level
-    // import.meta.env const is read before vi.stubEnv runs.
-    queueUrl: import.meta.env.VITE_SHARED_SPACE_QUEUE_URL as string | undefined,
+    queueUrl: configValue('sharedSpaceQueueUrl'),
     notConfiguredMessage: 'Shared connections are not configured',
     build: (idToken) => ({
       body: {

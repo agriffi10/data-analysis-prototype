@@ -12,6 +12,7 @@ import type {ServiceResult} from '../../types/service.types';
 import {DEFAULT_MAX_ROWS} from './catalog.constants';
 import {normalizeColumnType} from './catalog.format';
 import type {QueryColumn, QueryResultPage, QueryState, QueryStatus} from './catalog.types';
+import {configValue} from '../../lib/runtimeConfig';
 
 // The caller's own protected results prefix. The app supplies this OutputLocation
 // per query, but it is enforced server-side: IAM restricts
@@ -53,7 +54,7 @@ export async function runQuery(p: {
       const response = await client.send(
         new StartQueryExecutionCommand({
           QueryString: sql,
-          WorkGroup: import.meta.env.VITE_ATHENA_WORKGROUP as string,
+          WorkGroup: configValue('athenaWorkgroup') as string,
           // Omit the field entirely when there's no database — Athena then resolves
           // only fully-qualified names, which is the intended behavior.
           ...(database ? {QueryExecutionContext: {Database: database}} : {}),

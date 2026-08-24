@@ -1,6 +1,8 @@
 import {enqueueFifoRequest} from '../../lib/enqueueFifo';
 import type {ServiceResult} from '../../types/service.types';
 import type {ArchiveRequest, ArchiveSpace, RestoreRequest} from '../../types/archive.types';
+import {configValue} from '../../lib/runtimeConfig';
+import {spaceBuckets} from '../../lib/userSpace';
 
 /**
  * The control plane's own request-shape caps, mirrored (`arcommon/config.py`), so the common
@@ -27,9 +29,8 @@ const ARCHIVE_FOLDER = 'archive';
  * body never carries a bucket, because the verb resolves it server-side from the verified actor.
  */
 function spaceBucket(space: ArchiveSpace): string {
-  const bucket =
-    space.kind === 'personal' ? import.meta.env.VITE_S3_USER_SPACE_BUCKET : import.meta.env.VITE_S3_SHARED_SPACE_BUCKET;
-  return (bucket as string | undefined) ?? '';
+  const {user, shared} = spaceBuckets();
+  return (space.kind === 'personal' ? user : shared) ?? '';
 }
 
 /**
@@ -103,9 +104,7 @@ export async function enqueueArchive(req: ArchiveRequest): Promise<ServiceResult
   }
 
   return enqueueFifoRequest<void>({
-    // Read at call time (not module load) so tests can stub the env — a module-level
-    // import.meta.env const is read before vi.stubEnv runs.
-    queueUrl: import.meta.env.VITE_ARCHIVE_QUEUE_URL as string | undefined,
+    queueUrl: configValue('archiveQueueUrl'),
     notConfiguredMessage: 'Archiving is not configured',
     build: async (idToken) => ({
       body: {
@@ -136,7 +135,7 @@ export async function enqueueArchive(req: ArchiveRequest): Promise<ServiceResult
  */
 export async function enqueueRestore(req: RestoreRequest): Promise<ServiceResult<void>> {
   return enqueueFifoRequest<void>({
-    queueUrl: import.meta.env.VITE_ARCHIVE_QUEUE_URL as string | undefined,
+    queueUrl: configValue('archiveQueueUrl'),
     notConfiguredMessage: 'Restoring is not configured',
     build: async (idToken) => ({
       body: {

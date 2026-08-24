@@ -36,10 +36,10 @@ const SUPPORTED_VERSION = 1;
  * A MISSING object is a failure here for the same reason: it means the publish workflow has
  * never run against this bucket, which is a deploy defect rather than a starting state.
  *
- * The bucket name is read at CALL time, never at module load: a module-level
- * `import.meta.env` const is captured before `vi.stubEnv` runs.
+ * The bucket name is read at CALL time, never at module load: the runtime document is
+ * not in hand until the bootstrap resolves it.
  *
- * @param environment - The build's `VITE_ENVIRONMENT`. `undefined` (an unwired variable)
+ * @param environment - The runtime document's `environment`. `undefined` (an unwired variable)
  *   and a name the document does not carry both resolve to the document's own `defaults`,
  *   which is a successful read — the document was fetched and understood.
  * @returns Always a `ServiceResult`; never throws.
@@ -102,7 +102,7 @@ function resolve(parsed: unknown, environment: string | undefined): ServiceResul
  * The named environment's overrides, or none.
  *
  * An environment the document does not name is NOT an error — it resolves to the document's
- * `defaults` and reports ready. The same holds for an unset `VITE_ENVIRONMENT`, which is
+ * `defaults` and reports ready. The same holds for an unset `environment`, which is
  * what keeps an unwired build from white-screening on a variable it never received.
  */
 function pickEnvironment(environments: unknown, environment: string | undefined): Partial<Record<string, unknown>> {

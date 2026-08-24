@@ -9,7 +9,7 @@ import {uploadQueueReducer, initialUploadQueueState, type UploadQueueState} from
 import type {UploadItem} from './upload.types';
 import {uploadFile} from './fileBrowser.service';
 import {invalidateListing} from './invalidateListing';
-import {MAX_UPLOAD_BYTES} from './fileBrowser.types';
+import {maxUploadBytes} from './uploadLimits';
 
 vi.mock('./fileBrowser.service', () => ({uploadFile: vi.fn()}));
 vi.mock('./invalidateListing', () => ({
@@ -229,7 +229,7 @@ describe('UploadQueueProvider concurrency gate (FR-001)', () => {
 
   it('rejects an oversize file on enqueue without ever calling uploadFile', async () => {
     const big = new File(['x'], 'huge.bin');
-    Object.defineProperty(big, 'size', {value: MAX_UPLOAD_BYTES + 1});
+    Object.defineProperty(big, 'size', {value: maxUploadBytes() + 1});
 
     const {result} = render();
     act(() => result.current.enqueue([big], DEST));

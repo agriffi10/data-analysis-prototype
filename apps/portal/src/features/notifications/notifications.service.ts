@@ -9,6 +9,7 @@ import type {
   NotificationConflict,
   NotificationPayload
 } from './notifications.types';
+import {configValue} from '../../lib/runtimeConfig';
 
 // Browser data layer for the per-user notifications inbox. The browser never writes
 // notifications.json — the writer Lambda is the sole writer. This service only reads
@@ -179,9 +180,7 @@ export async function enqueueNotificationAction(input: EnqueueNotificationInput)
   }
 
   return enqueueFifoRequest<void>({
-    // Read at call time (not module load) so tests can stub the env — a module-level
-    // import.meta.env const is read before vi.stubEnv runs.
-    queueUrl: import.meta.env.VITE_NOTIFICATIONS_QUEUE_URL as string | undefined,
+    queueUrl: configValue('notificationsQueueUrl'),
     notConfiguredMessage: 'Notifications are not configured',
     build: (idToken) => ({
       body: {

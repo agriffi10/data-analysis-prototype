@@ -1,24 +1,24 @@
-import {envVar} from './env';
+import {configValue} from './runtimeConfig';
 
 /**
- * The user-space bucket name (`VITE_S3_USER_SPACE_BUCKET`), read at call time.
+ * The user-space bucket name, read at call time.
  *
- * Read at call time (not module load) so tests can `vi.stubEnv` it — a module-level
- * `import.meta.env` const is captured before the stub runs. The single source for the
- * bucket every per-user read/write service targets.
+ * Read at call time (not module load) because the runtime document is not in hand until
+ * the bootstrap resolves it. The single source for the bucket every per-user read/write
+ * service targets.
  */
 export function userSpaceBucket(): string {
-  return envVar('VITE_S3_USER_SPACE_BUCKET') as string;
+  return configValue('userSpaceBucket') as string;
 }
 
 /**
- * The shared-space bucket name (`VITE_S3_SHARED_SPACE_BUCKET`), read at call time.
+ * The shared-space bucket name, read at call time.
  *
  * Bucket 2 — every shared space's prefix, and where a shared-database query writes its
  * results. Same call-time rule as `userSpaceBucket`.
  */
 export function sharedSpaceBucket(): string {
-  return envVar('VITE_S3_SHARED_SPACE_BUCKET') as string;
+  return configValue('sharedSpaceBucket') as string;
 }
 
 /**
@@ -32,8 +32,8 @@ export function sharedSpaceBucket(): string {
  */
 export function spaceBuckets(): {user?: string; shared?: string} {
   return {
-    user: envVar('VITE_S3_USER_SPACE_BUCKET'),
-    shared: envVar('VITE_S3_SHARED_SPACE_BUCKET')
+    user: configValue('userSpaceBucket'),
+    shared: configValue('sharedSpaceBucket')
   };
 }
 

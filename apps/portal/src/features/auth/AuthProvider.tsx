@@ -12,14 +12,16 @@ import type {AuthStatus, AuthUser} from './auth.types';
  * AuthContext, deriving state from the Amplify session and Hub auth events.
  */
 export function AuthProvider({children}: {children: ReactNode}) {
-  // Initial state is derived from config (a module constant) rather than set in
-  // an effect: when Cognito isn't configured we start unauthenticated with a
-  // non-blocking error; the file browser stays usable.
-  const [status, setStatus] = useState<AuthStatus>(isAmplifyConfigured ? 'loading' : 'unauthenticated');
+  // Read ONCE per mount, not per render: the answer cannot change while the app is
+  // running (the runtime document resolves before the first render), and the two
+  // useState initialisers plus the effect below must agree on one value.
+  const [configured] = useState(() => isAmplifyConfigured());
+  // Initial state is derived from config rather than set in an effect: when Cognito
+  // isn't configured we start unauthenticated with a non-blocking error; the file
+  // browser stays usable.
+  const [status, setStatus] = useState<AuthStatus>(configured ? 'loading' : 'unauthenticated');
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [error, setError] = useState<string | null>(
-    isAmplifyConfigured ? null : 'Authentication is not configured. Set the Cognito environment variables.'
-  );
+  const [error, setError] = useState<string | null>(configured ? null : toUserText({code: 'RuntimeConfigUnavailable'}));
 
   // Derive auth state from the current Amplify session.
   const refresh = useCallback(async () => {
@@ -35,7 +37,7 @@ export function AuthProvider({children}: {children: ReactNode}) {
 
   useEffect(() => {
     // Initial not-configured state is set above; nothing to subscribe to.
-    if (!isAmplifyConfigured) return;
+    if (!configured) return;
 
     // Restore session on load (also handles the post-redirect callback once
     // Amplify has exchanged the auth code and emitted `signedIn`). Wrapped in an
@@ -68,7 +70,7 @@ export function AuthProvider({children}: {children: ReactNode}) {
     });
 
     return unsubscribe;
-  }, [refresh]);
+  }, [configured, refresh]);
 
   // A Sign-in control is only rendered while we believe the user is signed out, but
   // that belief can disagree with Amplify — a transient `getCurrentUser()` failure

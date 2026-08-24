@@ -17,7 +17,7 @@ vi.mock('./auth.service', () => ({
   startSignUp: vi.fn(),
   startSignOut: vi.fn()
 }));
-vi.mock('../../lib/amplify', () => ({isAmplifyConfigured: true}));
+vi.mock('../../lib/amplify', () => ({isAmplifyConfigured: () => true}));
 vi.mock('../../lib/returnPath', () => ({setReturnPathIfAbsent: vi.fn()}));
 vi.mock('aws-amplify/utils', () => ({Hub: {listen: vi.fn()}}));
 

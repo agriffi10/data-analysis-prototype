@@ -60,7 +60,8 @@ export type {
   MoveResult,
   CopyResult
 } from './fileBrowser.types';
-export {MAX_UPLOAD_BYTES, MULTIPART_PART_SIZE} from './fileBrowser.types';
+export {MULTIPART_PART_SIZE} from './fileBrowser.types';
+export {maxUploadBytes} from './uploadLimits';
 export {
   LISTING_PAGE_SIZE,
   PREFIX_MARKER_FILENAME,

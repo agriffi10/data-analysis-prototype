@@ -15,7 +15,7 @@
  * fallback arm; production reads the document or fails to boot, so a missing value can
  * never reach a caller as `undefined`.
  */
-import {devFallbackValue} from './env';
+import {devFallbackValue, warnIfMisconfigured} from './env';
 import {REQUIRED_CONFIG} from '../types/runtimeConfig.types';
 import type {
   RequiredConfigKey,
@@ -24,8 +24,18 @@ import type {
   RuntimeConfigLoad
 } from '../types/runtimeConfig.types';
 
+/**
+ * Re-exported so `main.tsx` reaches it without a sixth static import — the bootstrap's
+ * import list is pinned by a sweep, and `lib/env.ts` is already in its graph as this
+ * module's own fallback, so this adds nothing to what evaluates before the load.
+ */
+export {warnIfMisconfigured};
+
 /** Where the document is served from. Same-origin, and never proxied to the API. */
 const CONFIG_URL = '/config.json';
+
+/** How long to wait for the document before calling the origin unreachable. */
+const CONFIG_TIMEOUT_MS = 10_000;
 
 /** The only document shape this build understands. A different one is refused, not guessed at. */
 const SUPPORTED_VERSION = 1;
@@ -90,7 +100,13 @@ async function readDocument(): Promise<RuntimeConfigLoad> {
     // configuration is answered from a cache populated in the previous environment
     // renders a working, fully-functional portal pointed at the wrong account, and
     // nothing on screen distinguishes it.
-    response = await fetch(CONFIG_URL, {cache: 'no-store'});
+    //
+    // AND A DEADLINE, because nothing renders until this settles. An origin that accepts
+    // the connection and never answers — a load balancer with no healthy target — would
+    // otherwise leave a blank page with an empty console forever, which is the one
+    // failure mode with no diagnostic at all. The abort lands in the catch below as
+    // `unreachable`, which is what it is.
+    response = await fetch(CONFIG_URL, {cache: 'no-store', signal: AbortSignal.timeout(CONFIG_TIMEOUT_MS)});
   } catch {
     return {ok: false, reason: 'unreachable'};
   }

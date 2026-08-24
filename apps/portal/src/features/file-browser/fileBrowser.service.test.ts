@@ -31,7 +31,7 @@ import {
 } from './fileBrowser.service';
 import {LISTING_PAGE_SIZE} from './fileBrowser.constants';
 import {PREFIX_MARKER_BODY} from './fileBrowser.constants';
-import {MAX_UPLOAD_BYTES} from './fileBrowser.types';
+import {maxUploadBytes} from './uploadLimits';
 
 vi.mock('@aws-sdk/s3-request-presigner', () => ({getSignedUrl: vi.fn()}));
 const mockGetSignedUrl = vi.mocked(getSignedUrl);
@@ -1682,7 +1682,7 @@ describe('uploadFile', () => {
     const result = await uploadFile({
       bucket: 'us',
       key: 'alice/huge.bin',
-      body: {size: MAX_UPLOAD_BYTES + 1} as Blob,
+      body: {size: maxUploadBytes() + 1} as Blob,
       contentType: 'application/octet-stream',
       overwrite: true
     });

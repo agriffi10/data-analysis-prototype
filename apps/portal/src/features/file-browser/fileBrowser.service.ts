@@ -10,7 +10,7 @@ import {
 } from '@aws-sdk/client-s3';
 import {getSignedUrl} from '@aws-sdk/s3-request-presigner';
 import {Upload} from '@aws-sdk/lib-storage';
-import {getS3Client, s3Client} from '../../lib/s3Client';
+import {devS3Client, getS3Client} from '../../lib/s3Client';
 import {isExpiryError, withCredentialRetry} from '../../lib/credentialRetry';
 import {toServiceError} from '../../lib/serviceResult';
 import {isNotFound} from '../../lib/s3Errors';
@@ -26,7 +26,8 @@ import type {
   MoveResult,
   CopyResult
 } from './fileBrowser.types';
-import {MAX_UPLOAD_BYTES, MULTIPART_PART_SIZE, PART_CONCURRENCY} from './fileBrowser.types';
+import {MULTIPART_PART_SIZE, PART_CONCURRENCY} from './fileBrowser.types';
+import {maxUploadBytes} from './uploadLimits';
 import {LISTING_PAGE_SIZE, PREFIX_MARKER_BODY, prefixMarkerKey} from './fileBrowser.constants';
 
 // Dev-only escape hatch: browse a public/static test bucket without auth for
@@ -50,7 +51,7 @@ export async function listFiles(
   abortSignal?: AbortSignal
 ): Promise<ServiceResult<FileListPage>> {
   if (devUnauthenticated) {
-    return listWithClient(s3Client, bucket, prefix, continuationToken, abortSignal);
+    return listWithClient(devS3Client(), bucket, prefix, continuationToken, abortSignal);
   }
 
   const clientResult = await getS3Client();
@@ -900,11 +901,12 @@ export async function uploadFile(params: {
 }): Promise<ServiceResult<UploadResult>> {
   const {bucket, key, body, contentType, overwrite = false, onProgress, signal} = params;
 
-  if (body.size > MAX_UPLOAD_BYTES) {
+  const maxBytes = maxUploadBytes();
+  if (body.size > maxBytes) {
     return {
       success: false,
       error: {
-        message: `File exceeds the maximum upload size of ${MAX_UPLOAD_BYTES} bytes.`,
+        message: `File exceeds the maximum upload size of ${maxBytes} bytes.`,
         code: 'TooLarge'
       }
     };

@@ -1,6 +1,7 @@
 import {GlueClient} from '@aws-sdk/client-glue';
 import {getSessionCredentials} from './awsCredentials';
 import type {ServiceResult} from '../types/service.types';
+import {configValue} from './runtimeConfig';
 
 /**
  * Builds a GlueClient from the signed-in user's Identity Pool credentials.
@@ -16,7 +17,7 @@ export async function getGlueClient(forceRefresh = false): Promise<ServiceResult
   return {
     success: true,
     data: new GlueClient({
-      region: import.meta.env.VITE_AWS_REGION,
+      region: configValue('awsRegion'),
       credentials: creds.data
     })
   };

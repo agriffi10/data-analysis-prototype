@@ -1,6 +1,7 @@
 import {AthenaClient} from '@aws-sdk/client-athena';
 import {getSessionCredentials} from './awsCredentials';
 import type {ServiceResult} from '../types/service.types';
+import {configValue} from './runtimeConfig';
 
 /**
  * Builds an AthenaClient from the signed-in user's Identity Pool credentials.
@@ -17,7 +18,7 @@ export async function getAthenaClient(forceRefresh = false): Promise<ServiceResu
   return {
     success: true,
     data: new AthenaClient({
-      region: import.meta.env.VITE_AWS_REGION,
+      region: configValue('awsRegion'),
       credentials: creds.data
     })
   };

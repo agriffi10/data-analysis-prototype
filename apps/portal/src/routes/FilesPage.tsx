@@ -18,7 +18,7 @@ import {useAcknowledgeMembership} from '../features/shared-spaces';
 import type {Connection} from '../features/connections/connection.types';
 import {usePageTitle} from '../hooks/usePageTitle';
 import {spaceBuckets} from '../lib/userSpace';
-import {logBackgroundFailure} from '../lib/errorMessages';
+import {logBackgroundFailure, toUserMessage} from '../lib/errorMessages';
 import {SECTION_CAPTION} from '../components/fieldStyles';
 
 // Dev-only fallback: browse a static/public test bucket without auth for local
@@ -154,6 +154,10 @@ export default function FilesPage() {
 
   const initialPrefix = prefixParam && prefixParam.startsWith(target.rootPrefix) ? prefixParam : target.rootPrefix;
   const ready = !!target.bucket && (devUnauthenticated || !!user);
+  // Resolved inside the component, not at module scope: `toUserMessage` logs the original
+  // in a dev build, so a module-level call warns about an error that has not happened on
+  // every page load and in every test that imports this route.
+  const spaceUnavailable = toUserMessage({code: 'SpaceUnavailable'});
 
   return (
     <>
@@ -199,8 +203,8 @@ export default function FilesPage() {
           <div
             role="alert"
             className="rounded-lg border border-danger bg-danger-soft p-4 text-danger">
-            <p className="font-medium">Configuration error</p>
-            <p className="mt-1 text-sm">VITE_S3_USER_SPACE_BUCKET is not set. Add it to your .env file.</p>
+            <p className="font-medium">{spaceUnavailable.title}</p>
+            <p className="mt-1 text-sm">{spaceUnavailable.message}</p>
           </div>
         )}
       </main>

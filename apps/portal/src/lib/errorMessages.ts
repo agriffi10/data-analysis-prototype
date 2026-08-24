@@ -66,14 +66,37 @@ const CODE_RULES: readonly ErrorRule[] = [
   {code: 'InvalidDestination', userFixable: true, passthrough: true}, // e.g. folder into itself
   {code: 'TooLarge', userFixable: true, passthrough: true}, // upload exceeds the max size (carries the limit)
 
-  // Trigger: a `VITE_*_QUEUE_URL` is unset, so `enqueueFifo` refused before
-  // reaching SQS. Passthrough for exactly the reason the `ErrorRule` doc states —
+  // Trigger: a control plane's queue URL is unset in the runtime configuration, so
+  // `enqueueFifo` refused before reaching SQS. Passthrough for exactly the reason the `ErrorRule` doc states —
   // the six "… is not configured" strings are authored by our own service layer
   // and embed no AWS text, they just name which control plane is missing. Not
   // user-fixable (it is a deploy misconfiguration), but the wording has to reach
   // the user: without this rule all six fell through to GENERIC, and the
   // documented deploy gotcha presented as "Something went wrong."
   {code: 'NotConfigured', userFixable: false, passthrough: true},
+
+  // Trigger: the runtime configuration document was missing, unreadable, of an
+  // unsupported version or incomplete, so the app refused to start. NOT passthrough,
+  // unlike the rule above: the loader returns a machine reason, and what a user needs is
+  // one sentence that does not name a key, a value or a URL. The operator's diagnostic is
+  // the single console line the boot failure writes.
+  // Trigger: the file browser resolved no bucket for the space in view, or there is no
+  // signed-in user to resolve one for. NOT the boot failure — the app has started, and one
+  // surface is unusable. The wording used to name a `VITE_*` variable and tell the reader
+  // to edit a .env file, which was dev-only advice shown to everyone.
+  {
+    code: 'SpaceUnavailable',
+    title: 'This space is unavailable',
+    message: `The portal could not resolve where this space is stored. ${CONTACT_ADMIN}`,
+    userFixable: false
+  },
+
+  {
+    code: 'RuntimeConfigUnavailable',
+    title: 'The portal could not start',
+    message: `The portal is not configured correctly. ${CONTACT_ADMIN}`,
+    userFixable: false
+  },
 
   // Trigger: a send whose selection exceeds the file-send plane's caps, refused by
   // the producer before it reaches SQS. Passthrough for the same reason as the rule above —

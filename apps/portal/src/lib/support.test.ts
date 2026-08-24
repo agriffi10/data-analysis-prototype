@@ -8,8 +8,11 @@ import {enqueueSharedSpaceRequest} from '../features/shared-spaces/sharedSpaces.
 import {enqueueTableBuild, enqueueTableRefresh} from '../features/table-builder/tableBuild.service';
 import {enqueueTableShare} from '../features/table-share/tableShare.service';
 import {submitFileOperation} from '../features/file-browser/fileOps.service';
+import {enqueueArchive, enqueueRestore} from '../features/archive/archive.service';
 import {enqueueFileSend} from '../features/file-send/fileSend.service';
-import {OPTIONAL_ENV, REQUIRED_ENV, envVar, isPortalConfigured, missingRequiredEnv, warnIfMisconfigured} from './env';
+import {VITE_NAME, devFallbackValue, warnIfMisconfigured} from './env';
+import {isPortalConfigured, missingRequiredConfig} from './runtimeConfig';
+import {OPTIONAL_CONFIG, REQUIRED_CONFIG} from '../types/runtimeConfig.types';
 import type {ServiceResult} from '../types/service.types';
 import protectedLayoutSource from '../components/ProtectedLayout.tsx?raw';
 import fileBrowserServiceSource from '../features/file-browser/fileBrowser.service.ts?raw';
@@ -267,9 +270,10 @@ describe('enqueueFifo', () => {
     });
   });
 
-  // Every `notConfiguredMessage` in the app, with the env var whose absence produces
-  // it. A seventh control plane added without a row here is a message a user cannot
-  // see — which is the defect this FR fixes, not a new one.
+  // Every `notConfiguredMessage` in the app, with the variable whose absence produces
+  // it. A control plane added without a row here is a message a user cannot see — which
+  // is the defect these rows exist to catch, and archive shipped two of them with no row
+  // at all, so `Archiving`/`Restoring is not configured` went unproved until now.
   const CALL_SITES: {name: string; envVar: string; message: string; call: () => Promise<ServiceResult<unknown>>}[] = [
     {
       name: 'sharedSpaces.service — enqueueSharedSpaceRequest',
@@ -339,6 +343,28 @@ describe('enqueueFifo', () => {
         })
     },
     {
+      name: 'archive.service — enqueueArchive',
+      envVar: 'VITE_ARCHIVE_QUEUE_URL',
+      message: 'Archiving is not configured',
+      call: () =>
+        enqueueArchive({
+          requestId: 'req-1',
+          space: {kind: 'personal', name: 'alice'},
+          items: [{kind: 'file', key: 'alice/report.csv'}]
+        })
+    },
+    {
+      name: 'archive.service — enqueueRestore',
+      envVar: 'VITE_ARCHIVE_QUEUE_URL',
+      message: 'Restoring is not configured',
+      call: () =>
+        enqueueRestore({
+          requestId: 'req-2',
+          space: {kind: 'personal', name: 'alice'},
+          archiveId: '3f6d5b0e-9c4a-4a1e-9f2b-8d0c7e5a1b23'
+        })
+    },
+    {
       name: 'fileOps.service — submitFileOperation',
       envVar: 'VITE_FILE_OPS_QUEUE_URL',
       message: 'File operations are not configured',
@@ -380,8 +406,8 @@ describe('env', () => {
   describe('the registry names every VITE_ variable the app reads', () => {
     /**
      * Read behind an `import.meta.env.DEV` guard at their own call sites and
-     * deliberately absent from `PortalEnvVar` — see `envVar`'s docstring, and
-     * SPEC-153's bypass guard, which asserts the set of modules naming the flag.
+     * deliberately absent from `PortalEnvVar` — see `VITE_NAME`'s docstring, and the
+     * bypass guard above, which asserts the set of modules naming the flag.
      */
     const DEV_ONLY = new Set([
       'VITE_S3_DEV_UNAUTH',
@@ -398,7 +424,8 @@ describe('env', () => {
     }) as Record<string, string>;
 
     it('lists every VITE_ name that appears outside a test file', () => {
-      const known = new Set<string>([...REQUIRED_ENV, ...OPTIONAL_ENV, ...DEV_ONLY]);
+      const registered: string[] = Object.values(VITE_NAME).filter((name) => name !== null);
+      const known = new Set<string>([...registered, ...DEV_ONLY]);
       const unregistered = new Map<string, string>();
 
       for (const [path, source] of Object.entries(SOURCES)) {
@@ -420,7 +447,7 @@ describe('env', () => {
 
   /** Set every required variable, so a test can then unset exactly the one it cares about. */
   function stubAllRequired(): void {
-    for (const name of REQUIRED_ENV) vi.stubEnv(name, `value-for-${name}`);
+    for (const key of REQUIRED_CONFIG) vi.stubEnv(VITE_NAME[key] as string, `value-for-${key}`);
   }
 
   afterEach(() => {
@@ -428,33 +455,37 @@ describe('env', () => {
     vi.restoreAllMocks();
   });
 
-  describe('envVar', () => {
+  describe('devFallbackValue', () => {
     it('reads at CALL time, so a stub set after import is seen', () => {
       vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'test-bucket');
-      expect(envVar('VITE_S3_USER_SPACE_BUCKET')).toBe('test-bucket');
+      expect(devFallbackValue('userSpaceBucket')).toBe('test-bucket');
     });
 
     it('treats the empty string as unset — an unset repo variable interpolates to ""', () => {
       vi.stubEnv('VITE_ATHENA_WORKGROUP', '');
-      expect(envVar('VITE_ATHENA_WORKGROUP')).toBeUndefined();
+      expect(devFallbackValue('athenaWorkgroup')).toBeUndefined();
+    });
+
+    it('has nothing to read for a key with no variable of its own', () => {
+      expect(devFallbackValue('apiBaseUrl')).toBeUndefined();
     });
   });
 
-  describe('missingRequiredEnv', () => {
+  describe('missingRequiredConfig', () => {
     it('is empty when every required variable is set', () => {
       stubAllRequired();
-      expect(missingRequiredEnv()).toEqual([]);
+      expect(missingRequiredConfig()).toEqual([]);
       expect(isPortalConfigured()).toBe(true);
     });
 
-    it('names the variable that is missing', () => {
+    it('names the key that is missing', () => {
       stubAllRequired();
       vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', '');
-      expect(missingRequiredEnv()).toEqual(['VITE_S3_USER_SPACE_BUCKET']);
+      expect(missingRequiredConfig()).toEqual(['userSpaceBucket']);
       expect(isPortalConfigured()).toBe(false);
     });
 
-    it('does not require the variables with their own degraded path', () => {
+    it('does not require the keys with their own degraded path', () => {
       // Each queue URL degrades through `enqueueFifo`'s notConfiguredMessage, the
       // shared bucket through "no shared spaces", the identity pool through
       // "signed in but no credentials" — one feature each, not the app.
@@ -463,6 +494,16 @@ describe('env', () => {
       vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', '');
       vi.stubEnv('VITE_COGNITO_IDENTITY_POOL_ID', '');
       expect(isPortalConfigured()).toBe(true);
+    });
+
+    it('classifies every key exactly once', () => {
+      // The two arrays are the document's only key set, so an entry landing in both —
+      // or in neither, having gained a VITE_NAME row — is a classification with no
+      // single answer to "does this stop the app booting?"
+      const all = [...REQUIRED_CONFIG, ...OPTIONAL_CONFIG];
+
+      expect(new Set(all).size).toBe(all.length);
+      expect(all.slice().sort()).toEqual(Object.keys(VITE_NAME).sort());
     });
   });
 
