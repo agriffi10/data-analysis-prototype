@@ -433,6 +433,17 @@ Five new resource families land at once, and this is the riskiest part of the sp
 `infra/modules/base/policies/github-actions-deploy-platform.json.tftpl` covers all three modules in one
 file — they apply as one unit and share the `${project_name}-${environment}-` prefix.
 
+> **Corrected while building (2026-08-24): it is TWO files, and the fourteenth and fifteenth managed
+> policies rather than the thirteenth.** `infra/modules/base/iam.tf` already carried **thirteen**
+> `aws_iam_policy` resources when this was written, and one document would not have fitted: a
+> customer-managed policy has its own **6,144**-character budget and the halves measure **4,823** and
+> **3,879**. The split is `…-platform` (ec2, elasticloadbalancing, ecs, ecr, the ECS/ELB
+> service-linked roles) and `…-platform-frontdoor` (apigateway, acm, route53, every log group the
+> platform creates, the API function, and the four roles it passes). `aws_iam_policy.deploy_platform`
+> keeps that name because FR-008 AC5 names it. The attachment count goes 13 → 15 against IAM's hard
+> ceiling of **20** managed policies per role, which is not increasable further — so a test now counts
+> them, and the next plane after two more has a decision to make rather than an apply to debug.
+
 **It ships as a thirteenth customer-managed `aws_iam_policy`, not as more inline JSON**, and that is
 forced rather than stylistic. The deploy role's inline policy
 (`github-actions-deploy.json.tftpl`, rendered by `aws_iam_role_policy.github_actions_deploy`) measures
@@ -561,6 +572,17 @@ alternative. **A new finding is scoped, not accepted.**
       never guessed —
       a line that matches no finding is a hard error, and reads as an acceptance while accepting
       nothing. Each addition names the specific non-scopable actions that forced it.
+
+> **Measured on the real run (2026-08-24), and the prediction was wrong: the additions are NONE.**
+> The `plan` job on the PR that adds both policies reported `IAM resources in plan: 85; IAM checks
+> evaluated: 674; IAM findings: 2` under `GATE_CHECKOV_PLAN: block` — the two being the same
+> permanent rows on `github_actions_deploy`. Neither new policy fired anything, so
+> `.github/checkov-plan-accepted.txt` is **unchanged**, and writing the rows this criterion predicts
+> would have turned the gate red for precisely the reason its own header gives: a line matching no
+> finding is a hard error. This is not a scan that skipped — the job's coverage assertion (IAM
+> resources present but no IAM check evaluated) is what would have caught that, and it passed. **The
+> rule the criterion exists to enforce is what produced the zero:** a new finding is scoped, not
+> accepted, and these grants were scoped.
 - [ ] The `.tf` scan reports a non-zero `passed_checks` count for every newly-enforced ID. Without
       `passed_checks` the gate cannot tell "this check passed" from "this check never ran" — which is
       why `--quiet` must never come back.

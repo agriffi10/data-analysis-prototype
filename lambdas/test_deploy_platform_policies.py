@@ -3,12 +3,13 @@
 Two different failures live here, and neither is visible in a plan.
 
 **The budgets.** IAM's 10,240-character limit is the AGGREGATE of a role's inline policies,
-not a per-policy allowance, and ``github-actions-deploy.json.tftpl`` already measures 9,256
-stripped. A customer-managed policy has its own separate 6,144-character budget. Both ceilings
-are enforced at ``CreatePolicy``/``PutRolePolicy`` — an apply-time ``LimitExceeded`` on a
-document that rendered, validated and planned green. The container platform's grants are two
-managed policies rather than one for exactly this reason, and the next person to extend either
-one should discover the ceiling here rather than in a deploy.
+not a per-policy allowance, and ``github-actions-deploy.json.tftpl`` already renders to 9,289.
+A customer-managed policy has its own separate 6,144-character budget, and a role may carry at
+most twenty of them. All three ceilings are enforced at ``CreatePolicy``/``PutRolePolicy``/
+``AttachRolePolicy`` — an apply-time ``LimitExceeded`` on a document that rendered, validated
+and planned green. The container platform's grants are two managed policies rather than one for
+exactly this reason, and the next person to extend either one should discover the ceiling here
+rather than in a deploy.
 
 **The wildcard.** ``Resource: "*"`` on a deploy grant is sometimes forced and sometimes
 laziness, and the two read identically in a diff. IAM defines no resource type at all for the
@@ -31,6 +32,10 @@ Attributes:
   MANAGED_LIMIT: IAM's character budget for one customer-managed policy.
   INLINE_AGGREGATE_LIMIT: IAM's character budget for all of a role's inline policies together.
   PLATFORM_POLICIES: The two templates this spec adds.
+  BASE_IAM: The Terraform that attaches every one of them to the deploy role.
+  MAX_ATTACHED_MANAGED_POLICIES: IAM's hard ceiling on managed policies per role.
+  PLANNED_RESOURCES: The ARN each platform resource will have, keyed by what it is. The grant is
+    written against these names, so a module that names one differently is denied.
   NON_SCOPABLE: Every action IAM defines no resource type for, and therefore the only actions
     a ``Resource: "*"`` statement in those two templates may hold.
 """
@@ -52,6 +57,53 @@ PLATFORM_POLICIES = (
     POLICY_DIR / "github-actions-deploy-platform.json.tftpl",
     POLICY_DIR / "github-actions-deploy-platform-frontdoor.json.tftpl",
 )
+
+BASE_IAM = ROOT / "infra" / "modules" / "base" / "iam.tf"
+MAX_ATTACHED_MANAGED_POLICIES = 20
+
+PLANNED_RESOURCES = {
+    "VPC": "arn:aws:ec2:us-east-1:696000197480:vpc/vpc-0abc",
+    "subnet": "arn:aws:ec2:us-east-1:696000197480:subnet/subnet-0abc",
+    "route table": "arn:aws:ec2:us-east-1:696000197480:route-table/rtb-0abc",
+    "internet gateway": "arn:aws:ec2:us-east-1:696000197480:internet-gateway/igw-0abc",
+    "security group": "arn:aws:ec2:us-east-1:696000197480:security-group/sg-0abc",
+    "VPC endpoint": "arn:aws:ec2:us-east-1:696000197480:vpc-endpoint/vpce-0abc",
+    "flow log": "arn:aws:ec2:us-east-1:696000197480:vpc-flow-log/fl-0abc",
+    "load balancer": (
+        "arn:aws:elasticloadbalancing:us-east-1:696000197480:loadbalancer/app/dat-prod-spa/50dc6c495c0c9188"
+    ),
+    "target group": (
+        "arn:aws:elasticloadbalancing:us-east-1:696000197480:targetgroup/dat-prod-spa-tg/73e2d6bc24d8a067"
+    ),
+    "listener": (
+        "arn:aws:elasticloadbalancing:us-east-1:696000197480:listener/app/dat-prod-spa"
+        "/50dc6c495c0c9188/f2f7dc8efc522ab2"
+    ),
+    "ECS cluster": "arn:aws:ecs:us-east-1:696000197480:cluster/dat-prod-spa",
+    "ECS service": "arn:aws:ecs:us-east-1:696000197480:service/dat-prod-spa/dat-prod-spa",
+    "task definition": "arn:aws:ecs:us-east-1:696000197480:task-definition/dat-prod-spa:1",
+    "ECR repository": "arn:aws:ecr:us-east-1:696000197480:repository/dat-prod-spa",
+    "API function": "arn:aws:lambda:us-east-1:696000197480:function:dat-prod-api",
+    "API function role": "arn:aws:iam::696000197480:role/dat-prod-api-role",
+    "SPA task role": "arn:aws:iam::696000197480:role/dat-prod-spa-task-role",
+    "SPA task execution role": "arn:aws:iam::696000197480:role/dat-prod-spa-task-execution-role",
+    "flow-logs role": "arn:aws:iam::696000197480:role/dat-prod-vpc-flow-logs-role",
+    "API function log group": (
+        "arn:aws:logs:us-east-1:696000197480:log-group:/aws/lambda/dat-prod-api"
+    ),
+    "API access log group": (
+        "arn:aws:logs:us-east-1:696000197480:log-group:/aws/apigateway/dat-prod-api"
+    ),
+    "flow-log group": "arn:aws:logs:us-east-1:696000197480:log-group:/aws/vpc/dat-prod-flow-logs",
+    "ECS task log group": "arn:aws:logs:us-east-1:696000197480:log-group:/ecs/dat-prod-spa",
+    "certificate": (
+        "arn:aws:acm:us-east-1:696000197480:certificate/8d0e0a1e-0000-0000-0000-000000000000"
+    ),
+    "hosted zone": "arn:aws:route53:::hostedzone/Z0123456789ABCDEFGHIJ",
+    "DNS change": "arn:aws:route53:::change/C0123456789ABC",
+    "HTTP API": "arn:aws:apigateway:us-east-1::/apis/abcdef1234",
+    "API custom domain": "arn:aws:apigateway:us-east-1::/domainnames/api.example.com",
+}
 
 NON_SCOPABLE = frozenset(
     {
@@ -82,7 +134,6 @@ NON_SCOPABLE = frozenset(
         "ecs:DescribeTaskDefinition",
         "ecs:DeregisterTaskDefinition",
         "ecs:ListTaskDefinitions",
-        "ecr:GetAuthorizationToken",
         "acm:RequestCertificate",
         "acm:ListCertificates",
         "logs:CreateLogDelivery",
@@ -127,7 +178,6 @@ def _render(path: pathlib.Path) -> str:
         "shared_space_bucket_arn": "arn:aws:s3:::dat-prod-shared-space",
         "archive_bucket_name": "dat-prod-archive",
         "trail_bucket_name": "dat-prod-archive-audit",
-        "verification_trail_bucket_name": "dat-prod-archive-audit",
     }
     text = path.read_text()
     for name, value in substitutions.items():
@@ -184,9 +234,19 @@ def _stripped_length(text: str) -> int:
 def test_the_inline_deploy_policy_stays_under_the_iam_aggregate() -> None:
     """The role's inline policy must fit the 10,240-character aggregate.
 
-    It measured 9,256 when the platform grants were written, which is why they went into
-    managed policies instead. Appending to the inline document is the tempting move and the
+    It rendered to 9,289 when the platform grants were written — the template measures 9,256
+    before substitution, and IAM sees the rendered document — which is why those grants went
+    into managed policies instead. Appending to the inline document is the tempting move and the
     one that fails at ``PutRolePolicy`` — after the plan is green.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the rendered inline policy exceeds the aggregate.
     """
     length = _stripped_length(_render(INLINE_POLICY))
     assert length <= INLINE_AGGREGATE_LIMIT, (
@@ -209,6 +269,12 @@ def test_every_managed_deploy_policy_stays_under_the_managed_limit(path: pathlib
 
     Args:
       path: One deploy-role policy template.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the rendered document exceeds the managed-policy limit.
     """
     length = _stripped_length(_render(path))
     assert length <= MANAGED_LIMIT, (
@@ -227,6 +293,12 @@ def test_a_wildcard_resource_holds_only_non_scopable_actions(path: pathlib.Path)
 
     Args:
       path: One of the two platform policy templates.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a wildcard statement holds an action that accepts an ARN.
     """
     for statement in _statements(path):
         if statement["Resource"] != "*":
@@ -244,6 +316,15 @@ def test_a_scoped_statement_holds_no_non_scopable_action() -> None:
 
     It authorizes nothing and denies implicitly, so the symptom is a missing permission on an
     action the policy visibly grants — the slowest kind of IAM failure to read.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a scoped statement holds an action IAM cannot scope.
     """
     for path in PLATFORM_POLICIES:
         for statement in _statements(path):
@@ -261,6 +342,15 @@ def test_every_non_scopable_action_is_actually_granted() -> None:
 
     Without this the set could accumulate entries long after the grant that needed them was
     removed, and a future wildcard would be waved through by a line that describes nothing.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the set names an action the platform policies no longer grant.
     """
     granted = {
         action
@@ -309,10 +399,107 @@ def test_a_policy_document_is_printable_ascii(path: pathlib.Path) -> None:
 
     Args:
       path: One of the two platform policy templates.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the rendered document holds a character IAM will refuse.
     """
     text = _render(path)
     offenders = sorted({c for c in text if not (32 <= ord(c) <= 126 or c in "\n\r\t")})
     assert not offenders, (
         f"{path.name} contains non-ASCII characters {offenders}. IAM refuses the document at "
         "CreatePolicy; move the prose into infra/modules/base/iam.tf."
+    )
+
+
+def _iam_match(pattern: str, arn: str) -> bool:
+    """Applies IAM's wildcard semantics to one resource pattern.
+
+    IAM's ``*`` matches any run of characters including ``/`` and ``:``, which is why an ECS
+    service ARN of ``service/{cluster}/{service}`` matches a pattern naming one segment. ``?``
+    matches exactly one character.
+
+    Args:
+      pattern: The ``Resource`` entry from a statement.
+      arn: A concrete ARN to test it against.
+
+    Returns:
+      Whether IAM would consider the pattern to cover the ARN.
+
+    Raises:
+      None.
+    """
+    expression = re.escape(pattern).replace(r"\*", ".*").replace(r"\?", ".")
+    return re.fullmatch(expression, arn) is not None
+
+
+def test_the_grant_covers_every_resource_the_platform_will_create() -> None:
+    """Each planned resource must be matched by a SCOPED pattern, not merely by a wildcard.
+
+    The wildcard statements match everything by construction, so counting them would make this
+    pass for a name nothing actually grants — the shape of a test that passes by finding
+    nothing. Only the ARN-scoped statements count here.
+
+    This is the half of the grant no offline check could otherwise reach: a name pattern that
+    matches nothing applies green, plans green, and denies on first use. It is a contract in
+    both directions — the modules that follow must name their resources exactly this way, and
+    each of them asserts its own locals against this same table.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When a planned resource is covered by no scoped pattern.
+    """
+    scoped = [
+        (statement["Sid"], pattern)
+        for path in PLATFORM_POLICIES
+        for statement in _statements(path)
+        if statement["Resource"] != "*"
+        for pattern in (
+            statement["Resource"] if isinstance(statement["Resource"], list) else [statement["Resource"]]
+        )
+    ]
+    assert scoped, "No scoped statements found — the templates did not parse."
+
+    unmatched = sorted(
+        label
+        for label, arn in PLANNED_RESOURCES.items()
+        if not any(_iam_match(pattern, arn) for _, pattern in scoped)
+    )
+    assert not unmatched, (
+        f"No scoped grant matches {unmatched}. A pattern that matches nothing applies green and "
+        "denies on first use — check the ARN format for that resource type, not just the name."
+    )
+
+
+def test_the_deploy_role_stays_under_the_attached_managed_policy_ceiling() -> None:
+    """A role may carry at most twenty managed policies, and this one is filling up.
+
+    The same class of apply-time ``LimitExceeded`` as the character budgets above, and the one
+    with the least warning: every per-plane grant since the inline policy filled up has taken a
+    managed policy, so the count only ever rises.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the deploy role's attachments reach IAM's ceiling.
+    """
+    attachments = re.findall(
+        r'resource\s+"aws_iam_role_policy_attachment"\s+"([^"]+)"', BASE_IAM.read_text()
+    )
+    assert len(attachments) > 1, "Found no attachments — the parse went trivial rather than passing."
+    assert len(attachments) <= MAX_ATTACHED_MANAGED_POLICIES, (
+        f"The deploy role carries {len(attachments)} attached managed policies against IAM's "
+        f"ceiling of {MAX_ATTACHED_MANAGED_POLICIES}: {sorted(attachments)}. Consolidate rather "
+        "than adding another — the limit is not increasable past this."
     )
