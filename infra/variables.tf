@@ -101,3 +101,9 @@ variable "verification_principal_arns" {
   type        = list(string)
   default     = []
 }
+
+variable "vpc_cidr" {
+  description = "CIDR block for the container platform's VPC. Split into two /20 public and two /20 private subnets, one pair per availability zone. The private ones have no default route: outbound reaches AWS through VPC endpoints and nothing else (infra/modules/network)."
+  type        = string
+  default     = "10.0.0.0/16"
+}

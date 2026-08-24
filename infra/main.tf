@@ -1146,3 +1146,23 @@ module "verification" {
   # propagation floor) BEFORE anything here lands.
   depends_on = [module.base]
 }
+
+# ── The container platform's network ──────────────────────────────────────────
+# No consumer yet: the load balancer and the ECS service arrive with the module that creates
+# them. It ships first and alone deliberately — every one of its failure modes (a missing
+# endpoint, private DNS off, a gateway endpoint associated with the wrong route table) applies
+# green and shows up only when something tries to pull an image through it, so proving the
+# network is worth its own apply rather than being debugged underneath a container.
+module "network" {
+  source = "./modules/network"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+  account_id   = data.aws_caller_identity.current.account_id
+  vpc_cidr     = var.vpc_cidr
+
+  # base grants the deploy role the VPC, subnet, route-table, security-group, endpoint and
+  # flow-log permissions BEFORE anything here lands.
+  depends_on = [module.base]
+}

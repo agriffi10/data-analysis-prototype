@@ -135,3 +135,24 @@ output "verification_trail_name" {
   description = "The trail itself, so a check can prove it is logging before reading an absence as evidence."
   value       = module.verification.trail_name
 }
+
+# ── The container platform's network ──────────────────────────────────────────
+# Exported so the acceptance script can assert the S3 gateway endpoint's association set EQUALS
+# the private route tables, and that those tables carry no default route. Both are applied-state
+# facts: a gateway endpoint associated with the wrong table applies green and does nothing, and a
+# pull that succeeded through a route somebody added would otherwise read as proof of the
+# endpoints. Neither is checkable from the plan.
+output "vpc_id" {
+  description = "The VPC the container platform runs in."
+  value       = module.network.vpc_id
+}
+
+output "private_route_table_ids" {
+  description = "The route tables the ECS tasks' subnets use. The S3 gateway endpoint's RouteTableIds must equal this set, and none of them may carry a default route."
+  value       = module.network.private_route_table_ids
+}
+
+output "private_subnet_ids" {
+  description = "The subnets the ECS tasks run in. No default route reaches the internet from any of them."
+  value       = module.network.private_subnet_ids
+}
