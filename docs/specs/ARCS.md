@@ -464,7 +464,11 @@ machine by a **second Pipe whose input transformer stamps the trust marker** (th
 closed. The notifications writer now applies the same principle by a different mechanism — rather than a
 second queue stamping a trust marker, it reads the `SenderId` SQS stamps on every message and refuses a
 `create` sent with browser credentials. The marker is still infrastructure-set and still unsmuggleable;
-it is simply the service's own, so no queue or Pipe was added to carry it. SPEC-122 is **additive and
+it is simply the service's own, so no queue or Pipe was added to carry it.
+**It is not the pattern to copy here, though:** SPEC-206 is a **deny of one principal**, which works
+only because exactly one sender on that queue is user-reachable. Table Builder's marker is a positive
+**allow** — a trusted producer asserting identity — and that is what a plane with several reachable
+callers needs. SPEC-122 is **additive and
 last**; nothing else depends on it.
 
 **SPEC-123 — the data-quality runs dashboard** (user request, 2026-07-12). The arc already stored **one JSON per run in a hidden

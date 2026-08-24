@@ -162,11 +162,19 @@ laptop identity produces a different one — which would be refused for the wron
 **Target your OWN username.** The portal role can only read its own `user_settings/`, so aiming at a
 second account leaves you unable to observe the pass condition at all.
 
-The queue is FIFO, so `--message-group-id` is required and there is no content-based dedup:
+**The portal role holds `sqs:SendMessage` and NOTHING ELSE on this queue** — no `GetQueueUrl`, so
+resolve the URL from the root output first, in the laptop shell, BEFORE switching credentials:
 
 ```bash
-QUEUE_URL=$(aws sqs get-queue-url --queue-name dat-prod-notifications.fifo --query QueueUrl --output text)
+QUEUE_URL=$(tofu -chdir=infra output -raw notifications_queue_url)
+```
 
+Both sends below run in the portal-role shell, and **before the `rm -f /tmp/idtoken` above** — the
+control needs the token, and running it after the cleanup sends an empty one, which dead-letters and
+looks exactly like the boundary having broken everything. The queue is FIFO, so `--message-group-id`
+is required and there is no content-based dedup:
+
+```bash
 # THE CHECK. Expect the send to SUCCEED — the grant is unconditioned, so SQS accepts it.
 # The refusal happens in the writer, which is the whole point.
 aws sqs send-message --queue-url "$QUEUE_URL" \
@@ -185,11 +193,13 @@ Then observe, in this order:
 1. **No row saying `SPOOFED`** in `s3://dat-prod-user-space/$USERNAME/user_settings/notifications.json`
    — read it in the portal's Network tab or with `get-object`. This is the pass condition.
 2. **Every row now reads** — the control landed, so the credentials and the queue both work.
-3. **`reason: untrusted-sender`** under `logs/service=notifications/year=/month=/day=/` in the admin
-   bucket, with the `messageId` of the send. **Wait a sweep first:** the logs queue is swept every
-   10 minutes and never long-polled, so checking immediately shows an empty prefix and reads as a
-   failure. A `sender-check-unconfigured` there instead means the deploy lost the environment
-   variable — the control has broken, not been tested.
+3. **`reason: untrusted-sender`** under `logs/service=notifications/year=/month=/day=/`, with the
+   send's id in the **`message_id`** field. **Read this from the LAPTOP shell, not the portal-role
+   one** — the portal role has no admin-bucket access at all, so from there the read is an
+   `AccessDenied` that says nothing about the boundary. **And wait a sweep first:** the logs queue is
+   swept every 10 minutes and never long-polled, so checking immediately shows an empty prefix and
+   reads as a failure. A `sender-check-unconfigured` there instead means the deploy lost the
+   environment variable — the control has broken, not been tested.
 
 ### 2.2 Hand-crafted control-plane requests
 

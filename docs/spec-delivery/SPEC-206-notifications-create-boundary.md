@@ -15,7 +15,8 @@ That sentence is now true of the running system.
   one `observability.error` and returns, so the message is treated as handled.
 - `module.data` gained a `portal_role_unique_id` output, wired through the root to the notifications
   module and onto the writer's environment.
-- No user sees anything change; no browser code changed.
+- No user sees anything change. The only browser edit is one comment, corrected because it cited
+  the live hole as its reason.
 
 **Shipped as two PRs on purpose.** The wiring merged and applied first (#493), then the check (#494).
 The two deploy workflows trigger on `push` to `main` with no ordering between them, and in the other
@@ -27,10 +28,12 @@ where the writer fails closed and refuses **every `create` in the product**.
 - **Three reason codes, not the spec's two.** `untrusted-sender`, `sender-id-absent` and
   `sender-check-unconfigured`. An unset variable is a third operationally distinct state — the deploy
   is broken, not the record and not an attacker — and one code for two opposite conditions is one log
-  line that cannot tell them apart. It is also load-bearing for correctness: the configuration is
-  tested **first**, because with the variable unset an absent sender's empty role-id half compares
-  equal to it and every verdict inverts. The spec was amended before code rather than only the
-  delivery doc, so the diff was reviewed against a contract that agreed with it.
+  line that cannot tell them apart. Two guards keep the order honest: the empty role-id half is
+  refused **before** the comparison (so an absent sender never compares equal to an unset variable and
+  is logged as a forgery), and the config is tested **first** (so an unset variable reports itself even
+  when the sender is absent, instead of blaming the message for a broken deploy). The spec was amended
+  before code rather than only the delivery doc, so the diff was reviewed against a contract that
+  agreed with it.
 - **`_msg(body, sender)` takes no default**, where the spec's snippet showed one. The rule beside that
   snippet — a default must not become the thing under test — is not enforceable by a default. The plan
   review also found the spec's "nine existing `create` tests" was really twelve, so "update them all"
@@ -72,5 +75,10 @@ PR 1's plan was `0 to add, 1 to change, 0 to destroy`.
 Deferred to a live check (`docs/testing/owed.md` §2.1): every offline test supplies the `SenderId` it
 wants, so what is owed is that **real portal-role credentials** produce the value the writer refuses —
 with `markRead` beside it as the positive control, since a refusal alone cannot tell "the boundary
-works" from "the browser lost the queue". FR-003's post-deploy control — one ordinary plane operation
-whose notification arrives — is recorded in `docs/testing/sessions.md`.
+works" from "the browser lost the queue".
+
+**Still owed after this merges:** FR-003's post-deploy control — one ordinary plane operation whose
+notification arrives. It is inherently post-deploy, so it cannot be discharged in this diff; the
+blast radius it guards against is "notifications stop for seven planes", and every other check of
+that is offline against a fixture the test author wrote. Its row goes into `docs/testing/sessions.md`
+once run.

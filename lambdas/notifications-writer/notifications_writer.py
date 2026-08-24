@@ -368,10 +368,12 @@ def _create_sender_refusal(sender):
     undocumented value. The comparison is equality on that half rather than a prefix test —
     a prefix would also match a different role whose unique ID merely starts the same way.
 
-    Order is load-bearing, not stylistic. The configuration is tested FIRST because with
-    ``UNTRUSTED_SENDER_ID`` unset an absent sender's empty role-id half compares equal to it,
-    which inverts every verdict: service creates would pass and honest absences would be
-    recorded as forgeries.
+    Order is load-bearing, not stylistic, and the two guards carry different halves of it. The
+    empty role-id half is refused BEFORE the comparison, so an absent sender can never compare
+    equal to an unset variable and be recorded as a forgery. The configuration is then tested
+    FIRST so that an unset variable reports itself in every case, including an absent sender —
+    tested last, that case would come back ``sender-id-absent`` and describe a broken message
+    where the truth is a broken deploy, which is the one distinction these codes exist to make.
 
     Args:
       sender: The stamped sender, empty when the record carried none.

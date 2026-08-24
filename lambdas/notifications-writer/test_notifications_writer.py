@@ -81,10 +81,10 @@ def _inbox(s3, username):
 SERVICE_SENDER = "AROASERVICE:producer"
 PORTAL_SENDER = "AROAPORTAL:CognitoIdentityCredentials"
 
-#: Events captured from observability.error. Module-level rather than a fixture because this
-#: file also runs as a plain script, where the __main__ runner calls each test with no
-#: arguments and a fixture parameter would be a TypeError. _setup clears it per test; under
-#: pytest, lambdas/conftest.py's shared-layer snapshot restores the patched module afterwards.
+#: Events captured from observability.error. Module-level rather than a fixture because the
+#: __main__ runner below calls each test with no arguments, so a fixture parameter would be a
+#: TypeError there. _setup clears it per test; under pytest, lambdas/conftest.py's shared-layer
+#: snapshot restores the patched module afterwards.
 _ERRORS = []
 
 
@@ -629,6 +629,9 @@ def test_a_refusal_echoes_no_part_of_the_body():
 
     w.handler(_msg(forged, PORTAL_SENDER), None)
 
+    # Assert the refusal happened first: with no refusal there is nothing to echo, and every
+    # assertion below passes over an empty list.
+    assert _refusals() == [w.CREATE_REFUSAL_UNTRUSTED]
     emitted = json.dumps(_ERRORS)
     for secret in ("SECRETMESSAGE", "SECRETLINK", "SECRETPAYLOAD", "victim"):
         assert secret not in emitted, f"the refusal event echoed {secret!r} from the body"
@@ -668,10 +671,11 @@ def test_the_portal_roles_OWN_actions_are_unaffected():
 def test_with_the_check_UNCONFIGURED_every_create_is_refused_and_user_actions_still_work():
     """The runtime fail-closed, which covers the window where new code meets old infrastructure.
 
-    The order of the checks is what makes this true rather than inverted: with the variable
-    unset, an absent sender's empty role-id half compares EQUAL to the empty variable, so a
-    guard that compared first would pass every service create and refuse every honest
-    absence. The configuration is tested first for exactly that reason.
+    Two guards keep it honest and they are not interchangeable. The empty role-id half is
+    refused before the comparison runs, so an absent sender never compares EQUAL to an unset
+    variable and gets recorded as a forgery. The configuration is then tested first so an
+    unset variable reports itself even when the sender is absent — tested last, that case
+    returns `sender-id-absent` and blames the message for what is a broken deploy.
     """
     s3 = _setup()
     w.UNTRUSTED_SENDER_ID = ""
@@ -727,6 +731,24 @@ def test_the_untrusted_sender_id_is_wired_to_the_PORTAL_ROLES_UNIQUE_ID_end_to_e
         r"^\s*value\s*=\s*aws_iam_role\.portal\.unique_id\s*$", parts[1], re.MULTILINE
     ), "the output must be the role's unique_id — not its name, not its ARN"
 
+    # The variable's own two guards, both silent-failure-shaped if removed. A default would let
+    # a root that forgets the wiring deploy a writer that refuses every notification in the
+    # product; the shape check is what catches a wire to the ARN or the name, which validate
+    # accepts and which then never matches at runtime.
+    with open(os.path.join(infra, "modules", "notifications", "variables.tf")) as handle:
+        variables = handle.read()
+    declared = variables.split('variable "portal_role_unique_id"', 1)
+    assert len(declared) == 2, "the notifications module must declare portal_role_unique_id"
+    block = declared[1].split("\nvariable ", 1)[0]
+    assert not re.search(r"^\s*default\s*=", block, re.MULTILINE), (
+        "portal_role_unique_id must take NO default — a root that forgets to wire it has to "
+        "fail at plan, not deploy a writer that refuses every create"
+    )
+    assert "AROA" in block and "validation" in block, (
+        "portal_role_unique_id must keep its validation block — the role's ARN and its name "
+        "are the plausible mis-wires and both validate clean without it"
+    )
+
 
 def test_no_terraform_file_still_claims_the_browser_CANNOT_enqueue_a_create():
     """The false-comment sweep, which this spec is mostly about.
@@ -745,7 +767,10 @@ def test_no_terraform_file_still_claims_the_browser_CANNOT_enqueue_a_create():
         "modules/notifications/iam.tf": ["cannot enqueue a `create` for another user",
                                          "reserved for trusted producers granted SendMessage separately"],
         "modules/notifications/outputs.tf": ["(future)"],
-        "outputs.tf": ["(future trusted-producer)"],
+        # The same phrase, not this file's own wording: the two descriptions were
+        # near-duplicates, so a sweep that asks each file only for its own version would pass
+        # if one file's text were re-introduced into the other.
+        "outputs.tf": ["(future)"],
     }
     for relative, phrases in files.items():
         with open(os.path.join(infra, *relative.split("/"))) as handle:

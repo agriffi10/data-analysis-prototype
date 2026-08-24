@@ -4690,9 +4690,11 @@ would reach `create requires a username` and raise, which is the vector the drop
 **Three reason codes, not two.** `untrusted-sender`, `sender-id-absent` and
 `sender-check-unconfigured`. A check that cannot run must not report a pass, and the cases are
 operationally opposite: one is somebody trying it on, one is the control having broken, one is the
-deploy being wrong. Splitting the third out is also load-bearing for correctness — the configuration is
-tested **first**, because with the variable unset an absent sender's empty role-id half compares equal
-to it and every verdict inverts.
+deploy being wrong. Splitting the third out is also load-bearing, and two guards carry it: the
+empty role-id half is refused **before** the comparison, so an absent sender never compares equal to an
+unset variable and gets logged as a forgery; and the configuration is tested **first**, so an unset
+variable reports itself even when the sender is absent, rather than returning `sender-id-absent` and
+blaming the message for a broken deploy.
 
 **Do NOT split `create` onto a second queue.** It is the obvious fix — IAM could then enforce this with
 no runtime check — and it is rejected. The single-writer guarantee is *one FIFO queue, one message group
