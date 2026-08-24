@@ -909,6 +909,17 @@ under `apps/portal/src`, but that overstates it considerably:
 
 That leaves roughly **30 genuine production config reads across ~18 files**.
 
+> **SUPERSEDED by SPEC-192 (2026-08-24), which built this.** The count above is wrong and the advice
+> below is now decided. Measured at implementation time: **40** genuine production config reads, of
+> which **25 moved** onto the accessor and the rest are `lib/env.ts`'s own literal table, which stays
+> as the **dev fallback**. Three of the movers read at module load, not one — `lib/amplify.ts`,
+> `lib/s3Client.ts`'s exported client and `fileBrowser.types.ts`'s upload cap — and all three became
+> functions. The bootstrap is real, and awaiting the load was **not sufficient on its own**: a
+> module's static imports evaluate before its first statement runs, so `main.tsx` reaches the
+> application graph through a **dynamic import** and a sweep pins its five static imports. The
+> document is `/config.json`, same-origin, `no-store`; `architecture.md` → *Runtime configuration*
+> carries the contract and `decisions.md` the reasoning.
+
 **Most of the pattern already exists.** The repo already reads config at *call* time rather than
 module load in many places, because module-level `import.meta.env` constants broke `vi.stubEnv` in
 tests — see the explicit comments in `lib/userSpace.ts`, `features/data-quality/useDataQualityRuns.ts`,

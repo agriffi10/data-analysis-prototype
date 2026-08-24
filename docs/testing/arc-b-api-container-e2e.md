@@ -29,6 +29,69 @@ decides whether it can pass at all.
 | **§12** | The merge-2 consequences: the distribution gone, §3 re-run against the narrowed Cognito lists, §5 steps 2–3 re-run against the narrowed bucket CORS. |
 | **§13, §14, §15** | What one session cannot settle; cleanup; the Execution Log. |
 
+**§A stands outside that order.** Runtime configuration (SPEC-192) shipped against the existing
+CloudFront distribution, so its checks are runnable today and do not wait for merge 1.
+
+---
+
+## A. Runtime configuration (SPEC-192) — runnable NOW, before any of the above
+
+The only section of this script that does not wait for the container. It runs against the CloudFront
+distribution as it stands, and **two of its five steps (A.2, A.3) require publishing a
+deliberately broken `config.json`**, while A.1 publishes a valid changed one — so run them in one
+sitting and restore at the end.
+
+**Already discharged (2026-08-24), recorded so they are not re-run blindly:** `GET /config.json`
+returns **200 / `application/json` / `Cache-Control: no-store` / `version: 1`** with all 20 keys, a
+second request is still `x-cache: Miss from cloudfront`, and after the switchover the app boots with
+**exactly one** `config.json` fetch per page load (Performance API), zero console errors and **no
+configuration alert** — the observable proving the document's four Cognito values reached
+`Amplify.configure()`, since their absence renders one.
+
+**A.1 — The promotion property. BLOCKING.** This is what the whole spec exists for, and it is
+invisible from the UI.
+
+1. Note the current `VITE_MAX_UPLOAD_BYTES` repository variable. Change it to `1048576` (1 MiB).
+2. Re-run **Deploy App** from the Actions tab with **no source change**.
+3. Load the portal, open DevTools → Network, and read `config.json` on the **first** request:
+   `maxUploadBytes` must be `1048576`. A stale value here is the failure the spec exists to prevent.
+4. Confirm it took effect: try to upload a file larger than 1 MiB. It must be refused client-side
+   before any request.
+5. Restore the variable and re-run Deploy App.
+
+**A.2 — The hard-failure path. BLOCKING, and the only way to see it in a production build** (the dev
+fallback hides it everywhere else).
+
+1. Download the live document: `aws s3 cp s3://<static-bucket>/config.json .`
+2. Delete the `userSpaceBucket` key. Re-upload with
+   `--cache-control 'no-store' --content-type 'application/json'`.
+3. Load the portal in a fresh tab. Confirm **all** of:
+   - the boot-failure screen renders — "The portal could not start" — and **no route mounts** (no
+     header, no nav, no file browser; `/files` and `/query` render it too);
+   - the console holds **one** `[config] the portal could not start (missing-required): userSpaceBucket`;
+   - **no VALUE from the document appears anywhere in the console** — grep the output for the bucket
+     name, the user-pool id and the workgroup. A key NAME is the intended diagnostic; a value is the
+     app printing its own configuration to a user.
+4. **Restore the original document** and confirm the portal boots.
+
+**A.3 — The unparseable path. BLOCKING.** Upload the app's own `index.html` to the `config.json` key
+(same headers). The portal must render the **same** boot failure with reason `unparseable` — not a
+working app with everything undefined. This is the shape a deployment that never published the
+document actually returns, because the distribution answers a missing object with `index.html` under
+a **200**. Restore afterwards.
+
+**A.4 — Fresh sign-in, end to end, from a private window. BLOCKING.** Sign out, open a private
+window, and complete a full Hosted UI round trip. A warm session cannot exercise this: the browser
+arrives already authenticated and a bootstrap that configured Amplify after the first render would
+look identical. This is the same shape as the omitted Hosted UI host that broke fresh sign-in for a
+day.
+
+**A.5 — The `no-store` header, read directly. Non-blocking.** Read `Cache-Control` off the response
+in the Network panel. Do **not** try to infer it from a reload: `/config.json` has its own
+`Managed-CachingDisabled` behaviour, so the edge caches nothing whether or not the header is present,
+and no observation distinguishes the two. Edge freshness is a property of the cache policy; the
+header is what a container will emit once SPEC-194 lands.
+
 ---
 
 ## 0. Gates, before anything — BLOCKING
@@ -553,6 +616,9 @@ Record these as **owed**, not discharged:
 - The container under real concurrency, a task failure mid-request, or an AZ loss. Autoscaling and
   the availability work `transition_plan.md` §4.6 names are deferred.
 - The archive **restore** direction (3–5 billed hours) — `e2e.md` owns it.
+- **Everything the container owns about `/config.json`**: the entrypoint rendering it from the task
+  environment, nginx emitting `no-store`, and image promotion itself. §A proves the document's
+  contract and the browser's half against the static site; the server half is SPEC-194's to check.
 - **Other arcs' owed live checks are not absorbed by this script.** Classify each before closing:
   anything asserting a URL, a CSP, a browser AWS call or a bucket-CORS behaviour is **invalidated by
   the origin change and must be re-run**; anything asserting a Lambda, a state machine, an IAM

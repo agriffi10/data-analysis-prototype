@@ -2168,7 +2168,8 @@ does.
 ### The shape
 
 **192** runtime configuration (`VITE_*` becomes runtime accessors — the prerequisite that lets one
-image promote across environments, and the OIDC provider block lives here); **193** the VPC, ALB, API
+image promote across environments, and the OIDC provider block lives here — see *What 192 found*
+below); **193** the VPC, ALB, API
 Gateway, ECR and ECS, with the deploy-role IAM expansion as in-scope work; **194** the SPA container
 and its nginx config, which must reproduce every job CloudFront was doing (SPA fallback, SPEC-141's
 per-class cache headers, SPEC-140's security headers, compression, health check); **195** the BFF —
@@ -2181,6 +2182,33 @@ retiring CloudFront and the Identity Pool, and the arc's live checks.
 Order de-risks: infrastructure early (new resource types trip this repo's recurring IAM traps, so
 prove the pipeline with a placeholder API before porting anything), then the auth and transport spine,
 then the volume.
+
+### What 192 found, and what the next spec inherits
+
+**The sequencing the arc scoping did not make.** The document has to be published **before** the app
+depends on it, and the arc brief left that unstated. It shipped as three PRs: publish `/config.json`
+from `deploy-app.yml` while the app still read the inlined values, read the deployed document back by
+hand, then switch over. The reverse order breaks production for the length of a review, and neither
+the suite nor `tsc` can see it — Vitest runs with `import.meta.env.DEV` true, where a fallback answers
+every read. Reverting the switchover alone restores a working bundle.
+
+**The document is 20 keys, not the spec's nineteen**, because Arc A's `VITE_FILE_OPS_QUEUE_URL`
+landed first; it joins group (b), so the end-of-arc figure of **ten** is unchanged. `apiBaseUrl` has
+**no `VITE_*` variable** — nothing reads it before SPEC-197 — and is rendered from a non-`VITE_`
+repository variable.
+
+**SPEC-194 inherits four obligations.** (1) `/config.json` is served by the SPA's own container and
+**never proxied** to API Gateway — the SPA must render its own error states while the API is down.
+(2) It must exclude `public/config.json` from the image build context; a committed one is served in
+preference to the rendered document, and a test asserts its absence. (3) It re-points FR-008's
+agreement test at the ECS task definition, the fifth wiring point. (4) The interim CloudFront cache
+behaviour dies with the distribution, so nginx's `no-store` becomes the only guarantee — and the
+reason it matters is measured: CachingOptimized applies its **1 s MinTTL even against an origin
+`no-store`**, and an object reaching an edge without the header takes a **24-hour** DefaultTTL.
+
+**One live check was withdrawn rather than deferred**, and it is worth knowing why before someone
+re-adds it: after `/config.json` gets a `CachingDisabled` behaviour, no observation distinguishes a
+present from a missing origin `no-store` header. The header is read directly instead.
 
 ### Two traps carried from Arc A
 

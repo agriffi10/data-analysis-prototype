@@ -1,8 +1,8 @@
 # Spec: Runtime Configuration & the Provider Block
 
 **ID:** SPEC-192
-**Status:** Draft
-**Last Updated:** 2026-08-18
+**Status:** Completed
+**Last Updated:** 2026-08-24
 **Depends On:** SPEC-162 (`VITE_ENVIRONMENT`, and the "an unusable document falls back silently, which is why the live check reads a 200 rather than a screen" reasoning this spec inverts), SPEC-141 (the static-asset cache passes a fourth pass now joins, and the 404→`/index.html`→**200** mapping that makes a missing document look like a served one), SPEC-140 (the response-header surface SPEC-194 inherits), SPEC-106 (`toUserMessage` is the only source of user-facing wording, including at boot), SPEC-153/186 (the `?raw` sweep technique the key-set agreement tests use)
 
 ## Overview
@@ -75,6 +75,16 @@ the Cognito values Amplify legitimately reads.
   eleven code sites stays exactly as it is.
 - Removing any key from the document. This spec **adds** the mechanism and moves every existing
   variable onto it; each later spec deletes its own entry.
+
+> **CORRECTED AT IMPLEMENTATION (2026-08-24).** The inventory below was measured before Arc A's last
+> merges and is stale in five places. `VITE_ARCHIVE_QUEUE_URL` is **already** in `lib/env.ts`, so
+> FR-008's "this test fails today" no longer holds — the agreement test ships green and keeps the gap
+> closed. `VITE_FILE_OPS_QUEUE_URL` has landed, making the document **20** keys, not nineteen (it
+> joins group (b), so the end-of-arc figure of ten is unchanged). There are **eight** enqueue services
+> and **10** `notConfiguredMessage` paths, not seven of each; **three** ternary bucket picks, not two;
+> and **25** moving code lines, not 23. A sixth `import.meta.env.VITE_*` site existed outside FR-006
+> AC1's five files — a JSDoc `@example` in `lib/enqueueFifo.ts` — updated rather than exempted.
+> Details in `spec-delivery/SPEC-192`.
 
 ### What is read today, and what replaces it — measured, not grepped
 

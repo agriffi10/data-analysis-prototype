@@ -10,6 +10,38 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-08-24 (runtime configuration, SPEC-192)
+
+Run against deployed prod (`d1kbh4bnvh1je8.cloudfront.net`) in **Chromium via the agent's browser
+tooling**, not Safari and not a user's profile — so this corroborates rendering and cannot discharge
+it. Two loads: one after the document was published and read nobody (`main` at `1af1f8bb`), one after
+the switchover (`main` at `9a3568de`).
+
+**Everything checked passed.** Nothing was found broken.
+
+### What was run
+
+| Check | Result |
+|---|---|
+| `GET /config.json` headers | **200**, `content-type: application/json`, `cache-control: no-store`, `x-cache: Miss from cloudfront`, `server: CloudFront` (the S3 banner stripped) |
+| Security headers on that path | CSP, HSTS and `x-content-type-options` all present — the response-headers policy really is attached to the new cache behaviour, which is per-behaviour and not inherited |
+| Document contents | `version: 1`, all 20 classified keys present, only `apiBaseUrl` empty (correct — no API yet) |
+| Edge caching | A second request is **still** `x-cache: Miss from cloudfront`, so `Managed-CachingDisabled` is live |
+| After the switchover: fetch count | **Exactly one** `config.json` request per page load — `performance.getEntriesByType('resource')`, 77 ms in, 54 ms duration. The two entries in the network log were two page loads, not a double fetch |
+| After the switchover: console | **Zero** errors |
+| After the switchover: the values are in USE | **No configuration alert and zero `[role=alert]` nodes.** That is the observable: had the document's four Cognito values not reached `Amplify.configure()`, `isAmplifyConfigured()` would be false and `Header` would render one |
+| App shell | `/` returns 200 `text/html`; the landing page renders in full |
+
+### Not run, and still owed
+
+The staged **hard-failure** and **unparseable** paths, the **promotion** check, and a **fresh sign-in
+from a private window** — the first three need a deliberately broken or changed document published to
+the bucket, the fourth needs a real Hosted UI round trip. All four are written up as
+[`arc-b-api-container-e2e.md`](arc-b-api-container-e2e.md) §A.1–A.4 and carried in
+[`owed.md`](owed.md).
+
+---
+
 ## Live-check session — 2026-08-16 (Data Explorer §2 + copy/export, SPEC-179/183, partitioned refresh, saved queries)
 
 Run against deployed prod (`d1kbh4bnvh1je8.cloudfront.net`, `main` at `94c892b`) as
