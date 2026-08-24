@@ -5,10 +5,22 @@
 # of each user's {username}/user_settings/notifications.json in the EXISTING
 # user-space bucket (no new bucket).
 #
-# Standalone-deployable like module.analytics / module.shared_spaces: every
-# cross-module value is a name/id passed from the root module, and cross-module
-# ARNs are CONSTRUCTED STRINGS in locals.tf (known at plan time — architecture.md
-# "unknown ARN in list" trap), so this module plans without other modules' outputs.
+# What is constructed and what is referenced, since this header used to claim
+# "every cross-module value is a name/id" and that was never true:
+#
+# The ARNs this module builds for ITSELF are CONSTRUCTED STRINGS in locals.tf (its own
+# log group, the user-space bucket) — known at plan time, which is what keeps them clear
+# of architecture.md's "unknown ARN in list" trap. Values that come from OTHER modules
+# are ordinary resource attributes passed by the root: two ids from module.auth, and
+# from module.observability a queue URL plus logs_queue_arn, which is rendered straight
+# into the writer policy's Resource. portal_role_unique_id joins them.
+#
+# The trap is about a list, not about unknown-ness: an unknown ARN inside compact() or a
+# set silently drops the change. logs_queue_arn is a single scalar Resource and
+# portal_role_unique_id is one value in a Lambda environment MAP under a literal key, so
+# both render as (known after apply) and land correctly. Said explicitly because the
+# sentence this replaced pointed a reader at rewriting logs_queue_arn as a constructed
+# string, which would break the writer's own logs grant.
 
 variable "project_name" {
   description = "Short name used as a prefix for AWS resource names (e.g. dat)."
@@ -38,6 +50,21 @@ variable "user_space_bucket_name" {
 variable "portal_role_name" {
   description = "Name of the shared portal role (created in module.data) this module attaches the sqs:SendMessage inline policy to, by name — mirrors how the analytics / shared-spaces modules attach their portal policies."
   type        = string
+}
+
+variable "portal_role_unique_id" {
+  description = "The portal role's IAM unique ID (AROA…), set on the writer as NOTIFICATIONS_UNTRUSTED_SENDER_ID. SQS stamps SenderId as {unique_id}:{session-name}; the writer refuses a `create` whose role-id half matches this, which is what makes trusted-producer-only true of the running system rather than only of the design. NO DEFAULT ON PURPOSE: a root that forgets to wire it must fail at plan, because the writer's own fail-closed would otherwise deploy a function that silently refuses every notification in the product."
+  type        = string
+
+  # A missing wire fails at plan because there is no default; a WRONG one would not. The
+  # role's ARN and its name are the two plausible mis-wires, they sit in the same module as
+  # the right value, and either validates clean and then never matches at runtime — which
+  # reads exactly like a control that works. Only a role unique ID matches this shape.
+  # Deferred while the value is unknown, so it guards later plans rather than the first.
+  validation {
+    condition     = can(regex("^AROA[A-Z0-9]+$", var.portal_role_unique_id))
+    error_message = "portal_role_unique_id must be an IAM role unique ID (AROA…) — not the role's name and not its ARN, neither of which SenderId carries."
+  }
 }
 
 variable "user_pool_id" {

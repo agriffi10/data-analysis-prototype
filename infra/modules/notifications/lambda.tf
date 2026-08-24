@@ -40,6 +40,12 @@ resource "aws_lambda_function" "writer" {
       COGNITO_USER_POOL_ID  = var.user_pool_id
       COGNITO_APP_CLIENT_ID = var.app_client_id
       NOTIFICATIONS_MAX     = tostring(var.notifications_max)
+      # The identity the writer refuses a `create` from — the portal role's IAM unique ID,
+      # which is the half of SenderId before the ':'. Never the role name or ARN: SenderId
+      # carries neither, and comparing against the wrong one never matches, which reads
+      # exactly like a control that works. Unset, the writer refuses EVERY create rather
+      # than passing them: a boundary that cannot run must not report a pass.
+      NOTIFICATIONS_UNTRUSTED_SENDER_ID = var.portal_role_unique_id
       # Optional BY CONSTRUCTION on the Lambda side — cpcommon.observability
       # reads it with os.environ.get and never config._require — so a writer deployed without
       # it logs to stdout instead of failing at cold start.
