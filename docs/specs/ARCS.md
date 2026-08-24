@@ -2085,13 +2085,16 @@ the whole identity-enhanced query design rest on the answer. Budget for the poss
 plan as though it already has.
 
 **CORROBORATED 2026-08-24 — the narrow reading is now the better-evidenced one.** AWS shipped
-trusted-identity-propagation plugins in the Athena JDBC (3.6.0) and ODBC (2.0.5.0/2.0.6.0) drivers on
-2025-09-11: ordinary client code exchanges a JWT, assumes an identity-enhanced session and calls the
-Athena API, with no studio product in the path. That is our shape, shipped and documented by AWS, so
-*"federated access to the Athena API"* cannot mean "any API caller carrying an identity context". G7
-stays a gate — a vendor driver may hold a privileged path our own code does not — but expect it to
-pass. `transition_plan.md` §3.10 carries the detail, and it also answers a question this arc never
-asked: the client's Excel, Access and Power BI users keep working.
+trusted-identity-propagation plugins in the Athena JDBC (3.6.0) and ODBC (2.0.5.0) drivers on
+2025-09-10, and the browser-based variants two months later (JDBC 3.7.0, ODBC 2.0.6.0, 2025-11-21):
+ordinary client code exchanges a JWT, assumes an identity-enhanced session and calls the Athena API,
+with no studio product in the path. That is our shape, shipped and documented by AWS, so *"federated
+access to the Athena API"* cannot mean "any API caller carrying an identity context". G7 stays a gate
+— a vendor driver may hold a privileged path our own code does not — but expect it to pass.
+`transition_plan.md` §3.10 carries the detail, and it also reaches a question this arc never asked:
+the client's Excel, Access and Power BI users **survive the transition, but every one of those
+desktops is a cutover** — they are on the SAML path today, which genuinely is incompatible with TIP.
+See `transition_plan.md` §2 item 15 and §3.10's migration subsection.
 
 Three more constraints from the same list bite independently of G7. **An IdC-enabled workgroup cannot
 be modified to support resource-level IAM permissions or identity-based IAM policies** — which

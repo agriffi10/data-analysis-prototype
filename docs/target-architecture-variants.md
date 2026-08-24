@@ -342,6 +342,13 @@ Open, and changed by this reading:
   page *without re-reading both live pages* — a rule that says what you may do as well as what you
   may not.
 
+  > **Evidence added 2026-08-24, and it is off that page, not on it.** AWS's own JDBC/ODBC
+  > trusted-identity-propagation plugins are ordinary client code carrying an identity context into
+  > the Athena API, documented for use *"either as standalone drivers or with any BI or SQL tool"*.
+  > That is not a re-reading of the Athena page — it is a different page — so this bullet's rule is
+  > respected rather than broken. **The gate still stands; expect it to pass.**
+  > `transition_plan.md` §3.10.
+
   <details><summary>Why that draft was wrong, if you are tempted by the same two strings</summary>
 
   It read two strings as evidence that a *regular* workgroup might serve the portal and sidestep the
