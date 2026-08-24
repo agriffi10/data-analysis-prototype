@@ -491,6 +491,32 @@ execution role and the API Lambda role.
       control, on SPEC-149's and SPEC-157's precedent.
 - [ ] `iam:PassRole` names the three role ARNs explicitly and carries the `iam:PassedToService`
       condition. A `PassRole` on `"*"` is a defect.
+
+> **Corrected while building (2026-08-24), and both halves were measured rather than reasoned about.**
+>
+> **The two ACs above conflate two different reasons a grant carries `Resource: "*"`, and only one of
+> them can produce the evidence AC3 asks for.** *Non-scopable by IAM* means the service defines no
+> resource type for the action at all — `ec2:Describe*`, `elasticloadbalancing:Describe*`,
+> `ecr:GetAuthorizationToken`, `acm:RequestCertificate`/`ListCertificates`, `ecs:DescribeTaskDefinition`
+> /`DeregisterTaskDefinition`/`ListTaskDefinitions`, and the **eight** `logs:` delivery actions an HTTP
+> API stage needs for access logging. Those are the 38 that were run, and every one produced the pair.
+> *Scopable in principle but unknowable at plan* is the different case the EC2 **mutators** are in: an
+> EC2 ARN carries a generated id, so there is no name to match — but the action does accept an ARN, so
+> a wildcard-ARN simulate returns **`allowed`**, there is no `implicitDeny` leg, and the pair cannot
+> exist. They are therefore scoped by resource **type** (`vpc/*`, `subnet/*`, `route-table/*`, …)
+> rather than parked on `"*"`, which is strictly what AC2 asks for and is what AC3 could not have
+> expressed.
+>
+> **`iam:PassRole` names FOUR roles, not three, across THREE statements.** The fourth is the VPC
+> flow-logs delivery role — flow logs to CloudWatch are delivered *as* a role, and FR-008 takes flow
+> logs as a scoped fix rather than a disposition, so the role exists even though no resource list in
+> this spec names it. Three statements because a statement carries one condition block and the four
+> roles go to three different services; one `iam:PassedToService` listing all three would let the
+> flow-logs role be handed to ECS.
+>
+> **And the grants ship as TWO managed policies.** One document would not have fitted: the halves
+> measure **4,823** and **3,879** non-whitespace characters against a customer-managed policy's own
+> **6,144** limit. `aws_iam_policy.deploy_platform` keeps that name, because FR-008 AC5 names it.
 - [ ] No cross-module ARN reaches a list attribute except as a root-`locals` constructed string.
 - [ ] `Deploy Infrastructure` reaches green from a clean `main`, at worst on a second run whose first
       run failed only with `AccessDenied` on actions granted in the same apply.
@@ -701,8 +727,13 @@ FR-001 and FR-007 plans and applies green and fails at runtime.
 **What nothing offline can prove:** that the `cpcommon` layer attaches at cold start; that an ECR pull
 completes with no NAT (three endpoints, a security group, private DNS and the Fargate platform version
 must all be right, and every one of them applies green when wrong); that DNS validation completes in
-the zone the variable names; that a browser accepts the CORS response; and whether an action is
-genuinely non-scopable, which only `simulate-custom-policy` against the deployed role answers.
+the zone the variable names; and that a browser accepts the CORS response.
+
+> **One item was removed from that list while building (2026-08-24): scopability is answerable
+> offline.** `simulate-custom-policy` evaluates a policy **document** that is supplied to it, so it
+> needs `iam:SimulateCustomPolicy` and has no relationship with the deployed role — the 38 pairs were
+> produced on a laptop before a single line of the policy was written, which is what the word
+> "**before**" in FR-007 AC3 asks for. Nothing here waits on a deploy.
 
 **What is deliberately not claimed:** nothing here is evidence about session, auth, the real SPA, or
 any ported route. Production is still served by CloudFront and is untouched.
