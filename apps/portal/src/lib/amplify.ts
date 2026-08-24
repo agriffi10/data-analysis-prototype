@@ -1,42 +1,63 @@
 import {Amplify} from 'aws-amplify';
-
-// Cognito config comes from build-time VITE_ env vars.
-const userPoolId = import.meta.env.VITE_COGNITO_USER_POOL_ID as string | undefined;
-const userPoolClientId = import.meta.env.VITE_COGNITO_USER_POOL_CLIENT_ID as string | undefined;
-const domain = import.meta.env.VITE_COGNITO_DOMAIN as string | undefined;
-const appUrl = import.meta.env.VITE_APP_URL as string | undefined;
-// Identity Pool exchanges the User Pool token for scoped AWS credentials.
-// Optional: login works without it, but fetchAuthSession() yields no credentials
-// until it is set.
-const identityPoolId = import.meta.env.VITE_COGNITO_IDENTITY_POOL_ID as string | undefined;
+import {configValue} from './runtimeConfig';
 
 /**
- * True when all Cognito env vars required for login are set.
+ * True when every Cognito value login needs is configured.
  *
- * When any is missing, configuration is skipped rather than throwing — auth
- * features surface a config error while the rest of the app stays usable.
- * identityPoolId is not part of this gate; login does not require it.
+ * A FUNCTION, not a const: the values arrive with the runtime document, which the
+ * bootstrap fetches before anything renders. Captured at module load it would read an
+ * unloaded document — a throw in a production build, and the deployed names instead of
+ * the stubbed ones in a test.
+ *
+ * When any is missing, configuration is skipped rather than throwing — auth features
+ * surface a config error while the rest of the app stays usable. `cognitoIdentityPoolId`
+ * is not part of this gate; login does not require it.
+ *
+ * @returns Whether `configureAmplify` will configure anything.
  */
-export const isAmplifyConfigured = Boolean(userPoolId && userPoolClientId && domain && appUrl);
+export function isAmplifyConfigured(): boolean {
+  return Boolean(
+    configValue('cognitoUserPoolId') &&
+    configValue('cognitoUserPoolClientId') &&
+    configValue('cognitoDomain') &&
+    configValue('appUrl')
+  );
+}
 
-if (isAmplifyConfigured) {
-  // Amplify's Cognito config is a strict union — a single object literal matches
-  // cleanly, but an optional/ternary identityPoolId confuses inference (it demands
-  // a definite string). So we configure in two branches, each a clean literal.
+/**
+ * Configure Amplify from the runtime document.
+ *
+ * Called once by the bootstrap, after the document resolves and before the first render:
+ * a sign-in that begins against an unconfigured Amplify fails in a way a warm session
+ * never reproduces.
+ *
+ * @returns None.
+ */
+export function configureAmplify(): void {
+  if (!isAmplifyConfigured()) return;
+
+  const userPoolId = configValue('cognitoUserPoolId') as string;
+  const userPoolClientId = configValue('cognitoUserPoolClientId') as string;
+  const appUrl = configValue('appUrl') as string;
+  const identityPoolId = configValue('cognitoIdentityPoolId');
+
   const oauth = {
-    domain: domain!,
+    domain: configValue('cognitoDomain') as string,
     scopes: ['openid', 'email', 'profile'],
-    redirectSignIn: [appUrl!],
-    redirectSignOut: [appUrl!],
+    redirectSignIn: [appUrl],
+    redirectSignOut: [appUrl],
     responseType: 'code' as const
   };
 
+  // Amplify's Cognito config is a strict union — a single object literal matches
+  // cleanly, but an optional/ternary identityPoolId confuses inference (it demands
+  // a definite string). So we configure in two branches, each a clean literal.
   if (identityPoolId) {
     Amplify.configure({
       Auth: {
         Cognito: {
-          userPoolId: userPoolId!,
-          userPoolClientId: userPoolClientId!,
+          userPoolId,
+          userPoolClientId,
           identityPoolId,
           loginWith: {oauth}
         }
@@ -46,8 +67,8 @@ if (isAmplifyConfigured) {
     Amplify.configure({
       Auth: {
         Cognito: {
-          userPoolId: userPoolId!,
-          userPoolClientId: userPoolClientId!,
+          userPoolId,
+          userPoolClientId,
           loginWith: {oauth}
         }
       }

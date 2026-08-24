@@ -2,6 +2,8 @@ import {enqueueFifoRequest} from '../../lib/enqueueFifo';
 import {spaceDigest} from '../../lib/spaceDigest';
 import type {ServiceResult} from '../../types/service.types';
 import type {FileOpRequest, FileOpSpace} from './fileOps.types';
+import {configValue} from '../../lib/runtimeConfig';
+import {spaceBuckets} from '../../lib/userSpace';
 
 /**
  * The control plane's own caps, mirrored (`focommon/config.py`).
@@ -28,9 +30,8 @@ const FILE_OPS_MAX_SELECTION_BYTES = 64 * 1024;
  * bucket, because the verb resolves it server-side from the verified actor.
  */
 function spaceBucket(space: FileOpSpace): string {
-  const bucket =
-    space.kind === 'personal' ? import.meta.env.VITE_S3_USER_SPACE_BUCKET : import.meta.env.VITE_S3_SHARED_SPACE_BUCKET;
-  return (bucket as string | undefined) ?? '';
+  const {user, shared} = spaceBuckets();
+  return (space.kind === 'personal' ? user : shared) ?? '';
 }
 
 /**
@@ -56,9 +57,7 @@ export async function submitFileOperation(request: FileOpRequest): Promise<Servi
   }
 
   return enqueueFifoRequest<void>({
-    // Read at call time (not module load) so tests can stub the env — a module-level
-    // import.meta.env const is read before vi.stubEnv runs.
-    queueUrl: import.meta.env.VITE_FILE_OPS_QUEUE_URL as string | undefined,
+    queueUrl: configValue('fileOpsQueueUrl'),
     notConfiguredMessage: 'File operations are not configured',
     build: async (idToken) => ({
       body: {

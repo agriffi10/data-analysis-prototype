@@ -11,7 +11,7 @@ import type {AuthContextValue} from '../features/auth/auth.types';
 import {ToastProvider} from '../components/ToastProvider';
 import {authValue} from './authFixtures';
 import {FEATURE_FLAG_DEFAULTS, featureFlagKeys} from '../features/feature-flags';
-import {envVar} from '../lib/env';
+import {configValue} from '../lib/runtimeConfig';
 
 /**
  * QueryClient for tests: retries off (a mocked service rejection should fail the
@@ -74,7 +74,7 @@ function seedFlags(client: QueryClient): void {
   // asserted at first paint passed. Infinite gc/stale keeps the seed alive and stops the real
   // service being called behind it.
   client.setQueryDefaults(featureFlagKeys.all, {gcTime: Infinity, staleTime: Infinity});
-  client.setQueryData(featureFlagKeys.resolved(envVar('VITE_ENVIRONMENT')), FEATURE_FLAG_DEFAULTS);
+  client.setQueryData(featureFlagKeys.resolved(configValue('environment')), FEATURE_FLAG_DEFAULTS);
 }
 
 /**

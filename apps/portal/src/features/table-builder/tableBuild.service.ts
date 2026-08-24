@@ -3,6 +3,7 @@ import {CATALOG_IDENTIFIER_RE} from '../../lib/catalogIdentifier';
 import type {ServiceResult} from '../../types/service.types';
 import type {TableBuildRequest} from './tableBuild.types';
 import type {TableRefreshRequest} from './tableRefresh.types';
+import {configValue} from '../../lib/runtimeConfig';
 
 /**
  * Enqueue a create-table request onto the table-builder FIFO queue — the browser's
@@ -17,9 +18,7 @@ import type {TableRefreshRequest} from './tableRefresh.types';
 export async function enqueueTableBuild(req: TableBuildRequest): Promise<ServiceResult<void>> {
   const requestId = crypto.randomUUID();
   return enqueueFifoRequest<void>({
-    // Read at call time (not module load) so tests can stub the env — a module-level
-    // import.meta.env const is read before vi.stubEnv runs.
-    queueUrl: import.meta.env.VITE_TABLE_BUILD_QUEUE_URL as string | undefined,
+    queueUrl: configValue('tableBuildQueueUrl'),
     notConfiguredMessage: 'Table creation is not configured',
     build: (idToken) => ({
       // The body is built field by field, so a new request field is NOT forwarded by
@@ -54,7 +53,7 @@ export async function enqueueTableBuild(req: TableBuildRequest): Promise<Service
 export async function enqueueTableRefresh(req: TableRefreshRequest): Promise<ServiceResult<void>> {
   const requestId = crypto.randomUUID();
   return enqueueFifoRequest<void>({
-    queueUrl: import.meta.env.VITE_TABLE_BUILD_QUEUE_URL as string | undefined,
+    queueUrl: configValue('tableBuildQueueUrl'),
     notConfiguredMessage: 'Table refresh is not configured',
     build: (idToken) => ({
       body: {

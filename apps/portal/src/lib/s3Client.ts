@@ -1,5 +1,6 @@
 import {S3Client} from '@aws-sdk/client-s3';
 import {getSessionCredentials} from './awsCredentials';
+import {configValue} from './runtimeConfig';
 import type {ServiceResult} from '../types/service.types';
 
 // Gated at the READ, not in the consumer. Vite statically replaces
@@ -32,21 +33,28 @@ const REQUEST_HANDLER = {cache: 'no-store'} as const;
 
 /**
  * Dev-only anonymous/static client for the unauthenticated test-bucket path.
- * Omitting credentials sends unsigned requests (public buckets only).
+ *
+ * Built on demand, not at import: the region comes from the runtime document, which is
+ * not in hand until the bootstrap resolves it. Omitting credentials sends unsigned
+ * requests (public buckets only).
+ *
+ * @returns A client for the public test bucket.
  */
-export const s3Client = new S3Client({
-  region: import.meta.env.VITE_AWS_REGION,
-  ...CHECKSUM_OPTS,
-  requestHandler: REQUEST_HANDLER,
-  ...(import.meta.env.DEV && accessKeyId
-    ? {
-        credentials: {
-          accessKeyId,
-          secretAccessKey: import.meta.env.VITE_AWS_SECRET_ACCESS_KEY as string
+export function devS3Client(): S3Client {
+  return new S3Client({
+    region: configValue('awsRegion'),
+    ...CHECKSUM_OPTS,
+    requestHandler: REQUEST_HANDLER,
+    ...(import.meta.env.DEV && accessKeyId
+      ? {
+          credentials: {
+            accessKeyId,
+            secretAccessKey: import.meta.env.VITE_AWS_SECRET_ACCESS_KEY as string
+          }
         }
-      }
-    : {})
-});
+      : {})
+  });
+}
 
 /**
  * Builds an S3Client from the signed-in user's Identity Pool credentials — no
@@ -70,7 +78,7 @@ export async function getS3Client(forceRefresh = false): Promise<ServiceResult<S
   return {
     success: true,
     data: new S3Client({
-      region: import.meta.env.VITE_AWS_REGION,
+      region: configValue('awsRegion'),
       credentials: creds.data,
       ...CHECKSUM_OPTS,
       requestHandler: REQUEST_HANDLER

@@ -27,13 +27,13 @@ export type FifoMessage<T> = {
  * and maps any failure through `toServiceError`. The browser's only write to these
  * queues; success means *enqueued*, not processed.
  *
- * @param queueUrl - The `VITE_*_QUEUE_URL` value, read at call time (may be undefined).
+ * @param queueUrl - The queue's configured URL, read at call time (may be undefined).
  * @param notConfiguredMessage - User-safe error when the queue URL is unset.
  * @param build - Given the verified ID token, returns the body + FIFO keys + success data.
  *
  * @example
  * return enqueueFifoRequest({
- *   queueUrl: import.meta.env.VITE_TABLE_BUILD_QUEUE_URL as string | undefined,
+ *   queueUrl: configValue('tableBuildQueueUrl'),
  *   notConfiguredMessage: 'Table creation is not configured',
  *   build: (idToken) => ({body: {idToken, ...}, messageGroupId: db, deduplicationId: id, data: undefined}),
  * });

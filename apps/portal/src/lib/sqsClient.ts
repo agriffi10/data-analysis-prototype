@@ -1,6 +1,7 @@
 import {SQSClient} from '@aws-sdk/client-sqs';
 import {getSessionCredentials} from './awsCredentials';
 import type {ServiceResult} from '../types/service.types';
+import {configValue} from './runtimeConfig';
 
 /**
  * Builds an SQSClient from the signed-in user's Identity Pool credentials.
@@ -17,7 +18,7 @@ export async function getSqsClient(forceRefresh = false): Promise<ServiceResult<
   return {
     success: true,
     data: new SQSClient({
-      region: import.meta.env.VITE_AWS_REGION,
+      region: configValue('awsRegion'),
       credentials: creds.data
     })
   };

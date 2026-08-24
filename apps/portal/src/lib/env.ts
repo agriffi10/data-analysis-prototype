@@ -1,86 +1,61 @@
 /**
- * The `VITE_*` surface, in one place.
+ * The `VITE_*` surface, and the only place it survives.
  *
- * Vite inlines `import.meta.env.VITE_*` as a literal at build time, so a variable that
- * was not set when the bundle was built is `undefined` forever — the failure surfaces
- * far from its cause, as a generic SDK error about a bucket named "undefined". This
- * module names the set, classifies it, and (in dev) says so out loud at boot.
+ * A deployed portal reads `/config.json`; these variables are what answers a
+ * `configValue` call in a dev build, where nothing renders that document. Every
+ * reference below sits behind an `import.meta.env.DEV` branch at its call site, so a
+ * production build deletes these tables outright — which is what stops one environment's
+ * values being inlined into an artifact promoted to another.
  *
  * EVERY READ IS AT CALL TIME, never at module load: a module-level const captures the
  * value before `vi.stubEnv` runs, so a test would silently exercise the deployed names
- * instead of its own. That is why `isPortalConfigured` is a function where
- * `lib/amplify.ts`'s `isAmplifyConfigured` is a const — Amplify configures itself at
- * import, this does not.
+ * instead of its own.
  */
+import {REQUIRED_CONFIG} from '../types/runtimeConfig.types';
 import type {RuntimeConfigKey} from '../types/runtimeConfig.types';
 
 /**
- * Variables the portal cannot work at all without: the region every SDK client needs,
- * the four Cognito values that make sign-in possible, and the bucket every read and
- * write targets.
+ * Which `VITE_*` variable stands in for each runtime-configuration key, in a dev build.
  *
- * The queue URLs are NOT here — each enqueue path degrades on its own through
- * `enqueueFifo`'s `notConfiguredMessage`, which disables one feature rather than the
- * app. Nor is the shared-space bucket (a user may belong to no shared space), nor
- * `VITE_COGNITO_IDENTITY_POOL_ID` (sign-in works without it; only credentials don't),
- * which is the same line `isAmplifyConfigured` draws. The test for membership is
- * whether SOMETHING catches its absence and says so — not whether the app is useful
- * without it.
- */
-export const REQUIRED_ENV = [
-  'VITE_AWS_REGION',
-  'VITE_COGNITO_USER_POOL_ID',
-  'VITE_COGNITO_USER_POOL_CLIENT_ID',
-  'VITE_COGNITO_DOMAIN',
-  'VITE_APP_URL',
-  'VITE_S3_USER_SPACE_BUCKET',
-  // Required because it has NO degraded path: `query.service.ts` passes it straight to
-  // Athena, and an unset workgroup silently falls back to the account default — which
-  // the portal role cannot use, so every query fails with a raw AccessDenied. That is
-  // exactly the far-from-its-cause failure this module exists to name.
-  'VITE_ATHENA_WORKGROUP'
-] as const;
-
-/** Set in a working deployment, but each with its own degraded path when absent. */
-export const OPTIONAL_ENV = [
-  // Which block of the feature-flag document this build resolves. Optional
-  // because its degraded path is total: an unset value resolves to the document's own
-  // `defaults` and still reports 'ready'. Nothing is unavailable without it, so it fails
-  // the REQUIRED_ENV membership test above — but a build that ships it unset silently
-  // ignores every per-environment override, which is why the flags feature owes a live
-  // check that reads 'ready' rather than merely looking right.
-  'VITE_ENVIRONMENT',
-  'VITE_COGNITO_IDENTITY_POOL_ID',
-  'VITE_S3_SHARED_SPACE_BUCKET',
-  'VITE_MAX_UPLOAD_BYTES',
-  'VITE_SHARED_SPACE_QUEUE_URL',
-  'VITE_NOTIFICATIONS_QUEUE_URL',
-  'VITE_TABLE_BUILD_QUEUE_URL',
-  'VITE_TABLE_SHARE_QUEUE_URL',
-  'VITE_DATA_QUALITY_QUEUE_URL',
-  'VITE_FILE_SEND_QUEUE_URL',
-  'VITE_ARCHIVE_QUEUE_URL',
-  'VITE_FILE_OPS_QUEUE_URL'
-] as const;
-
-export type RequiredEnvVar = (typeof REQUIRED_ENV)[number];
-export type OptionalEnvVar = (typeof OPTIONAL_ENV)[number];
-export type PortalEnvVar = RequiredEnvVar | OptionalEnvVar;
-
-/**
- * One typed read of one `VITE_*` variable. An empty string reads as unset — an unset
- * GitHub repository variable interpolates to `""` in the build, which is the deploy
- * mistake this whole module exists to name.
+ * `null` means the key has no dev fallback at all: nothing in the browser reads
+ * `apiBaseUrl` yet, and a variable nobody reads is dead weight in every `.env` file.
+ * The document is its only source.
  *
- * The dev-unauth variables are deliberately absent from `PortalEnvVar`: they are read
- * behind an `import.meta.env.DEV` guard at their own call sites, and the bypass
- * guard asserts that the set of modules naming that flag is exactly those sites — so
- * this module must not name it either.
+ * `satisfies` rather than an annotation, so this is the SINGLE list of variable names —
+ * `PortalEnvVar` is derived from it below, and `readEnv`'s table is then exhaustive
+ * against it by the compiler. Two tables are unavoidable (see `readEnv`), but two lists
+ * of names are not.
+ *
+ * The dev-unauth variables are deliberately absent: they are read behind an
+ * `import.meta.env.DEV` guard at their own call sites, and a sweep asserts that the set
+ * of modules naming those flags is exactly those sites — so this module must not name
+ * them either.
  */
-export function envVar(name: PortalEnvVar): string | undefined {
-  const value = readEnv()[name];
-  return value === '' ? undefined : value;
-}
+export const VITE_NAME = {
+  appUrl: 'VITE_APP_URL',
+  awsRegion: 'VITE_AWS_REGION',
+  userSpaceBucket: 'VITE_S3_USER_SPACE_BUCKET',
+  athenaWorkgroup: 'VITE_ATHENA_WORKGROUP',
+  cognitoUserPoolId: 'VITE_COGNITO_USER_POOL_ID',
+  cognitoUserPoolClientId: 'VITE_COGNITO_USER_POOL_CLIENT_ID',
+  cognitoDomain: 'VITE_COGNITO_DOMAIN',
+  apiBaseUrl: null,
+  environment: 'VITE_ENVIRONMENT',
+  maxUploadBytes: 'VITE_MAX_UPLOAD_BYTES',
+  sharedSpaceBucket: 'VITE_S3_SHARED_SPACE_BUCKET',
+  cognitoIdentityPoolId: 'VITE_COGNITO_IDENTITY_POOL_ID',
+  sharedSpaceQueueUrl: 'VITE_SHARED_SPACE_QUEUE_URL',
+  notificationsQueueUrl: 'VITE_NOTIFICATIONS_QUEUE_URL',
+  tableBuildQueueUrl: 'VITE_TABLE_BUILD_QUEUE_URL',
+  tableShareQueueUrl: 'VITE_TABLE_SHARE_QUEUE_URL',
+  dataQualityQueueUrl: 'VITE_DATA_QUALITY_QUEUE_URL',
+  fileSendQueueUrl: 'VITE_FILE_SEND_QUEUE_URL',
+  archiveQueueUrl: 'VITE_ARCHIVE_QUEUE_URL',
+  fileOpsQueueUrl: 'VITE_FILE_OPS_QUEUE_URL'
+} as const satisfies Record<RuntimeConfigKey, string | null>;
+
+/** Every variable a dev fallback can read, derived from the table above. */
+export type PortalEnvVar = Exclude<(typeof VITE_NAME)[RuntimeConfigKey], null>;
 
 /**
  * Every read here is a LITERAL `import.meta.env.VITE_X` member expression, and that is
@@ -121,51 +96,19 @@ function readEnv(): Record<PortalEnvVar, string | undefined> {
 }
 
 /**
- * Which `VITE_*` variable stands in for each runtime-configuration key, in a dev build.
- *
- * `null` means the key has no dev fallback at all: nothing in the browser reads
- * `apiBaseUrl` yet, and a variable nobody reads is dead weight in every `.env` file.
- * The document is the only source for it.
- *
- * Two tables rather than one because Vite can only substitute a LITERAL member
- * expression (see `readEnv`), so the variable name has to appear once as an expression
- * and once as a string. Both are `Record<RuntimeConfigKey, …>`, so the compiler makes
- * them exhaustive and extra-free; that a key is paired with the RIGHT variable is
- * proved by test, one unique stub per key.
- */
-export const VITE_NAME: Record<RuntimeConfigKey, PortalEnvVar | null> = {
-  appUrl: 'VITE_APP_URL',
-  awsRegion: 'VITE_AWS_REGION',
-  userSpaceBucket: 'VITE_S3_USER_SPACE_BUCKET',
-  athenaWorkgroup: 'VITE_ATHENA_WORKGROUP',
-  cognitoUserPoolId: 'VITE_COGNITO_USER_POOL_ID',
-  cognitoUserPoolClientId: 'VITE_COGNITO_USER_POOL_CLIENT_ID',
-  cognitoDomain: 'VITE_COGNITO_DOMAIN',
-  apiBaseUrl: null,
-  environment: 'VITE_ENVIRONMENT',
-  maxUploadBytes: 'VITE_MAX_UPLOAD_BYTES',
-  sharedSpaceBucket: 'VITE_S3_SHARED_SPACE_BUCKET',
-  cognitoIdentityPoolId: 'VITE_COGNITO_IDENTITY_POOL_ID',
-  sharedSpaceQueueUrl: 'VITE_SHARED_SPACE_QUEUE_URL',
-  notificationsQueueUrl: 'VITE_NOTIFICATIONS_QUEUE_URL',
-  tableBuildQueueUrl: 'VITE_TABLE_BUILD_QUEUE_URL',
-  tableShareQueueUrl: 'VITE_TABLE_SHARE_QUEUE_URL',
-  dataQualityQueueUrl: 'VITE_DATA_QUALITY_QUEUE_URL',
-  fileSendQueueUrl: 'VITE_FILE_SEND_QUEUE_URL',
-  archiveQueueUrl: 'VITE_ARCHIVE_QUEUE_URL',
-  fileOpsQueueUrl: 'VITE_FILE_OPS_QUEUE_URL'
-};
-
-/**
  * One configuration key's value from the local `.env`, for a dev build only.
  *
  * A container renders the runtime document from its task environment; a laptop has no
  * container, so `npm run dev` and the test suite answer from `import.meta.env` instead.
  * EVERY CALLER MUST GATE THIS ON `import.meta.env.DEV` AT THE CALL SITE — not inside,
  * and not in the consumer beyond. That gate is what lets the bundler delete this
- * function and `VITE_NAME` from a production build — and `readEnv` with them, once
- * `envVar` has no callers left. Their deletion is what a production bundle's freedom
- * from build-time configuration rests on.
+ * function, `readEnv` and `VITE_NAME` from a production build, and their deletion is
+ * what a production bundle's freedom from build-time configuration rests on.
+ *
+ * An empty string reads as unset: an unset repository variable interpolates to `""`.
+ *
+ * @param key - The configuration key to answer.
+ * @returns The local value, or `undefined` when it is unset or the key has no variable.
  */
 export function devFallbackValue(key: RuntimeConfigKey): string | undefined {
   const name = VITE_NAME[key];
@@ -174,27 +117,18 @@ export function devFallbackValue(key: RuntimeConfigKey): string | undefined {
   return value === '' ? undefined : value;
 }
 
-/** Which required variables are missing right now — empty when the portal is configured. */
-export function missingRequiredEnv(): RequiredEnvVar[] {
-  return REQUIRED_ENV.filter((name) => envVar(name) === undefined);
-}
-
-/** True when every `REQUIRED_ENV` variable is set. */
-export function isPortalConfigured(): boolean {
-  return missingRequiredEnv().length === 0;
-}
-
 /**
  * Name the missing variables at boot, in dev only.
  *
- * Production stays silent on purpose: the deployed app must not print its own
- * configuration to a user's console, and the place a missing variable is actually
- * caught in production is the deploy workflow's build env (the `VITE_*` gotcha the
- * `.env.example` notes call out per queue).
+ * Driven by the runtime classification rather than a list of its own, so a key that
+ * becomes required stays covered here. Production has its own hard failure and prints
+ * nothing but the key names.
+ *
+ * @returns None.
  */
 export function warnIfMisconfigured(): void {
   if (!import.meta.env.DEV) return;
-  const missing = missingRequiredEnv();
+  const missing = REQUIRED_CONFIG.filter((key) => devFallbackValue(key) === undefined).map((key) => VITE_NAME[key]);
   if (missing.length > 0) {
     console.warn(`[env] missing required variables: ${missing.join(', ')} — see apps/portal/.env.example`);
   }

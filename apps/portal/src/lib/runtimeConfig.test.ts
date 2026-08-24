@@ -2,6 +2,9 @@ import {readFileSync} from 'node:fs';
 import {describe, it, expect, vi, afterEach} from 'vitest';
 import {configValue, isPortalConfigured, loadRuntimeConfig} from './runtimeConfig';
 import {VITE_NAME} from './env';
+import {isAmplifyConfigured} from './amplify';
+import {devS3Client} from './s3Client';
+import {maxUploadBytes} from '../features/file-browser/uploadLimits';
 import {clearRuntimeConfig, seedRuntimeConfig} from '../test/seedRuntimeConfig';
 import {OPTIONAL_CONFIG, REQUIRED_CONFIG} from '../types/runtimeConfig.types';
 import type {RuntimeConfigKey} from '../types/runtimeConfig.types';
@@ -246,6 +249,53 @@ describe('runtimeConfig — nothing bakes a document into the image', () => {
     // nothing, forever.
     expect(Object.keys(published).length).toBeGreaterThan(0);
     expect(Object.keys(published).filter((path) => path.endsWith('/config.json'))).toEqual([]);
+  });
+});
+
+describe('runtimeConfig — the accessor is the only door', () => {
+  const SOURCES = import.meta.glob('../**/*.{ts,tsx}', {
+    query: '?raw',
+    import: 'default',
+    eager: true
+  }) as Record<string, string>;
+
+  /**
+   * The only modules that may still name a `VITE_*` variable.
+   *
+   * `lib/env.ts` IS the dev fallback. The other four read the dev-unauth variables
+   * behind their own `import.meta.env.DEV` guards, which the bypass guard in
+   * `support.test.ts` asserts separately — a DIFFERENT set from this one, and both are
+   * needed: that guard pins three modules against one flag, this pins five against every
+   * variable.
+   */
+  const ALLOWED = [
+    './env.ts',
+    './s3Client.ts',
+    '../components/ProtectedLayout.tsx',
+    '../routes/FilesPage.tsx',
+    '../features/file-browser/fileBrowser.service.ts'
+  ];
+
+  it('leaves no production module reading import.meta.env.VITE_ outside those five', () => {
+    // Fails if the set GROWS. A read added anywhere else works perfectly in dev — the
+    // fallback answers — and is baked into the artifact in production, which is the whole
+    // property this spec exists to establish.
+    const readers = Object.entries(SOURCES)
+      .filter(([path]) => !path.includes('.test.') && !path.includes('/test/'))
+      .filter(([, source]) => /import\.meta\.env\.VITE_/.test(String(source)))
+      .map(([path]) => path);
+
+    expect(Object.keys(SOURCES).length).toBeGreaterThan(0);
+    expect(readers.sort()).toEqual([...ALLOWED].sort());
+  });
+
+  it('exports the three converted reads as functions, not captured values', () => {
+    // Each was a module-scope const. As a const the value is captured before the document
+    // is in hand — a throw in production, and in a test the deployed name rather than the
+    // stubbed one. A later re-collapse is a failing test here rather than a boot failure.
+    expect(typeof isAmplifyConfigured).toBe('function');
+    expect(typeof devS3Client).toBe('function');
+    expect(typeof maxUploadBytes).toBe('function');
   });
 });
 

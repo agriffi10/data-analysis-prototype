@@ -1,6 +1,7 @@
 import {enqueueFifoRequest} from '../../lib/enqueueFifo';
 import type {ServiceResult} from '../../types/service.types';
 import type {TableShareRequest} from './tableShare.types';
+import {configValue} from '../../lib/runtimeConfig';
 
 /** Dedup window: double-submits of the identical request inside one bucket collapse. */
 const DEDUP_BUCKET_MS = 60_000;
@@ -32,9 +33,7 @@ async function dedupId(token: string, req: TableShareRequest): Promise<string> {
  */
 export async function enqueueTableShare(req: TableShareRequest): Promise<ServiceResult<void>> {
   return enqueueFifoRequest<void>({
-    // Read at call time (not module load) so tests can stub the env — a module-level
-    // import.meta.env const is read before vi.stubEnv runs.
-    queueUrl: import.meta.env.VITE_TABLE_SHARE_QUEUE_URL as string | undefined,
+    queueUrl: configValue('tableShareQueueUrl'),
     notConfiguredMessage: 'Table sharing is not configured',
     build: async (idToken) => ({
       body: {

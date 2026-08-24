@@ -66,6 +66,14 @@ jobs:
         working-directory: apps/portal
         run: npm run build
 
+      # The build's own assertion, and it can only run against a built bundle — so it
+      # rides here rather than in the suite, where a missing dist/ would have to be a
+      # skip, and a skip reads as a pass. It proves the dev fallback was eliminated;
+      # the call sites are guarded by a `?raw` sweep inside the suite.
+      - name: Assert the production bundle carries no VITE_ names
+        working-directory: apps/portal
+        run: npm run check:bundle
+
       - name: Test
         working-directory: apps/portal
         run: npm run test:coverage

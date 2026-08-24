@@ -30,7 +30,11 @@ export default defineConfig({
         'src/**/*.d.ts',
         'src/test/**',
         'src/test-setup.ts',
-        'src/main.tsx'
+        // The bootstrap, in two files only because the dynamic-import boundary forces
+        // the split. Both are composition; their ORDER and REACH are what matters, and
+        // `src/bootstrap.test.tsx` asserts those directly.
+        'src/main.tsx',
+        'src/AppRoot.tsx'
       ],
       reporter: ['text', 'text-summary', 'html', 'lcov'],
       // RATCHETS AT THE MEASURED LEVEL, NOT TARGETS. Each is today's measured

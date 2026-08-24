@@ -15,7 +15,7 @@
  * fallback arm; production reads the document or fails to boot, so a missing value can
  * never reach a caller as `undefined`.
  */
-import {devFallbackValue} from './env';
+import {devFallbackValue, warnIfMisconfigured} from './env';
 import {REQUIRED_CONFIG} from '../types/runtimeConfig.types';
 import type {
   RequiredConfigKey,
@@ -23,6 +23,13 @@ import type {
   RuntimeConfigKey,
   RuntimeConfigLoad
 } from '../types/runtimeConfig.types';
+
+/**
+ * Re-exported so `main.tsx` reaches it without a sixth static import — the bootstrap's
+ * import list is pinned by a sweep, and `lib/env.ts` is already in its graph as this
+ * module's own fallback, so this adds nothing to what evaluates before the load.
+ */
+export {warnIfMisconfigured};
 
 /** Where the document is served from. Same-origin, and never proxied to the API. */
 const CONFIG_URL = '/config.json';

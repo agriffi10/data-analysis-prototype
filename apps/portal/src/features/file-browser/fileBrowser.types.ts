@@ -62,11 +62,6 @@ export type ObjectMetadata = {
 export const MULTIPART_PART_SIZE = 5 * 1024 * 1024; // 5 MiB
 export const PART_CONCURRENCY = 4;
 
-// Overall per-file ceiling, default 5 GiB, overridable via env.
-const DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
-const envMax = Number(import.meta.env.VITE_MAX_UPLOAD_BYTES);
-export const MAX_UPLOAD_BYTES = Number.isFinite(envMax) && envMax > 0 ? envMax : DEFAULT_MAX_UPLOAD_BYTES;
-
 /**
  * One failed item in a bulk operation. `key` is the S3 key or prefix that failed —
  * the RAW path, not a label, so the render site owns how much of it to show.

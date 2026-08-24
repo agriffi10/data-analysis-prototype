@@ -3,7 +3,7 @@ import {useQueryClient} from '@tanstack/react-query';
 import {invalidateListing} from './invalidateListing';
 import {toUserText} from '../../lib/errorMessages';
 import {uploadFile} from './fileBrowser.service';
-import {MAX_UPLOAD_BYTES} from './fileBrowser.types';
+import {maxUploadBytes} from './uploadLimits';
 import {UPLOAD_CONCURRENCY, type UploadItem} from './upload.types';
 import {
   UploadQueueContext,
@@ -112,7 +112,7 @@ export function UploadQueueProvider({children}: {children: ReactNode}) {
   const enqueue = useCallback((files: File[], dest: UploadDestination) => {
     const entries: NewUploadEntry[] = files.map((file) => {
       const key = dest.prefix + file.name;
-      if (file.size > MAX_UPLOAD_BYTES) {
+      if (file.size > maxUploadBytes()) {
         return {
           file,
           bucket: dest.bucket,

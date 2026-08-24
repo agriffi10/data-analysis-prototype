@@ -75,6 +75,18 @@ const CODE_RULES: readonly ErrorRule[] = [
   // documented deploy gotcha presented as "Something went wrong."
   {code: 'NotConfigured', userFixable: false, passthrough: true},
 
+  // Trigger: the runtime configuration document was missing, unreadable, of an
+  // unsupported version or incomplete, so the app refused to start. NOT passthrough,
+  // unlike the rule above: the loader returns a machine reason, and what a user needs is
+  // one sentence that does not name a key, a value or a URL. The operator's diagnostic is
+  // the single console line the boot failure writes.
+  {
+    code: 'RuntimeConfigUnavailable',
+    title: 'The portal could not start',
+    message: `The portal is not configured correctly. ${CONTACT_ADMIN}`,
+    userFixable: false
+  },
+
   // Trigger: a send whose selection exceeds the file-send plane's caps, refused by
   // the producer before it reaches SQS. Passthrough for the same reason as the rule above —
   // the sentence is authored by our own service layer and embeds no AWS text. It is genuinely

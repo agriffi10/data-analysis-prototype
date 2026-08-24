@@ -1,6 +1,6 @@
 import {useEffect} from 'react';
 import {useQuery} from '@tanstack/react-query';
-import {envVar} from '../../lib/env';
+import {configValue} from '../../lib/runtimeConfig';
 import {unwrap} from '../../lib/serviceResult';
 import {useAuth} from '../auth';
 import {featureFlagKeys} from './featureFlagKeys';
@@ -36,7 +36,7 @@ export type UseFeatureFlagsResult = {
  */
 export function useFeatureFlags(): UseFeatureFlagsResult {
   const {status: authStatus, user} = useAuth();
-  const environment = envVar('VITE_ENVIRONMENT');
+  const environment = configValue('environment');
   // The document is bucket-wide, so nothing about the session changes what is fetched — but
   // reading it still needs credentials, and a fetch issued before there are any is a
   // guaranteed failure that would land the flags in 'fallback' for the session.
