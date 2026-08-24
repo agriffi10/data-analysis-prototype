@@ -189,11 +189,12 @@ data "aws_cloudfront_cache_policy" "caching_optimized" {
 # The runtime configuration document must never be answered from an edge cache.
 #
 # CachingOptimized cannot express that. Its MinTTL is 1 second, and CloudFront applies
-# the MinTTL EVEN WHEN the origin sends `no-store`; worse, an object that ever reaches
-# the edge without a `Cache-Control` header takes the 24-hour DefaultTTL, and its
-# 365-day MaxTTL means an unreachable origin keeps serving the last document it saw.
-# Any of those serves one environment's account ids to another environment's users, as
-# a portal that looks entirely healthy.
+# the MinTTL EVEN WHEN the origin sends `no-store` — so the header alone never gets to
+# zero. The larger numbers bite only if the object ever reaches the edge WITHOUT a
+# Cache-Control header, which is one forgotten flag away: the 24-hour DefaultTTL then
+# applies, and the 365-day MaxTTL lets an unreachable origin keep serving the last
+# document it saw. Any of those serves one environment's account ids to another
+# environment's users, as a portal that looks entirely healthy.
 #
 # 0/0/0 makes the guarantee a property of the distribution instead of a flag on one
 # upload step.

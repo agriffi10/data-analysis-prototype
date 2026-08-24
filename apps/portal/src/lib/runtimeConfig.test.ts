@@ -128,8 +128,13 @@ describe('runtimeConfig — a production load that fails', () => {
     expect(await load()).toEqual({ok: false, reason: 'unparseable'});
   });
 
-  it('reports unparseable for JSON that is not an object', async () => {
-    respondWith('[]');
+  it.each([
+    ['an array', '[]'],
+    ['a bare number', '42'],
+    ['a bare string', '"config"'],
+    ['null', 'null']
+  ])('reports unparseable for JSON that is %s', async (_shape, payload) => {
+    respondWith(payload);
     const {loadRuntimeConfig: load} = await productionModule();
 
     expect(await load()).toEqual({ok: false, reason: 'unparseable'});
@@ -146,7 +151,7 @@ describe('runtimeConfig — a production load that fails', () => {
 
   it('names every missing required key', async () => {
     respondWith(JSON.stringify({version: 1, ...withoutKeys('userSpaceBucket', 'athenaWorkgroup')}));
-    const {loadRuntimeConfig: load} = await productionModule();
+    const {loadRuntimeConfig: load, configValue: read} = await productionModule();
 
     const result = await load();
 
@@ -155,6 +160,10 @@ describe('runtimeConfig — a production load that fails', () => {
       reason: 'missing-required',
       missing: ['userSpaceBucket', 'athenaWorkgroup']
     });
+    // AND THE KEYS IT DID CARRY ARE NOT SERVED. Left installed, an incomplete document
+    // answers `undefined` for the missing ones — the bucket-named-undefined failure, on
+    // the one path where the deployment is already known to be misconfigured.
+    expect(() => read('appUrl')).toThrow(/before \/config\.json was loaded/);
   });
 
   it('boots with every optional key absent', async () => {
@@ -225,10 +234,12 @@ describe('runtimeConfig — the dev fallback', () => {
 });
 
 describe('runtimeConfig — nothing bakes a document into the image', () => {
-  it('has no committed public/config.json', () => {
-    // Files in public/ are copied verbatim into dist/, so a committed one would be built
-    // into the image and served in preference to the rendered document — a build-time
-    // configuration wearing the runtime mechanism's clothes.
+  it('has no config.json in public/', () => {
+    // Files in public/ are copied verbatim into dist/, so one here is built into the
+    // image and served in preference to the rendered document — a build-time
+    // configuration wearing the runtime mechanism's clothes. Checked on disk rather than
+    // against git, so a locally created one reddens this too: it is gitignored, but a
+    // local build would still bake it in.
     const published = import.meta.glob('../../public/**', {query: '?raw', import: 'default', eager: true});
 
     // Asserted non-empty first: a glob that matches nothing would pass this by finding
@@ -360,6 +371,16 @@ describe('runtimeConfig — every key has a source in every environment', () => 
       }
       expect(renderSource.get(key)).toBe(buildSource.get(viteName));
     }
+  });
+
+  it('renders exactly the keys this build classifies, and no same-prefixed stray', () => {
+    // The step names its own allowed set rather than publishing whatever `CONFIG_*`
+    // variable the runner happens to carry — into a world-readable document. That list
+    // is the one thing standing between a stray and a disclosure, so it is pinned here.
+    const render = stepBody('Render the runtime configuration document');
+    const declared = /KEYS='([^']+)'/.exec(render)?.[1]?.split(' ') ?? [];
+
+    expect(declared.slice().sort()).toEqual([...ALL_KEYS].sort());
   });
 
   it('refuses to publish a document missing exactly the keys this build calls required', () => {

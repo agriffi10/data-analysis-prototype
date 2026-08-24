@@ -15,7 +15,7 @@
  * fallback arm; production reads the document or fails to boot, so a missing value can
  * never reach a caller as `undefined`.
  */
-import {devFallbackValue, warnIfMisconfigured} from './env';
+import {devFallbackValue} from './env';
 import {REQUIRED_CONFIG} from '../types/runtimeConfig.types';
 import type {
   RequiredConfigKey,
@@ -23,8 +23,6 @@ import type {
   RuntimeConfigKey,
   RuntimeConfigLoad
 } from '../types/runtimeConfig.types';
-
-export {warnIfMisconfigured};
 
 /** Where the document is served from. Same-origin, and never proxied to the API. */
 const CONFIG_URL = '/config.json';
@@ -126,6 +124,9 @@ function install(body: unknown): RuntimeConfigLoad {
   loaded = candidate;
   const missing = missingRequiredConfig();
   if (missing.length > 0) {
+    // Uninstalled again, so an incomplete document serves NOTHING. Left in place, the
+    // keys it did carry would answer while the missing ones read `undefined` — a
+    // half-configured app, on the one path already known to be misconfigured.
     loaded = undefined;
     return {ok: false, reason: 'missing-required', missing};
   }

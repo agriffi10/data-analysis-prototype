@@ -478,6 +478,22 @@ SPEC-194.
       classification in `lib/runtimeConfig.ts`, `.env.example` itself, the GitHub repository
       variable, and — from SPEC-193 — the ECS task definition. Four exist today; SPEC-193 adds the
       fifth and re-points this test at it.
+- [ ] **The distribution gets a cache behaviour for `config.json` (`Managed-CachingDisabled`),
+      carrying the response-headers policy explicitly.** Added during implementation, and it
+      qualifies the Out of Scope line above: this spec still creates no *new resource type*, but
+      the `no-store` header alone cannot deliver FR-001 AC5 on the interim static site.
+      `Managed-CachingOptimized` applies its **1 s MinTTL even when the origin sends `no-store`**,
+      and an object that ever reaches the edge without a `Cache-Control` header takes the
+      **24-hour DefaultTTL** — one environment's account ids served to another's users, as a
+      portal that looks entirely healthy. `response_headers_policy_id` is **per-behaviour and not
+      inherited**, so omitting it would serve the document with no CSP, no HSTS and no `Server`
+      stripping. No deploy-role IAM change: `cloudfront:GetCachePolicy` and `ListCachePolicies`
+      are already granted.
+- [ ] The consequence for Phase 5: the **`no-store` negative control is withdrawn**, because after
+      this behaviour lands the edge caches nothing whether or not the object carries the header,
+      and the loader's own `cache: 'no-store'` stops the browser either way. The header is verified
+      by a **direct read**; edge freshness is a property of the cache policy. A check that cannot
+      redden is not a check.
 - [ ] A live check (Phase 5) proves the promotion property: change one repository variable, re-run
       Deploy App with **no source change**, and read the new value from `GET /config.json` on the
       first request. A cached response returning the old value fails this criterion, and is the only
@@ -645,10 +661,13 @@ are real invocations against the deployed app, as a new section of
   cheapest, being visibly enforced client-side — re-run Deploy App with no source change, and read
   the new value back on the **first** `GET /config.json`. A stale value here is the failure this
   whole spec exists to prevent, and it is invisible from the UI.
-- **The `no-store` negative control.** Reload twice and confirm the second request reaches the origin
-  (`x-cache: Miss from cloudfront`, or the equivalent once SPEC-194 lands). SPEC-141 records that
-  this distribution answers a *deleted* asset with a **200** carrying `index.html`, so a status code
-  proves nothing here — check `content-type` and `x-cache`.
+- **The `no-store` header, read directly** — not inferred from a reload. > **SUPERSEDED during
+  implementation:** this was a *negative control* (reload twice, expect the second request to reach
+  the origin). FR-008's `CachingDisabled` behaviour makes the edge cache nothing either way, so no
+  observation distinguishes a present from a missing origin header. Read the header off the
+  response; edge freshness is guaranteed by the cache policy. SPEC-141 records that this
+  distribution answers a *deleted* asset with a **200** carrying `index.html`, so a status code
+  still proves nothing here — check `content-type` too.
 - **The hard-failure path, staged deliberately.** Publish a `config.json` with `userSpaceBucket`
   removed, load the app, and confirm: `BootFailure` renders, no route mounts, the console names the
   key, and **no value from the document appears in the console**. Then restore it. This is the only

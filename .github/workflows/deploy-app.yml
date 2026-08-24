@@ -102,15 +102,30 @@ jobs:
           CONFIG_archiveQueueUrl: ${{ vars.VITE_ARCHIVE_QUEUE_URL }}
           CONFIG_fileOpsQueueUrl: ${{ vars.VITE_FILE_OPS_QUEUE_URL }}
         run: |
-          jq -n '{version: 1} + ($ENV
-            | with_entries(select(.key | startswith("CONFIG_")))
-            | with_entries(.key |= sub("^CONFIG_"; "")))' > "$RUNNER_TEMP/config.json"
+          # The keys the document may carry, named rather than taken from whatever the
+          # runner happens to have. A bare `startswith("CONFIG_")` scoop publishes any
+          # same-prefixed variable a workflow-level env, a composite action or a
+          # self-hosted runner introduces — into a world-readable document. Both lists
+          # below are asserted against the classification by test.
+          KEYS='apiBaseUrl appUrl awsRegion environment maxUploadBytes cognitoUserPoolId cognitoUserPoolClientId cognitoDomain cognitoIdentityPoolId userSpaceBucket sharedSpaceBucket athenaWorkgroup sharedSpaceQueueUrl notificationsQueueUrl tableBuildQueueUrl tableShareQueueUrl dataQualityQueueUrl fileSendQueueUrl archiveQueueUrl fileOpsQueueUrl'
+          REQUIRED='appUrl awsRegion userSpaceBucket athenaWorkgroup cognitoUserPoolId cognitoUserPoolClientId cognitoDomain'
+
+          jq -n --arg keys "$KEYS" '($keys | split(" ")) as $allowed
+            | {version: 1} + ($ENV
+              | with_entries(select(.key | startswith("CONFIG_")))
+              | with_entries(.key |= sub("^CONFIG_"; ""))
+              | with_entries(select(.key as $k | $allowed | index($k))))' > "$RUNNER_TEMP/config.json"
+
+          # The rendering itself, not just the env block above: an edit to the filter that
+          # drops an OPTIONAL key would ship a document without it, past every other check
+          # here, and present as one feature quietly unconfigured.
+          jq -e --arg keys "$KEYS" '((keys - ["version"]) | sort) == ($keys | split(" ") | sort)' \
+            "$RUNNER_TEMP/config.json" > /dev/null
 
           # REFUSE TO PUBLISH A DOCUMENT THAT CANNOT BOOT. An unset repository variable
           # renders as "", and a required key rendered empty is a portal that shows every
           # user a boot failure. Failing the deploy here leaves the live document — and
-          # the live app — untouched. The list is asserted against the classification.
-          REQUIRED='appUrl awsRegion userSpaceBucket athenaWorkgroup cognitoUserPoolId cognitoUserPoolClientId cognitoDomain'
+          # the live app — untouched.
           missing=$(jq -r --arg required "$REQUIRED" \
             '($required | split(" ")) - [to_entries[] | select(.value != "") | .key] | join(", ")' \
             "$RUNNER_TEMP/config.json")
@@ -179,6 +194,23 @@ jobs:
           aws s3 sync apps/portal/dist/assets/ s3://${{ secrets.S3_STATIC_BUCKET }}/assets/ \
             --cache-control 'public, max-age=31536000, immutable'
 
+      # AN UPLOAD, AND DELIBERATELY NOT A SYNC PASS. It carries one object that no other
+      # pass owns: `--delete` is scoped to assets/, and the shell pass only ever sees
+      # dist/, which this file is rendered outside of.
+      #
+      # BEFORE the shell, for the reason the assets pass goes first: a new index.html must
+      # never be live against the previous document.
+      #
+      # `no-store`, because a document answered from a cache populated in the previous
+      # environment renders a working, fully-functional portal pointed at the wrong
+      # account, and nothing on screen distinguishes it from a healthy one. The
+      # distribution has a cache behaviour of its own for this path so that the guarantee
+      # does not rest on this one flag.
+      - name: Publish the runtime configuration document
+        run: |
+          aws s3 cp "$RUNNER_TEMP/config.json" s3://${{ secrets.S3_STATIC_BUCKET }}/config.json \
+            --cache-control 'no-store' --content-type 'application/json'
+
       - name: Sync the shell to S3 (revalidate always)
         run: |
           aws s3 sync apps/portal/dist/ s3://${{ secrets.S3_STATIC_BUCKET }}/ \
@@ -201,20 +233,6 @@ jobs:
         run: |
           aws s3 sync apps/portal/dist/assets/ s3://${{ secrets.S3_STATIC_BUCKET }}/assets/ \
             --delete --cache-control 'public, max-age=31536000, immutable'
-
-      # A FOURTH UPLOAD, AND DELIBERATELY NOT A SYNC PASS. It carries one object that no
-      # other pass owns: `--delete` is scoped to assets/, and the shell pass only ever
-      # sees dist/, which this file is rendered outside of.
-      #
-      # `no-store`, because a document answered from a cache populated in the previous
-      # environment renders a working, fully-functional portal pointed at the wrong
-      # account, and nothing on screen distinguishes it from a healthy one. The
-      # distribution has a cache behaviour of its own for this path so that the guarantee
-      # does not rest on this one flag.
-      - name: Publish the runtime configuration document
-        run: |
-          aws s3 cp "$RUNNER_TEMP/config.json" s3://${{ secrets.S3_STATIC_BUCKET }}/config.json \
-            --cache-control 'no-store' --content-type 'application/json'
 
       - name: Invalidate CloudFront cache
         run: aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"

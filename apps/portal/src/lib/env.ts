@@ -163,8 +163,9 @@ export const VITE_NAME: Record<RuntimeConfigKey, PortalEnvVar | null> = {
  * container, so `npm run dev` and the test suite answer from `import.meta.env` instead.
  * EVERY CALLER MUST GATE THIS ON `import.meta.env.DEV` AT THE CALL SITE — not inside,
  * and not in the consumer beyond. That gate is what lets the bundler delete this
- * function, `readEnv` and `VITE_NAME` from a production build, and their deletion is
- * what a production bundle's freedom from build-time configuration rests on.
+ * function and `VITE_NAME` from a production build — and `readEnv` with them, once
+ * `envVar` has no callers left. Their deletion is what a production bundle's freedom
+ * from build-time configuration rests on.
  */
 export function devFallbackValue(key: RuntimeConfigKey): string | undefined {
   const name = VITE_NAME[key];
