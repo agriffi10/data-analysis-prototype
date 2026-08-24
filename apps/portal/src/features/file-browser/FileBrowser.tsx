@@ -559,15 +559,19 @@ function FileBrowserContent({
             archiveEnabled ? () => archive.open([...selection.selected.values()].map(toArchiveItem)) : undefined
           }
           archiveDisabledReason={
-            archiveRefusal(selectedItems.map(toArchiveItem), rootPrefix) ??
-            dialogs.spaceBusyReasonFor(selectedItems) ??
-            undefined
+            // The UNCONDITIONED reason: an archive enqueues one file exactly as it enqueues a
+            // folder, so it is held by an in-flight run whatever the selection's shape — where
+            // Copy, Move and Delete are only held when THEY would reach the plane too.
+            archiveRefusal(selectedItems.map(toArchiveItem), rootPrefix) ?? dialogs.spaceBusyReason ?? undefined
           }
           writeLockReason={writeLockReason}
           // The plane's per-space gate, and it is NOT `isBusy`. `isBusy` reports work this
           // browser is doing and stays false for the minutes a plane run takes, so the two
-          // cannot be merged. It reaches Copy, Move, Delete and Archive — the four that write
-          // into this space — and deliberately not *Check quality* or *Send to…*, which read.
+          // cannot be merged. Copy, Move and Delete take it only for a selection that would
+          // REACH the plane — refusing a single-file delete the plane never sees would take away
+          // something the user could do before. Archive takes it unconditionally (above), and
+          // *Check quality* and *Send to…* not at all: they read, and this lock does not cover
+          // them.
           spaceBusyReason={dialogs.spaceBusyReasonFor(selectedItems)}
           // The service refuses these too, but only after the user has read the
           // "everything inside it … can't be undone" confirm and pressed Delete.

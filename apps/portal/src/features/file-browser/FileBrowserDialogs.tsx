@@ -105,6 +105,9 @@ export function FileBrowserDialogs({
             // folder-specific one is the more useful of the two where both apply.
             writeLockReason ??
             undeletableRootFolderRefusal(dialogs.detailsFolder.prefix, rootPrefix, 'move') ??
+            // Renaming a FOLDER is a submission point, so it carries the gate — refusing only
+            // after the user has typed a new name is the affordance failure the
+            // refuse-before-the-confirm rule exists to prevent.
             dialogs.spaceBusyReasonFor([{type: 'folder', prefix: dialogs.detailsFolder.prefix}]) ??
             undefined
           }

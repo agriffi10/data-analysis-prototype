@@ -86,7 +86,7 @@ export const HELP_SECTIONS: HelpSection[] = [
           'For <b>Move</b> or <b>Copy</b>, pick a destination folder, then confirm with <b>Move here</b> or <b>Copy here</b>.',
           'To <b>Rename</b> a single item, click <b>Details</b> on its row and choose <b>Rename</b>, then type a <b>New name</b> — a file keeps its original extension automatically.',
           'A single file is done straight away. <b>Anything else — a folder, or more than one item — is handed to the portal to do in the background.</b> You get a note that it has been requested, an entry in the in-progress list, and a notification when it finishes.',
-          'While one of those is running, <b>Copy</b>, <b>Move</b>, <b>Delete</b> and <b>Archive</b> are unavailable for that space and say so — nothing is queued, so start them again once it has finished. The file list does not update by itself either: press <b>Refresh</b>, or leave the tab and come back.',
+          'While one of those is running, anything else in that space that would also run in the background — another folder or multi-item <b>Copy</b>, <b>Move</b> or <b>Delete</b>, and <b>Archive</b> — is unavailable and says so. Nothing is queued, so start it again once the first has finished. Single files are unaffected, and the file list does not update by itself either: press <b>Refresh</b>, or leave the tab and come back.',
           'One folder is managed for you: <b>athenaresults</b>, where your query results are kept. You can browse it, but it can’t be deleted or moved.'
         ],
         callout: {

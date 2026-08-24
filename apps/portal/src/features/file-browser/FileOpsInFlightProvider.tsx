@@ -43,8 +43,10 @@ export function FileOpsInFlightProvider({children}: {children: ReactNode}) {
 
   // Expiry is scheduled per entry rather than swept on an interval: a timer ticking at the shell
   // would re-render the whole app for a state nothing normally reaches. Keyed by request id and
-  // cleared on dismiss, so a dismissed entry's three-hour timer does not survive to wake the shell
-  // for a row that is no longer there.
+  // cleared on DISMISS, so a dismissed entry's three-hour timer does not survive to wake the shell
+  // for a row that is no longer there. A SETTLED entry keeps its timer — pruning it would mean
+  // mutating this ref from the render-time correlation below — and the timeout returns `prev`
+  // untouched when it finds one, so the wake-up costs nothing but itself.
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   useEffect(() => {
     const held = timers;

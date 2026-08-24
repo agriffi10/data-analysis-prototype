@@ -22,6 +22,15 @@ function requestVerb(gesture: FileOpGesture): string {
   return gesture.operation === 'move' ? 'Move' : 'Copy';
 }
 
+/**
+ * What an enqueue attempt did.
+ *
+ * `busy` is NOT `refused` and the difference is load-bearing: a caller that puts the selection back
+ * on a refusal would, on a double-click, put it back over the submit that is succeeding — leaving a
+ * stale selection behind a request that worked, with nothing to explain it.
+ */
+export type SubmitOutcome = 'sent' | 'refused' | 'busy';
+
 export type UseFileOpSubmitResult = {
   /** True while an enqueue is resolving — the SQS call, never the plane's run. */
   pending: boolean;
@@ -31,9 +40,9 @@ export type UseFileOpSubmitResult = {
   submitRequest: (
     request: FileOpRequest,
     describe: {verb: string; itemCount: number; label?: string; destinationSpace?: FileOpSpace}
-  ) => Promise<boolean>;
-  /** Builds and enqueues one gesture. Reports whether it worked. */
-  submitGesture: (gesture: FileOpGesture, source: FileOpSpace) => Promise<boolean>;
+  ) => Promise<SubmitOutcome>;
+  /** Builds and enqueues one gesture. Reports what it did. */
+  submitGesture: (gesture: FileOpGesture, source: FileOpSpace) => Promise<SubmitOutcome>;
 };
 
 /**
@@ -68,15 +77,15 @@ export function useFileOpSubmit(): UseFileOpSubmitResult {
   async function send(
     request: FileOpRequest,
     describe: {verb: string; itemCount: number; label?: string; destinationSpace?: FileOpSpace}
-  ): Promise<boolean> {
-    if (submitting.current) return false;
+  ): Promise<SubmitOutcome> {
+    if (submitting.current) return 'busy';
     submitting.current = true;
     try {
       setPending(true);
       const result = await submitFileOperation(request);
       if (!result.success) {
         toast.push({variant: 'danger', message: toUserText(result.error)});
-        return false;
+        return 'refused';
       }
       inFlight.add({
         requestId: request.requestId,
@@ -93,13 +102,13 @@ export function useFileOpSubmit(): UseFileOpSubmitResult {
         variant: 'success',
         message: `${describe.verb} requested — you’ll get a notification when it finishes.`
       });
-      return true;
+      return 'sent';
     } catch (err) {
       // The service returns a `ServiceResult` and does not normally throw — but the request is
       // BUILT before that contract starts: `crypto.randomUUID()` and the SHA-256 group digest are
       // both undefined outside a secure context. Without this the dialogs stay busy forever.
       toast.push({variant: 'danger', message: toUserText(err)});
-      return false;
+      return 'refused';
     } finally {
       setPending(false);
       submitting.current = false;
@@ -115,7 +124,7 @@ export function useFileOpSubmit(): UseFileOpSubmitResult {
       const blocked = busyReason(source) ?? busyReason(destinationSpace);
       if (blocked) {
         toast.push({variant: 'danger', message: blocked});
-        return false;
+        return 'refused';
       }
       // Minted per SUBMIT, both of them. The request id is the queue's only double-submit guard
       // (content-based dedup is off), so reusing one across a retry makes the retry a silent
@@ -133,7 +142,7 @@ export function useFileOpSubmit(): UseFileOpSubmitResult {
         });
       } catch (err) {
         toast.push({variant: 'danger', message: toUserText(err)});
-        return false;
+        return 'refused';
       }
       return send(request, {
         verb: requestVerb(gesture),

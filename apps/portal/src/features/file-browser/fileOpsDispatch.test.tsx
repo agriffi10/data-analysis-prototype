@@ -425,6 +425,48 @@ describe('in-flight state', () => {
     await waitFor(() => expect(screen.getByText('2 selected')).toBeInTheDocument());
   });
 
+  it('does NOT put a refused selection back once the user has navigated away', async () => {
+    // The enqueue resolves long after the dialog closed, so the user may well be somewhere else by
+    // then. Re-selecting rows that are not in the listing is the ghost selection this browser
+    // clears on every prefix change to avoid — and the toolbar would then act on them.
+    let refuse: (v: {success: false; error: {message: string; code: string}}) => void = () => {};
+    mockSubmit.mockReturnValue(
+      new Promise((resolve) => {
+        refuse = resolve as typeof refuse;
+      }) as ReturnType<typeof submitFileOperation>
+    );
+    const {user} = render();
+    await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
+    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
+    await user.click(screen.getByRole('button', {name: 'Move selected items'}));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', {name: 'Open folder docs'}));
+    await user.click(within(dialog).getByRole('button', {name: 'Move here'}));
+
+    await user.click(await screen.findByRole('button', {name: 'Open folder docs'}));
+    await screen.findByRole('navigation', {name: 'breadcrumb'});
+    await act(async () => {
+      refuse({success: false, error: {message: 'nope', code: 'SelectionTooLarge'}});
+    });
+    await waitFor(() => expect(screen.getByText('Select all')).toBeInTheDocument());
+    expect(screen.queryByText(/\d+ selected/)).toBeNull();
+  });
+
+  it('holds ARCHIVE for a single file too, because archive always reaches a plane', async () => {
+    // The routing predicate speaks for file operations. Archive enqueues one file exactly as it
+    // enqueues a folder, so asking that predicate on its behalf would leave it clickable over the
+    // very items an in-flight run is relocating.
+    const {user} = render();
+    await selectAnd(user, 'folder docs', 'Delete selected items');
+    await user.click(await screen.findByRole('button', {name: 'Delete'}));
+    await screen.findByRole('region', {name: 'File operations in progress'});
+
+    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
+    const archive = screen.getByRole('button', {name: 'Archive selected items'});
+    await waitFor(() => expect(archive).toHaveAttribute('aria-disabled', 'true'));
+    expect(archive.getAttribute('title')).toMatch(/still running here/);
+  });
+
   it('runs a move HERE when the chosen destination resolves to no known space', async () => {
     // A bucket the destination list does not name has no space, and the plane resolves a bucket
     // FROM a space rather than the other way round. Running it here is what the browser did before

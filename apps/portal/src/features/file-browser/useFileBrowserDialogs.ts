@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {useToast} from '../../components/toastContext';
 import {useSelection, type SelectableItem} from './selectionContext';
 import {useAsyncFileOperations} from './useAsyncFileOperations';
@@ -93,6 +93,15 @@ export type UseFileBrowserDialogsResult = {
    * delete the plane never sees would take away something the user could do before.
    */
   spaceBusyReasonFor: (items: SelectableItem[]) => string | undefined;
+  /**
+   * The same reason, unconditioned by shape — for a control that reaches a control plane whatever
+   * the selection looks like.
+   *
+   * Archive is the one: it enqueues a single file exactly as it enqueues a folder, so asking the
+   * file-ops ROUTING predicate on its behalf would leave it enabled for a one-file selection while
+   * a run holds the space — and an archive both writes into and deletes from it.
+   */
+  spaceBusyReason: string | undefined;
 };
 
 type Params = {
@@ -155,6 +164,15 @@ export function useFileBrowserDialogs({
   const [copying, setCopying] = useState<SelectableItem[] | null>(null);
   const [checkingQuality, setCheckingQuality] = useState<SelectableItem | null>(null);
 
+  // WHERE THE USER IS NOW, not where they were when the handler was made. An enqueue resolves long
+  // after the dialog closed, and both values below are captured per render — comparing a handler's
+  // own `currentPrefix` against itself is a comparison that is true forever. Written from an
+  // effect, which runs after every commit.
+  const live = useRef({prefix: currentPrefix, selectionCount: selection.count});
+  useEffect(() => {
+    live.current = {prefix: currentPrefix, selectionCount: selection.count};
+  });
+
   // The chosen destination bucket, as a space. A move or copy across connections names another
   // space entirely, and the plane resolves a bucket from the space rather than the other way
   // round — so a bucket that matches no known target has no answer at all, and the gesture runs
@@ -167,12 +185,18 @@ export function useFileBrowserDialogs({
   }
 
   /**
-   * Would this selection go to the plane?
+   * Would this selection's SHAPE go to the plane?
    *
-   * THE ONE PLACE the routing predicate is consulted. Both the dispatcher and the per-space gate's
-   * wording ask through here, so the gate can never disagree with what the gesture would actually
-   * do — a gate that refused a single-file delete the browser would have run synchronously takes
-   * away something the user could do before, which is the one thing this switchover may not do.
+   * THE ONE PLACE the routing predicate is consulted, and the per-space gate's wording asks through
+   * it so that a shape the browser keeps is never refused — a gate that blocked a single-file
+   * delete the plane never sees takes away something the user could do before, which is the one
+   * thing this switchover may not do.
+   *
+   * It answers about the shape and nothing else. `dispatch` also runs a gesture here when the
+   * chosen destination resolves to no known space, and that is not knowable until the picker has
+   * closed — so the gate can be stricter than the dispatch in exactly that case, and refuse a
+   * gesture that would in fact have run in the browser. Accepted: the alternative is a picker whose
+   * refusals change as the user browses it.
    */
   function routesToPlane(items: SelectableItem[], targetName?: string): boolean {
     if (!asyncFileOps || !space || items.length === 0) return false;
@@ -183,7 +207,7 @@ export function useFileBrowserDialogs({
   }
 
   /** What a gesture did, which is not the same question as whether it succeeded. */
-  type Dispatched = 'ran-here' | 'enqueued' | 'failed';
+  type Dispatched = 'ran-here' | 'enqueued' | 'refused' | 'busy';
 
   /**
    * The single routing decision, above all five submission points.
@@ -203,7 +227,8 @@ export function useFileBrowserDialogs({
       await runHere();
       return 'ran-here';
     }
-    return (await submit.submitGesture(gesture, space)) ? 'enqueued' : 'failed';
+    const outcome = await submit.submitGesture(gesture, space);
+    return outcome === 'sent' ? 'enqueued' : outcome;
   }
 
   /**
@@ -213,8 +238,15 @@ export function useFileBrowserDialogs({
    * synchronous paths always had. A refused enqueue — a selection over the plane's caps, a queue
    * that is not configured — would otherwise cost the user every tick they made.
    */
-  function restoreOnFailure(outcome: Dispatched, items: SelectableItem[]) {
-    if (outcome === 'failed' && items.length > 0) selection.selectAll(items);
+  function restoreOnFailure(outcome: Dispatched, items: SelectableItem[], from: string) {
+    if (outcome !== 'refused' || items.length === 0) return;
+    // Only back into the folder they came from, and only over an empty selection. The enqueue
+    // resolves long after the dialog closed, so the user may have navigated — and putting these
+    // rows back then is the ghost selection this browser clears on every prefix change to avoid,
+    // pointing at objects that are not in the listing. Ticks made in the meantime win outright:
+    // `selectAll` replaces, so restoring over them would discard the newer choice.
+    if (from !== live.current.prefix || live.current.selectionCount > 0) return;
+    selection.selectAll(items);
   }
 
   return {
@@ -243,9 +275,10 @@ export function useFileBrowserDialogs({
     // the busy state the confirm control reads.
     confirmDelete: async () => {
       const items = [...selection.selected.values()];
+      const from = currentPrefix;
       const outcome = await dispatch({operation: 'delete', items}, () => del.runDelete(items));
       selection.clear();
-      restoreOnFailure(outcome, items);
+      restoreOnFailure(outcome, items, from);
       setConfirmDeleteOpen(false);
     },
 
@@ -289,11 +322,12 @@ export function useFileBrowserDialogs({
     cancelMove: () => setMoving(null),
     confirmMove: (destPrefix, destBucket) => {
       const items = moving ?? [];
+      const from = currentPrefix;
       setMoving(null);
       selection.clear();
       void dispatch({operation: 'move', items, destination: destinationSpaceFor(destBucket, destPrefix)}, () =>
         move.moveItems(items, destPrefix, destBucket)
-      ).then((outcome) => restoreOnFailure(outcome, items));
+      ).then((outcome) => restoreOnFailure(outcome, items, from));
     },
 
     copying,
@@ -312,17 +346,19 @@ export function useFileBrowserDialogs({
         if (items.length > 0) copy.startSameFolderCopy(items[0], destPrefix);
         return;
       }
+      const from = currentPrefix;
       setCopying(null);
       selection.clear();
       void dispatch({operation: 'copy', items, destination: destinationSpaceFor(destBucket, destPrefix)}, () =>
         copy.copyItems(items, destPrefix, destBucket)
-      ).then((outcome) => restoreOnFailure(outcome, items));
+      ).then((outcome) => restoreOnFailure(outcome, items, from));
     },
 
     sameFolderPrompt: copy.sameFolderPrompt && {
       ...copy.sameFolderPrompt,
       onConfirm: (name) => {
         const item = copying?.[0];
+        const from = currentPrefix;
         const targetName = name.trim();
         copy.clearSameFolderPrompt();
         setCopying(null);
@@ -336,7 +372,7 @@ export function useFileBrowserDialogs({
             targetName
           },
           () => copy.runSameFolderCopy(item, currentPrefix, targetName)
-        ).then((outcome) => restoreOnFailure(outcome, [item]));
+        ).then((outcome) => restoreOnFailure(outcome, [item], from));
       },
       onCancel: () => {
         copy.clearSameFolderPrompt();
@@ -383,14 +419,17 @@ export function useFileBrowserDialogs({
         });
         return false;
       }
-      return submit.submitRequest(request, {
-        verb: choice.targetName ? 'Rename' : request.operation === 'move' ? 'Move' : 'Copy',
-        itemCount: request.source.items.length,
-        label: request.source.items.length === 1 ? choice.targetName : undefined,
-        destinationSpace: request.destination.space
-      });
+      return (
+        (await submit.submitRequest(request, {
+          verb: choice.targetName ? 'Rename' : request.operation === 'move' ? 'Move' : 'Copy',
+          itemCount: request.source.items.length,
+          label: request.source.items.length === 1 ? choice.targetName : undefined,
+          destinationSpace: request.destination.space
+        })) === 'sent'
+      );
     },
     submitting: submit.pending,
-    spaceBusyReasonFor: (items) => (routesToPlane(items) ? submit.busyReason(space ?? undefined) : undefined)
+    spaceBusyReasonFor: (items) => (routesToPlane(items) ? submit.busyReason(space ?? undefined) : undefined),
+    spaceBusyReason: submit.busyReason(space ?? undefined)
   };
 }

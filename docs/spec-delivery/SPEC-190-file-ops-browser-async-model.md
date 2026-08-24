@@ -47,7 +47,11 @@ a selection of exactly one file**. This is the arc's last spec and the first one
   disabled. **The gate is answered per SELECTION, not per space**: a selection that would stay in
   the browser is never refused, because refusing a single-file delete the plane never sees would
   take away something the user could do before. `spaceBusyReasonFor` asks through the same private
-  `routesToPlane` the dispatcher does, so the two cannot disagree.
+  `routesToPlane` the dispatcher does — for the selection's SHAPE. It can still be stricter in one
+  case: the dispatcher also runs a gesture here when the chosen destination resolves to no known
+  space, which is not knowable until the picker has closed. Accepted, because the alternative is a
+  picker whose refusals change as the user browses it. **Archive takes the unconditioned reason**,
+  because it enqueues one file exactly as it enqueues a folder.
 - **FR-006 AC3's second sentence has no code here, and that is the right answer.** "A file
   operation refused because the plane could not authorize the space surfaces the mapped message" —
   an authorization refusal arrives as a *notification*, minutes later, worded by
@@ -94,9 +98,18 @@ AC1 exists for, so it is the case that had to work.
 
 **A gesture whose chosen destination resolves to no known space runs in the BROWSER.** The builder
 would otherwise throw and the user would get a generic failure for a request the browser could
-simply have made. Same rule for a refused enqueue: the dialogs clear on the way out, before the
-request resolves — the timing the synchronous paths always had — so a refusal puts the selection
-back rather than costing the user every tick they made.
+simply have made.
+
+**A refused enqueue puts the selection back — but only where it came from.** The dialogs clear on
+the way out, before the request resolves, which is the timing the synchronous paths always had; a
+refusal would otherwise cost the user every tick they made. The restore is guarded on the folder
+still being the one the gesture started in and the selection still being empty, read from a ref
+rather than the handler's own closure — both values are captured per render, so a handler comparing
+its `currentPrefix` against itself compares a value with itself. Without the guard a refusal that
+lands after the user has navigated re-selects rows that are not in the listing, which is the ghost
+selection this browser clears on every prefix change to avoid. **A double-click is not a refusal**:
+the second call reports `busy` and restores nothing, or it would strand a selection behind the
+submit that succeeded.
 
 **The folder-existence probe reads a RAW, unfiltered key.** Reusing the browser's own listing was
 the obvious design and it was wrong: `listFiles` drops a prefix's own marker object and
