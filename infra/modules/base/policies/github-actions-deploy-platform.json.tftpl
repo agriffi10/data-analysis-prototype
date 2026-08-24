@@ -1,0 +1,207 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PlatformNetworkDescribe",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeVpcs",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeRouteTables",
+        "ec2:DescribeInternetGateways",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeSecurityGroupRules",
+        "ec2:DescribeVpcEndpoints",
+        "ec2:DescribeVpcEndpointServices",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DescribeNetworkAcls",
+        "ec2:DescribeAvailabilityZones",
+        "ec2:DescribeAccountAttributes",
+        "ec2:DescribeFlowLogs",
+        "ec2:DescribeManagedPrefixLists",
+        "ec2:DescribePrefixLists",
+        "ec2:DescribeTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PlatformNetworkManage",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeVpcAttribute",
+        "ec2:CreateVpc",
+        "ec2:DeleteVpc",
+        "ec2:ModifyVpcAttribute",
+        "ec2:CreateSubnet",
+        "ec2:DeleteSubnet",
+        "ec2:ModifySubnetAttribute",
+        "ec2:CreateRouteTable",
+        "ec2:DeleteRouteTable",
+        "ec2:CreateRoute",
+        "ec2:DeleteRoute",
+        "ec2:AssociateRouteTable",
+        "ec2:DisassociateRouteTable",
+        "ec2:CreateInternetGateway",
+        "ec2:DeleteInternetGateway",
+        "ec2:AttachInternetGateway",
+        "ec2:DetachInternetGateway",
+        "ec2:CreateSecurityGroup",
+        "ec2:DeleteSecurityGroup",
+        "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:RevokeSecurityGroupIngress",
+        "ec2:RevokeSecurityGroupEgress",
+        "ec2:ModifySecurityGroupRules",
+        "ec2:UpdateSecurityGroupRuleDescriptionsIngress",
+        "ec2:UpdateSecurityGroupRuleDescriptionsEgress",
+        "ec2:CreateVpcEndpoint",
+        "ec2:ModifyVpcEndpoint",
+        "ec2:DeleteVpcEndpoints",
+        "ec2:CreateFlowLogs",
+        "ec2:DeleteFlowLogs"
+      ],
+      "Resource": [
+        "arn:aws:ec2:${aws_region}:*:vpc/*",
+        "arn:aws:ec2:${aws_region}:*:subnet/*",
+        "arn:aws:ec2:${aws_region}:*:route-table/*",
+        "arn:aws:ec2:${aws_region}:*:internet-gateway/*",
+        "arn:aws:ec2:${aws_region}:*:security-group/*",
+        "arn:aws:ec2:${aws_region}:*:security-group-rule/*",
+        "arn:aws:ec2:${aws_region}:*:vpc-endpoint/*",
+        "arn:aws:ec2:${aws_region}:*:vpc-flow-log/*",
+        "arn:aws:ec2:${aws_region}:*:network-interface/*",
+        "arn:aws:ec2:${aws_region}:*:prefix-list/*"
+      ]
+    },
+    {
+      "Sid": "PlatformNetworkTags",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateTags",
+        "ec2:DeleteTags"
+      ],
+      "Resource": [
+        "arn:aws:ec2:${aws_region}:*:vpc/*",
+        "arn:aws:ec2:${aws_region}:*:subnet/*",
+        "arn:aws:ec2:${aws_region}:*:route-table/*",
+        "arn:aws:ec2:${aws_region}:*:internet-gateway/*",
+        "arn:aws:ec2:${aws_region}:*:security-group/*",
+        "arn:aws:ec2:${aws_region}:*:security-group-rule/*",
+        "arn:aws:ec2:${aws_region}:*:vpc-endpoint/*",
+        "arn:aws:ec2:${aws_region}:*:vpc-flow-log/*",
+        "arn:aws:ec2:${aws_region}:*:network-interface/*",
+        "arn:aws:ec2:${aws_region}:*:prefix-list/*"
+      ]
+    },
+    {
+      "Sid": "PlatformLoadBalancerDescribe",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "elasticloadbalancing:DescribeLoadBalancerAttributes",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetGroupAttributes",
+        "elasticloadbalancing:DescribeTargetHealth",
+        "elasticloadbalancing:DescribeListeners",
+        "elasticloadbalancing:DescribeListenerAttributes",
+        "elasticloadbalancing:DescribeTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PlatformLoadBalancerManage",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:CreateLoadBalancer",
+        "elasticloadbalancing:DeleteLoadBalancer",
+        "elasticloadbalancing:ModifyLoadBalancerAttributes",
+        "elasticloadbalancing:SetSecurityGroups",
+        "elasticloadbalancing:SetSubnets",
+        "elasticloadbalancing:CreateListener",
+        "elasticloadbalancing:DeleteListener",
+        "elasticloadbalancing:ModifyListener",
+        "elasticloadbalancing:ModifyListenerAttributes",
+        "elasticloadbalancing:CreateTargetGroup",
+        "elasticloadbalancing:DeleteTargetGroup",
+        "elasticloadbalancing:ModifyTargetGroup",
+        "elasticloadbalancing:ModifyTargetGroupAttributes",
+        "elasticloadbalancing:AddTags",
+        "elasticloadbalancing:RemoveTags"
+      ],
+      "Resource": [
+        "arn:aws:elasticloadbalancing:${aws_region}:*:loadbalancer/app/${project_name}-*-spa*/*",
+        "arn:aws:elasticloadbalancing:${aws_region}:*:targetgroup/${project_name}-*-spa*/*",
+        "arn:aws:elasticloadbalancing:${aws_region}:*:listener/app/${project_name}-*-spa*/*/*"
+      ]
+    },
+    {
+      "Sid": "PlatformContainerRuntimeManage",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:CreateCluster",
+        "ecs:DeleteCluster",
+        "ecs:DescribeClusters",
+        "ecs:UpdateClusterSettings",
+        "ecs:PutClusterCapacityProviders",
+        "ecs:CreateService",
+        "ecs:DeleteService",
+        "ecs:DescribeServices",
+        "ecs:UpdateService",
+        "ecs:RegisterTaskDefinition",
+        "ecs:TagResource",
+        "ecs:UntagResource",
+        "ecs:ListTagsForResource"
+      ],
+      "Resource": [
+        "arn:aws:ecs:${aws_region}:*:cluster/${project_name}-*-spa*",
+        "arn:aws:ecs:${aws_region}:*:service/${project_name}-*-spa*",
+        "arn:aws:ecs:${aws_region}:*:task-definition/${project_name}-*-spa*:*"
+      ]
+    },
+    {
+      "Sid": "PlatformContainerTaskDefinitionGlobal",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeTaskDefinition",
+        "ecs:DeregisterTaskDefinition",
+        "ecs:ListTaskDefinitions"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PlatformRegistryManage",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:CreateRepository",
+        "ecr:DeleteRepository",
+        "ecr:DescribeRepositories",
+        "ecr:PutImageScanningConfiguration",
+        "ecr:PutImageTagMutability",
+        "ecr:PutLifecyclePolicy",
+        "ecr:GetLifecyclePolicy",
+        "ecr:DeleteLifecyclePolicy",
+        "ecr:SetRepositoryPolicy",
+        "ecr:GetRepositoryPolicy",
+        "ecr:DeleteRepositoryPolicy",
+        "ecr:TagResource",
+        "ecr:UntagResource",
+        "ecr:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:ecr:${aws_region}:*:repository/${project_name}-*-spa*"
+    },
+    {
+      "Sid": "PlatformServiceLinkedRoles",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": [
+            "ecs.amazonaws.com",
+            "elasticloadbalancing.amazonaws.com"
+          ]
+        }
+      }
+    }
+  ]
+}

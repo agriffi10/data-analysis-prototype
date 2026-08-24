@@ -433,6 +433,18 @@ Five new resource families land at once, and this is the riskiest part of the sp
 `infra/modules/base/policies/github-actions-deploy-platform.json.tftpl` covers all three modules in one
 file — they apply as one unit and share the `${project_name}-${environment}-` prefix.
 
+> **Corrected while building (2026-08-24): it is TWO files, and the fourteenth and fifteenth managed
+> policies rather than the thirteenth.** `infra/modules/base/iam.tf` already carried **thirteen**
+> `aws_iam_policy` resources when this was written, and one document would not have fitted: a
+> customer-managed policy has its own **6,144**-character budget and the halves measure **5,095** and
+> **3,985**. The split is `…-platform` (ec2, elasticloadbalancing, ecs, ecr, the ECS/ELB
+> service-linked roles) and `…-platform-frontdoor` (apigateway, acm, route53, every log group the
+> platform creates, the API function, and the four roles it passes). `aws_iam_policy.deploy_platform`
+> keeps that name because FR-008 AC5 names it. The attachment count goes 13 → 15 against a **default
+> quota of 20** managed policies per role — raisable to **25** in Service Quotas and auto-approved, so
+> the ceiling is a decision rather than a wall. A test counts them and names both numbers, because
+> sending the next person to consolidate a quota they could simply raise is its own wrong answer.
+
 **It ships as a thirteenth customer-managed `aws_iam_policy`, not as more inline JSON**, and that is
 forced rather than stylistic. The deploy role's inline policy
 (`github-actions-deploy.json.tftpl`, rendered by `aws_iam_role_policy.github_actions_deploy`) measures
@@ -491,6 +503,34 @@ execution role and the API Lambda role.
       control, on SPEC-149's and SPEC-157's precedent.
 - [ ] `iam:PassRole` names the three role ARNs explicitly and carries the `iam:PassedToService`
       condition. A `PassRole` on `"*"` is a defect.
+
+> **Corrected while building (2026-08-24), and both halves were measured rather than reasoned about.**
+>
+> **The two ACs above conflate two different reasons a grant carries `Resource: "*"`, and only one of
+> them can produce the evidence AC3 asks for.** *Non-scopable by IAM* means the service defines no
+> resource type for the action at all — `ec2:Describe*`, `elasticloadbalancing:Describe*`,
+> `acm:RequestCertificate`/`ListCertificates`, `ecs:DescribeTaskDefinition`
+> /`DeregisterTaskDefinition`/`ListTaskDefinitions`, and the **eight** `logs:` delivery actions an HTTP
+> API stage needs for access logging. **38 were measured and 37 ship** — `ecr:GetAuthorizationToken`
+> was in the measured set and was then dropped with its grant, because the deploy role creates the
+> registry and never writes to it. Every one of the 37 produced the pair.
+> *Scopable in principle but unknowable at plan* is the different case the EC2 **mutators** are in: an
+> EC2 ARN carries a generated id, so there is no name to match — but the action does accept an ARN, so
+> a wildcard-ARN simulate returns **`allowed`**, there is no `implicitDeny` leg, and the pair cannot
+> exist. They are therefore scoped by resource **type** (`vpc/*`, `subnet/*`, `route-table/*`, …)
+> rather than parked on `"*"`, which is strictly what AC2 asks for and is what AC3 could not have
+> expressed.
+>
+> **`iam:PassRole` names FOUR roles, not three, across THREE statements.** The fourth is the VPC
+> flow-logs delivery role — flow logs to CloudWatch are delivered *as* a role, and FR-008 takes flow
+> logs as a scoped fix rather than a disposition, so the role exists even though no resource list in
+> this spec names it. Three statements because a statement carries one condition block and the four
+> roles go to three different services; one `iam:PassedToService` listing all three would let the
+> flow-logs role be handed to ECS.
+>
+> **And the grants ship as TWO managed policies.** One document would not have fitted: the halves
+> measure **4,823** and **3,879** non-whitespace characters against a customer-managed policy's own
+> **6,144** limit. `aws_iam_policy.deploy_platform` keeps that name, because FR-008 AC5 names it.
 - [ ] No cross-module ARN reaches a list attribute except as a root-`locals` constructed string.
 - [ ] `Deploy Infrastructure` reaches green from a clean `main`, at worst on a second run whose first
       run failed only with `AccessDenied` on actions granted in the same apply.
@@ -515,6 +555,15 @@ alternative. **A new finding is scoped, not accepted.**
       retention), the default security group restricting all traffic, ECS Container Insights,
       read-only root filesystem, non-root user, distinct task and execution roles, and
       `map_public_ip_on_launch = false`.
+
+> **One resource on that list's edge is deliberately NOT declared (2026-08-24): the default network
+> ACL.** The default *security group* is fixed as the criterion says; `aws_default_network_acl` is its
+> usual companion and is left out, because the criterion does not name it and nothing measured has
+> asked for it. If the regenerated enforce list turns one up, the fix is the resource **plus** a
+> widening of both EC2 statements in `github-actions-deploy-platform.json.tftpl` — `network-acl/*` in
+> the mutator and tagging resource lists, and `ec2:CreateNetworkAclEntry` /`DeleteNetworkAclEntry`
+> /`ReplaceNetworkAclAssociation` among the actions. Widening is safe where tightening is not: the
+> refresh does not need the new grant, so it cannot deadlock on it.
 - [ ] Each finding **not** fixed carries a written disposition row in `docs/security-baseline.md` naming
       the reason. The two expected: **WAF** on the ALB and the API (deferred by the arc — the client
       environment's edge is a later decision), and **`$default` route authorization**, which Premise 5
@@ -535,6 +584,17 @@ alternative. **A new finding is scoped, not accepted.**
       never guessed —
       a line that matches no finding is a hard error, and reads as an acceptance while accepting
       nothing. Each addition names the specific non-scopable actions that forced it.
+
+> **Measured on the real run (2026-08-24), and the prediction was wrong: the additions are NONE.**
+> The `plan` job on the PR that adds both policies reported `IAM resources in plan: 85; IAM checks
+> evaluated: 674; IAM findings: 2` under `GATE_CHECKOV_PLAN: block` — the two being the same
+> permanent rows on `github_actions_deploy`. Neither new policy fired anything, so
+> `.github/checkov-plan-accepted.txt` is **unchanged**, and writing the rows this criterion predicts
+> would have turned the gate red for precisely the reason its own header gives: a line matching no
+> finding is a hard error. This is not a scan that skipped — the job's coverage assertion (IAM
+> resources present but no IAM check evaluated) is what would have caught that, and it passed. **The
+> rule the criterion exists to enforce is what produced the zero:** a new finding is scoped, not
+> accepted, and these grants were scoped.
 - [ ] The `.tf` scan reports a non-zero `passed_checks` count for every newly-enforced ID. Without
       `passed_checks` the gate cannot tell "this check passed" from "this check never ran" — which is
       why `--quiet` must never come back.
@@ -685,6 +745,14 @@ FR-001 and FR-007 plans and applies green and fails at runtime.
    This is the cold-start assertion; nothing offline can make it.
 6. Build and push `Dockerfile.placeholder` by hand (commands in the script), tagged with the git sha —
    `:latest` is impossible under FR-005's immutability. Then raise `spa_desired_count` to 1 and apply.
+
+   > **Prerequisite nothing in this repo provisions (recorded 2026-08-24).** That push needs an
+   > identity holding `ecr:GetAuthorizationToken` (account-wide — it takes no ARN) plus
+   > `BatchCheckLayerAvailability`, `InitiateLayerUpload`, `UploadLayerPart`, `CompleteLayerUpload`
+   > and `PutImage` on the repository. **The deploy role deliberately holds none of them** — it
+   > creates the registry and never writes to it, and the pipeline that pushes on every commit
+   > arrives with SPEC-194, which owns those grants. So this step runs as a human identity that must
+   > be checked *before* the step is reached, not at it.
 7. `describe-services` → `runningCount == 1` and **no `CannotPullContainerError`** in the event log.
    Pair it with `describe-route-tables` showing the private tables carry only the local route: without
    that pairing a pull that succeeded through a route somebody added would read as proof of the
@@ -701,8 +769,13 @@ FR-001 and FR-007 plans and applies green and fails at runtime.
 **What nothing offline can prove:** that the `cpcommon` layer attaches at cold start; that an ECR pull
 completes with no NAT (three endpoints, a security group, private DNS and the Fargate platform version
 must all be right, and every one of them applies green when wrong); that DNS validation completes in
-the zone the variable names; that a browser accepts the CORS response; and whether an action is
-genuinely non-scopable, which only `simulate-custom-policy` against the deployed role answers.
+the zone the variable names; and that a browser accepts the CORS response.
+
+> **One item was removed from that list while building (2026-08-24): scopability is answerable
+> offline.** `simulate-custom-policy` evaluates a policy **document** that is supplied to it, so it
+> needs `iam:SimulateCustomPolicy` and has no relationship with the deployed role — the 38 pairs were
+> produced on a laptop before a single line of the policy was written, which is what the word
+> "**before**" in FR-007 AC3 asks for. Nothing here waits on a deploy.
 
 **What is deliberately not claimed:** nothing here is evidence about session, auth, the real SPA, or
 any ported route. Production is still served by CloudFront and is untouched.
