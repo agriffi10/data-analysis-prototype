@@ -348,6 +348,16 @@ The checks that must survive, per plane, enumerated so no build session has to i
 - [ ] `notifications_writer` still ignores a body `username` on a **user action** when the `identity` block
       is present and valid, asserted with both set to different users and the inbox written to
       `identity.actor`'s.
+- [ ] **SPEC-206's sender check survives this rewrite, and every `create` fixture here must carry a
+      service `SenderId`.** SPEC-206 added a guard in `process` — ABOVE the `_resolve_username` call,
+      because that call runs before any branch — refusing a `create` whose SQS-stamped `SenderId` names
+      the portal role, and refusing one that carries no `SenderId` at all. Two consequences for this
+      spec, and the second is the one that bites: the guard must not be collapsed into
+      `trusted_actor` (it is not an actor decision — it asks whether the SENDER was entitled to be a
+      trusted producer, and the `create` body still carries no token), **and the criterion below is
+      false as written unless its fixture supplies a service sender**, since a record with no
+      `attributes` is now a refusal rather than a write. A fixture that gets refused and is then
+      "fixed" by deleting the guard is the failure mode this line exists to prevent.
 - [ ] **`_resolve_username`'s branch survives, and the `create` path keeps taking its username from the
       body.** `trusted_actor` replaces the `verified_username(req.get("idToken"))` call on the
       `USER_ACTIONS` arm **only**; the `create` arm is untouched, still refusing a missing or non-string

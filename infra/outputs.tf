@@ -107,7 +107,7 @@ output "notifications_queue_url" {
 }
 
 output "notifications_queue_arn" {
-  description = "ARN of the FIFO notifications request queue — the portal-role + (future trusted-producer) sqs:SendMessage scope."
+  description = "ARN of the FIFO notifications request queue — the sqs:SendMessage scope for the portal role and for every trusted producer. The portal role's half is unconditioned; the writer refuses a `create` from it by SenderId."
   value       = module.notifications.notifications_queue_arn
 }
 

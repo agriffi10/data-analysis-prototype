@@ -189,6 +189,7 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 - [A persistent in-flight surface is NEW scope, with no precedent here (SPEC-190)](#a-persistent-in-flight-surface-is-new-scope-with-no-precedent-here-spec-190)
 - [There is no progress percentage, and there cannot be one (SPEC-190)](#there-is-no-progress-percentage-and-there-cannot-be-one-spec-190)
 - [The kill switch is a flag key, and it is the sixth (SPEC-190)](#the-kill-switch-is-a-flag-key-and-it-is-the-sixth-spec-190)
+- [The notifications `create` boundary is a runtime check, because IAM cannot express it (SPEC-206)](#the-notifications-create-boundary-is-a-runtime-check-because-iam-cannot-express-it-spec-206)
 
 ---
 
@@ -348,7 +349,7 @@ OpenTofu (over CDK/Pulumi/SST); `infra/modules/` are bounded-context (app/base/a
 
 ### Notifications (SPEC-058→061)
 
-Per-user inbox at `{username}/user_settings/notifications.json` (array of `{id,message,read,timestamp}` — plus an **optional `link`**, SPEC-113 FR-008: an in-app path the message renders as, gated at render by `isSafeInAppPath` so it can never become an open redirect; absent = plain text, which is every pre-113 producer). **Single-writer:** all mutations (system `create` + user `markRead`/`markAllRead` — **no delete**) go through a **dedicated FIFO SQS queue that triggers the writer Lambda directly** (SQS event-source mapping, batch size 1 — **no Pipe, no Step Function**); per-user ordering via `MessageGroupId` = username. The browser only **reads** the file (+ a **60s background poll** for the unread icon) and enqueues (`sqs:SendMessage`). Anti-spoofing = user-action messages carry the Cognito **ID token**, writer derives `username` from the verified claim (`create` = trusted-producer-only). UI = header bell **linking to a `/notifications` page** (not a drawer, not a tab), **10/page**, mark-read/mark-all only. First `create` producer = the **shared-workspace control plane** (SPEC-061; seven lifecycle events, incl. delete fanning out to all members), granted `sqs:SendMessage` on the queue. (**058 write pipeline shipped** — `infra/modules/notifications/` + `lambdas/notifications-writer/`; **059 browser data layer done** — `features/notifications/` read service + `useNotifications` + prefetch; **060 UI done** — header `NotificationsBell` link + `/notifications` page (10/page, mark-read/all, optimistic + Toast); **061 done** — the 062 verb Lambdas emit `create` inline via `notify.emit_notification` (orchestrator role gains `sqs:SendMessage` to the notifications queue ARN only; `NOTIFICATIONS_QUEUE_URL` env), best-effort.)
+Per-user inbox at `{username}/user_settings/notifications.json` (array of `{id,message,read,timestamp}` — plus an **optional `link`**, SPEC-113 FR-008: an in-app path the message renders as, gated at render by `isSafeInAppPath` so it can never become an open redirect; absent = plain text, which is every pre-113 producer). **Single-writer:** all mutations (system `create` + user `markRead`/`markAllRead` — **no delete**) go through a **dedicated FIFO SQS queue that triggers the writer Lambda directly** (SQS event-source mapping, batch size 1 — **no Pipe, no Step Function**); per-user ordering via `MessageGroupId` = username. The browser only **reads** the file (+ a **60s background poll** for the unread icon) and enqueues (`sqs:SendMessage`). Anti-spoofing = user-action messages carry the Cognito **ID token**, writer derives `username` from the verified claim (`create` = trusted-producer-only — **enforced since SPEC-206** by the writer refusing a `create` whose SQS-stamped `SenderId` names the portal role; the grant itself is unconditioned and cannot be otherwise, since no SQS condition key reaches a message body). UI = header bell **linking to a `/notifications` page** (not a drawer, not a tab), **10/page**, mark-read/mark-all only. First `create` producer = the **shared-workspace control plane** (SPEC-061; seven lifecycle events, incl. delete fanning out to all members), granted `sqs:SendMessage` on the queue. (**058 write pipeline shipped** — `infra/modules/notifications/` + `lambdas/notifications-writer/`; **059 browser data layer done** — `features/notifications/` read service + `useNotifications` + prefetch; **060 UI done** — header `NotificationsBell` link + `/notifications` page (10/page, mark-read/all, optimistic + Toast); **061 done** — the 062 verb Lambdas emit `create` inline via `notify.emit_notification` (orchestrator role gains `sqs:SendMessage` to the notifications queue ARN only; `NOTIFICATIONS_QUEUE_URL` env), best-effort.)
 
 ### Responsive (SPEC-095)
 
@@ -4589,6 +4590,10 @@ sentence cannot open with "Couldn't move that: " is the lesser argument.
 
 ### A pre-existing notifications spoofing gap, recorded and not fixed here (SPEC-191)
 
+> **Superseded by SPEC-206 (2026-08-24).** The gap below is closed: the writer refuses a `create`
+> whose SQS-stamped `SenderId` names the portal role. The grant is still unconditioned — that part
+> stays true, and is why the control is a runtime one. See the SPEC-206 entry at the end.
+
 The portal role holds an **unconditioned** `sqs:SendMessage` on the notifications request queue, and
 the writer takes the body's `username` verbatim for a `create`. A signed-in browser can therefore
 already plant a notification — message and clickable in-app link — in another user's inbox. The
@@ -4642,3 +4647,63 @@ beginning a new gesture — and it keeps the `Review conflicts` control already 
 notification rows from becoming a link to nothing. A row's `name` is its accessible name and
 `RECIPES` keys are unique, so one control cannot hold a row under two flags; the choice had to be
 made rather than hedged.
+
+### The notifications `create` boundary is a runtime check, because IAM cannot express it (SPEC-206)
+
+The plane has said since SPEC-058 that `create` is trusted-producer-only, and the writer takes the
+body's `username` on that action — correctly, because a plane notifying a *recipient* holds no token
+for the person it is telling. **The IAM policy never implemented it.** The portal role's
+`sqs:SendMessage` on the notifications queue was unconditioned, so any signed-in user could enqueue a
+`create` naming anybody and saying anything, including a clickable in-app link. The comment above that
+grant asserted the opposite, which is the dangerous combination: a reader checking the IaC was told the
+question had been answered.
+
+**IAM cannot express this rule at all, and that is the argument — not a preference for runtime checks.**
+No SQS condition key reaches a field inside a message body, so a queue or identity policy could only
+deny the portal role `sqs:SendMessage` outright: the same principal on the same action that `markRead`
+and `markAllRead` need. There is no policy that permits two of the three actions. So the boundary is the
+`SenderId` SQS stamps on every message — a message *system* attribute the service sets and a
+`SendMessage` cannot — compared on the **role-id half**, the substring before the first `:`. Not
+equality against the whole value (which never matches, and a control that never matches reads exactly
+like one that works) and not `startswith` (which would refuse an unrelated role whose unique ID merely
+shares an opening). The session-name half is never examined: Cognito's enhanced flow does not document
+what it puts there.
+
+**The rule is a DENY of one principal, not an ALLOW of eight.** Nine principals hold the grant — seven
+control-plane execution roles, the DLQ drain, the portal role — and exactly one is user-reachable, which
+is what makes a single-principal refusal complete rather than partial. An allow-list would be a
+hand-maintained list of role IDs that fails closed on the day a plane is added: that plane's
+notifications would stop, drop or dead-letter unnoticed and nobody would connect the two. One
+environment variable beats eight, and the deny direction fails open only toward principals that require
+an explicit IAM change to exist.
+
+**A refusal LOGS AND DROPS; it does not raise.** Raising would cost three invocations and one permanent
+dead-letter message per forged request, on the queue whose DLQ SPEC-126 deliberately leaves undrained
+and which is this plane's only operator-facing signal — handing every signed-in user a way to drown it.
+The structured `observability.error` therefore *is* the signal, and has to be, precisely because nothing
+accumulates to notice. It carries the reason code and the SQS `messageId` (both service-stamped) and
+**nothing from the body**: echoing it would move the injection from the victim's inbox to the operator's
+log rather than remove it. The guard sits **above** `_resolve_username` rather than inside the `create`
+branch, because that call runs before any branch — lower, a forged create that simply omits `username`
+would reach `create requires a username` and raise, which is the vector the drop exists to close.
+
+**Three reason codes, not two.** `untrusted-sender`, `sender-id-absent` and
+`sender-check-unconfigured`. A check that cannot run must not report a pass, and the cases are
+operationally opposite: one is somebody trying it on, one is the control having broken, one is the
+deploy being wrong. Splitting the third out is also load-bearing for correctness — the configuration is
+tested **first**, because with the variable unset an absent sender's empty role-id half compares equal
+to it and every verdict inverts.
+
+**Do NOT split `create` onto a second queue.** It is the obvious fix — IAM could then enforce this with
+no runtime check — and it is rejected. The single-writer guarantee is *one FIFO queue, one message group
+per user, batch size 1*, and FIFO ordering is per `(queue, group)`. Two queues means two event-source
+mappings and two concurrent invocations read-modify-writing one user's `notifications.json`: a mark-read
+and an arriving notification can lose each other. It trades a spoofing bug for a data-loss bug, and
+closing that would mean putting the inbox write under ETag CAS first.
+
+**Two limits, stated rather than implied.** This decides who may send a `create`, not who may reach the
+queue — a non-JSON body or an unknown action still raises from `_parse_record` and dead-letters. And it
+is the **interim** fix: Arc B removes the browser's grant (SPEC-200) and after SPEC-196 the denied
+principal becomes a *service* principal, harmless because every `create` is emitted by execution roles.
+The check stays regardless; that removal is eleven specs out and reversible. Detail:
+`spec-delivery/SPEC-206`.

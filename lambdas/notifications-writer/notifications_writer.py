@@ -8,9 +8,24 @@ marked read.
 
 Actor binding differs by action. The user-originated actions carry the caller's Cognito ID
 token and the target is the verified username claim, so any body username is ignored. Creation
-is trusted-producer-only, gated by send permission the portal role does not hold, and uses the
-body username. A schema-invalid or unauthorized message raises, so the record retries and then
-lands in the dead-letter queue — never a partial write.
+is trusted-producer-only and uses the body username, which is correct because a plane notifying
+a recipient holds no token for the person it is telling. A schema-invalid or unauthorized
+message raises, so the record retries and then lands in the dead-letter queue — never a partial
+write.
+
+What makes trusted-producer-only true of the running system is a check here, not the IAM
+policy. The portal role's grant on this queue is unconditioned and cannot be otherwise: no SQS
+condition key reaches a field inside a message body, so a policy could only deny the browser
+``SendMessage`` outright — the same principal on the same action the user actions need. So the
+handler compares the ``SenderId`` SQS stamps on every message, which a ``SendMessage`` cannot
+set, and refuses a ``create`` that came from browser credentials. A refusal LOGS AND DROPS
+rather than raising: raising would cost three invocations and one permanent dead-letter message
+per forged request, on the queue whose dead-letter queue is deliberately undrained, which would
+hand every signed-in user a way to drown the only operator-facing signal this plane has.
+
+That boundary is narrower than it looks and the limit is worth knowing: a body that is not
+valid JSON, or that names an unknown action, still raises from ``_parse_record`` before any of
+this runs. This decides who may send a ``create``, not who may reach the queue.
 
 This is the delivery channel for every failure notification in the system, and its dead-letter
 queue is deliberately left undrained: draining it would ask the queue that just failed to
@@ -36,10 +51,17 @@ Attributes:
   NOTIFICATIONS_MAX: Inbox cap, set by Terraform.
   MAX_PAYLOAD_BYTES: Ceiling on one create's serialised ``payload``, enforced here because this
     is the only server-side gate the field will ever have. A producer's own bound is a design
-    budget in its own layer and constrains nothing that arrives at this queue: the portal role
-    holds an unconditioned ``sqs:SendMessage`` on it. Oversize is REFUSED rather than truncated —
-    a truncated structured field is a half-object a reader has to defend against, where a refusal
-    dead-letters the one message and leaves every other row untouched.
+    budget in its own layer and constrains nothing that arrives at this queue — the grant on it
+    is unconditioned, and while the sender check above now bounds WHO reaches this function, IAM
+    still bounds nobody. Oversize is REFUSED rather than truncated — a truncated structured field
+    is a half-object a reader has to defend against, where a refusal dead-letters the one message
+    and leaves every other row untouched.
+  UNTRUSTED_SENDER_ID: The IAM unique ID of the role the browser assumes, set by Terraform. Empty
+    means the check cannot run, and every ``create`` is refused rather than passed.
+  CREATE_REFUSAL_*: The three reason codes a refused ``create`` is logged under. They are three
+    rather than two because an unset ``UNTRUSTED_SENDER_ID`` is a state neither of the others
+    describes — the deploy is broken, not the record and not an attacker — and one code for two
+    opposite operational conditions is one log line that cannot tell them apart.
 """
 
 import json
@@ -63,6 +85,12 @@ USER_SPACE_BUCKET = os.environ.get("USER_SPACE_BUCKET", "")
 NOTIFICATIONS_MAX = int(os.environ.get("NOTIFICATIONS_MAX", "200"))
 
 MAX_PAYLOAD_BYTES = 16 * 1024
+
+UNTRUSTED_SENDER_ID = os.environ.get("NOTIFICATIONS_UNTRUSTED_SENDER_ID", "")
+
+CREATE_REFUSAL_UNTRUSTED = "untrusted-sender"
+CREATE_REFUSAL_NO_SENDER = "sender-id-absent"
+CREATE_REFUSAL_UNCONFIGURED = "sender-check-unconfigured"
 
 
 class ValidationError(Exception):
@@ -307,11 +335,74 @@ def _parse_record(record):
     return req
 
 
+def sender_id(record):
+    """Reads the sender identity SQS stamped on one record.
+
+    ``SenderId`` is a message SYSTEM attribute: the service sets it and a ``SendMessage``
+    cannot, which is what makes it the one attributable fact a queued message carries. The
+    event-source mapping delivers it for FIFO queues with no configuration.
+
+    Args:
+      record: The SQS record.
+
+    Returns:
+      The stamped value, or an empty string when the record carries no usable one. Absent is
+      not treated as trusted anywhere — the caller refuses on it.
+
+    Raises:
+      None.
+    """
+    attributes = record.get("attributes") if isinstance(record, dict) else None
+    if not isinstance(attributes, dict):
+        return ""
+    value = attributes.get("SenderId")
+    return value if isinstance(value, str) else ""
+
+
+def _create_sender_refusal(sender):
+    """Decides whether a create's sender may write to somebody else's inbox.
+
+    For a role, ``SenderId`` is the role's unique ID, a colon, and a session name. Only the
+    role-id half is compared. The session half is never examined: Cognito's enhanced flow does
+    not document what it sets there, so pinning a literal would couple this boundary to an
+    undocumented value. The comparison is equality on that half rather than a prefix test —
+    a prefix would also match a different role whose unique ID merely starts the same way.
+
+    Order is load-bearing, not stylistic. The configuration is tested FIRST because with
+    ``UNTRUSTED_SENDER_ID`` unset an absent sender's empty role-id half compares equal to it,
+    which inverts every verdict: service creates would pass and honest absences would be
+    recorded as forgeries.
+
+    Args:
+      sender: The stamped sender, empty when the record carried none.
+
+    Returns:
+      A reason code, or an empty string when the create may proceed.
+
+    Raises:
+      None.
+    """
+    if not UNTRUSTED_SENDER_ID:
+        return CREATE_REFUSAL_UNCONFIGURED
+    role_id = sender.split(":", 1)[0]
+    if not role_id:
+        return CREATE_REFUSAL_NO_SENDER
+    if role_id == UNTRUSTED_SENDER_ID:
+        return CREATE_REFUSAL_UNTRUSTED
+    return ""
+
+
 def _resolve_username(req):
     """Derives the target username for a request.
 
     User-originated actions require a verified token and ignore any body username; creation is
     a trusted producer and uses the body username.
+
+    Whether that producer IS trusted is decided before this function, by the sender check in
+    ``process``. It sits above this call rather than inside the create branch on purpose: this
+    runs before any branch, so a guard placed lower would let a refused create with no
+    ``username`` raise from here and dead-letter — which is the outcome the refusal exists to
+    avoid.
 
     Args:
       req: The parsed request.
@@ -332,15 +423,21 @@ def _resolve_username(req):
     return username
 
 
-def process(req):
+def process(req, sender):
     """Validates the request, resolves the trusted target, and applies the read-modify-write.
+
+    A refused create RETURNS rather than raising, because it is the most expected thing in this
+    module and an expected refusal is a return value. The caller logs it and treats the message
+    as handled, so the event-source mapping deletes it.
 
     Args:
       req: The parsed request.
+      sender: The sender SQS stamped on the record, empty when it carried none.
 
     Returns:
       A small structured result for logging: the action, the username, the resulting count, and
-      the match count for a mark-read.
+      the match count for a mark-read. For a refused create, ``{"action", "refused"}`` and
+      nothing else — no inbox was read or written, so there is no count to report.
 
     Raises:
       ValidationError: When a create has no message, a create's payload is oversize, or a
@@ -349,6 +446,10 @@ def process(req):
       ClientError: On any S3 fault.
     """
     action = req["action"]
+    if action == "create":
+        refusal = _create_sender_refusal(sender)
+        if refusal:
+            return {"action": action, "refused": refusal}
     username = _resolve_username(req)
     matched = None
 
@@ -398,12 +499,19 @@ def handler(event, context):
     it is the signature of "mark as read did nothing", so it gets its own event rather than
     hiding inside an indistinguishable success.
 
+    A refused create returns here rather than raising, and this event is the ONLY account of it
+    that exists — dropping is what keeps a forged request from accumulating in an undrained
+    dead-letter queue, and the cost of that is that nothing accumulates to notice. The event
+    carries the reason code and the ``messageId``, both service-stamped, and nothing from the
+    body: the body is the untrusted thing this refusal exists over, and echoing it would make an
+    operator's log the injection channel the inbox no longer is.
+
     Args:
       event: The SQS event.
       context: The Lambda context, unused.
 
     Returns:
-      The structured result from processing the record.
+      The structured result from processing the record, including a refused create's.
 
     Raises:
       ValidationError: When the event carries no records, more than one record, or the record
@@ -425,7 +533,14 @@ def handler(event, context):
         )
     record = records[0]
     req = _parse_record(record)
-    result = process(req)
+    result = process(req, sender_id(record))
+    if "refused" in result:
+        observability.error(
+            "create refused",
+            reason=result["refused"],
+            message_id=record.get("messageId", ""),
+        )
+        return result
     logger.info("notifications %(action)s for %(username)s -> %(count)d", result)
     if result.get("matched") == 0:
         observability.warning(

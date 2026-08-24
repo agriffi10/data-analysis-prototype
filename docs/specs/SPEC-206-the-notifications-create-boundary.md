@@ -1,8 +1,8 @@
 # Spec: The Notifications `create` Boundary
 
 **ID:** SPEC-206
-**Status:** Draft
-**Last Updated:** 2026-08-23
+**Status:** Completed
+**Last Updated:** 2026-08-24
 **Depends On:** SPEC-058→061 (the notifications plane, its single-writer FIFO model and its stated anti-spoofing rule), SPEC-126 (the DLQ drain, and why this queue's DLQ is undrained), SPEC-166 (an expected refusal is a return value, not a raise), SPEC-138 (findings and dispositions live in `security-baseline.md`), SPEC-191 (which re-found this while building the file-ops producer)
 
 ## Overview

@@ -90,7 +90,9 @@ inspects only the first two characters.
 `crypto.randomUUID()` today; a regex for that exact shape would couple the reader to one producer's
 format and fail closed — silently dropping the field — the day a plane mints anything else.
 
-**A pre-existing gap was found and NOT fixed here.** The portal role holds an **unconditioned**
+**A pre-existing gap was found and NOT fixed here.** *(Fixed since, by SPEC-206 — the writer refuses a
+`create` whose SQS-stamped `SenderId` names the portal role. The paragraph below records what was true
+when this shipped.)* The portal role holds an **unconditioned**
 `sqs:SendMessage` on the notifications request queue and the writer takes the body's `username` for
 a `create`, so a signed-in browser can already plant a notification in another user's inbox. The
 comment above that IAM grant asserts the opposite. Out of scope; what this spec owes and does is

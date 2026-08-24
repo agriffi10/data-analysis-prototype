@@ -44,6 +44,7 @@ same property, and a Chromium run standing in for Safari are all recorded here, 
 | **A shared-space link carries `?space=` FIRST** (SPEC-191 FR-004) | The failure is silent, which is why it cannot be settled offline: the row's feature gate tests for the literal `?space=`, so the other parameter order slips the gate, the route never reads the space, and the user lands in their OWN files with no banner while the message names a shared one. | Script §19 |
 | **A real folder move in the deployed app, in Safari at 400 px** (SPEC-190) — accepted immediately, the in-progress card surviving navigation, the listing correct after a focus return, and the notification settling the card | Everything offline mocks the queue, so what is unproven is the whole loop: a real `SendMessage` reaching a real execution, and a real notification coming back with a `requestId` the browser matches. The width matters on its own — the in-progress card is a fixed element sharing the bottom of a 400 px viewport with the mobile action bar, and Andrew browses in Safari, which is not the engine any of this was driven in. | [`e2e.md`](e2e.md) §4.2, the async-switchover rows |
 | **A prefix holding a query character survives the round trip** (SPEC-191 FR-004) | The only link on the fleet built from an arbitrary user-controlled KEY rather than a constrained name. An unencoded `?` or `&` truncates it into a URL that resolves somewhere else — and the browser's own `isSafeInAppPath` cannot see that, since it only inspects the first two characters. | Script §21 |
+| **The notifications `create` boundary** (SPEC-206) — a `create` sent with real portal-role credentials is refused, and `markRead` beside it still succeeds | Every offline test fakes the SQS event, so the `SenderId` a test supplies is the one it wants. What is owed is that the value **real portal-role credentials** produce is the one the writer refuses — the role-id half of what Cognito's enhanced flow actually stamps, which AWS does not document. It cannot be driven from a signed-in browser either: the production bundle's console cannot `import()` a bare specifier (recorded below), which is what driving the SQS client from there would need. The pass condition is **no new row in the target's inbox** plus the reason code in the log — **not** "it reaches the DLQ", which is exactly what the refusal drops to avoid. | §2.1 |
 | **The archive/restore negative assertion** — for a refused restore, **no** `RestoreObject` for that archive id | A refusal that had already begun retrieval is invisible from the UI and costs 3–5 billed hours. Read the audit trail, never `head-object`. | §2.4 |
 | **The vault prefix is swept after a restore** (SPEC-171 FR-005) | Nothing human can read `dat-prod-archive`, and the browser sees only the receipt folder, which survives by design. `aws s3api list-objects-v2 --bucket dat-prod-archive --prefix "personal/$USERNAME/archive/$ARCHIVE_ID/" --max-keys 5` → **`KeyCount: 0`**, `_manifest.json` included. Needs a principal on that bucket's allowlist, which no human identity is. | — |
 | **`head-object` on user-space or archive** — restored objects back at `STANDARD`, content type survived, byte-identical | The laptop identity is explicitly denied on both buckets, and the UI cannot show a storage class. | — |
@@ -153,6 +154,42 @@ aws s3api delete-object --bucket dat-prod-user-space --key "$USERNAME/saved_quer
 
 Afterwards, both markers are still present (they are hidden in the portal, so confirm with
 `head-object`, not by eye).
+
+**The notifications `create` boundary, and the control that makes it mean anything** (SPEC-206). Same
+credentials, same reason: only the portal role produces the `SenderId` the writer refuses, and the
+laptop identity produces a different one — which would be refused for the wrong reason, or not at all.
+
+**Target your OWN username.** The portal role can only read its own `user_settings/`, so aiming at a
+second account leaves you unable to observe the pass condition at all.
+
+The queue is FIFO, so `--message-group-id` is required and there is no content-based dedup:
+
+```bash
+QUEUE_URL=$(aws sqs get-queue-url --queue-name dat-prod-notifications.fifo --query QueueUrl --output text)
+
+# THE CHECK. Expect the send to SUCCEED — the grant is unconditioned, so SQS accepts it.
+# The refusal happens in the writer, which is the whole point.
+aws sqs send-message --queue-url "$QUEUE_URL" \
+  --message-group-id "$USERNAME" --message-deduplication-id "boundary-$(date +%s)" \
+  --message-body "{\"action\":\"create\",\"username\":\"$USERNAME\",\"message\":\"SPOOFED\"}"
+
+# THE POSITIVE CONTROL. Expect this to succeed AND take effect — without it, a refusal cannot be
+# told apart from the browser having lost access to the queue entirely.
+aws sqs send-message --queue-url "$QUEUE_URL" \
+  --message-group-id "$USERNAME" --message-deduplication-id "control-$(date +%s)" \
+  --message-body "{\"action\":\"markAllRead\",\"idToken\":\"$(cat /tmp/idtoken)\"}"
+```
+
+Then observe, in this order:
+
+1. **No row saying `SPOOFED`** in `s3://dat-prod-user-space/$USERNAME/user_settings/notifications.json`
+   — read it in the portal's Network tab or with `get-object`. This is the pass condition.
+2. **Every row now reads** — the control landed, so the credentials and the queue both work.
+3. **`reason: untrusted-sender`** under `logs/service=notifications/year=/month=/day=/` in the admin
+   bucket, with the `messageId` of the send. **Wait a sweep first:** the logs queue is swept every
+   10 minutes and never long-polled, so checking immediately shows an empty prefix and reads as a
+   failure. A `sender-check-unconfigured` there instead means the deploy lost the environment
+   variable — the control has broken, not been tested.
 
 ### 2.2 Hand-crafted control-plane requests
 
