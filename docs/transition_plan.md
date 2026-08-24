@@ -2,7 +2,10 @@
 
 **Status:** Single source of truth for the client transition. Living document; update it in place
 rather than writing a competing one.
-**Last updated:** 2026-08-24 (**third-party driver pass** — §3.5's incompatibility bullet was
+**Last updated:** 2026-08-24 (**third-party driver pass, second half** — the client confirmed its
+Excel/Access/Power BI users are on the **SAML path today**, so §8's question is answered and §3.10
+gains the migration it implies: a cutover, on separate workgroups, with G8 now gating the desktop
+fleet as well as the portal. Same day, **third-party driver pass** — §3.5's incompatibility bullet was
 quoted without its qualifier and read as "the client's Excel, Access and Power BI users lose their
 connection"; it does not say that. New **§3.10** carries what the drivers actually support, the two
 TIP plugins, the version floors and the rollout facts; §1, §5.5's G7 row, §8 and §10 move with it).
@@ -246,6 +249,12 @@ Treated as inputs. Do not re-litigate without new information.
     environment is degraded, and **no Arc B spec may be gated on a transition gate** — the three
     forward-compatibility obligations this revision added to its drafts are each independently
     shippable today (see the revision note above).
+15. **The client's third-party driver users are on the SAML path today, and they must be migrated**
+    (confirmed by the client, 2026-08-24). Their Excel, Access and Power BI clients reach Athena
+    through SAML-2.0 federation with Lake Formation — the very feature AWS documents as *"not
+    compatible with the IAM Identity Center trusted identity propagation feature"*. So this is a
+    **cutover for every one of those desktops**, not a version bump, and §3.10's migration subsection
+    is the shape of it. Treated as an input: do not re-plan on the assumption of a straight swap.
 
 ---
 
@@ -845,6 +854,62 @@ driver user queries the **catalog**: reaching their personal database or a share
 from Excel needs the matching Lake Formation grant, which this app already issues. Nothing here gives
 Excel a file browser and nothing in this plan proposes one.
 
+#### The migration — confirmed necessary, 2026-08-24
+
+**The client's driver users are on the SAML path today** (§2 item 15), which is the one answer that
+turns this section from a compatibility note into a work item. AWS states the incompatibility from
+the SAML side too, and unambiguously: *"Federated access using the JDBC and ODBC drivers is **not
+compatible** with the IAM Identity Center trusted identity propagation feature."* There is no
+session that is both. Every one of those desktops is a cutover.
+
+**What is actually changing, laid out so the size of it is legible:**
+
+| | Today (SAML) | After (TIP) |
+|---|---|---|
+| Driver | ODBC **1.1.3+** / JDBC 2.0.14+ | ODBC **2.1.0.0+** — a major-version jump, not an upgrade |
+| Auth plugin | `BrowserAzureAD` / ADFS / Okta, with `LakeformationEnabled` | `BrowserOidcTip` (desktop) or `JWT_TIP` (shared host) |
+| IdP protocol | SAML 2.0 | **OIDC** — a different app registration, not a re-pointing of the old one |
+| AWS principal | An IAM role reached by `AssumeRoleWithSAML` | An identity-enhanced session on the Access Role |
+| LF grants keyed on | SAML users and groups | **Identity Center principals** |
+| Workgroup | A regular workgroup | An **IdC-enabled** workgroup |
+
+**Three consequences, and the first one is the good news.**
+
+- **The two paths cannot share a workgroup, and that is exactly what makes a phased migration
+  possible.** An IdC-enabled workgroup cannot be converted from a regular one and cannot be converted
+  back (§3.5), so the old SAML path and the new TIP path *necessarily* live on different workgroups.
+  Old DSN to the old workgroup, new DSN to the new one, both live at once. **The incompatibility is
+  per session, not per account** — so no flag day, and the desktop fleet migrates at whatever pace
+  the client's endpoint management allows.
+- **Re-keying the grants is free here, and it would not be in an in-place upgrade.** Their existing
+  Lake Formation grants are keyed on SAML principals and none of them survive. But §2 item 5 already
+  rebuilds catalog and grants in the successor account rather than copying them, and §3.8's
+  reconciler already projects the grant matrix onto Identity Center principals — so the re-key *is*
+  the rebuild. Nothing extra is owed. This is the single largest reason the SAML answer is less
+  expensive than it first sounds.
+- **G8 now gates the desktop fleet, not just the portal, and that raises its stakes.** `BrowserOidcTip`
+  needs an OIDC IdP: an `IdpWellKnownConfigurationUrl` and a `client_id`. Under **Variant A** that is
+  Entra directly and the drivers point where the portal points. Under **Variant B** — Entra SAML-only
+  — the portal gets a Cognito bridge, and the drivers would have to authenticate against **that
+  bridge** too, or fall back to `JWT_TIP` with something else minting the JWT for each desktop. So a
+  G8 failure is materially worse than §5.5's row implies: it is not only a Cognito bridge to build
+  and delete, it is a Cognito bridge the whole desktop fleet points at. **Ask G8 with the driver
+  fleet in the question.**
+
+**Weak evidence on G8, in both directions, recorded so it is not overread.** That the client uses
+SAML for Athena today says little — before 2025-09-11 SAML was the *only* driver option, so it is
+evidence about the calendar, not about the tenant. Pointing the other way, AWS's own `BrowserOidcTip`
+documentation names *Microsoft Entra ID* when describing which claims the ID token must carry, which
+is AWS treating Entra as an expected OIDC issuer for this exact plugin. Neither settles G8; it stays
+a conversation with the tenant owner.
+
+**The fallback if the desktop migration cannot finish in time: dual-key the grants.** The reconciler
+can project the same matrix onto *both* SAML principals and Identity Center principals, leaving the
+old workgroup serving unmigrated desktops while the portal runs on the new one. It costs a second
+isolation model and roughly double the grants, and it must have an end date written down or it
+becomes permanent — but it takes the desktop fleet off the cutover's critical path, which is worth
+having available rather than discovering late.
+
 **Two things this section does NOT claim, stated so nobody reads it as settled.**
 
 - **AWS names Power BI, Tableau and DBeaver. It never names Excel or Access.** Both are ordinary ODBC
@@ -1284,7 +1349,7 @@ invalidate design rather than merely confirm it; the rest belong to Phase 5:
 | G5 | A JOIN across two granted datasets returns in one query | The single-session-spans-grants assumption is wrong |
 | G6 | Session lifetime is workable and silent refresh exists | UX churn; needs a refresh strategy |
 | G7 | A plain `StartQueryExecution` on an IdC-enabled workgroup, issued with identity-enhanced credentials from our own code, runs and is enforced per user (§3.5) | **Blocker, and genuinely uncertain** — the docs list *federated access to the Athena API* as incompatible with TIP, but define that term narrowly elsewhere as SAML-via-JDBC/ODBC, so neither reading is safe to assume. If it fails, Phase 5 needs a different query surface: a studio product, or a broker that re-implements masking (§3.2 point 4). **Run it in Phase 0, not Phase 5**. **Evidence added 2026-08-24 (§3.10):** AWS's own JDBC/ODBC driver TIP plugins do exactly this — exchange a JWT, assume an identity-enhanced session, then call the Athena API from ordinary client code with no studio product in the path. Expect a pass; run it anyway, since a vendor driver may hold a privileged path our own code does not |
-| **G8** | **Can the Entra tenant issue OIDC/OAuth2 JWTs for this application** — an app registration on the **default signing key** (a custom signing key is unsupported for the Entra trusted-token-issuer path), with an audience and an `email`-to-IdC-attribute claim mapping that align? | **This is the variant decider (§3.3), not a blocker.** Pass → **Variant A**, and Cognito is never built. Fail → **Variant B**, and a Cognito bridge is built to be deleted later. Often a per-app-registration or tenant-policy matter rather than a product limitation, so **ask the Entra tenant owner before assuming**. Answer it in **Phase 0**: it decides work in Phase 1 and Phase 5, and building B when A was available is the expensive mistake |
+| **G8** | **Can the Entra tenant issue OIDC/OAuth2 JWTs for this application** — an app registration on the **default signing key** (a custom signing key is unsupported for the Entra trusted-token-issuer path), with an audience and an `email`-to-IdC-attribute claim mapping that align? | **This is the variant decider (§3.3), not a blocker.** Pass → **Variant A**, and Cognito is never built. Fail → **Variant B**, and a Cognito bridge is built to be deleted later. Often a per-app-registration or tenant-policy matter rather than a product limitation, so **ask the Entra tenant owner before assuming**. Answer it in **Phase 0**: it decides work in Phase 1 and Phase 5, and building B when A was available is the expensive mistake. **Stakes raised 2026-08-24 (§3.10):** the client's driver users are on SAML and must migrate to an OIDC-based TIP plugin, so a G8 failure points the **whole desktop fleet** at the Cognito bridge as well as the portal — ask G8 with the drivers in the question |
 | **G9** | **Presign an S3 `GET` and a `PUT` from `GetDataAccess`-vended credentials and redeem both from a browser origin** (§3.9) | Presigning is a local SigV4 operation and the session token rides in the query string, so this *should* work and S3 should evaluate the grant's scope at redemption — but it is **unproven**, and the whole "AWS credentials never reach the browser" posture rests on it. If it fails, the fallback is vending the scoped credentials to the browser directly, and **SPEC-202's load-bearing negative live check must be re-worded before it is run**. Cheap; run it in Phase 0 beside G7, on the same throwaway instance |
 
 ---
@@ -1816,6 +1881,13 @@ on any IAM role. The design is §3; the work items are here.
   likely a create, not a join.
 - Create an Identity Center enabled Athena workgroup.
 - Add a connection kind in `useConnections` running under the identity-enhanced session.
+- **Stand up the driver path and migrate the SAML desktops** (§3.10) — the OIDC app registration and
+  its `localhost:7890/athena` redirect URI, the customer-managed Identity Center application, the
+  Application and Access roles, and the TIP configuration **tags on the workgroup**. Then migrate
+  Excel, Access and Power BI clients onto new DSNs. **This does not block the portal's cutover:** the
+  SAML path and the TIP path run on separate workgroups by construction, so both are live at once and
+  the fleet moves at the endpoint owners' pace. If it runs long, dual-key the reconciler's grants
+  (§3.10) **with an end date written down**.
 - Stand up the core datasets: dataset registry config, data cell filters, and the reconciler
   (§3.8) pointed at the successor account — a re-run of the existing grant matrix against
   unchanged Identity Center principals (§4.1). No dual-granting: there are no bespoke roles to
@@ -1868,11 +1940,16 @@ freeze. This is the whole reason the old account survives the quiet period.
   is a conversation with the tenant owner rather than an experiment, and it has the longest lead
   time of anything in this list. Ask first.
 - **Is SCIM provisioning from Entra into Identity Center live** (§2 item 12), and who operates it?
-- **What do the client's Excel, Access and Power BI users connect with TODAY** (§3.10)? If they are
-  on the **SAML / Lake Formation federated** driver path (Okta or AD FS), that path *is* genuinely
-  incompatible with TIP and every one of them must move to a TIP plugin; if they are on static IAM
-  keys or an IAM profile it is a straight swap. This decides the size of the desktop rollout, it has
-  a long lead time, and nobody has asked. Ask it beside G8.
+- ~~What do the client's Excel, Access and Power BI users connect with today?~~ **ANSWERED
+  2026-08-24 — they are on the SAML path and must be migrated** (§2 item 15, §3.10's migration
+  subsection). What replaces this question is narrower and belongs to the client's endpoint owners,
+  not to us: **how many desktops, on which ODBC version, and who can push a driver upgrade to them?**
+  The answer sizes the rollout; it does not gate any design here, because the two paths run on
+  separate workgroups.
+- **Ask G8 with the driver fleet in the question** (§3.10). A G8 failure no longer means only "build
+  a Cognito bridge for the portal" — it means the desktop fleet authenticates against that bridge
+  too, or falls back to `JWT_TIP` with something else minting each user's JWT. Same gate, larger
+  blast radius than §5.5's row states.
 - **The Access Grants prefix identity** (§3.9): one literal grant per user, or one broad grant
   narrowed by `${identitystore:UserId}` in the **location role's policy**? It decides whether a grant
   is a provisioning step and whether the username survives as the prefix, and it may split between
