@@ -186,6 +186,21 @@ data "aws_cloudfront_cache_policy" "caching_optimized" {
   name = "Managed-CachingOptimized"
 }
 
+# The runtime configuration document must never be answered from an edge cache.
+#
+# CachingOptimized cannot express that. Its MinTTL is 1 second, and CloudFront applies
+# the MinTTL EVEN WHEN the origin sends `no-store`; worse, an object that ever reaches
+# the edge without a `Cache-Control` header takes the 24-hour DefaultTTL, and its
+# 365-day MaxTTL means an unreachable origin keeps serving the last document it saw.
+# Any of those serves one environment's account ids to another environment's users, as
+# a portal that looks entirely healthy.
+#
+# 0/0/0 makes the guarantee a property of the distribution instead of a flag on one
+# upload step.
+data "aws_cloudfront_cache_policy" "caching_disabled" {
+  name = "Managed-CachingDisabled"
+}
+
 resource "aws_cloudfront_distribution" "portal" {
   enabled             = true
   default_root_object = "index.html"
@@ -203,6 +218,20 @@ resource "aws_cloudfront_distribution" "portal" {
     target_origin_id           = "static-assets-origin"
     viewer_protocol_policy     = "redirect-to-https"
     cache_policy_id            = data.aws_cloudfront_cache_policy.caching_optimized.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.portal.id
+  }
+
+  # `ResponseHeadersPolicyId` is per-behaviour and is NOT inherited from the default one:
+  # omitting it here would serve this path with no CSP, no HSTS, no frame or content-type
+  # options — and without the `Server` / encryption header stripping — on a URL any
+  # scanner finds immediately.
+  ordered_cache_behavior {
+    path_pattern               = "config.json"
+    allowed_methods            = ["GET", "HEAD"]
+    cached_methods             = ["GET", "HEAD"]
+    target_origin_id           = "static-assets-origin"
+    viewer_protocol_policy     = "redirect-to-https"
+    cache_policy_id            = data.aws_cloudfront_cache_policy.caching_disabled.id
     response_headers_policy_id = aws_cloudfront_response_headers_policy.portal.id
   }
 
