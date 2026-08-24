@@ -608,6 +608,12 @@ module "notifications" {
   # The portal role this module attaches the sqs:SendMessage inline policy to, by name.
   portal_role_name = local.portal_role_name
 
+  # The identity the writer must REFUSE a `create` from. That grant is unconditioned — IAM
+  # has no condition key that reaches a field inside a message body — so the boundary is a
+  # runtime check against the SenderId SQS stamps, and this is the value it compares.
+  # A resource attribute rather than a name: SenderId carries the unique ID and nothing else.
+  portal_role_unique_id = module.data.portal_role_unique_id
+
   # Actor binding: the writer verifies caller ID tokens against the pool JWKS
   # for user-originated actions. Module.auth outputs (one-directional dep: auth applies
   # before data, which this module already depends on).

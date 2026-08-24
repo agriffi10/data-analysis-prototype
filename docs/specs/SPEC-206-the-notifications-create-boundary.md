@@ -18,6 +18,11 @@ naming anybody and saying anything — including a clickable in-app link. This s
 enforcement real, so the sentence the architecture has asserted since SPEC-058 becomes true of the
 running system.
 
+It is the **interim** fix and says so: Arc B removes the grant it constrains (SPEC-200), at which
+point the principal denied here becomes a service principal rather than a user-reachable one. The
+check stays regardless — that removal is eleven specs out and reversible, and a runtime refusal costs
+nothing once the grant is gone.
+
 It is not a new capability and no user sees anything change. The finding is already recorded in
 `docs/security-baseline.md` as **accepted, low-severity, tracked separately**, and that entry names
 the fix shape this spec builds: an infrastructure-set marker a body cannot smuggle.
@@ -97,8 +102,30 @@ not a user-reachable one.)
       security check that cannot run must not report a pass (SPEC-138). The two cases are
       operationally opposite — one is somebody trying it on, the other is the control having broken —
       and a single reason code would make them the same log line.
-- [ ] **Both refusals emit a structured `observability.error`** into `logs/service=notifications/`,
-      with the reason code and without echoing the body. That log is the signal, and it has to be,
+- [ ] **There are THREE reason codes, not two, and the third is the unset variable** (`untrusted-sender`,
+      `sender-id-absent`, `sender-check-unconfigured`). Raised during the plan review and folded in
+      here so the diff is checked against a contract that agrees with it. An unset
+      `NOTIFICATIONS_UNTRUSTED_SENDER_ID` is a third operationally distinct state — the deploy is
+      broken, not the record and not an attacker — and folding it into `sender-id-absent` would make
+      FR-003's window read as a forgery attempt in the one log line an operator sees. It is also
+      **load-bearing for correctness**: the config must be tested FIRST, because with the variable
+      unset an absent sender's empty role-id half compares equal to the empty config and every verdict
+      inverts — service creates pass, absent-sender creates are refused as forgeries.
+- [ ] **The guard sits ABOVE `_resolve_username`, not inside the `create` branch.** `process` resolves
+      the username before it branches, so a guard placed in the branch lets a portal-role `create` with
+      no `username` reach `ValidationError("create requires a username")` and **raise** — three
+      invocations and a permanent message on the undrained DLQ, which is the exact vector the
+      log-and-drop criterion above exists to close, reachable by omitting one field. A test drives it.
+- [ ] **What this does NOT close is stated, not implied:** `_parse_record` still raises on a non-JSON
+      body and on an unknown action, both before `process`. A signed-in user can therefore still
+      dead-letter this queue at will with `{"action":"delete"}`. That is pre-existing and out of scope
+      here — this spec decides who may send a `create` — but the delivery doc says so rather than
+      leaving a reader to infer the channel is now protected.
+- [ ] **Every refusal emits a structured `observability.error`** into `logs/service=notifications/`,
+      with the reason code, the SQS `messageId` and without echoing the body. The `messageId` is a
+      service-stamped field like `SenderId`, so it does not breach the rule — and without it FR-005's
+      observation cannot tie one refusal event to one attempt. A test asserts the body's `message`,
+      `username`, `link` and `payload` appear in no emitted field. That log is the signal, and it has to be,
       precisely because dropping means nothing accumulates in the DLQ to notice.
 - [ ] **A second queue is rejected, and the reason is stated so it is not re-proposed.** Moving the
       browser's two actions to their own queue would let IAM enforce this with no runtime check — but
@@ -130,13 +157,26 @@ module does not currently output it, and the `notifications` module takes only t
       `notifications` module; the module sets it as an environment variable on the writer.
 - [ ] **The value is the role's UNIQUE ID, never its name or ARN.** `SenderId` carries neither, and a
       comparison against the wrong one silently never matches.
-- [ ] **A test reads the writer's `lambda.tf` and fails if the variable is absent or wired to
-      anything but that attribute** — the precedent is the existing assertion that pins the
-      event-source mapping's `batch_size = 1`.
+- [ ] **A test pins the WHOLE CHAIN, not just `lambda.tf`** — the precedent is the existing assertion
+      that pins the event-source mapping's `batch_size = 1`, but one file is not enough here.
+      `lambda.tf` alone cannot see the hop where the silent failure lives: a *missing* root wiring
+      fails `tofu validate` (the variable has no default), while a *wrong* one — `module.data.iam_role_arn`,
+      a plausible typo naming the same role from the same module — validates clean and produces exactly
+      the "compares against the wrong one, silently never matches" outcome. So the test reads
+      `notifications/lambda.tf`, `infra/main.tf` and `data/outputs.tf`, and fails if any hop is absent
+      or wired to anything but `aws_iam_role.portal.unique_id`.
+- [ ] **The variable also carries a `validation` block** matching `^AROA[A-Z0-9]+$`, which is the
+      structural half of the same guard: the test protects `main`, the validation protects every later
+      plan, and neither makes the other redundant. OpenTofu defers validation while a value is unknown,
+      so it guards a re-wire rather than the first create.
 - [ ] **With the variable unset the writer still starts, still serves both user actions, and refuses
-      every `create` — and this is a RUNTIME fail-closed, said plainly.** The deploy test above does
-      not make it unreachable; it makes it unreachable *on `main`*, which is a different claim
-      (FR-003 is what covers the window in between).
+      every `create` — under `sender-check-unconfigured`, and this is a RUNTIME fail-closed, said
+      plainly.** The deploy test above does not make it unreachable; it makes it unreachable *on
+      `main`*, which is a different claim (FR-003 is what covers the window in between).
+- [ ] **The Terraform variable itself carries NO default**, so a root that forgets to wire it fails at
+      `plan` rather than deploying a writer that silently refuses every notification in the product.
+      The runtime fail-closed above is the second belt, for the FR-003 window where the code is new and
+      the function's environment is not yet updated — not a substitute for the first.
 - [ ] `infra/modules/notifications/variables.tf`'s header — which claims every cross-module value is
       a name or id and the module plans standalone — is corrected: this is the module's first
       resource-attribute dependency on another module. It is safe (an unknown-at-plan value in a
@@ -159,6 +199,16 @@ and `update-function-code` finishes long before a `tofu apply`.
       against a function whose variable is unset, and FR-002's fail-closed refuses **every `create`
       in the product**, dropped or dead-lettered, unrecoverably.
 - [ ] The implementation phases are ordered to match, and the spec says which PR is which.
+- [ ] **PR 1 touches `infra/**` ONLY — no file under `lambdas/**`, the deploy pin included.** Found in
+      the plan review, and it is a second, sharper reason for the split than the one above.
+      `plan_deploy.py` selects a function when **any** file under `lambdas/{name}/` changes, tests
+      included, and `deploy-lambda.sh` then issues `update-function-configuration --layers` — while
+      PR 1's own `tofu apply` issues `UpdateFunctionConfiguration` for the new `environment` entry
+      (`ignore_changes` covers `filename`, `source_code_hash` and `layers`, **not** `environment`).
+      Two concurrent configuration updates on one function is `ResourceConflictException`, so a test
+      file in PR 1 makes the one PR designed to be inert the one that reddens `main` intermittently.
+      The pin therefore ships in PR 2, whose CI runs it against a `main` where the wiring is already
+      applied — which is the moment it has something to assert.
 - [ ] **After the second PR, one ordinary plane operation is run and its notification confirmed to
       arrive.** The blast radius this spec must not cause is "notifications stop for seven planes",
       and every other check of that is offline against a fixture the test author wrote.
@@ -181,11 +231,22 @@ ships.
 - [ ] **A test asserts the false sentence is gone from `iam.tf`.** In a spec whose entire premise is
       that a false comment is more dangerous than no comment, the correction gets a binary check like
       anything else. Reading source in a test is established here.
-- [ ] The four sites that become wrong are corrected: the writer's module docstring; its
-      `MAX_PAYLOAD_BYTES` rationale (which rests on the unconditioned grant — still true of IAM, no
-      longer true of what reaches `apply_create`); `notifications.service.ts`'s comment above
-      `ID_SHAPE`, which cites the live hole as its reason; and `notifications/outputs.tf`'s
-      "(future) trusted-producer scope" note.
+- [ ] The sites that become wrong are corrected. The spec said four; a sweep for
+      `trusted.producer` / `unconditioned` found **eight**, and two of them are near-duplicates of
+      sentences in the original list — reworded, not copied, which is what makes a literal-string sweep
+      miss them. This spec's own thesis arriving as a defect. All eight:
+      the writer's module docstring; its `MAX_PAYLOAD_BYTES` rationale (which rests on the
+      unconditioned grant — still true of IAM, no longer true of what reaches `apply_create`);
+      **the same rationale repeated as a comment in `test_an_OVERSIZE_payload_is_refused_rather_than_truncated`**;
+      `notifications.service.ts`'s comment above `ID_SHAPE`, which cites the live hole as its reason;
+      `notifications/outputs.tf`'s "(future) trusted-producer scope" note; **the root
+      `infra/outputs.tf` output carrying that identical note**; `ARCS.md`'s "the shipped notifications
+      pipeline is *not* a safe model to copy" note, which points at the disposition this spec closes;
+      and SPEC-191's delivery doc, whose "a pre-existing gap was found and NOT fixed here" paragraph
+      gains a one-line pointer rather than a rewrite (a delivery doc is historical).
+- [ ] **The binary check sweeps ALL THREE Terraform files in one pass** — `notifications/iam.tf`,
+      `notifications/outputs.tf` and the root `infra/outputs.tf` — not `iam.tf` alone. A test that
+      proves one copy gone while its near-duplicate stands is the failure mode in miniature.
 - [ ] **`docs/security-baseline.md`'s disposition is closed** — it currently reads *accepted for now
       … tracked separately* and names this exact fix shape. Leaving it open would have the security
       register asserting a live acceptance for a hole that no longer exists.
@@ -219,6 +280,13 @@ is owed is that the value **real portal-role credentials** produce is the one th
 - [ ] **The positive control runs beside it**: the same credentials' `markRead` still succeeds. A
       refusal with no control cannot tell "the boundary works" from "the browser can no longer reach
       the queue at all".
+- [ ] **The block is written as the exact commands, because three details will otherwise stop a
+      tester dead.** The queue is FIFO, so `send-message` needs `--message-group-id` (the username)
+      **and** `--message-deduplication-id` — content-based dedup is off. The structured log is
+      **swept every 10 minutes and never long-polled**, so a reader who checks immediately sees an
+      empty prefix and records a pass as a failure; the block says to wait a sweep. And it names where
+      the queue URL comes from (the root `notifications_queue_url` output) and that the log objects
+      live in the **admin** bucket, which the portal role can read.
 
 ### FR-006: The note into Arc B
 
@@ -231,6 +299,13 @@ the `create` arm with no sender check. SPEC-200 removes the browser's `sqs:SendM
 
 - [ ] SPEC-201 gains a line requiring this check to survive its rewrite, in the same way SPEC-200
       already carries one for `USER_ACTIONS`.
+- [ ] **The note also fixes SPEC-201's own acceptance criteria, which this spec falsifies.** SPEC-201
+      asserts that "a `create` with a `username` and no `identity` block writes the inbox and
+      succeeds" — true only if its fixture carries a **service** `SenderId`, since a record with no
+      `attributes` is now a refusal. A bare survival line does not stop that spec's author writing a
+      fixture that is refused and then "fixing" it by deleting the guard. The note says both: every
+      `create` fixture supplies a service `SenderId`, and the guard sits **above** `_resolve_username`
+      — which matters because that function is SPEC-201's entire subject.
 - [ ] The forward consequence is recorded: after SPEC-196 the API Lambda assumes the portal role, so
       the principal this spec denies becomes a **service** principal. Harmless — `create` is still
       emitted by execution roles — but it should be read, not discovered.
@@ -278,13 +353,18 @@ def process(req: dict, sender: str) -> dict:   # was process(req)
 The test helper changes with it, and how it changes is load-bearing:
 
 ```python
-def _msg(body, sender="AROASERVICE:producer"):   # explicit, and every existing create test passes one
+def _msg(body, sender):   # REQUIRED — no default; see below
     return {"Records": [{"body": json.dumps(body), "attributes": {"SenderId": sender}}]}
 ```
 
-- [ ] Nine existing `create` tests plus the redelivery tripwire go through this helper and currently
-      send **no `attributes` at all**. They must be updated to pass a service sender explicitly —
-      **not** by giving `_msg` a silent default that becomes the thing under test.
+- [ ] **`sender` is a REQUIRED parameter, with no default**, which is a correction to this spec's own
+      earlier snippet. The rule below is what matters, and a default cannot enforce it: the plan review
+      counted **twelve** `create` tests reaching this helper, not the nine stated here, so "update them
+      all" was already a counting exercise that had gone wrong once. Required makes it structural —
+      Python refuses the call site that forgets.
+- [ ] Every existing `create` test plus the redelivery tripwire currently sends **no `attributes` at
+      all**. They must pass a service sender explicitly — **not** by inheriting a default that becomes
+      the thing under test.
 - [ ] At least one test calls the writer with a record carrying no `attributes` key whatsoever, which
       is the missing-`SenderId` path.
 
@@ -310,8 +390,11 @@ lambdas/notifications-writer/notifications_writer.py       # sender_id, process,
 lambdas/notifications-writer/test_notifications_writer.py  # its tests + the lambda.tf pin
 infra/modules/notifications/iam.tf                         # the corrected comment (FR-004)
 infra/modules/notifications/outputs.tf                     # the stale "(future)" note
+infra/outputs.tf                                           # the root output's near-duplicate of it
 apps/portal/src/features/notifications/notifications.service.ts   # the ID_SHAPE comment
 docs/security-baseline.md                          # the disposition, closed
+docs/specs/ARCS.md                                 # its pointer at that disposition
+docs/spec-delivery/SPEC-191-file-ops-notifications-and-live-checks.md  # a one-line pointer
 docs/decisions.md                                  # what enforces trusted-producer-only
 docs/specs/SPEC-201-the-lambda-trust-boundary.md   # FR-006's line
 docs/testing/owed.md                               # FR-005's row, beside §2.1
@@ -341,9 +424,16 @@ a comment.
 ### Phase 4: The live check, the post-deploy control, and the ritual
 
 - FR-005's `owed.md` row beside §2.1; FR-003's post-deploy positive control.
-- Delivery doc, INDEX row, and a `decisions.md` entry for **the deny of one principal rather than an
-  allow of eight, and why IAM cannot express this at all**.
-- **`CLAUDE.md` pruning is in scope here, not optional.** It sits at 51,975 bytes against a 52,000
+- Delivery doc, INDEX row, and a `decisions.md` entry carrying **three** fences, not one: the deny of
+  one principal rather than an allow of eight; why IAM cannot express this at all (no condition key
+  reaches a message body); and **why a second queue is rejected** — the FIFO single-writer argument
+  from FR-001. `decisions.md` is where this repo's "do NOT build" fences live, and a rejection that
+  exists only inside a closed spec is a rejection that gets re-proposed.
+- **`CLAUDE.md` pruning is in scope here, not optional.** It sits at 51,845 bytes against a 52,000
   ratchet, so any Key Decisions line breaks `validate_docs.py` — and the rule is prune, never raise
-  the cap. The prune to make: the four file-operations lines (187–189, 191) fold into one
-  consolidated entry, which frees roughly 2 KB.
+  the cap. The prune to make: the file-operations lines fold into one consolidated entry. **There are
+  three of them, not four** — 187→189, 191 and 189, totalling 1,799 bytes; the fourth line a reader
+  will reach for is SPEC-190's, which is a *browser* decision, not a plane decision, and stays. And
+  the saving is **net, not gross**: a `DIGEST_MAX_CHARS` line replaces them, so the fold frees ~900
+  bytes, not ~2 KB. That is enough for this spec's line with headroom to spare, but a future spec
+  reading "2 KB" would be planning against a number that was never there.
