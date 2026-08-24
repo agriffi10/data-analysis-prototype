@@ -20,6 +20,8 @@ Attributes:
   INFRA: The IaC tree, swept whole by the no-NAT assertion.
   NETWORK: The network module's directory.
   MAIN: Its VPC, subnets, route tables, security groups and flow logs.
+  GRANT: The deploy-role policy that scopes the flow-logs role by name — the other half of an
+    agreement whose breach is refused at ``CreateRole`` and reads as a missing permission.
   ENDPOINTS: Its four VPC endpoints.
   INTERFACE_ENDPOINT_SERVICES: The three interface endpoints a Fargate task needs to start and
     log with no route to the internet.
@@ -31,6 +33,7 @@ import re
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 NETWORK = INFRA / "modules" / "network"
 MAIN = NETWORK / "main.tf"
+GRANT = INFRA / "modules" / "base" / "policies" / "github-actions-deploy-platform-frontdoor.json.tftpl"
 ENDPOINTS = NETWORK / "endpoints.tf"
 
 INTERFACE_ENDPOINT_SERVICES = ("ecr.api", "ecr.dkr", "logs")
@@ -42,6 +45,12 @@ def _blocks(text: str, kind: str) -> dict[str, str]:
     A brace-counting split rather than a regex over the whole block, because a resource body
     contains nested braces and a non-greedy match stops at the first inner one — which would
     quietly hide whatever came after it.
+
+    **Strings and comments are skipped, and that is not fastidiousness.** A naive count ends the
+    block at the ``}`` inside ``tags = { Name = "closes early }" }``, so everything after it —
+    including a default route to a NAT gateway — falls outside the body and every assertion below
+    reports clean. The reverse, an unbalanced brace inside a ``#`` comment, swallows the next
+    resource whole and produces a failure naming the wrong one.
 
     Args:
       text: The Terraform source to read.
@@ -57,7 +66,17 @@ def _blocks(text: str, kind: str) -> dict[str, str]:
     for match in re.finditer(rf'resource\s+"{re.escape(kind)}"\s+"([^"]+)"\s*\{{', text):
         depth, index = 1, match.end()
         while depth and index < len(text):
-            depth += {"{": 1, "}": -1}.get(text[index], 0)
+            char = text[index]
+            if char == "#" or text[index : index + 2] == "//":
+                index = text.find("\n", index)
+                if index == -1:
+                    break
+            elif char == '"':
+                index += 1
+                while index < len(text) and text[index] != '"':
+                    index += 2 if text[index] == "\\" else 1
+            else:
+                depth += {"{": 1, "}": -1}.get(char, 0)
             index += 1
         found[match.group(1)] = text[match.end() : index - 1]
     return found
@@ -110,7 +129,7 @@ def test_no_private_route_table_carries_a_default_route() -> None:
     Raises:
       AssertionError: When any route to the private tables carries a default destination.
     """
-    text = MAIN.read_text()
+    text = "\n".join(path.read_text() for path in sorted(NETWORK.rglob("*.tf")))
     private_tables = _blocks(text, "aws_route_table")
     assert "private" in private_tables, "No private route table found — the parse went trivial."
 
@@ -148,7 +167,7 @@ def test_the_gateway_endpoint_associates_every_private_route_table() -> None:
     assert "s3" in endpoints, "No S3 VPC endpoint found."
     body = endpoints["s3"]
 
-    assert 'vpc_endpoint_type = "Gateway"' in body, (
+    assert re.search(r'vpc_endpoint_type\s*=\s*"Gateway"', body), (
         "The S3 endpoint must be a Gateway. An interface endpoint installs no prefix-list route, "
         "so with no default route the pull has no path to it at all."
     )
@@ -184,7 +203,7 @@ def test_every_interface_endpoint_resolves_privately_and_admits_only_the_tasks()
             f"No interface endpoint for {service}. A Fargate task with no route to the internet "
             "needs all three of ecr.api, ecr.dkr and logs; the S3 gateway endpoint is separate."
         )
-    assert 'vpc_endpoint_type   = "Interface"' in body or 'vpc_endpoint_type = "Interface"' in body
+    assert re.search(r'vpc_endpoint_type\s*=\s*"Interface"', body)
     assert "private_dns_enabled = true" in body, (
         "private_dns_enabled must be true, and the VPC must have DNS support and hostnames on — "
         "without all three the endpoint exists and nothing resolves to it."
@@ -194,11 +213,33 @@ def test_every_interface_endpoint_resolves_privately_and_admits_only_the_tasks()
 
     ingress = _blocks(text, "aws_vpc_security_group_ingress_rule")
     assert ingress, "The endpoint security group has no ingress rule."
+
+    # ON the endpoint group and FROM the task group, checked as two separate attributes. Merely
+    # finding both names somewhere in the body passes with the two transposed — which leaves the
+    # endpoint group with no ingress at all, and every task-to-endpoint connection black-holing
+    # as the connect timeout this whole module exists to make legible.
+    on_endpoints = {
+        name: body
+        for name, body in ingress.items()
+        if re.search(r"security_group_id\s*=\s*aws_security_group\.endpoints\.id", body)
+    }
+    assert on_endpoints, (
+        "No ingress rule names aws_security_group.endpoints.id as its security_group_id. Check "
+        "that security_group_id and referenced_security_group_id are not transposed."
+    )
     assert any(
-        "aws_security_group.task.id" in rule and "443" in rule for rule in ingress.values()
-    ), (
-        "The endpoint group must admit 443 from the TASK GROUP, never from the VPC CIDR — a CIDR "
-        "rule also admits anything else that ever lands in these subnets."
+        re.search(r"referenced_security_group_id\s*=\s*aws_security_group\.task\.id", body)
+        and "443" in body
+        for body in on_endpoints.values()
+    ), "No rule on the endpoint group admits 443 from the task group."
+
+    cidr_rules = sorted(
+        name for name, body in on_endpoints.items() if "cidr_ipv4" in body or "cidr_ipv6" in body
+    )
+    assert not cidr_rules, (
+        f"Ingress rule(s) {cidr_rules} admit a CIDR to the endpoint group. It must be reachable "
+        "from the task group alone — a CIDR rule also admits anything else that ever lands in "
+        "these subnets, which is the whole difference between the two."
     )
 
 
@@ -240,9 +281,27 @@ def test_subnets_are_keyed_by_availability_zone_name() -> None:
         assert "for_each = local.subnets" in body, f"aws_subnet.{name} must be keyed by AZ name."
         assert "availability_zone = each.key" in body
 
+    # THE KEY ITSELF, not just that for_each reads local.subnets. Re-keying the comprehension by
+    # its index satisfies every assertion above while making `availability_zone` a number.
+    assert re.search(r"for\s+\w+,\s*(\w+)\s+in\s+local\.azs\s*:\s*\1\s*=>", text), (
+        "local.subnets must be keyed by the availability-zone NAME — the comprehension's own AZ "
+        "variable — not by its index. Keyed by index, a reordering renames every subnet."
+    )
     assert re.search(r"azs\s*=\s*slice\(sort\(", text), (
         "The availability-zone list must be sorted before it is sliced. Without it the CIDR "
         "assignment depends on the API's ordering, and a reordering recreates every subnet."
+    )
+    assert re.search(r'name\s*=\s*"opt-in-status"', text), (
+        "The availability-zones data source must filter on opt-in-status. Local and Wavelength "
+        "zones sort BEFORE the ordinary ones, so opting into any of them would move this network "
+        "into two zones Fargate does not run in."
+    )
+    # Comment lines dropped first: the module explains at length why this filter is wrong, and
+    # naming the thing you are forbidding is not the same as doing it.
+    code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    assert 'state = "available"' not in code, (
+        "Do not filter the availability zones by state: it makes membership depend on AZ HEALTH, "
+        "so an impaired zone recreates the whole network during an availability-zone event."
     )
 
 
@@ -297,6 +356,12 @@ def test_the_flow_logs_role_is_named_the_way_the_deploy_grant_expects() -> None:
       AssertionError: When the role name drifts from the pattern the grant scopes to.
     """
     body = _blocks(MAIN.read_text(), "aws_iam_role")["flow_logs"]
-    assert 'name               = "${local.name_prefix}-vpc-flow-logs-role"' in body or (
-        "vpc-flow-logs-role" in body
-    ), "The flow-logs role must end in -vpc-flow-logs-role; the deploy grant scopes to that."
+    assert re.search(r'name\s*=\s*"\$\{local\.name_prefix\}-vpc-flow-logs-role"', body), (
+        "The flow-logs role's NAME must be ${local.name_prefix}-vpc-flow-logs-role. Asserted on "
+        "the name attribute rather than on the body, which a tag value would also satisfy."
+    )
+    grant = GRANT.read_text()
+    assert "vpc-flow-logs-role" in grant and "vpc-flow-logs.amazonaws.com" in grant, (
+        "The deploy grant no longer scopes a role pattern and a PassedToService for flow logs. "
+        "Both sides of this agreement are read here so a rename on either one reddens."
+    )

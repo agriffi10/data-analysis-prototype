@@ -31,15 +31,10 @@ resource "aws_vpc_security_group_ingress_rule" "endpoints_from_tasks" {
   description                  = "HTTPS from the SPA tasks"
 }
 
-# The endpoints answer on the connection the task opened; they originate nothing.
-resource "aws_vpc_security_group_egress_rule" "endpoints_none" {
-  security_group_id = aws_security_group.endpoints.id
-  cidr_ipv4         = "127.0.0.1/32"
-  ip_protocol       = "tcp"
-  from_port         = 443
-  to_port           = 443
-  description       = "Placeholder. An interface endpoint initiates no outbound connection."
-}
+# NO EGRESS RULE, deliberately. Security groups are stateful, so the endpoint's replies travel
+# the connection the task opened and never consult egress at all — and Terraform revokes the AWS
+# default allow-all egress on create, so "originates nothing" is what this group already is. A
+# placeholder rule here would only teach the next reader that one is required.
 
 # `private_dns_enabled` is what makes this transparent: the task calls the ordinary public
 # hostname and DNS resolves it to the endpoint's private address. Without it — or without the
@@ -62,11 +57,18 @@ resource "aws_vpc_endpoint" "interface" {
 # pull that cannot complete. `route_table_ids` is therefore every private route table, derived
 # from the resource rather than listed, so an AZ added later cannot be forgotten here.
 #
-# NO ENDPOINT POLICY. The default is full access, and a restrictive one would have to allow
-# `prod-us-east-1-starport-layer-bucket`, the AWS-owned bucket ECR serves layers from — omitting
-# it breaks the pull with the same unreadable `CannotPullContainerError` the endpoint exists to
-# prevent. A policy that must name an undocumented AWS-internal bucket to work is a worse
-# guarantee than no policy at all.
+# NO ENDPOINT POLICY, and the argument is AWS's own: the full-access default "can be used because
+# any restrictions that you have put in your task IAM roles or other IAM user policies still
+# apply on top of this policy". The minimum alternative is documented and is one bucket —
+# `prod-{region}-starport-layer-bucket`, where ECR serves layers from — so this is a choice, not
+# an absence of options.
+#
+# THE RESIDUAL IS REAL AND IS NAMED HERE rather than left implicit, because it is the one hole in
+# a design whose whole premise is "no route out": with the default policy, every S3 bucket in
+# every AWS account is reachable from these subnets. What bounds it is the task role, which holds
+# nothing — the SPA container makes no AWS call — so there is no identity in these subnets that
+# S3 would answer. Tighten this to the starport bucket the moment a task has a reason to reach
+# S3 on its own behalf, because the identity bound disappears at that point and this one does not.
 resource "aws_vpc_endpoint" "s3" {
   vpc_id            = aws_vpc.main.id
   service_name      = "com.amazonaws.${var.aws_region}.s3"

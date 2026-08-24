@@ -1159,6 +1159,7 @@ module "network" {
   project_name = var.project_name
   environment  = var.environment
   aws_region   = var.aws_region
+  account_id   = data.aws_caller_identity.current.account_id
   vpc_cidr     = var.vpc_cidr
 
   # base grants the deploy role the VPC, subnet, route-table, security-group, endpoint and

@@ -18,8 +18,26 @@
 # destination is another interface endpoint; for a non-AWS one there is none short of a NAT
 # gateway, and that is a spec rather than a patch.
 
+# NO `state` FILTER, and an opt-in filter instead. Two different ways this list moves under you,
+# and both recreate every subnet:
+#
+#   `state = "available"` makes membership depend on AZ HEALTH. An impaired us-east-1a drops out,
+#   the slice below returns the next two names, and Terraform destroys and recreates the whole
+#   network — during an availability-zone event, which is the worst possible moment.
+#
+#   Local Zones and Wavelength Zones are named `us-east-1-atl-2a`, `us-east-1-wl1-bos-wlz-1` and
+#   so on, and `-` sorts BEFORE `a`. This account can see 14 of the former and more of the latter.
+#   They are `not-opted-in` today so the data source hides them — but anyone opting into one for
+#   an unrelated reason would put it at the front of the sorted list, and this network would move
+#   into two zones Fargate does not run in.
+#
+# `opt-in-not-required` is what an ordinary Availability Zone reports and what neither of the
+# other zone types ever reports, so the filter excludes them structurally rather than by name.
 data "aws_availability_zones" "available" {
-  state = "available"
+  filter {
+    name   = "opt-in-status"
+    values = ["opt-in-not-required"]
+  }
 }
 
 locals {
@@ -29,6 +47,9 @@ locals {
   # reordering of the data source cannot recreate them — but the CIDR still has to come from
   # somewhere, and deriving it from the source's own ordering would reintroduce exactly the
   # recreate the keying exists to prevent. Sorting decides the pairing once.
+  #
+  # The sort is necessary and NOT sufficient on its own: it fixes the order of whatever the data
+  # source returns, and the filter above is what fixes the membership. Both are load-bearing.
   azs = slice(sort(data.aws_availability_zones.available.names), 0, 2)
 
   subnets = {
@@ -137,6 +158,13 @@ resource "aws_route_table_association" "private" {
 #
 # No rules are attached here at all. Every one of them names a group from the other module, so
 # they are declared there — a rule split across two modules is a rule nobody can read.
+# THE TASK CANNOT REACH ANYTHING YET, AND THAT IS CORRECT. Terraform revokes the AWS default
+# allow-all egress when it creates a security group, so with no rules this group permits nothing
+# outbound and the endpoint group's ingress rule is inert. On platform version 1.4.0 every leg of
+# task startup — the ECR credential fetch, the image pull and the log stream — travels the task
+# ENI and is governed by this group, so a pull tested against this module alone WILL time out.
+# The egress rules arrive with the load balancer: 443 to the endpoint group, and the S3 gateway
+# endpoint's managed prefix list. Do not read that timeout as an endpoint defect.
 resource "aws_security_group" "task" {
   name        = "${local.name_prefix}-spa-task"
   description = "The SPA container. Ingress from the load balancer only; egress to the VPC endpoints only."
@@ -156,26 +184,35 @@ resource "aws_cloudwatch_log_group" "flow_logs" {
 }
 
 resource "aws_iam_role" "flow_logs" {
-  name               = "${local.name_prefix}-vpc-flow-logs-role"
-  assume_role_policy = templatefile("${path.module}/policies/flow-logs-trust.json.tftpl", {})
+  name = "${local.name_prefix}-vpc-flow-logs-role"
+  assume_role_policy = templatefile("${path.module}/policies/flow-logs-trust.json.tftpl", {
+    account_id = var.account_id
+    aws_region = var.aws_region
+  })
 }
 
 resource "aws_iam_role_policy" "flow_logs" {
   name = "flow-logs"
   role = aws_iam_role.flow_logs.id
 
-  policy = templatefile("${path.module}/policies/flow-logs-permissions.json.tftpl", {
-    log_group_arn = aws_cloudwatch_log_group.flow_logs.arn
-  })
+  # `Resource: "*"` is AWS's own minimum for this role, and it is not laziness: the delivery path
+  # calls `logs:DescribeLogGroups`, which is a list operation with no ARN to scope to. Scoping the
+  # three stream actions and leaving the two list ones unscoped would be tidier and would still
+  # need a wildcard statement, for one grant on a role no human can assume and which can do
+  # nothing but write flow logs.
+  policy = templatefile("${path.module}/policies/flow-logs-permissions.json.tftpl", {})
 }
 
 resource "aws_flow_log" "main" {
-  vpc_id                   = aws_vpc.main.id
-  traffic_type             = "ALL"
-  log_destination_type     = "cloud-watch-logs"
-  log_destination          = aws_cloudwatch_log_group.flow_logs.arn
-  iam_role_arn             = aws_iam_role.flow_logs.arn
-  max_aggregation_interval = 600
+  vpc_id               = aws_vpc.main.id
+  traffic_type         = "ALL"
+  log_destination_type = "cloud-watch-logs"
+  log_destination      = aws_cloudwatch_log_group.flow_logs.arn
+  iam_role_arn         = aws_iam_role.flow_logs.arn
+  # 60 rather than AWS's default of 600. These logs exist to make a connect timeout legible, and
+  # ten minutes of aggregation on top of the publish delay is long enough that the person
+  # debugging gives up and adds a NAT gateway.
+  max_aggregation_interval = 60
 
   tags = { Name = local.name_prefix }
 
