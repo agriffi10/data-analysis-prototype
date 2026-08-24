@@ -15,6 +15,7 @@ import {useUploadQueue} from './uploadQueueContext';
 import {CreateFolderDialog} from './CreateFolderDialog';
 import {CollisionPrompt} from './CollisionPrompt';
 import {MobileActionBar} from '../../components/MobileActionBar';
+import {RefreshIcon} from '../../components/icons';
 import {HIDDEN_BROWSER_FOLDERS, isRootFolderNamed, undeletableSelectionRefusal} from './protectedFolders';
 import {SAVED_QUERIES_FOLDER} from './fileBrowser.constants';
 import {OperationFeedback} from './OperationFeedback';
@@ -22,6 +23,8 @@ import {SelectionToolbar} from './SelectionToolbar';
 import {FileListTable, type FileListProps} from './FileListTable';
 import {FileListMobile} from './FileListMobile';
 import {FileBrowserDialogs} from './FileBrowserDialogs';
+import {FileOpConflictsDialog} from './FileOpConflictsDialog';
+import {useFileOpConflicts} from './useFileOpConflicts';
 import {useFileBrowserDialogs} from './useFileBrowserDialogs';
 import {useSharedSpaceAccessRecovery} from './useSharedSpaceAccessRecovery';
 import {SelectionProvider} from './SelectionProvider';
@@ -63,6 +66,9 @@ type Props = {
   spaceKind?: FileSpaceKind; // 'shared' enables the "just added → refresh access"
   // affordance when a listing is denied because the membership tag hasn't propagated
   // to this session's token yet (shared-spaces architecture §3).
+  requestId?: string; // `?requestId=` — the run whose conflicts to review, from a notification's
+  // own control. The view it opens is reachable from a tab that never submitted, which is the
+  // whole reason the plane puts the id on the row.
 };
 
 /**
@@ -90,6 +96,7 @@ function FileBrowserContent({
   username,
   destinations,
   spaceKind,
+  requestId,
   prefix,
   setPrefix
 }: ContentProps) {
@@ -168,7 +175,7 @@ function FileBrowserContent({
   // than a user folder that happens to share the name.
   const del = useDelete(bucket, currentPrefix, username, rootPrefix);
   const move = useMove(bucket, currentPrefix, username, rootPrefix);
-  const copy = useCopy(bucket, currentPrefix, username);
+  const copy = useCopy(bucket, username);
   const canModify = writable && !!username;
   // The first prefix-based write gate. IAM denies writes beneath `archive/`, so
   // every control that would attempt one says why instead of producing a bare AccessDenied.
@@ -187,7 +194,15 @@ function FileBrowserContent({
 
   // Every dialog/drawer flag, and the handlers that turn one
   // into an operation (including who clears the selection).
-  const dialogs = useFileBrowserDialogs({bucket, currentPrefix, del, move, copy});
+  const dialogs = useFileBrowserDialogs({bucket, currentPrefix, space, destinations, del, move, copy});
+  // A deep link into the items one run could not place. Resolves to nothing for an id nobody
+  // wrote a notification for, and for a run that conflicted with nothing — both render no view
+  // rather than an empty one, because the id arrives in a URL anyone can type.
+  const conflicts = useFileOpConflicts(requestId ?? null);
+  // The id that was closed, not a boolean: `?requestId=` survives a resolve, so a reload would
+  // otherwise re-open the review for a run the user has already re-submitted — with a second
+  // overwrite one confirm away.
+  const [closedRequestId, setClosedRequestId] = useState<string | null>(null);
 
   const breadcrumbs = buildBreadcrumbs(prefix, rootPrefix, rootLabel);
   const destinationLabel = breadcrumbs[breadcrumbs.length - 1]?.label;
@@ -261,6 +276,20 @@ function FileBrowserContent({
             })}
           </ol>
         </nav>
+
+        {/* The listing catches up on window focus, but a user who never leaves the tab has no
+            other way to see work the plane finished — and the notification that reports it
+            deliberately invalidates nothing. On the breadcrumb row rather than with the primary
+            actions, because it belongs at EVERY width and in read-only browse, and because the
+            mobile action bar has no room for a fourth control at 400px. */}
+        <button
+          type="button"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-2 hover:bg-surface-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          onClick={refreshListing}
+          disabled={isLoading}
+          aria-label="Refresh this folder">
+          <RefreshIcon />
+        </button>
 
         {/* Primary actions on the top toolbar at ≥ tablet; on mobile they move to
             the fixed MobileActionBar below. Mount-gated (not
@@ -478,6 +507,23 @@ function FileBrowserContent({
         />
       )}
 
+      {/* Mounted here rather than in FileBrowserDialogs for the reason the send and archive
+          dialogs are: its state is this component's — the deep link it answers, and the space it
+          re-submits into. Gated on `files` and not on the switchover, so the control a
+          notification already carries never becomes a dead link when the kill switch is thrown:
+          resolving a conflict finishes work the plane started, it does not begin a new gesture. */}
+      {conflicts && closedRequestId !== conflicts.payload.requestId && filesEnabled && (
+        <FileOpConflictsDialog
+          conflicts={conflicts}
+          busy={dialogs.submitting}
+          onResolve={async (choice) => {
+            if (await dialogs.resolveConflict(conflicts.payload, choice))
+              setClosedRequestId(conflicts.payload.requestId);
+          }}
+          onClose={() => setClosedRequestId(conflicts.payload.requestId)}
+        />
+      )}
+
       {restore.open && space && (
         <RestoreArchiveDialog
           spaceLabel={rootLabel ?? space.name}
@@ -512,8 +558,21 @@ function FileBrowserContent({
           onRequestArchive={
             archiveEnabled ? () => archive.open([...selection.selected.values()].map(toArchiveItem)) : undefined
           }
-          archiveDisabledReason={archiveRefusal(selectedItems.map(toArchiveItem), rootPrefix) ?? undefined}
+          archiveDisabledReason={
+            // The UNCONDITIONED reason: an archive enqueues one file exactly as it enqueues a
+            // folder, so it is held by an in-flight run whatever the selection's shape — where
+            // Copy, Move and Delete are only held when THEY would reach the plane too.
+            archiveRefusal(selectedItems.map(toArchiveItem), rootPrefix) ?? dialogs.spaceBusyReason ?? undefined
+          }
           writeLockReason={writeLockReason}
+          // The plane's per-space gate, and it is NOT `isBusy`. `isBusy` reports work this
+          // browser is doing and stays false for the minutes a plane run takes, so the two
+          // cannot be merged. Copy, Move and Delete take it only for a selection that would
+          // REACH the plane — refusing a single-file delete the plane never sees would take away
+          // something the user could do before. Archive takes it unconditionally (above), and
+          // *Check quality* and *Send to…* not at all: they read, and this lock does not cover
+          // them.
+          spaceBusyReason={dialogs.spaceBusyReasonFor(selectedItems)}
           // The service refuses these too, but only after the user has read the
           // "everything inside it … can't be undone" confirm and pressed Delete.
           deleteDisabledReason={undeletableSelectionRefusal(selectedItems, rootPrefix, 'delete') ?? undefined}
@@ -657,7 +716,8 @@ export function FileBrowser({
   writable = false,
   username,
   destinations,
-  spaceKind
+  spaceKind,
+  requestId
 }: Props) {
   const rootPrefix = rootPrefixProp ?? prefixProp;
   const [prefix, setPrefix] = useState<string | undefined>(prefixProp || undefined);
@@ -675,6 +735,7 @@ export function FileBrowser({
         username={username}
         destinations={destinations}
         spaceKind={spaceKind}
+        requestId={requestId}
         prefix={prefix}
         setPrefix={setPrefix}
       />

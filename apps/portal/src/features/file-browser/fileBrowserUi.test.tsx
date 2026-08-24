@@ -425,7 +425,10 @@ describe('FolderDetailsPanel', () => {
   ) {
     const onClose = over.onClose ?? vi.fn();
     const onRequestRename = over.onRequestRename ?? vi.fn();
-    render(
+    // Through the provider stack rather than a bare `render`: the panel asks, once, whether
+    // anything still lives under its prefix — a folder the plane removed is otherwise a full
+    // panel with live actions and no error at all.
+    renderWithProviders(
       <FolderDetailsPanel
         bucket="my-bucket"
         folder={folder}

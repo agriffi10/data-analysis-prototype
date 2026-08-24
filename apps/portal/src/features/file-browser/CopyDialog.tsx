@@ -1,20 +1,14 @@
 import {useRef, useState} from 'react';
 import {DestinationPicker} from './DestinationPicker';
 import type {SelectableItem} from './selectionContext';
+// The probe's data plus the answers the dispatcher supplies. Imported rather than restated: the
+// confirm is a submission point, so a structural copy here could drift from what actually runs.
+import type {SameFolderPromptControls} from './useFileBrowserDialogs';
 import type {FileSpaceTarget} from './useFileSpace';
 import {FormDialog} from '../../components/FormDialog';
 import {Input} from '../../components/Input';
 import {Modal} from '../../components/Modal';
 import {DIALOG_PANEL, DIALOG_TITLE} from '../../components/dialogChrome';
-
-// The same-folder editable-name prompt shape, surfaced by useCopy.
-type SameFolderPrompt = {
-  kind: 'file' | 'folder';
-  proposedName: string;
-  validate: (name: string) => string | null;
-  onConfirm: (name: string) => void;
-  onCancel: () => void;
-};
 
 type Props = {
   bucket: string;
@@ -26,7 +20,7 @@ type Props = {
   destinations?: FileSpaceTarget[]; // connections the copy can target (feedback 2026-06-30)
   // When set, the copy is into the items' current parent: the picker is
   // replaced by an editable, pre-filled non-colliding name field.
-  sameFolderPrompt?: SameFolderPrompt | null;
+  sameFolderPrompt?: SameFolderPromptControls | null;
   onCopy: (destPrefix: string, destBucket: string) => void;
   onCancel: () => void;
 };
@@ -36,7 +30,7 @@ type Props = {
 // can override before confirming. Its own dialog rather than a branch inside the
 // picker's shell, because the two have nothing in common below the title — and it
 // is the branch that IS a name prompt, so it takes the shared chrome.
-function SameFolderCopyDialog({prompt, itemCount}: {prompt: SameFolderPrompt; itemCount: number}) {
+function SameFolderCopyDialog({prompt, itemCount}: {prompt: SameFolderPromptControls; itemCount: number}) {
   const [name, setName] = useState(prompt.proposedName);
   const inputRef = useRef<HTMLInputElement>(null);
 

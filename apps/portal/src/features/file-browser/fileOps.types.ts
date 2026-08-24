@@ -71,3 +71,71 @@ export type FileOpRequest =
        */
       submittedAt: string;
     });
+
+/**
+ * What the plane says it did to ONE item.
+ *
+ * Thirteen members, and the browser does not choose them: `focommon.outcomes` is the authority
+ * and `focommon.messages` words them. This union exists so the surfaces that group and label
+ * them cannot invent a fourteenth.
+ *
+ * `cleared` is a GATE verdict, not a terminal one — the plane's terminals refuse to emit it — so
+ * it never reaches the browser. It is listed because the union is the plane's vocabulary, and a
+ * reader who finds it absent would reasonably conclude the gate had been removed.
+ */
+export type FileOpOutcome =
+  | 'cleared'
+  | 'conflict'
+  | 'noop'
+  | 'source_missing'
+  | 'source_empty'
+  | 'protected'
+  | 'copy_failed'
+  | 'delete_failed'
+  | 'duplicate'
+  | 'refused'
+  | 'moved'
+  | 'copied'
+  | 'deleted';
+
+/**
+ * One item's outcome as a surface renders it.
+ *
+ * `sample` is the colliding keys the producer named, already shortened for display, and `more`
+ * says the list was cut — both are bounded at the producer by BYTES as well as count, so a
+ * renderer must never present either as complete.
+ */
+export type FileOpItemResult = {
+  itemKey: string;
+  /** The item as the user named it — a leaf, never a whole key. */
+  label: string;
+  outcome: FileOpOutcome;
+  reason?: string;
+  sample?: string[];
+  more?: boolean;
+};
+
+/**
+ * One operation this session handed to the plane. Session-scoped and NOT persisted.
+ *
+ * The notification is the durable channel; a persisted queue would be a second writer to state
+ * the plane owns, and it would outlive the only thing that can settle it.
+ *
+ * `destinationSpace` is carried because a cross-space copy or move takes TWO locks: a gate keyed
+ * on the source alone leaves the destination open to a second submit from this same session,
+ * which is the collision the plane's acceptance of unordered lock waiters leans on the browser
+ * to make rare.
+ */
+export type InFlightOperation = {
+  requestId: string;
+  operation: FileOpKind;
+  itemCount: number;
+  /** The one item's name when there is one, for a surface that would rather not say "1 item". */
+  label?: string;
+  sourceSpace: FileOpSpace;
+  destinationSpace?: FileOpSpace;
+  destinationPrefix?: string;
+  /** ISO-8601, browser clock — what the surface counts "since when" from. */
+  submittedAt: string;
+  state: 'submitted' | 'settled' | 'refused' | 'expired';
+};

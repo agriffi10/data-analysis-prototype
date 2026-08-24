@@ -47,7 +47,14 @@ const ROWS = [
   ['2', 'closed']
 ];
 
-const ALL_ON: FeatureFlags = {files: true, query: true, sharedWorkspaces: true, dataQuality: true, dataExplorer: true};
+const ALL_ON: FeatureFlags = {
+  files: true,
+  query: true,
+  sharedWorkspaces: true,
+  dataQuality: true,
+  dataExplorer: true,
+  asyncFileOperations: true
+};
 
 function lastSql(): string {
   const calls = vi.mocked(runQuery).mock.calls;

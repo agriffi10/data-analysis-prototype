@@ -79,7 +79,12 @@ export function FileBrowserDialogs({
           onRequestRename={dialogs.openRenameFile}
           onRequestArchive={onRequestArchiveFile}
           archiveDisabledReason={archiveRefusalFor(dialogs.detailsFile.key, 'file')}
-          writeLockReason={writeLockReason}
+          // Rename is the fifth submission point, so it carries the plane's per-space gate too —
+          // refusing only after the user has typed a new name is the affordance failure the
+          // refuse-before-the-confirm rule exists to prevent.
+          writeLockReason={
+            writeLockReason ?? dialogs.spaceBusyReasonFor([{type: 'file', key: dialogs.detailsFile.key}])
+          }
           onClose={dialogs.closeFileDetails}
         />
       )}
@@ -100,6 +105,10 @@ export function FileBrowserDialogs({
             // folder-specific one is the more useful of the two where both apply.
             writeLockReason ??
             undeletableRootFolderRefusal(dialogs.detailsFolder.prefix, rootPrefix, 'move') ??
+            // Renaming a FOLDER is a submission point, so it carries the gate — refusing only
+            // after the user has typed a new name is the affordance failure the
+            // refuse-before-the-confirm rule exists to prevent.
+            dialogs.spaceBusyReasonFor([{type: 'folder', prefix: dialogs.detailsFolder.prefix}]) ??
             undefined
           }
           onClose={dialogs.closeFolderDetails}
@@ -110,7 +119,7 @@ export function FileBrowserDialogs({
       {dialogs.confirmDeleteOpen && (
         <DeleteConfirmDialog
           items={selectedItems}
-          isDeleting={del.isBusy}
+          isDeleting={del.isBusy || dialogs.submitting}
           onConfirm={dialogs.confirmDelete}
           onCancel={dialogs.closeConfirmDelete}
         />
@@ -121,7 +130,7 @@ export function FileBrowserDialogs({
         <RenameDialog
           kind={dialogs.renaming.kind}
           currentName={dialogs.renaming.name}
-          isBusy={move.isBusy}
+          isBusy={move.isBusy || dialogs.submitting}
           onRename={dialogs.confirmRename}
           onCancel={dialogs.cancelRename}
         />
@@ -135,7 +144,7 @@ export function FileBrowserDialogs({
           rootPrefix={rootPrefix}
           rootLabel={rootLabel}
           currentPrefix={currentPrefix}
-          isBusy={move.isBusy}
+          isBusy={move.isBusy || dialogs.submitting}
           destinations={destinations}
           onMove={dialogs.confirmMove}
           onCancel={dialogs.cancelMove}
@@ -143,8 +152,9 @@ export function FileBrowserDialogs({
       )}
 
       {/* Copy dialog — destination picker + same-folder name
-          field. Stays open across the same-folder auto-number prompt;
-          the prompt's confirm/cancel close the dialog (and clear the selection). */}
+          field. Stays open across the same-folder auto-number prompt, which arrives already
+          wired: its confirm is a submission point in its own right — where a copy of a FOLDER
+          actually starts — so it belongs beside the other four, not in this file. */}
       {dialogs.copying && (
         <CopyDialog
           bucket={bucket}
@@ -152,21 +162,9 @@ export function FileBrowserDialogs({
           rootPrefix={rootPrefix}
           rootLabel={rootLabel}
           currentPrefix={currentPrefix}
-          isBusy={copy.isBusy}
+          isBusy={copy.isBusy || dialogs.submitting}
           destinations={destinations}
-          sameFolderPrompt={
-            copy.sameFolderPrompt && {
-              ...copy.sameFolderPrompt,
-              onConfirm: (name) => {
-                copy.sameFolderPrompt?.onConfirm(name);
-                dialogs.finishSameFolderCopy();
-              },
-              onCancel: () => {
-                copy.sameFolderPrompt?.onCancel();
-                dialogs.abandonSameFolderCopy();
-              }
-            }
-          }
+          sameFolderPrompt={dialogs.sameFolderPrompt}
           onCopy={dialogs.confirmCopy}
           onCancel={dialogs.cancelCopy}
         />

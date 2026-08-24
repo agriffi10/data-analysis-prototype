@@ -37,7 +37,7 @@ vi.mock('../../lib/awsCredentials', () => ({
   getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
 }));
 
-import {UploadQueueProvider} from '../file-browser';
+import {FileOpsInFlightProvider, UploadQueueProvider} from '../file-browser';
 import {FileBrowser} from '../file-browser/FileBrowser';
 import {listFiles} from '../file-browser/fileBrowser.service';
 import {getSqsClient} from '../../lib/sqsClient';
@@ -87,15 +87,17 @@ function listing(prefix: string) {
 function renderBrowser(props: Partial<Parameters<typeof FileBrowser>[0]> = {}) {
   return renderWithProviders(
     <UploadQueueProvider>
-      <FileBrowser
-        bucket="user-space"
-        rootPrefix="alice/"
-        rootLabel="My Files"
-        username="alice"
-        writable
-        spaceKind="personal"
-        {...props}
-      />
+      <FileOpsInFlightProvider>
+        <FileBrowser
+          bucket="user-space"
+          rootPrefix="alice/"
+          rootLabel="My Files"
+          username="alice"
+          writable
+          spaceKind="personal"
+          {...props}
+        />
+      </FileOpsInFlightProvider>
     </UploadQueueProvider>,
     {auth: authenticated('alice')}
   );

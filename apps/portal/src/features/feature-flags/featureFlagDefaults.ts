@@ -4,7 +4,7 @@ import type {FeatureFlagKey, FeatureFlags} from './featureFlags.types';
  * Every flag key, in one iterable place.
  *
  * The resolver walks THIS list rather than the document's keys, which is what guarantees a
- * resolved set holds all five whatever the document said — including a document that names
+ * resolved set holds all of them whatever the document said — including a document that names
  * none of them.
  *
  * ORDER IS LOAD-BEARING beyond iteration: `FeatureRoute` offers the first ENABLED feature as
@@ -16,7 +16,8 @@ export const FEATURE_FLAG_KEYS: readonly FeatureFlagKey[] = [
   'query',
   'sharedWorkspaces',
   'dataQuality',
-  'dataExplorer'
+  'dataExplorer',
+  'asyncFileOperations'
 ];
 
 /**
@@ -38,5 +39,6 @@ export const FEATURE_FLAG_DEFAULTS: FeatureFlags = {
   query: true,
   sharedWorkspaces: true,
   dataQuality: true,
-  dataExplorer: true
+  dataExplorer: true,
+  asyncFileOperations: true
 };

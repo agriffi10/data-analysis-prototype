@@ -48,13 +48,19 @@ export function HelpPage() {
   // regardless: a partial one type-errors here rather than silently answering `undefined`
   // (falsy, so every guide) the day a new flag's first guide row is registered.
   const dataExplorer = useFeature('dataExplorer');
+  // The async switchover's own guide follows the switchover, not the Files section: with the
+  // routing off, a guide describing background operations and a conflict round trip documents
+  // behaviour nobody can reach.
+  const asyncFileOperations = useFeature('asyncFileOperations');
   const sections = useMemo(() => {
-    const hidden = hiddenHelpIds((key) => ({files, query, sharedWorkspaces, dataQuality, dataExplorer})[key]);
+    const hidden = hiddenHelpIds(
+      (key) => ({files, query, sharedWorkspaces, dataQuality, dataExplorer, asyncFileOperations})[key]
+    );
     return HELP_SECTIONS.filter((s) => !hidden.has(s.id)).map((s) => ({
       ...s,
       guides: s.guides.filter((g) => !hidden.has(g.id))
     }));
-  }, [files, query, sharedWorkspaces, dataQuality, dataExplorer]);
+  }, [files, query, sharedWorkspaces, dataQuality, dataExplorer, asyncFileOperations]);
 
   const activeId = sectionFromHash(hash, sections.length ? sections : HELP_SECTIONS);
   const section = sections.find((s) => s.id === activeId) ?? sections[0] ?? HELP_SECTIONS[0];

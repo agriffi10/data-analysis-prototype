@@ -21,7 +21,14 @@ const document = (over: Record<string, unknown> = {}) => ({
   ...over
 });
 
-const allOn = {files: true, query: true, sharedWorkspaces: true, dataQuality: true, dataExplorer: true};
+const allOn = {
+  files: true,
+  query: true,
+  sharedWorkspaces: true,
+  dataQuality: true,
+  dataExplorer: true,
+  asyncFileOperations: true
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -62,7 +69,14 @@ describe('getFeatureFlags — resolution', () => {
 
     expect(await getFeatureFlags('prod')).toEqual({
       success: true,
-      data: {files: true, query: false, sharedWorkspaces: true, dataQuality: false, dataExplorer: true}
+      data: {
+        files: true,
+        query: false,
+        sharedWorkspaces: true,
+        dataQuality: false,
+        dataExplorer: true,
+        asyncFileOperations: true
+      }
     });
   });
 
@@ -87,7 +101,7 @@ describe('getFeatureFlags — resolution', () => {
     expect(await getFeatureFlags(undefined)).toEqual({success: true, data: {...allOn, query: false}});
   });
 
-  it('always returns all five keys as booleans, whatever the document named', async () => {
+  it('always returns every key as a boolean, whatever the document named', async () => {
     // The resolver walks the KEY LIST, not the document, so no consumer ever sees undefined.
     send.mockResolvedValue(body(document({defaults: {}, environments: {}})));
 
@@ -115,7 +129,8 @@ describe('getFeatureFlags — one bad value is not a bad document', () => {
         query: FEATURE_FLAG_DEFAULTS.query,
         sharedWorkspaces: false,
         dataQuality: true,
-        dataExplorer: true
+        dataExplorer: true,
+        asyncFileOperations: true
       }
     });
   });

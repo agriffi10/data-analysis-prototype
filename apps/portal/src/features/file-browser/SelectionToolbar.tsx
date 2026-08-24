@@ -95,6 +95,7 @@ export function SelectionToolbar({
   writeLockReason,
   deleteDisabledReason,
   moveDisabledReason,
+  spaceBusyReason,
   isBusy
 }: {
   allItems: SelectableItem[];
@@ -132,6 +133,16 @@ export function SelectionToolbar({
   deleteDisabledReason?: string;
   /** The same, for a move. A move is a rename here, so the wording differs from delete's. */
   moveDisabledReason?: string;
+  /**
+   * Why this SPACE will not take another operation from this session right now — an operation
+   * of its own is still with the control plane.
+   *
+   * Deliberately not folded into `isBusy`, which reports work THIS BROWSER is doing and is false
+   * for the minutes a plane run takes. It is also the last of the three reasons: a write lock and
+   * a protected selection are facts about where you are and what you picked, where this one
+   * passes on its own.
+   */
+  spaceBusyReason?: string;
   isBusy: boolean;
 }) {
   const {count, isSelected, selectAll, clear} = useSelection();
@@ -221,6 +232,7 @@ export function SelectionToolbar({
         className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
         onClick={onRequestCopy}
         disabled={count === 0 || isBusy}
+        disabledReason={count > 0 ? spaceBusyReason : undefined}
         aria-label="Copy selected items">
         <BulkCopyIcon />
         <span className="hidden tablet:inline">Copy</span>
@@ -232,7 +244,7 @@ export function SelectionToolbar({
         className="gap-1.5 !h-9 !px-2.5 tablet:!h-8 tablet:!px-3"
         onClick={onRequestMove}
         disabled={count === 0 || isBusy}
-        disabledReason={count > 0 ? (writeLockReason ?? moveDisabledReason) : undefined}
+        disabledReason={count > 0 ? (writeLockReason ?? moveDisabledReason ?? spaceBusyReason) : undefined}
         aria-label="Move selected items">
         <BulkMoveIcon />
         <span className="hidden tablet:inline">Move</span>
@@ -244,7 +256,7 @@ export function SelectionToolbar({
         className="gap-1.5 !h-9 !px-2.5 !text-danger hover:!bg-danger-soft hover:!text-danger tablet:!h-8 tablet:!px-3"
         onClick={onRequestDelete}
         disabled={count === 0 || isBusy}
-        disabledReason={count > 0 ? (writeLockReason ?? deleteDisabledReason) : undefined}
+        disabledReason={count > 0 ? (writeLockReason ?? deleteDisabledReason ?? spaceBusyReason) : undefined}
         aria-label="Delete selected items">
         <TrashIcon />
         <span className="hidden tablet:inline">Delete</span>
