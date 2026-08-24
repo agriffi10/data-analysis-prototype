@@ -1,8 +1,8 @@
 # Spec: The Notifications `create` Boundary
 
 **ID:** SPEC-206
-**Status:** Draft
-**Last Updated:** 2026-08-23
+**Status:** Completed
+**Last Updated:** 2026-08-24
 **Depends On:** SPEC-058→061 (the notifications plane, its single-writer FIFO model and its stated anti-spoofing rule), SPEC-126 (the DLQ drain, and why this queue's DLQ is undrained), SPEC-166 (an expected refusal is a return value, not a raise), SPEC-138 (findings and dispositions live in `security-baseline.md`), SPEC-191 (which re-found this while building the file-ops producer)
 
 ## Overview
@@ -108,9 +108,11 @@ not a user-reachable one.)
       `NOTIFICATIONS_UNTRUSTED_SENDER_ID` is a third operationally distinct state — the deploy is
       broken, not the record and not an attacker — and folding it into `sender-id-absent` would make
       FR-003's window read as a forgery attempt in the one log line an operator sees. It is also
-      **load-bearing for correctness**: the config must be tested FIRST, because with the variable
-      unset an absent sender's empty role-id half compares equal to the empty config and every verdict
-      inverts — service creates pass, absent-sender creates are refused as forgeries.
+      **load-bearing**, through two guards that are not interchangeable: the empty role-id half is
+      refused BEFORE the comparison, so an absent sender never compares equal to an unset variable and
+      gets logged as a forgery; and the config is tested FIRST, so an unset variable reports itself
+      even when the sender is absent, rather than answering `sender-id-absent` and blaming the message
+      for a broken deploy.
 - [ ] **The guard sits ABOVE `_resolve_username`, not inside the `create` branch.** `process` resolves
       the username before it branches, so a guard placed in the branch lets a portal-role `create` with
       no `username` reach `ValidationError("create requires a username")` and **raise** — three

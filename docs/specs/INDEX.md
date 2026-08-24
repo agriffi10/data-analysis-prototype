@@ -211,7 +211,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 203 — The Membership Index | Draft |
 | 204 — Shared-Space Entitlements as Grants | Draft |
 | 205 — A Delete Empties a Space and Destroys Nothing | Draft |
-| 206 — The Notifications `create` Boundary | Draft |
+| 206 — The Notifications `create` Boundary | Completed |
 
 ## Arcs
 

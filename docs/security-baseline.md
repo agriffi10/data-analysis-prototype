@@ -265,11 +265,27 @@ straight from the body for `create` messages while the portal role can `sqs:Send
 so a browser can inject a notification into any other user's inbox today. User-action messages
 (`markRead`/`markAllRead`) are safe (target derived from the verified ID-token claim); only
 trusted-producer `create` trusts the body, and the queue's write access is what makes that trust wrong.
-**Disposition: accepted for now — real, shipped, low-severity** (message injection into an inbox; no
-data access, no privilege change), **tracked separately.** The fix shape is known: derive or verify the
-`create` recipient the way SPEC-122's trust-marker design does for Table Builder (infrastructure-set
-marker a body cannot smuggle), or split trusted-producer `create` onto a queue the portal role cannot
-write to. No scanner in this baseline can see this class of finding — it is a design-review artifact.
+**Disposition: CLOSED by SPEC-206 (2026-08-24).** It was *accepted for now — real, shipped,
+low-severity* (message injection into an inbox; no data access, no privilege change) and tracked here;
+that acceptance no longer stands, because the hole no longer does. The writer now refuses a `create`
+whose SQS-stamped `SenderId` names the portal role, comparing the role-id half against the role's IAM
+unique ID which Terraform sets on the function. That is the "infrastructure-set marker a body cannot
+smuggle" this entry called for, obtained from the service rather than added to the message: `SenderId`
+is a message *system* attribute, so a `SendMessage` cannot set it. A refusal **logs and drops** — it
+does not raise — because this queue's DLQ is deliberately undrained and dead-lettering every forged
+request would hand any signed-in user a way to drown the plane's only operator-facing signal.
+
+The second fix shape this entry proposed — splitting `create` onto its own queue — was **rejected with
+reasons** rather than merely not chosen: two queues means two event-source mappings and two concurrent
+invocations read-modify-writing one `notifications.json`, trading a spoofing bug for a data-loss bug.
+See `docs/decisions.md` → *The notifications `create` boundary*.
+
+**Two limits, stated so they are not read as closed.** The grant itself is still unconditioned and
+must be — no SQS condition key reaches a field inside a message body — so this is a runtime control,
+not an IAM one; Arc B removes the browser's grant entirely (SPEC-200) and the check stays regardless.
+And this decides *who may send a `create`*, not who may reach the queue: a body that is not valid JSON,
+or that names an unknown action, still dead-letters. No scanner in this baseline can see this class of
+finding — it is a design-review artifact.
 
 ---
 

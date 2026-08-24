@@ -60,9 +60,12 @@ function normalize(row: Notification): Notification {
 // does, it does not police the producer.
 //
 // The id is shape-checked rather than merely non-empty because it does not stay data: the
-// row interpolates it into a URL. It arrives from outside the SPA, read back out of S3, on
-// a queue the portal role can also write to — the writer trusts the body's username for a
-// `create`, so any signed-in user can already put a row in anyone's inbox.
+// row interpolates it into a URL. Its round trip is what makes it untrusted here rather than
+// its origin: the browser mints it, the file-operations plane echoes it back into a
+// notification, and it arrives read out of an S3 object — so nothing between here and the
+// mint is this module's to vouch for. The writer refuses a `create` sent with browser
+// credentials, which closes the path by which a signed-in user could plant a chosen value in
+// ANOTHER user's inbox; it does not make the field checked, and this is the only place it is.
 //
 // The rule is "characters that cannot change a URL", NOT "a UUID". Every plane mints
 // `crypto.randomUUID()` today, and a regex for that exact shape would be a reader coupled to

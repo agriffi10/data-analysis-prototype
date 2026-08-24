@@ -37,10 +37,20 @@ resource "aws_iam_role_policy" "writer" {
 # analytics / shared-spaces modules do (the role is created in module.data; the
 # module-level depends_on = [module.data] guarantees it exists first). The browser's
 # ONLY notifications privilege: sqs:SendMessage to the request queue — for user-action
-# messages (markRead/markAllRead). It gets no Lambda invoke, no DLQ, no writer-role
-# access, and cannot enqueue a `create` for another user (the writer ignores the body
-# username for user actions and derives it from the verified token; `create` is reserved
-# for trusted producers granted SendMessage separately).
+# messages (markRead/markAllRead). It gets no Lambda invoke, no DLQ and no writer-role
+# access.
+#
+# THE GRANT ON SendMessage IS UNCONDITIONED, and this comment used to claim otherwise.
+# It cannot be conditioned: no SQS condition key reaches a field inside a message body, so
+# a policy here could only deny this role SendMessage outright — the same principal on the
+# same action the two user actions need. IAM cannot express "this principal may send these
+# two actions and not the third" at all.
+#
+# So the boundary is enforced at runtime instead, by the writer, against the SenderId SQS
+# stamps on every message and a SendMessage cannot set: a `create` whose role-id half is
+# this role's unique ID is refused and dropped. The writer takes the body username for a
+# `create` because a plane notifying a recipient holds no token for them; what the check
+# decides is whether the sender was entitled to be that producer.
 resource "aws_iam_role_policy" "portal_notifications" {
   name = "notifications-enqueue"
   role = var.portal_role_name
