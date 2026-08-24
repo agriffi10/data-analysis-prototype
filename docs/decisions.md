@@ -12,7 +12,7 @@ other doc site still stating the old claim (`ARCS.md` arcs, architecture.md sect
 
 ## Contents
 
-159 entries, one heading each. **Jump to the one you need — never read this file whole.**
+One heading per entry. **Jump to the one you need — never read this file whole.**
 
 - [Auth](#auth)
 - [Hosted UI = Managed Login v2](#hosted-ui--managed-login-v2)

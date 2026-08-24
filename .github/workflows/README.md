@@ -49,6 +49,14 @@ Go to **Settings → Secrets and variables → Actions → Secrets**.
 
 Go to **Settings → Secrets and variables → Actions → Variables**.
 
+> **These variables no longer reach the deployed bundle.** `deploy-app.yml` renders them into
+> `/config.json`, which the SPA fetches at startup — that is what lets one artifact be promoted
+> between environments instead of rebuilt. A variable still feeds the build as well, but only as the
+> **dev fallback**. The practical consequence is unchanged: an unset variable renders as an empty
+> string, and a required one empty makes the deploy **refuse to publish** rather than ship a portal
+> that shows every user a boot failure. Full list and classification:
+> `apps/portal/.env.example`.
+
 | Variable | Value source | Notes |
 |---|---|---|
 | `AWS_REGION` | e.g. `us-east-1` | Must match region of all provisioned resources |
@@ -58,15 +66,20 @@ Go to **Settings → Secrets and variables → Actions → Variables**.
 | `VITE_COGNITO_USER_POOL_CLIENT_ID` | `tofu output cognito_user_pool_client_id` | Injected into the build by `deploy-app.yml` (SPEC-007) |
 | `VITE_COGNITO_DOMAIN` | `tofu output cognito_domain` | Injected into the build by `deploy-app.yml` (SPEC-007) |
 | `VITE_COGNITO_IDENTITY_POOL_ID` | `tofu output cognito_identity_pool_id` | Injected into the build by `deploy-app.yml` (SPEC-011); without it the deployed app gets no AWS credentials |
-| `VITE_S3_USER_SPACE_BUCKET` | `tofu output s3_user_space_bucket_name` | Bucket provisioned in SPEC-010; injected into the build starting SPEC-013 (file browser switchover) |
-| `VITE_ATHENA_WORKGROUP` | `tofu output athena_workgroup_name` | Workgroup provisioned in SPEC-032; injected into the build starting SPEC-034 (query workspace). No separate results-bucket variable — the app derives `{username}/athenaresults/` from `VITE_S3_USER_SPACE_BUCKET` |
+| `VITE_S3_USER_SPACE_BUCKET` | `tofu output s3_user_space_bucket_name` | Bucket provisioned in SPEC-010; read by the file browser starting SPEC-013. Required — an unset one fails the deploy at the render step |
+| `VITE_ATHENA_WORKGROUP` | `tofu output athena_workgroup_name` | Workgroup provisioned in SPEC-032; read by the query workspace starting SPEC-034. No separate results-bucket variable — the app derives `{username}/athenaresults/` from `VITE_S3_USER_SPACE_BUCKET` |
+| `API_BASE_URL` | *(not yet provisioned)* | The one runtime-configuration key with **no** `VITE_` variable — nothing in the browser reads it until the API lands (SPEC-197), so it has no dev fallback. Leave it unset until then; it renders as an empty string, which reads as absent. |
+
+The table above is the set an operator populates first. The queue URLs (`VITE_*_QUEUE_URL`) are
+listed per control plane in `apps/portal/.env.example`, each with its `tofu output`; an unset one
+disables that one feature rather than the app.
 
 > **Chicken-and-egg note for `VITE_APP_URL`:** On the very first deploy, the CloudFront domain isn't known yet. Set `VITE_APP_URL` to a placeholder (or empty string), let the first deploy complete, then update the variable to the value from `tofu output cloudfront_domain` and redeploy.
 
 ### Step 4 — Trigger the first app deploy
 
 Push a commit to `main` (or merge a PR). The `deploy-app.yml` workflow will:
-1. Build the SPA with the injected env vars
+1. Render `/config.json` and build the SPA
 2. Sync `apps/portal/dist/` to the static assets S3 bucket
 3. Invalidate the CloudFront distribution
 
@@ -87,9 +100,9 @@ Several workflow values are derived rather than stored as separate GitHub variab
 - `VITE_AWS_REGION` is set to `${{ vars.AWS_REGION }}` in the build step — no separate variable needed.
 - `TF_VAR_aws_region` is set to `${{ vars.AWS_REGION }}` in the plan/apply steps — no separate variable needed.
 - `TF_VAR_app_url` is set to `${{ vars.VITE_APP_URL }}` — declared in `infra/variables.tf` for Cognito OAuth callback URLs when auth IaC is added.
-- `VITE_COGNITO_USER_POOL_ID`, `VITE_COGNITO_USER_POOL_CLIENT_ID`, and `VITE_COGNITO_DOMAIN` are injected into the build by `deploy-app.yml` from GitHub Actions **variables** (SPEC-007). Populate them from `tofu output` (see the variables table above) before the next app deploy, or the deployed bundle ships without auth config.
-- `VITE_S3_USER_SPACE_BUCKET` is provisioned by SPEC-010 (`tofu output s3_user_space_bucket_name`) and is injected into the `deploy-app.yml` build as of SPEC-013 (the file browser switchover) — the deployed `/files` page reads it to scope the browser to the user-space bucket, so it must be set as a GitHub Actions **variable** or the deployed app shows a configuration error. `VITE_S3_SHARED_SPACE_BUCKET` remains a future spec.
-- `VITE_IAM_ROLE_ARN` has been **removed** (SPEC-011): the Cognito Identity Pool issues scoped credentials and the app never handles a role ARN. `VITE_COGNITO_IDENTITY_POOL_ID` replaces it and is injected into the `deploy-app.yml` build from a GitHub Actions **variable**.
+- `VITE_COGNITO_USER_POOL_ID`, `VITE_COGNITO_USER_POOL_CLIENT_ID` and `VITE_COGNITO_DOMAIN` are rendered into `/config.json` by `deploy-app.yml` from GitHub Actions **variables** (SPEC-007). Populate them from `tofu output` (see the variables table above) before the next app deploy: all three are required, so the deploy refuses to publish a document without them.
+- `VITE_S3_USER_SPACE_BUCKET` is provisioned by SPEC-010 (`tofu output s3_user_space_bucket_name`) and scopes the file browser to the user-space bucket. It is required, so an unset one fails the deploy at the render step rather than reaching a user. `VITE_S3_SHARED_SPACE_BUCKET` remains a future spec.
+- `VITE_IAM_ROLE_ARN` has been **removed** (SPEC-011): the Cognito Identity Pool issues scoped credentials and the app never handles a role ARN. `VITE_COGNITO_IDENTITY_POOL_ID` replaces it.
 - `TF_VAR_state_bucket` and `TF_VAR_state_lock_table` are stored as **secrets** (not variables) because they are used both as OpenTofu input variables (scoping IAM permissions in `iam.tf`) and as backend configuration passed to `tofu init`.
 
 ### `deploy-lambdas.yml` (SPEC-012)

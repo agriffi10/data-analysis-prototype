@@ -31,7 +31,7 @@ rebuild.
 
 **Shipped as three PRs, and the order is the risk control.** #495 published the document while the
 app still read the inlined values, so nothing in production depended on it; the deployed
-`/config.json` was read back by hand before #496 made the app depend on it; #497 is the provider
+`/config.json` was read back by hand before #496 made the app depend on it; #498 is the provider
 block and this ritual. Reverting #496 alone restores a working bundle.
 
 ### Deliberate deviations

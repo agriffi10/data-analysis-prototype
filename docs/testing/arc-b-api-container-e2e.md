@@ -37,8 +37,9 @@ CloudFront distribution, so its checks are runnable today and do not wait for me
 ## A. Runtime configuration (SPEC-192) — runnable NOW, before any of the above
 
 The only section of this script that does not wait for the container. It runs against the CloudFront
-distribution as it stands, and **three of its five steps require publishing a deliberately broken
-`config.json`** — so run them in one sitting and restore at the end.
+distribution as it stands, and **two of its five steps (A.2, A.3) require publishing a
+deliberately broken `config.json`**, while A.1 publishes a valid changed one — so run them in one
+sitting and restore at the end.
 
 **Already discharged (2026-08-24), recorded so they are not re-run blindly:** `GET /config.json`
 returns **200 / `application/json` / `Cache-Control: no-store` / `version: 1`** with all 20 keys, a

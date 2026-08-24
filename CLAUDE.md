@@ -78,9 +78,9 @@ rather than appending.
 ### Current work
 
 - **API layer & containerisation (192 → 202)** — "Arc B": a real API in front of AWS, containerised
-  SPA and API, retiring CloudFront and the Identity Pool. **192 is Completed** — the SPA reads
-  `/config.json` at runtime. Acceptance script: `docs/testing/arc-b-api-container-e2e.md`; read the
-  arc entry in `ARCS.md` first.
+  SPA and API, retiring CloudFront and the Identity Pool. The SPA already reads `/config.json` at
+  runtime. Acceptance script: `docs/testing/arc-b-api-container-e2e.md`; read the arc entry in
+  `ARCS.md` first.
 
 ### Live checks
 

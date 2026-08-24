@@ -853,8 +853,8 @@ document is what makes `dev → prod` a repoint rather than a rebuild, and a rol
 - **A dev build falls back to `import.meta.env`**, and a production build must not. The fallback's key
   tables are eliminated from the production bundle, asserted on the built output by
   `npm run check:bundle`.
-- **A key is wired in five places:** the classification in `lib/runtimeConfig.ts` (+ its `VITE_` name
-  in `lib/env.ts`), `.env.example`, the GitHub repository variable, **both** the build env and the
+- **A key is wired in five places:** the classification in `types/runtimeConfig.types.ts` (+ its
+  `VITE_` name in `lib/env.ts`), `.env.example`, the GitHub repository variable, **both** the build env and the
   render step in `deploy-app.yml`, and — from the container spec — the ECS task definition. A test
   compares them.
 

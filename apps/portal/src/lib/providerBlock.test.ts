@@ -56,10 +56,21 @@ describe('the provider block never crosses into the browser', () => {
     expect(flagged).toEqual([]);
   });
 
-  it('flags a synthetic key that IS a trust anchor', () => {
-    // GUARDS THE GUARD. A checker that flags nothing passes the case above forever, and
-    // this repo's review history records exactly that defect shape more than once.
-    const synthetic = ['issuer', 'oidcIssuer', 'jwksUri', 'apiAudience', 'clientSecret'];
+  it('flags every name on the exact list', () => {
+    // GUARDS THE GUARD, and it has to be DERIVED from the list rather than a hand-picked
+    // sample: five of these — `discoveryUrl`, `authorizeUrl`, `tokenUrl`, `usernameClaim`,
+    // `identityCenterApplicationArn` — match no substring rule, so they are reachable only
+    // through the exact clause. Measured: with a sample, deleting that clause outright left
+    // every case in this file green.
+    expect(FORBIDDEN_EXACT.filter(isProviderBlockField)).toEqual(FORBIDDEN_EXACT);
+  });
+
+  it('flags a synthetic key that is on neither list but IS a trust anchor', () => {
+    // The substring half, and the case that keeps the checker honest about names nobody
+    // enumerated: `apiAudience` appears in neither list. A checker that flags nothing
+    // passes the "document is clean" case forever, and this repo's review history records
+    // exactly that defect shape more than once.
+    const synthetic = ['apiAudience', 'myOidcThing', 'signingJwks', 'sharedSecret'];
 
     expect(synthetic.filter(isProviderBlockField)).toEqual(synthetic);
   });

@@ -2168,8 +2168,8 @@ does.
 ### The shape
 
 **192** runtime configuration (`VITE_*` becomes runtime accessors — the prerequisite that lets one
-image promote across environments, and the OIDC provider block lives here) — **COMPLETED
-2026-08-24**, see below; **193** the VPC, ALB, API
+image promote across environments, and the OIDC provider block lives here — see *What 192 found*
+below); **193** the VPC, ALB, API
 Gateway, ECR and ECS, with the deploy-role IAM expansion as in-scope work; **194** the SPA container
 and its nginx config, which must reproduce every job CloudFront was doing (SPA fallback, SPEC-141's
 per-class cache headers, SPEC-140's security headers, compression, health check); **195** the BFF —
