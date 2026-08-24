@@ -2,7 +2,8 @@ import type {HelpSection} from './help.types';
 
 // MAINTENANCE NOTE.
 // This content describes only the portal behavior that is shipped and reachable
-// by users as of implementation: Files (incl. running a data-quality check and
+// by users as of implementation: Files (incl. background file operations and their
+// conflict round trip, running a data-quality check and
 // reading its report), Query, Tables (create-from-folder + share,
 // the table planes), Shared connections (incl. join status pending/active
 // join status), and Notifications. Every step below maps to a real, wired
@@ -72,16 +73,36 @@ export const HELP_SECTIONS: HelpSection[] = [
         title: 'Rename, move, copy, or delete',
         subtitle: 'Reorganize files and folders after uploading.',
         intro:
-          'Plans change, and so does how you want your files arranged. Tick items for a bulk toolbar, or open a single item’s details to rename it. These actions work on whole folders too, not just single files.',
+          'Plans change, and so does how you want your files arranged. Tick items for a bulk toolbar, or open a single item’s details to rename it. These actions work on whole folders too — and because a folder can hold thousands of files, anything bigger than a single file now runs in the background while you carry on.',
         steps: [
           'Tick the checkbox on one or more items — a toolbar with <b>Copy</b>, <b>Move</b>, and <b>Delete</b> appears.',
           'For <b>Move</b> or <b>Copy</b>, pick a destination folder, then confirm with <b>Move here</b> or <b>Copy here</b>.',
           'To <b>Rename</b> a single item, click <b>Details</b> on its row and choose <b>Rename</b>, then type a <b>New name</b> — a file keeps its original extension automatically.',
+          'A single file is done straight away. <b>Anything else — a folder, or more than one item — is handed to the portal to do in the background.</b> You get a note that it has been requested, an entry in the in-progress list, and a notification when it finishes.',
+          'While one of those is running, <b>Copy</b>, <b>Move</b>, <b>Delete</b> and <b>Archive</b> wait their turn in that space. The file list does not update by itself — press <b>Refresh</b>, or leave the tab and come back.',
           'One folder is managed for you: <b>athenaresults</b>, where your query results are kept. You can browse it, but it can’t be deleted or moved.'
         ],
         callout: {
           kind: 'warning',
-          text: 'Deleting is forever — there’s no version history or trash, so a deleted file or folder is gone for good. To keep you safe, the confirm dialog starts on <b>Cancel</b>, so a stray Enter key won’t delete anything.'
+          text: 'Deleting is forever — there’s no version history or trash, so a deleted file or folder is gone for good. A background delete can also <b>partly</b> succeed: some items go and others are kept back, and the notification names each one. To keep you safe, the confirm dialog starts on <b>Cancel</b>, so a stray Enter key won’t delete anything.'
+        }
+      },
+      {
+        id: 'resolve-file-operation-conflicts',
+        title: 'When a move or copy is refused',
+        subtitle: 'Something was already in the way — here is how to finish the job.',
+        intro:
+          'A background move or copy never quietly writes over your files. If something with the same name is already at the destination, that item is left exactly where it was and the rest of the request goes ahead. The notification tells you which ones, and you can settle them from there.',
+        steps: [
+          'Open the notification for the operation. Alongside the message there is a <b>Review conflicts</b> link.',
+          'The review lists the items that could not be placed, with a sample of what is already in the way.',
+          'For a rename, choose <b>Use a different name…</b> and type a name that is free. Nothing is written over, and the request is sent again for that item only.',
+          'Otherwise choose <b>Overwrite…</b>, read the confirmation, and confirm. Only the items that were refused are sent again — the rest already happened.',
+          'You get a fresh notification for the second request, the same as the first.'
+        ],
+        callout: {
+          kind: 'warning',
+          text: 'Overwriting <b>cannot be undone</b>: there is no version history and no trash here, so whatever was at the destination is replaced for good. Renaming is the safe way out, and it is what most people want. Anything created at the destination after you first asked is left alone either way.'
         }
       },
       {

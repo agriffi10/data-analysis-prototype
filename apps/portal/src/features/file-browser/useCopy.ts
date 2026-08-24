@@ -22,21 +22,42 @@ type CopyCollision = {
   onCancel: () => void;
 };
 
-// A same-folder copy: the source name necessarily collides, so the app proposes
-// an auto-numbered name the user can edit before the copy runs.
-type SameFolderPrompt = {
+/**
+ * A same-folder copy: the source name necessarily collides, so the app proposes an auto-numbered
+ * name the user can edit before the copy runs.
+ *
+ * DATA ONLY — no `onConfirm`, no `onCancel`. The probe's result is the `targetName` of whichever
+ * request follows, and only the dispatcher knows whether that is the synchronous copy (a single
+ * file) or an enqueued one (a single folder). Owning the callbacks here would have meant deciding
+ * that before the probe had resolved, which is the one ordering this flow cannot take.
+ */
+export type SameFolderPrompt = {
   kind: 'file' | 'folder';
   /** The editable, pre-filled non-colliding name. */
   proposedName: string;
   /** Create-folder/rename rules. */
   validate: (name: string) => string | null;
-  onConfirm: (name: string) => void;
-  onCancel: () => void;
 };
 
 export type UseCopyResult = BulkOperationState & {
   sameFolderPrompt: SameFolderPrompt | null;
-  /** `destBucket` defaults to the source bucket; pass a different connection's bucket to copy across connections. */
+  /**
+   * HEAD-probes for the first free `{name} (N)` and opens the prompt. Single item only — the
+   * destination is its own parent, and the prompt names one thing.
+   */
+  startSameFolderCopy: (item: SelectableItem, destPrefix: string) => void;
+  /** Runs the synchronous same-folder copy under an already-chosen, already-validated name. */
+  runSameFolderCopy: (item: SelectableItem, destPrefix: string, name: string) => void;
+  clearSameFolderPrompt: () => void;
+  /**
+   * Copies into a DIFFERENT folder. `destBucket` defaults to the source bucket; pass a different
+   * connection's bucket to copy across connections.
+   *
+   * There is no same-folder branch here: the probe runs once, at
+   * {@link UseCopyResult.startSameFolderCopy}, before the routing decision that needs its answer.
+   * A second branch would probe again — up to 999 sequential `HeadObject` calls — and could
+   * propose a different name from the one the user just confirmed.
+   */
   copyItems: (items: SelectableItem[], destPrefix: string, destBucket?: string) => void;
   cancelCollision: () => void;
 };
@@ -57,10 +78,14 @@ type Acc = {copied: number; errors: CopySummary['errors']};
  * Orchestrates copy (single + multi-select) on top of the copyObject/copyFolder
  * service primitives. Mirrors useMove, but copy is additive (no source delete)
  * so ONLY the destination prefix is invalidated — the source listing is
- * unchanged. Adds the same-folder auto-number flow when the chosen destination
- * is the items' current parent. Never throws.
+ * unchanged. Supplies the same-folder auto-number probe and the copy that follows it as separate
+ * steps, because the caller decides between them on the probe's own answer. Never throws.
+ *
+ * It takes no source prefix. It used to, only to recognise "the destination is where these items
+ * already are" — a question the caller now has to answer BEFORE it calls anything here, since the
+ * probed name is what the routing decision is made with.
  */
-export function useCopy(bucket: string, sourcePrefix: string, username?: string): UseCopyResult {
+export function useCopy(bucket: string, username?: string): UseCopyResult {
   const queryClient = useQueryClient();
   const [isBusy, setIsBusy] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
@@ -172,18 +197,7 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
       return;
     }
 
-    setSameFolderPrompt({
-      kind: item.type,
-      proposedName: proposed,
-      validate: validateFolderName,
-      onConfirm: (name) => {
-        setSameFolderPrompt(null);
-        void runSameFolderCopy(item, destPrefix, name.trim());
-      },
-      onCancel: () => {
-        setSameFolderPrompt(null);
-      }
-    });
+    setSameFolderPrompt({kind: item.type, proposedName: proposed, validate: validateFolderName});
   }
 
   // ── Copy to a different folder ─────────────────────────────────────────────
@@ -269,24 +283,15 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
     setIsBusy(false);
   }
 
-  // Entry point. If the chosen destination is the items' current parent (same
-  // bucket + prefix), this is a same-folder copy — only valid for a single item
-  // (the auto-number prompt is per-item). Otherwise it's an ordinary copy to a
-  // different folder, possibly in another connection's bucket.
+  // Entry point for a copy into a DIFFERENT folder, possibly in another connection's bucket. The
+  // same-folder case never arrives here: its destination is the items' own parent, so it needs
+  // the auto-number probe FIRST — the caller runs that and then decides where the copy goes.
   function copyItems(items: SelectableItem[], destPrefix: string, destBucket: string = bucket) {
     if (!username) {
       setError('You must be signed in to copy files.');
       return;
     }
     if (items.length === 0) return;
-
-    if (destBucket === bucket && destPrefix === sourcePrefix) {
-      // Same-folder copy: place the item beside itself under an editable
-      // auto-numbered name. The prompt is per-item, so this path is single-item
-      // by design — copying many items in place is not a supported flow.
-      void startSameFolderCopy(items[0], destPrefix);
-      return;
-    }
 
     void runCopy(items, destPrefix, destBucket, false, {copied: 0, errors: []});
   }
@@ -298,6 +303,9 @@ export function useCopy(bucket: string, sourcePrefix: string, username?: string)
     summary,
     collision: copyCollision,
     sameFolderPrompt,
+    startSameFolderCopy: (item, destPrefix) => void startSameFolderCopy(item, destPrefix),
+    runSameFolderCopy: (item, destPrefix, name) => void runSameFolderCopy(item, destPrefix, name),
+    clearSameFolderPrompt: () => setSameFolderPrompt(null),
     copyItems,
     dismissError: () => setError(null),
     dismissSummary: () => setSummary(null),

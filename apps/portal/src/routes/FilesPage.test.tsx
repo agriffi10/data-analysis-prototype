@@ -2,7 +2,7 @@ import {describe, it, expect, vi, beforeEach} from 'vitest';
 import {screen, within, waitFor} from '@testing-library/react';
 import {renderWithProviders} from '../test/renderWithProviders';
 import {authenticated} from '../test/authFixtures';
-import {UploadQueueProvider} from '../features/file-browser';
+import {FileOpsInFlightProvider, UploadQueueProvider} from '../features/file-browser';
 import * as fileService from '../features/file-browser/fileBrowser.service';
 import {readSharedConnectionsCache} from '../features/shared-spaces/sharedSpaces.service';
 import type {FileListPage} from '../types/s3.types';
@@ -81,7 +81,9 @@ const {default: FilesPage} = await import('./FilesPage');
 function renderAt(route: string) {
   return renderWithProviders(
     <UploadQueueProvider>
-      <FilesPage />
+      <FileOpsInFlightProvider>
+        <FilesPage />
+      </FileOpsInFlightProvider>
     </UploadQueueProvider>,
     {route, auth: authenticated('alice')}
   );

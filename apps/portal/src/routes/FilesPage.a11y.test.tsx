@@ -6,7 +6,7 @@ import {AuthContext} from '../features/auth/authContext';
 import {authenticated} from '../test/authFixtures';
 import {createTestQueryClient, renderWithProviders} from '../test/renderWithProviders';
 import {expectNoA11yViolations, ROUTE_AXE_OPTIONS} from '../test/axe';
-import {UploadQueueProvider} from '../features/file-browser';
+import {FileOpsInFlightProvider, UploadQueueProvider} from '../features/file-browser';
 import {ToastProvider} from '../components/ToastProvider';
 import {fileBrowserKeys} from '../features/file-browser/fileBrowserKeys';
 import * as fileService from '../features/file-browser/fileBrowser.service';
@@ -78,7 +78,9 @@ const tree = (
       <MemoryRouter initialEntries={['/files']}>
         <ToastProvider>
           <UploadQueueProvider>
-            <FilesPage />
+            <FileOpsInFlightProvider>
+              <FilesPage />
+            </FileOpsInFlightProvider>
           </UploadQueueProvider>
         </ToastProvider>
       </MemoryRouter>
@@ -94,7 +96,9 @@ describe('FilesPage accessibility (SPEC-045 FR-003)', () => {
   it('exposes exactly one <h1> and a <main> landmark, with content present', async () => {
     renderWithProviders(
       <UploadQueueProvider>
-        <FilesPage />
+        <FileOpsInFlightProvider>
+          <FilesPage />
+        </FileOpsInFlightProvider>
       </UploadQueueProvider>,
       {route: '/files', auth: authenticated('alice'), queryClient: seededClient()}
     );

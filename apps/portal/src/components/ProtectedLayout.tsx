@@ -5,7 +5,7 @@ import {useAuth} from '../features/auth';
 import {useExplorationEviction} from '../features/data-explorer';
 import {useFeatureSet} from '../features/feature-flags';
 import {useCatalogCatchUp} from '../features/table-builder';
-import {UploadQueueProvider} from '../features/file-browser';
+import {FileOpsInFlightProvider, InFlightOperations, UploadQueueProvider} from '../features/file-browser';
 import {prefetchNotifications} from '../features/notifications';
 import {setReturnPath} from '../lib/returnPath';
 import {LoadingState} from './LoadingState';
@@ -18,10 +18,17 @@ import {LoadingState} from './LoadingState';
 // session-scoped: in-flight uploads survive folder navigation, connection
 // switches, route changes, and the file browser remounting on a `?space=`
 // change. It only tears down on sign-out, when this shell unmounts.
+//
+// The file-operations record is here for the same reason and one more: what it tracks runs on a
+// control plane for minutes after the gesture, so it has to outlive not just the folder but the
+// page — and its surface has to be visible from wherever the user went next.
 function AppShell({children}: {children: ReactNode}) {
   return (
     <UploadQueueProvider>
-      <div className="flex flex-1">{children}</div>
+      <FileOpsInFlightProvider>
+        <div className="flex flex-1">{children}</div>
+        <InFlightOperations />
+      </FileOpsInFlightProvider>
     </UploadQueueProvider>
   );
 }

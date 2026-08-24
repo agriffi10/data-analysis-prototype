@@ -1,9 +1,22 @@
 /**
- * The five primary features a flag can hide. Named for the features the portal ships, not
+ * The features a flag can hide. Named for the features the portal ships, not
  * for the components that render them — a flag governs an AREA, and the gating has
  * to reach every entry point into that area, not one screen.
+ *
+ * Five of the six are areas. `asyncFileOperations` is the exception and is deliberate: it is a
+ * kill switch over the file browser's copy/move/delete routing, whose only other switch is
+ * `files: false` — which removes the entire file browser. Off, every gesture keeps the browser's
+ * synchronous path; on, anything that is not exactly one file is handed to the control plane.
+ * Publishing it needs no app build, which is what makes the largest user-visible change in the
+ * product survivable.
  */
-export type FeatureFlagKey = 'files' | 'query' | 'sharedWorkspaces' | 'dataQuality' | 'dataExplorer';
+export type FeatureFlagKey =
+  | 'files'
+  | 'query'
+  | 'sharedWorkspaces'
+  | 'dataQuality'
+  | 'dataExplorer'
+  | 'asyncFileOperations';
 
 /** Every flag, always. No consumer ever handles `undefined`. */
 export type FeatureFlags = Record<FeatureFlagKey, boolean>;

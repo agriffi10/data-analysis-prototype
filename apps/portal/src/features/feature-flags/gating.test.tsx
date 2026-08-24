@@ -53,10 +53,17 @@ import {HelpPage} from '../help/HelpPage';
 import {getQualityReport} from '../data-quality/dataQualityReport.service';
 import {listFiles} from '../file-browser/fileBrowser.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
-import {UploadQueueProvider} from '../file-browser';
+import {FileOpsInFlightProvider, UploadQueueProvider} from '../file-browser';
 import FilesPage from '../../routes/FilesPage';
 
-const ALL_ON: FeatureFlags = {files: true, query: true, sharedWorkspaces: true, dataQuality: true, dataExplorer: true};
+const ALL_ON: FeatureFlags = {
+  files: true,
+  query: true,
+  sharedWorkspaces: true,
+  dataQuality: true,
+  dataExplorer: true,
+  asyncFileOperations: true
+};
 const opts = {auth: authenticated('alice'), seedFeatureFlags: false} as const;
 
 function withFlags(overrides: Partial<FeatureFlags>) {
@@ -369,7 +376,9 @@ describe('FR-005 — the ?space= deep link with shared workspaces off', () => {
 
     renderWithProviders(
       <UploadQueueProvider>
-        <FilesPage />
+        <FileOpsInFlightProvider>
+          <FilesPage />
+        </FileOpsInFlightProvider>
       </UploadQueueProvider>,
       {...opts, route: '/files?space=teamspace'}
     );
@@ -391,7 +400,9 @@ describe('FR-005 — the ?space= deep link with shared workspaces off', () => {
 
     renderWithProviders(
       <UploadQueueProvider>
-        <FilesPage />
+        <FileOpsInFlightProvider>
+          <FilesPage />
+        </FileOpsInFlightProvider>
       </UploadQueueProvider>,
       {...opts, route: '/files?space=teamspace'}
     );

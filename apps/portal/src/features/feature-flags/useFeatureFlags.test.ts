@@ -8,7 +8,14 @@ import {FEATURE_FLAG_DEFAULTS} from './featureFlagDefaults';
 
 vi.mock('./featureFlags.service', () => ({getFeatureFlags: vi.fn()}));
 
-const allOn = {files: true, query: true, sharedWorkspaces: true, dataQuality: true, dataExplorer: true};
+const allOn = {
+  files: true,
+  query: true,
+  sharedWorkspaces: true,
+  dataQuality: true,
+  dataExplorer: true,
+  asyncFileOperations: true
+};
 
 const resolved = (flags: Partial<typeof allOn> = {}) => ({success: true as const, data: {...allOn, ...flags}});
 

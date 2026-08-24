@@ -55,7 +55,7 @@ describe('useCopy', () => {
   const mockInvalidate = vi.mocked(invalidateListing);
 
   function render(username: string | undefined = 'alice') {
-    return renderHookWithProviders(() => useCopy('us', 'alice/docs/', username));
+    return renderHookWithProviders(() => useCopy('us', username));
   }
 
   beforeEach(() => {
@@ -146,7 +146,7 @@ describe('useCopy', () => {
     });
 
     it('errors and does nothing when there is no username', async () => {
-      const {result} = renderHookWithProviders(() => useCopy('us', 'alice/docs/', undefined));
+      const {result} = renderHookWithProviders(() => useCopy('us', undefined));
       act(() => result.current.copyItems([{type: 'file', key: 'alice/docs/f.txt'}], 'alice/dest/'));
 
       await waitFor(() => expect(result.current.error).toMatch(/signed in/i));
@@ -160,7 +160,7 @@ describe('useCopy', () => {
       mockObjectExists.mockResolvedValue({success: true, data: false});
 
       const {result} = render();
-      act(() => result.current.copyItems([{type: 'file', key: 'alice/docs/report.pdf'}], 'alice/docs/'));
+      act(() => result.current.startSameFolderCopy({type: 'file', key: 'alice/docs/report.pdf'}, 'alice/docs/'));
 
       await waitFor(() => expect(result.current.sameFolderPrompt).not.toBeNull());
       expect(result.current.sameFolderPrompt?.kind).toBe('file');
@@ -180,7 +180,7 @@ describe('useCopy', () => {
         .mockResolvedValueOnce({success: true, data: false}); // (2) free
 
       const {result} = render();
-      act(() => result.current.copyItems([{type: 'file', key: 'alice/docs/report.pdf'}], 'alice/docs/'));
+      act(() => result.current.startSameFolderCopy({type: 'file', key: 'alice/docs/report.pdf'}, 'alice/docs/'));
 
       await waitFor(() => expect(result.current.sameFolderPrompt).not.toBeNull());
       expect(result.current.sameFolderPrompt?.proposedName).toBe('report (2).pdf');
@@ -194,13 +194,15 @@ describe('useCopy', () => {
       });
 
       const {result} = render();
-      act(() => result.current.copyItems([{type: 'folder', prefix: 'alice/docs/notes/'}], 'alice/docs/'));
+      act(() => result.current.startSameFolderCopy({type: 'folder', prefix: 'alice/docs/notes/'}, 'alice/docs/'));
 
       await waitFor(() => expect(result.current.sameFolderPrompt).not.toBeNull());
       expect(result.current.sameFolderPrompt?.kind).toBe('folder');
       expect(result.current.sameFolderPrompt?.proposedName).toBe('notes (1)');
 
-      act(() => result.current.sameFolderPrompt?.onConfirm('notes (1)'));
+      act(() =>
+        result.current.runSameFolderCopy({type: 'folder', prefix: 'alice/docs/notes/'}, 'alice/docs/', 'notes (1)')
+      );
       await waitFor(() => expect(result.current.summary).toEqual({count: 1, errors: []}));
       expect(mockCopyFolder).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -219,10 +221,12 @@ describe('useCopy', () => {
       });
 
       const {result} = render();
-      act(() => result.current.copyItems([{type: 'file', key: 'alice/docs/report.pdf'}], 'alice/docs/'));
+      act(() => result.current.startSameFolderCopy({type: 'file', key: 'alice/docs/report.pdf'}, 'alice/docs/'));
 
       await waitFor(() => expect(result.current.sameFolderPrompt).not.toBeNull());
-      act(() => result.current.sameFolderPrompt?.onConfirm('my copy.pdf'));
+      act(() =>
+        result.current.runSameFolderCopy({type: 'file', key: 'alice/docs/report.pdf'}, 'alice/docs/', 'my copy.pdf')
+      );
 
       await waitFor(() => expect(result.current.summary).toEqual({count: 1, errors: []}));
       expect(mockCopyObject).toHaveBeenCalledWith(
@@ -236,7 +240,7 @@ describe('useCopy', () => {
     it('the same-folder prompt validate fn rejects names with a slash', async () => {
       mockObjectExists.mockResolvedValue({success: true, data: false});
       const {result} = render();
-      act(() => result.current.copyItems([{type: 'file', key: 'alice/docs/report.pdf'}], 'alice/docs/'));
+      act(() => result.current.startSameFolderCopy({type: 'file', key: 'alice/docs/report.pdf'}, 'alice/docs/'));
       await waitFor(() => expect(result.current.sameFolderPrompt).not.toBeNull());
       expect(result.current.sameFolderPrompt?.validate('a/b')).not.toBeNull();
       expect(result.current.sameFolderPrompt?.validate('ok.pdf')).toBeNull();

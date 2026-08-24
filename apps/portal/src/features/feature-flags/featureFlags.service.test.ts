@@ -21,7 +21,14 @@ const document = (over: Record<string, unknown> = {}) => ({
   ...over
 });
 
-const allOn = {files: true, query: true, sharedWorkspaces: true, dataQuality: true, dataExplorer: true};
+const allOn = {
+  files: true,
+  query: true,
+  sharedWorkspaces: true,
+  dataQuality: true,
+  dataExplorer: true,
+  asyncFileOperations: true
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -62,7 +69,14 @@ describe('getFeatureFlags — resolution', () => {
 
     expect(await getFeatureFlags('prod')).toEqual({
       success: true,
-      data: {files: true, query: false, sharedWorkspaces: true, dataQuality: false, dataExplorer: true}
+      data: {
+        files: true,
+        query: false,
+        sharedWorkspaces: true,
+        dataQuality: false,
+        dataExplorer: true,
+        asyncFileOperations: true
+      }
     });
   });
 
@@ -115,7 +129,8 @@ describe('getFeatureFlags — one bad value is not a bad document', () => {
         query: FEATURE_FLAG_DEFAULTS.query,
         sharedWorkspaces: false,
         dataQuality: true,
-        dataExplorer: true
+        dataExplorer: true,
+        asyncFileOperations: true
       }
     });
   });

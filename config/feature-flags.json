@@ -5,7 +5,8 @@
     "query": true,
     "sharedWorkspaces": true,
     "dataQuality": true,
-    "dataExplorer": true
+    "dataExplorer": true,
+    "asyncFileOperations": true
   },
   "environments": {
     "prod": {}

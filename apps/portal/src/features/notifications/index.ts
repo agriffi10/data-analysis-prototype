@@ -9,6 +9,8 @@ export {notificationsKeys} from './notificationsKeys';
 export type {
   Notification,
   NotificationAction,
+  NotificationConflict,
+  NotificationPayload,
   EnqueueNotificationInput,
   NotificationsStore
 } from './notifications.types';

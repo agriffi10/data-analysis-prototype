@@ -86,6 +86,10 @@ export default function FilesPage() {
   // floor), so the param can never point outside it.
   const [searchParams] = useSearchParams();
   const prefixParam = searchParams.get('prefix') || undefined;
+  // `?requestId=` — the run whose conflicts to review. Minted by a notification row's own control
+  // and never by this page, so it is read and passed on rather than validated here: the view it
+  // opens resolves it against the user's OWN inbox, which is the only gate that means anything.
+  const requestIdParam = searchParams.get('requestId') || undefined;
 
   // Authenticated flow: the file-browser target comes from the active space. A
   // null space means the user-space (or shared) bucket env is missing.
@@ -189,6 +193,7 @@ export default function FilesPage() {
             username={devUnauthenticated ? undefined : target.markerOwner}
             destinations={destinations}
             spaceKind={devUnauthenticated ? undefined : space?.kind}
+            requestId={requestIdParam}
           />
         ) : (
           <div

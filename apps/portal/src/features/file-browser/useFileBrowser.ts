@@ -47,7 +47,22 @@ export function useFileBrowser(bucket: string, prefix?: string): UseFileBrowserR
       return unwrap(result);
     },
     initialPageParam: undefined as string | undefined,
-    getNextPageParam: (lastPage: FileListPage) => (lastPage.isTruncated ? lastPage.nextContinuationToken : undefined)
+    getNextPageParam: (lastPage: FileListPage) => (lastPage.isTruncated ? lastPage.nextContinuationToken : undefined),
+    // ON, against the app-wide default — this listing is no longer the only thing that changes
+    // it. File operations run on a control plane now and finish minutes after the browser stops
+    // watching, so a listing that only refetches on navigation is stale for as long as the user
+    // stays on the folder.
+    //
+    // THE NOTIFICATION IS DELIBERATELY NOT THE MECHANISM, and the reason is measurable: its poll
+    // is 60 s, the interval is paused while the tab is hidden, and it is disabled outright on the
+    // notifications page — so reconciling from it would be up to a minute late and would never
+    // fire on a backgrounded tab, which is precisely when a long operation finishes.
+    //
+    // The accepted cost, named: this is an INFINITE query, so a focus refetch re-reads every page
+    // the user has loaded, sequentially. `staleTime` bounds how often that happens (30 s) and not
+    // how many pages it costs; pages only accumulate on an explicit "Load more". Resetting to page
+    // one instead would be cheaper and would lose the user's place.
+    refetchOnWindowFocus: true
   });
 
   // Merge folders/files across all loaded pages and re-sort globally so the

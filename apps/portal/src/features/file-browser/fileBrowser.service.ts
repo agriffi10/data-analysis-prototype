@@ -817,6 +817,33 @@ export async function objectExists(params: {bucket: string; key: string}): Promi
 }
 
 /**
+ * Does anything at all live under this prefix?
+ *
+ * **A RAW, UNFILTERED page of one key, and that is the whole point.** The browser's own listing
+ * is not an answer to this question: `listFiles` drops the prefix's own marker object, and
+ * `useFileBrowser` filters every `DO_NOT_DELETE.txt` by basename — so an empty folder made with
+ * "New folder", and a `saved_queries/` holding only its marker, both come back with nothing in
+ * them while being perfectly present. Reading "empty" as "deleted" would have told a user their
+ * folder was gone and taken its actions away.
+ *
+ * `MaxKeys: 1` and no delimiter: the question is whether ANY key has this prefix, at any depth.
+ *
+ * @param params - The bucket and the prefix, trailing slash included.
+ * @returns True when at least one key lives under it.
+ */
+export async function folderExists(params: {bucket: string; prefix: string}): Promise<ServiceResult<boolean>> {
+  const {bucket, prefix} = params;
+  return withAuthenticatedClient(async (client) => {
+    try {
+      const response = await client.send(new ListObjectsV2Command({Bucket: bucket, Prefix: prefix, MaxKeys: 1}));
+      return {success: true, data: (response.KeyCount ?? 0) > 0};
+    } catch (err) {
+      return toServiceError(err, 'Failed to check whether the folder exists');
+    }
+  });
+}
+
+/**
  * Maps upload progress to a whole-number percentage, guarding the zero-byte
  * case (total 0 → 100, never NaN/Infinity) and clamping to 0..100.
  */

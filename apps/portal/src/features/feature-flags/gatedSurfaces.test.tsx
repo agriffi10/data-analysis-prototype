@@ -1,3 +1,4 @@
+import {useEffect} from 'react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {act, screen, waitFor, within} from '@testing-library/react';
 import {renderWithProviders} from '../../test/renderWithProviders';
@@ -123,6 +124,10 @@ import {HELP_SECTIONS} from '../help/helpContent';
 import {FeatureRoute} from '../../routes/FeatureRoute';
 import {DataExplorerWorkspace} from '../data-explorer';
 import {listFiles} from '../file-browser/fileBrowser.service';
+import {FileOpsInFlightProvider} from '../file-browser/FileOpsInFlightProvider';
+import {InFlightOperations} from '../file-browser/InFlightOperations';
+import {useFileOpsInFlight} from '../file-browser/fileOpsInFlightContext';
+import {getNotifications} from '../notifications/notifications.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {Connection} from '../connections/connection.types';
 import {
@@ -131,7 +136,14 @@ import {
   openExplorationOptions
 } from '../data-explorer/explorationOptions.testkit';
 
-const ALL_ON: FeatureFlags = {files: true, query: true, sharedWorkspaces: true, dataQuality: true, dataExplorer: true};
+const ALL_ON: FeatureFlags = {
+  files: true,
+  query: true,
+  sharedWorkspaces: true,
+  dataQuality: true,
+  dataExplorer: true,
+  asyncFileOperations: true
+};
 
 /** Point the mocked service at one flag set, as the real reader would resolve it. */
 function withFlags(overrides: Partial<FeatureFlags>) {
@@ -204,17 +216,60 @@ const renderHeader = () => {
 const renderFileBrowser = () => {
   renderWithProviders(
     <UploadQueueProvider>
-      <FileBrowser
-        bucket="user-space"
-        rootPrefix="alice/"
-        username="alice"
-        writable
-        spaceKind="personal"
-      />
+      <FileOpsInFlightProvider>
+        <FileOpsInFlightProvider>
+          <FileBrowser
+            bucket="user-space"
+            rootPrefix="alice/"
+            username="alice"
+            writable
+            spaceKind="personal"
+          />
+        </FileOpsInFlightProvider>
+      </FileOpsInFlightProvider>{' '}
     </UploadQueueProvider>,
     {auth: authenticated('alice'), seedFeatureFlags: false}
   );
 };
+
+/** One notification carrying a run's conflicts — what the conflict view resolves its id against. */
+const CONFLICT_NOTIFICATION = {
+  id: 'n5',
+  message: 'Moved 1 of 2 items to “out”.',
+  read: false,
+  timestamp: '2026-08-23T00:00:00Z',
+  link: '/files?prefix=alice/out/',
+  payload: {
+    requestId: '11111111-2222-3333-4444-555555555555',
+    operation: 'move',
+    source: {kind: 'personal', name: 'alice'},
+    destination: {kind: 'personal', name: 'alice', prefix: 'alice/out/'},
+    conflicts: [{itemKey: 'alice/q1.csv', kind: 'file'}]
+  }
+};
+
+/**
+ * Seeds ONE in-flight entry, so the surface has something to render in both flag states.
+ *
+ * A recipe may not re-implement a gate, and this does not: the gate lives inside
+ * `InFlightOperations`, which is rendered here for real. What the seed supplies is DATA — the
+ * store is session state with no other door, and driving a whole enqueue through the toolbar
+ * would make the recipe a test of the dispatcher instead.
+ */
+function SeedInFlight() {
+  const {add} = useFileOpsInFlight();
+  useEffect(() => {
+    add({
+      requestId: 'seed-1',
+      operation: 'move',
+      itemCount: 3,
+      sourceSpace: {kind: 'personal', name: 'alice'},
+      submittedAt: new Date().toISOString(),
+      state: 'submitted'
+    });
+  }, [add]);
+  return null;
+}
 
 /**
  * Leave the Data Explorer with one open tab, the way a previous visit would have.
@@ -677,6 +732,43 @@ const RECIPES: Record<string, Recipe> = {
     },
     find: byRole('link', 'alice sent you "reports" (300 files)')
   },
+  'Review conflicts for a file operation': {
+    render: () => {
+      vi.mocked(getNotifications).mockResolvedValue({success: true, data: [CONFLICT_NOTIFICATION]} as never);
+      renderWithProviders(
+        <UploadQueueProvider>
+          <FileOpsInFlightProvider>
+            <FileOpsInFlightProvider>
+              <FileBrowser
+                bucket="user-space"
+                rootPrefix="alice/"
+                username="alice"
+                writable
+                spaceKind="personal"
+                requestId={CONFLICT_NOTIFICATION.payload.requestId}
+              />
+            </FileOpsInFlightProvider>
+          </FileOpsInFlightProvider>{' '}
+        </UploadQueueProvider>,
+        {auth: authenticated('alice'), seedFeatureFlags: false}
+      );
+    },
+    anchor: fileBrowserReady,
+    find: byRole('alertdialog', 'Review conflicts')
+  },
+  'File operations in progress': {
+    render: () => {
+      renderWithProviders(
+        <FileOpsInFlightProvider>
+          <SeedInFlight />
+          <InFlightOperations />
+        </FileOpsInFlightProvider>,
+        {auth: authenticated('alice'), seedFeatureFlags: false}
+      );
+    },
+    find: byRole('region', 'File operations in progress')
+  },
+  'Background file operations guide': helpRecipe('resolve-file-operation-conflicts'),
   'Review conflicts on a notification': {
     render: () => {
       renderWithProviders(
@@ -791,7 +883,9 @@ const RECIPES: Record<string, Recipe> = {
 function renderFilesPage() {
   renderWithProviders(
     <UploadQueueProvider>
-      <FilesPage />
+      <FileOpsInFlightProvider>
+        <FilesPage />
+      </FileOpsInFlightProvider>
     </UploadQueueProvider>,
     {auth: authenticated('alice'), seedFeatureFlags: false}
   );
@@ -924,7 +1018,11 @@ describe('the registry itself', () => {
         'Archive selected items',
         'Archive this item',
         'Restore Archived Data',
-        'Archive and restore guide'
+        'Archive and restore guide',
+        // SPEC-190: the VIEW the control above opens. Under THIS flag rather than the async
+        // switchover, so throwing that kill switch never turns a shipped notification's control
+        // into a link to nothing.
+        'Review conflicts for a file operation'
       ],
       query: [
         'Query',
@@ -1001,7 +1099,12 @@ describe('the registry itself', () => {
         'Grouping and Calc guide',
         'Copy and export guide',
         'Save an exploration guide'
-      ]
+      ],
+      // SPEC-190: a kill switch rather than an area. It hides the record of what this session
+      // handed to the plane, and the guide for a round trip that only exists while the routing
+      // does. It does not hide Copy/Move/Delete — with the flag off those still work, just
+      // synchronously — and a registry row can only assert presence or absence.
+      asyncFileOperations: ['File operations in progress', 'Background file operations guide']
     };
     for (const key of FEATURE_FLAG_KEYS) {
       expect(GATED_SURFACES[key].map((s) => s.name).sort(), key).toEqual([...contract[key]].sort());

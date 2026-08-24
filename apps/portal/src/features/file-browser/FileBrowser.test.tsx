@@ -4,12 +4,14 @@ import type {ReactElement} from 'react';
 import {renderWithProviders} from '../../test/renderWithProviders';
 import {FileBrowser} from './FileBrowser';
 import {UploadQueueProvider} from './UploadQueueProvider';
+import {FileOpsInFlightProvider} from './FileOpsInFlightProvider';
 import {UPLOAD_CONCURRENCY} from './upload.types';
 import * as service from './fileBrowser.service';
 import {triggerBrowserDownload} from './fileBrowser.download';
 import {getSessionCredentials} from '../../lib/awsCredentials';
 import * as dqService from '../data-quality/dataQuality.service';
 import * as sendService from '../file-send/fileSend.service';
+import {submitFileOperation} from './fileOps.service';
 import type {FileListPage, S3FileItem, S3FolderItem} from '../../types/s3.types';
 
 // Integration style (react.md §21): render the REAL FileBrowser tree — real
@@ -48,6 +50,9 @@ vi.mock('../data-quality/dataQuality.service', () => ({enqueueQualityCheck: vi.f
 // SendFilesDialog, useFileSend and the suggestion sources render. The two suggestion services
 // are mocked because they are AWS reads too, not because the field is being avoided.
 vi.mock('../file-send/fileSend.service', () => ({enqueueFileSend: vi.fn()}));
+// SPEC-190: the file-operations enqueue is the same kind of boundary. Anything that is not
+// exactly one file now goes through it rather than through the service mocks above.
+vi.mock('./fileOps.service', () => ({submitFileOperation: vi.fn().mockResolvedValue({success: true})}));
 vi.mock('../user-directory/userDirectory.service', () => ({
   getUserDirectory: vi.fn().mockResolvedValue({success: true, data: {usernames: ['bob'], generatedAt: null}}),
   DIRECTORY_KEY: '_directory/usernames.json'
@@ -63,6 +68,7 @@ vi.mock('../shared-spaces/sharedSpaces.service', () => ({
 const mock = vi.mocked(service);
 const mockQualityCheck = vi.mocked(dqService.enqueueQualityCheck);
 const mockSend = vi.mocked(sendService.enqueueFileSend);
+const mockSubmitFileOp = vi.mocked(submitFileOperation);
 
 // ── Builders ────────────────────────────────────────────────────────────────
 const file = (name: string, over: Partial<S3FileItem> = {}): S3FileItem => ({
@@ -93,15 +99,17 @@ const fail = (message: string) => ({success: false as const, error: {message}});
 function renderBrowser(props: Partial<Parameters<typeof FileBrowser>[0]> = {}): ReturnType<typeof renderWithProviders> {
   const ui: ReactElement = (
     <UploadQueueProvider>
-      <FileBrowser
-        bucket="my-bucket"
-        prefix="alice/"
-        rootPrefix="alice/"
-        rootLabel="My Files"
-        writable
-        username="alice"
-        {...props}
-      />
+      <FileOpsInFlightProvider>
+        <FileBrowser
+          bucket="my-bucket"
+          prefix="alice/"
+          rootPrefix="alice/"
+          rootLabel="My Files"
+          writable
+          username="alice"
+          {...props}
+        />
+      </FileOpsInFlightProvider>
     </UploadQueueProvider>
   );
   return renderWithProviders(ui);
@@ -490,7 +498,9 @@ describe('FileBrowser — move / copy / rename', () => {
     await waitFor(() => expect(mock.moveObject).toHaveBeenCalled());
   });
 
-  it('renames a folder from its details panel', async () => {
+  it('renames a folder from its details panel — ENQUEUED, never a browser-side recursive move', async () => {
+    // A folder rename is one CopyObject per contained object, so it cannot be bounded without
+    // listing the folder first. It is the case a reader assumes is synchronous.
     const {user} = renderBrowser();
     await user.click(await screen.findByRole('button', {name: 'Details for docs'}));
     await user.click(await screen.findByRole('button', {name: 'Rename docs'}));
@@ -499,7 +509,14 @@ describe('FileBrowser — move / copy / rename', () => {
     await user.clear(input);
     await user.type(input, 'archive');
     await user.click(within(dialog).getByRole('button', {name: /rename|save/i}));
-    await waitFor(() => expect(mock.moveFolder).toHaveBeenCalled());
+    await waitFor(() => expect(mockSubmitFileOp).toHaveBeenCalled());
+    expect(mock.moveFolder).not.toHaveBeenCalled();
+    expect(mockSubmitFileOp.mock.calls[0][0]).toMatchObject({
+      operation: 'move',
+      source: {items: [{kind: 'folder', key: 'alice/docs/', targetName: 'archive'}]},
+      destination: {prefix: 'alice/'},
+      onConflict: 'refuse'
+    });
   });
 
   it('shows the same-folder auto-number prompt for a copy into the current folder', async () => {

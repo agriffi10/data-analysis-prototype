@@ -75,7 +75,14 @@ beforeEach(() => {
   mockGetNotifications.mockResolvedValue({success: true, data: []});
   mockGetFeatureFlags.mockResolvedValue({
     success: true,
-    data: {files: true, query: true, sharedWorkspaces: true, dataQuality: true, dataExplorer: true}
+    data: {
+      files: true,
+      query: true,
+      sharedWorkspaces: true,
+      dataQuality: true,
+      dataExplorer: true,
+      asyncFileOperations: true
+    }
   });
 });
 

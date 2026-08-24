@@ -597,3 +597,28 @@ export function DatabaseRowIcon({className = 'h-[18px] w-[18px] flex-none'}: Ico
     </svg>
   );
 }
+
+/**
+ * Refresh — a circular arrow. Re-reads what is on screen; never a "retry".
+ *
+ * @example
+ * <RefreshIcon className="h-4 w-4" />
+ */
+export function RefreshIcon({className = 'h-4 w-4'}: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true">
+      <path d="M16.5 8A6.5 6.5 0 004.6 5.6" />
+      <path d="M3.5 12A6.5 6.5 0 0015.4 14.4" />
+      <path d="M4.5 2v3.6h3.6" />
+      <path d="M15.5 18v-3.6h-3.6" />
+    </svg>
+  );
+}

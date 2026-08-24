@@ -76,7 +76,13 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     // only here — there is no context menu in this file browser.
     {name: 'Archive this item', kind: 'control', path: '/files'},
     {name: 'Restore Archived Data', kind: 'control', path: '/files'},
-    {name: 'Archive and restore guide', kind: 'guide', path: '/help', helpId: 'archive-files'}
+    {name: 'Archive and restore guide', kind: 'guide', path: '/help', helpId: 'archive-files'},
+    // The VIEW the `Review conflicts` control above opens, and it follows this flag rather than
+    // the switchover that created the conflicts. Deliberate: throwing the async kill switch must
+    // not strand a conflict raised before it was thrown, and resolving one finishes work the
+    // plane already started rather than beginning a new gesture. It is also what keeps that
+    // control from becoming a link to nothing.
+    {name: 'Review conflicts for a file operation', kind: 'control', path: '/files'}
   ],
   query: [
     {name: 'Query', kind: 'nav', path: '/query'},
@@ -200,6 +206,21 @@ export const GATED_SURFACES: Record<FeatureFlagKey, readonly GatedSurface[]> = {
     {name: 'Grouping and Calc guide', kind: 'guide', path: '/help', helpId: 'explore-group-and-calc'},
     {name: 'Copy and export guide', kind: 'guide', path: '/help', helpId: 'explore-copy-and-export'},
     {name: 'Save an exploration guide', kind: 'guide', path: '/help', helpId: 'explore-save-as-query'}
+  ],
+  // A kill switch rather than an area, so it hides two things and not a tab: the record of what
+  // this session handed to the plane, and the guide describing a round trip that only exists
+  // while the routing does. Everything else the switchover touches is a CHANGE to a control, not
+  // a control — Copy still copies with the flag off, synchronously, exactly as it always did,
+  // which is why there is no row for it. The assertion that it does is a test of its own; a
+  // registry row can only say a surface is there or is not.
+  asyncFileOperations: [
+    {name: 'File operations in progress', kind: 'control', path: '/files'},
+    {
+      name: 'Background file operations guide',
+      kind: 'guide',
+      path: '/help',
+      helpId: 'resolve-file-operation-conflicts'
+    }
   ]
 };
 

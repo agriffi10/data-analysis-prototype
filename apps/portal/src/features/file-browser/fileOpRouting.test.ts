@@ -79,16 +79,30 @@ describe('the rule has a single home', () => {
     expect(sources.some(([file]) => file.includes('/components/'))).toBe(true);
   });
 
-  it('is imported by nothing yet, and by at most one module ever', () => {
-    // At most, not exactly: nothing routes through the plane yet. The spec that switches the
-    // browser over raises this to exactly one — the branch has to MOVE rather than be consulted
-    // from each of the four confirm paths. Note it is deliberately NOT re-exported from the
-    // feature barrel: a barrel re-export is an importer without being a call site, so it would
-    // cost this sweep its meaning while adding nothing.
+  it('is imported by EXACTLY ONE module, and it is the dispatcher', () => {
+    // Exactly, not at most: the browser now routes through the plane, so a count of zero would
+    // mean the switchover had been unwired rather than that nothing uses it yet.
     //
-    // One false negative to know about when that happens: a RENAMED re-export
+    // `useFileBrowserDialogs` is that module because the FIVE submission points live there — the
+    // four confirms and the same-folder prompt's confirm, which was moved out of
+    // `FileBrowserDialogs.tsx` for exactly this reason. Consulting the predicate from each of
+    // them separately is the shape this sweep exists to prevent.
+    //
+    // It is deliberately NOT re-exported from the feature barrel: a barrel re-export is an
+    // importer without being a call site, so it would cost this sweep its meaning while adding
+    // nothing. And one false negative to know about: a RENAMED re-export
     // (`export {requiresControlPlane as routesToPlane}`) is caught here, but its consumers are
     // not — so the single allowed importer must not be one.
-    expect(importers.map(([file]) => file)).toEqual([]);
+    expect(importers.map(([file]) => file)).toEqual(['./useFileBrowserDialogs.ts']);
+  });
+
+  it('is consulted from exactly one call site inside that module', () => {
+    // The sweep above proves one MODULE. This proves one CALL — five submission points reaching
+    // the same imported predicate five times would satisfy the first and defeat the point of it,
+    // because the routing rule is then five rules that happen to agree today.
+    const dispatcher = sources.find(([file]) => file.endsWith('useFileBrowserDialogs.ts'));
+    expect(dispatcher).toBeDefined();
+    const calls = [...(dispatcher as [string, string])[1].matchAll(/requiresControlPlane\(/g)];
+    expect(calls).toHaveLength(1);
   });
 });
