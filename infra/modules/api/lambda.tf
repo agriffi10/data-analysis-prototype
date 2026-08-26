@@ -56,9 +56,10 @@ resource "aws_lambda_function" "api" {
   runtime       = "python3.12"
   handler       = "handler.handler"
 
-  # One second under API Gateway's hard 30s integration ceiling, which is not raisable on
-  # an HTTP API. Past it the caller gets a 504 while the invocation keeps running and
-  # keeps billing, so the function should give up first and say so.
+  # One second under the integration's own timeout, which is itself at API Gateway's hard 30s
+  # ceiling. The margin is what makes the ordering real: the function gives up first and the
+  # caller gets its error, instead of a 504 raised while the invocation keeps running and keeps
+  # billing.
   timeout     = 29
   memory_size = 256
 

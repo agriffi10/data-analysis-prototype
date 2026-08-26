@@ -12,10 +12,12 @@ the layer on ``sys.path`` so imports resolve in tests, and ``update-function-cod
 a function that cannot import what it needs. Only a real invocation sees it. Shipping the placeholder
 now means the first spec with something to lose is not also the first to exercise the pipeline.
 
-The event is API Gateway's payload format 2.0. The method and path come from ``requestContext.http``
-rather than the top-level ``rawPath``, because that is where format 2.0 puts them and because the
-stage prefix does not appear there — the API is reached through a custom domain mapped at the empty
-path, so what arrives is already the path the router expects.
+The event is API Gateway's payload format 2.0, and the method and path come from
+``requestContext.http`` rather than the top-level ``rawPath``. At the empty API mapping this API
+uses, the two agree — so this is a choice about which field stays correct if the mapping ever
+gains a key, not a live bug being avoided. AWS documents ``rawPath`` as the field that does NOT
+carry the mapping value, so reading it would be the one that changes meaning under a non-empty
+key. Stated because a reason that reads false to whoever checks it is worse than none.
 
 Attributes:
   SERVICE: The service name every log record from this function carries.

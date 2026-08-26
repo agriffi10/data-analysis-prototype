@@ -7,6 +7,7 @@ domain and 404s the same request through the other host — and only one of thos
 """
 
 import ast
+import json
 import os
 import pathlib
 import sys
@@ -96,7 +97,7 @@ def test_health_is_served_through_the_request_context() -> None:
     response = m.handler(_event("GET", "/healthz"), None)
 
     assert response["statusCode"] == 200
-    assert response["body"]["status"] == "ok"
+    assert json.loads(response["body"])["status"] == "ok"
 
 
 def test_the_method_is_upper_cased_before_routing() -> None:

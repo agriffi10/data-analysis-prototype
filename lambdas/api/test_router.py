@@ -75,16 +75,23 @@ def test_health_returns_ok_and_a_version() -> None:
     response = router.route("GET", "/healthz")
 
     assert response["statusCode"] == 200
-    assert response["body"]["status"] == "ok"
-    assert response["body"]["version"]
+
+    body = json.loads(response["body"])
+    assert body["status"] == "ok"
+    assert body["version"]
 
 
-def test_health_version_comes_from_the_package_stamp_not_the_environment(monkeypatch) -> None:
-    """Terraform owns the environment map, so an env-borne version would be reverted by an apply.
+def test_health_reports_the_layer_s_resolved_stamp_and_not_a_live_env_read(monkeypatch) -> None:
+    """The router must not re-read the environment; it reports what the layer resolved at import.
 
-    Reads the value through the layer's own accessor rather than re-deriving it — that accessor
-    is the single owner of the environment-then-package fallback, and a second copy here would
-    make this test agree with itself rather than with the deployed function.
+    The name matters here. The layer's own accessor honours ``BUILD_VERSION`` **first** by
+    design, so "the version comes from the package stamp" is not true of the layer and this
+    test cannot claim it — what it can claim is that the router does not perform its own live
+    read, which is the thing that would drift from the log records.
+
+    Both assertions are needed. Comparing against ``build_version()`` alone passes even if the
+    router re-reads the environment, because both sides would then return the patched value —
+    measured: that mutation survived until the second assertion was added.
 
     Args:
       monkeypatch: pytest's environment patcher.
@@ -93,15 +100,19 @@ def test_health_version_comes_from_the_package_stamp_not_the_environment(monkeyp
       None.
 
     Raises:
-      AssertionError: If the reported version disagrees with the layer's resolved stamp.
+      AssertionError: If the router re-reads the environment at call time.
     """
     from cpcommon.observability import build_version
 
     monkeypatch.setenv("BUILD_VERSION", "should-not-be-read-at-call-time")
 
-    response = router.route("GET", "/healthz")
+    reported = json.loads(router.route("GET", "/healthz")["body"])["version"]
 
-    assert response["body"]["version"] == build_version()
+    assert reported == build_version()
+    assert reported != "should-not-be-read-at-call-time", (
+        "the router re-read BUILD_VERSION at call time — the stamp is resolved once at import, "
+        "and a live read drifts from what every log record carries"
+    )
 
 
 def test_every_other_method_and_path_is_a_json_404() -> None:
@@ -128,7 +139,7 @@ def test_every_other_method_and_path_is_a_json_404() -> None:
 
         assert response["statusCode"] == 404, f"{method} {path} must not be served"
         assert response["headers"]["content-type"] == "application/json"
-        assert json.dumps(response["body"])
+        assert json.loads(response["body"])["error"] == "not_found"
 
 
 def test_no_response_carries_a_cors_header() -> None:
@@ -171,3 +182,55 @@ def test_the_module_makes_no_aws_call_and_declares_no_client() -> None:
 
     offending = sorted(referenced & set(FORBIDDEN_ROUTER_NAMES))
     assert not offending, f"router.py references {offending} — the placeholder holds no AWS surface"
+
+
+def test_every_body_is_a_STRING_because_a_status_makes_the_envelope_literal() -> None:
+    """The defect this file previously passed straight over.
+
+    API Gateway infers a response only when the function returns JSON and returns NO
+    ``statusCode``. Once a status is set the envelope is read literally and ``body`` must be a
+    string — an object there is a malformed proxy response and a 500 for the caller.
+
+    ``json.dumps(response["body"])`` was the old assertion, and it is green on exactly the bug
+    it was meant to exclude: a dict body serializes perfectly. Asserting the TYPE is what
+    separates "this could be serialized" from "this was".
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If any response body is not an already-serialized string.
+    """
+    for method, path in (("GET", "/healthz"), ("GET", "/nope"), ("POST", "/healthz")):
+        body = router.route(method, path)["body"]
+
+        assert isinstance(body, str), (
+            f"{method} {path} returned a {type(body).__name__} body beside a statusCode — "
+            "API Gateway reads that envelope literally and answers 500"
+        )
+        assert isinstance(json.loads(body), dict)
+
+
+def test_a_refusal_bounds_what_it_echoes_back() -> None:
+    """The method and path are caller-controlled and are reflected into the body.
+
+    The body is JSON and never HTML, so this is a size bound rather than an escaping one — a
+    request line is not a place to let an arbitrary payload round-trip.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If either value is echoed unbounded.
+    """
+    body = json.loads(router.route("GET", "/" + "a" * 5000)["body"])
+
+    assert len(body["path"]) <= router.MAX_ECHOED_CHARS, (
+        "the refusal echoed the whole caller-supplied path back"
+    )

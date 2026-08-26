@@ -97,6 +97,29 @@ def _api_source_without_comments() -> str:
     )
 
 
+def _root_module_block(name: str) -> str:
+    """Extracts one module block from the root composition.
+
+    Anchored on the block's own closing brace rather than on the NEXT module's opening one:
+    sliced between two named modules, reordering them yields an empty string and every
+    `not in` assertion over it passes trivially.
+
+    Args:
+      name: The module's name.
+
+    Returns:
+      The block's source.
+
+    Raises:
+      AssertionError: If the module is not composed at root.
+    """
+    text = ROOT_MAIN.read_text()
+    marker = f'module "{name}" {{'
+    assert marker in text, f"root does not compose module {name}"
+    start = text.index(marker)
+    return text[start : text.index("\n}\n", start)]
+
+
 def _connect_src_block() -> str:
     """Extracts root's connect-src list.
 
@@ -154,8 +177,7 @@ def test_the_api_module_takes_nothing_from_the_network_module() -> None:
             f"modules/api declares a {network_shaped!r} variable — it takes no network input"
         )
 
-    root = ROOT_MAIN.read_text()
-    block = root[root.index('module "api" {') : root.index('module "network" {')]
+    block = _root_module_block("api")
     assert "module.network" not in block, "root passes a network output into module.api"
 
 
@@ -288,8 +310,7 @@ def test_the_custom_domain_is_regional_and_takes_the_validated_certificate() -> 
     assert re.search(r'endpoint_type\s*=\s*"REGIONAL"', source)
     assert re.search(r"certificate_arn\s*=\s*var\.api_certificate_arn", source)
 
-    root = ROOT_MAIN.read_text()
-    block = root[root.index('module "api" {') : root.index('module "network" {')]
+    block = _root_module_block("api")
     assert "aws_acm_certificate_validation.api.certificate_arn" in block, (
         "the certificate must come from the validation, not from aws_acm_certificate.api.arn"
     )
@@ -408,11 +429,18 @@ def test_the_function_timeout_clears_the_integration_ceiling() -> None:
     """
     source = _api_source_without_comments()
 
-    timeout = re.search(r"^\s*timeout\s*=\s*(\d+)", source, re.MULTILINE)
-    assert timeout, "the function must state a timeout"
-    assert int(timeout.group(1)) < 30, (
-        "a function that can outlive the 30s integration ceiling returns 504 to the caller "
-        "while the invocation keeps running and keeps billing"
+    function = re.search(r"^\s*timeout\s*=\s*(\d+)", source, re.MULTILINE)
+    integration = re.search(r"timeout_milliseconds\s*=\s*(\d+)", source)
+    assert function and integration, "both timeouts must be stated, not inherited"
+
+    function_ms = int(function.group(1)) * 1000
+    integration_ms = int(integration.group(1))
+
+    assert integration_ms <= 30_000, "the HTTP API integration ceiling is a hard 30s"
+    assert function_ms < integration_ms, (
+        f"the function ({function_ms}ms) must give up BEFORE the integration ({integration_ms}ms), "
+        "or a slow request answers 504 while the invocation keeps running and keeps billing. "
+        "Equal is not ordered — which one answers is then a race"
     )
 
 
@@ -481,8 +509,12 @@ def test_the_callback_list_gains_the_container_origin_and_loses_nothing() -> Non
     """
     source = AUTH_COGNITO.read_text()
 
-    listed = re.search(r"callback_urls\s*=\s*compact\(\[([^\]]*)\]\)", source)
-    assert listed, "the callback list must be built with compact so an unset origin drops out"
+    listed = re.search(r"callback_urls\s*=\s*distinct\(compact\(\[([^\]]*)\]\)\)", source)
+    assert listed, (
+        "the callback list must be distinct(compact([...])) — compact so an unset origin drops "
+        "out, distinct because the cutover re-points app_url AT the container origin before it "
+        "removes the entry, and Cognito rejects a duplicated URL rather than deduplicating it"
+    )
 
     entries = listed.group(1)
     for required in ('"http://localhost:5173"', "var.app_url", "var.spa_origin"):

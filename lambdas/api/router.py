@@ -18,26 +18,34 @@ replaces the table wholesale.
 Attributes:
   HEALTH_PATH: The one path with a handler of its own.
   JSON_CONTENT_TYPE: The content type every response carries, success or not.
+  MAX_ECHOED_CHARS: How much of a caller-supplied method or path a refusal echoes back.
 """
 
+import json
 from typing import Any
 
 from cpcommon.observability import build_version
 
 HEALTH_PATH = "/healthz"
 JSON_CONTENT_TYPE = "application/json"
+MAX_ECHOED_CHARS = 128
 
 
 def _response(status: int, body: dict[str, Any]) -> dict[str, Any]:
     """Builds an API Gateway payload-format-2.0 response.
 
+    The body is SERIALIZED here rather than handed over as an object. API Gateway infers a
+    response only when the function returns JSON and returns no ``statusCode``; the moment a
+    status is set, the envelope is read literally and ``body`` must be a string. An object there
+    is a malformed proxy response — a 500 the caller sees and no offline assertion does, because
+    a dict body is still perfectly serializable.
+
     Args:
       status: The HTTP status code.
-      body: The object to serialize as the response body.
+      body: The object to serialize into the response body.
 
     Returns:
-      The response dict API Gateway expects, with the body left as an object for the runtime to
-      serialize.
+      The payload-format-2.0 response dict, body already serialized.
 
     Raises:
       None.
@@ -45,7 +53,7 @@ def _response(status: int, body: dict[str, Any]) -> dict[str, Any]:
     return {
         "statusCode": status,
         "headers": {"content-type": JSON_CONTENT_TYPE},
-        "body": body,
+        "body": json.dumps(body),
     }
 
 
@@ -72,17 +80,28 @@ def _health() -> dict[str, Any]:
 def _not_found(method: str, path: str) -> dict[str, Any]:
     """Refuses a path this router does not serve.
 
+    Both values are caller-controlled and are echoed back, so both are truncated. The body is
+    served as JSON and never as HTML, so this is a size bound rather than an escaping one — a
+    request line is not a place to let an arbitrary payload round-trip.
+
     Args:
       method: The request's HTTP method.
       path: The request's path.
 
     Returns:
-      A 404 response naming what was not found.
+      A 404 response naming what was not found, with both values bounded.
 
     Raises:
       None.
     """
-    return _response(404, {"error": "not_found", "method": method, "path": path})
+    return _response(
+        404,
+        {
+            "error": "not_found",
+            "method": method[:MAX_ECHOED_CHARS],
+            "path": path[:MAX_ECHOED_CHARS],
+        },
+    )
 
 
 def route(method: str, path: str) -> dict[str, Any]:

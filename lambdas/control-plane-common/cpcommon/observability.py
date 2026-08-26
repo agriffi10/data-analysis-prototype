@@ -132,6 +132,7 @@ def build_version() -> str:
     """
     return _VERSION
 
+
 _initialized = False
 
 

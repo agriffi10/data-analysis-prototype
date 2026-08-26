@@ -444,6 +444,12 @@ narrowing is SPEC-202's, and it is deliberately the last thing that happens in t
       `var.route53_zone_id`, and an `aws_acm_certificate_validation` for each.
 - [ ] Two A-alias records: the SPA name to the ALB, the API name to the API Gateway regional domain's
       `regional_domain_name` / `regional_zone_id`.
+
+> **Corrected while building.** `regional_domain_name` / `regional_zone_id` are
+> `aws_api_gateway_domain_name` — the **v1** REST-API resource. This spec builds an **HTTP API**, so
+> the attributes are `aws_apigatewayv2_domain_name.<n>.domain_name_configuration[0].target_domain_name`
+> and `.hosted_zone_id`. Named here because the v1 spellings do not exist on the v2 resource, so the
+> criterion as written cannot be satisfied by the thing the spec asks for.
 - [ ] `spa_origin` (`https://{spa_subdomain}.{parent_domain}`), `api_origin`, `spa_host` and `api_host`
       are constructed in root `locals` from the four domain variables, passed **into** the modules that
       need them, and re-exported from root `outputs.tf` — Premise 6's rule, and the reason FR-007's

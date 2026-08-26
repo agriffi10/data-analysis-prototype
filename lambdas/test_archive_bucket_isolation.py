@@ -123,18 +123,31 @@ def test_the_archive_module_passes_no_bucket_name_to_the_spa_or_the_app_module()
 # ── FR-001 AC3: the bucket host is not in the CSP connect-src ────────────────
 
 
-def _csp_connect_src_entries():
+def _csp_connect_src_entries(main_tf=None):
     """The enumerated hosts inside `csp_connect_src = join(" ", [ … ])`.
 
-    Sliced out of the block, NOT scanned line by line. The list puts each host on its own
-    line and none of those lines contains the string `connect_src`, so a per-line scan for
-    that word inspects exactly one line — the assignment — and would pass with an archive
-    host sitting three lines below it. Measured: inserting one made every check here green.
+    Every entry, quoted or not. The list puts each host on its own line, so the slice is what
+    makes the scan see more than the assignment line — a per-line scan for `connect_src` finds
+    exactly one line and would pass with an archive host three lines below it.
+
+    Unquoted entries count. A regex over quoted strings alone was complete while every term was
+    a literal; the list now also carries interpolated locals, and a new bucket's origin would
+    most naturally arrive as one of those — invisible to the old pattern.
     """
-    body = _read(INFRA / "main.tf")
+    body = _read(main_tf or INFRA / "main.tf")
     block = body[body.index("csp_connect_src = join("):]
     block = block[: block.index("])")]
-    return re.findall(r'"([^"]+)"', block)
+    entries = []
+    for line in block.splitlines()[1:]:
+        line = line.strip().rstrip(",")
+        if not line or line.startswith("#"):
+            continue
+        # Quoted AND unquoted, because the list carries both. A regex over quoted strings
+        # alone was correct while every term was a literal; the first interpolated local
+        # (an origin built at root) made it blind to exactly the kind of entry a new bucket
+        # would arrive as.
+        entries.append(line[1:-1] if line.startswith('"') and line.endswith('"') else line)
+    return entries
 
 
 def test_no_archive_host_appears_in_the_csp_connect_src():
@@ -148,18 +161,37 @@ def test_no_archive_host_appears_in_the_csp_connect_src():
     assert not offenders, f"connect-src allows an archive host: {offenders}"
 
 
-def test_the_connect_src_scan_would_see_an_archive_host():
-    """Guards the guard. The version this replaced could not see one, and the difference
-    between "the list is clean" and "the scan is blind" is not visible in a green run."""
-    entries = ["'self'", "https://dat-prod-archive.s3.us-east-1.amazonaws.com"]
+def test_the_connect_src_scan_would_see_an_archive_host(tmp_path):
+    """Guards the guard, through the REAL parser rather than a hand-built list.
 
-    assert [e for e in entries if "archive" in e.lower()]
+    A fixture of literal strings proves only that `"archive" in e` works. It cannot see the
+    failure that actually happened: the parser matched quoted terms only, so an interpolated
+    entry was invisible to it and an archive origin added that way passed every check here.
+    Both shapes are exercised below, against the parser itself.
+    """
+    for entry in (
+        '"https://dat-prod-archive.s3.us-east-1.amazonaws.com",',
+        "local.archive_origin,",
+    ):
+        fake = tmp_path / "main.tf"
+        fake.write_text(
+            'locals {\n  csp_connect_src = join(" ", [\n    "\'self\'",\n    '
+            + entry
+            + "\n  ])\n}\n"
+        )
+        seen = _csp_connect_src_entries(fake)
+
+        assert [e for e in seen if "archive" in e.lower()], (
+            f"the scan cannot see {entry!r} — a clean list and a blind scan look identical"
+        )
 
 
 def test_the_app_module_is_not_wired_to_the_archive_bucket_at_all():
-    """The CSP list is built from module.app's OWN variables, so a host can only get in if
-    root passes the name in. Neither half alone is sufficient — a hard-coded host would pass
-    this and a new variable would pass the list check — so both are asserted."""
+    """The CSP list is built at ROOT now, so a host gets in only if somebody adds it there.
+
+    Both halves still matter: this checks the app module's own wiring, and the list check above
+    checks what root assembles. A hard-coded host would pass one and a new variable the other.
+    """
     block = _read(ROOT_MAIN).split('module "app"')[1].split("\n}")[0]
 
     assert "archive" not in block.lower()

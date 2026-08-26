@@ -118,7 +118,11 @@ locals {
   # is where ported features get proved and CloudFront is the rollback, so an app client
   # naming one of them makes the other an origin that cannot complete a sign-in. Removing
   # either is the cutover spec's work — doing it here deletes the rollback.
-  callback_urls = compact(["http://localhost:5173", var.app_url, var.spa_origin])
+  #
+  # distinct(), because the cutover re-points app_url AT the container origin before it
+  # removes the entry: between those two steps the same URL appears twice, which Cognito
+  # rejects outright rather than deduplicating.
+  callback_urls = distinct(compact(["http://localhost:5173", var.app_url, var.spa_origin]))
 
   # Hosted UI domain prefix must be globally unique across all AWS accounts.
   domain_prefix = var.cognito_domain_prefix != "" ? var.cognito_domain_prefix : "${var.project_name}-${var.environment}-portal"

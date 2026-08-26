@@ -44,9 +44,12 @@ resource "aws_apigatewayv2_integration" "api" {
   integration_uri        = aws_lambda_function.api.invoke_arn
   payload_format_version = "2.0"
 
-  # Stated rather than inherited. The ceiling is a hard 30s on an HTTP API and is not
-  # raisable; naming it here keeps it beside the function timeout it has to outlive.
-  timeout_milliseconds = 29000
+  # The ceiling is a hard 30s on an HTTP API and is not raisable, so this sits AT it — and
+  # deliberately above the function's own 29s. The order is the point: the function must give
+  # up first, so a slow request returns the handler's own error rather than a 504 from the
+  # integration while the invocation keeps running and keeps billing. Set equal, the two expire
+  # at the same instant and which one answers is a race.
+  timeout_milliseconds = 30000
 }
 
 resource "aws_apigatewayv2_route" "default" {
