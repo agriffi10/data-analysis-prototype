@@ -540,7 +540,8 @@ def test_the_admin_buckets_first_policy_denies_nothing_and_wildcards_no_account(
 
     Every later plan would then propose destroying a bucket holding the structured logs. The
     account id is a segment of the key ALB writes to, and wildcarding it would accept another
-    account's load balancer's logs.
+    account's load balancer's logs — with the conditions gone, that segment is what bounds this
+    grant, so it matters more here than it did.
 
     Args:
       None.
@@ -549,15 +550,15 @@ def test_the_admin_buckets_first_policy_denies_nothing_and_wildcards_no_account(
       None.
 
     Raises:
-      AssertionError: When the policy denies anything, wildcards the account, or delivers
-        through the legacy account-principal form.
+      AssertionError: When the policy denies anything, wildcards the account, carries a
+        condition, or drops one of the two delivery principals.
     """
     template = (SPA / "policies" / "alb-access-logs-bucket-policy.json.tftpl").read_text()
     document = json.loads(
         template.replace("${bucket_arn}", "arn:aws:s3:::admin")
         .replace("${access_logs_prefix}", "alb-access-logs")
         .replace("${account_id}", "111122223333")
-        .replace("${load_balancer_arn_pattern}", "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/app/x/*")
+        .replace("${elb_account_arn}", "arn:aws:iam::127311923021:root")
     )
 
     for statement in document["Statement"]:
@@ -565,25 +566,35 @@ def test_the_admin_buckets_first_policy_denies_nothing_and_wildcards_no_account(
             "The admin bucket's policy contains a Deny. It would also stop the deploy role's "
             "refresh read, and every later plan would propose recreating the bucket."
         )
-        assert statement["Principal"] == {
-            "Service": "logdelivery.elasticloadbalancing.amazonaws.com"
-        }, statement["Principal"]
+        assert statement["Principal"] in (
+            {"Service": "logdelivery.elasticloadbalancing.amazonaws.com"},
+            {"AWS": "arn:aws:iam::127311923021:root"},
+        ), statement["Principal"]
         assert "/AWSLogs/111122223333/" in statement["Resource"], statement["Resource"]
 
-        # The account is bound by the SourceArn pattern and by the Resource's own path segment
-        # — NOT by a `StringEquals aws:SourceAccount`, which AWS's documentation never uses for
-        # this delivery. A condition on a key the caller does not populate fails closed, and the
-        # refusal names neither the condition nor the key: ELB reports
-        # `InvalidConfigurationRequest: Access Denied for bucket` at create.
-        assert set(statement["Condition"]) == {"ArnLike"}, statement["Condition"]
-        source_arn = statement["Condition"]["ArnLike"]["aws:SourceArn"]
-        assert source_arn.startswith("arn:aws:elasticloadbalancing:"), source_arn
-        assert "111122223333" in source_arn, source_arn
+        # NO CONDITION AT ALL, and that is the fix rather than an oversight. Two versions of this
+        # policy were refused by ELB's own validating PutObject — one with
+        # `StringEquals aws:SourceAccount`, one with `ArnLike aws:SourceArn` — because a condition
+        # on a key that call does not populate fails CLOSED, and the refusal names neither the key
+        # nor the condition. What bounds the grant is the Resource's account SEGMENT, asserted
+        # above: a load balancer writes under its own account's id, so a foreign one matches
+        # nothing here.
+        assert "Condition" not in statement, statement["Condition"]
 
-    assert "aws_elb_service_account" not in _source_without_comments(), (
-        "The legacy account-principal form is back. AWS heads its own published version 'Legacy "
-        "bucket policy', and it delivers through an ACL grant this BucketOwnerEnforced bucket "
-        "does not accept."
+    principals = [statement["Principal"] for statement in document["Statement"]]
+    assert len(principals) == 2, f"Expected both delivery principals, found {principals}"
+    assert {"Service": "logdelivery.elasticloadbalancing.amazonaws.com"} in principals, principals
+    assert any("AWS" in principal for principal in principals), principals
+
+    # The legacy principal is a VARIABLE, read at root from the region's own data source, never a
+    # data source in this module: one there would be deferred to apply by the module's depends_on.
+    assert "var.elb_account_arn" in _source_without_comments(), (
+        "The legacy delivery principal is no longer passed in. Both identities are granted "
+        "because which one AWS delivers as here was never isolated."
+    )
+    assert 'data "aws_elb_service_account"' not in _source_without_comments(), (
+        "A data source in this module is deferred to apply by its own depends_on. The region's "
+        "ELB account is read at root and passed in."
     )
 
 

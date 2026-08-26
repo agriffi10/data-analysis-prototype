@@ -73,6 +73,11 @@ variable "access_logs_prefix" {
   type        = string
 }
 
+variable "elb_account_arn" {
+  description = "The load-balancing service's own account in this region, as an ARN — the older of the two delivery identities the access-log bucket policy grants. Which one AWS actually delivers as here was not isolated, so both are granted and narrowing to one is owed a live check."
+  type        = string
+}
+
 variable "desired_count" {
   description = "Tasks the service runs. Zero here so the first apply creates a service before any image exists; the deploy that pushes an image raises it."
   type        = number

@@ -12,6 +12,11 @@
 # cycle (the deploy role must be able to manage a bucket the data module creates).
 data "aws_caller_identity" "current" {}
 
+# The load-balancing service's own account in this region — one of the two principals the SPA's
+# access-log bucket policy grants. Read here rather than in the module, for the same reason as the
+# availability zones below: a data source inside a module carrying depends_on is deferred to apply.
+data "aws_elb_service_account" "main" {}
+
 # Read HERE, not inside modules/network, and the reason is the module's own depends_on.
 # A module-level depends_on defers every data source in that module whenever anything it
 # depends on has a pending change — and the subnets are a for_each over a local derived
@@ -1370,6 +1375,11 @@ module "spa" {
   # depends_on below, because a policy cannot be written to a bucket that does not exist.
   admin_bucket_name  = local.athena_admin_bucket_name
   access_logs_prefix = local.alb_access_logs_prefix
+
+  # The region's load-balancing account, for the access-log policy's second delivery principal.
+  # Read at ROOT for the reason the availability zones are: a data source inside a module that
+  # carries depends_on is deferred to apply.
+  elb_account_arn = data.aws_elb_service_account.main.arn
 
   desired_count = var.spa_desired_count
   image_tag     = var.spa_image_tag
