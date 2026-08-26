@@ -44,11 +44,23 @@ locals {
     }
   ]
 
-  # The writable pair. `readonlyRootFilesystem` is what makes them necessary and the mechanism
-  # is task-level volumes with matching mountPoints — NOT `linuxParameters.tmpfs`, which the
-  # image's spec depends on this pair for. A mount set missing one of them produces a container
-  # that never starts, reported as a generic essential-container exit.
+  # The writable pair. `readonlyRootFilesystem` is what makes them necessary, and the mechanism is
+  # `linuxParameters.tmpfs` — MEASURED, after task-level volumes were tried and could not work.
+  #
+  # A Fargate task volume arrives as a fresh, EMPTY, root-owned directory. It does not initialise
+  # from the image, so a container running as a non-root user cannot write to it: the container
+  # printed `uid=101(nginx)` beside `drwxr-xr-x root root /tmp` and `drwxr-xr-x root root
+  # /var/cache/nginx` — the second of which the base image ships owned by 101, which is how we
+  # know nothing is copied. nginx then died on `mkdir() "/tmp/proxy_temp" failed (13: Permission
+  # denied)`, a message that reads as a container bug and is not one.
+  #
+  # tmpfs takes uid, gid and mode as mount options, which is the whole difference: the mount is
+  # created owned by the user that has to write to it.
   writable_paths = ["/tmp", "/var/cache/nginx"]
+
+  # The container's user, named once: the task definition sets it and every tmpfs mount is created
+  # owned by it. Split between the two, a mount is silently unwritable by the process that needs it.
+  container_uid = "101"
 }
 
 resource "aws_ecs_task_definition" "spa" {
@@ -69,13 +81,6 @@ resource "aws_ecs_task_definition" "spa" {
     cpu_architecture        = "X86_64"
   }
 
-  dynamic "volume" {
-    for_each = local.writable_paths
-    content {
-      name = replace(trimprefix(volume.value, "/"), "/", "-")
-    }
-  }
-
   container_definitions = jsonencode([
     {
       name      = "spa"
@@ -91,16 +96,20 @@ resource "aws_ecs_task_definition" "spa" {
 
       # uid 101 is nginx-unprivileged's own user. Named here rather than left to the image so
       # the task definition states the claim the acceptance criterion makes.
-      user                   = "101"
+      user                   = local.container_uid
       readonlyRootFilesystem = true
 
-      mountPoints = [
-        for path in local.writable_paths : {
-          sourceVolume  = replace(trimprefix(path, "/"), "/", "-")
-          containerPath = path
-          readOnly      = false
-        }
-      ]
+      # EACH MOUNT IS CREATED OWNED BY THE CONTAINER'S USER. That is what task-level volumes
+      # could not do, and it is the entire reason this is a tmpfs rather than a volume.
+      linuxParameters = {
+        tmpfs = [
+          for path in local.writable_paths : {
+            containerPath = path
+            size          = 64
+            mountOptions  = ["uid=${local.container_uid}", "gid=${local.container_uid}", "mode=1777"]
+          }
+        ]
+      }
 
       environment = concat(local.config_environment, [
         {

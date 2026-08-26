@@ -162,6 +162,19 @@ errors. The unprivileged image listens on **8080** as uid 101 by construction.
 > nothing claims tmpfs *works* either, since documentation silence is not an API acceptance. SPEC-193's
 > shipped module uses no `linuxParameters` at all, asserted by test.
 
+> **Superseded by measurement the same day.** The mechanism is **`linuxParameters.tmpfs`**, not
+> `volumes` + `mountPoints`. A Fargate task volume arrives empty and root-owned and does not
+> initialise from the image — measured, with `/var/cache/nginx` (shipped owned by uid 101) arriving
+> as root's — so a non-root container cannot write to it, and nginx dies on `mkdir()
+> "/tmp/proxy_temp" failed (13: Permission denied)`. tmpfs takes `uid`, `gid` and `mode` as mount
+> options, so the mount is created owned by the container's own user.
+>
+> **The writable PAIR is unchanged** and so is this criterion's agreement with SPEC-193 — `/tmp` and
+> `/var/cache/nginx`, asserted by a test reading both specs. **This image must not assume it can
+> write anywhere else**, and it inherits the same uid requirement: the tmpfs mounts are owned by the
+> uid SPEC-193's task definition sets, so an image that runs as a different user cannot write to
+> them.
+
 ### FR-002: SPA routing fallback, and the 200 that cannot be believed
 
 #### Description:

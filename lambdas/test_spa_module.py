@@ -277,9 +277,14 @@ def test_the_container_runs_read_only_as_a_non_root_user() -> None:
     definition = _container_definition()
     assert re.search(r"readonlyRootFilesystem\s*=\s*true", definition), definition[:400]
 
-    user = re.search(r'user\s*=\s*"(\d+)"', definition)
-    assert user, "The container definition names no user, so it runs as root."
-    assert user.group(1) != "0", "The container runs as uid 0."
+    # The uid is a local rather than a literal, because the tmpfs mounts must be created owned by
+    # the SAME value — see the writable-paths test for what splitting them costs.
+    assert re.search(r"user\s*=\s*local\.container_uid", definition), (
+        "The container definition names no user, so it runs as root."
+    )
+    uid = re.search(r'container_uid\s*=\s*"(\d+)"', _source())
+    assert uid, "No container_uid local."
+    assert uid.group(1) != "0", "The container runs as uid 0."
 
 
 def test_the_mounted_paths_equal_the_writable_set_the_image_spec_declares() -> None:
@@ -326,23 +331,37 @@ def test_the_mounted_paths_equal_the_writable_set_the_image_spec_declares() -> N
     )
 
     text = _source()
-    mounted = tuple(sorted(set(re.findall(r'containerPath\s*=\s*"?([^"\s,]+)', _container_definition()))))
-    volumes = re.search(r"writable_paths\s*=\s*\[([^\]]+)\]", text)
-    assert volumes, "No writable_paths local — the volumes and the mounts are no longer derived."
-    from_local = tuple(sorted(re.findall(r'"([^"]+)"', volumes.group(1))))
+    paths = re.search(r"writable_paths\s*=\s*\[([^\]]+)\]", text)
+    assert paths, "No writable_paths local — the mounts are no longer derived from one list."
+    from_local = tuple(sorted(re.findall(r'"([^"]+)"', paths.group(1))))
 
     assert from_local == tuple(sorted(declared)), (
         f"The module mounts {from_local}; the image spec declares {declared}. A mount set missing "
         "one of them produces a container that never starts, reported as a generic "
         "essential-container exit."
     )
-    assert mounted in ((), from_local) or "for path in local.writable_paths" in text, (
-        "The mountPoints are hand-listed rather than derived from the same local as the volumes."
+    assert "for path in local.writable_paths" in _container_definition(), (
+        "The mounts are hand-listed rather than derived from the writable_paths local."
     )
 
-    assert "linuxParameters" not in _source_without_comments(), (
-        "linuxParameters appeared. The mechanism here is task-level volumes with matching "
-        "mountPoints, which the image spec depends on."
+    # TMPFS, NOT A TASK VOLUME — measured, not preferred. A Fargate task volume arrives as an
+    # empty root-owned directory and does not initialise from the image, so a container running
+    # as a non-root user cannot write to it. A tmpfs is created owned by the uid its mount
+    # options name, and that uid must be the one the container runs as.
+    assert '"aws_ecs_task_definition"' in text and "volume {" not in _source_without_comments(), (
+        "A task-level volume is back. It cannot give a non-root container a writable path: the "
+        "mount arrives owned by root, and nginx dies on a permission error that reads as a "
+        "container bug."
+    )
+    tmpfs = re.search(r"tmpfs\s*=\s*\[(.*?)\]\s*\n\s*\}", _container_definition(), re.DOTALL)
+    assert tmpfs, "No tmpfs block — the writable paths have no mechanism at all."
+    assert "uid=${local.container_uid}" in tmpfs.group(1), tmpfs.group(1)
+    assert "gid=${local.container_uid}" in tmpfs.group(1), tmpfs.group(1)
+
+    # The mount's owner and the container's user are ONE value. Split, a mount is silently
+    # unwritable by the process that needs it — which is the failure this whole change is about.
+    assert re.search(r"user\s*=\s*local\.container_uid", _container_definition()), (
+        "The container's user is not the local the tmpfs mounts are owned by."
     )
 
 
