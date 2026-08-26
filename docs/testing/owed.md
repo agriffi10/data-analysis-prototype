@@ -457,6 +457,29 @@ one would read `allowed`.
 
 ---
 
+### 2.9 Which principal ELB actually delivers access logs as
+
+The admin bucket's policy grants **two** identities `s3:PutObject` under
+`alb-access-logs/AWSLogs/{account}/`: the log-delivery service principal
+(`logdelivery.elasticloadbalancing.amazonaws.com`) and the region's own load-balancing account.
+**Only one of them is used, and which was never isolated.**
+
+Three applies were refused with `InvalidConfigurationRequest: Access Denied for bucket` before the
+policy landed in this shape, and each refusal names neither a principal nor a condition. What the
+sequence established is that **conditions** were the problem — `StringEquals aws:SourceAccount` and
+`ArnLike aws:SourceArn` were each refused on their own, because ELB validates the policy with a
+`PutObject` of its own at `ModifyLoadBalancerAttributes` time and a condition on a key that call
+does not populate fails closed. What it did **not** establish is whether the service principal alone
+would then have sufficed.
+
+Isolating it means putting candidate policies on the bucket between attempts, which is a live write
+to a production bucket policy — so it did not run, and both principals ship. **The narrowing is
+worth doing once, and it is cheap when it happens:** drop one statement, apply, read
+`describe-load-balancer-attributes` back; if access logging survives, delete the other statement for
+good. Until then the grant is wider than it needs to be by exactly one AWS-owned identity, bounded
+by the account id in the Resource path — a foreign balancer writes under its own account's id and
+matches nothing here.
+
 ## 3. Discharged, and worth not re-litigating
 
 Kept short on purpose — the reasoning lives in `docs/decisions.md` and the delivery docs. These are

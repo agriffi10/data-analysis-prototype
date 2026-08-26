@@ -409,10 +409,28 @@ an HTTP listener that only redirects, and a health check. The image is a placeho
       only the principal from the `aws_elb_service_account` data source; it must contain **no** `Deny`,
       or the deploy role's refresh read stops working and every plan proposes a destructive recreate.
 
-> **Corrected while building (2026-08-26).** Not `aws_elb_service_account`. AWS heads its own published
-> account-principal policy "**Legacy bucket policy** … we recommend that you replace it", and that form
-> delivers through an **ACL grant** — which this bucket, at `BucketOwnerEnforced`, does not accept at
-> all. The shipped policy names the **service principal**
+> **Corrected while building, then corrected AGAIN by three failed applies (2026-08-26).** The first
+> correction said `aws_elb_service_account` was wrong and the service principal right, on the strength
+> of AWS heading its own account-principal policy "**Legacy bucket policy** … we recommend that you
+> replace it". **The deployment did not agree.** Three applies were refused with
+> `InvalidConfigurationRequest: Access Denied for bucket`, and the shipped policy now grants **both**
+> identities with **no condition on either** — the criterion's `aws_elb_service_account` is back, beside
+> the service principal rather than instead of it.
+>
+> **The conditions are what the sequence actually convicted.** `StringEquals aws:SourceAccount` was
+> refused; dropping it and keeping `ArnLike aws:SourceArn` was refused identically. ELB validates this
+> policy with a `PutObject` of its own at `ModifyLoadBalancerAttributes` time, and a condition on a key
+> that call does not populate fails **closed** — so each condition was a bet that the caller supplies
+> the key. AWS's documented policy carries no condition; the `SourceArn` suggestion lives in a separate
+> best-practices section and does not survive this validation.
+>
+> **Which principal is actually used was NOT isolated** — that needs candidate policies on a live
+> bucket between attempts, and it is recorded in `docs/testing/owed.md` §2.9 with the two-command
+> narrowing. What bounds the grant meanwhile is the **account id in the Resource path**: a load
+> balancer writes under its own account's id, so a foreign one matches nothing here. The **no-`Deny`**
+> half of the criterion is unchanged and is asserted by test.
+>
+> The superseded first correction, for the record: it named the **service principal**
 > `logdelivery.elasticloadbalancing.amazonaws.com`, with `aws:SourceAccount` and an `ArnLike`
 > `aws:SourceArn` built from the load balancer's name pattern (its real ARN carries a
 > generated suffix that is unknown at plan, and referencing it would close a cycle through the

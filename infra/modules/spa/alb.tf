@@ -122,24 +122,36 @@ resource "aws_lb_listener" "http" {
 resource "aws_s3_bucket_policy" "alb_access_logs" {
   bucket = var.admin_bucket_name
 
-  # THE CONDITION SET IS AWS'S OWN, and a key it does not populate is a denial. An earlier
-  # version added `StringEquals aws:SourceAccount` beside the ArnLike below — a condition AWS's
-  # documentation never uses for this delivery — and ELB refused the bucket at create with
-  # `InvalidConfigurationRequest: Access Denied for bucket`, which names neither the condition
-  # nor the key. A condition on an absent key fails closed, so an "extra" one is not a
-  # tightening; it is a guess that the caller populates it.
+  # NO CONDITIONS, AND TWO PRINCIPALS. Both halves were measured, on three failed applies.
   #
-  # Region and account are still bound: the SourceArn pattern carries both, and the Resource
-  # carries the account id as a path segment.
+  # The conditions went first. A version carrying `StringEquals aws:SourceAccount` beside an
+  # `ArnLike aws:SourceArn` was refused with `InvalidConfigurationRequest: Access Denied for
+  # bucket`; dropping the SourceAccount and keeping the ArnLike was refused identically. ELB
+  # validates this policy with its own PutObject at ModifyLoadBalancerAttributes time, and a
+  # condition on a key that call does not populate fails CLOSED — so each condition was a bet
+  # that the caller supplies the key, and both bets lost. AWS's documented policy carries no
+  # condition at all; the SourceArn suggestion sits in a separate best-practices section and does
+  # not survive this validation.
+  #
+  # The second principal is the region's own load-balancing account, the older delivery identity.
+  # WHICH OF THE TWO AWS ACTUALLY DELIVERS AS HERE WAS NOT ISOLATED: that needs candidate policies
+  # put on a live bucket between attempts, and with main red the thing worth optimising is one
+  # apply that works rather than a third that narrows. Both are AWS's own identities, and the
+  # narrowing is recorded as owed.
+  #
+  # WHAT STILL BOUNDS THIS with the conditions gone: the Resource pins the account id as a path
+  # SEGMENT, and a load balancer writes under its OWN account's id — so a foreign balancer's keys
+  # match nothing here. That is AWS's own first-listed best practice, and it is the one that
+  # survives the validation.
   policy = templatefile("${path.module}/policies/alb-access-logs-bucket-policy.json.tftpl", {
     # The account id is never wildcarded: it is a segment of the key ALB writes to, and a
     # wildcard there would accept another account's load balancer's logs into this bucket.
     bucket_arn         = "arn:aws:s3:::${var.admin_bucket_name}"
     access_logs_prefix = var.access_logs_prefix
     account_id         = var.account_id
-    # ArnLike on a CONSTRUCTED pattern rather than the load balancer's own ARN: the real ARN
-    # carries a generated suffix that is unknown at plan, and referencing it here would close a
-    # cycle through the depends_on above.
-    load_balancer_arn_pattern = "arn:aws:elasticloadbalancing:${var.aws_region}:${var.account_id}:loadbalancer/app/${local.spa_name}/*"
+    # The region's ELB account, read at ROOT and passed in: a data source in this module would be
+    # deferred to apply by its own depends_on, and the value is a property of the region rather
+    # than of anything here.
+    elb_account_arn = var.elb_account_arn
   })
 }

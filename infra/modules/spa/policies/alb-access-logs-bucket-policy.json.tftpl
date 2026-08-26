@@ -8,12 +8,16 @@
         "Service": "logdelivery.elasticloadbalancing.amazonaws.com"
       },
       "Action": "s3:PutObject",
-      "Resource": "${bucket_arn}/${access_logs_prefix}/AWSLogs/${account_id}/*",
-      "Condition": {
-        "ArnLike": {
-          "aws:SourceArn": "${load_balancer_arn_pattern}"
-        }
-      }
+      "Resource": "${bucket_arn}/${access_logs_prefix}/AWSLogs/${account_id}/*"
+    },
+    {
+      "Sid": "AllowLoadBalancerAccessLogDeliveryLegacy",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "${elb_account_arn}"
+      },
+      "Action": "s3:PutObject",
+      "Resource": "${bucket_arn}/${access_logs_prefix}/AWSLogs/${account_id}/*"
     }
   ]
 }
