@@ -3,7 +3,7 @@
 Loaded every session — keep it lean. Deep docs live in `docs/` and are pulled **on demand**:
 - `@docs/process.md` — how we work: spec lifecycle, session rhythm, completion ritual (read once)
 - `@docs/architecture.md` — system design + Known Constraints (read the section you need, never in full)
-- `@docs/decisions.md` — the Key Decisions register in full (the digest below is one line each)
+- `@docs/decisions.md` — the Key Decisions register in full (the digest below groups it by area)
 - `@docs/specs/INDEX.md` — the spec index + status (one row per spec)
 - `@docs/specs/ARCS.md` — why an arc exists / how its specs compose (only for the arc you're in)
 - `@docs/specs/SPEC-XXX-*.md` — the spec you're implementing
@@ -21,8 +21,9 @@ Loaded every session — keep it lean. Deep docs live in `docs/` and are pulled 
 ## Project Overview
 
 A web portal where authenticated users upload/download files to/from their own S3 prefix.
-Auth is AWS Cognito (standalone User Pool + Identity Pool). **No backend** — the SPA calls
-AWS directly with scoped credentials. Status: greenfield, no production users yet.
+Auth is AWS Cognito (standalone User Pool + Identity Pool). The browser calls AWS directly with
+scoped credentials **today**; Arc B is moving that behind an API (`api.dataquarry.app` exists and
+serves `/healthz`, and no route is ported yet). Status: greenfield, no production users yet.
 
 ## Monorepo (npm workspaces)
 
@@ -68,18 +69,17 @@ tofu -chdir=infra validate|plan|apply        # init: tofu -chdir=infra init -bac
 
 ## Specs
 
-Status is authoritative in `@docs/specs/INDEX.md` and in each spec file's own header. Arc narrative
-is in `@docs/specs/ARCS.md`. What a spec delivered is in `@docs/spec-delivery/`. Live checks are in
-`@docs/testing/`.
-
-**This section carries only what is live and recorded nowhere else.** When a spec closes, prune here
-rather than appending.
+Status lives in `@docs/specs/INDEX.md`, narrative in `ARCS.md`, what shipped in
+`@docs/spec-delivery/`, live checks in `@docs/testing/`. **This section carries only what is live and
+recorded nowhere else** — when a spec closes, prune here rather than appending.
 
 ### Current work
 
-- **API layer & containerisation (192 → 202)** — "Arc B": a real API in front of AWS, containerised
-  SPA and API, retiring CloudFront and the Identity Pool. The SPA already reads `/config.json` at
-  runtime. Acceptance script: `docs/testing/arc-b-api-container-e2e.md`; read the arc entry in
+- **API layer & containerisation (192 → 202, 192–193 done)** — "Arc B": a real API in front of AWS, containerised
+  SPA and API, retiring CloudFront and the Identity Pool. **192 and 193 are done**: the SPA reads
+  `/config.json` at runtime, and `portal.`/`api.dataquarry.app` serve a placeholder and a `/healthz`
+  from a VPC with no NAT. Next is the real image. Acceptance script:
+  `docs/testing/arc-b-api-container-e2e.md` (§A and §B are discharged); read the arc entry in
   `ARCS.md` first.
 
 ### Live checks
@@ -91,112 +91,264 @@ restate an owed check here.**
 
 ## Key Decisions (settled — don't re-litigate)
 
-One line each. **Full reasoning + the "do NOT build" fences: `@docs/decisions.md`** — read the entry
-before working in that area; the line here is a reminder, not the spec.
+**Grouped by area, not by spec.** Each block is the settled shape, then the fences and the traps —
+the things that **apply green and fail later**, which is the failure mode this project keeps paying
+for. **Full reasoning, and every "do NOT build" in its long form: `@docs/decisions.md`**, findable by
+what it says rather than by number. Read the entry for an area before working in it.
 
-- **Auth:** Cognito User Pool → Identity Pool (ABAC); `username` principal tag stamped server-side from the verified claim (unspoofable). One shared role; isolation via `${aws:PrincipalTag/username}`. (SPEC-011)
-- **Hosted UI = Managed Login v2** (`managed_login_version = 2`); classic Hosted UI broke the post-signup redirect.
-- **No backend:** browser → AWS direct. Cognito trigger Lambdas allowed (service config, not an API).
-- **State:** TanStack Query = server state; Context+`useReducer` = UI state. No Redux. (SPEC-015)
-- **File ops = filesystem UX;** S3 has no move/rename → `CopyObject`+`DeleteObject`, folder ops recursive + non-atomic, collisions warn-and-confirm. (architecture.md Known Constraints)
-- **Analytics (032→036):** in-app Athena/Glue/LF workspace; isolation = `username` principal tag on the Glue DB ARN (DB name = username), **not** LF-Tags.
-- **Usernames** = S3 prefix = principal tag = Glue DB name; catalog-safe `^[a-z][a-z0-9_]{2,62}$` (SPEC-033).
-- **Query workspace has NO active database** (SPEC-077, supersedes 047/076): every base table is fully-qualified `database.table`; rail is browse-only.
-- **Multi-statement scripts (078):** client-side `;` split, sequential stop-on-first-failure, 3 run scopes (⌘⏎ / ⌘⇧⏎ / ⌘⌥⏎). No transactions.
-- **Bucket 2 (shared-space):** privileged async control plane (FIFO SQS → Pipe → SFN → single-task verb Lambdas + `cpcommon` **and** a domain-only `shared-space-common` layer since SPEC-125, one shared `orchestrator` role). Create is creator-only. Record: `architecture.md` → *Control Planes → Shared Spaces*.
-- **Member join status (073):** 7th verb `acknowledge-membership` flips pending→active; display/bookkeeping only, access granted at add time.
-- **Member roster (075):** reverses 053 — every member sees a read-only roster; `cache.write_roster_to_all` fans out on add/remove/leave.
-- **Table Builder (066→072):** dedicated control plane (5 linear verbs, one role, `tbcommon` + `polars` layers). Partition keys are **user-declared** + Athena partition projection. CSV all-string. Record: `architecture.md` → *Control Planes → Table Builder*.
-- **Table Share (088→094):** dedicated control plane w/ recipient `Map`; **clone** the source Glue table def, never re-infer; push (no consent). Record: `architecture.md` → *Control Planes → Table Share*.
-- **The copy is a top-level Distributed Map and attribution is a verb (160, supersedes 091's per-recipient copy):** a `(recipient × object)` JSONL manifest, batched into `cpcommon.transfer` (the engine, because send-files and archive are callers two and three); **not nested** in the recipient Map, and **S3 Batch Ops is rejected on the API, not deferred**.
-- **Everything unbounded on the state travels by pointer, and a cap is not a substitute (161, extending 090/160):** the cloned definition joins the object list and the manifest in the admin bucket (`definitionKey` → `table-share/{hash}/definition.json`, one module owning all three key layouts, **no IAM change**). Inline, `SHARE_MAX_DEFINITION_BYTES` had to choose between the 256 KB payload and a 100-column commented table — it survives at **64 KiB** bounding **Athena's 262,144-byte query-string quota** instead (the rendered DDL can be **2×** the JSON, and a quote-heavy *table property* expands far more than a *comment* — 128 KiB measured 99.98% of the quota).
-- **Caps name the limit that sized them, and each one is COMPUTED by a test (161):** `SHARE_MAX_OBJECTS` **20,000** (listing time), `SHARE_MAX_TOTAL_BYTES` **1 TiB** (one copy of the *source* — it says nothing about the Map Run), `SHARE_MAX_OBJECT_BYTES` **10 GiB**, and two product caps the per-source ones cannot express because every manifest item is a full copy: `SHARE_MAX_TRANSFER_ITEMS` **20,000** and `SHARE_MAX_TRANSFER_BYTES` **3 TiB**, both on the **requested** recipient count, before the guard.
-- **`TimeoutSeconds` 10,800 is TOP-LEVEL, and it cannot notify on its own (161):** without it a Standard workflow runs a **year**; with it, AWS catchers still **don't cover top-level execution failures**, so it ships with an **EventBridge `TIMED_OUT` rule** (never `FAILED`, or every caught failure double-notifies) invoking the same verb through a second door, which takes the actor from the **token in the execution input**, expiry unenforced.
-- **An expected refusal is a RETURN VALUE, and a conflict is per item NAME (166):** the guard returns `{status, recipient, reason, detail}` for the two refusals it expects and keeps its `Catch` for unpredicted faults — because FR-001 needs the **colliding item named** and a `TerminalError` cannot carry one (tokens are kept out of the message, `detail` is operator text SPEC-106 forbids rendering).
-- **The three transfer caps are each measured against a DIFFERENT budget (166):** `SEND_MAX_OBJECT_BYTES` **10 GiB** against `COPY_TIMEOUT_SECONDS` (a batch is one round of the pool and **one object is one worker** — its absence made every distributed model a half-truth, at 43,980s for one 1 TiB object), `SEND_MAX_TRANSFER_ITEMS` **50,000** against the memory the two verbs either side of the Map hold the manifest in (read back **from `locals.tf`**), `SEND_MAX_TRANSFER_BYTES` **3 TiB** against the machine's ceiling at the **makespan** rate.
-- **The ceiling ships WITH its rule, and this plane's door needs a fallback (166):** `TimeoutSeconds` **10,800** top-level, plus an EventBridge `TIMED_OUT` rule (never `FAILED`), `fs_notify_failure`'s second door, its 15s→60s raise and the deploy-role `events:` grant — catchers do not cover top-level execution failures. **EventBridge drops an input this plane's own cap allows to approach 200 KB**, so the door reads it back with `states:DescribeExecution` on the **Lambda** role; table-share needs no such fallback and inheriting its shape would have left FR-005 half-delivered.
-- **ONE producer says every per-recipient outcome, and the link carries the RECIPIENT's own root (167):** a single verb at the end of the machine turns the terminal summary into messages — sender per outcome, recipient on success only (a `space` through its registered **owner**, never its membership), **a failed recipient told nothing**. That is why the guard and the collector emit nothing and why the guard returns its refusals as records; the whole-REQUEST verbs still notify from their decorators.
-- **The archive vault is a bucket the browser has no relationship with, and its key carries its own origin (168):** Bucket 5 at `GLACIER` — not readable, so a restore is `RestoreObject` + a 3-5 h wait + a copy (`GLACIER_IR` rejected *because* it deletes that machinery; `DEEP_ARCHIVE` for 12-48 h and a 180-day minimum; the **90-day minimum is surfaced to the user**).
-- **The restore guard is ABSOLUTE and it runs before the bill (170):** any occupied destination refuses the **whole** restore — no skip, no merge, no "restore what fits" — and a **403 counts as occupied**, because a key this role cannot head is one it must not overwrite (the role's own policy Denies it under `athenaresults/`, `user_settings/`, `archive/`).
-- **The source is deleted only when EVERY object is confirmed copied, and the gate is a STATE (169):** `collect-transfer-results` returns one boolean and `CommitOrRollback` branches on it — the committing arm reaches `DeleteSource`, the rollback arm **cannot** (asserted by walking the ASL graph, because a `Catch` added anywhere would reconnect it), and the `Default` is the rollback so an unrecognisable verdict **fails closed**.
-- **The destination guard runs TWICE, and the second pass is 171 correcting itself (171):** SPEC-170's "any occupied destination refuses the WHOLE restore" was true while the guard and the copy were seconds apart; 171 put **3-5 BILLED HOURS** between them and spends those hours telling the user a restore is in flight — so re-creating a file then is the ordinary case the guard was written for, arriving late, and the copy-back would have **overwritten it, reported success and swept the vault**, unrecoverably (versioning off).
-- **Retrieval is the point of no return and the restore's gate is the commit gate's MIRROR IMAGE (171):** `RestoreObject` is billed on request and uncancellable, so its Map tolerates **NO** failure (the copy's tolerates 100%) — a fault means nothing copied, archive untouched, re-submit — and the two TOLERATED codes are what make that free (`RestoreAlreadyInProgress`; `InvalidObjectState`, which keeps the path unconditional on `ARCHIVE_STORAGE_CLASS`).
-- **Archive gets a surface, and its three hardest calls are a confirm that refuses to be one, a folder that IS the index, and a write gate per BUCKET (172):** `ArchiveDialog` is built on `ConfirmDialog` **because** `FormDialog` has the Enter-to-submit affordance it must not have (focus on Cancel, Enter cancels, by construction) — and it never says "This can't be undone", which would be its one false sentence.
-- **Data-quality report view (113):** `/data-quality/:space/:requestId` — space is **in the route, not derived**; own username wins; unreachable space renders denied and issues **no S3 request** (no existence oracle).
-- **Data-quality runs index (123):** the `/data-quality` list is backed by a per-space `index.json` appended under **ETag CAS** (S3 lists lexicographically, so a UUID key gives no chronology); capped at 200, every failure swallowed — report → notification → index, most durable to least. No new IAM.
-- **Data-quality notifications (114):** the notification **is** the completion channel and must carry the report link (the reports folder is hidden); the link builder mirrors 113's precedence and mints **nothing** where the view would resolve wrong. One dedup token per *outcome*, not per verb. FR-005's alarms were **removed** → **SPEC-126**.
-- **Control-plane DLQ drain (126):** one shared Lambda **sweeps** all four request DLQs on a **10-min EventBridge schedule** and turns each dead-lettered request into a user notification — recipient from the **verified token**, **nothing from the untrusted body** in the message, and it **deletes every message it reads** (nothing redelivers). The **notifications DLQ stays undrained** (circular). No redrive, no alarms.
-- **Structured logging (127→137):** `cpcommon.observability` is the **only** door to `log_foundry`; the logs queue is **FIFO** (`message_group_id` = service), **swept every 10 min, never long-polled**; layout `logs/service={s}/year=/month=/day=/data.jsonl` appended under **ETag CAS**, retained **forever**; `@traced` outermost, above `@notifies_on_failure`; messages are **literals**, `echo=` prohibited repo-wide.
-- **Control-plane table creation = TBAC (070/111 correction):** LF **admin does NOT grant `CREATE_TABLE`**. A `portal-managed` LF-Tag on every DB + one tag-policy grant per execution role + static per-bucket `DATA_LOCATION_ACCESS`. (Distinct from the per-user isolation tag.)
-- **No ASL state decodes an error Cause (#252, control-plane-wide):** `States.StringToJson($.error.Cause)` raises `States.Runtime`, **uncatchable anywhere**. Carry raw `$.error`; decode via `cpcommon.errors.failure_reason`.
-- **IaC:** OpenTofu; `infra/modules/` bounded-context; IAM policies are `.tftpl` rendered with `templatefile()`.
-- **Dev-unauth path:** `VITE_S3_DEV_UNAUTH=true` = read-only test bucket, local only.
-- **Notifications (058→061):** per-user inbox JSON; **single-writer** FIFO SQS → writer Lambda (no Pipe/SFN); browser only reads + enqueues; anti-spoof via verified ID-token claim. Optional `link` gated by `isSafeInAppPath`.
-- **Responsive (095):** mobile-first, only `tablet:` (≥900) / `desktop:` (≥1300) compile; reflow on **one** tree (a `*Mobile`/`*Desktop` twin is a smell); `useIsMobile` for mount-gating only, never styling.
-- **Help & guides (074):** `/help` page from static code-grounded `helpContent.ts`; document only shipped, wired-end-to-end behavior.
-- **User-facing error messaging (106):** raw AWS/Cognito/Athena text is **never** shown; `lib/errorMessages.ts` `toUserMessage` is the single source of wording — never render `error.message`.
-- **Response headers / CSP (140):** one response-headers policy on the distribution = enforcing CSP + the full header set, `Server` stripped; CSP built from **variables** (root locals, never module outputs); `connect-src` **is** the app's network surface — enumerate it from the **hosts the app fetches**, not the AWS services it uses (the omitted Hosted UI domain broke fresh sign-in for a day; the code exchange is a `fetch`, not a navigation).
-- **Removing a column needs an opt-in, and the refusal IS the warning (144):** a refresh that would drop a column changes **nothing** and fails `columns_removed`, naming them; the user re-submits with `allowRemovals` (validated not coerced, persisted **nowhere**). The notification **link** is the only channel that names them to the browser — its column names are **percent-encoded and must NOT be re-validated as identifiers**, because column names are *not* catalog-safe.
-- **The refresh apply replaces the definition IN PLACE (149, supersedes 144's apply):** one `glue:UpdateTable`, a **read-modify-write on the live table** — `UpdateTable` replaces the WHOLE definition, so building the input from SPEC-143's capture would CLEAR `Description`/`Owner`. The `TableInput` is an **allowlist projection** pinned against botocore; column names are **lowercased on write** (this path bypasses Athena's fold); `portal.managed` goes through `ddl.mark_managed`, never named in a verb.
-- **A per-table lock serializes refresh (157, supersedes 149's "reduced, NOT closed"):** an admin-bucket object under `locks/table-builder/`, claimed under **ETag CAS**; the loser is **refused with a notification**, never queued. Releases by **overwriting** — the role's `Deny s3:DeleteObject` makes "free" a *state*, not an absence. The holder is the **execution ARN** (a request id identifies the *message*, and Pipes delivery is at-least-once), stamped by a **Pass** state because reading `$$` in the task's own `Parameters` wraps the payload and every notify path reads the request at the **top level**. `REQUEST_RESPONSE` on the Pipe is **impossible** for a STANDARD machine and EXPRESS is rejected twice over. `apply-refresh`'s freshness guard **narrows, does not close** the window.
-- **Refresh eligibility = shape, not marker (143):** a refresh is judged by what Glue reports (`cpcommon.glue.clone_definition`, moved from `tscommon`), **never** by the `portal.managed` TBLPROPERTY it also starts writing — pre-143 tables lack it and users can set it; a test forbids any verb reading it.
-- **Username directory source = S3, not Cognito (146):** the daily builder enumerates the user-space bucket's top-level common prefixes and makes **no Cognito call** (a test enforces it) — today Cognito is complete and S3 is not, but the transition reverses that (`ensurePrefixMarker` is deleted, and `cognito:username` goes away — under the baseline variant there is no Cognito at all, so the username comes from an Entra claim; `transition_plan.md` §3.3, §6.1). The 146 rationale is **strengthened** by that, not weakened.
-- **No shared-space directory is published (158):** the share dialog suggests only the spaces the user already belongs to, from `useConnections` — a full list would be strictly more useful (membership is not required to share) and is **declined** as a disclosure with no equivalent; an unlisted space stays typeable, and the suggestion source is now a **prop** (`SuggestionSource`), not a hook the combobox reaches for.
-- **A feature flag is presentation, never authorization — and it lives beside the username directory (162):** `_config/feature-flags.json` in the **user-space** bucket (one `s3:GetObject`, no `ListBucket` widening, no write, **no** deploy-role/CORS/CSP/bucket-policy change); the admin bucket was specced first and **moved before any code**, because its grant would not have worked.
-- **Gating is by REGISTRY, not per-component opt-in (163):** `GATED_SURFACES` names all 32 gated surfaces by **accessible name** and one test walks each **in both states** — because the tabs are the easy part and "Create table" is a *Query* feature on a *file-browser* toolbar. Reach-recipes live in the **test**, the registry stays declarative, and a guard equates the two sets.
-- **File-send is its own plane, and its front door is bounded by a CHAIN (164):** its own queue/DLQ/Pipe/machine/role + `fscommon` — the two features share `cpcommon.transfer` and nothing else, and one DLQ under both would let a malformed send dead-letter someone's table share. The envelope is **flat** (`actor` = the raw token, top level) because SPEC-126's drain reads and **redacts** that field flatly — nested, a dead-lettered send notifies nobody *and* writes the JWT to CloudWatch.
-- **A received file lands in `shared_files/{sender}/`, built by ONE function (165):** the layout a recipient sees forever — `{targetRoot}shared_files/{sender}/{item}[/{relKey}]`, mirroring `shared_tables/`, independent of the sender's own folder depth. Keying by **item name** forces two refusals (an **overlapping** selection, and two items whose names would collide) where a **repeat** collapses; the destination tests can only prove the ONE builder right, so an **AST sweep** forbids a second — exempting docstrings and the declaration **by node identity**, because skipping the `Expr` and not its `Constant` child flagged two docstrings.
-- **The exclusion rule is anchored at the SPACE ROOT, and reuse would have dropped files silently (165):** `is_ignored`'s rules anchor at the **listing prefix**, which here is whichever item the user picked — so sending `alice/reports/` would have dropped a user-made `reports/athenaresults/` (SPEC-164 records it as sendable) and any `_drafts/`, with no refusal.
-- **A duplicate is `(kind, key)`, never the key alone (165):** validate-authorize normalises a *folder* key to a trailing slash and leaves a *file* key untouched, so one key can arrive with two kinds — collapsing on the key sent a zero-byte placeholder and **none of the folder's contents**, reporting success, with the outcome depending on list order.
-- **The expansion caps are memory and makespan, and both obvious models are wrong (165):** `SEND_MAX_OBJECTS` **20,000** is sized by the **plan held in memory** (~45 MB, peaking ~135 MB) against `locals.tf`'s 1024 MB **which the test reads back**; its timeout twin is **per-ITEM, not per-page** — a `file` costs its own *serial* HeadObject, so 200 files is 200 round trips where 20,000 objects is 20.
-- **A post-identity failure needs its OWN seed, and the fleet guard cannot see it (165):** `RecordFailure` reads `$.raw`, which exists on **no** post-validate state, so a catch routed straight to it — as every other plane's are — raises an uncatchable `States.Runtime` **before** `NotifyFailure`. The fleet guard identifies a seed structurally by `error.$ == "$"` and misses the `ResultPath` shape (`"$.error"`); widening it fleet-wide was **rejected as out of scope**, and the plane's own walk derives from the machine what SFN leaves on the state at each catch.
-- **An unreadable settings document is quarantined, never deleted and never overwritten (159):** a `user_settings/` read-modify-write that cannot read the live body copies it aside (`{key}.unreadable-{ISO basic UTC}-{token}.json`, same prefix ⇒ **no IAM change**) and only then writes; a failed copy **refuses**, never silently overwrites. A **newer** schema is refused untouched — quarantining it would be the downgrade the fix exists to prevent — so the parse is **three-way**, version checked **before** shape.
-- **The directory is readable by EVERY authenticated user (146), and that is accepted:** one `s3:GetObject` on `_directory/*`, no `ListBucket` widening (so it stays invisible to the file browser), no write. The username is already the prefix, the principal tag and the DB name; usernames only — **no emails**. The builder's own `ListBucket` is unconditioned and holds **no `GetObject` anywhere**; the `s3:prefix`-on-empty-string tightening is rejected as unverifiable.
-- **Static-asset caching (141):** `deploy-app.yml` uploads in **three prefix-scoped passes** — assets `immutable`, shell `no-cache`, one `--delete` last. A content-hashed URL is immutable, a stable URL revalidates. `--exclude` **protects** keys from `--delete` (it filters the destination generator too), so a pass that excludes a prefix can never *reconcile* it — scope by **prefix**, and never let two passes touch one file (mtime re-upload overwrites the header).
-- **Security scanning (138):** `security.yml` runs the six-scanner suite, gated by one `GATE_*` value each (bad value = hard error); the two ESLint security plugins **block** in lint instead. Every scanner **version-pinned**. **"Did not run" is never "clean"** — a broken scanner fails the job even under `report`. Findings + dispositions: `docs/security-baseline.md`.
-- **A scanner gate blocks on a NARROWED count, never a total (2026-08-09):** Checkov gates on an **enforce list** of check IDs measured at zero (`.github/checkov-enforced.txt`, 52) — enforcing what already passes, not suppressing what doesn't; the plan scan gates on IAM findings not on an **accept list keyed by check ID AND resource** (2 permanent deploy-role rows). `--quiet` strips `passed_checks` and must never come back. **Neither Checkov gate can redden a deploy** — `plan` is PR-only and `apply` doesn't depend on it.
-- **IAM policy scanning (139):** the `.tf` scan evaluates **zero** IAM checks (policies are `templatefile()` calls); `deploy-infra.yml`'s plan job scans the **rendered** `tofu show -json` plan instead, and **asserts its own coverage** (fails if IAM resources are present but no IAM check ran). Isolation policies are clean; the residual findings are non-scopable deploy-role actions.
-- **Every plane notifies on a pre-verb failure (152):** all four machines carry a `NotifyFailure` before `Fail`, reached on **every** failure path (the no-verb-ran paths can't be selected for in ASL), invoking a thin verb that decodes the raw `{Error, Cause}` with `cpcommon.errors.failure_reason` — the **only** decoder.
-- **A layer gate checks the COPY LIST, not the flag map (153):** for any layer packaged by an explicit per-file list (only `shared-space-common`), assert **set equality** between the workflow's list and the directory — completing the flag map closes nothing, because all nine modules ship behind one flag. A sweep fails if a second explicit list appears; a guard-the-guard fails if the parse goes trivial.
-- **`ACCEPTED_` tripwires record what the project has NOT verified (153):** a test that pins today's behaviour, names the reasoning, and says **revisit the decision, don't delete the test** if it starts failing. Four exist — the Athena case-fold, the projection round-trip's self-reference, the duplicate inbox row on redelivery, and the runs-index cap's position-based eviction.
-- **A partial teardown never frees the space name (151):** `delete_objects`/`batch_delete_table` return **HTTP 200 with a per-item `Errors` array**, so a partial failure looked complete; both now raise `TeardownIncompleteError` and **leave the registry record intact** — the record IS the name lock (meets SPEC-054's criterion).
-- **Every DDL literal goes through `literal()` (151):** `TBLPROPERTIES` keys/values and `LOCATION` included — a raw `f"'{v}'"` let an enum value inject `'projection.enabled'='false'`, and an S3 segment like `year=2024'` killed a whole data-quality check. **Two escapers, never confused:** `ddl.literal` backslash-escapes (Hive/DDL), `dqcommon.sql._literal_dml` doubles the quote (Trino/DML).
-- **`components/` may not import from `features/` (155):** `features/query/` had become an undeclared shared layer; `Toast` → `components/`, the identifier rule → `lib/catalogIdentifier.ts`, and the connections domain (incl. `Sidebar`/`SpacesList`) → a new `features/connections/`. An **ESLint rule enforces it**, exempting tests and the two app-chrome files (`Header`, `ProtectedLayout`) **by name**.
-- **Dialog Enter-to-submit fires from ONE field (155):** `FormDialog`'s body is a real `<form>`, but implicit submission is **suppressed** and only `submitOnEnterRef` (default `autoFocusRef`) submits — adopting the form naively filed a table build from a partition-key row mid-edit, **measured**. A child that handled the key wins.
-- **Escape dispatches by tree DEPTH, not per-component opt-out (155, supersedes `closeOnEscape`):** one registry, innermost enabled handler only; `Drawer.closeOnEscape` is **gone**, and a busy `Modal` **swallows** Escape. Sits beside — does not contradict — the settled `stopPropagation` finding below: a child that stops the event never reaches the registry.
-- **The byte formatters share a TB ceiling (155 FR-007):** `formatSize` and `formatBytes` stay separate for `undefined` handling, but 3 TB no longer reads `3072.0 GB` on one screen and `3.0 TB` on another. **User-visible on purpose**; silently keeping both was not an allowed outcome.
-- **Compiler and coverage defaults are declared, never inherited (150):** both tsconfigs state `"strict": true` (already TS 6's default — declaring it changed **zero** errors) and both suites carry **literal** coverage floors — portal 91/86/89/93, lambdas 95 — as **ratchets at the measured level, not targets**. Never lower one for a regression.
-- **The deliberate twins are discharged (156):** `cpcommon` owns the algorithm, a domain layer owns its wording — one CAS loop (cap 6), one `Resolver` that renders the **whole sentence** (`prefix`/`access_denied`/`fallback` templates), one results-location builder, one JWKS path, one SQS parser, one Athena runner, one `dedup_id`. **Do NOT merge the domain layers wholesale.**
-- **A saved query is a FILE, in an ordinary folder with exactly ONE protection (173, supersedes 043's JSON store):** `.sql` objects in `{root}saved_queries/` — visible, browsable, uploadable into, a pasteable destination, subfolders allowed, files deletable — and only the **folder itself** undeletable/unrenameable (`UNDELETABLE_ROOT_FOLDERS` alone; a test asserts its ABSENCE from the other two lists).
-- **Every `DO_NOT_DELETE.txt` is hidden by BASENAME, and the arc ships NO IaC change (173):** both bucket policies deny `DeleteObject` on `*/DO_NOT_DELETE.txt` and `*` matches `/`, so any marker anywhere is already undeletable — `useFileBrowser`'s `markerKey` is **deleted** (a sweep enforces it) and every grant the store needs already exists.
-- **A save CHOOSES its space, and one KEY rule decides what that replaces (175):** the dialog asks for a destination as well as a name, opening on the tab's own space else the space 174 already remembers — **one** memory, written on every success, because a user has no model of a saving-space distinct from a loading-space. `isLinkedSavedQuery(link, space, name)` is the single predicate behind the dialog's promise, the host's `overwrite` and whether a Replace confirm is raised at all; split in two, the dialog could promise an in-place replace while the host wrote a new object.
-- **A saved exploration follows the flag that owns the STORE, not the one that owns the screen (183):** the body written is the **rendered** SQL (the string `useExploration` handed `StartQueryExecution`, never a second rendering — the bare `SELECT *` would reopen as something the user did not save), through SPEC-177's flow with every SPEC-175 rule intact.
-- **A palette is MEASURED, not chosen; and a link's encoding depends on WHERE the value lands (184):** every rule colour is a bounded design token — the spec's free-form `string` narrowed, because "every pairing meets contrast" is unassertable about a colour picker — and **`warning` was measured OUT** (5.02 on white, **4.49 on `accent-soft`**, 4.39 on `danger-soft`); the test recomputes the cross product, the sampled gradient (mixed shades between two hues are where "both ends are pale" breaks) and the exclusion itself, plus the SELECTION's own fill, since a formatted cell drops its fill while selected rather than hiding what Calc aggregates.
-- **Copy is the SELECTION-shaped tool and export is the RESULT-shaped one, and reusing the save path meant MOVING it (185):** `renderCopy` is pure over the rows on screen (zero executions, asserted by count) and reads the **raw row** — never `cellText`, never `transformCell`. Export copies the **execution's results object**, so every row travels with no second query; exporting a SELECTION is **out of scope, not unbuilt**. `useSaveResults` **took its destinations as a parameter** when it moved to `features/catalog/`, closing a live defect: the Query workspace had been offering a colleague's space as a write target with `sharedWorkspaces` off.
-- **A display page is not a listing page, and the space selector is gated (174):** the saved-queries pager pages **filtered rows** — a 25-key listing page can yield zero `.sql` files — so `useSavedQueriesPager` **keeps fetching** while the listing is truncated and it holds fewer rows than the page in view, bounded by the listing's end **and stopped by an error** (a failed `fetchNextPage` leaves `hasNextPage` true, which is the fill's own trigger: without the guard, one failure spins forever).
-- **The shared layer is extracted BEFORE its second consumer, and its guard rule was inert until violated (176):** `features/catalog/` takes the Glue reader, the Athena execution/results layer, `useQuerySpaces` and `useColumnWidths` out of `features/query/` while nothing rides on it — building the Data Explorer first would mean importing a leaf feature, which is SPEC-155's undeclared shared layer one directory over.
-- **The renderer's SIGNATURE is the rule, and the browser's first SQL-value interpolation is TWO gates wide (178):** `renderExplorationSql(source, query)` takes two parameters, so presentation is **unreachable** rather than merely documented — hence `SELECT *` always (narrowing the projection would make un-hiding a column a billed re-run). The value escaper is the **Trino/DML** one (`lib/sql.ts` `sqlLiteral`, doubles the quote), never `cpcommon.ddl.literal`'s backslash — the wrong one fails **silently**, as a predicate that never matches.
-- **A space maps to ONE database, so the picker has no database step — and a deep link resolves without asking (179):** the middle step of FR-005's *space → database → table* does not exist here (personal → username, shared space → its own name), so it would have been a one-option control; the picker SHOWS the database and `?db=` is a **cross-check**, not a choice.
-- **One `apply` per gesture, a numeric refusal at the INPUT, and a failure that keeps the rows (181):** four surfaces edit the description and every one of them goes through `useExplorationQuery.apply`, so "one gesture is one execution" is structural rather than a rule each keeps; an apply that changes nothing is a **no-op** (`sameQuery` over a canonical form — array order carries no meaning, priority does), and `clearAll` **preserves `grouping`** (> **superseded by 182:** it clears the grouping too, and the control's LABEL says so).
-- **Calc computes what only the browser has, grouping computes what only Athena can, and the percentage names its PAGE (182):** a selection is client state, so aggregating it server-side is a billed execution **per selection change** — Calc therefore issues **zero** (asserted by count) and says `N selected cells on this page` every time it says anything, where grouping in the browser would aggregate whichever rows happened to be fetched.
-- **Column geometry is keyed by NAME, a NULL is not an empty string, and an unwatched page is not "no rows" (180):** the grid keys width/pin/hide by column **name**, which makes "geometry for a column this result no longer has is discarded" true by construction — so it reuses `features/catalog/`'s sizing constants and `ColumnResizeHandle` (moved there, generic over its key, and now carrying the `aria-valuenow` a **focusable** separator requires) but **not** `useColumnWidths`, which is index-keyed and per-execution.
-- **The second extraction's point is the SIGNATURE, and one moved constant must not be renamed (177):** `features/saved-queries/` takes the `.sql` store out of `features/query/` on 176's pattern, and `useSaveQuery` takes **`{sql, link}`** instead of a `QueryTab` — a shape the Data Explorer cannot produce, so moving the module unchanged would leave SPEC-183 reimplementing SPEC-175's collision-and-confirm path.
-- **The browser's async switchover (190) — one dispatcher, one flag, three fences:** `useFileBrowserDialogs` is the only importer of `requiresControlPlane` and consults it ONCE above **five** submission points (the same-folder prompt's confirm moved there, because its probe must resolve BEFORE the routing decision); the in-flight record is **session-scoped, never persisted**, settles on a notification carrying its `requestId` and is bounded by dismiss and the machine's own ceiling; and `asyncFileOperations` is the sixth flag key, **on by default**, with the conflict VIEW registered under `files` so throwing the switch strands nobody.
-- **A default an empty string can defeat is not a default, a refusal must arrive BEFORE the confirm, and a check nobody can run reads as a pass (186):** `cx()` returns **`undefined`, not `''`** (and `Modal` uses `||`) — `??` does not fall back on the empty string, which cost **nine dialogs** their `max-w-md` to `w-full`; the *bypassing* dialogs were unaffected, which is the argument for fixing the shared layer.
-- **File-operations plane (187→191) — the fences, consolidated; full entries in `@docs/decisions.md`, the arc in `ARCS.md`:** synchronous **iff exactly one file**; the lock is per **SPACE** and its loser **waits** (cross-space takes both in digest order or neither); whole-request **raises**, per-item **returns a record**, the **space root is refused as an item**; the collision unit is the derived destination **KEY** (a **403 is occupied**); **every verb carries the outcome list forward and none creates it**, only a proven **404** is `source_missing`; the deletion takes **CONFIRMED plan keys** (a prefix listing orphans an uncopied object) and an **empty `deletable` cannot reach `DeleteSource`**; the cap is **2 TiB**, **computed**; **one producer after `ReleaseLock`, from BOTH edges**, emits one message per run, `?space=` **first**.
-- **The notifications `create` boundary is a runtime check because IAM CANNOT express it (206):** no SQS condition key reaches a message body, so a policy could only deny the browser `SendMessage` outright — the action `markRead` needs. The writer compares the **role-id half** of the `SenderId` SQS stamps (never `startswith`, never the whole value, session half never examined) and a refusal **logs and drops, never raises** — dead-lettering per forged request would let any user drown the one undrained DLQ. A **deny of one principal, not an allow of eight**; three reason codes, the empty role-id half refused **before** the comparison and the config tested **first** (else a broken deploy is logged as a broken message); a second queue is **rejected** (two ESMs racing one inbox).
-- **Configuration is a RUNTIME document and production has NO fallback (192):** `/config.json`, `no-store` via its own CachingDisabled behaviour (MinTTL beats the header), refused **whole** on version; a bad one is a hard boot failure naming key NAMES only, and the dev fallback is deleted from the bundle, measured.
-- **The provider block is the API's VERIFIER, server-side, and its exclusion cuts ONE way (192):** none of it in the browser's document — but a rule forbidding "anything identity-shaped" takes Amplify's own four Cognito keys with it (`clientId` as a substring kills `cognitoUserPoolClientId`).
-- **A stale result is not served AT ALL, and a reload fixing it is not a fix (2026-08-19):** the Explorer's execution cache evicts the tab **on screen** too — `resetQueries`, because removal only re-runs an observed query if something re-renders after it — so the eviction is narrowed by the TABLE in the key instead (`invalidateSchema(client, db, table?)`); the async build's completion is caught by `armCatalogCatchUp`, **module state** drained once in `ProtectedLayout` because both controls that arm it unmount when the user leaves.
-- **A column name is user data, and the RENDERER is safe on its own (2026-08-19):** `cpcommon.columns` refuses empty/whitespace/non-`[a-z0-9_]`/over-255/fold-collision names on **creates only** (a refresh would strand a pre-rule table; selected on the storage descriptor, never `mode`) — stricter than AWS on purpose — **and** `ddl.quote` now doubles an inner backtick, because DQ's partition keys come from S3 folder names and get their own reason code.
-- **Athena's two dialects need TWO escapers in the browser (2026-08-19):** `CREATE VIEW` is Trino (`sqlIdentifier`), `DROP` is Hive (`sqlDdlIdentifier`, inner backtick doubled); the database is the identifier that matters — a shared space's name is format-checked **nowhere** server-side. A quoting fix is not done until every statement built from the same value is swept.
-- **A table's LOCATION is read recursively, so the space root is not a data folder (2026-08-19):** a build there SUCCEEDS over `athenaresults/`, `saved_queries/`, `user_settings/`, `shared_files/`, `shared_tables/` and `archive/` — refused on the control (`createTableRefusal`) and as `location_is_space_root`, creates only.
-- **Results are read only at SUCCEEDED, and `isPending` is NOT a substitute (2026-08-16):** `GetQueryResults` against a QUEUED execution is a **400 `INVALID_QUERY_EXECUTION_STATE`** whose name (`InvalidRequestException`) maps to nothing, so it reached users as the generic **"Contact the Administrator"** on an ordinary first load of the Data Explorer.
-- **Deploy-role refresh deadlock (lever):** the deploy role can lock itself out — tighten or widen one of its own grants and plan, apply **and revert** all fail alike. `Deploy Infrastructure` takes an off-by-default `skip_refresh` dispatch input to break it; **always follow with a normal run**. A green `plan` is not proof — IAM is eventually consistent.
+### Identity, access and the name that ties them together
+
+Cognito User Pool → Identity Pool, ABAC. The `username` principal tag is stamped **server-side from
+the verified claim**, so it cannot be spoofed; one shared role, isolation by
+`${aws:PrincipalTag/username}`. Hosted UI is **Managed Login v2** — the classic one broke the
+post-signup redirect. Browser → AWS direct today; Arc B is porting that behind an API.
+
+**One string is four things:** username = S3 prefix = principal tag = Glue database name, so it is
+catalog-safe by construction (`^[a-z][a-z0-9_]{2,62}$`). The username directory is built from **S3,
+not Cognito** — today Cognito is complete and S3 is not, and the client transition reverses exactly
+that. It is readable by every authenticated user, accepted deliberately: usernames only, never
+emails.
+
+- **A feature flag is presentation, never authorization** — and the flag document lives beside the
+  username directory in the **user-space** bucket, not the admin one: the admin bucket was specced
+  first, and its grant would not have worked. Gating is by **registry**, not
+  per-component opt-in, and one test walks every gated surface in **both** states.
+- **No shared-space directory is published** — the share dialog suggests only spaces you belong to.
+  A full list would be more useful and is declined as a disclosure with no equivalent.
+- `VITE_S3_DEV_UNAUTH=true` is a read-only test bucket, local only.
+
+### Storage, and the fact S3 is not a filesystem
+
+The product presents filesystem UX over a store with **no move or rename**: every one is
+`CopyObject` + `DeleteObject`, folder operations are recursive and **non-atomic**, and collisions
+warn and confirm. Versioning is off, which is what makes a failure between those two steps
+unrecoverable — revisit before real user data lands.
+
+- **A received file lands in `shared_files/{sender}/`, built by ONE function** — an AST sweep forbids
+  a second. Keying by item **name** forces the two refusals an overlapping selection needs.
+- **Exclusion rules anchor at the listing prefix**, which is whichever item the user picked — reuse
+  elsewhere silently drops files.
+- **A duplicate is `(kind, key)`, never the key alone.** One key can arrive as both a file and a
+  folder; collapsing on the key ships a zero-byte placeholder and reports success.
+- **Saved queries are ordinary `.sql` files** in a visible folder with exactly one protection: the
+  folder itself is undeletable. Every `DO_NOT_DELETE.txt` is hidden by **basename**.
+- **An unreadable settings document is quarantined, never deleted and never overwritten**, and a
+  **newer** schema is refused untouched — the parse is three-way, version checked before shape.
+
+### Control planes — one pattern, six planes, and the traps are shared
+
+Shared spaces, table builder, table share, data quality, file send, **archive** and file
+operations each get:
+a **FIFO SQS** queue → EventBridge Pipe → Step Functions → single-task verb Lambdas, **one execution
+role per plane**, its own DLQ, and a `cpcommon` layer plus a domain layer. A plane sharing another's
+DLQ lets one malformed request dead-letter someone else's work.
+
+**The traps, every one of which ships green:**
+
+- **No ASL state may decode an error `Cause`.** `States.StringToJson($.error.Cause)` raises
+  `States.Runtime`, which is **uncatchable anywhere**. Carry raw `$.error`; decode with
+  `cpcommon.errors.failure_reason`, the only decoder.
+- **Every plane notifies on a pre-verb failure** — a `NotifyFailure` before `Fail`, reached on every
+  path, because the no-verb-ran paths cannot be selected for in ASL.
+- **A post-identity failure needs its own seed.** A catch routed to a state reading `$.raw` raises an
+  uncatchable error *before* the notifier, because `$.raw` exists on no post-validate state.
+- **Everything unbounded travels by pointer**, never on the state, and **a cap is not a substitute**.
+- **Every cap is COMPUTED by a test**, against the budget that sized it — memory, makespan, or a
+  service quota — and it names that budget. A hard-coded number hides a wrong model.
+- **`TimeoutSeconds` is TOP-LEVEL and cannot notify on its own**: catchers do not cover top-level
+  execution failures, so a ceiling ships **with** an EventBridge `TIMED_OUT` rule (never `FAILED`, or
+  every caught failure double-notifies).
+- **An expected refusal is a RETURN VALUE**; only unpredicted faults raise. A `TerminalError` cannot
+  name the colliding item, and the user needs it named.
+- **ONE producer says every per-recipient outcome**, at the end of the machine — not each verb.
+- **Locks are objects claimed under ETag CAS**, released by **overwriting**: with `DeleteObject`
+  denied, "free" is a state rather than an absence. The holder is the **execution ARN**, because a
+  request id identifies the message and Pipes delivery is at-least-once.
+- **A partial teardown never frees the name.** `delete_objects` returns **HTTP 200 with a per-item
+  `Errors` array**, so a partial failure reads as success; raise, and leave the registry record —
+  the record *is* the name lock.
+- **The request envelope is FLAT** — `actor` is the raw token at the top level — because the drain
+  reads and **redacts** that field flatly. Nested, a dead-lettered request notifies nobody *and*
+  writes the JWT to CloudWatch.
+- **The DLQ drain** sweeps all request DLQs on a schedule and notifies from the **verified token**,
+  never the untrusted body. The notifications DLQ stays undrained, deliberately: it is circular.
+- **File operations are synchronous IFF exactly one file**; the lock is per **space** and its loser
+  **waits** (cross-space takes both in digest order or neither); the **space root is refused** as an
+  item; the collision unit is the derived destination **key**, and a **403 counts as occupied**; the
+  deletion takes **confirmed plan keys** — a prefix listing orphans an uncopied object.
+- **The browser's async switchover consults the routing predicate ONCE**, above every submission
+  point, in one dispatcher. The in-flight record is **session-scoped, never persisted**, and settles
+  on a notification carrying its request id.
+- **Table share CLONES the source definition, never re-infers it**, and pushes without consent.
+- **A data-quality notification IS the completion channel** and must carry the report link, because
+  the reports folder is hidden. Its runs index is appended under **ETag CAS** — S3 lists
+  lexicographically, so a UUID key gives no chronology.
+- **Every member sees the roster**; the join acknowledgement is display-only, since access is granted
+  at add time.
+- **The notifications `create` boundary is a RUNTIME check**, because no SQS condition key reaches a
+  message body. It compares the **role-id half** of the `SenderId`, and a refusal **logs and drops,
+  never raises** — dead-lettering per forged request would drown the one undrained DLQ.
+- **`cpcommon` owns the algorithm; a domain layer owns its wording.** Do **NOT** merge the domain
+  layers wholesale. Where a layer is packaged by an explicit file list, a test asserts **set
+  equality** with the directory — completing a flag map closes nothing.
+- **A notification's optional `link` is gated by `isSafeInAppPath`**, and a route that renders one
+  must not become an existence oracle: the data-quality report view takes its space **from the route,
+  never derived**, and an unreachable space renders denied while issuing **no S3 request at all**.
+- **Structured logging** goes through `cpcommon.observability` only; the logs queue is FIFO, swept on
+  a schedule, appended under ETag CAS, retained forever. `@traced` outermost; messages are literals.
+
+### Analytics, the catalog, and two SQL dialects
+
+An in-app Athena/Glue/Lake Formation workspace. Isolation is the `username` principal tag on the
+Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does **not** grant
+`CREATE_TABLE`; a `portal-managed` LF-Tag plus one tag-policy grant per execution role does.
+
+- **The query workspace has NO active database.** Every base table is fully qualified
+  `database.table`; the rail is browse-only. A space maps to exactly one database, so the picker has
+  no database step.
+- **Every DDL literal goes through `literal()`** — `TBLPROPERTIES` and `LOCATION` included — and
+  the escapers split on **two axes that are easy to conflate**. *Values:* `ddl.literal`
+  backslash-escapes (Hive/DDL), `sql._literal_dml` and the browser's `sqlLiteral` double the quote
+  (Trino/DML). *Identifiers:* `sqlIdentifier` (Trino, `CREATE VIEW`), `sqlDdlIdentifier` and
+  `ddl.quote` (Hive, `DROP`, inner backtick doubled — data-quality partition keys come from S3 folder
+  names). **The wrong one fails SILENTLY, as a predicate that never matches**, and it matters because
+  a shared space's name is format-checked **nowhere** server-side. A quoting fix is not done until
+  every statement built from the same value is swept.
+- **A column name is user data.** Creates refuse empty, non-`[a-z0-9_]`, over-255 and fold-collision
+  names; a refresh does not, or it strands pre-rule tables.
+- **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
+- **Results are read only at `SUCCEEDED`.** `GetQueryResults` against a QUEUED execution is a 400
+  whose name maps to nothing, and it reached users as a generic "contact the administrator".
+- **A refresh is judged by SHAPE, not by a marker** — never by the `portal.managed` property it also
+  writes, which pre-existing tables lack and users can set. Removing a column needs an opt-in, and
+  **the refusal is the warning**. The apply is a read-modify-write on the live table, serialized by a
+  per-table lock whose loser is **refused with a notification**, never queued.
+- **Multi-statement scripts** split client-side on `;`, run sequentially, stop on first failure. No
+  transactions.
+
+### Archive and restore — the only place a mistake is unrecoverable
+
+A separate `GLACIER` vault the browser has no relationship with. A restore is `RestoreObject` + a
+3–5 hour wait + a copy.
+
+- **The restore guard is ABSOLUTE and runs before the bill:** any occupied destination refuses the
+  **whole** restore, and a **403 counts as occupied**.
+- **It runs TWICE**, and the second pass is the spec correcting itself: those billed hours are spent
+  telling the user a restore is in flight, so re-creating a file meanwhile is the ordinary case — and
+  the copy-back would have overwritten it, reported success and swept the vault.
+- **Retrieval is the point of no return.** Its Map tolerates **no** failure (the copy's tolerates
+  100%): a fault means nothing copied and the archive untouched. What makes that free is that the
+  **verb** tolerates two codes — `RestoreAlreadyInProgress` and `InvalidObjectState` — which is also
+  what keeps the path unconditional on the storage class. **Do not "harden" the verb by removing
+  them.**
+- **The source is deleted only when EVERY object is confirmed copied**, and the gate is a **state** —
+  the rollback arm cannot reach `DeleteSource`, asserted by walking the ASL graph, and an
+  unrecognisable verdict fails closed.
+
+### The browser
+
+TanStack Query for server state, Context + `useReducer` for UI state, no Redux. Mobile-first, with
+only `tablet:` (≥900) and `desktop:` (≥1300) compiled; one tree reflows — a `*Mobile`/`*Desktop` twin
+is a smell.
+
+- **Raw AWS/Cognito/Athena text is NEVER shown.** `lib/errorMessages.ts` is the single source of
+  wording; never render `error.message`.
+- **`components/` may not import from `features/`** — enforced by lint. A leaf feature that becomes a
+  shared layer gets **extracted before its second consumer**, not after.
+- **Dialogs:** Enter submits from **one** field, not implicitly; Escape dispatches by **tree depth**
+  through one registry, and a busy modal swallows it. `cx()` returns `undefined`, never `''` — `??`
+  does not fall back on the empty string, and that cost nine dialogs their width.
+- **The one irreversible surface refuses the affordance that would fire it.** The archive dialog is
+  built on the confirm dialog *because* the form dialog has Enter-to-submit — focus sits on Cancel,
+  Enter cancels — and it never says "this can't be undone", which would be its one false sentence.
+- **A palette is measured, not chosen.** Contrast is recomputed across the cross product; a colour
+  that fails is measured **out**.
+- **Client state is computed in the browser; billed work is not.** A selection aggregate issues
+  **zero** executions, and says which page it counted.
+- **A display page is not a listing page.** A pager over filtered rows keeps fetching while the
+  listing is truncated — and **stops on error**, because a failed fetch leaves "has more" true, which
+  is the fill's own trigger: without the guard one failure spins forever.
+- **Help & guides document only what is shipped and wired end to end.**
+- **Column geometry is keyed by NAME**, so geometry for a column the result no longer has is
+  discarded by construction.
+
+### Infrastructure, IAM and delivery
+
+OpenTofu, bounded-context modules under `infra/modules/`, IAM policies as `.tftpl` rendered by
+`templatefile()`. Notifications are a **single-writer** FIFO queue → writer Lambda; the browser only
+reads and enqueues.
+
+- **Deploy-role IAM is in-scope work for any spec that provisions new infra**, and **grants land in
+  their own PR before the resources that need them**. Every grants-only PR in Arc B applied green on its
+  first run — which is the claim the record supports, and **not** that grants-first prevents a red
+  main: this arc went red three times afterwards, on things no grant review would have found.
+- **Scopability is MEASURED, never assumed.** `simulate-custom-policy` gives an
+  `implicitDeny`/`allowed` pair before the policy is written. Actions with no resource type sit alone
+  in a wildcard statement. **A simulate matches PATTERNS, not the ARN the service passes** — it
+  cannot tell you that a service calls something on your behalf, or that a condition key goes
+  unpopulated, which are the two traps that cost this project an apply each. Contradicting intuition: `ec2:DescribeVpcAttribute` and
+  `route53:GetChange` **are** scopable; `ecs:DescribeTaskDefinition` is not, and scoping it is the
+  refresh deadlock arriving by your own hand.
+- **A service may call an action on your behalf that appears in no action list** — ELB calls
+  `ec2:GetSecurityGroupsForVpc` inside `CreateLoadBalancer`.
+- **A condition on a key the caller does not populate fails CLOSED**, and the refusal names neither.
+- **The deploy role can lock itself out**: tighten or widen one of its own grants and plan, apply and
+  **revert** all fail alike. `Deploy Infrastructure` takes `skip_refresh` to break it — always follow
+  with a normal run. A green plan is not proof; IAM is eventually consistent.
+- **A module-level `depends_on` defers every data source in that module** — benign for a policy
+  document, a hard error where the value feeds a `for_each`.
+- **An empty `TF_VAR_` is not an unset one.** It satisfies a required variable *and* overrides a
+  default; an unset repo variable renders as exactly that. Guard with `validation`, not with the
+  absence of a default.
+- **The container platform (193):** no NAT gateway anywhere — private subnets reach AWS through
+  endpoints and nothing else, the residual is a **connect timeout** (hence flow logs), and a
+  successful pull proves nothing unless read beside `describe-route-tables`. The API function is
+  **not** in the VPC and authorization lives in the **router**, both asserted as absences. The image
+  tag is the commit sha (`IMMUTABLE` ECR, no `:latest`), `task_definition` is ignored while
+  `desired_count` is not — so **CI must point the service**, and a pipeline that only registers a
+  revision leaves a `CannotPullContainerError` **indistinguishable from the endpoint failure the
+  platform is tested for**. A Fargate task volume arrives empty and root-owned and does **not**
+  initialise from the image: writable paths are `linuxParameters.tmpfs`, one uid feeding both `user`
+  and every mount option.
+- **Configuration is a RUNTIME document** (`/config.json`, `no-store`, refused whole on version) with
+  **no production fallback**. Its key set is wired in five places and asserted across all of them.
+  The API's **verifier** configuration is server-side and never in the browser's document — and the
+  exclusion cuts one way: a rule forbidding "anything identity-shaped" takes Amplify's own Cognito
+  keys with it.
+- **Origins are admitted ADDITIVELY** and narrowed only at the cutover — an allowlist naming one
+  origin makes the other a rollback nobody can exercise.
+- **CSP `connect-src` IS the app's network surface** — enumerate it from the hosts the app fetches,
+  not the AWS services it uses. The omitted Hosted UI domain broke fresh sign-in for a day.
+- **Static assets deploy in three prefix-scoped passes**; `--exclude` protects keys from `--delete`,
+  so a pass that excludes a prefix can never reconcile it.
+
+### Gates, scanners and tests
+
+- **A gate blocks on a NARROWED count, never a total.** Checkov enforces a list of check IDs measured
+  at **zero** — enforcing what already passes rather than suppressing what does not — and the plan
+  scan accepts by check ID **and** resource. **A line matching no finding is a hard error.**
+- **"Did not run" is never "clean."** A broken scanner fails the job even in report mode, and
+  `--quiet` must never come back: without `passed_checks` the gate cannot tell a pass from a check
+  that never ran.
+- **A new finding is scoped, not accepted.** Every scanner failure that ships carries a written
+  disposition; the enforce list is regenerated by **any** spec that adds a resource family.
+- **Mutation-test every guard.** This project has repeatedly shipped assertions that passed while the
+  thing they claimed was false — presence where the claim was behaviour, serializability where the
+  claim was correctness. Break the thing the name claims, watch it go red, revert.
+- **`ACCEPTED_` tripwires record what has NOT been verified**: pin today's behaviour, name the
+  reasoning, and say *revisit the decision, don't delete the test*.
+- **No silent caps.** If a check bounds coverage, say what was dropped — silent truncation reads as
+  "covered everything".
+- Coverage floors and `"strict": true` are **declared, never inherited**, and are ratchets at the
+  measured level. Never lower one for a regression.
+
+---
 
 ## Out of Scope (don't build)
 
-No backend/API layer · no in-browser file preview · no admin UI · no second **user-space** bucket
+No **second** API (one HTTP API, one `$default` route — a feature does not get its own service) ·
+no **new** browser-side AWS SDK call on a path an API route already serves · no in-browser file
+preview · no admin UI · no second **user-space** bucket
 (several buckets exist — shared-space, admin, artifacts, static; the constraint is one bucket of
 personal prefixes).
 
@@ -221,15 +373,16 @@ silently checks nothing. CI now runs it too (#363). Watch every PR to completion
 2. Update the one-line row in `@docs/specs/INDEX.md` (status only — don't add prose).
 3. Write a delivery doc at `docs/spec-delivery/SPEC-XXX-<name>.md` from the template — **short** (what shipped + what changed; reuse lives in code + component-inventory, not prose).
 4. If it added reusable services/hooks/components, add a one-line row to the `docs/component-inventory/<area>.md` **matching the component's path** — a `features/query/` row belongs in the query file, nowhere else (the router only gains a row if a whole new area appeared).
-5. A *new architectural decision* gets the full entry in `@docs/decisions.md` **first**, then **one line** in Key Decisions above — the digest line is **never the only home of a fact**, and never a paragraph. If it **supersedes an earlier decision**, add an in-place superseded marker (short blockquote) at every doc site still stating the old claim (`ARCS.md` arcs, architecture.md sections). Reasoning belongs in the spec/delivery doc.
+5. A *new architectural decision* gets the full entry in `@docs/decisions.md` **first**, then folds into the **area block** it belongs to in Key Decisions above — the digest is **never the only home of a fact**. **Do NOT add a line per spec**: that is what took the section to 105 lines and its own byte ceiling, and the fix was to group it. Add a clause, or replace one that your decision supersedes. If it **supersedes an earlier decision**, add an in-place superseded marker (short blockquote) at every doc site still stating the old claim (`ARCS.md` arcs, architecture.md sections). Reasoning belongs in the spec/delivery doc.
 6. **Prune `## Specs` → Current work:** delete what the closed spec made stale. It tracks *only* what is live and undocumented elsewhere — never append a changelog; INDEX.md has status and `ARCS.md` has narrative.
 7. **Live checks fold into the one guide:** add the steps to the matching feature section of `@docs/testing/e2e.md` — **never a new per-spec or per-arc file**, which is how that directory grew to sixteen. A check that can't be run from a signed-in session becomes a row in `@docs/testing/owed.md`; a CLI script it needs is named for the **plane**, never the spec — add a section to that plane's.
 8. **User-facing docs sweep:** if the spec changed anything a user can see, update the in-app **Help & guides** content (`apps/portal/src/features/help/helpContent.ts`, SPEC-074) and any onboarding copy — add a guide for a shipped feature, fix a changed flow's steps, delete a removed one. Document only what's shipped + wired end-to-end. If nothing user-facing changed, note that and skip.
 
 **Doc-size guardrail:** `CLAUDE.md` is the always-loaded file — if an edit pushes a section past a
 few lines, the detail belongs in a `docs/` file behind a pointer. Same for `INDEX.md` (status rows
-only) and the inventory router. **A Key Decisions line is one sentence and a fence, not a paragraph**,
-and `## Specs` is not a changelog — both regrew past 300 lines once by being appended to.
+only) and the inventory router. **Key Decisions is grouped by AREA and carries fences, not history** — it is not a
+per-spec changelog, and `## Specs` is not one either; both regrew past 300 lines once by being
+appended to.
 **`scripts/validate_docs.py` enforces this on every PR** — the budgets are
 ratchets at the measured level, so raise the doc's tier, never the cap. Full rule set:
 `@docs/process.md` §5 → *Anti-regrowth & doc hygiene*.

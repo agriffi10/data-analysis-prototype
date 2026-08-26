@@ -1,8 +1,8 @@
 # Spec: The Network, the Compute and the Front Door
 
 **ID:** SPEC-193
-**Status:** Draft
-**Last Updated:** 2026-08-18
+**Status:** Completed
+**Last Updated:** 2026-08-26
 **Depends On:** SPEC-012 (the Lambda code/infra split every new function obeys), SPEC-107/125/137 (the `cpcommon` layer, and why a missing attachment is only visible at cold start), SPEC-138/139 (the scanner gates and the rendered-plan IAM scan this spec must not redden), SPEC-140/141 (the CloudFront response-headers policy and cache scheme SPEC-194 must reproduce — named here only so the boundary is explicit), SPEC-164 (`infra/modules/file-send/` as the module-shape model), SPEC-186 (`ENV_NAME` + the in-package `BUILD_VERSION` stamp the placeholder API must carry), SPEC-192 (the runtime-configuration accessors that will consume this spec's two origins)
 
 ## Overview
@@ -902,6 +902,12 @@ FR-001 and FR-007 plans and applies green and fails at runtime.
    each host.
 3. `curl -i https://<api_host>/healthz` → 200, and `version` **equal to HEAD's sha**. That single
    assertion covers the deploy matrix, the package build and SPEC-186's `BUILD_VERSION` stamp.
+
+   > **Corrected while running it (2026-08-26).** `version` equals the sha of the last commit that
+   > changed `lambdas/api/`, **not HEAD** — the deploy skips unchanged functions, by design. The
+   > assertion still covers the matrix, the build and the stamp; it just cannot be written as
+   > equality with HEAD, and was measured reporting `7cba61f8…` against a `main` six commits ahead,
+   > correctly.
 4. Preflight with the SPA origin: exactly **one** `access-control-allow-origin`, equal to it, and **no**
    `access-control-allow-credentials`. Repeat with the CloudFront origin: one header, equal to *that*
    one. Repeat with a foreign origin: **no** ACAO header. Count the header rather than reading one — a

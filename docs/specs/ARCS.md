@@ -1746,6 +1746,33 @@ per (side × operation), enumerated against the real constants, and read that fi
 
 ## API-layer & containerisation arc (SPEC-192 → 202)
 
+> **SPEC-193 APPLIED 2026-08-26, and what the apply found is worth more than what the spec
+> predicted.** The platform is live: `api.dataquarry.app` answers `/healthz`, `portal.dataquarry.app`
+> serves a placeholder through an ALB, and a Fargate task **pulled from ECR with no NAT gateway** —
+> the arc's central claim, verified beside a route-table read rather than on its own.
+>
+> **Four traps, none of them predicted, each costing an apply:**
+>
+> 1. **ELB calls `ec2:GetSecurityGroupsForVpc` on the caller's behalf** inside `CreateLoadBalancer`,
+>    so it appears in no `elasticloadbalancing:` action list.
+> 2. **A condition on a key the caller does not populate fails CLOSED.** The access-log bucket policy
+>    was refused twice — once for `aws:SourceAccount`, once for `aws:SourceArn` alone — and ships with
+>    no condition and both delivery principals.
+> 3. **`ignore_changes = [task_definition]` means CI must point the service.** Terraform registers the
+>    revision and never moves the service, so the task ran a tag nobody had pushed and failed with a
+>    `CannotPullContainerError` **indistinguishable from the endpoint failure the platform exists to
+>    be tested for**.
+> 4. **A Fargate task volume cannot give a non-root container a writable path** — it arrives empty and
+>    root-owned and does not initialise from the image. The mechanism is `linuxParameters.tmpfs`, and
+>    **SPEC-194's image inherits this**: it must run as the uid the task definition names.
+>
+> **The lesson that generalises past this arc:** two hypotheses about that mount were wrong before the
+> third change printed `id` and `ls -ld` instead of guessing again. When two guesses have failed,
+> spend a deploy on **output**, not on a third hypothesis.
+>
+> SPEC-194 starts from a platform that works, with `deploy-spa-image.yml` replacing the dispatch-only
+> `push-placeholder-image.yml` this spec shipped as scaffolding.
+
 > **RE-SCOPED 2026-08-18, after the first five specs were drafted — read this before the entry below.**
 > **This arc is PREP WORK, and it keeps the current Cognito authentication exactly as it is** (user
 > decision). The BFF, Entra ID and Identity Center are **target-environment** work in a later arc; Arc

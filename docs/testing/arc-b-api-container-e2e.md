@@ -263,7 +263,11 @@ Run this section **before merge 1 is merged.**
       and SPEC-200's `QUEUES` set-equality guard hard-fails without them.
 - [ ] `curl -s $SPA_ORIGIN/healthz` returns the **same build sha as `git rev-parse HEAD`**. A stale
       task serving an old image passes most of this script and proves nothing about HEAD.
-- [ ] `curl -s $API_ORIGIN/healthz` returns `200` and the same sha.
+- [ ] `curl -s $API_ORIGIN/healthz` returns `200`. **Its `version` is the sha of the last commit
+      that changed `lambdas/api/` — NOT HEAD.** `deploy-lambdas.yml` deploys only changed functions,
+      so an unrelated commit leaves the API on its own last build; reading this as HEAD makes a
+      healthy deployment look broken. (Measured 2026-08-26: the API reported `7cba61f8…` while `main`
+      was six commits further on, and everything was correct.)
 - [ ] **SPEC-193 FR-006's three additive changes are live. Verify them; do not add them** — a missing
       one is a defect in SPEC-193 and is fixed there, because SPEC-202 only ever narrows.
       ```bash
