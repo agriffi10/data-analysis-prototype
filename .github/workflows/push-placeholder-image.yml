@@ -1,0 +1,112 @@
+name: Push the placeholder SPA image
+
+# Builds apps/portal/Dockerfile.placeholder and pushes it to the SPA registry, so the
+# container platform can be verified before the real image exists.
+#
+# WHY THIS EXISTS AT ALL. The platform's central claim is that a Fargate task in a private
+# subnet with no NAT gateway can pull from ECR through VPC endpoints. Only a real pull
+# settles it, a pull needs an image, and pushing one needs an identity holding
+# ecr:GetAuthorizationToken plus five layer and manifest actions. The deploy role held none
+# of those until the grant that accompanies this file, and no other identity in this project
+# is provisioned to push — so the verification step was blocked on a person, in three
+# consecutive sessions, rather than on anything technical.
+#
+# IT IS DELIBERATELY DISPATCH-ONLY. Nothing here belongs on a push trigger: the placeholder
+# is verification scaffolding, not a deployment, and the spec that builds the REAL image
+# replaces this file with a pipeline that builds from source on every commit, waits for
+# service stability, and fails on a bad task set. Delete this workflow when that lands.
+
+on:
+  workflow_dispatch:
+    inputs:
+      desired_count:
+        description: 'Tasks to leave the service running after the push (0 leaves it alone).'
+        required: false
+        default: '1'
+
+concurrency:
+  group: push-placeholder-image
+  cancel-in-progress: false
+
+jobs:
+  push:
+    name: Build and push
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Build and push, tagged with this commit
+        id: push
+        run: |
+          set -euo pipefail
+
+          # ASKED FOR, not constructed. Building the URI from project/environment variables
+          # would put a second copy of the naming convention in a file that cannot be tested
+          # against Terraform's — and it would be wrong silently, as a repository that does
+          # not exist. One repository ends in -spa; anything else is a state worth stopping on.
+          mapfile -t REPOS < <(aws ecr describe-repositories \
+            --query "repositories[?ends_with(repositoryName, '-spa')].[repositoryName,repositoryUri]" \
+            --output text)
+          if [ "${#REPOS[@]}" -ne 1 ]; then
+            echo "::error title=Registry::expected exactly one repository ending in -spa, found ${#REPOS[@]}"
+            printf '%s\n' "${REPOS[@]}"
+            exit 1
+          fi
+          NAME=$(printf '%s' "${REPOS[0]}" | cut -f1)
+          REPO=$(printf '%s' "${REPOS[0]}" | cut -f2)
+          SHA="${GITHUB_SHA}"
+
+          # THE TAG CANNOT BE RE-PUSHED. The repository is IMMUTABLE, so a second run at the
+          # same commit fails here rather than silently changing what a task definition
+          # starts. Say so plainly instead of leaving a raw ECR error.
+          if aws ecr describe-images --repository-name "$NAME" \
+               --image-ids imageTag="$SHA" >/dev/null 2>&1; then
+            echo "::error title=Tag exists::${SHA} is already in the registry, and tags here are IMMUTABLE. Push from a different commit."
+            exit 1
+          fi
+
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "${REPO%%/*}"
+
+          # linux/amd64 EXPLICITLY: the task definition declares X86_64, and an arm64 image
+          # fails at task start with a manifest error that reads nothing like an
+          # architecture mismatch. The runner is amd64 today; stating it keeps that from
+          # being load-bearing and unwritten.
+          docker build --platform linux/amd64 \
+            -f apps/portal/Dockerfile.placeholder \
+            -t "$REPO:$SHA" .
+          docker push "$REPO:$SHA"
+
+          echo "image_tag=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Pushed $REPO:$SHA"
+
+      - name: Point the service at it
+        if: inputs.desired_count != '0'
+        env:
+          IMAGE_TAG: ${{ steps.push.outputs.image_tag }}
+          COUNT: ${{ inputs.desired_count }}
+        run: |
+          set -euo pipefail
+
+          # THE REPOSITORY VARIABLES ARE THE SOURCE OF TRUTH, not this step. Terraform owns
+          # the task definition and the desired count; a service updated only here is reverted
+          # by the next infrastructure apply. So this sets the variables and says what to run —
+          # it does NOT call update-service, which would look like it had worked and then
+          # quietly come undone.
+          echo "::notice title=Two variables to set::TF_VAR_spa_image_tag=$IMAGE_TAG and TF_VAR_spa_desired_count=$COUNT, then run Deploy Infrastructure."
+          echo
+          echo "  gh variable set TF_VAR_spa_image_tag     --body '$IMAGE_TAG'"
+          echo "  gh variable set TF_VAR_spa_desired_count --body '$COUNT'"
+          echo "  gh workflow run 'Deploy Infrastructure'"
