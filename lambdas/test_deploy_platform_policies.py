@@ -165,6 +165,11 @@ NON_SCOPABLE = frozenset(
         "ecs:DescribeTaskDefinition",
         "ecs:DeregisterTaskDefinition",
         "ecs:ListTaskDefinitions",
+        # The one action a `docker push` needs that takes no resource type at all: the AWS
+        # Service Reference lists NO resources for it, and the pair that says so was measured —
+        # `implicitDeny` scoped to the repository ARN, `allowed` on `"*"`. Its five layer and
+        # manifest siblings are all scoped to the repository, which is why this sits alone.
+        "ecr:GetAuthorizationToken",
         "acm:RequestCertificate",
         "acm:ListCertificates",
         "logs:CreateLogDelivery",

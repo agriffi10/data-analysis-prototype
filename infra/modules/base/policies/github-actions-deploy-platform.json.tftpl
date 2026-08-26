@@ -192,6 +192,27 @@
       "Resource": "arn:aws:ecr:${aws_region}:*:repository/${project_name}-*-spa*"
     },
     {
+      "Sid": "PlatformRegistryPush",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:PutImage",
+        "ecr:BatchGetImage",
+        "ecr:DescribeImages",
+        "ecr:ListImages"
+      ],
+      "Resource": "arn:aws:ecr:${aws_region}:*:repository/${project_name}-*-spa*"
+    },
+    {
+      "Sid": "PlatformRegistryAuth",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
       "Sid": "PlatformServiceLinkedRoles",
       "Effect": "Allow",
       "Action": "iam:CreateServiceLinkedRole",
