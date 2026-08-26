@@ -3,7 +3,7 @@
 Loaded every session — keep it lean. Deep docs live in `docs/` and are pulled **on demand**:
 - `@docs/process.md` — how we work: spec lifecycle, session rhythm, completion ritual (read once)
 - `@docs/architecture.md` — system design + Known Constraints (read the section you need, never in full)
-- `@docs/decisions.md` — the Key Decisions register in full (the digest below is one line each)
+- `@docs/decisions.md` — the Key Decisions register in full (the digest below groups it by area)
 - `@docs/specs/INDEX.md` — the spec index + status (one row per spec)
 - `@docs/specs/ARCS.md` — why an arc exists / how its specs compose (only for the arc you're in)
 - `@docs/specs/SPEC-XXX-*.md` — the spec you're implementing
@@ -75,7 +75,7 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 
 ### Current work
 
-- **API layer & containerisation (194 → 202)** — "Arc B": a real API in front of AWS, containerised
+- **API layer & containerisation (192 → 202, 192–193 done)** — "Arc B": a real API in front of AWS, containerised
   SPA and API, retiring CloudFront and the Identity Pool. **192 and 193 are done**: the SPA reads
   `/config.json` at runtime, and `portal.`/`api.dataquarry.app` serve a placeholder and a `/healthz`
   from a VPC with no NAT. Next is the real image. Acceptance script:
@@ -109,7 +109,9 @@ not Cognito** — today Cognito is complete and S3 is not, and the client transi
 that. It is readable by every authenticated user, accepted deliberately: usernames only, never
 emails.
 
-- **A feature flag is presentation, never authorization.** Gating is by **registry**, not
+- **A feature flag is presentation, never authorization** — and the flag document lives beside the
+  username directory in the **user-space** bucket, not the admin one: the admin bucket was specced
+  first, and its grant would not have worked. Gating is by **registry**, not
   per-component opt-in, and one test walks every gated surface in **both** states.
 - **No shared-space directory is published** — the share dialog suggests only spaces you belong to.
   A full list would be more useful and is declined as a disclosure with no equivalent.
@@ -135,7 +137,8 @@ unrecoverable — revisit before real user data lands.
 
 ### Control planes — one pattern, six planes, and the traps are shared
 
-Shared spaces, table builder, table share, data quality, file send and file operations each get:
+Shared spaces, table builder, table share, data quality, file send, **archive** and file
+operations each get:
 a **FIFO SQS** queue → EventBridge Pipe → Step Functions → single-task verb Lambdas, **one execution
 role per plane**, its own DLQ, and a `cpcommon` layer plus a domain layer. A plane sharing another's
 DLQ lets one malformed request dead-letter someone else's work.
@@ -164,6 +167,9 @@ DLQ lets one malformed request dead-letter someone else's work.
 - **A partial teardown never frees the name.** `delete_objects` returns **HTTP 200 with a per-item
   `Errors` array**, so a partial failure reads as success; raise, and leave the registry record —
   the record *is* the name lock.
+- **The request envelope is FLAT** — `actor` is the raw token at the top level — because the drain
+  reads and **redacts** that field flatly. Nested, a dead-lettered request notifies nobody *and*
+  writes the JWT to CloudWatch.
 - **The DLQ drain** sweeps all request DLQs on a schedule and notifies from the **verified token**,
   never the untrusted body. The notifications DLQ stays undrained, deliberately: it is circular.
 - **File operations are synchronous IFF exactly one file**; the lock is per **space** and its loser
@@ -185,6 +191,9 @@ DLQ lets one malformed request dead-letter someone else's work.
 - **`cpcommon` owns the algorithm; a domain layer owns its wording.** Do **NOT** merge the domain
   layers wholesale. Where a layer is packaged by an explicit file list, a test asserts **set
   equality** with the directory — completing a flag map closes nothing.
+- **A notification's optional `link` is gated by `isSafeInAppPath`**, and a route that renders one
+  must not become an existence oracle: the data-quality report view takes its space **from the route,
+  never derived**, and an unreachable space renders denied while issuing **no S3 request at all**.
 - **Structured logging** goes through `cpcommon.observability` only; the logs queue is FIFO, swept on
   a schedule, appended under ETag CAS, retained forever. `@traced` outermost; messages are literals.
 
@@ -197,10 +206,14 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
 - **The query workspace has NO active database.** Every base table is fully qualified
   `database.table`; the rail is browse-only. A space maps to exactly one database, so the picker has
   no database step.
-- **Every DDL literal goes through `literal()`** — `TBLPROPERTIES` and `LOCATION` included. **Two
-  escapers, never confused:** `ddl.literal` backslash-escapes (Hive), `sql._literal_dml` doubles the
-  quote (Trino). In the browser: `CREATE VIEW` is Trino, `DROP` is Hive. The wrong one fails
-  **silently**, as a predicate that never matches.
+- **Every DDL literal goes through `literal()`** — `TBLPROPERTIES` and `LOCATION` included — and
+  the escapers split on **two axes that are easy to conflate**. *Values:* `ddl.literal`
+  backslash-escapes (Hive/DDL), `sql._literal_dml` and the browser's `sqlLiteral` double the quote
+  (Trino/DML). *Identifiers:* `sqlIdentifier` (Trino, `CREATE VIEW`), `sqlDdlIdentifier` and
+  `ddl.quote` (Hive, `DROP`, inner backtick doubled — data-quality partition keys come from S3 folder
+  names). **The wrong one fails SILENTLY, as a predicate that never matches**, and it matters because
+  a shared space's name is format-checked **nowhere** server-side. A quoting fix is not done until
+  every statement built from the same value is swept.
 - **A column name is user data.** Creates refuse empty, non-`[a-z0-9_]`, over-255 and fold-collision
   names; a refresh does not, or it strands pre-rule tables.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
@@ -224,7 +237,10 @@ A separate `GLACIER` vault the browser has no relationship with. A restore is `R
   telling the user a restore is in flight, so re-creating a file meanwhile is the ordinary case — and
   the copy-back would have overwritten it, reported success and swept the vault.
 - **Retrieval is the point of no return.** Its Map tolerates **no** failure (the copy's tolerates
-  100%): a fault means nothing copied and the archive untouched.
+  100%): a fault means nothing copied and the archive untouched. What makes that free is that the
+  **verb** tolerates two codes — `RestoreAlreadyInProgress` and `InvalidObjectState` — which is also
+  what keeps the path unconditional on the storage class. **Do not "harden" the verb by removing
+  them.**
 - **The source is deleted only when EVERY object is confirmed copied**, and the gate is a **state** —
   the rollback arm cannot reach `DeleteSource`, asserted by walking the ASL graph, and an
   unrecognisable verdict fails closed.
@@ -242,6 +258,9 @@ is a smell.
 - **Dialogs:** Enter submits from **one** field, not implicitly; Escape dispatches by **tree depth**
   through one registry, and a busy modal swallows it. `cx()` returns `undefined`, never `''` — `??`
   does not fall back on the empty string, and that cost nine dialogs their width.
+- **The one irreversible surface refuses the affordance that would fire it.** The archive dialog is
+  built on the confirm dialog *because* the form dialog has Enter-to-submit — focus sits on Cancel,
+  Enter cancels — and it never says "this can't be undone", which would be its one false sentence.
 - **A palette is measured, not chosen.** Contrast is recomputed across the cross product; a colour
   that fails is measured **out**.
 - **Client state is computed in the browser; billed work is not.** A selection aggregate issues
@@ -260,11 +279,14 @@ OpenTofu, bounded-context modules under `infra/modules/`, IAM policies as `.tftp
 reads and enqueues.
 
 - **Deploy-role IAM is in-scope work for any spec that provisions new infra**, and **grants land in
-  their own PR before the resources that need them**. Every grants-only PR in Arc B applied green
-  first time; every resource PR that skipped the step went red on main.
+  their own PR before the resources that need them**. Every grants-only PR in Arc B applied green on its
+  first run — which is the claim the record supports, and **not** that grants-first prevents a red
+  main: this arc went red three times afterwards, on things no grant review would have found.
 - **Scopability is MEASURED, never assumed.** `simulate-custom-policy` gives an
   `implicitDeny`/`allowed` pair before the policy is written. Actions with no resource type sit alone
-  in a wildcard statement. Contradicting intuition: `ec2:DescribeVpcAttribute` and
+  in a wildcard statement. **A simulate matches PATTERNS, not the ARN the service passes** — it
+  cannot tell you that a service calls something on your behalf, or that a condition key goes
+  unpopulated, which are the two traps that cost this project an apply each. Contradicting intuition: `ec2:DescribeVpcAttribute` and
   `route53:GetChange` **are** scopable; `ecs:DescribeTaskDefinition` is not, and scoping it is the
   refresh deadlock arriving by your own hand.
 - **A service may call an action on your behalf that appears in no action list** — ELB calls
@@ -324,7 +346,9 @@ reads and enqueues.
 
 ## Out of Scope (don't build)
 
-No in-browser file preview · no admin UI · no second **user-space** bucket
+No **second** API (one HTTP API, one `$default` route — a feature does not get its own service) ·
+no **new** browser-side AWS SDK call on a path an API route already serves · no in-browser file
+preview · no admin UI · no second **user-space** bucket
 (several buckets exist — shared-space, admin, artifacts, static; the constraint is one bucket of
 personal prefixes).
 
@@ -349,15 +373,16 @@ silently checks nothing. CI now runs it too (#363). Watch every PR to completion
 2. Update the one-line row in `@docs/specs/INDEX.md` (status only — don't add prose).
 3. Write a delivery doc at `docs/spec-delivery/SPEC-XXX-<name>.md` from the template — **short** (what shipped + what changed; reuse lives in code + component-inventory, not prose).
 4. If it added reusable services/hooks/components, add a one-line row to the `docs/component-inventory/<area>.md` **matching the component's path** — a `features/query/` row belongs in the query file, nowhere else (the router only gains a row if a whole new area appeared).
-5. A *new architectural decision* gets the full entry in `@docs/decisions.md` **first**, then **one line** in Key Decisions above — the digest line is **never the only home of a fact**, and never a paragraph. If it **supersedes an earlier decision**, add an in-place superseded marker (short blockquote) at every doc site still stating the old claim (`ARCS.md` arcs, architecture.md sections). Reasoning belongs in the spec/delivery doc.
+5. A *new architectural decision* gets the full entry in `@docs/decisions.md` **first**, then folds into the **area block** it belongs to in Key Decisions above — the digest is **never the only home of a fact**. **Do NOT add a line per spec**: that is what took the section to 105 lines and its own byte ceiling, and the fix was to group it. Add a clause, or replace one that your decision supersedes. If it **supersedes an earlier decision**, add an in-place superseded marker (short blockquote) at every doc site still stating the old claim (`ARCS.md` arcs, architecture.md sections). Reasoning belongs in the spec/delivery doc.
 6. **Prune `## Specs` → Current work:** delete what the closed spec made stale. It tracks *only* what is live and undocumented elsewhere — never append a changelog; INDEX.md has status and `ARCS.md` has narrative.
 7. **Live checks fold into the one guide:** add the steps to the matching feature section of `@docs/testing/e2e.md` — **never a new per-spec or per-arc file**, which is how that directory grew to sixteen. A check that can't be run from a signed-in session becomes a row in `@docs/testing/owed.md`; a CLI script it needs is named for the **plane**, never the spec — add a section to that plane's.
 8. **User-facing docs sweep:** if the spec changed anything a user can see, update the in-app **Help & guides** content (`apps/portal/src/features/help/helpContent.ts`, SPEC-074) and any onboarding copy — add a guide for a shipped feature, fix a changed flow's steps, delete a removed one. Document only what's shipped + wired end-to-end. If nothing user-facing changed, note that and skip.
 
 **Doc-size guardrail:** `CLAUDE.md` is the always-loaded file — if an edit pushes a section past a
 few lines, the detail belongs in a `docs/` file behind a pointer. Same for `INDEX.md` (status rows
-only) and the inventory router. **A Key Decisions line is one sentence and a fence, not a paragraph**,
-and `## Specs` is not a changelog — both regrew past 300 lines once by being appended to.
+only) and the inventory router. **Key Decisions is grouped by AREA and carries fences, not history** — it is not a
+per-spec changelog, and `## Specs` is not one either; both regrew past 300 lines once by being
+appended to.
 **`scripts/validate_docs.py` enforces this on every PR** — the budgets are
 ratchets at the measured level, so raise the doc's tier, never the cap. Full rule set:
 `@docs/process.md` §5 → *Anti-regrowth & doc hygiene*.

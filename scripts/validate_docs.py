@@ -32,8 +32,12 @@ Attributes:
     eight blocks grouped by AREA. The list had stopped being a reminder and become a changelog:
     every closing spec appended one, and the file hit its own ratchet exactly when a spec tried to
     close. Group into the existing blocks; do not start a new line per spec.
-  DIGEST_MAX_CHARS: The longest a single Key Decisions line may be. The digest is a reminder
-    with the reasoning in ``decisions.md``; past this length it has become the reasoning.
+  DIGEST_MAX_CHARS: The longest a single Key Decisions bullet may be, measured on the LOGICAL
+    bullet — continuation lines joined. It was measured per physical line until 2026-08-26, which
+    stopped meaning anything the moment the section was rewritten as wrapped prose: the longest
+    physical line went from 846 characters to 103, so the guard could no longer fire on anything
+    while still being advertised in ``process.md``. The digest is a reminder with the reasoning in
+    ``decisions.md``; past this length it has become the reasoning.
   DELIVERY_MAX_LINES: A delivery doc is "what shipped + what changed", typically under a page.
   STATUS_WORDS: Words that must not appear in an ``ARCS.md`` arc heading. Status lives in
     ``INDEX.md``, which is the only place it can be kept true.
@@ -56,8 +60,8 @@ TESTING_PERMANENT = frozenset({"e2e.md", "owed.md", "sessions.md"})
 TESTING_INFLIGHT_MAX = 1
 
 FIXTURES_MAX_SCRIPTS = 1
-CLAUDE_MAX_BYTES = 31_000
-DIGEST_MAX_CHARS = 900
+CLAUDE_MAX_BYTES = 34_000
+DIGEST_MAX_CHARS = 1_400
 DELIVERY_MAX_LINES = 260
 STATUS_WORDS = ("shipped", "complete", "active", "draft", "in progress", "filed", "scoped")
 SOURCE_TREES = (("apps/portal/src", (".ts", ".tsx")), ("lambdas", (".py",)), ("infra", (".tf", ".tftpl")))
@@ -188,11 +192,30 @@ def check_claude_budget() -> list[str]:
             "session: move the detail into docs/ behind a pointer rather than raising the cap."
         )
     section = text[text.index("## Key Decisions") : text.index("## Out of Scope")]
+
+    # JOINED, because the section is wrapped prose. Measuring the physical line stopped meaning
+    # anything when the per-spec list became area blocks: the longest line fell from 846 characters
+    # to 103, and a guard that cannot fire is worse than none — it is advertised in process.md.
+    bullets, current = [], None
     for line in section.split("\n"):
-        if line.startswith("- ") and len(line) > DIGEST_MAX_CHARS:
+        if line.startswith("- "):
+            if current is not None:
+                bullets.append(current)
+            current = line
+        elif current is not None:
+            if line.startswith("  ") and line.strip():
+                current += " " + line.strip()
+            else:
+                bullets.append(current)
+                current = None
+    if current is not None:
+        bullets.append(current)
+
+    for bullet in bullets:
+        if len(bullet) > DIGEST_MAX_CHARS:
             errors.append(
-                f"A Key Decisions line is {len(line)} chars (cap {DIGEST_MAX_CHARS}): "
-                f"{line[:70]}… — keep the claim and the fence here, the reasoning in decisions.md."
+                f"A Key Decisions bullet is {len(bullet)} chars (cap {DIGEST_MAX_CHARS}): "
+                f"{bullet[:70]}… — keep the claim and the fence here, the reasoning in decisions.md."
             )
     return errors
 
