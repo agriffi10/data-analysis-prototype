@@ -10,9 +10,6 @@
       "Action": "s3:PutObject",
       "Resource": "${bucket_arn}/${access_logs_prefix}/AWSLogs/${account_id}/*",
       "Condition": {
-        "StringEquals": {
-          "aws:SourceAccount": "${account_id}"
-        },
         "ArnLike": {
           "aws:SourceArn": "${load_balancer_arn_pattern}"
         }
