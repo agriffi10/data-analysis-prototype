@@ -12,6 +12,16 @@
 # resource. A couple are merely operational rather than security-critical (CKV_AWS_216,
 # CKV_AWS_305); they are here because they pass, which is the whole rule.
 #
+# RE-MEASURED 2026-08-26, after the container platform landed: 918 passed / 736 failed, and
+# the list went from 52 IDs to 89. Nothing was removed — every ID already here still measures
+# zero — and the same rule produced the 37 additions: they pass, so they are enforced.
+#
+# THIRTY-FIVE of them came with the new VPC, ECS, ECR, ALB, ACM and API Gateway resources. TWO
+# did not: CKV_AWS_251 and CKV_AWS_36 both evaluate the archive vault's CloudTrail, which landed
+# on 2026-08-14 — five days after the 52-ID baseline — and had been passing, unenforced, ever
+# since. Regenerate this list on any spec that adds a resource FAMILY, not only on one that adds
+# six; those two sat outside the gate for twelve days because nothing did.
+#
 # The failing rules are NOT here, and each has a disposition in docs/security-baseline.md:
 # no VPC, no CMK, no X-Ray, no WAF, and S3 versioning (deferred by decision — revisit
 # before any real user data lands).
@@ -43,14 +53,30 @@
 #     queue without a CMK trips CKV_AWS_27/CKV2_AWS_73; a new state machine without
 #     `logging_configuration` trips CKV_AWS_285; an `aws_lambda_permission` without
 #     `source_arn` trips CKV_AWS_364.
-#   * TWELVE IDs are evaluated against exactly ONE resource today (CKV_AWS_41, 34, 70, 159,
-#     216, 259, 305, 366 and CKV2_AWS_32, 46, 54, 72). Deleting that resource makes the ID
-#     unevaluated, which is a hard error by design. The known case is the client-environment
-#     transition (docs/transition_plan.md): removing the Cognito identity pool leaves
-#     CKV_AWS_366 with nothing to evaluate. Delete the line in the same change.
+#   * MANY IDs are evaluated against exactly ONE resource, and deleting that resource makes the
+#     ID unevaluated — which is a hard error by design, so the line has to go in the SAME change.
+#     Twelve were in that position before the container platform (CKV_AWS_41, 34, 70, 159, 216,
+#     259, 305, 366 and CKV2_AWS_32, 46, 54, 72), and most of the 2026-08-26 additions join them:
+#     every ECS, ECR and ALB entry except the three listener ones (CKV2_AWS_74, CKV_AWS_103 and
+#     CKV_AWS_2, two apiece) has exactly one resource behind it — the count in each comment says
+#     which. Two known cases, both
+#     already scheduled: removing the Cognito identity pool leaves CKV_AWS_366 with nothing to
+#     evaluate (docs/transition_plan.md), and retiring CloudFront takes CKV2_AWS_32, 46, 54, 72,
+#     CKV_AWS_34, 216, 259 and 305 with it (SPEC-202).
 
 # aws
 CKV_AWS_41     # Ensure no hard coded AWS access key and secret key exists in provider (1)
+
+# aws_acm_certificate
+CKV_AWS_233    # Ensure Create before destroy for ACM certificates (2)
+CKV_AWS_234    # Verify logging preference for ACM certificates (2)
+
+# aws_apigatewayv2_api
+CKV2_AWS_77    # Ensure AWS API Gateway Rest API attached WAFv2 WebACL is configured with AMR for Log4j Vulnerability (1)
+
+# aws_apigatewayv2_stage
+CKV2_AWS_51    # Ensure AWS API Gateway endpoints uses client certificate authentication (1)
+CKV_AWS_76     # Ensure API Gateway has Access Logging enabled (1)
 
 # aws_athena_workgroup
 CKV_AWS_159    # Ensure that Athena Workgroup is encrypted (1)
@@ -67,11 +93,31 @@ CKV_AWS_34     # Ensure CloudFront distribution ViewerProtocolPolicy is set to H
 # aws_cloudfront_response_headers_policy
 CKV_AWS_259    # Ensure CloudFront response header policy enforces Strict Transport Security (1)
 
+# aws_cloudtrail
+CKV_AWS_251    # Ensure CloudTrail logging is enabled (1)
+CKV_AWS_36     # Ensure CloudTrail log file validation is enabled (1)
+
 # aws_cloudwatch_log_group
 CKV_AWS_66     # Ensure that CloudWatch Log Group specifies retention days (45)
 
 # aws_cognito_identity_pool
 CKV_AWS_366    # Ensure AWS Cognito identity pool does not allow unauthenticated guest access (1)
+
+# aws_ecr_repository
+CKV_AWS_163    # Ensure ECR image scanning on push is enabled (1)
+CKV_AWS_51     # Ensure ECR Image Tags are immutable (1)
+
+# aws_ecs_cluster
+CKV_AWS_223    # Ensure ECS Cluster enables logging of ECS Exec (1)
+CKV_AWS_65     # Ensure container insights are enabled on ECS cluster (1)
+
+# aws_ecs_service
+CKV_AWS_333    # Ensure ECS services do not have public IP addresses assigned to them automatically (1)
+
+# aws_ecs_task_definition
+CKV_AWS_249    # Ensure that the Execution Role ARN and the Task Role ARN are different in ECS Task definitions (1)
+CKV_AWS_336    # Ensure ECS containers are limited to read-only access to root filesystems (1)
+CKV_AWS_97     # Ensure Encryption in transit is enabled for EFS volumes in ECS Task definitions (1)
 
 # aws_iam_policy_document
 CKV2_AWS_40    # Ensure AWS IAM policy does not allow full IAM privileges (3)
@@ -106,6 +152,30 @@ CKV_AWS_45     # Ensure no hard-coded secrets exist in lambda environment (41)
 CKV_AWS_301    # Ensure that AWS Lambda function is not publicly accessible (5)
 CKV_AWS_364    # Ensure that AWS Lambda function permissions delegated to AWS services are limited by SourceArn or SourceAccount (5)
 
+# aws_lb
+CKV2_AWS_20    # Ensure that ALB redirects HTTP requests into HTTPS ones (1)
+CKV2_AWS_76    # Ensure AWS ALB attached WAFv2 WebACL is configured with AMR for Log4j Vulnerability (1)
+CKV_AWS_131    # Ensure that ALB drops HTTP headers (1)
+CKV_AWS_150    # Ensure that Load Balancer has deletion protection enabled (1)
+CKV_AWS_328    # Ensure that ALB is configured with defensive or strictest desync mitigation mode (1)
+CKV_AWS_91     # Ensure the ELBv2 (Application/Network) has access logging enabled (1)
+
+# aws_lb_listener
+CKV2_AWS_74    # Ensure AWS Load Balancers use strong ciphers (2)
+CKV_AWS_103    # Ensure that load balancer is using at least TLS 1.2 (2)
+CKV_AWS_2      # Ensure ALB protocol is HTTPS (2)
+
+# aws_lb_target_group
+CKV_AWS_261    # Ensure HTTP HTTPS Target group defines Healthcheck (1)
+CKV_AWS_378    # Ensure AWS Load Balancer doesn't use HTTP protocol (1)
+
+# aws_route53_record
+CKV2_AWS_23    # Route53 A Record has Attached Resource (2)
+
+# aws_route_table
+CKV2_AWS_35    # AWS NAT Gateways should be utilized for the default route (3)
+CKV2_AWS_44    # Ensure AWS route table with VPC peering does not contain routes overly permissive to all traffic (3)
+
 # aws_s3_bucket
 CKV2_AWS_6     # Ensure that S3 bucket has a Public Access block (5)
 CKV2_AWS_61    # Ensure that an S3 bucket has a lifecycle configuration (5)
@@ -129,6 +199,9 @@ CKV_AWS_54     # Ensure S3 bucket has block public policy enabled (5)
 CKV_AWS_55     # Ensure S3 bucket has ignore public ACLs enabled (5)
 CKV_AWS_56     # Ensure S3 bucket has 'restrict_public_buckets' enabled (5)
 
+# aws_security_group
+CKV_AWS_382    # Ensure no security groups allow egress from 0.0.0.0:0 to port -1 (6)
+
 # aws_sfn_state_machine
 CKV_AWS_285    # Ensure State Machine has execution history logging enabled (4)
 
@@ -136,3 +209,16 @@ CKV_AWS_285    # Ensure State Machine has execution history logging enabled (4)
 CKV2_AWS_73    # Ensure AWS SQS uses CMK not AWS default keys for encryption (11)
 CKV_AWS_168    # Ensure SQS queue policy is not public by only allowing specific services or principals to access it (11)
 CKV_AWS_27     # Ensure all data stored in the SQS queue is encrypted (11)
+
+# aws_subnet
+CKV_AWS_130    # Ensure VPC subnets do not assign public IP by default (2)
+
+# aws_vpc
+CKV2_AWS_11    # Ensure VPC flow logging is enabled in all VPCs (1)
+CKV2_AWS_12    # Ensure the default security group of every VPC restricts all traffic (1)
+
+# aws_vpc_security_group_ingress_rule
+CKV_AWS_23     # Ensure every security group and rule has a description (10)
+CKV_AWS_24     # Ensure no security groups allow ingress from 0.0.0.0:0 to port 22 (7)
+CKV_AWS_25     # Ensure no security groups allow ingress from 0.0.0.0:0 to port 3389 (7)
+CKV_AWS_277    # Ensure no security groups allow ingress from 0.0.0.0:0 to port -1 (7)

@@ -169,7 +169,7 @@ Grouped by rule; the count is the number of resources.
 |---|---|---|---|
 | 36 | CKV_AWS_338 | Log group retention ≥ 1 year | **accept** — CloudWatch is the operational tail. The durable narrative store is `logs/` in S3, retained forever (SPEC-129). Paying to duplicate it in CloudWatch buys nothing. |
 | 36 | CKV_AWS_158 | Log group encrypted by KMS | **defer** — encrypted at rest under the AWS-managed key today; a CMK is a cost and key-management decision. |
-| 32 | CKV_AWS_117 | Lambda inside a VPC | **accept** — there are no VPC resources. Every function talks to AWS APIs only; a VPC would add NAT cost and no isolation. |
+| 32 | CKV_AWS_117 | Lambda inside a VPC | **accept — and the reason CHANGED on 2026-08-26, when a VPC arrived.** It used to read "there are no VPC resources". There are now, and the API function is deliberately outside them: attaching it would need an interface endpoint per service it later calls, would put ENI attachment on the cold-start path, and — after the arc's provider swap — would leave a token-verification host with no AWS endpoint at all unreachable, with no code change to blame. The control-plane functions talk to AWS APIs only; a VPC would add cost and no isolation. |
 | 32 | CKV_AWS_116 | Lambda dead-letter queue | **accept — wrong shape.** The check looks for the Lambda's own `dead_letter_config`, which covers async invoke. This fleet is SQS/Step-Functions driven and *does* have per-request DLQs with a drain (SPEC-126). |
 | 32 | CKV_AWS_50 | Lambda X-Ray tracing | **accept** — SPEC-127→137 built structured logging as the observability answer, deliberately. X-Ray would be a second parallel system. |
 | 32 | CKV_AWS_173 | Lambda env var encryption (CMK) | **defer** — env vars hold queue URLs and bucket names, not secrets. |
@@ -193,28 +193,6 @@ Grouped by rule; the count is the number of resources.
 | 1 | CKV_AWS_310 | Origin failover | **accept** — single S3 origin by design. |
 | 1 | CKV_AWS_374 | Geo restriction | **accept** — no geographic access policy. |
 | 1 | CKV2_AWS_61 | S3 lifecycle configuration | **defer** — subsumed by the CKV_AWS_300 work. |
-
-#### The container platform's own rows (added 2026-08-26, measured on checkov 3.3.9)
-
-The ECS/ECR/ALB resources are new, so they bring findings this table had no reason to carry. Every
-one is a deliberate choice already argued in the module's own comments; the disposition is here
-because the enforce list's rule is that a *failing* rule has one. **None of them reddens either
-gate** — measured: the enforce list reports 0 findings on its 52 IDs, and the rendered-plan IAM
-scan reports 0 failures on the new policies, so no accepted row was added (a row matching no
-finding is a hard error there).
-
-| N | Check | Rule | Disposition |
-|---|---|---|---|
-| 1 | CKV_AWS_332 | ECS service pins a platform version rather than LATEST | **accept — the check is backwards here.** `1.4.0` is pinned deliberately: on 1.3.0 the image pull used a separate Amazon-owned ENI to which VPC endpoints did not apply, so the whole no-NAT design silently would not hold. Following this check would undo the arc's central claim. |
-| 1 | CKV_AWS_260 | Security group allows 0.0.0.0/0 on port 80 | **accept** — the port-80 listener's only action is a 301 to HTTPS, asserted by test. A public SPA that cannot be reached at `http://` is one that fails for every user who types the bare host. |
-| 1 | CKV2_AWS_28 | ALB fronted by a WAF | **defer** — the same decision as CKV_AWS_68 for CloudFront, and the same reason: real cost, pre-production system. Revisit with the two together, not separately. |
-| 1 | CKV_AWS_136 | ECR repository encrypted with a CMK | **defer** — AES256 today. The layers are a public SPA bundle; a CMK buys a key policy to maintain rather than a secret to protect. Consistent with the S3 and SQS no-CMK rows above. |
-| 1 | CKV_AWS_158 | ECS task log group encrypted by KMS | **defer** — the same row as the Lambda log groups above, for the same reason. |
-| 1 | CKV_AWS_338 | ECS task log group retention ≥ 1 year | **accept** — 14 days, matching every other log group here. CloudWatch is the operational tail; the durable store is `logs/` in S3. |
-
-CKV_AWS_65 (Container Insights) is **not** on this list: the spec's own criterion puts it among the
-things fixed rather than dispositioned while the resource is new, and the cluster ships with
-insights enabled.
 
 ~~**Five fixes fall out of this:** S3 versioning, the multipart-abort lifecycle rule, the CloudFront
 response-headers policy, the Athena workgroup enforcement, and the two cheap npm bumps.~~
@@ -258,6 +236,70 @@ clean, and here a scanner that *did* run read as broken.**
 **Two scanners, one cause:** every Medium and six of the eight Lows were the CKV2_AWS_32 gap above.
 SPEC-140 closed both rows at once. **A green ZAP run will never be zero-alert** — the Informational
 rows stay, and three findings survive by decision.
+
+### Post-SPEC-193 — the container platform (2026-08-26, checkov 3.3.9)
+
+**The counts, measured rather than estimated.** The `.tf` scan over `infra/` reports **918 passed /
+736 failed**, 474 resources, against 508/373 when this file was written. The enforce list went from
+**52 IDs to 89**: 37 newly-passing IDs joined it, **none disappeared**, and the gate script itself
+reports `enforcing 89 check ID(s); 0 finding(s) on them`.
+
+**Thirty-five of the 37 came with the new families. Two did not**, and the exception is the useful
+part: `CKV_AWS_251` and `CKV_AWS_36` both evaluate
+`module.verification.aws_cloudtrail.archive_audit`, which landed with the archive vault's audit
+trail on 2026-08-14 — five days after the 52-ID baseline was measured. They have been passing, and
+unenforced, ever since. **The list should be regenerated by any spec that adds a resource family,
+not only by one that adds six**; two IDs sat outside the gate for twelve days because nothing did.
+
+The other 35 are what the new VPC, ECS, ECR, ALB, ACM and API Gateway resources brought — among
+them the ones the spec named as fixes rather than dispositions: ECR immutability and scan-on-push
+(`CKV_AWS_51`, `CKV_AWS_163`), the ALB's TLS policy, dropped invalid headers, deletion protection
+and access logging (`CKV_AWS_103`, `CKV_AWS_131`, `CKV_AWS_150`, `CKV_AWS_91`), the HTTP→HTTPS
+redirect (`CKV2_AWS_20`), the read-only root filesystem (`CKV_AWS_336`), distinct task and execution
+roles (`CKV_AWS_249`), no automatic public IP (`CKV_AWS_333`, `CKV_AWS_130`), the default security
+group restricting all traffic (`CKV2_AWS_12`), VPC flow logging (`CKV2_AWS_11`) and Container
+Insights (`CKV_AWS_65`).
+
+**Every newly-enforced ID has a non-zero `passed_checks` count** — that is what the regeneration
+recipe selects on, and it is the difference between "this check passed" and "this check never ran".
+`--quiet` strips `passed_checks` and must never come back.
+
+**The rendered-plan IAM scan added nothing, measured on the real run.** The `plan` job on the PR
+that adds `modules/spa` reported `IAM resources in plan: 92; IAM checks evaluated: 716; IAM
+findings: 2` and `accepted: 2; unaccepted: 0` under `GATE_CHECKOV_PLAN: block` — the two being the
+same permanent rows on `github_actions_deploy`. The SPA's task-execution role holds
+`ecr:GetAuthorizationToken` on `"*"`, and **checkov does not treat that action as restrictable**, so
+it fired nothing. `.github/checkov-plan-accepted.txt` gained no row: writing the one the spec
+predicted would have turned the gate red, because a line matching no finding is a hard error there.
+Its "execution roles hold zero `Resource: "*"`" claim was **narrowed** instead, to the user-facing
+isolation roles, which is what it always meant.
+
+**The default network ACL stays undeclared, and the measurement is why.** The spec said to add
+`aws_default_network_acl` *if the regenerated list turned one up*. It did not: checkov 3.3.9
+evaluates **no network-ACL check at all** on this tree, passing or failing. Nothing was deferred
+here — there was nothing to defer.
+
+| N | Check | Rule | Disposition |
+|---|---|---|---|
+| 1 | CKV_AWS_332 | ECS service pins a platform version rather than LATEST | **accept — the check is backwards here.** `1.4.0` is pinned deliberately: on 1.3.0 the image pull used a separate Amazon-owned ENI to which VPC endpoints did not apply, so the whole no-NAT design silently would not hold. Following this check would undo the arc's central claim. |
+| 1 | CKV_AWS_260 | Security group allows 0.0.0.0/0 on port 80 | **accept** — the port-80 listener's only action is a 301 to HTTPS, asserted by test. A public SPA that cannot be reached at `http://` is one that fails for every user who types the bare host. |
+| 1 | CKV2_AWS_28 | ALB fronted by a WAF | **defer** — the same decision as CKV_AWS_68 for CloudFront, and the same reason: real cost, pre-production system. The API fires no WAF check today (`CKV2_AWS_77` passes vacuously, since it grades an attached WebACL's rules and there is none), but it is the same decision and is deferred with it. The client environment's edge is a later choice, and the two should be made together rather than separately. |
+| 1 | CKV2_AWS_5 | Security group is attached to another resource | **accept — false positive across a module boundary.** It fires on `module.network.aws_security_group.task`, created in the network module with no rules and no consumer *there*: the ECS service that wears it, and every rule on it, live in `module.spa`. Checkov's graph does not follow that edge. The attachment is real and is asserted by test — the service's `network_configuration` names the group. |
+| 1 | CKV_AWS_136 | ECR repository encrypted with a CMK | **defer** — AES256 today. The layers are a public SPA bundle; a CMK buys a key policy to maintain rather than a secret to protect. Consistent with the S3 and SQS no-CMK rows above. |
+| 4 | CKV_AWS_158 | Log group encrypted by KMS | **defer** — the same row as the Lambda log groups above, for the same reason. The four are the API function's group, the API's access log group, the VPC flow logs and the ECS task group. |
+| 4 | CKV_AWS_338 | Log group retention ≥ 1 year | **accept** — 14 days on all four, matching every other log group here. CloudWatch is the operational tail; the durable store is `logs/` in S3. |
+| 1 | CKV_AWS_309 | API Gateway v2 route specifies an authorization type | **accept — authorization will live in the router, and an authorizer would be a SECOND reader of the same token.** *Today there is nothing to authorize:* the deployed API is a placeholder serving `GET /healthz` and a 404, with **no identity, no AWS call and no data** — an internet-facing exposure recorded in `docs/testing/owed.md` and accepted there as billing rather than disclosure. **SPEC-195 adds the verification**, and it goes in the router: the request will carry an `Authorization` bearer, the router will verify it, resolve it to a principal and deny by default before dispatch, and that principal is what SPEC-196 scopes the role assumption by. An API Gateway authorizer would verify the same token independently and could disagree with the router about the claim the scoping depends on — a disagreement with no single arbiter. The API also serves every path through **one `$default` route and one integration**, so a per-route authorizer would have to duplicate the route table before it could say anything at all. This disposition rests on the bearer token, **not** on a session cookie: the arc's re-scope removed the cookie, and any wording that depends on it is stale. |
+
+**`CKV_AWS_65` (Container Insights) is deliberately absent from that table:** the spec's criterion
+puts it among the things fixed rather than dispositioned while the resource is new, and the cluster
+ships with insights enabled.
+
+**One deviation from that criterion, named rather than left to be noticed.** It also lists ECR
+*encryption* among the fixes. Immutability and scan-on-push shipped, but the only ECR encryption
+check checkov has is `CKV_AWS_136`, which asks for a **CMK** — so "fixed" would have meant a
+customer-managed key and a key policy to maintain, not merely encryption. The repository is
+encrypted with AES256 and the check is **deferred** in the row above, consistent with every other
+no-CMK row in this file.
 
 ### Post-SPEC-140 (run [30830319012](https://github.com/agriffi10/data-analysis-prototype/actions/runs/30830319012), enforcing CSP)
 

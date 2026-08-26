@@ -33,8 +33,11 @@ FLASK_RULE = "python.flask.security.audit.directly-returned-format-string.direct
 CHECK_ID = re.compile(r"^CKV[0-9]*_[A-Z]+_[0-9]+$")
 
 #: How many check IDs `.github/checkov-enforced.txt` holds at zero. Pinned so that removing an
-#: entry — the way this gate would be quietly weakened — is a deliberate two-file edit.
-ENFORCED_COUNT = 52
+#: entry — the way this gate would be quietly weakened — is a deliberate two-file edit. Raised from
+#: 52 when the container platform's VPC, ECS, ECR, ALB, ACM and API Gateway resources brought 37
+#: newly-passing IDs with them; no ID was removed, and the measurement is in
+#: docs/security-baseline.md under the dated section for that spec.
+ENFORCED_COUNT = 89
 
 #: The gate steps must default to a NON-NUMERIC sentinel. `${VAR:-0}` substitutes on empty as
 #: well as unset, so a numeric default turns "the narrowing step wrote nothing" into "clean".

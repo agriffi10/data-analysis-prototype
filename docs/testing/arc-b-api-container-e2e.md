@@ -32,6 +32,10 @@ decides whether it can pass at all.
 **§A stands outside that order.** Runtime configuration (SPEC-192) shipped against the existing
 CloudFront distribution, so its checks are runnable today and do not wait for merge 1.
 
+**§B stands outside it as well.** The container platform (SPEC-193) is the thing the merges later
+move traffic *onto*; its own verification runs against a placeholder image nobody is pointed at, and
+proves the platform rather than the product.
+
 ---
 
 ## A. Runtime configuration (SPEC-192) — runnable NOW, before any of the above
@@ -91,6 +95,161 @@ in the Network panel. Do **not** try to infer it from a reload: `/config.json` h
 `Managed-CachingDisabled` behaviour, so the edge caches nothing whether or not the header is present,
 and no observation distinguishes the two. Edge freshness is a property of the cache policy; the
 header is what a container will emit once SPEC-194 lands.
+
+---
+
+## B. The container platform (SPEC-193) — runnable when PR 5/6 has applied, outside the merge order
+
+Like §A, this section stands outside the merge order: it proves the platform SPEC-194 builds on,
+against a placeholder image no user is pointed at. Production is still CloudFront throughout.
+
+**It does not restate §0's three FR-006 checks.** Those are the two origins on the app client, the
+API host inside CloudFront's `connect-src`, and the API's CORS answering both origins. Run §0's
+block for them; a failure there is a defect in SPEC-193 and is fixed there.
+
+**Already discharged (2026-08-26), recorded so they are not re-run blindly:**
+`curl https://api.dataquarry.app/healthz` → `{"status": "ok", "version": "<HEAD sha>"}`, and the
+`api.dataquarry.app` certificate's `RenewalEligibility` flipped `INELIGIBLE` → `ELIGIBLE` once the
+custom domain attached it.
+
+**B's instruments.** §1 is written for the merge sequence and defines origins, not hosts; these are
+the three values §B needs and it defines them itself. Run from the repository root — §B uses
+`tofu -chdir=infra` throughout, which fails if you are already inside `infra/`.
+
+```bash
+SPA_HOST=$(tofu -chdir=infra output -raw spa_host)          # portal.<parent>, no scheme
+API_HOST=$(tofu -chdir=infra output -raw api_host)          # api.<parent>, no scheme
+SPA_CERT=$(tofu -chdir=infra output -raw spa_certificate_arn)
+
+# There is no target-group output: the group is internal to the module, and the live check
+# reads the DEPLOYED value rather than adding an output for one assertion.
+TG_ARN=$(aws elbv2 describe-target-groups --names "$(tofu -chdir=infra output -raw ecs_cluster_name)-tg" \
+  --query 'TargetGroups[0].TargetGroupArn' --output text)
+```
+
+**B.0 — The prerequisite nothing in this repo provisions. BLOCKING, and check it BEFORE B.6.**
+
+The placeholder push needs an identity holding `ecr:GetAuthorizationToken` (account-wide — the
+action takes no resource type) plus `BatchCheckLayerAvailability`, `InitiateLayerUpload`,
+`UploadLayerPart`, `CompleteLayerUpload` and `PutImage` on the repository. **The deploy role holds
+none of them and that is deliberate**: it creates the registry and never writes to it, and the
+pipeline that pushes on every commit arrives with SPEC-194, which owns those grants.
+
+```bash
+aws sts get-caller-identity                       # which identity is about to push
+aws ecr get-login-password --region us-east-1 >/dev/null && echo 'auth ok'
+```
+
+A refusal here is not a defect in this spec — it is this step's own precondition, and it is cheaper
+to discover now than half way through a build.
+
+**B.1 — The apply. BLOCKING.**
+
+- [ ] `Deploy Infrastructure` on `main` is green. A first-run `AccessDenied` on a newly-granted
+      action is expected once; **the same action failing twice is a defect**, not propagation.
+- [ ] `ecs:RegisterTaskDefinition` in particular: it is scoped by resource *type* on the strength of
+      the AWS Service Reference, while the ECS developer guide still says task-definition policies
+      take no resource-level permissions. If it denies, the fix is a grants PR moving it to
+      `PlatformContainerTaskDefinitionGlobal`.
+
+**B.2 — Both names resolve, each with its own certificate.**
+
+```bash
+for h in "$SPA_HOST" "$API_HOST"; do
+  dig +short "$h" | head -3
+  echo | openssl s_client -connect "$h:443" -servername "$h" 2>/dev/null \
+    | openssl x509 -noout -subject -dates
+done
+```
+
+- [ ] Each certificate's subject is the host asking for it. A single certificate answering both is
+      the two-equal-subdomains failure the certificate's own precondition refuses at plan.
+- [ ] `$SPA_HOST` resolves to the load balancer named by `tofu -chdir=infra output -raw alb_dns_name`
+      — not to a stale one.
+
+**B.3 — The API's span reaches the log store. BLOCKING; nothing offline can make this assertion.**
+
+- [ ] After a `curl` of the API, `logs/service=api/year=…/data.jsonl` carries the invocation's span
+      with `env` and `version` populated. This is the cold-start assertion: it proves the `cpcommon`
+      layer attached, which no unit test observes.
+
+**B.4 — The image, built for the platform the task declares.**
+
+```bash
+REPO=$(tofu -chdir=infra output -raw ecr_repository_url)
+SHA=$(git rev-parse HEAD)
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin "${REPO%%/*}"
+docker build --platform linux/amd64 -f apps/portal/Dockerfile.placeholder -t "$REPO:$SHA" .
+docker push "$REPO:$SHA"
+```
+
+- [ ] `--platform linux/amd64` is not optional on an Apple Silicon machine. Without it the task fails
+      with an image-manifest error that reads nothing like the architecture mismatch it is.
+- [ ] `:latest` is impossible here by construction — the repository is `IMMUTABLE` and the tag is the
+      sha. A tag cannot be re-pushed, so a bad build needs a new sha, not a retry.
+
+**B.5 — Raise the service.**
+
+```bash
+gh variable set TF_VAR_spa_image_tag     --body "$SHA"
+gh variable set TF_VAR_spa_desired_count --body '1'
+gh workflow run 'Deploy Infrastructure'
+```
+
+**B.6 — The arc's central claim: a pull with no NAT. BLOCKING, and it must be read as a PAIR.**
+
+```bash
+CLUSTER=$(tofu -chdir=infra output -raw ecs_cluster_name)
+SERVICE=$(tofu -chdir=infra output -raw ecs_service_name)
+aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+  --query 'services[0].[runningCount,desiredCount,events[:5].message]'
+
+# The other half. WITHOUT THIS, a pull that succeeded through a route somebody added
+# reads as proof of the endpoints, and the whole of FR-001 is unverified.
+aws ec2 describe-route-tables \
+  --route-table-ids $(tofu -chdir=infra output -json private_route_table_ids | jq -r '.[]') \
+  --query 'RouteTables[].Routes[].[DestinationCidrBlock,DestinationPrefixListId,GatewayId]'
+```
+
+- [ ] `runningCount == 1`, and **no `CannotPullContainerError`** in the event list.
+- [ ] The private tables carry the local route and the prefix-list route, and **no `0.0.0.0/0` of any
+      kind**. Assert the absence of a default route and the presence of the prefix-list one — never a
+      route *count*, which the spec's own Phase 6 step 7 got wrong and FR-001 AC4 got right.
+- [ ] A `ResourceInitializationError` here is NOT the pull failing — it is the log group or the task
+      role. Read the message before diagnosing the network.
+
+**B.7 — The gateway endpoint's association set.**
+
+```bash
+aws ec2 describe-vpc-endpoints --filters "Name=vpc-id,Values=$(tofu -chdir=infra output -raw vpc_id)" \
+  --query 'VpcEndpoints[?VpcEndpointType==`Gateway`].RouteTableIds'
+```
+
+- [ ] It **equals** `tofu output -json private_route_table_ids`. A gateway endpoint associated with
+      the wrong table applies green, drifts nothing, and shows no symptom but a pull that hangs.
+
+**B.8 — The front door answers.**
+
+```bash
+curl -i "https://$SPA_HOST/healthz"          # 200 through the load balancer
+curl -i "http://$SPA_HOST/"                  # 301 to the https:// URL
+aws elbv2 describe-target-health --target-group-arn "$TG_ARN" --query 'TargetHealthDescriptions[].TargetHealth.State'
+```
+
+- [ ] `/healthz` returns 200 and target health is `healthy`.
+- [ ] **The redirect can only be verified with `curl`.** `.app` is HSTS-preloaded, so Safari rewrites
+      the scheme before the request leaves the browser and the 301 is never exercised.
+
+**B.9 — The SPA certificate's renewal eligibility.**
+
+```bash
+aws acm describe-certificate --certificate-arn "$SPA_CERT" \
+  --query 'Certificate.[DomainName,RenewalEligibility,InUseBy]'
+```
+
+- [ ] It reports `RenewalEligibility: ELIGIBLE` once the listener holds it, and `InUseBy` names the
+      load balancer. `INELIGIBLE` means the certificate is attached to nothing — which is exactly
+      the state it was in before this PR.
 
 ---
 
