@@ -92,6 +92,14 @@ PLANNED_RESOURCES = {
         "arn:aws:ecs:us-east-1:696000197480:service/dat-prod-spa-cluster/dat-prod-spa-service"
     ),
     "task definition": "arn:aws:ecs:us-east-1:696000197480:task-definition/dat-prod-spa:1",
+    # The BARE FAMILY, with no revision, and it is not a duplicate of the row above. A
+    # RegisterTaskDefinition CREATES revision 1, so at the moment of the call there is no
+    # revision for an ARN to carry and the authorising resource is the family alone. Measured
+    # against the live role: the family read implicitDeny while `:1` read allowed, so the grant
+    # covered every case except the one an apply actually makes.
+    "task definition, unregistered family": (
+        "arn:aws:ecs:us-east-1:696000197480:task-definition/dat-prod-spa"
+    ),
     "task definition, kind-suffixed": (
         "arn:aws:ecs:us-east-1:696000197480:task-definition/dat-prod-spa-task:1"
     ),
