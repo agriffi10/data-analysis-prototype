@@ -36,7 +36,8 @@ Attributes:
   DEFAULT_ATTACHED_MANAGED_POLICIES: The default quota for managed policies per role.
   MAX_ATTACHED_MANAGED_POLICIES: The highest that quota can be raised to.
   PLANNED_RESOURCES: The ARN each platform resource will have, keyed by what it is. The grant is
-    written against these names, so a module that names one differently is denied.
+    written against these names, so a module that names one differently is denied. One row is an
+    authorization-context ARN rather than a resource that will exist — it is labelled as such.
   NON_SCOPABLE: Every action IAM defines no resource type for, and therefore the only actions
     a ``Resource: "*"`` statement in those two templates may hold.
 """
@@ -92,12 +93,17 @@ PLANNED_RESOURCES = {
         "arn:aws:ecs:us-east-1:696000197480:service/dat-prod-spa-cluster/dat-prod-spa-service"
     ),
     "task definition": "arn:aws:ecs:us-east-1:696000197480:task-definition/dat-prod-spa:1",
-    # The BARE FAMILY, with no revision, and it is not a duplicate of the row above. A
-    # RegisterTaskDefinition CREATES revision 1, so at the moment of the call there is no
-    # revision for an ARN to carry and the authorising resource is the family alone. Measured
-    # against the live role: the family read implicitDeny while `:1` read allowed, so the grant
-    # covered every case except the one an apply actually makes.
-    "task definition, unregistered family": (
+    # An AUTHORIZATION-CONTEXT ARN, not a resource that will exist — the created task
+    # definition is `:1`. It is here because `RegisterTaskDefinition` requires a
+    # `task-definition` resource type (the Service Reference marks it required) while the ARN
+    # ECS passes at register time is undocumented: the revision does not exist yet. So the
+    # grant is written to cover BOTH forms, which one pattern does because IAM's `*` spans `:`.
+    # This row is what fails if that pattern is ever narrowed back to a revision-suffixed one.
+    #
+    # Note what is NOT claimed. A policy simulate answers "does this pattern match this string",
+    # never "what resource does the service pass" — so no measurement here establishes which
+    # form ECS uses, and none is needed.
+    "task definition, register-time authorization context": (
         "arn:aws:ecs:us-east-1:696000197480:task-definition/dat-prod-spa"
     ),
     "task definition, kind-suffixed": (

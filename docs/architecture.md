@@ -920,6 +920,19 @@ this list before merging:
 - **CloudWatch log-group actions need both ARN forms.** `logs:ListTagsForResource` authorizes against
   the **bare** ARN (`…:log-group:NAME`) while others use the `…:log-group:NAME:*` form — scope the
   statement to a list of both.
+- **An action that CREATES a numbered resource authorizes against the un-numbered one.**
+  `ecs:RegisterTaskDefinition` creates revision 1, so at the moment of the call there is no revision
+  for an ARN to carry. A grant scoped to `task-definition/NAME:*` matched every revision and not the
+  register itself. Generalise it: whenever the action's own effect is to mint the identifier the ARN
+  would contain, the pattern has to cover the form **without** it. Writing one pattern that covers
+  both is usually enough — IAM's `*` spans `:`, so `task-definition/NAME*` matches `NAME` and
+  `NAME:1` alike, and a separate `…:*` line beside it is dead.
+  **Two documentation traps here, both live:** the ECS developer guide still states *"Task definition
+  IAM policies do not support resource-level permissions"* with a `Resource: "*"` example, and the
+  roadmap issue asking for them is still open — both contradicted by the Service Reference, which is
+  what IAM evaluates against. Trust the Service Reference. And note what a policy simulate can
+  answer: whether a **pattern matches a string**, never **which resource the service passes** — so it
+  can prove a grant sufficient and cannot tell you which form is required.
 - **`s3:ListBucketMultipartUploads` does not support `s3:prefix`** — under a prefix condition it is
   always an implicit deny (a dead grant), and it would leak other users' in-progress uploads. Don't
   grant it. The prefix-scopable multipart actions are `s3:AbortMultipartUpload` /
