@@ -45,5 +45,17 @@ RUN printf '%s\n' \
     '}' \
     > /etc/nginx/conf.d/default.conf
 
+# THE MOUNTED /tmp COMES BACK ROOT-OWNED UNLESS THE IMAGE PUTS SOMETHING THERE. A Fargate
+# task-level volume initialises from the image's own directory at that path — content AND
+# ownership — and initialises as root:root 0755 when there is nothing to copy. /tmp is empty in
+# every base image, so the mount lands unwritable and nginx dies at start with
+#
+#   nginx: [emerg] mkdir() "/tmp/proxy_temp" failed (13: Permission denied)
+#
+# which reads as a container bug rather than as a mount-ownership one. /var/cache/nginx does not
+# have the problem: the base image ships it owned by uid 101, so the copy carries that through.
+# Seeding /tmp with one owned directory is what makes the two mounts behave alike.
+RUN install -d -o 101 -g 101 -m 1777 /tmp/seed && chown 101:101 /tmp
+
 EXPOSE 8080
 USER 101
