@@ -349,6 +349,39 @@ an HTTP listener that only redirects, and a health check. The image is a placeho
 > `mountPoints`, because SPEC-194's image spec depends on that pair. Documentation silence is not an
 > API acceptance either, so nothing here claims tmpfs *works* — the shipped module simply does not
 > use it, and a test forbids `linuxParameters` appearing at all.
+
+> **Superseded by measurement (2026-08-26), and the criterion had it exactly backwards.** The
+> mechanism it chose does not work, and the one it dismissed is the one that does.
+>
+> **A Fargate task volume arrives as a fresh, EMPTY, root-owned directory, and does not initialise
+> from the image.** The container printed its own state before starting:
+>
+> ```
+> id: uid=101(nginx) gid=101(nginx)
+> drwxr-xr-x 2 root root /tmp
+> drwxr-xr-x 2 root root /var/cache/nginx
+> ```
+>
+> `/var/cache/nginx` is shipped **owned by 101** in the base image and still arrived as root's, which
+> is how we know nothing is copied. nginx then died on `mkdir() "/tmp/proxy_temp" failed (13:
+> Permission denied)` — a message that reads as a container bug and is not one. So `volumes` +
+> `mountPoints` cannot give a **non-root** container a writable path, and this criterion asks for
+> non-root, a read-only root filesystem and those mounts together. Two of the three were achievable.
+>
+> Two hypotheses were wrong on the way here and are recorded because each cost a deploy cycle: that
+> the mount would be writable at all, and that seeding `/tmp` in the image with an owned directory
+> would carry ownership through the volume's initialisation.
+>
+> **The shipped mechanism is `linuxParameters.tmpfs`,** whose `mountOptions` take `uid`, `gid` and
+> `mode` — so the mount is created owned by the user that has to write to it. AWS's Fargate-specific
+> task-definition parameters page documents `tmpfs` with **no** unsupported note, while flagging
+> `sharedMemorySize` immediately above it as unsupported; `RegisterTaskDefinition` validates against
+> `FARGATE`, so a rejection would be loud rather than silent. The container's uid is a single local
+> feeding both the `user` field and every mount option, because splitting them yields a mount the
+> process cannot write to.
+>
+> **The pair itself is unchanged** — `/tmp` and `/var/cache/nginx`, still equal to SPEC-194 FR-001
+> AC7's set, still asserted by a test reading both specs. Only the mechanism moved.
 - [ ] The mounted pair is exactly **`/tmp` and `/var/cache/nginx`**, equal to the writable-path set
       SPEC-194 FR-001 AC7 declares, asserted by a test reading both specs' values — the same agreement
       SPEC-194 FR-010 AC3 makes for the health-check path. A mount set that misses one of them produces
