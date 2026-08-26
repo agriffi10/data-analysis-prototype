@@ -121,13 +121,22 @@ jobs:
         # -out saves the plan so `tofu show -json` can render it for Checkov (SPEC-139).
         # The human-readable output still streams to stdout, so /tmp/plan.txt and the PR
         # comment below are byte-for-byte what they were.
-        run: tofu plan -no-color -out=tfplan 2>&1 | tee /tmp/plan.txt
+        # `set -o pipefail` is what makes this step's exit code the PLAN's. Without it the
+        # pipeline reports `tee`'s status, so `tofu plan` could exit 1 — and did — while the
+        # step, the job and the PR check all reported success. OpenTofu still WRITES -out on a
+        # failed plan, so the Checkov and IAM gates downstream then scanned a partial plan and
+        # passed it. A plan gate that cannot fail is not a gate.
+        run: set -o pipefail && tofu plan -no-color -out=tfplan 2>&1 | tee /tmp/plan.txt
         env:
           TF_VAR_aws_region: ${{ vars.AWS_REGION }}
           TF_VAR_app_url: ${{ vars.VITE_APP_URL }}
           TF_VAR_github_repo: ${{ vars.TF_VAR_github_repo }}
           TF_VAR_state_bucket: ${{ secrets.TF_VAR_state_bucket }}
           TF_VAR_state_lock_table: ${{ secrets.TF_VAR_state_lock_table }}
+          TF_VAR_parent_domain: ${{ vars.TF_VAR_parent_domain }}
+          TF_VAR_route53_zone_id: ${{ vars.TF_VAR_route53_zone_id }}
+          TF_VAR_spa_subdomain: ${{ vars.TF_VAR_spa_subdomain || 'portal' }}
+          TF_VAR_api_subdomain: ${{ vars.TF_VAR_api_subdomain || 'api' }}
           # SPEC-186 FR-004. The module's own comment points operators at a gitignored
           # terraform.tfvars, but a LOCAL apply is not available here: the laptop IAM user
           # cannot read the data buckets (their policies allowlist the portal, deploy and
@@ -355,6 +364,10 @@ jobs:
           TF_VAR_github_repo: ${{ vars.TF_VAR_github_repo }}
           TF_VAR_state_bucket: ${{ secrets.TF_VAR_state_bucket }}
           TF_VAR_state_lock_table: ${{ secrets.TF_VAR_state_lock_table }}
+          TF_VAR_parent_domain: ${{ vars.TF_VAR_parent_domain }}
+          TF_VAR_route53_zone_id: ${{ vars.TF_VAR_route53_zone_id }}
+          TF_VAR_spa_subdomain: ${{ vars.TF_VAR_spa_subdomain || 'portal' }}
+          TF_VAR_api_subdomain: ${{ vars.TF_VAR_api_subdomain || 'api' }}
           # SPEC-186 FR-004 — see the plan job's env block for why this is not a tfvars file.
           TF_VAR_verification_principal_arns: ${{ vars.TF_VAR_verification_principal_arns || '[]' }}
 

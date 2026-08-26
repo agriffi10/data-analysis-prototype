@@ -64,3 +64,8 @@ variable "verification_trail_bucket_name" {
   type        = string
   default     = ""
 }
+
+variable "route53_zone_id" {
+  description = "Hosted zone ID for the front door's parent domain. Scopes the deploy role's Route 53 record-writing grant to the one zone this platform owns."
+  type        = string
+}

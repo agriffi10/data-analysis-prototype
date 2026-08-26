@@ -107,3 +107,59 @@ variable "vpc_cidr" {
   type        = string
   default     = "10.0.0.0/16"
 }
+
+variable "parent_domain" {
+  description = "Registrable domain whose subdomains serve the SPA and the API (e.g. example.com). An environment fact, never a literal in a .tf file. Set as the TF_VAR_parent_domain repo variable and applied by deploy-infra.yml. NO DEFAULT ON PURPOSE."
+  type        = string
+
+  # An absent env var fails at plan on its own; an env var set to the EMPTY STRING does not
+  # — it satisfies the variable and plans clean. An unset GitHub repo variable renders as
+  # exactly that empty string, so the missing default guards nothing without this block and
+  # the failure lands at apply instead, where ACM rejects a certificate for a bare "portal.".
+  validation {
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\\.[a-z][a-z0-9-]+$", var.parent_domain))
+    error_message = "parent_domain must be a lowercase registrable domain such as example.com — with a non-numeric final label, no trailing dot, and no scheme or path. An empty value means the repo variable is unset."
+  }
+}
+
+variable "route53_zone_id" {
+  description = "Hosted zone ID for parent_domain, serving both the ACM validation records and the alias records. Set as the TF_VAR_route53_zone_id repo variable. NO DEFAULT ON PURPOSE."
+  type        = string
+
+  # Two failures this shape catches, both of which otherwise validate clean and fail late.
+  # The empty string, as above. And the "/hostedzone/Z…" form the API returns: it names the
+  # right zone and reads correct, but it is also rendered into the deploy role's Route 53
+  # grant, where IAM matches ARNs case- and character-sensitively — so the prefixed form
+  # yields a grant matching nothing, and every record write is denied for a reason the value
+  # does not look like it could cause.
+  validation {
+    condition     = can(regex("^Z[A-Z0-9]+$", var.route53_zone_id))
+    error_message = "route53_zone_id must be a bare uppercase hosted zone ID (Z…) — strip the /hostedzone/ prefix the Route 53 API returns. An empty value means the repo variable is unset."
+  }
+}
+
+variable "spa_subdomain" {
+  description = "Label under parent_domain serving the container SPA, giving the host {spa_subdomain}.{parent_domain}."
+  type        = string
+  default     = "portal"
+
+  # The default does NOT survive an empty env var: TF_VAR_spa_subdomain="" overrides it and
+  # yields the host ".example.com", which is plausible enough to reach ACM and be rejected
+  # there. deploy-infra.yml falls back with || so an unset repo variable never arrives empty;
+  # this block is what catches the fallback being dropped in a later edit.
+  validation {
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", var.spa_subdomain))
+    error_message = "spa_subdomain must be a single lowercase DNS label such as portal — not a dotted name, and not empty."
+  }
+}
+
+variable "api_subdomain" {
+  description = "Label under parent_domain serving the HTTP API, giving the host {api_subdomain}.{parent_domain}."
+  type        = string
+  default     = "api"
+
+  validation {
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", var.api_subdomain))
+    error_message = "api_subdomain must be a single lowercase DNS label such as api — not a dotted name, and not empty."
+  }
+}

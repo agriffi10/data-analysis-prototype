@@ -617,8 +617,9 @@ resource "aws_iam_policy" "deploy_platform_frontdoor" {
   description = "Deploy-role grants for the API's front door (HTTP API, regional custom domain, ACM certificates, Route 53 records, access-log delivery, the placeholder API function) plus the log groups and the four IAM roles the whole platform needs, kept off the role's inline-policy aggregate limit."
 
   policy = templatefile("${path.module}/policies/github-actions-deploy-platform-frontdoor.json.tftpl", {
-    project_name = var.project_name
-    aws_region   = var.aws_region
+    project_name    = var.project_name
+    aws_region      = var.aws_region
+    route53_zone_id = var.route53_zone_id
   })
 
   depends_on = [time_sleep.wait_for_self_grant]

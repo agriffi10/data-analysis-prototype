@@ -390,6 +390,30 @@ narrowing is SPEC-202's, and it is deliberately the last thing that happens in t
 - [ ] Root variables `parent_domain`, `route53_zone_id`, `spa_subdomain` (default `portal`) and
       `api_subdomain` (default `api`) exist; `parent_domain` and `route53_zone_id` have **no default**,
       so an unset value fails at plan rather than building something against an empty string.
+
+> **Measured on the real run.** The absent default does not do this, and the criterion's own mechanism
+> is what fails. A missing default fails only when the variable is genuinely *absent* — and an unset
+> GitHub repo variable does not arrive absent. `${{ vars.X }}` renders as the **empty string**, which
+> satisfies a required variable. Measured on OpenTofu: unset → `not set, and has no default value`;
+> `TF_VAR_parent_domain=""` → **plans clean**, `var.parent_domain == ""`. The workflow always produces
+> the second case, so the guard never fires and the failure lands at apply, where ACM rejects a
+> certificate for a bare `portal.`.
+>
+> **It is worse for the two defaulted variables**, which the criterion does not guard at all: an empty
+> env var **overrides a default**, so `TF_VAR_spa_subdomain=""` yields `https://.{parent_domain}` —
+> plausible enough to be requested, and refused only by ACM, in a message naming no repo variable.
+>
+> Both halves need a **`validation` block**, on all four variables, plus a `|| 'portal'` / `|| 'api'`
+> fallback in both workflow env blocks so an unset repo variable never arrives empty. The validation
+> is the durable half: the workflow is one careless edit away from losing the fallback.
+>
+> `route53_zone_id`'s pattern is **load-bearing beyond this criterion**. The id is rendered into the
+> deploy role's Route 53 grant as well as into the records, and IAM matches ARNs literally — so the
+> `/hostedzone/`-prefixed form the API returns yields a grant matching **nothing**, and every record
+> write is denied for a reason the value does not look like it could cause.
+>
+> The corollary is worth stating because it is the opposite of the intuition: an unset variable
+> does **not** redden the branch. The plan goes green and the apply fails later.
 - [ ] All four are supplied as `TF_VAR_*` repo variables in **both** the `plan` and the `apply` env
       blocks of `deploy-infra.yml`. Adding them to only one makes the plan job — and therefore the
       plan-scan gate — evaluate a configuration that will never be applied.

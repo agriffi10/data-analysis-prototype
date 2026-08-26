@@ -22,3 +22,8 @@ variable "account_id" {
   description = "AWS account id. Builds the flow-log trust policy's aws:SourceAccount and aws:SourceArn conditions, which guard the confused-deputy problem AWS documents for this role."
   type        = string
 }
+
+variable "availability_zone_names" {
+  description = "Availability zone names to draw the two subnet pairs from, read at root. Sorted and sliced here, so the caller passes the data source's list unfiltered by order."
+  type        = list(string)
+}

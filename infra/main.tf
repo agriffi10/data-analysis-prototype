@@ -12,6 +12,24 @@
 # cycle (the deploy role must be able to manage a bucket the data module creates).
 data "aws_caller_identity" "current" {}
 
+# Read HERE, not inside modules/network, and the reason is the module's own depends_on.
+# A module-level depends_on defers every data source in that module whenever anything it
+# depends on has a pending change — and the subnets are a for_each over a local derived
+# from these names, where a deferred read is not "(known after apply)" but a hard
+# "Invalid for_each argument". So any change to module.base, however small, broke the
+# whole network's plan. At root there is no depends_on to defer it.
+#
+# The filter is load-bearing and its absence is not: opt-in AZs (Local Zones among them)
+# sort BEFORE ordinary ones — us-east-1-atl-2a < us-east-1a — so an unfiltered list
+# silently rehomes both subnet pairs. Do NOT add `state = "available"`: that makes
+# membership depend on AZ health, which recreates the network during an AZ event.
+data "aws_availability_zones" "available" {
+  filter {
+    name   = "opt-in-status"
+    values = ["opt-in-not-required"]
+  }
+}
+
 locals {
   user_space_bucket_name = var.user_space_bucket_name != "" ? var.user_space_bucket_name : "${var.project_name}-prod-user-space"
 
@@ -277,6 +295,18 @@ locals {
     "${var.project_name}-${var.environment}-archive-requests-dlq.fifo",
     "${var.project_name}-${var.environment}-file-ops-requests-dlq.fifo",
   ]
+
+  # The SPA and the API are two hosts under one registrable domain. Constructed here at
+  # root, from the domain variables, and passed DOWN into the modules that need them —
+  # never derived a second time inside a module and never taken from another module's
+  # output. A constructed string is known at plan time; a module output fed into another
+  # module's list attribute is not, and an unknown value inside a list is the shape that
+  # forces a whole plan to defer. The Cognito callback list, the API's CORS list and the
+  # CSP's connect-src all read these.
+  spa_host   = "${var.spa_subdomain}.${var.parent_domain}"
+  api_host   = "${var.api_subdomain}.${var.parent_domain}"
+  spa_origin = "https://${var.spa_subdomain}.${var.parent_domain}"
+  api_origin = "https://${var.api_subdomain}.${var.parent_domain}"
 }
 
 module "app" {
@@ -302,6 +332,12 @@ module "base" {
   state_lock_table  = var.state_lock_table
   aws_region        = var.aws_region
   static_bucket_arn = module.app.static_assets_bucket_arn
+
+  # Scopes the deploy role's Route 53 grant to the single zone the front door owns.
+  # The grant and the records that use it read the SAME variable, so they cannot
+  # disagree: a wrong id fails ChangeResourceRecordSets with NoSuchHostedZone before
+  # anything reaches state, rather than leaving a grant pointing at another zone.
+  route53_zone_id = var.route53_zone_id
 
   # Constructed (not module.data outputs) so base has no dependency on data.
   user_space_bucket_arn       = "arn:aws:s3:::${local.user_space_bucket_name}"
@@ -1161,6 +1197,11 @@ module "network" {
   aws_region   = var.aws_region
   account_id   = data.aws_caller_identity.current.account_id
   vpc_cidr     = var.vpc_cidr
+
+  # Read at root so the module's depends_on cannot defer it to apply — see the data
+  # source's own note. Passed unsorted: the module owns the sort and the slice, because
+  # the pairing of AZ to CIDR is its concern and nothing else reads these.
+  availability_zone_names = data.aws_availability_zones.available.names
 
   # base grants the deploy role the VPC, subnet, route-table, security-group, endpoint and
   # flow-log permissions BEFORE anything here lands.

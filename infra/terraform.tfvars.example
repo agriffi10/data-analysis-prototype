@@ -28,3 +28,24 @@ state_lock_table  = "your-tofu-lock-table-name"
 #     --body '["arn:aws:iam::123456789012:user/your-iam-user"]'
 #
 # Unset, the role is not created; the CloudTrail trail over the archive vault ships regardless.
+
+# ── Front-door domain (SPEC-193 FR-006) ──────────────────────────────────────
+# The registrable domain whose subdomains serve the SPA and the API, and the
+# hosted zone that answers for it. DELIBERATELY NOT SETTABLE HERE, for the same
+# reason as verification_principal_arns above: no human identity in this account
+# can run a local apply. Both are repo variables, applied by CI:
+#
+#   gh variable set TF_VAR_parent_domain   --body 'example.com'
+#   gh variable set TF_VAR_route53_zone_id --body 'Z0123456789ABCDEFGHIJ'
+#
+# route53_zone_id must be the BARE id — strip the /hostedzone/ prefix the Route 53
+# API returns. The value is rendered into the deploy role's Route 53 grant as well
+# as into the records themselves, and IAM matches ARNs literally, so the prefixed
+# form yields a grant that matches nothing. A variable validation refuses it.
+#
+# Optional, defaulting to portal/api. The workflow supplies the same defaults with
+# `||` so an unset repo variable never arrives as the empty string, which WOULD
+# override the default here and yield the host ".example.com":
+#
+#   gh variable set TF_VAR_spa_subdomain --body 'portal'
+#   gh variable set TF_VAR_api_subdomain --body 'api'

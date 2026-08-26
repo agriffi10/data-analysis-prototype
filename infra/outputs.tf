@@ -156,3 +156,33 @@ output "private_subnet_ids" {
   description = "The subnets the ECS tasks run in. No default route reaches the internet from any of them."
   value       = module.network.private_subnet_ids
 }
+
+output "spa_origin" {
+  description = "Origin serving the container SPA. Consumed by the Cognito callback/logout lists, the API's CORS list and the CSP's connect-src."
+  value       = local.spa_origin
+}
+
+output "api_origin" {
+  description = "Origin serving the HTTP API. Named in the CSP's connect-src and in the API's own CORS list."
+  value       = local.api_origin
+}
+
+output "spa_host" {
+  description = "Hostname of the container SPA, without scheme — the ALB alias record and its certificate."
+  value       = local.spa_host
+}
+
+output "api_host" {
+  description = "Hostname of the HTTP API, without scheme — the API Gateway custom domain and its certificate."
+  value       = local.api_host
+}
+
+output "spa_certificate_arn" {
+  description = "Regional ACM certificate for spa_host, validated. Consumed by the SPA's HTTPS listener."
+  value       = aws_acm_certificate_validation.spa.certificate_arn
+}
+
+output "api_certificate_arn" {
+  description = "Regional ACM certificate for api_host, validated. Consumed by the API Gateway custom domain."
+  value       = aws_acm_certificate_validation.api.certificate_arn
+}
