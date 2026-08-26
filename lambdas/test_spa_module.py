@@ -569,8 +569,16 @@ def test_the_admin_buckets_first_policy_denies_nothing_and_wildcards_no_account(
             "Service": "logdelivery.elasticloadbalancing.amazonaws.com"
         }, statement["Principal"]
         assert "/AWSLogs/111122223333/" in statement["Resource"], statement["Resource"]
-        assert statement["Condition"]["StringEquals"]["aws:SourceAccount"] == "111122223333"
-        assert "aws:SourceArn" in statement["Condition"]["ArnLike"]
+
+        # The account is bound by the SourceArn pattern and by the Resource's own path segment
+        # — NOT by a `StringEquals aws:SourceAccount`, which AWS's documentation never uses for
+        # this delivery. A condition on a key the caller does not populate fails closed, and the
+        # refusal names neither the condition nor the key: ELB reports
+        # `InvalidConfigurationRequest: Access Denied for bucket` at create.
+        assert set(statement["Condition"]) == {"ArnLike"}, statement["Condition"]
+        source_arn = statement["Condition"]["ArnLike"]["aws:SourceArn"]
+        assert source_arn.startswith("arn:aws:elasticloadbalancing:"), source_arn
+        assert "111122223333" in source_arn, source_arn
 
     assert "aws_elb_service_account" not in _source_without_comments(), (
         "The legacy account-principal form is back. AWS heads its own published version 'Legacy "

@@ -122,6 +122,15 @@ resource "aws_lb_listener" "http" {
 resource "aws_s3_bucket_policy" "alb_access_logs" {
   bucket = var.admin_bucket_name
 
+  # THE CONDITION SET IS AWS'S OWN, and a key it does not populate is a denial. An earlier
+  # version added `StringEquals aws:SourceAccount` beside the ArnLike below — a condition AWS's
+  # documentation never uses for this delivery — and ELB refused the bucket at create with
+  # `InvalidConfigurationRequest: Access Denied for bucket`, which names neither the condition
+  # nor the key. A condition on an absent key fails closed, so an "extra" one is not a
+  # tightening; it is a guess that the caller populates it.
+  #
+  # Region and account are still bound: the SourceArn pattern carries both, and the Resource
+  # carries the account id as a path segment.
   policy = templatefile("${path.module}/policies/alb-access-logs-bucket-policy.json.tftpl", {
     # The account id is never wildcarded: it is a segment of the key ALB writes to, and a
     # wildcard there would accept another account's load balancer's logs into this bucket.
