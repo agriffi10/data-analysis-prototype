@@ -192,6 +192,12 @@ One heading per entry. **Jump to the one you need — never read this file whole
 - [The notifications `create` boundary is a runtime check, because IAM cannot express it (SPEC-206)](#the-notifications-create-boundary-is-a-runtime-check-because-iam-cannot-express-it-spec-206)
 - [Configuration is a runtime document, and a production build has no fallback (SPEC-192)](#configuration-is-a-runtime-document-and-a-production-build-has-no-fallback-spec-192)
 - [The provider block is the API's verifier configuration, and it is server-side (SPEC-192)](#the-provider-block-is-the-apis-verifier-configuration-and-it-is-server-side-spec-192)
+- [There is no NAT gateway, and the endpoints are the whole outbound story (SPEC-193)](#there-is-no-nat-gateway-and-the-endpoints-are-the-whole-outbound-story-spec-193)
+- [The API function is not in the VPC (SPEC-193)](#the-api-function-is-not-in-the-vpc-spec-193)
+- [Authorization lives in the router, not in an API Gateway authorizer (SPEC-193)](#authorization-lives-in-the-router-not-in-an-api-gateway-authorizer-spec-193)
+- [The image tag is the commit sha, and `:latest` does not exist (SPEC-193)](#the-image-tag-is-the-commit-sha-and-latest-does-not-exist-spec-193)
+- [The origins are admitted additively, and narrowed only at the cutover (SPEC-193)](#the-origins-are-admitted-additively-and-narrowed-only-at-the-cutover-spec-193)
+- [A Fargate task volume cannot give a non-root container a writable path (SPEC-193)](#a-fargate-task-volume-cannot-give-a-non-root-container-a-writable-path-spec-193)
 
 ---
 
@@ -4804,3 +4810,105 @@ Amplify POSTs the code exchange to it. The forbidden set is about *the API's tru
 the word Cognito.
 
 Detail: `spec-delivery/SPEC-192`.
+
+### There is no NAT gateway, and the endpoints are the whole outbound story (SPEC-193)
+
+The private subnets carry no default route of any kind. A Fargate task reaches ECR through
+`ecr.api`, `ecr.dkr` and `logs` interface endpoints with `private_dns_enabled`, and reaches the image
+layers through an S3 **gateway** endpoint whose prefix-list route is what makes it reachable without
+a default route at all. A NAT gateway would cost about $32/month per AZ before a byte moves, and —
+the part that matters more — it would silently widen the blast radius of every future task from "the
+AWS services we enumerated" to "the internet".
+
+**The residual is a connect timeout, and it is the reason flow logs are on.** A destination nobody
+added an endpoint for does not fail fast; it hangs, and a hang leaves nothing behind. Flow logs are
+the only record of a rejected packet in a design whose premise is that certain traffic cannot leave.
+
+**The no-NAT assertion is repo-wide rather than module-scoped**, because scoped to the network module
+it would be satisfied by adding the gateway somewhere else — which is exactly what a quick fix for a
+mysterious timeout looks like.
+
+**Verified live, and only live.** `runningCount == 1` with no `CannotPullContainerError`, read
+**beside** `describe-route-tables` showing local + prefix-list and no `0.0.0.0/0`. Without that
+pairing, a pull that succeeded through a route somebody added reads as proof of the endpoints.
+
+Detail: `spec-delivery/SPEC-193`.
+
+### The API function is not in the VPC (SPEC-193)
+
+The VPC exists for the container. Attaching the API function would need an interface endpoint per
+service it later calls and would put ENI attachment on the cold-start path — and after the arc's
+provider swap the token-verification host is a third party with **no AWS endpoint at all**, so a
+function inside those subnets would stop verifying with no code change to blame.
+
+Asserted as an **absence** (`vpc_config`, `aws_security_group`, `subnet_ids` forbidden in the module),
+because a `vpc_config` added later shows up only as latency until the day it shows up as a timeout.
+
+Detail: `spec-delivery/SPEC-193`.
+
+### Authorization lives in the router, not in an API Gateway authorizer (SPEC-193)
+
+The API serves every path through one `$default` route and one integration. A per-route authorizer
+would have to duplicate the route table before it could say anything at all — and, more decisively, it
+would be a **second reader of the same token**, able to disagree with the router about the claim the
+role assumption is scoped by, with no arbiter between them.
+
+**Today there is nothing to authorize:** the deployed API is a placeholder serving `/healthz` and a
+404, with no identity and no AWS call. SPEC-195 adds the verification, in the router. The disposition
+for `CKV_AWS_309` in `security-baseline.md` is the audit-trail wording, and it rests on the bearer
+token — never on the session cookie the arc's re-scope removed.
+
+Detail: `spec-delivery/SPEC-193`.
+
+### The image tag is the commit sha, and `:latest` does not exist (SPEC-193)
+
+The ECR repository is `IMMUTABLE`. An image is therefore what its tag says it is for as long as the
+revision referencing it exists, and a re-push under an existing sha cannot silently change what a
+rolled-back task definition starts.
+
+**The consequences are not cosmetic.** There is no `:latest` to point a task definition at, so the tag
+is a **variable** (`spa_image_tag`) rather than a constant — a fixed placeholder tag could be pushed
+exactly once, ever, and a bad first push would burn it. And a tag cannot be re-pushed after a bad
+build: the fix is a new commit, not a retry.
+
+**The service's `task_definition` is in `ignore_changes` and its `desired_count` is NOT**, which is a
+division of ownership with teeth. CI owns which revision runs — so **CI must point the service**, and
+a pipeline that only registers a revision leaves the service on the old one, failing with a
+`CannotPullContainerError` that reads exactly like the endpoint failure this platform is tested for.
+Terraform owns the count, because raising it from 0 to 1 is a verification step and an ignored
+attribute would make that step a silent no-op.
+
+Detail: `spec-delivery/SPEC-193`.
+
+### The origins are admitted additively, and narrowed only at the cutover (SPEC-193)
+
+The Cognito app client's callback and logout lists, CloudFront's `connect-src`, and the API's CORS
+list each gained the new origin **beside** the existing one. Nothing was removed.
+
+An allowlist naming one origin makes the other a rollback that cannot be exercised — and the
+rollback is CloudFront, which is still production. The narrowing belongs to the spec that retires the
+distribution, deliberately last. Each addition is verified to have removed nothing, because a
+"replace" where an "add" was intended applies green and is invisible until the day it is needed.
+
+Detail: `spec-delivery/SPEC-193`.
+
+### A Fargate task volume cannot give a non-root container a writable path (SPEC-193)
+
+`readonlyRootFilesystem: true` and a non-root `user` need writable mounts, and the mechanism is
+**`linuxParameters.tmpfs`**, whose `mountOptions` take `uid`, `gid` and `mode`. It is measured, and it
+reverses two earlier statements of the opposite.
+
+**A task-level volume arrives as a fresh, EMPTY, root-owned directory and does not initialise from the
+image.** The container printed `uid=101(nginx)` beside `drwxr-xr-x root root /var/cache/nginx` — a
+path the base image ships owned by 101. nginx then died on `mkdir() "/tmp/proxy_temp" failed (13:
+Permission denied)`, which reads as a container bug and is not one. `volumes` + `mountPoints`,
+`readonlyRootFilesystem` and a non-root user are **any two of the three**.
+
+**The uid is ONE value** feeding both the container's `user` and every mount option. Split, the mount
+is silently unwritable by the process that needs it — which is this entire failure in one line — and a
+test pins them together.
+
+**Do not "fix" a permission error here by seeding the image or by widening the user.** Seeding `/tmp`
+with an owned directory was tried and changed nothing, because nothing is copied.
+
+Detail: `spec-delivery/SPEC-193`.

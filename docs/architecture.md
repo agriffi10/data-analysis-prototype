@@ -912,6 +912,18 @@ this list before merging:
   > policy written far below it) and **the failing shape** (this was an existing policy *modified*,
   > not the "Nth resource added" the rule above describes, which is the commoner case). The rule as
   > written still holds for the control-plane policies, whose sleeps remain create-only.
+- **A service may call an action ON YOUR BEHALF that appears in no action list for it (2026-08-26).**
+  ELBv2 calls `ec2:GetSecurityGroupsForVpc` inside `CreateLoadBalancer`, so a sweep of every
+  `elasticloadbalancing:` action the provider makes finds nothing, and the apply fails on an EC2
+  permission while creating a load balancer. It is scopable (`vpc`), like most of them.
+- **The provider's call is the authority, not the action's name (2026-08-26).** `aws_ecs_cluster`
+  calls `ecs:UpdateCluster` on any `setting` change and calls `UpdateClusterSettings` never — the
+  grant named the second, and the first apply that edited the cluster would have failed on main.
+  Read the resource's source at the pinned version when a grant looks obviously right.
+- **A condition on a key the caller does not populate fails CLOSED (2026-08-26).** ELB validates the
+  access-log bucket policy with a `PutObject` of its own; `aws:SourceAccount` and then
+  `aws:SourceArn` were each refused alone, and the message named neither. An "extra" condition is not
+  a tightening — it is a bet that the caller supplies the key.
 - **Some actions are not resource-scopable** — they only authorize on `Resource: "*"`; a narrower ARN
   is an implicit deny. Known offenders: `logs:DescribeLogGroups`, `cognito-idp:DescribeUserPoolDomain`,
   `cognito-idp:CreateUserPool`. Put each in its own `"*"` statement. Verify scopability cheaply with
@@ -967,6 +979,53 @@ this list before merging:
   isolation working, not a failure. Verify per-user provisioning via the post-confirmation Lambda's
   CloudWatch logs or by querying as an LF admin (only the deploy role + control-plane execution
   roles + post-confirmation exec role are LF admins).
+
+### The container platform (SPEC-193)
+
+The network, the API's front door and the SPA's runtime. It serves a placeholder today; SPEC-194
+builds the real image and SPEC-202 retires CloudFront.
+
+**`infra/modules/network/`** — a VPC across two AZs, two public and two private /20s. The private
+subnets carry **no default route of any kind**: a task reaches ECR through `ecr.api`, `ecr.dkr` and
+`logs` interface endpoints (all `private_dns_enabled`), and reaches the image layers through an S3
+**gateway** endpoint, whose prefix-list route is what makes it reachable with no default route at
+all. Flow logs are on because the residual failure is a **connect timeout**, and a timeout leaves
+nothing behind. The no-NAT assertion is **repo-wide**, not module-scoped — scoped, it would be
+satisfied by adding the gateway somewhere else, which is exactly what a quick fix for a mysterious
+timeout looks like.
+
+**`infra/modules/api/`** — an HTTP API, one `$default` route, one integration, a regional custom
+domain at `api.`, CORS admitting both origins, access logging, and a placeholder function that is
+**not in the VPC**. Authorization will live in the router (SPEC-195), never in an authorizer.
+
+**`infra/modules/spa/`** — ECR (immutable tags, scan on push, AES256, bounded lifecycle), an ECS
+cluster, two task roles (**the task role holds nothing** — the container makes no AWS call), the task
+definition, a Fargate service on **platform 1.4.0** in the private subnets, an ALB in the public ones
+with a TLS 1.3 listener and a redirect-only :80, the rules on both security groups, the admin
+bucket's first policy (ALB access logs), and the `portal.` alias record.
+
+**Reading the platform's failures.** Three of them look like each other and are not:
+
+| Symptom | Usually means |
+|---|---|
+| `CannotPullContainerError` naming a tag | the service points at a revision whose image was never pushed — **not** the endpoints |
+| `CannotPullContainerError` with no tag issue | an endpoint, its security group, private DNS, or the platform version |
+| `ResourceInitializationError` | the log group or the execution role, before the pull is even attempted |
+
+Pair any pull result with `describe-route-tables`: a pull that succeeded through a route somebody
+added reads as proof of the endpoints.
+
+**Writable paths under `readonlyRootFilesystem`.** A Fargate **task volume** arrives empty and
+root-owned and does **not** initialise from the image — measured, with `/var/cache/nginx` (shipped
+owned by uid 101) arriving as root's. So `volumes` + `mountPoints`, a read-only root filesystem and a
+non-root user are **any two of the three**. The mechanism is `linuxParameters.tmpfs`, whose
+`mountOptions` take `uid`, `gid` and `mode`; the uid is one value feeding both the container's `user`
+and every mount option.
+
+**Ownership between Terraform and CI.** `task_definition` is in the service's `ignore_changes` and
+`desired_count` is not. CI therefore **must point the service** at the revision it wants — Terraform
+registers revisions and never moves the service — while the count stays Terraform's, because raising
+it is a verification step an ignored attribute would silently swallow.
 
 ### Lambda code/infra split (established SPEC-012)
 

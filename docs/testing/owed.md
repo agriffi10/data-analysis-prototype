@@ -480,6 +480,22 @@ good. Until then the grant is wider than it needs to be by exactly one AWS-owned
 by the account id in the Resource path — a foreign balancer writes under its own account's id and
 matches nothing here.
 
+
+### Discharged 2026-08-26 — the container platform
+
+| Settled | Evidence |
+|---|---|
+| **A Fargate task pulls from ECR with NO NAT gateway** | `runningCount == 1`, no `CannotPullContainerError`, read beside `describe-route-tables` showing local + `pl-63a5400a` and **no `0.0.0.0/0`** |
+| The gateway endpoint's association set | `RouteTableIds` **equals** the private route tables |
+| `/healthz` through the load balancer | `HTTP/2 200`, body `ok`; target health `healthy` |
+| The HTTP→HTTPS redirect | `301`, `Server: awselb/2.0` — **curl only**, `.app` is HSTS-preloaded |
+| Both certificates | issued per host, and **both `ELIGIBLE`** for renewal once attached |
+| The CORS trio | one ACAO for each allowed origin, **zero** for a foreign one, no credentials header |
+| Both origins in both Cognito lists, and `api_origin` in CloudFront's `connect-src` | read back from the deployed client and a `curl -sSI` |
+| ALB access-log delivery | `ELBAccessLogTestFile` written; its `Expiration` header names the `expire-alb-access-logs` rule, which proves the cross-module prefix agreement at runtime |
+| `RegisterTaskDefinition` with **tmpfs** on FARGATE | accepted; the mounts came back `drwxrwxrwt nginx nginx` |
+| `ecs:RegisterTaskDefinition` scoped by resource TYPE | works — the task definition was created on the first apply |
+
 ## 3. Discharged, and worth not re-litigating
 
 Kept short on purpose — the reasoning lives in `docs/decisions.md` and the delivery docs. These are

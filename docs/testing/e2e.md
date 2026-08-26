@@ -655,6 +655,23 @@ at **400px via DevTools device toolbar**.
 - Every dialog is **392px** at this width (root font-size 14px), centred, with no horizontal page
   scroll — and the suggestion listbox stays **inside** its dialog, not overhanging it.
 
+### The container platform — what a signed-in session CANNOT reach
+
+`portal.dataquarry.app` is a **placeholder** and no user is pointed at it: the portal you sign in to
+is still the CloudFront one. There is nothing here to click.
+
+Two things are worth a glance whenever this guide is run, because both are invisible until a rollback
+or a ported route needs them, and both are cheap:
+
+- `curl -s https://api.dataquarry.app/healthz` returns `{"status": "ok", "version": "<sha>"}`. The sha
+  is the last commit that changed `lambdas/api/`, **not** HEAD — the deploy skips unchanged
+  functions, and reading it as HEAD makes a healthy API look broken.
+- `curl -sSI $CLOUDFRONT_URL | grep -io 'connect-src[^;]*'` still names `https://api.dataquarry.app`.
+  If it does not, a ported feature will fail in the browser and nowhere else.
+
+The platform's own verification — the no-NAT pull, the redirect, target health — is **§B of
+`arc-b-api-container-e2e.md`**, discharged 2026-08-26 and recorded in `owed.md`.
+
 ---
 
 ## 5. Cleanup and write-up
