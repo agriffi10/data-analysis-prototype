@@ -49,3 +49,22 @@ state_lock_table  = "your-tofu-lock-table-name"
 #
 #   gh variable set TF_VAR_spa_subdomain --body 'portal'
 #   gh variable set TF_VAR_api_subdomain --body 'api'
+
+# ── The container platform (SPEC-193 FR-005) ─────────────────────────────────
+# Two repo variables, for the same reason as everything above: no human identity
+# here can apply locally. Both have workflow `||` fallbacks AND validation blocks,
+# because an unset repo variable arrives as the empty string, which satisfies a
+# required variable and overrides a default.
+#
+#   gh variable set TF_VAR_spa_desired_count --body '1'
+#   gh variable set TF_VAR_spa_image_tag     --body '<the commit sha that was pushed>'
+#
+# `max_upload_bytes` is NOT a third variable: deploy-infra.yml supplies it from the
+# same VITE_MAX_UPLOAD_BYTES repository variable deploy-app.yml renders the CloudFront
+# document from, so the two renderers of /config.json cannot disagree.
+#
+# The service ships at a desired count of ZERO, so the first apply creates it before
+# any image exists. Verification pushes the placeholder image, sets both variables and
+# re-applies. The registry has IMMUTABLE tags — there is no :latest to point at, and a
+# tag cannot be re-pushed after a bad build, which is why the tag is a variable rather
+# than a constant in the task definition.

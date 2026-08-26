@@ -149,15 +149,19 @@ resource "aws_route_table_association" "private" {
 # balancer's group, and the two rules that name both sides, belong to the module that creates the
 # load balancer.
 #
-# No rules are attached here at all. Every one of them names a group from the other module, so
-# they are declared there — a rule split across two modules is a rule nobody can read.
-# THE TASK CANNOT REACH ANYTHING YET, AND THAT IS CORRECT. Terraform revokes the AWS default
-# allow-all egress when it creates a security group, so with no rules this group permits nothing
-# outbound and the endpoint group's ingress rule is inert. On platform version 1.4.0 every leg of
-# task startup — the ECR credential fetch, the image pull and the log stream — travels the task
-# ENI and is governed by this group, so a pull tested against this module alone WILL time out.
-# The egress rules arrive with the load balancer: 443 to the endpoint group, and the S3 gateway
-# endpoint's managed prefix list. Do not read that timeout as an endpoint defect.
+# No rule that NAMES THIS GROUP AS ITS OWN is attached here. Every one of those names the load
+# balancer's group too, so they are declared in the module that creates it — a rule split across
+# two modules is a rule nobody can read. The one rule here that REFERENCES this group is the
+# endpoints' ingress in endpoints.tf, which belongs beside the endpoints it admits traffic to;
+# re-declaring it in the other module fails the apply with InvalidPermission.Duplicate.
+# THIS GROUP PERMITS NOTHING ON ITS OWN, AND THAT IS CORRECT. Terraform revokes the AWS default
+# allow-all egress when it creates a security group, so with no rules attached this group permits
+# nothing outbound and the endpoint group's ingress rule is inert. On platform version 1.4.0 every
+# leg of task startup — the ECR credential fetch, the image pull and the log stream — travels the
+# task ENI and is governed by this group, so a pull attempted with the front door's rules absent
+# WILL time out. Those rules are 443 to the endpoint group and the S3 gateway endpoint's managed
+# prefix list, and they live with the load balancer. Do not read such a timeout as an endpoint
+# defect.
 resource "aws_security_group" "task" {
   name        = "${local.name_prefix}-spa-task"
   description = "The SPA container. Ingress from the load balancer only; egress to the VPC endpoints only."

@@ -32,6 +32,8 @@ Attributes:
 import pathlib
 import re
 
+from tf_blocks import blocks
+
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 NETWORK = INFRA / "modules" / "network"
 MAIN = NETWORK / "main.tf"
@@ -40,49 +42,6 @@ GRANT = INFRA / "modules" / "base" / "policies" / "github-actions-deploy-platfor
 ENDPOINTS = NETWORK / "endpoints.tf"
 
 INTERFACE_ENDPOINT_SERVICES = ("ecr.api", "ecr.dkr", "logs")
-
-
-def _blocks(text: str, kind: str) -> dict[str, str]:
-    """Splits Terraform source into top-level resource blocks of one type.
-
-    A brace-counting split rather than a regex over the whole block, because a resource body
-    contains nested braces and a non-greedy match stops at the first inner one — which would
-    quietly hide whatever came after it.
-
-    **Strings and comments are skipped, and that is not fastidiousness.** A naive count ends the
-    block at the ``}`` inside ``tags = { Name = "closes early }" }``, so everything after it —
-    including a default route to a NAT gateway — falls outside the body and every assertion below
-    reports clean. The reverse, an unbalanced brace inside a ``#`` comment, swallows the next
-    resource whole and produces a failure naming the wrong one.
-
-    Args:
-      text: The Terraform source to read.
-      kind: The resource type to collect, e.g. ``aws_route_table``.
-
-    Returns:
-      Each matching resource's local name mapped to its body.
-
-    Raises:
-      None.
-    """
-    found = {}
-    for match in re.finditer(rf'resource\s+"{re.escape(kind)}"\s+"([^"]+)"\s*\{{', text):
-        depth, index = 1, match.end()
-        while depth and index < len(text):
-            char = text[index]
-            if char == "#" or text[index : index + 2] == "//":
-                index = text.find("\n", index)
-                if index == -1:
-                    break
-            elif char == '"':
-                index += 1
-                while index < len(text) and text[index] != '"':
-                    index += 2 if text[index] == "\\" else 1
-            else:
-                depth += {"{": 1, "}": -1}.get(char, 0)
-            index += 1
-        found[match.group(1)] = text[match.end() : index - 1]
-    return found
 
 
 def test_no_nat_gateway_or_elastic_ip_exists_anywhere_in_the_iac() -> None:
@@ -133,7 +92,7 @@ def test_no_private_route_table_carries_a_default_route() -> None:
       AssertionError: When any route to the private tables carries a default destination.
     """
     text = "\n".join(path.read_text() for path in sorted(NETWORK.rglob("*.tf")))
-    private_tables = _blocks(text, "aws_route_table")
+    private_tables = blocks(text, "aws_route_table")
     assert "private" in private_tables, "No private route table found — the parse went trivial."
 
     for name, body in private_tables.items():
@@ -142,7 +101,7 @@ def test_no_private_route_table_carries_a_default_route() -> None:
                 f"aws_route_table.{name} declares an inline default route."
             )
 
-    for name, body in _blocks(text, "aws_route").items():
+    for name, body in blocks(text, "aws_route").items():
         if "0.0.0.0/0" in body or "::/0" in body:
             assert "aws_route_table.public" in body, (
                 f"aws_route.{name} sends a default route somewhere other than the public table. "
@@ -166,7 +125,7 @@ def test_the_gateway_endpoint_associates_every_private_route_table() -> None:
     Raises:
       AssertionError: When the S3 endpoint is missing, not a gateway, or lists its tables.
     """
-    endpoints = _blocks(ENDPOINTS.read_text(), "aws_vpc_endpoint")
+    endpoints = blocks(ENDPOINTS.read_text(), "aws_vpc_endpoint")
     assert "s3" in endpoints, "No S3 VPC endpoint found."
     body = endpoints["s3"]
 
@@ -197,7 +156,7 @@ def test_every_interface_endpoint_resolves_privately_and_admits_only_the_tasks()
       AssertionError: When the interface endpoints are misconfigured or the wrong set.
     """
     text = ENDPOINTS.read_text()
-    endpoints = _blocks(text, "aws_vpc_endpoint")
+    endpoints = blocks(text, "aws_vpc_endpoint")
     assert "interface" in endpoints, "No interface endpoints found."
     body = endpoints["interface"]
 
@@ -214,7 +173,7 @@ def test_every_interface_endpoint_resolves_privately_and_admits_only_the_tasks()
     assert "aws_subnet.private" in body, "The interface endpoints must sit in the private subnets."
     assert "aws_security_group.endpoints.id" in body
 
-    ingress = _blocks(text, "aws_vpc_security_group_ingress_rule")
+    ingress = blocks(text, "aws_vpc_security_group_ingress_rule")
     assert ingress, "The endpoint security group has no ingress rule."
 
     # ON the endpoint group and FROM the task group, checked as two separate attributes. Merely
@@ -258,7 +217,7 @@ def test_the_vpc_enables_both_dns_settings() -> None:
     Raises:
       AssertionError: When either DNS setting is absent or false.
     """
-    body = _blocks(MAIN.read_text(), "aws_vpc")["main"]
+    body = blocks(MAIN.read_text(), "aws_vpc")["main"]
     assert "enable_dns_support   = true" in body or "enable_dns_support = true" in body
     assert "enable_dns_hostnames = true" in body
 
@@ -280,7 +239,7 @@ def test_subnets_are_keyed_by_availability_zone_name() -> None:
     """
     text = MAIN.read_text()
     for name in ("public", "private"):
-        body = _blocks(text, "aws_subnet")[name]
+        body = blocks(text, "aws_subnet")[name]
         assert "for_each = local.subnets" in body, f"aws_subnet.{name} must be keyed by AZ name."
         assert "availability_zone = each.key" in body
 
@@ -336,7 +295,7 @@ def test_public_subnets_hand_out_no_public_addresses() -> None:
     Raises:
       AssertionError: When a public subnet auto-assigns public IPs.
     """
-    body = _blocks(MAIN.read_text(), "aws_subnet")["public"]
+    body = blocks(MAIN.read_text(), "aws_subnet")["public"]
     assert "map_public_ip_on_launch = false" in body
 
 
@@ -352,7 +311,7 @@ def test_every_log_group_this_module_creates_sets_retention() -> None:
     Raises:
       AssertionError: When a log group ships without a retention.
     """
-    groups = _blocks(MAIN.read_text(), "aws_cloudwatch_log_group")
+    groups = blocks(MAIN.read_text(), "aws_cloudwatch_log_group")
     assert groups, "No log group found — the parse went trivial."
     for name, body in groups.items():
         assert "retention_in_days" in body, f"aws_cloudwatch_log_group.{name} sets no retention."
@@ -374,7 +333,7 @@ def test_the_flow_logs_role_is_named_the_way_the_deploy_grant_expects() -> None:
     Raises:
       AssertionError: When the role name drifts from the pattern the grant scopes to.
     """
-    body = _blocks(MAIN.read_text(), "aws_iam_role")["flow_logs"]
+    body = blocks(MAIN.read_text(), "aws_iam_role")["flow_logs"]
     assert re.search(r'name\s*=\s*"\$\{local\.name_prefix\}-vpc-flow-logs-role"', body), (
         "The flow-logs role's NAME must be ${local.name_prefix}-vpc-flow-logs-role. Asserted on "
         "the name attribute rather than on the body, which a tag value would also satisfy."

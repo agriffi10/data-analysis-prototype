@@ -157,6 +157,11 @@ output "private_subnet_ids" {
   value       = module.network.private_subnet_ids
 }
 
+output "api_function_name" {
+  description = "The API function, for the deploy matrix and for the live checks that read its deployed configuration back."
+  value       = module.api.api_function_name
+}
+
 output "spa_origin" {
   description = "Origin serving the container SPA. Consumed by the Cognito callback/logout lists, the API's CORS list and the CSP's connect-src."
   value       = local.spa_origin
@@ -185,4 +190,28 @@ output "spa_certificate_arn" {
 output "api_certificate_arn" {
   description = "Regional ACM certificate for api_host, validated. Consumed by the API Gateway custom domain."
   value       = aws_acm_certificate_validation.api.certificate_arn
+}
+
+# ── The container platform ────────────────────────────────────────────────────
+# All four are read by hand during verification: the registry to push the placeholder image
+# to, the cluster and service to describe, and the load balancer's own name to prove the
+# alias record points at THIS balancer rather than at a stale one.
+output "ecr_repository_url" {
+  description = "Registry the SPA image is pushed to."
+  value       = module.spa.ecr_repository_url
+}
+
+output "ecs_cluster_name" {
+  description = "Cluster the SPA service runs in."
+  value       = module.spa.ecs_cluster_name
+}
+
+output "ecs_service_name" {
+  description = "The SPA service — describe-services reads its running count and its event log."
+  value       = module.spa.ecs_service_name
+}
+
+output "alb_dns_name" {
+  description = "The SPA load balancer's own DNS name, which the spa_host alias record must resolve to."
+  value       = module.spa.alb_dns_name
 }

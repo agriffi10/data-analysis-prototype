@@ -37,6 +37,12 @@ a genuine improvement retiring a settled decision: the image **is** the file set
   `local.content_security_policy` live in `infra/modules/app/cloudfront.tf` today; they move to
   `infra/main.tf` and are passed into `module.app` and into SPEC-193's task-definition environment, so
   one computation feeds both delivery paths.
+
+> **Superseded by SPEC-193 PR 4 (2026-08-26).** `local.csp_connect_src` has ALREADY moved to
+> root, with `api_origin` added, because the API's origin comes into existence there and the
+> CloudFront bundle needs it before this spec runs. **Only `local.content_security_policy`
+> remains to move.** `modules/app` now takes `csp_connect_src` as an input.
+
 - The four **re-decisions** this move forces, each with its cost: HSTS `preload`, the `Server` header,
   brotli, and the honest 404 on `/assets/`.
 - A **CI header/behaviour matrix** run against the freshly built image before it is pushed — the gate
@@ -47,11 +53,6 @@ a genuine improvement retiring a settled decision: the image **is** the file set
   rule — `architecture.md` → *Deploy-role IAM — adding a new resource type* is required reading first.
 - Superseded markers at every site still claiming SPEC-141's orphan class and its "exactly one sync
   pass carries `--delete`" criterion.
-
-> **Superseded by SPEC-193 PR 4 (2026-08-26).** `local.csp_connect_src` has ALREADY moved to
-> root, with `api_origin` added, because the API's origin comes into existence there and the
-> CloudFront bundle needs it before this spec runs. **Only `local.content_security_policy`
-> remains to move.** `modules/app` now takes `csp_connect_src` as an input.
 
 ### Out of Scope
 
@@ -153,6 +154,13 @@ errors. The unprivileged image listens on **8080** as uid 101 by construction.
       green and produces a container that never starts, reported as a generic essential-container exit.
       The mounts are task-level `volumes` + `mountPoints`, SPEC-193's to write; `linuxParameters.tmpfs`
       is rejected on the Fargate launch type and is not an option for either spec.
+
+> **Corrected by SPEC-193 PR 5 (2026-08-26).** The *reason* is not established. AWS's current
+> `LinuxParameters` reference gives `devices`, `maxSwap`, `sharedMemorySize` and `swappiness` an
+> explicit Fargate-unsupported note and gives **`tmpfs` none**. What survives is the criterion itself:
+> the mechanism is `volumes` + `mountPoints`, because this spec's image depends on that pair — and
+> nothing claims tmpfs *works* either, since documentation silence is not an API acceptance. SPEC-193's
+> shipped module uses no `linuxParameters` at all, asserted by test.
 
 ### FR-002: SPA routing fallback, and the 200 that cannot be believed
 
@@ -315,6 +323,11 @@ live policy's first directive, and the one a reader enumerating "the interesting
 `form-action`, `frame-ancestors` and `upgrade-insecure-requests`, all properties of the bundle and
 unchanged from SPEC-140 including Monaco's `style-src 'unsafe-inline'` and `worker-src blob:` — and
 **the task definition supplies `connect-src`** as one variable, `PORTAL_CSP_CONNECT_SRC`.
+
+> **Superseded by SPEC-193 PR 4 (2026-08-26).** `local.csp_connect_src` has ALREADY moved to
+> root, with `api_origin` added, because the API's origin comes into existence there and the
+> CloudFront bundle needs it before this spec runs. **Only `local.content_security_policy`
+> remains to move.** `modules/app` now takes `csp_connect_src` as an input.
 
 **Both CSP locals move to root, and this spec is where they move.** `local.csp_connect_src` and
 `local.content_security_policy` live in `infra/modules/app/cloudfront.tf` today; root `main.tf` passes
@@ -588,8 +601,12 @@ PORTAL_CSP_CONNECT_SRC   # space-separated source list, from root local.csp_conn
                          # by FR-006) as a SUPERSET of its pre-move value: every host it carries,
                          # incl. both Cognito ones, plus the API host. Shrinks per porting spec.
                          # FR-006 names the removal owner for each entry.
-<SPEC-192's required set> # rendered into /config.json. SPEC-192 names and classifies them; SPEC-193's
-                         # task definition carries the block; this spec renders and refuses.
+CONFIG_<documentKey>     # every key in SPEC-192's classification, one variable each, named with
+                         # this prefix and the document's own camelCase key (CONFIG_appUrl,
+                         # CONFIG_awsRegion, …) — the convention SPEC-193 PR 5 chose and
+                         # deploy-app.yml's render step already uses. SPEC-192 names and classifies
+                         # the keys; SPEC-193's task definition carries the block, DERIVED from a
+                         # root map so it cannot be partial; this spec renders and refuses.
 
 # Baked into the image at build time, not supplied by the task definition.
 BUILD_VERSION            # the commit sha; FR-012.
@@ -629,7 +646,8 @@ apps/portal/docker/nginx.conf
 apps/portal/docker/default.conf.template
 apps/portal/docker/snippets/security-headers.conf
 apps/portal/docker/docker-entrypoint.d/40-render-config-json.sh
-infra/main.tf                                                # + the two CSP locals, moved (FR-006)
+infra/main.tf                                                # + local.content_security_policy, moved (FR-006);
+                                                             #   local.csp_connect_src moved with SPEC-193 PR 4
 infra/modules/app/cloudfront.tf                              # − the two CSP locals, + the policy input
 .github/workflows/deploy-spa-image.yml
 .github/scripts/spa-image-matrix.sh                          # FR-011's assertion table

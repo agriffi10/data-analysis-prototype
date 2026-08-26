@@ -194,6 +194,28 @@ Grouped by rule; the count is the number of resources.
 | 1 | CKV_AWS_374 | Geo restriction | **accept** — no geographic access policy. |
 | 1 | CKV2_AWS_61 | S3 lifecycle configuration | **defer** — subsumed by the CKV_AWS_300 work. |
 
+#### The container platform's own rows (added 2026-08-26, measured on checkov 3.3.9)
+
+The ECS/ECR/ALB resources are new, so they bring findings this table had no reason to carry. Every
+one is a deliberate choice already argued in the module's own comments; the disposition is here
+because the enforce list's rule is that a *failing* rule has one. **None of them reddens either
+gate** — measured: the enforce list reports 0 findings on its 52 IDs, and the rendered-plan IAM
+scan reports 0 failures on the new policies, so no accepted row was added (a row matching no
+finding is a hard error there).
+
+| N | Check | Rule | Disposition |
+|---|---|---|---|
+| 1 | CKV_AWS_332 | ECS service pins a platform version rather than LATEST | **accept — the check is backwards here.** `1.4.0` is pinned deliberately: on 1.3.0 the image pull used a separate Amazon-owned ENI to which VPC endpoints did not apply, so the whole no-NAT design silently would not hold. Following this check would undo the arc's central claim. |
+| 1 | CKV_AWS_260 | Security group allows 0.0.0.0/0 on port 80 | **accept** — the port-80 listener's only action is a 301 to HTTPS, asserted by test. A public SPA that cannot be reached at `http://` is one that fails for every user who types the bare host. |
+| 1 | CKV2_AWS_28 | ALB fronted by a WAF | **defer** — the same decision as CKV_AWS_68 for CloudFront, and the same reason: real cost, pre-production system. Revisit with the two together, not separately. |
+| 1 | CKV_AWS_136 | ECR repository encrypted with a CMK | **defer** — AES256 today. The layers are a public SPA bundle; a CMK buys a key policy to maintain rather than a secret to protect. Consistent with the S3 and SQS no-CMK rows above. |
+| 1 | CKV_AWS_158 | ECS task log group encrypted by KMS | **defer** — the same row as the Lambda log groups above, for the same reason. |
+| 1 | CKV_AWS_338 | ECS task log group retention ≥ 1 year | **accept** — 14 days, matching every other log group here. CloudWatch is the operational tail; the durable store is `logs/` in S3. |
+
+CKV_AWS_65 (Container Insights) is **not** on this list: the spec's own criterion puts it among the
+things fixed rather than dispositioned while the resource is new, and the cluster ships with
+insights enabled.
+
 ~~**Five fixes fall out of this:** S3 versioning, the multipart-abort lifecycle rule, the CloudFront
 response-headers policy, the Athena workgroup enforcement, and the two cheap npm bumps.~~
 

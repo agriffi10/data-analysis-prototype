@@ -137,6 +137,16 @@ jobs:
           TF_VAR_route53_zone_id: ${{ vars.TF_VAR_route53_zone_id }}
           TF_VAR_spa_subdomain: ${{ vars.TF_VAR_spa_subdomain || 'portal' }}
           TF_VAR_api_subdomain: ${{ vars.TF_VAR_api_subdomain || 'api' }}
+          # The || fallbacks are not cosmetic: an UNSET repo variable renders as the empty
+          # string, which satisfies a required variable and overrides a default. Each of these
+          # also carries a validation block, which is the durable half — this line is one
+          # careless edit away from being lost.
+          TF_VAR_spa_desired_count: ${{ vars.TF_VAR_spa_desired_count || '0' }}
+          TF_VAR_spa_image_tag: ${{ vars.TF_VAR_spa_image_tag || 'placeholder' }}
+          # THE SAME repository variable deploy-app.yml renders CONFIG_maxUploadBytes from. The
+          # container and the CloudFront bundle serve the same document from two renderers, and
+          # sourcing this from anywhere else makes them disagree with no symptom on either screen.
+          TF_VAR_max_upload_bytes: ${{ vars.VITE_MAX_UPLOAD_BYTES || '5368709120' }}
           # SPEC-186 FR-004. The module's own comment points operators at a gitignored
           # terraform.tfvars, but a LOCAL apply is not available here: the laptop IAM user
           # cannot read the data buckets (their policies allowlist the portal, deploy and
@@ -368,6 +378,16 @@ jobs:
           TF_VAR_route53_zone_id: ${{ vars.TF_VAR_route53_zone_id }}
           TF_VAR_spa_subdomain: ${{ vars.TF_VAR_spa_subdomain || 'portal' }}
           TF_VAR_api_subdomain: ${{ vars.TF_VAR_api_subdomain || 'api' }}
+          # The || fallbacks are not cosmetic: an UNSET repo variable renders as the empty
+          # string, which satisfies a required variable and overrides a default. Each of these
+          # also carries a validation block, which is the durable half — this line is one
+          # careless edit away from being lost.
+          TF_VAR_spa_desired_count: ${{ vars.TF_VAR_spa_desired_count || '0' }}
+          TF_VAR_spa_image_tag: ${{ vars.TF_VAR_spa_image_tag || 'placeholder' }}
+          # THE SAME repository variable deploy-app.yml renders CONFIG_maxUploadBytes from. The
+          # container and the CloudFront bundle serve the same document from two renderers, and
+          # sourcing this from anywhere else makes them disagree with no symptom on either screen.
+          TF_VAR_max_upload_bytes: ${{ vars.VITE_MAX_UPLOAD_BYTES || '5368709120' }}
           # SPEC-186 FR-004 — see the plan job's env block for why this is not a tfvars file.
           TF_VAR_verification_principal_arns: ${{ vars.TF_VAR_verification_principal_arns || '[]' }}
 

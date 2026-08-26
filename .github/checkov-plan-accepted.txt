@@ -8,8 +8,13 @@
 # applicable condition key. SPEC-139 took the IAM findings from 6 to 2; these are the 2.
 #
 # They are accepted by check ID AND RESOURCE, never by check ID alone — the same rules
-# firing on any other policy still fail. The isolation policies (`portal-role-permissions`
-# and the per-plane execution roles) have zero `Resource: "*"` and must stay that way.
+# firing on any other policy still fail. The USER-FACING ISOLATION policies
+# (`portal-role-permissions` and the per-plane control-plane execution roles) have zero
+# `Resource: "*"` and must stay that way — that is what this claim means, and it is narrowed
+# here because it once read as covering every role in the account. It does not: the SPA's ECS
+# task-execution role holds `ecr:GetAuthorizationToken` on `"*"`, which is unscopable (the
+# action takes no resource type at all) and reaches no user data. Its scoped siblings — the
+# three pull actions and the two log actions — name the repository and the log group.
 #
 # A line here that no longer matches a finding is a HARD ERROR — it either describes something
 # already fixed, or points at a resource that has been renamed, in which case it is accepting

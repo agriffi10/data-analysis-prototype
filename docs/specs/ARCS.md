@@ -1811,6 +1811,12 @@ because each spec was internally consistent and pinned its own version with its 
   stays the only path.
 - **`tmpfs` is rejected on the Fargate launch type**, and SPEC-193's mount set disagreed with the paths
   SPEC-194 actually writes — with `readonlyRootFilesystem: true` the container would never have started.
+
+  > **Corrected by SPEC-193 PR 5 (2026-08-26).** The mount-set half stands and is now asserted by a
+  > test reading SPEC-194's own criterion. The tmpfs half does not: AWS's `LinuxParameters` reference
+  > gives four fields an explicit Fargate-unsupported note and gives `tmpfs` none, so "rejected on the
+  > Fargate launch type" is not established. The mechanism is `volumes` + `mountPoints` because the
+  > image spec depends on that pair — and the shipped module uses no `linuxParameters` at all.
 - **The runtime-config accessor threw before the app's own module-load reads** (`lib/s3Client.ts` and
   `fileBrowser.types.ts` both read at import), so a production build would have thrown before
   rendering. The bootstrap is now a dynamic import of the provider tree.

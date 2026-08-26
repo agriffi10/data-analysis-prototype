@@ -1,0 +1,126 @@
+variable "project_name" {
+  description = "Short name used as a prefix for AWS resource names."
+  type        = string
+}
+
+variable "environment" {
+  description = "Deployment environment, used in resource names."
+  type        = string
+}
+
+variable "aws_region" {
+  description = "Region the cluster, the registry and the load balancer live in."
+  type        = string
+}
+
+variable "account_id" {
+  description = "Account the resources are created in. Passed in rather than read from a data source here: this module carries a depends_on, and a module-level depends_on defers every data source inside it."
+  type        = string
+}
+
+variable "vpc_id" {
+  description = "VPC holding the load balancer's subnets and both security groups."
+  type        = string
+}
+
+variable "public_subnet_ids" {
+  description = "Subnets the internet-facing load balancer is placed in."
+  type        = list(string)
+}
+
+variable "private_subnet_ids" {
+  description = "Subnets the tasks run in. No default route reaches the internet from any of them, which is what makes assign_public_ip = false load-bearing rather than decorative."
+  type        = list(string)
+}
+
+variable "task_security_group_id" {
+  description = "The task security group, created by the network module with NO rules. Every rule names a group this module also names, so all of them are declared here."
+  type        = string
+}
+
+variable "vpc_endpoint_security_group_id" {
+  description = "The interface endpoints' group — the destination of the task's only port-443 egress allowance. Its reciprocal ingress rule is declared in the network module beside the endpoints and must NOT be re-declared here (InvalidPermission.Duplicate)."
+  type        = string
+}
+
+variable "s3_prefix_list_id" {
+  description = "The S3 gateway endpoint's managed prefix list. The task's egress to S3 must name it: a CIDR egress rule does not match gateway-endpoint traffic, and the failure is an image pull that hangs rather than one that refuses."
+  type        = string
+}
+
+variable "spa_host" {
+  description = "Hostname the container answers on, without scheme. Built at root from the domain variables and passed down — never derived here."
+  type        = string
+}
+
+variable "spa_certificate_arn" {
+  description = "Regional ACM certificate for spa_host. Fed from the certificate VALIDATION resource, not the certificate itself: both carry the same ARN, but only the validation creates the edge that stops a clean rebuild attaching a PENDING_VALIDATION certificate to the listener."
+  type        = string
+}
+
+variable "route53_zone_id" {
+  description = "Hosted zone that answers for the parent domain, carrying this host's A-alias record."
+  type        = string
+}
+
+variable "admin_bucket_name" {
+  description = "The Athena admin bucket, which takes the load balancer's access logs under alb-access-logs/. This module writes that bucket's FIRST policy."
+  type        = string
+}
+
+variable "access_logs_prefix" {
+  description = "Prefix in the admin bucket the load balancer writes access logs under, decided at root because the module that owns the bucket's lifecycle rules must expire the same prefix. ALB appends its own AWSLogs/{account}/ beneath it."
+  type        = string
+}
+
+variable "desired_count" {
+  description = "Tasks the service runs. Zero here so the first apply creates a service before any image exists; the deploy that pushes an image raises it."
+  type        = number
+}
+
+variable "runtime_config" {
+  description = "The runtime configuration document's keys and their values, from root. Rendered into the task environment as CONFIG_<key> — one entry per key, never hand-listed here, so a key added to the classification cannot be half-wired. The portal's classification owns which keys exist; this module owns the block."
+  type        = map(string)
+}
+
+variable "csp_connect_src" {
+  description = "The whole connect-src source list, built at root and carried to the container as PORTAL_CSP_CONNECT_SRC so one computation feeds both delivery paths."
+  type        = string
+}
+
+variable "task_cpu" {
+  description = "Fargate CPU units for the task. The smallest valid pairing for a static-asset server."
+  type        = string
+  default     = "256"
+}
+
+variable "task_memory" {
+  description = "Fargate memory (MiB) for the task."
+  type        = string
+  default     = "512"
+}
+
+variable "container_port" {
+  description = "Port the container listens on. 8080 because the runtime base is nginx-unprivileged, which binds it as uid 101 by construction; the image and the target group must agree, and the image honours this value."
+  type        = number
+  default     = 8080
+}
+
+variable "health_check_path" {
+  description = "Path the target group polls. What it serves belongs to the image; that it is this path is agreed between the image and this module, and asserted by test."
+  type        = string
+  default     = "/healthz"
+}
+
+variable "image_tag" {
+  description = "Tag of the image the task definition references. The registry is IMMUTABLE, so there is no :latest to point at and no tag that can be re-pushed after a bad build — the tag is the commit sha of the image CI pushed, and the placeholder default exists only so the first apply can create a task definition before any image does. Supplied as a repo variable, like every other environment fact."
+  type        = string
+  default     = "placeholder"
+
+  validation {
+    # An empty repo variable renders as the empty string, which satisfies a required variable
+    # and overrides a default — so the guard is on the value, not on its presence.
+    condition     = can(regex("^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$", var.image_tag))
+    error_message = "image_tag must be a valid ECR tag: it starts with a letter, digit or underscore, continues with those plus dot and hyphen, and is at most 128 characters. ECR refuses a leading dot or hyphen."
+  }
+}
