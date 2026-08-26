@@ -566,3 +566,64 @@ def test_the_deploy_role_stays_under_the_attached_managed_policy_ceiling() -> No
         f"quota in Service Quotas (IAM -> 'Managed policies per role', auto-approved up to "
         f"{MAX_ATTACHED_MANAGED_POLICIES}) and raise this bound with it, or consolidate."
     )
+
+# Resource types whose creation makes AWS create a SERVICE-LINKED ROLE in the account, mapped
+# to the service name `iam:CreateServiceLinkedRole` is conditioned on. A missing entry is a 403
+# at apply — "Caller does not have permissions to create a Service Linked Role" — naming neither
+# the resource nor the service, and it is invisible at plan because the plan does not call the
+# creating API. Measured: a regional API Gateway custom domain does this, which AWS documents
+# ("the service-linked role is required to attach your ACM certificate to your Regional
+# endpoint") and which this repo discovered by reddening main instead.
+SERVICE_LINKED_ROLE_TRIGGERS = {
+    "aws_apigatewayv2_domain_name": "ops.apigateway.amazonaws.com",
+    "aws_ecs_service": "ecs.amazonaws.com",
+    "aws_lb": "elasticloadbalancing.amazonaws.com",
+}
+
+
+def _declared_resource_types() -> set[str]:
+    """Every resource type the IaC tree declares.
+
+    Args:
+      None.
+
+    Returns:
+      The set of `resource "<type>"` names across infra/.
+
+    Raises:
+      None.
+    """
+    types: set[str] = set()
+    for path in (ROOT / "infra").rglob("*.tf"):
+        types.update(re.findall(r'^resource\s+"([a-z0-9_]+)"', path.read_text(), re.MULTILINE))
+    return types
+
+
+def test_every_resource_that_needs_a_service_linked_role_can_create_one():
+    """The grant must name a service BEFORE the resource that triggers it is declared.
+
+    This is the one class of deploy-role gap a plan cannot reveal: the creating API is never
+    called, so the plan is green and the apply is a 403 whose message names neither the
+    resource nor the missing service name. Tying the condition list to the declared resource
+    types is what makes the next one fail here instead of on main.
+    """
+    document = json.loads(_render(POLICY_DIR / "github-actions-deploy-platform.json.tftpl"))
+    granted: set[str] = set()
+    for statement in document["Statement"]:
+        actions = statement.get("Action", [])
+        actions = [actions] if isinstance(actions, str) else actions
+        if "iam:CreateServiceLinkedRole" in actions:
+            granted.update(
+                statement.get("Condition", {})
+                .get("StringEquals", {})
+                .get("iam:AWSServiceName", [])
+            )
+
+    declared = _declared_resource_types()
+    for resource_type, service_name in SERVICE_LINKED_ROLE_TRIGGERS.items():
+        if resource_type in declared:
+            assert service_name in granted, (
+                f"infra declares {resource_type}, whose creation makes AWS create a "
+                f"service-linked role, but the deploy role may not create one for "
+                f"{service_name}. This applies green at plan and 403s at apply."
+            )
