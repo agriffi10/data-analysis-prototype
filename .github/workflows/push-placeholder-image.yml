@@ -49,23 +49,29 @@ jobs:
 
       - name: Build and push, tagged with this commit
         id: push
+        env:
+          PROJECT: ${{ vars.TF_VAR_project_name || 'dat' }}
+          ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
         run: |
           set -euo pipefail
 
-          # ASKED FOR, not constructed. Building the URI from project/environment variables
-          # would put a second copy of the naming convention in a file that cannot be tested
-          # against Terraform's — and it would be wrong silently, as a repository that does
-          # not exist. One repository ends in -spa; anything else is a state worth stopping on.
-          mapfile -t REPOS < <(aws ecr describe-repositories \
-            --query "repositories[?ends_with(repositoryName, '-spa')].[repositoryName,repositoryUri]" \
-            --output text)
-          if [ "${#REPOS[@]}" -ne 1 ]; then
-            echo "::error title=Registry::expected exactly one repository ending in -spa, found ${#REPOS[@]}"
-            printf '%s\n' "${REPOS[@]}"
+          # CONSTRUCTED, THEN VERIFIED — and the first version of this step got it backwards.
+          # It asked ECR for "the repository ending in -spa" to avoid keeping a second copy of
+          # Terraform's naming convention here. That call is a LIST: an unfiltered
+          # describe-repositories authorizes against `repository/*`, while the deploy role is
+          # scoped to `repository/{project}-*-spa*`, so it was refused — the "safer" shape
+          # needed a strictly WIDER grant than the one it was avoiding a guess about.
+          #
+          # So the name is built from the same two variables Terraform builds it from, and then
+          # confirmed with a describe that NAMES it. That call authorizes against the repository's
+          # own ARN, which is granted, and a wrong name fails here saying so rather than deep
+          # inside docker push.
+          NAME="${PROJECT}-${ENVIRONMENT}-spa"
+          if ! REPO=$(aws ecr describe-repositories --repository-names "$NAME" \
+                        --query 'repositories[0].repositoryUri' --output text 2>/dev/null); then
+            echo "::error title=Registry::no repository named $NAME. Terraform builds it from project_name and environment; set TF_VAR_project_name / TF_VAR_environment if this deployment does not use the defaults."
             exit 1
           fi
-          NAME=$(printf '%s' "${REPOS[0]}" | cut -f1)
-          REPO=$(printf '%s' "${REPOS[0]}" | cut -f2)
           SHA="${GITHUB_SHA}"
 
           # THE TAG CANNOT BE RE-PUSHED. The repository is IMMUTABLE, so a second run at the
