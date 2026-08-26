@@ -401,10 +401,8 @@ resource "aws_iam_role_policy_attachment" "deploy_file_send" {
 # Granted FIRST and applied before the file-ops module's resources land (the
 # deploy-perms-before-resources rule), so there is no self-grant race. A first-apply failure
 # was previously expected anyway, because wait_for_self_grant fires once at creation and an Nth
-# policy added later got zero delay; a re-run was the accepted remedy. That still holds for the
-# control-plane policies here. It no longer holds for the two PLATFORM policies, which carry
-# their own post-attachment guard keyed to their bodies — see wait_for_platform_grant, and the
-# measurement that prompted it.
+# policy added later got zero delay; a re-run remains the accepted remedy for the control-plane
+# policies, this one included.
 resource "aws_iam_policy" "deploy_file_ops" {
   name        = "${var.project_name}-deploy-file-ops"
   description = "Deploy-role grants for the file-operations control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, focommon layer, log groups, TIMED_OUT rule), kept off the role's inline-policy aggregate limit."
@@ -636,7 +634,7 @@ resource "aws_iam_role_policy_attachment" "deploy_platform_frontdoor" {
 # than a wider dependency on the first one: `wait_for_self_grant` sits at the top of this
 # module's graph, guarding the inline policy that lets the deploy role create managed policies
 # at all. Everything below finishes long after it, so by the time these two are written it has
-# been done for minutes and gates nothing.
+# long since finished and gates nothing.
 #
 # Every module that uses a platform grant carries `depends_on = [module.base]`, which waits for
 # every resource here — including this one. So placing the pause AFTER the attachments is what

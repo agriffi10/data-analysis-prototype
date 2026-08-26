@@ -902,6 +902,16 @@ this list before merging:
   an existing sleep gets zero delay and can hit `AccessDenied` on the **first** apply. Accepted fix:
   **re-run the deploy** (`module.base` attaches the policy first, so the grant is propagated by the
   re-run). Expect one first-apply failure when extending an existing module, then a clean re-run.
+
+  > **Superseded for the two PLATFORM policies (2026-08-26).** Re-run is no longer the accepted
+  > remedy there: `time_sleep.wait_for_platform_grant` sits **after** their attachments and carries
+  > `triggers` keyed to both policy bodies, so it re-fires whenever a grant changes. Measured, and
+  > the reason it stopped being acceptable: a grant written at `14:56:08.95` was refused at
+  > `14:56:10.67` and `main` went red. Two lessons generalise beyond those policies — **placement**
+  > (a sleep guarding the inline policy sits at the top of the graph and cannot cover a managed
+  > policy written far below it) and **the failing shape** (this was an existing policy *modified*,
+  > not the "Nth resource added" the rule above describes, which is the commoner case). The rule as
+  > written still holds for the control-plane policies, whose sleeps remain create-only.
 - **Some actions are not resource-scopable** — they only authorize on `Resource: "*"`; a narrower ARN
   is an implicit deny. Known offenders: `logs:DescribeLogGroups`, `cognito-idp:DescribeUserPoolDomain`,
   `cognito-idp:CreateUserPool`. Put each in its own `"*"` statement. Verify scopability cheaply with

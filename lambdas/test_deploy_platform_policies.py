@@ -644,17 +644,29 @@ def test_the_platform_grant_pause_sits_after_the_attachments_and_re_fires_on_cha
     start = text.index('resource "time_sleep" "wait_for_platform_grant"')
     block = text[start : text.index("\n}", start)]
 
-    assert "triggers" in block, (
-        "the pause must carry triggers keyed to the policy bodies — without them it is created "
-        "once and gives a later grant change zero delay"
+    # The triggers MAP, not the block. Three substring searches over the whole resource pass
+    # while the map holds a static nonce and the two policy references sit in a comment beside
+    # it — measured, that mutation survived. Same trap as the attachment check below, one field
+    # up: closing it there and leaving it open here is how a guard half-works.
+    triggers = re.search(r"triggers\s*=\s*\{(.*?)\n  \}", block, re.DOTALL)
+    assert triggers, (
+        "the pause must carry a triggers map keyed to the policy bodies — without one it is "
+        "created once and gives a later grant change zero delay"
     )
-    for policy in ("deploy_platform.policy", "deploy_platform_frontdoor.policy"):
-        assert policy in block, f"the pause must re-fire when {policy} changes"
+    keyed_on = set(re.findall(r"=\s*(aws_iam_policy\.\w+\.policy)\s*$", triggers.group(1), re.MULTILINE))
+    assert keyed_on == {
+        "aws_iam_policy.deploy_platform.policy",
+        "aws_iam_policy.deploy_platform_frontdoor.policy",
+    }, (
+        f"the triggers map is keyed on {sorted(keyed_on)} — it must key on both policy BODIES. "
+        "An ARN never changes when a grant is widened, so keying on one is a pause that never "
+        "returns"
+    )
 
     # Anchored to whole entries, not substrings: `…deploy_platform` occurs inside
     # `…deploy_platform_frontdoor`, so a containment check is satisfied by the wrong line and
     # stays green with one of the two dependencies deleted. Measured — that mutation survived.
-    depended_on = set(re.findall(r"^\s*(aws_iam_role_policy_attachment\.\w+),\s*$", block, re.MULTILINE))
+    depended_on = set(re.findall(r"\b(aws_iam_role_policy_attachment\.\w+)\b", block))
     assert depended_on == {
         "aws_iam_role_policy_attachment.deploy_platform",
         "aws_iam_role_policy_attachment.deploy_platform_frontdoor",
