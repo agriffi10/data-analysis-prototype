@@ -25,31 +25,6 @@ resource "aws_cloudfront_origin_access_control" "static_assets" {
 # verified). Promotion happened as its own commit, revertible alone.
 
 locals {
-  # Every AWS endpoint the SPA talks to directly. There is no backend, so this
-  # list IS the app's network surface — anything missing here is a broken
-  # feature, not a hardened one.
-  csp_connect_src = join(" ", [
-    "'self'",
-    "https://cognito-idp.${var.aws_region}.amazonaws.com",
-    "https://cognito-identity.${var.aws_region}.amazonaws.com",
-    # The Hosted UI domain is NOT reachable via cognito-idp: Amplify's
-    # authorization-code exchange POSTs to https://<domain>/oauth2/token.
-    # Omitting it blocks the exchange, so the returning `?code=` is never
-    # redeemed, `getCurrentUser()` keeps failing, and the app sits signed-out
-    # over a live Cognito session.
-    #
-    # The code exchange is the ONLY fetch to this host. Both redirects (the
-    # /oauth2/authorize start and the /logout sign-out) are navigations, which
-    # connect-src does not govern, and token refresh + RevokeToken are
-    # cognito-idp API calls. Don't infer a wider need than this from it.
-    "https://${var.cognito_hosted_ui_domain}",
-    "https://${var.user_space_bucket_name}.s3.${var.aws_region}.amazonaws.com",
-    "https://${var.shared_space_bucket_name}.s3.${var.aws_region}.amazonaws.com",
-    "https://athena.${var.aws_region}.amazonaws.com",
-    "https://glue.${var.aws_region}.amazonaws.com",
-    "https://sqs.${var.aws_region}.amazonaws.com",
-  ])
-
   content_security_policy = join("; ", [
     "default-src 'self'",
     "script-src 'self'",
@@ -69,7 +44,7 @@ locals {
     # Monaco's worker is a Vite `?worker` import (SqlEditor.tsx). Vite emits a
     # same-origin chunk, but its worker shim can fall back to a blob: URL.
     "worker-src 'self' blob:",
-    "connect-src ${local.csp_connect_src}",
+    "connect-src ${var.csp_connect_src}",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

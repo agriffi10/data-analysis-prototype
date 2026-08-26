@@ -115,11 +115,20 @@ recipe anywhere** — write one when you run it.
 | **A partial restore, and `restore_timed_out`** | Forcing one item to fail mid-copy means denying a destination the guard would have refused up front. Seven hours of waiting to observe a counter. |
 | **Stale root-level static assets** (SPEC-141) | An accepted orphan class, not a check. Removals are by hand, and **not verifiable by status code** — the distribution maps `403/404 → /index.html` with a **200**, so check `content-type` and `x-cache: Error from cloudfront`. |
 
+### Accepted exposure, with an owner
+
+| Exposure | Owner | Note |
+|---|---|---|
+| **The API is internet-facing, unauthenticated and unthrottled** | SPEC-196 | `api.dataquarry.app` answers `GET /healthz` and 404s everything else — no AWS call, no data, no identity. A rate limit is **deliberately deferred by the arc**, so the account default (10,000 rps / 5,000 burst) applies and every request is a billed invocation. CORS restrains browsers, not `curl`. Reviewed and accepted 2026-08-26; the exposure is billing, not disclosure. Revisit if the placeholder is still there when a route with a body lands. |
+
 ### Dated, and nothing in CI will raise it
 
 | Check | Due | Note |
 |---|---|---|
 | **The front door's domain registration expires** | **2027-08-26** | `dataquarry.app`, auto-renew **deliberately off**. Every hostname in the container arc hangs off it — both ACM certificates, the Cognito callback and logout lists, the CSP's `connect-src`. A lapse takes the platform's DNS dark, and no workflow, alarm or scanner watches a registrar expiry. Re-check with `aws route53domains get-domain-detail --domain-name dataquarry.app --query '{AutoRenew:AutoRenew,Expiry:ExpirationDate}'`. |
+| **A live CORS preflight: one `access-control-allow-origin` per origin, and none for a foreign one** | with SPEC-193 PR 6 | Only the foreign-origin half can fail — a `"*"` configuration passes the echo check. Offline the configuration is asserted; the header count is not observable without a request. |
+| **One real invocation producing one span with `env` and `version` populated** | with SPEC-193 PR 6 | The gate the structured-logging spec lacked, and the entire argument for building a placeholder. A missing layer attachment passes every offline gate: the shared conftest puts the layer on `sys.path`, and `update-function-code` succeeds against a function that cannot import. |
+| **`describe-user-pool-client` shows BOTH origins in the callback AND logout lists** | with SPEC-193 PR 6 | The offline assertion proves the Terraform; only the deployed client proves the apply widened rather than replaced. |
 | **The two front-door certificates are unattached until the API and SPA ship** | with SPEC-193 PR 4/5 | ACM's managed renewal covers a certificate only while it is **associated with a service** or exported. `ISSUED` is therefore not a durable end state here — verification must confirm *association*, not status. |
 
 ---

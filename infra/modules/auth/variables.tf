@@ -68,3 +68,9 @@ variable "logs_queue_url" {
   EOT
   type        = string
 }
+
+variable "spa_origin" {
+  description = "Origin of the container SPA, added to the app client's callback and logout lists beside the CloudFront one. Built at root from the domain variables. Empty is tolerated for the same reason app_url's is — the list compacts — but under normal operation it is always set."
+  type        = string
+  default     = ""
+}

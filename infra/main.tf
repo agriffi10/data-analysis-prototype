@@ -307,6 +307,39 @@ locals {
   api_host   = "${var.api_subdomain}.${var.parent_domain}"
   spa_origin = "https://${var.spa_subdomain}.${var.parent_domain}"
   api_origin = "https://${var.api_subdomain}.${var.parent_domain}"
+
+  # Every host the browser fetches. Until the API exists there is no backend, so this list
+  # IS the app's network surface — anything missing is a broken feature, not a hardened one,
+  # and nothing observes a CSP offline.
+  #
+  # Built from CONSTRUCTED STRINGS, never from a module output. module.app is upstream of
+  # base -> data, so a module reference here is a dependency cycle; and api_origin in
+  # particular must come from the subdomain variables above rather than from module.api's
+  # domain name, which would route the same cycle through base.
+  #
+  # It lives at root rather than in modules/app because three consumers need it and only
+  # one of them is that module.
+  csp_connect_src = join(" ", [
+    "'self'",
+    "https://cognito-idp.${var.aws_region}.amazonaws.com",
+    "https://cognito-identity.${var.aws_region}.amazonaws.com",
+    # NOT reachable via cognito-idp: Amplify's authorization-code exchange POSTs to
+    # https://<domain>/oauth2/token. Omitting it blocks the exchange, so the returning
+    # `?code=` is never redeemed and the app sits signed-out over a live session.
+    #
+    # That exchange is the ONLY fetch to this host. Both redirects are navigations, which
+    # connect-src does not govern, and refresh plus RevokeToken are cognito-idp calls.
+    "https://${local.cognito_hosted_ui_domain}",
+    "https://${local.user_space_bucket_name}.s3.${var.aws_region}.amazonaws.com",
+    "https://${local.shared_space_bucket_name}.s3.${var.aws_region}.amazonaws.com",
+    "https://athena.${var.aws_region}.amazonaws.com",
+    "https://glue.${var.aws_region}.amazonaws.com",
+    "https://sqs.${var.aws_region}.amazonaws.com",
+    # The API. Added here rather than in the spec that retires CloudFront, because the
+    # bundle in the static bucket is HEAD: once the ported routes land it fetches this
+    # host, and an origin whose CSP omits it is a portal that loads and can do nothing.
+    local.api_origin,
+  ])
 }
 
 module "app" {
@@ -314,13 +347,10 @@ module "app" {
 
   project_name = var.project_name
 
-  # CSP connect-src inputs. Constructed strings from locals, NOT
-  # module.data/module.shared_spaces outputs — this module is upstream of
-  # base -> data, so a module reference here would be a dependency cycle.
-  aws_region               = var.aws_region
-  user_space_bucket_name   = local.user_space_bucket_name
-  shared_space_bucket_name = local.shared_space_bucket_name
-  cognito_hosted_ui_domain = local.cognito_hosted_ui_domain
+  # The whole connect-src, built at root. It used to be assembled inside this module from
+  # four inputs; it moved out because the API's origin has to join it and root is where
+  # that origin exists.
+  csp_connect_src = local.csp_connect_src
 }
 
 module "base" {
@@ -365,6 +395,7 @@ module "auth" {
   project_name = var.project_name
   environment  = var.environment
   app_url      = var.app_url
+  spa_origin   = local.spa_origin
   # The RESOLVED prefix, not the raw var: the CSP allows a host built from this
   # same local, so root has to be the one place the default is decided. Passing
   # the raw var would leave the module's own ternary free to drift from the CSP's
@@ -1189,6 +1220,48 @@ module "verification" {
 # endpoint, private DNS off, a gateway endpoint associated with the wrong route table) applies
 # green and shows up only when something tries to pull an image through it, so proving the
 # network is worth its own apply rather than being debugged underneath a container.
+# The API's front door. A leaf: nothing else in this composition reads its outputs, and
+# nothing in it is referenced by module.app's CSP — api_origin is a constructed string in
+# the locals above precisely so this module never becomes an input to that list.
+#
+# It takes the six cpcommon required values as ENVIRONMENT, which is not the same as taking
+# them as permissions: the function's role names logs and one queue and nothing else, and a
+# test asserts that against the rendered policy. The layer resolves config lazily, so an
+# unset one would fail at first read rather than at import — the environment is complete
+# anyway, so the spec that starts verifying tokens inherits no surprise.
+module "api" {
+  source = "./modules/api"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+
+  # Built at root from the domain variables, never derived inside the module.
+  api_host        = local.api_host
+  spa_origin      = local.spa_origin
+  app_url         = var.app_url
+  route53_zone_id = var.route53_zone_id
+
+  # From the VALIDATION, not the certificate: same ARN, but only this one creates the edge
+  # that stops a clean rebuild attaching a still-pending certificate to the domain.
+  api_certificate_arn = aws_acm_certificate_validation.api.certificate_arn
+
+  logs_queue_url = module.observability.logs_queue_url
+  logs_queue_arn = module.observability.logs_queue_arn
+
+  user_pool_id        = module.auth.user_pool_id
+  app_client_id       = module.auth.user_pool_client_id
+  admin_bucket        = local.athena_admin_bucket_name
+  user_space_bucket   = local.user_space_bucket_name
+  shared_space_bucket = local.shared_space_bucket_name
+  athena_workgroup    = local.athena_workgroup_name
+
+  # base grants the deploy role the apigateway, function, role and log-group permissions
+  # BEFORE anything here lands.
+  depends_on = [module.base]
+}
+
+
 module "network" {
   source = "./modules/network"
 
