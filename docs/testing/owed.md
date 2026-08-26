@@ -115,6 +115,13 @@ recipe anywhere** — write one when you run it.
 | **A partial restore, and `restore_timed_out`** | Forcing one item to fail mid-copy means denying a destination the guard would have refused up front. Seven hours of waiting to observe a counter. |
 | **Stale root-level static assets** (SPEC-141) | An accepted orphan class, not a check. Removals are by hand, and **not verifiable by status code** — the distribution maps `403/404 → /index.html` with a **200**, so check `content-type` and `x-cache: Error from cloudfront`. |
 
+### Dated, and nothing in CI will raise it
+
+| Check | Due | Note |
+|---|---|---|
+| **The front door's domain registration expires** | **2027-08-26** | `dataquarry.app`, auto-renew **deliberately off**. Every hostname in the container arc hangs off it — both ACM certificates, the Cognito callback and logout lists, the CSP's `connect-src`. A lapse takes the platform's DNS dark, and no workflow, alarm or scanner watches a registrar expiry. Re-check with `aws route53domains get-domain-detail --domain-name dataquarry.app --query '{AutoRenew:AutoRenew,Expiry:ExpirationDate}'`. |
+| **The two front-door certificates are unattached until the API and SPA ship** | with SPEC-193 PR 4/5 | ACM's managed renewal covers a certificate only while it is **associated with a service** or exported. `ISSUED` is therefore not a durable end state here — verification must confirm *association*, not status. |
+
 ---
 
 ## 2. Recipes

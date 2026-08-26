@@ -128,6 +128,10 @@ jobs:
           TF_VAR_github_repo: ${{ vars.TF_VAR_github_repo }}
           TF_VAR_state_bucket: ${{ secrets.TF_VAR_state_bucket }}
           TF_VAR_state_lock_table: ${{ secrets.TF_VAR_state_lock_table }}
+          TF_VAR_parent_domain: ${{ vars.TF_VAR_parent_domain }}
+          TF_VAR_route53_zone_id: ${{ vars.TF_VAR_route53_zone_id }}
+          TF_VAR_spa_subdomain: ${{ vars.TF_VAR_spa_subdomain || 'portal' }}
+          TF_VAR_api_subdomain: ${{ vars.TF_VAR_api_subdomain || 'api' }}
           # SPEC-186 FR-004. The module's own comment points operators at a gitignored
           # terraform.tfvars, but a LOCAL apply is not available here: the laptop IAM user
           # cannot read the data buckets (their policies allowlist the portal, deploy and
@@ -355,6 +359,10 @@ jobs:
           TF_VAR_github_repo: ${{ vars.TF_VAR_github_repo }}
           TF_VAR_state_bucket: ${{ secrets.TF_VAR_state_bucket }}
           TF_VAR_state_lock_table: ${{ secrets.TF_VAR_state_lock_table }}
+          TF_VAR_parent_domain: ${{ vars.TF_VAR_parent_domain }}
+          TF_VAR_route53_zone_id: ${{ vars.TF_VAR_route53_zone_id }}
+          TF_VAR_spa_subdomain: ${{ vars.TF_VAR_spa_subdomain || 'portal' }}
+          TF_VAR_api_subdomain: ${{ vars.TF_VAR_api_subdomain || 'api' }}
           # SPEC-186 FR-004 — see the plan job's env block for why this is not a tfvars file.
           TF_VAR_verification_principal_arns: ${{ vars.TF_VAR_verification_principal_arns || '[]' }}
 

@@ -277,6 +277,18 @@ locals {
     "${var.project_name}-${var.environment}-archive-requests-dlq.fifo",
     "${var.project_name}-${var.environment}-file-ops-requests-dlq.fifo",
   ]
+
+  # The SPA and the API are two hosts under one registrable domain. Constructed here at
+  # root, from the domain variables, and passed DOWN into the modules that need them —
+  # never derived a second time inside a module and never taken from another module's
+  # output. A constructed string is known at plan time; a module output fed into another
+  # module's list attribute is not, and an unknown value inside a list is the shape that
+  # forces a whole plan to defer. The Cognito callback list, the API's CORS list and the
+  # CSP's connect-src all read these.
+  spa_host   = "${var.spa_subdomain}.${var.parent_domain}"
+  api_host   = "${var.api_subdomain}.${var.parent_domain}"
+  spa_origin = "https://${var.spa_subdomain}.${var.parent_domain}"
+  api_origin = "https://${var.api_subdomain}.${var.parent_domain}"
 }
 
 module "app" {
@@ -302,6 +314,12 @@ module "base" {
   state_lock_table  = var.state_lock_table
   aws_region        = var.aws_region
   static_bucket_arn = module.app.static_assets_bucket_arn
+
+  # Scopes the deploy role's Route 53 grant to the single zone the front door owns.
+  # The grant and the records that use it read the SAME variable, so they cannot
+  # disagree: a wrong id fails ChangeResourceRecordSets with NoSuchHostedZone before
+  # anything reaches state, rather than leaving a grant pointing at another zone.
+  route53_zone_id = var.route53_zone_id
 
   # Constructed (not module.data outputs) so base has no dependency on data.
   user_space_bucket_arn       = "arn:aws:s3:::${local.user_space_bucket_name}"

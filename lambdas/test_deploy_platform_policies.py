@@ -195,6 +195,10 @@ def _render(path: pathlib.Path) -> str:
         "shared_space_bucket_arn": "arn:aws:s3:::dat-prod-shared-space",
         "archive_bucket_name": "dat-prod-archive",
         "trail_bucket_name": "dat-prod-archive-audit",
+        # Matches PLANNED_RESOURCES["hosted zone"]: the Route 53 grant is scoped to the one
+        # zone, so an id substituted here that differs from the one simulated against would
+        # make the scoping assertions pass on a document nothing is measured against.
+        "route53_zone_id": "Z0123456789ABCDEFGHIJ",
     }
     text = path.read_text()
     for name, value in substitutions.items():
