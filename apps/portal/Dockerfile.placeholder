@@ -45,17 +45,27 @@ RUN printf '%s\n' \
     '}' \
     > /etc/nginx/conf.d/default.conf
 
-# THE MOUNTED /tmp COMES BACK ROOT-OWNED UNLESS THE IMAGE PUTS SOMETHING THERE. A Fargate
-# task-level volume initialises from the image's own directory at that path — content AND
-# ownership — and initialises as root:root 0755 when there is nothing to copy. /tmp is empty in
-# every base image, so the mount lands unwritable and nginx dies at start with
+# WHAT THE MOUNTS ACTUALLY LOOK LIKE, printed before nginx starts.
 #
-#   nginx: [emerg] mkdir() "/tmp/proxy_temp" failed (13: Permission denied)
+# Two guesses have now been wrong about this. The first assumed a task volume is writable by
+# the container's user; it is not, and nginx died with
+# `mkdir() "/tmp/proxy_temp" failed (13: Permission denied)`. The second assumed a Fargate
+# volume initialises from the image's own directory at that path — seed /tmp with an
+# owned directory and the mount inherits it — and the identical failure came back.
 #
-# which reads as a container bug rather than as a mount-ownership one. /var/cache/nginx does not
-# have the problem: the base image ships it owned by uid 101, so the copy carries that through.
-# Seeding /tmp with one owned directory is what makes the two mounts behave alike.
-RUN install -d -o 101 -g 101 -m 1777 /tmp/seed && chown 101:101 /tmp
+# So this prints `id` and the ownership of both mounted paths before starting, and the next
+# run answers the question with output instead of another hypothesis. It costs one deploy
+# cycle and ends a guessing loop.
+RUN printf '%s\n' \
+    '#!/bin/sh' \
+    'echo "id: $(id)"' \
+    'ls -ld /tmp /var/cache/nginx' \
+    'ls -la /tmp | head -5' \
+    'exec /docker-entrypoint.sh "$@"' \
+    > /usr/local/bin/report-and-start.sh \
+  && chmod +x /usr/local/bin/report-and-start.sh
 
 EXPOSE 8080
 USER 101
+ENTRYPOINT ["/usr/local/bin/report-and-start.sh"]
+CMD ["nginx", "-g", "daemon off;"]
