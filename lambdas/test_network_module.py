@@ -20,6 +20,8 @@ Attributes:
   INFRA: The IaC tree, swept whole by the no-NAT assertion.
   NETWORK: The network module's directory.
   MAIN: Its VPC, subnets, route tables, security groups and flow logs.
+  ROOT_MAIN: The root composition, which owns the availability-zones read — the module's own
+    depends_on would defer it to apply, and the subnets' for_each cannot take a deferred value.
   GRANT: The deploy-role policy that scopes the flow-logs role by name — the other half of an
     agreement whose breach is refused at ``CreateRole`` and reads as a missing permission.
   ENDPOINTS: Its four VPC endpoints.
@@ -33,6 +35,7 @@ import re
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 NETWORK = INFRA / "modules" / "network"
 MAIN = NETWORK / "main.tf"
+ROOT_MAIN = INFRA / "main.tf"
 GRANT = INFRA / "modules" / "base" / "policies" / "github-actions-deploy-platform-frontdoor.json.tftpl"
 ENDPOINTS = NETWORK / "endpoints.tf"
 
@@ -291,10 +294,26 @@ def test_subnets_are_keyed_by_availability_zone_name() -> None:
         "The availability-zone list must be sorted before it is sliced. Without it the CIDR "
         "assignment depends on the API's ordering, and a reordering recreates every subnet."
     )
-    assert re.search(r'name\s*=\s*"opt-in-status"', text), (
+    root = ROOT_MAIN.read_text()
+    assert re.search(r'name\s*=\s*"opt-in-status"', root), (
         "The availability-zones data source must filter on opt-in-status. Local and Wavelength "
         "zones sort BEFORE the ordinary ones, so opting into any of them would move this network "
-        "into two zones Fargate does not run in."
+        "into two zones Fargate does not run in. The source reads at ROOT, because a module-level "
+        "depends_on defers a data source to apply and this one feeds a for_each, where deferral "
+        "is a hard error rather than a deferred value."
+    )
+    assert re.search(
+        r"availability_zone_names\s*=\s*data\.aws_availability_zones\.available\.names", root
+    ), (
+        "module.network must take the availability zones from the filtered data source. A literal "
+        "list at the call site satisfies every other assertion here while bypassing the "
+        "opt-in-status filter entirely — and it pins the network to two named zones, so the CIDR "
+        "pairing stops being derived at all."
+    )
+    assert not re.search(r'data\s+"aws_availability_zones"', text), (
+        "The availability-zones data source must NOT move back into the module: module.network "
+        "carries depends_on, which defers it and breaks the subnets' for_each on any change to "
+        "the module it depends on."
     )
     # Comment lines dropped first: the module explains at length why this filter is wrong, and
     # naming the thing you are forbidding is not the same as doing it.

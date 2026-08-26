@@ -29,6 +29,10 @@ Attributes:
   DOMAIN_VARIABLES: The four variables that must each carry a validation block.
   REQUIRED_DOMAIN_VARIABLES: The two that must additionally carry no default.
   ENVIRONMENT_LITERALS: Values that are environment facts and may appear in no Terraform source.
+  ACCEPTED: Values each variable's validation must admit.
+  REFUSED: Values it must refuse. The empty string leads every row on purpose — it is what an
+    unset repo variable actually produces, and the one value the absent default was wrongly
+    believed to stop.
 """
 
 import pathlib
@@ -82,8 +86,49 @@ def _variable_block(name: str) -> str:
     raise AssertionError(f"variable {name} has no closing brace")
 
 
-def test_every_domain_variable_carries_a_validation_block() -> None:
-    """A validation block is what an absent default cannot do on its own.
+def _validation_pattern(name: str) -> re.Pattern[str]:
+    """Extracts a variable's validation regex and un-escapes it back to what HCL sees.
+
+    The raw source carries HCL's own escaping — a regex ``\\.`` is written ``\\\\.`` in the
+    file. Compiled straight from the file text that reads as "a literal backslash then any
+    character", so a pattern that accepts ``example.com`` in Terraform rejects it in Python and
+    every table row below would assert against a regex the deployment never uses.
+
+    Args:
+      name: The variable's name.
+
+    Returns:
+      The compiled pattern, escaped the way Terraform reads it.
+
+    Raises:
+      AssertionError: If the variable declares no regex-based validation.
+    """
+    block = _variable_block(name)
+    match = re.search(r'can\(regex\("(.+?)",\s*var\.', block, re.DOTALL)
+    assert match, f"{name} must validate with a regex over the value's shape"
+    return re.compile(match.group(1).replace("\\\\", "\\"))
+
+
+ACCEPTED = {
+    "parent_domain": ("example.com", "dat.example.com", "my-site.co.uk", "xn--e1afmkfd.xn--p1ai"),
+    "route53_zone_id": ("Z10330063QJICF0JG35VO", "Z2FDTNDATAQYW2"),
+    "spa_subdomain": ("portal", "my-portal", "app2"),
+    "api_subdomain": ("api", "api-v2"),
+}
+
+REFUSED = {
+    "parent_domain": ("", "example.com.", "-bad.com", "com", "example.com/foo", "10.0.0.1", "Example.COM"),
+    "route53_zone_id": ("", "/hostedzone/Z10330063QJICF0JG35VO", "hostedzone/Z123", "z10330063qjicf0jg35vo"),
+    "spa_subdomain": ("", "Portal", "-portal", "a.b", "*"),
+    "api_subdomain": ("", "API", "a.b", "api."),
+}
+
+
+def test_every_domain_variable_validates_against_real_values() -> None:
+    """Asserting a validation block EXISTS proves nothing about what it refuses.
+
+    A presence-only check passes against ``regex("^.*$")``, which is the exact defect this
+    file was written to prevent — so each pattern is run against values instead.
 
     Args:
       None.
@@ -92,12 +137,14 @@ def test_every_domain_variable_carries_a_validation_block() -> None:
       None.
 
     Raises:
-      AssertionError: If any of the four is declared without one.
+      AssertionError: If a pattern admits a value it must refuse, or refuses one it must admit.
     """
     for name in DOMAIN_VARIABLES:
-        assert "validation {" in _variable_block(name), (
-            f"{name} has no validation block, so an empty TF_VAR_ value reaches ACM"
-        )
+        pattern = _validation_pattern(name)
+        for value in ACCEPTED[name]:
+            assert pattern.fullmatch(value), f"{name} must accept {value!r}"
+        for value in REFUSED[name]:
+            assert not pattern.fullmatch(value), f"{name} must refuse {value!r}"
 
 
 def test_the_required_domain_variables_carry_no_default() -> None:
@@ -121,12 +168,11 @@ def test_the_required_domain_variables_carry_no_default() -> None:
         )
 
 
-def test_the_zone_id_validation_rejects_the_prefixed_form() -> None:
-    """The regex must refuse what the Route 53 API actually returns.
+def test_equal_subdomains_are_refused_by_a_precondition() -> None:
+    """The one bad pairing no single variable's validation can see.
 
-    ``list-hosted-zones`` reports ``/hostedzone/Z…``. That form is rendered into the deploy
-    role's Route 53 grant, where IAM matches literally, so it yields a dead grant rather than
-    a wrong one — a denial whose cause the value does not resemble.
+    Equal subdomains put both hosts on one name: two certificates for it, then two
+    validation records with the same name and type, each overwriting the other's token.
 
     Args:
       None.
@@ -135,17 +181,50 @@ def test_the_zone_id_validation_rejects_the_prefixed_form() -> None:
       None.
 
     Raises:
-      AssertionError: If the declared pattern admits the prefixed or empty form.
+      AssertionError: If nothing compares the two subdomains.
     """
-    block = _variable_block("route53_zone_id")
-    match = re.search(r'regex\("([^"]+)"', block)
-    assert match, "route53_zone_id's validation must be a regex over the id's shape"
-    pattern = re.compile(match.group(1))
-    assert pattern.match("Z10330063QJICF0JG35VO"), "a bare zone id must be accepted"
-    assert not pattern.match("/hostedzone/Z10330063QJICF0JG35VO"), (
-        "the /hostedzone/-prefixed form must be refused"
-    )
-    assert not pattern.match(""), "the empty string must be refused"
+    text = CERTIFICATES.read_text()
+    assert "precondition {" in text, "a precondition must compare the two subdomains"
+    assert re.search(
+        r"var\.spa_subdomain\s*!=\s*var\.api_subdomain|var\.api_subdomain\s*!=\s*var\.spa_subdomain",
+        text,
+    ), "the precondition must require the two subdomains to differ"
+
+
+def test_each_certificate_names_its_own_host_and_the_variable_zone() -> None:
+    """A certificate pointed at the wrong host applies green and fails at the listener.
+
+    Nothing else in this file would notice: the literal sweep blocks only the two known
+    environment values, so a hard-coded foreign zone id passes it.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If either certificate names the wrong host, or any validation record
+        takes its zone from anything but the variable.
+    """
+    text = CERTIFICATES.read_text()
+    for resource, host in (("spa", "local.spa_host"), ("api", "local.api_host")):
+        block = re.search(
+            r'resource\s+"aws_acm_certificate"\s+"' + resource + r'"\s*\{(.+?)\n\}',
+            text,
+            re.DOTALL,
+        )
+        assert block, f"the {resource} certificate must be declared"
+        assert re.search(r"domain_name\s*=\s*" + re.escape(host), block.group(1)), (
+            f"the {resource} certificate must name {host}"
+        )
+
+    zone_assignments = re.findall(r"^\s*zone_id\s*=\s*(.+)$", text, re.MULTILINE)
+    assert len(zone_assignments) == 2, "both validation records must set a zone"
+    for assignment in zone_assignments:
+        assert assignment.strip() == "var.route53_zone_id", (
+            f"a validation record takes its zone from {assignment.strip()}, not the variable"
+        )
 
 
 def test_both_workflow_env_blocks_carry_all_four_variables() -> None:
@@ -194,6 +273,9 @@ def test_the_defaulted_subdomains_fall_back_in_the_workflow() -> None:
 def test_the_origins_are_built_from_the_variables_at_root() -> None:
     """Presentation of the origin is settled in one place, and it is not a module.
 
+    Matched whitespace-tolerantly: ``tofu fmt`` aligns the ``=`` across a locals block, so an
+    exact-spacing assertion breaks on the next local somebody adds beside these.
+
     Args:
       None.
 
@@ -210,8 +292,6 @@ def test_the_origins_are_built_from_the_variables_at_root() -> None:
         ("spa_origin", "https://${var.spa_subdomain}.${var.parent_domain}"),
         ("api_origin", "https://${var.api_subdomain}.${var.parent_domain}"),
     ):
-        # Whitespace-tolerant: `tofu fmt` aligns the `=` across a locals block, so an
-        # exact-spacing match breaks on the next local somebody adds beside these.
         assert re.search(
             r"^\s*" + local_name + r"\s*=\s*" + re.escape(f'"{expected}"'),
             text,
@@ -233,7 +313,13 @@ def test_the_origins_and_hosts_are_re_exported() -> None:
     """
     text = OUTPUTS.read_text()
     for name in ("spa_origin", "api_origin", "spa_host", "api_host"):
-        assert f'output "{name}"' in text, f"{name} must be re-exported from root"
+        block = re.search(
+            r'output\s+"' + name + r'"\s*\{(.+?)\n\}', text, re.DOTALL
+        )
+        assert block, f"{name} must be re-exported from root"
+        assert re.search(r"value\s*=\s*local\." + name + r"\b", block.group(1)), (
+            f"output {name} must carry local.{name} — a name alone can front any value"
+        )
 
 
 def test_no_terraform_source_names_the_environment() -> None:
@@ -272,8 +358,10 @@ def test_both_certificates_validate_by_dns_and_replace_before_destroy() -> None:
       AssertionError: If either certificate omits either property.
     """
     text = CERTIFICATES.read_text()
-    assert text.count('validation_method = "DNS"') == 2, "both certificates validate by DNS"
-    assert text.count("create_before_destroy = true") == 2, (
+    assert len(re.findall(r'validation_method\s*=\s*"DNS"', text)) == 2, (
+        "both certificates validate by DNS"
+    )
+    assert len(re.findall(r"create_before_destroy\s*=\s*true", text)) == 2, (
         "both certificates replace before destroying"
     )
 

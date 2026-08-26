@@ -121,7 +121,12 @@ jobs:
         # -out saves the plan so `tofu show -json` can render it for Checkov (SPEC-139).
         # The human-readable output still streams to stdout, so /tmp/plan.txt and the PR
         # comment below are byte-for-byte what they were.
-        run: tofu plan -no-color -out=tfplan 2>&1 | tee /tmp/plan.txt
+        # `set -o pipefail` is what makes this step's exit code the PLAN's. Without it the
+        # pipeline reports `tee`'s status, so `tofu plan` could exit 1 — and did — while the
+        # step, the job and the PR check all reported success. OpenTofu still WRITES -out on a
+        # failed plan, so the Checkov and IAM gates downstream then scanned a partial plan and
+        # passed it. A plan gate that cannot fail is not a gate.
+        run: set -o pipefail && tofu plan -no-color -out=tfplan 2>&1 | tee /tmp/plan.txt
         env:
           TF_VAR_aws_region: ${{ vars.AWS_REGION }}
           TF_VAR_app_url: ${{ vars.VITE_APP_URL }}

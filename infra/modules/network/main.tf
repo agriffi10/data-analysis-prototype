@@ -33,13 +33,6 @@
 #
 # `opt-in-not-required` is what an ordinary Availability Zone reports and what neither of the
 # other zone types ever reports, so the filter excludes them structurally rather than by name.
-data "aws_availability_zones" "available" {
-  filter {
-    name   = "opt-in-status"
-    values = ["opt-in-not-required"]
-  }
-}
-
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
 
@@ -50,7 +43,7 @@ locals {
   #
   # The sort is necessary and NOT sufficient on its own: it fixes the order of whatever the data
   # source returns, and the filter above is what fixes the membership. Both are load-bearing.
-  azs = slice(sort(data.aws_availability_zones.available.names), 0, 2)
+  azs = slice(sort(var.availability_zone_names), 0, 2)
 
   subnets = {
     for index, az in local.azs : az => {

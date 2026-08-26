@@ -117,8 +117,8 @@ variable "parent_domain" {
   # exactly that empty string, so the missing default guards nothing without this block and
   # the failure lands at apply instead, where ACM rejects a certificate for a bare "portal.".
   validation {
-    condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", var.parent_domain))
-    error_message = "parent_domain must be a registrable domain such as example.com — an empty value means the repo variable is unset."
+    condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\\.[a-z][a-z0-9-]+$", var.parent_domain))
+    error_message = "parent_domain must be a lowercase registrable domain such as example.com — with a non-numeric final label, no trailing dot, and no scheme or path. An empty value means the repo variable is unset."
   }
 }
 
@@ -134,7 +134,7 @@ variable "route53_zone_id" {
   # does not look like it could cause.
   validation {
     condition     = can(regex("^Z[A-Z0-9]+$", var.route53_zone_id))
-    error_message = "route53_zone_id must be a bare hosted zone ID (Z…) — strip the /hostedzone/ prefix the Route 53 API returns."
+    error_message = "route53_zone_id must be a bare uppercase hosted zone ID (Z…) — strip the /hostedzone/ prefix the Route 53 API returns. An empty value means the repo variable is unset."
   }
 }
 
@@ -149,7 +149,7 @@ variable "spa_subdomain" {
   # this block is what catches the fallback being dropped in a later edit.
   validation {
     condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", var.spa_subdomain))
-    error_message = "spa_subdomain must be a single non-empty DNS label such as portal."
+    error_message = "spa_subdomain must be a single lowercase DNS label such as portal — not a dotted name, and not empty."
   }
 }
 
@@ -160,6 +160,6 @@ variable "api_subdomain" {
 
   validation {
     condition     = can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", var.api_subdomain))
-    error_message = "api_subdomain must be a single non-empty DNS label such as api."
+    error_message = "api_subdomain must be a single lowercase DNS label such as api — not a dotted name, and not empty."
   }
 }

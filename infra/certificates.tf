@@ -15,6 +15,16 @@ resource "aws_acm_certificate" "spa" {
   # domain-name change destroys the certificate a live listener still references.
   lifecycle {
     create_before_destroy = true
+
+    # Two equal subdomains is the one bad pairing neither variable can refuse on its
+    # own, and it fails destructively rather than loudly: two certificates for one
+    # host, then two validation records with the same name and type, both overwriting.
+    # The second UPSERT replaces the first's token, so one validation can never resolve
+    # and waits out its full timeout with the apply already half done.
+    precondition {
+      condition     = var.spa_subdomain != var.api_subdomain
+      error_message = "spa_subdomain and api_subdomain must differ — equal values put the SPA and the API on one host."
+    }
   }
 
   tags = {

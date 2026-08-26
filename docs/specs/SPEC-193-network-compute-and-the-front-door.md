@@ -391,7 +391,7 @@ narrowing is SPEC-202's, and it is deliberately the last thing that happens in t
       `api_subdomain` (default `api`) exist; `parent_domain` and `route53_zone_id` have **no default**,
       so an unset value fails at plan rather than building something against an empty string.
 
-> **Measured while building.** The absent default does not do this, and the criterion's own mechanism
+> **Measured on the real run.** The absent default does not do this, and the criterion's own mechanism
 > is what fails. A missing default fails only when the variable is genuinely *absent* — and an unset
 > GitHub repo variable does not arrive absent. `${{ vars.X }}` renders as the **empty string**, which
 > satisfies a required variable. Measured on OpenTofu: unset → `not set, and has no default value`;
@@ -412,8 +412,8 @@ narrowing is SPEC-202's, and it is deliberately the last thing that happens in t
 > `/hostedzone/`-prefixed form the API returns yields a grant matching **nothing**, and every record
 > write is denied for a reason the value does not look like it could cause.
 >
-> This also corrects the session handoff's claim that unset variables make "every run on that branch
-> redden". They would not: the plan goes green and the apply fails later.
+> The corollary is worth stating because it is the opposite of the intuition: an unset variable
+> does **not** redden the branch. The plan goes green and the apply fails later.
 - [ ] All four are supplied as `TF_VAR_*` repo variables in **both** the `plan` and the `apply` env
       blocks of `deploy-infra.yml`. Adding them to only one makes the plan job — and therefore the
       plan-scan gate — evaluate a configuration that will never be applied.
