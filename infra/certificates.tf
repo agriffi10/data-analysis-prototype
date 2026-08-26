@@ -30,6 +30,12 @@ resource "aws_acm_certificate" "spa" {
   tags = {
     Name = "${var.project_name}-${var.environment}-spa"
   }
+
+  # base grants acm: and route53: — the ONLY place either is granted — and this file is at
+  # root, so nothing ordered these against that grant before. Terraform was free to schedule
+  # RequestCertificate concurrently with the attachment that authorises it; earlier applies
+  # won that race because the grant already existed, which is not the same as being safe.
+  depends_on = [module.base]
 }
 
 resource "aws_acm_certificate" "api" {
@@ -43,6 +49,12 @@ resource "aws_acm_certificate" "api" {
   tags = {
     Name = "${var.project_name}-${var.environment}-api"
   }
+
+  # base grants acm: and route53: — the ONLY place either is granted — and this file is at
+  # root, so nothing ordered these against that grant before. Terraform was free to schedule
+  # RequestCertificate concurrently with the attachment that authorises it; earlier applies
+  # won that race because the grant already existed, which is not the same as being safe.
+  depends_on = [module.base]
 }
 
 # One validation record per certificate. for_each over domain_validation_options

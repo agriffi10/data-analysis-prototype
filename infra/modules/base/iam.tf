@@ -399,10 +399,10 @@ resource "aws_iam_role_policy_attachment" "deploy_file_send" {
 # on the rule rather than on anything to do with the plane's actual purpose.
 #
 # Granted FIRST and applied before the file-ops module's resources land (the
-# deploy-perms-before-resources rule), so there is no self-grant race. Expect one
-# first-apply failure anyway if this lands in the same run as the module: the
-# time_sleep.wait_for_self_grant guard fires once at creation and never re-fires, so an Nth
-# policy added later gets zero delay. The accepted remedy is a re-run, not a code change.
+# deploy-perms-before-resources rule), so there is no self-grant race. A first-apply failure
+# was previously expected anyway, because wait_for_self_grant fires once at creation and an Nth
+# policy added later got zero delay; a re-run remains the accepted remedy for the control-plane
+# policies, this one included.
 resource "aws_iam_policy" "deploy_file_ops" {
   name        = "${var.project_name}-deploy-file-ops"
   description = "Deploy-role grants for the file-operations control plane (FIFO SQS + DLQ, EventBridge Pipe, Step Function + role, verb Lambdas + shared execution role, focommon layer, log groups, TIMED_OUT rule), kept off the role's inline-policy aggregate limit."
@@ -628,5 +628,39 @@ resource "aws_iam_policy" "deploy_platform_frontdoor" {
 resource "aws_iam_role_policy_attachment" "deploy_platform_frontdoor" {
   role       = aws_iam_role.github_actions_deploy.name
   policy_arn = aws_iam_policy.deploy_platform_frontdoor.arn
+}
+
+# Propagation guard for the two platform policies, and the reason it is a SECOND sleep rather
+# than a wider dependency on the first one: `wait_for_self_grant` sits at the top of this
+# module's graph, guarding the inline policy that lets the deploy role create managed policies
+# at all. Everything below finishes long after it, so by the time these two are written it has
+# long since finished and gates nothing.
+#
+# Every module that uses a platform grant carries `depends_on = [module.base]`, which waits for
+# every resource here — including this one. So placing the pause AFTER the attachments is what
+# puts it between the grant and its first use.
+#
+# `triggers` is the half that makes it durable, and its absence is what a once-created sleep
+# gets wrong. Measured: the API Gateway service-linked-role grant was written at 14:56:08.95 and
+# the CreateDomainName it authorises was refused at 14:56:10.67 — 1.7 seconds, on an apply where
+# a sleep created months earlier had nothing left to do. Keyed to the policy BODIES, this is
+# replaced whenever either grant changes, so the pause returns exactly when a grant is new and
+# costs nothing when neither has moved.
+#
+# Sixty seconds is a floor on eventual consistency, not a guarantee. A re-run is still the
+# remedy if AWS is slower than usual; what changes is that the ordinary case no longer reddens
+# main first.
+resource "time_sleep" "wait_for_platform_grant" {
+  create_duration = "60s"
+
+  triggers = {
+    platform  = aws_iam_policy.deploy_platform.policy
+    frontdoor = aws_iam_policy.deploy_platform_frontdoor.policy
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.deploy_platform,
+    aws_iam_role_policy_attachment.deploy_platform_frontdoor,
+  ]
 }
 
