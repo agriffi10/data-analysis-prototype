@@ -48,6 +48,11 @@ a genuine improvement retiring a settled decision: the image **is** the file set
 - Superseded markers at every site still claiming SPEC-141's orphan class and its "exactly one sync
   pass carries `--delete`" criterion.
 
+> **Superseded by SPEC-193 PR 4 (2026-08-26).** `local.csp_connect_src` has ALREADY moved to
+> root, with `api_origin` added, because the API's origin comes into existence there and the
+> CloudFront bundle needs it before this spec runs. **Only `local.content_security_policy`
+> remains to move.** `modules/app` now takes `csp_connect_src` as an input.
+
 ### Out of Scope
 
 - **The VPC, ALB, ECR repository, ECS cluster, service, task definition, target group, ACM
@@ -323,6 +328,11 @@ policy string into `module.app` and the `connect-src` string into SPEC-193's tas
 environment. It is a move, not a re-derivation: the strings are unchanged on the day it lands, the
 CloudFront-served policy is byte-identical to what it emits today, and after SPEC-202 the surviving
 referent is the same one both origins shared.
+
+> **Superseded by SPEC-193 PR 4 (2026-08-26).** `local.csp_connect_src` has ALREADY moved to
+> root, with `api_origin` added, because the API's origin comes into existence there and the
+> CloudFront bundle needs it before this spec runs. **Only `local.content_security_policy`
+> remains to move.** `modules/app` now takes `csp_connect_src` as an input.
 
 SPEC-140's record is why this is an FR and not a line, and this arc does not retire that record — it
 inherits it. **The omitted Hosted UI domain broke fresh sign-in for a day**, because the code exchange

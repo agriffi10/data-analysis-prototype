@@ -45,6 +45,7 @@ Attributes:
   UNSTAMPED_VERSION: What ``version`` reads when no build stamp can be found at all. It is a
     sentinel, not a release, and a test forbids a deployed record carrying it.
   _VERSION: The commit this function's code was built from, resolved once per container.
+    Read publicly through ``build_version``.
 """
 
 import functools
@@ -108,7 +109,28 @@ def _build_version():
         return UNSTAMPED_VERSION
 
 
-_VERSION = _build_version()
+_VERSION: str = _build_version()
+
+
+def build_version() -> str:
+    """Reports the commit this function's code was built from.
+
+    A public reader of the value ``_build_version`` already resolved once at import. It exists
+    because the API's ``/healthz`` must report the same stamp the log records carry, and a
+    second resolution in the handler would be a second copy of the environment-then-package
+    fallback chain — the one that decides whether an unstamped deploy reads as ``0.0.0`` or as
+    a crash. One algorithm, one owner.
+
+    Args:
+      None.
+
+    Returns:
+      The commit sha, or ``UNSTAMPED_VERSION`` when no stamp is present.
+
+    Raises:
+      None.
+    """
+    return _VERSION
 
 _initialized = False
 

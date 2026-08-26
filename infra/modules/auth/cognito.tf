@@ -113,9 +113,12 @@ resource "aws_cognito_user_pool" "portal" {
 # is the same value (providers.tf configures the provider from it) and is known at plan time.
 
 locals {
-  # Callback/logout URLs always include local dev; the deployed app URL is added
-  # only when provided (it is empty until the first CloudFront deploy).
-  callback_urls = var.app_url != "" ? ["http://localhost:5173", var.app_url] : ["http://localhost:5173"]
+  # Callback/logout URLs always include local dev; each deployed origin is added only
+  # when provided. BOTH deployed origins are listed, and that is the point: the container
+  # is where ported features get proved and CloudFront is the rollback, so an app client
+  # naming one of them makes the other an origin that cannot complete a sign-in. Removing
+  # either is the cutover spec's work — doing it here deletes the rollback.
+  callback_urls = compact(["http://localhost:5173", var.app_url, var.spa_origin])
 
   # Hosted UI domain prefix must be globally unique across all AWS accounts.
   domain_prefix = var.cognito_domain_prefix != "" ? var.cognito_domain_prefix : "${var.project_name}-${var.environment}-portal"

@@ -148,6 +148,9 @@ files = [
     # Lambdas a push deploys, so it is the last place in the fleet that should be the one
     # the type checker cannot see.
     ".github/scripts/plan_deploy.py",
+    # New code with no legacy to ratchet through, so it joins the BLOCKING list rather than
+    # the report-only one — and it enters at zero, which is only free while it is new.
+    "lambdas/api",
 ]
 # The suites and the test doubles are not shipped and are not the contract.
 exclude = '(/test_[^/]*\.py|/conftest\.py|/fakes\.py)$'

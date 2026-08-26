@@ -109,6 +109,18 @@ Stated here because those specs are not yet written, and each is a decision rath
 4. **CORS is owned by API Gateway alone** (FR-003). No handler this arc writes may emit an
    `Access-Control-Allow-*` header; two sources produce two headers and the browser rejects the
    response while `curl` looks fine.
+
+   > **Corrected while building.** The rule stands; this reason does not. AWS documents that *"If
+   > you configure CORS for an API, API Gateway **ignores** CORS headers returned from your backend
+   > integration."* So a handler-emitted header produces no duplicate and no browser rejection — it
+   > is silently discarded, which is worse for a reader who checks: nothing fails, and the handler
+   > grows a second source of truth that never reaches anyone. The rule's real ground is that two
+   > places able to answer one question is how they come to disagree, and the one that wins here is
+   > not the one a reader is looking at. Asserted in `lambdas/api/test_router.py`.
+   >
+   > Also true, and worth not re-deriving: the `$default`-route-catches-`OPTIONS` caveat applies
+   > only when an **authorizer is attached**. There is none here, so "the handler is not invoked"
+   > is correct as written.
 5. **Authorization lives in the router, not in an API Gateway authorizer** (FR-008). SPEC-195 resolves
    the bearer to a principal before dispatch and denies by default, and SPEC-196 has to resolve that
    principal to a role inside the handler anyway — so an authorizer would be a **second reader of the
@@ -275,6 +287,14 @@ invocation sees it.
 - [ ] A row `{ name: api, layer: false, polars: false, tbcommon: false, cpcommon: true }` exists in
       `deploy-lambdas.yml`'s matrix, and `lambdas/test_deploy_matrix*.py` passes — that test joins the
       matrix against what each function imports and is the gate SPEC-137 lacked.
+
+> **Corrected while building — the file and the shape are both wrong.** The function table moved out
+> of `deploy-lambdas.yml` into **`.github/lambda-functions.json`**, and its rows are
+> `{"name", "layers": [...]}`, not the five-flag shape above. The row this spec adds is
+> `{"name": "api", "layers": ["cpcommon"]}`. `lambdas/test_deploy_matrix.py` reads the JSON file, so
+> the criterion's *gate* is intact — only its description of where the row goes was stale. A session
+> handoff recorded this correction as already written into the spec; it was not, which is why it
+> survived to be found here.
 - [ ] One invocation produces one span in `logs/service=api/…/data.jsonl` with `env` and `version`
       populated and neither empty nor `0.0.0`.
 - [ ] `lambdas/api/` is added to `pyproject.toml`'s **blocking** `[tool.mypy]` path, not the
@@ -686,7 +706,8 @@ New Lambda environment (set by Terraform on the placeholder function): the six
 
 New **task** environment (set by Terraform on the SPA task definition, FR-005): SPEC-192's
 runtime-configuration key set — whose membership is SPEC-192's to declare and whose agreement test is
-re-pointed here — plus `PORTAL_CSP_CONNECT_SRC` from the root local SPEC-194 moves. None of these is a
+re-pointed here — plus `PORTAL_CSP_CONNECT_SRC` from the root local **this spec's PR 4 moved**
+(SPEC-194 moves only `local.content_security_policy`). None of these is a
 `VITE_*` variable; that is the whole point of SPEC-192.
 
 ## File & Folder Structure

@@ -1,0 +1,20 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WriteOwnLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "${log_group_arn}:*"
+    },
+    {
+      "Sid": "EmitStructuredLogSpans",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${logs_queue_arn}"
+    }
+  ]
+}

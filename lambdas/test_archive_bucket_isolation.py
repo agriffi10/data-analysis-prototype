@@ -131,7 +131,7 @@ def _csp_connect_src_entries():
     that word inspects exactly one line — the assignment — and would pass with an archive
     host sitting three lines below it. Measured: inserting one made every check here green.
     """
-    body = _read(APP_MODULE / "cloudfront.tf")
+    body = _read(INFRA / "main.tf")
     block = body[body.index("csp_connect_src = join("):]
     block = block[: block.index("])")]
     return re.findall(r'"([^"]+)"', block)

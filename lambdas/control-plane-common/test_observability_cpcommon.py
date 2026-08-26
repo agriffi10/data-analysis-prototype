@@ -98,7 +98,21 @@ def test_module_exposes_exactly_the_sanctioned_names():
         if callable(getattr(observability, n))
         and getattr(getattr(observability, n), "__module__", "") == observability.__name__
     }
-    assert defined == {"init", "flush", "traced", "step", "stamp", "info", "warning", "error"}
+    assert defined == {
+        "init",
+        "flush",
+        "traced",
+        "step",
+        "stamp",
+        "info",
+        "warning",
+        "error",
+        # A deliberate opening, not a leak. The API's /healthz must report the same stamp the
+        # log records carry, and resolving it again in the handler would be a second copy of
+        # the environment-then-package fallback that decides whether an unstamped deploy reads
+        # as "0.0.0" or as a crash.
+        "build_version",
+    }
 
 
 # -- import safety: the cold-start failure no unit test can otherwise reach --------------
