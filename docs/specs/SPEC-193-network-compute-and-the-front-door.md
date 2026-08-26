@@ -678,6 +678,12 @@ alternative. **A new finding is scoped, not accepted.**
 > the mutator and tagging resource lists, and `ec2:CreateNetworkAclEntry` /`DeleteNetworkAclEntry`
 > /`ReplaceNetworkAclAssociation` among the actions. Widening is safe where tightening is not: the
 > refresh does not need the new grant, so it cannot deadlock on it.
+>
+> **Settled by measurement (2026-08-26): it turned nothing up, because there is nothing to turn up.**
+> The regenerated list took the enforce set from 52 IDs to 89 and checkov 3.3.9 evaluates **no
+> network-ACL check at all** on this tree — not passing, not failing. So the resource stays
+> undeclared and both EC2 statements stay as they are. Nothing was deferred here; the conditional
+> simply did not fire.
 - [ ] Each finding **not** fixed carries a written disposition row in `docs/security-baseline.md` naming
       the reason. The two expected: **WAF** on the ALB and the API (deferred by the arc — the client
       environment's edge is a later decision), and **`$default` route authorization**, which Premise 5
@@ -883,6 +889,13 @@ FR-001 and FR-007 plans and applies green and fails at runtime.
    Pair it with `describe-route-tables` showing the private tables carry only the local route: without
    that pairing a pull that succeeded through a route somebody added would read as proof of the
    endpoints, and the whole of FR-001 would be unverified.
+
+   > **Corrected while building (2026-08-26).** "Only the local route" contradicts this spec's own
+   > FR-001 AC4, and the applied state proves AC4 right: each private table carries the local route
+   > **and** the S3 gateway endpoint's prefix-list route. The assertion is *no `0.0.0.0/0` of any
+   > kind, and the prefix-list route present* — never a route **count**, which is what made this step
+   > wrong in the first place. The acceptance script's §B is written against AC4, not against this
+   > step.
 8. `describe-vpc-endpoints` → the S3 gateway endpoint's `RouteTableIds` equals the private route-table
    ids.
 9. `curl -i https://<spa_host>/healthz` → 200 through the ALB; `describe-target-health` → `healthy`.
