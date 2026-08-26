@@ -181,6 +181,30 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
     }
   }
 
+  # The load balancer's access logs. They are NOT execution-scoped like the four plan rules
+  # above and do not share their retention: a plan is read minutes after it is written, while
+  # these are the only record of a request that never reached a task, so their window is an
+  # incident-investigation one and has its own knob.
+  #
+  # The prefix arrives as a variable from root, which is also where the module pointing the
+  # balancer at it reads the same value — two literals could disagree and the symptom would be
+  # logs that never expire. ALB appends its own AWSLogs/{account}/ beneath it, so this rule
+  # matches every object it writes and nothing else. Prefix-scoped like every other expiring rule
+  # here, for the reason the check below pins: an unfiltered expiring rule would reach logs/,
+  # which is retained indefinitely.
+  rule {
+    id     = "expire-alb-access-logs"
+    status = "Enabled"
+
+    filter {
+      prefix = "${var.alb_access_log_prefix}/"
+    }
+
+    expiration {
+      days = var.alb_access_log_retention_days
+    }
+  }
+
   # Bucket-wide, and deliberately UNFILTERED (CKV_AWS_300). An abandoned multipart upload
   # leaves orphaned parts that are billed and invisible to every listing, anywhere in the
   # bucket — so scoping this to the prefixes we happen to know about today would leave a new

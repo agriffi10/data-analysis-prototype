@@ -19,6 +19,17 @@ variable "admin_results_retention_days" {
   default     = 30
 }
 
+variable "alb_access_log_prefix" {
+  description = "Prefix in this bucket the SPA load balancer writes access logs under, without a trailing slash. Decided at root and passed to both this module and the one that points the balancer at it, so the expiry and the destination cannot disagree."
+  type        = string
+}
+
+variable "alb_access_log_retention_days" {
+  description = "Lifecycle expiry (days) for the SPA load balancer's access logs under alb-access-logs/. Its own knob rather than admin_results_retention_days: those objects are execution-scoped control-plane scratch read minutes after they are written, and these are the only record of a request that never reached a task."
+  type        = number
+  default     = 90
+}
+
 variable "query_scan_cutoff_bytes" {
   description = "Per-query data-scanned guardrail (bytes) on the workgroup. Default 10 GiB — a cost ceiling, not a correctness control; tune as needed."
   type        = number

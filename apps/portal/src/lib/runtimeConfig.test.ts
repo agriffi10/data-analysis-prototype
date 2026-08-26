@@ -347,6 +347,27 @@ describe('runtimeConfig — every key has a source in every environment', () => 
     })
   )[0] as string;
 
+  /**
+   * The fifth wiring point: the ECS task definition that serves the container's document.
+   * Two files, because the wiring is split on purpose — root names the keys and their
+   * values, and the module renders one environment entry per key without naming any of them.
+   */
+  const ROOT_MAIN = Object.values(
+    import.meta.glob('../../../../infra/main.tf', {query: '?raw', import: 'default', eager: true})
+  )[0] as string;
+
+  const SPA_TASK_DEFINITION = Object.values(
+    import.meta.glob('../../../../infra/modules/spa/ecs.tf', {query: '?raw', import: 'default', eager: true})
+  )[0] as string;
+
+  /** The keys of root's `spa_runtime_config` map — the infrastructure's whole statement of the set. */
+  function runtimeConfigKeys(): string[] {
+    const start = ROOT_MAIN.indexOf('spa_runtime_config = {');
+    expect(start).toBeGreaterThan(-1);
+    const body = ROOT_MAIN.slice(start, ROOT_MAIN.indexOf('\n  }', start));
+    return [...body.matchAll(/^\s{4}([A-Za-z][A-Za-z0-9]*)\s*=/gm)].map(([, key]) => key);
+  }
+
   const ALL_KEYS = [...REQUIRED_CONFIG, ...OPTIONAL_CONFIG];
 
   /** The step's body, so the two `env:` blocks in this workflow are never confused. */
@@ -446,6 +467,44 @@ describe('runtimeConfig — every key has a source in every environment', () => 
     const declared = /REQUIRED='([^']+)'/.exec(render)?.[1]?.split(' ') ?? [];
 
     expect(declared.slice().sort()).toEqual([...REQUIRED_CONFIG].sort());
+  });
+
+  it('names every classified key in the ECS task definition\u2019s source map', () => {
+    // The container is the fifth wiring point, and it is the one that will serve production
+    // after the cutover. A key missing here ships a container whose document lacks it while
+    // every other leg stays green \u2014 one feature silently unconfigured, in the environment
+    // that matters most.
+    const keys = runtimeConfigKeys();
+
+    // Guard-the-guard: a parse that silently found nothing would agree with an empty
+    // classification and pass forever.
+    expect(keys.length).toBeGreaterThan(10);
+    expect(keys.slice().sort()).toEqual([...ALL_KEYS].sort());
+  });
+
+  it('renders that map into the task environment without naming a key', () => {
+    // DERIVED, never hand-listed. A hand-written environment block is how a container ships
+    // serving some of the document: every required key present, the optional ones missing.
+    // The assertion is on the shape that makes a partial block impossible.
+    expect(SPA_TASK_DEFINITION).toMatch(/for key in sort\(keys\(var\.runtime_config\)\)/);
+    expect(SPA_TASK_DEFINITION).toMatch(/name\s*=\s*"CONFIG_\$\{key\}"/);
+    expect(SPA_TASK_DEFINITION).toMatch(/value\s*=\s*var\.runtime_config\[key\]/);
+
+    // The one variable that is NOT a document key: the CSP source list, computed once at root
+    // and carried through the same block so both delivery paths render from one value.
+    expect(SPA_TASK_DEFINITION).toContain('PORTAL_CSP_CONNECT_SRC');
+  });
+
+  it('gives appUrl the container\u2019s own origin, not the CloudFront one', () => {
+    // The highest-consequence line in the map, and the one that fails ONLY in a browser:
+    // Amplify builds redirectSignIn/redirectSignOut from appUrl, so a container serving
+    // var.app_url sends a sign-in started on the container back to CloudFront. The container
+    // never receives the ?code=, and the user lands signed-out on a live session.
+    const start = ROOT_MAIN.indexOf('spa_runtime_config = {');
+    const body = ROOT_MAIN.slice(start, ROOT_MAIN.indexOf('\n  }', start));
+
+    expect(body).toMatch(/^\s+appUrl\s*=\s*local\.spa_origin$/m);
+    expect(body).not.toMatch(/^\s+appUrl\s*=\s*var\.app_url$/m);
   });
 
   it('uploads the document with no-store, outside the passes that own dist/', () => {

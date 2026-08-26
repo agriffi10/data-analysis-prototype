@@ -163,3 +163,36 @@ variable "api_subdomain" {
     error_message = "api_subdomain must be a single lowercase DNS label such as api — not a dotted name, and not empty."
   }
 }
+
+variable "spa_desired_count" {
+  description = "Tasks the SPA service runs. Zero by default, so the first apply creates a service before any image exists; verification pushes the placeholder image and raises this to 1. Set as the TF_VAR_spa_desired_count repo variable — deploy-infra.yml falls back to 0 so an unset variable never arrives as the empty string."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.spa_desired_count >= 0 && floor(var.spa_desired_count) == var.spa_desired_count
+    error_message = "spa_desired_count must be a whole number of tasks, zero or more."
+  }
+}
+
+variable "spa_image_tag" {
+  description = "Tag of the SPA image the task definition references. The registry is IMMUTABLE — there is no :latest and no tag that can be re-pushed after a bad build — so this is the commit sha of the image CI pushed. The placeholder default exists only so the first apply can create a task definition before any image does. Set as the TF_VAR_spa_image_tag repo variable."
+  type        = string
+  default     = "placeholder"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$", var.spa_image_tag))
+    error_message = "spa_image_tag must be a valid ECR tag: it starts with a letter, digit or underscore, continues with those plus dot and hyphen, and is at most 128 characters. ECR refuses a leading dot or hyphen, and an empty value means the repo variable is unset."
+  }
+}
+
+variable "max_upload_bytes" {
+  description = "Largest single upload the portal offers, carried to the container as the runtime document's maxUploadBytes. Supplied from the SAME VITE_MAX_UPLOAD_BYTES repo variable deploy-app.yml renders the CloudFront document from — one source, because two renderers of one document that read different variables disagree with no symptom on either screen. The default is the fallback for an unset variable, matching the workflow's."
+  type        = number
+  default     = 5368709120
+
+  validation {
+    condition     = var.max_upload_bytes > 0 && floor(var.max_upload_bytes) == var.max_upload_bytes
+    error_message = "max_upload_bytes must be a whole number of bytes greater than zero."
+  }
+}

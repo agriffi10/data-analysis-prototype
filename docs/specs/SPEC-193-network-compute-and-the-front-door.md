@@ -338,6 +338,17 @@ an HTTP listener that only redirects, and a health check. The image is a placeho
       `mountPoints`. **`linuxParameters.tmpfs` is not available here** — it is rejected on the Fargate
       launch type and `RegisterTaskDefinition` fails outright, so the mechanism is `volumes` +
       `mountPoints`, not a tmpfs block.
+
+> **Corrected while building (2026-08-26).** The stated *reason* does not hold, and it is stated
+> in three places (here, `SPEC-194:154`, and `ARCS.md`'s review-gate bullet). AWS's current
+> `LinuxParameters` reference gives `devices`, `maxSwap`, `sharedMemorySize` and `swappiness` each an
+> explicit Fargate-unsupported note and gives **`tmpfs` none** — so "rejected on the Fargate launch
+> type, `RegisterTaskDefinition` fails outright" is not something this project has established.
+>
+> **What is known is narrower, and the criterion survives on it:** the mechanism is `volumes` +
+> `mountPoints`, because SPEC-194's image spec depends on that pair. Documentation silence is not an
+> API acceptance either, so nothing here claims tmpfs *works* — the shipped module simply does not
+> use it, and a test forbids `linuxParameters` appearing at all.
 - [ ] The mounted pair is exactly **`/tmp` and `/var/cache/nginx`**, equal to the writable-path set
       SPEC-194 FR-001 AC7 declares, asserted by a test reading both specs' values — the same agreement
       SPEC-194 FR-010 AC3 makes for the health-check path. A mount set that misses one of them produces
@@ -349,6 +360,17 @@ an HTTP listener that only redirects, and a health check. The image is a placeho
       FR-008 names, and its agreement test is re-pointed at this resource. `PORTAL_CSP_CONNECT_SRC` is
       the root local SPEC-194 FR-006 moves out of `infra/modules/app/cloudfront.tf`, passed through the
       same block, so one computation feeds both delivery paths.
+
+> **Superseded in part while building (2026-08-26).** `local.csp_connect_src` was moved to root by
+> **this spec's PR 4**, not by SPEC-194 — the API's origin had to join it there, and the move and the
+> addition landed in one change. SPEC-194 FR-006 still owns moving `local.content_security_policy`.
+> Recorded here because the criterion reads as though the local arrives later.
+>
+> **The naming convention was decided while building and SPEC-194 must honour it:** each key is
+> carried as `CONFIG_<documentKey>` — the same prefix and camelCase key `deploy-app.yml`'s render step
+> already uses, so the two producers of `/config.json` name their inputs identically. The block is
+> **derived** from a root map (`local.spa_runtime_config`), never hand-listed, so a key added to the
+> classification cannot be half-wired; the agreement test reads that map.
 - [ ] **`appUrl` in that block takes `local.spa_origin`, never `var.app_url`** — the one key whose
       value this spec must state, because both are plausible URLs and the wrong one fails only in the
       browser. Amplify builds `redirectSignIn`/`redirectSignOut` from it (`lib/amplify.ts`), so a
@@ -368,11 +390,35 @@ an HTTP listener that only redirects, and a health check. The image is a placeho
       `CannotPullContainerError`. SPEC-194 may enable rollback once a good task set exists.
 - [ ] `var.spa_desired_count` defaults to **0**, so the first apply creates a service before any image
       exists; Verification pushes the placeholder and raises it.
+
+> **Added while building (2026-08-26): a second variable, for the reason AC1 creates.** With
+> `IMMUTABLE` tags there is no `:latest` to point at and no tag that can be re-pushed after a bad
+> build, so the task definition's image tag cannot be a constant — `var.spa_image_tag` (default
+> `placeholder`) carries it, supplied as a repo variable like every other environment fact and
+> validated against the empty string the same way the four domain variables are. Verification sets it
+> to the sha it pushed in the same change that raises the count.
+>
+> **`desired_count` is NOT in the service's `ignore_changes`, and that is deliberate.** The plan review
+> asked for it beside `task_definition`; measured against this criterion and Phase 6 step 6, an ignored
+> count makes the raise from 0 to 1 a silent no-op that reads as a broken service. `task_definition` is
+> ignored, because CI owns the image. If a later spec introduces autoscaling or a CI-side scale, the
+> count joins the list **then**, with this variable retired in the same change.
 - [ ] The ALB is internet-facing in the public subnets with `drop_invalid_header_fields = true`,
       `enable_deletion_protection = true`, and access logging to the existing admin bucket under
       `alb-access-logs/`. That prefix requires the **first** bucket policy on the admin bucket, granting
       only the principal from the `aws_elb_service_account` data source; it must contain **no** `Deny`,
       or the deploy role's refresh read stops working and every plan proposes a destructive recreate.
+
+> **Corrected while building (2026-08-26).** Not `aws_elb_service_account`. AWS heads its own published
+> account-principal policy "**Legacy bucket policy** … we recommend that you replace it", and that form
+> delivers through an **ACL grant** — which this bucket, at `BucketOwnerEnforced`, does not accept at
+> all. The shipped policy names the **service principal**
+> `logdelivery.elasticloadbalancing.amazonaws.com`, with `aws:SourceAccount` and an `ArnLike`
+> `aws:SourceArn` built from the load balancer's name pattern (its real ARN carries a
+> generated suffix that is unknown at plan, and referencing it would close a cycle through the
+> `depends_on` the create-time policy validation requires). The account id is a segment of the key ALB
+> writes to and is **never wildcarded**. The **no-`Deny`** half of the criterion is unchanged and is
+> asserted by test.
 - [ ] The HTTPS listener uses `ELBSecurityPolicy-TLS13-1-2-2021-06` or stricter and the SPA
       certificate; the HTTP listener's only action is a 301 redirect to HTTPS.
 - [ ] The target group is `target_type = "ip"` on port 8080, health check path `/healthz`, matcher 200.
@@ -686,6 +732,17 @@ variable "spa_desired_count" { type = number, default = 0 }        # raised to 1
 # spa/      spa_origin ("https://portal.example.com"), spa_host, ecr_repository_url
 #           (SPEC-194's push target), ecs_cluster_name, ecs_service_name, alb_dns_name
 ```
+
+> **Corrected while building (2026-08-26).** Neither the `api` nor the `spa` module exports an
+> **origin or a host**, and neither should: both are built at root from the domain variables and
+> passed DOWN (FR-006 AC6, Premise 6). A module output re-exporting one would make a module the
+> source of a value three other modules consume — the unknown-at-plan shape the root-locals rule
+> exists to prevent. Root exports them, as `spa_origin` / `spa_host` / `api_origin` / `api_host`.
+>
+> The remaining four spa outputs ship under the names the acceptance script already reads:
+> `ecr_repository_url`, `ecs_cluster_name`, `ecs_service_name`, `alb_dns_name`. That script also
+> reads `api_function_name`, which PR 4 exported from the module but not from root; the missing
+> root output was added with PR 5 rather than left to fail at the first instrument.
 
 ---
 

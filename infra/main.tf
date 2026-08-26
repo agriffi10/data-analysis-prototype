@@ -308,6 +308,11 @@ locals {
   spa_origin = "https://${var.spa_subdomain}.${var.parent_domain}"
   api_origin = "https://${var.api_subdomain}.${var.parent_domain}"
 
+  # The load balancer's access-log prefix in the admin bucket. At ROOT because two modules must
+  # agree on it: the one that points the balancer at it and writes the bucket policy, and the one
+  # that owns the bucket's lifecycle rules. A literal in each would be two literals.
+  alb_access_logs_prefix = "alb-access-logs"
+
   # Every host the browser fetches. Until the API exists there is no backend, so this list
   # IS the app's network surface — anything missing is a broken feature, not a hardened one,
   # and nothing observes a CSP offline.
@@ -340,6 +345,44 @@ locals {
     # host, and an origin whose CSP omits it is a portal that loads and can do nothing.
     local.api_origin,
   ])
+
+  # ── The runtime configuration document, as the container receives it ────────
+  # Every key the portal's runtime-configuration classification declares, with its value. The
+  # container renders /config.json from these; the CloudFront build renders the same document
+  # from repository variables, and both paths exist until the cutover retires the second.
+  #
+  # THE KEYS ARE NAMED HERE AND NOWHERE ELSE IN THE INFRASTRUCTURE. modules/spa renders one
+  # CONFIG_<key> environment entry per map entry, so a key added to the classification is
+  # wired by adding its value here — there is no second list to keep in step, and no shape in
+  # which a container ships carrying only some of the document.
+  #
+  # `appUrl` IS THE CONTAINER'S OWN ORIGIN, never var.app_url. Amplify builds redirectSignIn
+  # and redirectSignOut from it, so a container serving the CloudFront URL sends a sign-in
+  # STARTED on the container back to CloudFront: the container never receives the ?code=, and
+  # the user lands signed-out on a live session. Root var.app_url is unchanged and keeps
+  # feeding the CloudFront build.
+  spa_runtime_config = {
+    apiBaseUrl              = local.api_origin
+    appUrl                  = local.spa_origin
+    awsRegion               = var.aws_region
+    environment             = var.environment
+    maxUploadBytes          = tostring(var.max_upload_bytes)
+    cognitoUserPoolId       = module.auth.user_pool_id
+    cognitoUserPoolClientId = module.auth.user_pool_client_id
+    cognitoDomain           = local.cognito_hosted_ui_domain
+    cognitoIdentityPoolId   = module.auth.identity_pool_id
+    userSpaceBucket         = local.user_space_bucket_name
+    sharedSpaceBucket       = local.shared_space_bucket_name
+    athenaWorkgroup         = local.athena_workgroup_name
+    sharedSpaceQueueUrl     = module.shared_spaces.request_queue_url
+    notificationsQueueUrl   = module.notifications.notifications_queue_url
+    tableBuildQueueUrl      = module.table_builder.table_build_queue_url
+    tableShareQueueUrl      = module.table_share.table_share_queue_url
+    dataQualityQueueUrl     = module.data_quality.data_quality_queue_url
+    fileSendQueueUrl        = module.file_send.file_send_queue_url
+    archiveQueueUrl         = module.archive.archive_queue_url
+    fileOpsQueueUrl         = module.file_ops.file_ops_queue_url
+  }
 }
 
 module "app" {
@@ -515,6 +558,11 @@ module "lambda_artifacts" {
 # the principal-tag key). Names are computed in locals above and passed in.
 module "analytics" {
   source = "./modules/analytics"
+
+  # The load balancer's access-log prefix, decided at root: the module that points the balancer
+  # at it reads the same value, and two literals could disagree with no symptom but logs that
+  # never expire.
+  alb_access_log_prefix = local.alb_access_logs_prefix
 
   workgroup_name           = local.athena_workgroup_name
   athena_admin_bucket_name = local.athena_admin_bucket_name
@@ -1279,4 +1327,57 @@ module "network" {
   # base grants the deploy role the VPC, subnet, route-table, security-group, endpoint and
   # flow-log permissions BEFORE anything here lands.
   depends_on = [module.base]
+}
+
+
+# ── The container platform ────────────────────────────────────────────────────
+# The registry, the cluster, the task definition and the load balancer that will serve the
+# SPA. It runs a placeholder image at a desired count of zero until the spec that builds the
+# real one pushes it: production is still CloudFront, and nothing here is pointed at a user.
+#
+# It takes the network's ids rather than building any of its own — the two modules are split
+# because the network outlives the front door, not because the front door is optional to it.
+# The task security group is the seam: created there with no rules, ruled here, because every
+# one of its rules names a group this module owns.
+module "spa" {
+  source = "./modules/spa"
+
+  project_name = var.project_name
+  environment  = var.environment
+  aws_region   = var.aws_region
+
+  # Passed rather than read from a data source inside the module: the depends_on below would
+  # defer any data source there, and a deferred read is a hard error where it feeds a for_each.
+  account_id = data.aws_caller_identity.current.account_id
+
+  vpc_id                         = module.network.vpc_id
+  public_subnet_ids              = module.network.public_subnet_ids
+  private_subnet_ids             = module.network.private_subnet_ids
+  task_security_group_id         = module.network.task_security_group_id
+  vpc_endpoint_security_group_id = module.network.vpc_endpoint_security_group_id
+  s3_prefix_list_id              = module.network.s3_prefix_list_id
+
+  # Built at root from the domain variables, never derived inside the module.
+  spa_host        = local.spa_host
+  route53_zone_id = var.route53_zone_id
+
+  # From the VALIDATION, not the certificate: same ARN, but only this one creates the edge
+  # that stops a clean rebuild attaching a still-pending certificate to the listener.
+  spa_certificate_arn = aws_acm_certificate_validation.spa.certificate_arn
+
+  # The admin bucket takes the load balancer's access logs, and this module writes that
+  # bucket's first policy. Constructed name, as everywhere else; the ordering edge is the
+  # depends_on below, because a policy cannot be written to a bucket that does not exist.
+  admin_bucket_name  = local.athena_admin_bucket_name
+  access_logs_prefix = local.alb_access_logs_prefix
+
+  desired_count = var.spa_desired_count
+  image_tag     = var.spa_image_tag
+
+  runtime_config  = local.spa_runtime_config
+  csp_connect_src = local.csp_connect_src
+
+  # base grants the deploy role the ECS, ECR, load-balancer, role and log-group permissions
+  # BEFORE anything here lands; analytics creates the bucket whose policy this module writes.
+  depends_on = [module.base, module.analytics]
 }
