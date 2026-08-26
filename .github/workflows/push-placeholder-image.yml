@@ -15,14 +15,25 @@ name: Push the placeholder SPA image
 # is verification scaffolding, not a deployment, and the spec that builds the REAL image
 # replaces this file with a pipeline that builds from source on every commit, waits for
 # service stability, and fails on a bad task set. Delete this workflow when that lands.
+#
+# IT IS ALSO IDEMPOTENT, which matters more than it sounds. The full sequence is: push the
+# image, set the two repository variables, apply (Terraform registers a task definition
+# revision carrying that tag), then point the service at that revision. Only the first and
+# last steps are this workflow's, so it must be runnable a second time to do the last one —
+# an existing tag is therefore a SKIP, not a failure, and `image_tag` lets a run address an
+# image an earlier commit pushed.
 
 on:
   workflow_dispatch:
     inputs:
       desired_count:
-        description: 'Tasks to leave the service running after the push (0 leaves it alone).'
+        description: 'Tasks to leave the service running after the push (0 leaves the service alone).'
         required: false
         default: '1'
+      image_tag:
+        description: 'Tag to ensure is present. Empty means this commit. Naming an EXISTING tag skips the build and only points the service.'
+        required: false
+        default: ''
 
 concurrency:
   group: push-placeholder-image
@@ -47,11 +58,12 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Build and push, tagged with this commit
+      - name: Ensure the image is in the registry
         id: push
         env:
           PROJECT: ${{ vars.TF_VAR_project_name || 'dat' }}
           ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+          IMAGE_TAG_INPUT: ${{ inputs.image_tag }}
         run: |
           set -euo pipefail
 
@@ -72,15 +84,19 @@ jobs:
             echo "::error title=Registry::no repository named $NAME. Terraform builds it from project_name and environment; set TF_VAR_project_name / TF_VAR_environment if this deployment does not use the defaults."
             exit 1
           fi
-          SHA="${GITHUB_SHA}"
+          SHA="${IMAGE_TAG_INPUT:-}"
+          [ -n "$SHA" ] || SHA="${GITHUB_SHA}"
 
-          # THE TAG CANNOT BE RE-PUSHED. The repository is IMMUTABLE, so a second run at the
-          # same commit fails here rather than silently changing what a task definition
-          # starts. Say so plainly instead of leaving a raw ECR error.
+          # PRESENT IS DONE, not an error. The repository is IMMUTABLE, so a tag cannot be
+          # re-pushed — but this workflow's job is "make sure that image is there and the service
+          # runs it", and the second half is worth reaching on its own. Treating an existing tag
+          # as a failure made the workflow un-runnable exactly when only the pointing was needed,
+          # which is the state a first attempt leaves behind.
           if aws ecr describe-images --repository-name "$NAME" \
                --image-ids imageTag="$SHA" >/dev/null 2>&1; then
-            echo "::error title=Tag exists::${SHA} is already in the registry, and tags here are IMMUTABLE. Push from a different commit."
-            exit 1
+            echo "::notice title=Already present::$NAME:$SHA is in the registry; skipping the build."
+            echo "image_tag=$SHA" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
           aws ecr get-login-password --region "$AWS_REGION" \
@@ -98,21 +114,45 @@ jobs:
           echo "image_tag=$SHA" >> "$GITHUB_OUTPUT"
           echo "Pushed $REPO:$SHA"
 
-      - name: Point the service at it
+      - name: Point the service at the revision carrying this image
         if: inputs.desired_count != '0'
         env:
+          PROJECT: ${{ vars.TF_VAR_project_name || 'dat' }}
+          ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
           IMAGE_TAG: ${{ steps.push.outputs.image_tag }}
           COUNT: ${{ inputs.desired_count }}
         run: |
           set -euo pipefail
 
-          # THE REPOSITORY VARIABLES ARE THE SOURCE OF TRUTH, not this step. Terraform owns
-          # the task definition and the desired count; a service updated only here is reverted
-          # by the next infrastructure apply. So this sets the variables and says what to run —
-          # it does NOT call update-service, which would look like it had worked and then
-          # quietly come undone.
-          echo "::notice title=Two variables to set::TF_VAR_spa_image_tag=$IMAGE_TAG and TF_VAR_spa_desired_count=$COUNT, then run Deploy Infrastructure."
-          echo
-          echo "  gh variable set TF_VAR_spa_image_tag     --body '$IMAGE_TAG'"
-          echo "  gh variable set TF_VAR_spa_desired_count --body '$COUNT'"
-          echo "  gh workflow run 'Deploy Infrastructure'"
+          CLUSTER="${PROJECT}-${ENVIRONMENT}-spa"
+          FAMILY="${PROJECT}-${ENVIRONMENT}-spa"
+
+          # WHY THIS STEP EXISTS, and why an earlier version of it printed instructions instead.
+          # It reasoned that Terraform owns the task definition and would revert anything set
+          # here. That is true of `desired_count` and FALSE of the task definition: the service
+          # carries `ignore_changes = [task_definition]` precisely so CI owns which revision runs.
+          # Printing instructions left the service pinned to revision 1 — the placeholder tag,
+          # which does not exist — and the pull failed with CannotPullContainerError naming a tag
+          # nobody pushed. That reads exactly like the endpoint failure this platform is tested
+          # for, which is the worst possible way to be wrong here.
+          #
+          # THE REVISION MUST CARRY THE IMAGE THIS RUN PUSHED. Terraform registers it on the apply
+          # that reads TF_VAR_spa_image_tag, so this step is a no-op until that apply has run —
+          # and it says so rather than pointing the service at a revision holding something else.
+          WANT="$IMAGE_TAG"
+          FOUND=$(aws ecs describe-task-definition --task-definition "$FAMILY" \
+                    --query 'taskDefinition.[revision,containerDefinitions[0].image]' --output text)
+          REVISION=$(printf '%s' "$FOUND" | cut -f1)
+          IMAGE=$(printf '%s' "$FOUND" | cut -f2)
+
+          if [ "${IMAGE##*:}" != "$WANT" ]; then
+            echo "::warning title=Not pointed::the newest task definition ($FAMILY:$REVISION) runs ${IMAGE##*:}, not $WANT. Set the two repository variables and run Deploy Infrastructure, then dispatch this workflow again — it will point the service without rebuilding."
+            echo "  gh variable set TF_VAR_spa_image_tag     --body '$WANT'"
+            echo "  gh variable set TF_VAR_spa_desired_count --body '$COUNT'"
+            echo "  gh workflow run 'Deploy Infrastructure'"
+            exit 0
+          fi
+
+          aws ecs update-service --cluster "$CLUSTER" --service "$FAMILY" \
+            --task-definition "$FAMILY:$REVISION" --query 'service.taskDefinition' --output text
+          echo "::notice title=Pointed::$FAMILY:$REVISION, running ${IMAGE##*:}"
