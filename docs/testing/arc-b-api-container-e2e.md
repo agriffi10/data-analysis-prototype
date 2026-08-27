@@ -431,14 +431,17 @@ curl -s -o /dev/stdout -w '\n%{http_code}\n' -H "authorization: Bearer $ID_TOKEN
 
 - [ ] `200` and `{"username":"<your signed-in username>"}` — the username, not the `sub`.
 
-**D.2 — The four refusals, and their bodies compared. BLOCKING.**
+**D.2 — Four refusals, and their bodies compared. BLOCKING.**
 
 Row 2 is the cheapest real proof that `aud` and `token_use` are enforced: a genuine, correctly
 signed, unexpired token **from the same pool and the same user**, which an implementation checking
-only the signature accepts.
+only the signature accepts. Row 4 is the only one that tests key-set **provenance** rather than
+signature integrity — a well-formed token whose `kid` this pool never published.
 
 ```bash
 ACCESS_TOKEN='<paste the accessToken from the same session>'
+
+# One payload byte flipped: the signature no longer covers the body.
 FLIPPED=$(python3 - "$ID_TOKEN" <<'EOF'
 import sys
 h, p, s = sys.argv[1].split('.')
@@ -446,45 +449,78 @@ print(f"{h}.{p[:-1]}{'A' if p[-1] != 'A' else 'B'}.{s}")
 EOF
 )
 
-for label in no-token access-token flipped-payload; do
+# Signed by a key this pool never published — a real RS256 token with a foreign kid.
+FOREIGN=$(python3 - <<'EOF'
+import json, time, jwt
+from cryptography.hazmat.primitives.asymmetric import rsa
+key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+print(jwt.encode({"cognito:username": "alice", "token_use": "id",
+                  "aud": "<the app client id from /config.json>",
+                  "iss": "<the OIDC_ISSUER value>", "exp": int(time.time()) + 3600},
+                 key, algorithm="RS256", headers={"kid": "not-a-key-this-pool-published"}))
+EOF
+)
+
+for label in no-token access-token flipped-payload foreign-key; do
   case $label in
     no-token)        AUTH=() ;;
     access-token)    AUTH=(-H "authorization: Bearer $ACCESS_TOKEN") ;;
     flipped-payload) AUTH=(-H "authorization: Bearer $FLIPPED") ;;
+    foreign-key)     AUTH=(-H "authorization: Bearer $FOREIGN") ;;
   esac
   printf '%s: ' "$label"
-  curl -s -D /tmp/h.$label -o /tmp/b.$label -w '%{http_code}\n' "${AUTH[@]}" "$API/_auth/whoami"
+  curl -s -D "/tmp/h.$label" -o "/tmp/b.$label" -w '%{http_code}\n' "${AUTH[@]}" "$API/_auth/whoami"
 done
-md5 -q /tmp/b.no-token /tmp/b.access-token /tmp/b.flipped-payload
-grep -i www-authenticate /tmp/h.no-token
+
+shasum -a 256 /tmp/b.no-token /tmp/b.access-token /tmp/b.flipped-payload /tmp/b.foreign-key
+grep -i www-authenticate /tmp/h.no-token /tmp/h.access-token /tmp/h.flipped-payload /tmp/h.foreign-key
+cat /tmp/b.no-token; echo
 ```
 
-- [ ] All three are `401`.
-- [ ] All three bodies hash **identically** — one hash repeated three times.
-- [ ] The body is `{"error": "unauthorized", "code": "SessionExpired"}` and carries no reason,
-      no `kid`, no issuer and no fragment of the token.
-- [ ] `www-authenticate: Bearer` is present on every one.
+- [ ] All four are `401`.
+- [ ] All four bodies hash **identically** — one digest repeated four times.
+- [ ] `www-authenticate: Bearer` on **all four** — four lines, not one.
+- [ ] The body is exactly `{"error": "unauthorized", "code": "SessionExpired"}`: no reason,
+      no `kid`, no issuer, no fragment of any token.
 
-**D.3 — A genuinely expired token, and it cannot be reached incidentally. BLOCKING.**
+**D.3 — A genuinely expired token, and the obvious recipe does not work. BLOCKING.**
 
-A Cognito ID token lives an hour, so this needs setting up rather than waiting for. Create a
-throwaway app client on the same pool with the **5-minute minimum** ID-token validity, sign in
-through it, capture the token, wait six minutes.
+A Cognito ID token lives an hour, so this has to be set up rather than waited for.
 
-- [ ] `401`, and the body hashes **identically to `/tmp/b.no-token`** from D.2.
+**Do NOT mint it from a throwaway app client.** `oidc_audience` is a *single* client id
+(`infra/main.tf`), so a second client's token is refused on **audience** — the verifier never
+reaches the expiry check, and nothing tells you which check refused: the wire is byte-identical by
+design, and `verification_failed` is one reason code covering signature, issuer, audience and
+expiry alike. The check would pass while proving the opposite of what it claims.
+
+What works is temporarily shortening the **existing** app client's ID-token validity to its
+**5-minute minimum**, in the Cognito console (App client → Authentication flow session duration →
+token expiration). Sign in fresh, capture the ID token, wait six minutes.
+
+```bash
+EXPIRED='<the token captured six minutes ago>'
+curl -s -D /tmp/h.expired -o /tmp/b.expired -w '%{http_code}\n' \
+  -H "authorization: Bearer $EXPIRED" "$API/_auth/whoami"
+shasum -a 256 /tmp/b.expired /tmp/b.no-token
+```
+
+- [ ] `401`, and the body hashes **identically** to `/tmp/b.no-token` from D.2.
 - [ ] This is the only way to see the verifier reach the expiry check at all rather than failing
-      earlier — every offline test that fakes the clock cannot distinguish the two.
+      earlier — every offline test fakes the clock and cannot distinguish the two.
+- [ ] **Restore the app client's token validity afterwards** (§14), or every session in the
+      environment expires in five minutes.
 
-**D.4 — The browser's refresh-once path, which is what the short-validity client is really for.
-BLOCKING, and it must be watched in the network panel.**
+**D.4 — The browser's refresh-once path. OWED, not runnable here — and the reason is worth stating.**
 
-With the short-validity client, leave a tab idle past expiry, then act.
+`apiFetch` has **no caller**: no route is ported, so no user action anywhere in the portal issues a
+request to count. "Leave a tab idle and act" has nothing to act on. It is recorded in `owed.md` and
+belongs to the pass for the spec that ports the first route, where it becomes an ordinary check
+rather than a staged one.
 
-- [ ] Exactly **two** requests to `$API`: the 401 and the retry that succeeds. Not three.
-- [ ] The user is **not** signed out.
-- [ ] Then break the refresh — sign out in a second tab — act again, and confirm the retry `401`s
-      and there is **no third request**. A refresh loop against a dead refresh token is invisible in
-      a passing offline test and obvious here.
+What it will assert there, unchanged: exactly **two** requests on a 401 — the refusal and the retry
+that succeeds — the user **not** signed out, and then, with the refresh broken (sign out in a second
+tab), a retry that `401`s with **no third request**. A refresh loop against a dead refresh token is
+invisible in a passing offline test and obvious in a network panel.
 
 **D.5 — The preflight, in a browser. BLOCKING, and curl proves nothing here.**
 
@@ -504,14 +540,27 @@ await fetch('https://api.dataquarry.app/_auth/whoami', {headers: {authorization:
 The offline sentinel is synthetic; the question here is whether a real token's characters survive a
 real serialisation path.
 
+**It has to be a refusal, and a valid request will not do.** The success path emits no record beyond
+its span, and that span carries no `error` at all — so grepping after a 200 returns `0` for the same
+reason an empty file does. A query parameter will not force one either: the handler passes only the
+method, the path and the headers, so `?anything` never reaches the router. `$FLIPPED` from D.2 is
+what works — it carries the real token's header and signature characters and is refused.
+
 ```bash
-curl -s -o /dev/null -H "authorization: Bearer $ID_TOKEN" "$API/_auth/whoami?force=nonexistent"
-# wait for the logs sweep, then, for the day's partition:
-aws s3 cp "s3://<admin-bucket>/logs/service=api/year=YYYY/month=MM/day=DD/data.jsonl" - \
-  | grep -c "$(cut -d. -f2 <<<"$ID_TOKEN")"
+curl -s -o /dev/null -H "authorization: Bearer $FLIPPED" "$API/_auth/whoami"
+
+ADMIN_BUCKET=$(tofu -chdir=infra output -raw athena_admin_bucket_name)
+DAY=$(date -u +'year=%Y/month=%m/day=%d')
+# after the logs sweep has run for that window
+aws s3 cp "s3://$ADMIN_BUCKET/logs/service=api/$DAY/data.jsonl" - > /tmp/api-records.jsonl
+grep -c "$(cut -d. -f1 <<<"$ID_TOKEN")" /tmp/api-records.jsonl   # header segment
+grep -c "$(cut -d. -f3 <<<"$ID_TOKEN")" /tmp/api-records.jsonl   # signature segment
+grep -c '"reason": "verification_failed"' /tmp/api-records.jsonl
 ```
 
-- [ ] `0` — the token's payload segment appears in no record.
+- [ ] The last count is **≥ 1** — the refusal was recorded, so the two counts above mean something.
+      Without this the grep proves nothing.
+- [ ] Both token-segment counts are **0**.
 - [ ] The day's records carry a real `env` and a real build sha, **never `0.0.0`**.
 
 **D.7 — Owed, because nothing in one signed-in session can settle it**
@@ -1058,6 +1107,12 @@ Record these as **owed**, not discharged:
   silently becomes stale.
 
 ## 14. Cleanup
+
+**Restore the app client's ID-token validity if D.3 was run.** It is shortened to five minutes to
+reach the expiry check, and left that way every session in the environment expires in five minutes —
+a change nobody would connect back to a test run days later.
+
+
 
 - [ ] Delete `arcb_files/`, `arcb_send/`, `arcb_send_moved/`, `arcb_tmp/`, `arcb.sql`, `arcb_report`,
       `arcb_report2`, and the archive created in §8.

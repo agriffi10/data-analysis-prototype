@@ -20,9 +20,6 @@ same property, and a Chromium run standing in for Safari are all recorded here, 
 | **Cross-user prefix isolation** (SPEC-013 FR-004) | As `alice`, every S3 verb against `bob/` is denied and a root listing leaks nothing, while the same calls against `alice/` succeed. The app never issues the cross-prefix call, so it needs two users' portal credentials or a policy simulation. The **paired success is what makes the denial mean anything**, and it must be driven from `npm run dev` — the production bundle's console cannot `import()` a bare specifier. |
 | **A share's recipient queries the result** (SPEC-161) | `SELECT count(*)` from the recipient's own database must return the source's row count, not zero. |
 
-| **A JWKS key rotation across the refetch cooldown** (SPEC-195) | For up to 60 s after a provider rotates, this API refuses tokens signed with the new key — the accepted cost of bounding an unauthenticated amplification vector. Cognito publishes both keys across a rotation and the window sits far inside any overlap, so no real rotation is expected to reach a user. Untestable without forcing a pool key rotation; **accepted rather than verified**. |
-| **The unknown-`kid` refetch bound under real load** (SPEC-195) | The counter is asserted offline against a fake transport. What is not observed is the fetch rate a real burst produces against the real JWKS endpoint. |
-
 ### Needs the CLI
 
 | Check | Why | Recipe |
@@ -116,13 +113,16 @@ recipe anywhere** — write one when you run it.
 | **SPEC-151 FR-006's escaping over a real partition segment containing `'`** | Asserted at render time only. If such a folder ever fails, suspect the engine before the renderer. |
 | **SPEC-151 FR-003's failure direction** | A denied key cannot be staged from the UI; unit-tested only. |
 | **A partial restore, and `restore_timed_out`** | Forcing one item to fail mid-copy means denying a destination the guard would have refused up front. Seven hours of waiting to observe a counter. |
+| **A JWKS key rotation across the refetch cooldown** (SPEC-195) | For up to 60 s after a provider rotates its signing keys this API refuses tokens signed with the new one — the accepted cost of bounding an unauthenticated amplification vector. Cognito publishes both keys across a rotation and the window sits far inside any overlap, so no real rotation is expected to reach a user. Forcing one means rotating a pool key; **accepted rather than verified**. |
+| **The unknown-`kid` refetch bound under real load** (SPEC-195) | The counter is asserted offline against a fake transport. What is not observed is the fetch rate a real burst produces against the real JWKS endpoint. |
+| **The browser's refresh-once path** (SPEC-195 FR-008) | `apiFetch` has **no caller** until the first route is ported, so no user action issues a request to count. It becomes an ordinary check the day SPEC-197 ports one, and belongs to that spec's pass — not a gap in the boundary. |
 | **Stale root-level static assets** (SPEC-141) | An accepted orphan class, not a check. Removals are by hand, and **not verifiable by status code** — the distribution maps `403/404 → /index.html` with a **200**, so check `content-type` and `x-cache: Error from cloudfront`. |
 
 ### Accepted exposure, with an owner
 
 | Exposure | Owner | Note |
 |---|---|---|
-| **The API is internet-facing, unauthenticated and unthrottled** | SPEC-196 | `api.dataquarry.app` answers `GET /healthz` and 404s everything else — no AWS call, no data, no identity. A rate limit is **deliberately deferred by the arc**, so the account default (10,000 rps / 5,000 burst) applies and every request is a billed invocation. CORS restrains browsers, not `curl`. Reviewed and accepted 2026-08-26; the exposure is billing, not disclosure. Revisit if the placeholder is still there when a route with a body lands. |
+| **The API is internet-facing and unthrottled** | SPEC-196 | `api.dataquarry.app` answers `GET /healthz` without a credential and **401s everything else**, identified or not — it now verifies a bearer token (SPEC-195), so "unauthenticated" is stale, but it still makes no AWS call and holds no data. One new exposure comes with the verification: an unknown `kid` makes a JWKS refetch, so a stream of random `kid`s is an amplification vector against the provider **from unauthenticated requests** — bounded by a per-container cooldown, and the bound is asserted offline only (see *Not observable at all*). A rate limit is **deliberately deferred by the arc**, so the account default (10,000 rps / 5,000 burst) applies and every request is a billed invocation. CORS restrains browsers, not `curl`. Reviewed and accepted 2026-08-26; the exposure is billing, not disclosure. Revisit if the placeholder is still there when a route with a body lands. |
 
 ### Dated, and nothing in CI will raise it
 

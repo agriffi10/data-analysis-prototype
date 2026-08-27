@@ -78,7 +78,7 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 - **API layer & containerisation (192 → 202, 192–195 done)** — "Arc B". CloudFront is still
   production and the rollback. Next: the AWS identity layer (196). Bucket CORS admits the
   CloudFront origin only, so the container's direct S3 calls fail preflight until 198 — expected.
-  §D of the acceptance script is **owed**. Read the `ARCS.md` arc entry first.
+  §D of `docs/testing/arc-b-api-container-e2e.md` is **owed**; read the `ARCS.md` arc entry first.
 
 ### Live checks
 

@@ -4877,8 +4877,10 @@ would have to duplicate the route table before it could say anything at all — 
 would be a **second reader of the same token**, able to disagree with the router about the claim the
 role assumption is scoped by, with no arbiter between them.
 
-**Today there is nothing to authorize:** the deployed API is a placeholder serving `/healthz` and a
-404, with no identity and no AWS call. SPEC-195 adds the verification, in the router. The disposition
+**SHIPPED (SPEC-195, 2026-08-27); the "nothing to authorize" reasoning below is past tense.** The
+API resolves a principal before dispatch and refuses any undeclared route — an unidentified caller
+gets 401, not 404, whatever path they ask for. The disposition is unchanged and now load-bearing:
+the verifier is a module the router calls. The disposition
 for `CKV_AWS_309` in `security-baseline.md` is the audit-trail wording, and it rests on the bearer
 token — never on the session cookie the arc's re-scope removed.
 

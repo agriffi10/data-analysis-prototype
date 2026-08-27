@@ -13,6 +13,8 @@ Pointers (don't duplicate these here):
 
 - **System Overview** — orientation; the no-backend + principal-tag model in one paragraph.
 - **Authentication Flow** — read when touching login, the token→credential exchange, or refresh.
+  - **The API's auth boundary** — one token, one verification path, two transports; read before touching
+    the API's identity handling or a provider parameter.
 - **Authorization Model** — read when touching IAM/isolation: user space, shared-space slots, analytics (TBAC).
 - **Control Planes** — read *The shared pattern* before any plane work; each plane section is its decision record:
   - **Control Planes → Shared Spaces** — space lifecycle, registry, per-user caches, roster.
@@ -1027,7 +1029,7 @@ timeout looks like.
 
 **`infra/modules/api/`** — an HTTP API, one `$default` route, one integration, a regional custom
 domain at `api.`, CORS admitting both origins, access logging, and a placeholder function that is
-**not in the VPC**. Authorization will live in the router (SPEC-195), never in an authorizer.
+**not in the VPC**. Authorization is a **verifier the router calls** — never an authorizer, which would be a second reader of the same token — and the verifier deliberately has no router dependency, so the gate can later move without the verification moving with it.
 
 **`infra/modules/spa/`** — ECR (immutable tags, scan on push, AES256, bounded lifecycle), an ECS
 cluster, two task roles (**the task role holds nothing** — the container makes no AWS call), the task
