@@ -401,7 +401,12 @@ describe('QueryWorkspace', () => {
 
     it('surfaces a runQuery error in a danger banner and keeps Run available', async () => {
       seedSingle('SELECT bad');
-      mockRunQuery.mockResolvedValue(fail('COLUMN_NOT_FOUND: amont', 'InvalidRequest'));
+      // `InvalidRequestException` is the name Athena actually returns for a rejected
+      // StartQueryExecution, and it carries no code rule — so this exercises the ENGINE-MESSAGE
+      // path, which is what the assertion below is about. (The bare `InvalidRequest` this used
+      // to send is now one of the API's declared codes, and a code rule wins over a message
+      // match by design.)
+      mockRunQuery.mockResolvedValue(fail('COLUMN_NOT_FOUND: amont', 'InvalidRequestException'));
       const {user} = renderWorkspace();
       await screen.findByLabelText('SQL editor');
 

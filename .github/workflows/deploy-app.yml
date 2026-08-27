@@ -43,6 +43,7 @@ jobs:
         working-directory: apps/portal
         run: npm run build
         env:
+          VITE_API_BASE_URL: ${{ vars.API_BASE_URL }}
           VITE_AWS_REGION: ${{ vars.AWS_REGION }}
           VITE_APP_URL: ${{ vars.VITE_APP_URL }}
           # Which feature-flag block this build resolves (SPEC-162). Unset ships a bundle
@@ -108,7 +109,7 @@ jobs:
           # self-hosted runner introduces — into a world-readable document. Both lists
           # below are asserted against the classification by test.
           KEYS='apiBaseUrl appUrl awsRegion environment maxUploadBytes cognitoUserPoolId cognitoUserPoolClientId cognitoDomain cognitoIdentityPoolId userSpaceBucket sharedSpaceBucket athenaWorkgroup sharedSpaceQueueUrl notificationsQueueUrl tableBuildQueueUrl tableShareQueueUrl dataQualityQueueUrl fileSendQueueUrl archiveQueueUrl fileOpsQueueUrl'
-          REQUIRED='appUrl awsRegion userSpaceBucket athenaWorkgroup cognitoUserPoolId cognitoUserPoolClientId cognitoDomain'
+          REQUIRED='apiBaseUrl appUrl awsRegion userSpaceBucket athenaWorkgroup cognitoUserPoolId cognitoUserPoolClientId cognitoDomain'
 
           jq -n --arg keys "$KEYS" '($keys | split(" ")) as $allowed
             | {version: 1} + ($ENV

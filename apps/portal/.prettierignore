@@ -4,3 +4,7 @@ coverage
 
 # Lockfiles are tool-managed.
 package-lock.json
+
+# Generated from the Python wire contract. Formatting it here would be a diff no human
+# wrote, which the regeneration gate then rejects.
+src/types/apiContract.generated.ts

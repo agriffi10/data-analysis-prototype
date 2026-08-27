@@ -1,10 +1,11 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {MAX_INDEXED_USERNAMES, buildIndex, search, searchWithCost} from './usernameTrie';
-import {DIRECTORY_KEY, getUserDirectory} from './userDirectory.service';
-import {getS3Client} from '../../lib/s3Client';
+import {getUserDirectory} from './userDirectory.service';
+import {API_ROUTES} from '../../types/apiContract.generated';
+import {resetApiClientForTests, setAuthTokenProvider} from '../../lib/apiClient';
+import {clearRuntimeConfig, seedRuntimeConfig} from '../../test/seedRuntimeConfig';
 
 // ─── from usernameTrie.test.ts ───
-vi.mock('../../lib/s3Client', () => ({getS3Client: vi.fn()}));
 
 describe('usernameTrie', () => {
   const NAMES = ['alice', 'alicia', 'bob', 'bob_smith', 'carol', 'malice', 'robert_bob'];
@@ -150,126 +151,149 @@ describe('usernameTrie', () => {
 });
 
 // ─── from userDirectory.service.test.ts ───
-vi.mock('../../lib/awsCredentials', () => ({
-  getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
-}));
+//
+// THE PORT'S DISPOSITION. Ten assertions covered this service when it read S3 directly. Four
+// moved to `lambdas/api/test_user_directory_route.py` with their reasoning carried over, three
+// are kept on BOTH sides, and three are kept here because they are about the transport rather
+// than the document. Nothing was dropped, and the delivery doc reproduces the table — "we moved
+// the tests" is exactly the claim nobody can check a year later.
+//
+//   reads the key the builder publishes, from the user-space bucket .... moved
+//   reads the bucket name at call time ................................ moved (replaced in kind:
+//                                                                       the API origin, in
+//                                                                       apiClient.test.ts)
+//   missing document -> empty state ................................... both
+//   corrupt document -> empty state .................................. moved
+//   unsupported version, and names it ................................ moved
+//   non-array usernames -> empty ..................................... moved
+//   re-checks every entry against the catalog-safe rule ............... both
+//   a real fault is a failure ........................................ kept
+//   never throws ..................................................... kept, extended to a
+//                                                                       non-envelope gateway body
+//   drops a non-string generatedAt ................................... both
 
 describe('userDirectory.service', () => {
-  const send = vi.fn();
+  const ORIGIN = 'https://api.example.test';
+  const fetchMock = vi.fn();
 
-  const awsError = (name: string, status?: number) =>
-    Object.assign(new Error(name), {name, $metadata: status ? {httpStatusCode: status} : {}});
+  const envelope = (status: number, code: string) =>
+    ({
+      ok: false,
+      status,
+      json: async () => ({error: {code, requestId: 'r1'}})
+    }) as unknown as Response;
 
-  const body = (value: unknown) => ({
-    Body: {transformToString: async () => (typeof value === 'string' ? value : JSON.stringify(value))}
-  });
-
-  const document = (over: Record<string, unknown> = {}) => ({
-    version: 1,
-    generatedAt: '2026-08-05T04:00:11Z',
-    count: 2,
-    usernames: ['alice', 'bob_smith'],
-    ...over
-  });
+  const payload = (body: unknown) => ({ok: true, status: 200, json: async () => body}) as unknown as Response;
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    send.mockReset();
-    vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-space');
-    vi.mocked(getS3Client).mockResolvedValue({success: true, data: {send} as never});
+    vi.stubGlobal('fetch', fetchMock);
+    seedRuntimeConfig({apiBaseUrl: ORIGIN});
+    setAuthTokenProvider(async () => 'a-token');
   });
 
   afterEach(() => {
-    vi.unstubAllEnvs();
+    fetchMock.mockReset();
+    resetApiClientForTests();
+    clearRuntimeConfig();
+    vi.unstubAllGlobals();
   });
 
   describe('getUserDirectory', () => {
-    it('reads the key SPEC-146 publishes, from the user-space bucket', async () => {
-      send.mockResolvedValue(body(document()));
+    it('issues exactly one API request, for the route the generated table names', async () => {
+      // The route id is the assertion: a typo cannot compile, but a wrong-but-valid id can.
+      fetchMock.mockResolvedValue(payload({usernames: ['alice', 'bob_smith'], generatedAt: '2026-08-05T04:00:11Z'}));
 
       const result = await getUserDirectory();
 
-      expect(DIRECTORY_KEY).toBe('_directory/usernames.json');
-      const command = send.mock.calls[0][0];
-      expect(command.input).toMatchObject({Bucket: 'user-space', Key: '_directory/usernames.json'});
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(String(fetchMock.mock.calls[0][0])).toBe(`${ORIGIN}${API_ROUTES['userDirectory.get'].path}`);
       expect(result).toEqual({
         success: true,
         data: {usernames: ['alice', 'bob_smith'], generatedAt: '2026-08-05T04:00:11Z'}
       });
     });
 
-    it('reads the bucket name at call time, not module load', async () => {
-      // A module-level `import.meta.env` const would have been captured before `stubEnv` ran.
-      vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'a-different-bucket');
-      send.mockResolvedValue(body(document()));
-
-      await getUserDirectory();
-
-      expect(send.mock.calls[0][0].input.Bucket).toBe('a-different-bucket');
-    });
-
-    it('treats a missing document as the empty state, not an error', async () => {
-      // The ordinary state of the bucket until the builder's first run.
-      send.mockRejectedValue(awsError('NoSuchKey', 404));
+    it("treats the API's empty answer as the empty state, not an error", async () => {
+      // BOTH SIDES. The server answers 200 with an empty list for a missing, unreadable or
+      // unrecognised document; this is the half that says an empty list is a success here.
+      fetchMock.mockResolvedValue(payload({usernames: [], generatedAt: null}));
 
       expect(await getUserDirectory()).toEqual({success: true, data: {usernames: [], generatedAt: null}});
-    });
-
-    it('treats a corrupt document as the empty state', async () => {
-      send.mockResolvedValue(body('{not json'));
-
-      expect(await getUserDirectory()).toEqual({success: true, data: {usernames: [], generatedAt: null}});
-    });
-
-    it('refuses a version it does not understand, and names it', async () => {
-      // A shape this reader does not understand is not a shape it should guess at.
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      send.mockResolvedValue(body(document({version: 2})));
-
-      const result = await getUserDirectory();
-
-      expect(result).toEqual({success: true, data: {usernames: [], generatedAt: null}});
-      expect(warn.mock.calls[0][0]).toContain('2');
-      warn.mockRestore();
-    });
-
-    it('treats a non-array usernames field as empty', async () => {
-      send.mockResolvedValue(body(document({usernames: {alice: true}})));
-
-      expect((await getUserDirectory()) as never).toMatchObject({data: {usernames: []}});
     });
 
     it('re-checks every entry against the catalog-safe rule', async () => {
-      // The producer already guarantees this. The consumer re-checks because the array is
-      // rendered into the DOM and used to build keys, and a producer guarantee is not a runtime
-      // guarantee — the object is one `aws s3 cp` away from holding anything.
-      send.mockResolvedValue(body(document({usernames: ['alice', 'Bob', '../etc/passwd', 42, '', 'cara']})));
+      // BOTH SIDES, and that is deliberate rather than redundant: the API is now a SECOND
+      // producer, which is one more thing that can be wrong. The array is rendered into the DOM
+      // and used to build keys, and a producer guarantee is not a runtime guarantee.
+      fetchMock.mockResolvedValue(
+        payload({usernames: ['alice', 'Bob', '../etc/passwd', 42, '', 'cara'], generatedAt: null})
+      );
 
       const result = await getUserDirectory();
 
       expect(result).toMatchObject({success: true, data: {usernames: ['alice', 'cara']}});
     });
 
+    it('drops generatedAt when it is not a string, keeping the usernames', async () => {
+      // BOTH SIDES, for the reason above.
+      fetchMock.mockResolvedValue(payload({usernames: ['alice'], generatedAt: 12345}));
+
+      expect(await getUserDirectory()).toMatchObject({data: {usernames: ['alice'], generatedAt: null}});
+    });
+
     it('reports a real fault as a failure', async () => {
-      send.mockRejectedValue(awsError('AccessDenied', 403));
+      // KEPT. A 503 envelope is a fault, and the hook collapses it to 'unavailable' exactly as
+      // an AWS error used to be.
+      fetchMock.mockResolvedValue(envelope(503, 'ApiUnavailable'));
 
       const result = await getUserDirectory();
 
       expect(result.success).toBe(false);
     });
 
-    it('never throws', async () => {
-      send.mockImplementation(() => {
+    it("carries SessionExpired through, so the hook's unavailable collapse still holds", async () => {
+      fetchMock.mockResolvedValue(envelope(401, 'SessionExpired'));
+
+      const result = await getUserDirectory();
+
+      expect(result).toMatchObject({success: false, error: {code: 'SessionExpired'}});
+    });
+
+    it('never throws — including on a body the gateway wrote rather than the API', async () => {
+      // KEPT AND EXTENDED. The old version threw from the SDK; this one covers the shape a
+      // client assuming every non-2xx is an envelope would hit a SyntaxError on.
+      fetchMock.mockImplementation(() => {
         throw new TypeError('something unexpected');
       });
+      await expect(getUserDirectory()).resolves.toMatchObject({success: false});
 
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 502,
+        json: async () => {
+          throw new SyntaxError('Unexpected token < in JSON');
+        }
+      } as unknown as Response);
       await expect(getUserDirectory()).resolves.toMatchObject({success: false});
     });
 
-    it('drops generatedAt when it is not a string, keeping the usernames', async () => {
-      send.mockResolvedValue(body(document({generatedAt: 12345})));
+    it('reaches no AWS SDK, no S3 client and no bucket name', async () => {
+      // Read as SOURCE, the way every other sweep in this suite does: the service's imports are
+      // the assertion, and an import that resolves is invisible to a behavioural test.
+      const source = Object.values(
+        import.meta.glob('./userDirectory.service.ts', {
+          query: '?raw',
+          import: 'default',
+          eager: true
+        }) as Record<string, string>
+      )[0];
 
-      expect(await getUserDirectory()).toMatchObject({data: {usernames: ['alice', 'bob_smith'], generatedAt: null}});
+      expect(source).not.toContain('@aws-sdk/');
+      expect(source).not.toContain('s3Client');
+      expect(source).not.toContain('s3Json');
+      expect(source).not.toContain('userSpace');
+      expect(source).not.toContain('_directory/');
     });
   });
 });

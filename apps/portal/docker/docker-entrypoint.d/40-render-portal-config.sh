@@ -22,7 +22,7 @@ KEYS='apiBaseUrl appUrl awsRegion environment maxUploadBytes cognitoUserPoolId c
 
 # The ones with no degraded path. A container serving a document without these renders a boot
 # failure to every user, so it refuses to serve at all instead.
-REQUIRED='appUrl awsRegion userSpaceBucket athenaWorkgroup cognitoUserPoolId cognitoUserPoolClientId cognitoDomain'
+REQUIRED='apiBaseUrl appUrl awsRegion userSpaceBucket athenaWorkgroup cognitoUserPoolId cognitoUserPoolClientId cognitoDomain'
 
 # The version the browser's loader accepts. It refuses a document whose version differs — it
 # does not guess — so a mismatch here is a white screen, not a degraded feature.

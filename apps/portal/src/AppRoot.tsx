@@ -5,6 +5,24 @@ import App from './App.tsx';
 import {AuthProvider} from './features/auth';
 import {ToastProvider} from './components/ToastProvider';
 import {queryClient} from './lib/queryClient';
+import {getIdToken} from './lib/awsCredentials';
+import {setAuthTokenProvider} from './lib/apiClient';
+
+// WHERE THE API CLIENT LEARNS ABOUT SESSIONS, and it is one call rather than an import inside
+// the client because the client must not know how a session is obtained — the day the provider
+// changes, nothing under `lib/` moves.
+//
+// Registered HERE and not in `main.tsx`: that module's static-import set is asserted by equality,
+// and everything it imports is evaluated before the runtime document is fetched. This module is
+// already behind the dynamic import that waits for it.
+//
+// The failure collapses to `null` rather than propagating: the client's contract is that no
+// session means `SessionExpired` with zero network requests, and a provider that threw or
+// returned a service error would leak provider wording into a layer that authors none.
+setAuthTokenProvider(async (forceRefresh) => {
+  const token = await getIdToken(forceRefresh);
+  return token.success ? token.data : null;
+});
 
 /**
  * The whole application graph, behind one dynamic import.

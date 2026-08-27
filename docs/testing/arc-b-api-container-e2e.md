@@ -399,11 +399,19 @@ check prove nothing.
 > items 1 and 9 overlap §11's trust-statement and IAM-simulation steps deliberately: whichever
 > runs first discharges both, and the other records that it did.
 
-## D. The API's auth boundary (SPEC-195) — runnable NOW, outside the merge order
+## D. The API's auth boundary (SPEC-195) — PARTLY RUN 2026-08-27
 
-Like §A–§C this stands outside the merge sequence. **No feature is ported**: the browser still calls
-AWS directly, and the only routes the API serves are `GET /healthz` and the temporary probe
-`GET /_auth/whoami`, which SPEC-197 deletes once this section has been run and recorded.
+> **STATUS.** **D.1 and D.2 ran** on 2026-08-27 against `GET /_auth/whoami` and are recorded in
+> [`sessions.md`](sessions.md): the happy path, and four refusals with one repeated body digest and
+> the challenge header on all four. **D.3, D.5 and D.6 did not run.**
+>
+> **The probe this section is written against is deleted** (SPEC-197 FR-014). The three outstanding
+> items are all token-refusal checks, and `GET /v1/user-directory` serves them identically — every
+> refusal here is refused **before dispatch**, so the route being a real feature changes nothing
+> about what they measure. **Substitute `/v1/user-directory` for `/_auth/whoami` throughout**, and
+> read D.1's happy-path assertion as "suggestions render" (§F.1) rather than an echoed username.
+
+Like §A–§C this stands outside the merge sequence.
 
 **EVERY LOAD-BEARING CHECK BELOW IS NEGATIVE, and that is the whole design of this section.** A
 request carrying a genuine token succeeds against a correct implementation *and against one that
@@ -1112,12 +1120,15 @@ Record these as **owed**, not discharged:
   simulation or a `logs/` record is **unaffected**. Leaving one unclassified is how a discharged check
   silently becomes stale.
 
-## E. The AWS identity layer (SPEC-196) — WRITTEN, NOT YET RUN
+## E. The AWS identity layer (SPEC-196) — PARTLY RUN 2026-08-27
 
-> **STATUS: every item below is OWED.** No live check in this section has been run. The decision
-> (2026-08-27) is that live verification for the whole arc happens once, at SPEC-202, rather than
-> per spec — so this is a runnable script recorded in advance, not a record of a pass. Every item
-> also has a row in [`owed.md`](owed.md). **Do not read a written step as a discharged one.**
+> **STATUS: PARTLY RUN, 2026-08-27.** E.0, E.1, E.2 (username half), E.3, E.6 and E.7 were run
+> against the deployed API and are recorded in [`sessions.md`](sessions.md); the rest is still
+> owed. The 2026-08-27 decision to run Arc B's live verification once at SPEC-202 was **narrowed
+> for this section**, because SPEC-197 deletes the probe these items are driven through — running
+> them at 202 would have meant deleting the only instrument that can observe the isolation model
+> before it was ever observed. **The probe routes are gone as of SPEC-197: the remaining items
+> need a different vehicle**, named per item. Do not read a written step as a discharged one.
 
 **Everything that matters in SPEC-196 is invisible to the offline suite**, and each of the reasons
 is one this project has already paid for once. Every offline test supplies its own claims and its
@@ -1250,6 +1261,109 @@ made visible, and the twelfth proves the Deny is matching rather than merely pre
       by SPEC-197 — **on the condition that §D and §E have actually been run and recorded**, not on
       SPEC-197 merely arriving.
 
+
+
+## F. The transport contract and the first ported feature (SPEC-197) — WRITTEN, NOT YET RUN
+
+> **STATUS: every item below is OWED**, and every one has a row in [`owed.md`](owed.md).
+
+**What nothing offline can settle.** That the `cpcommon` layer attaches at **cold start** — SPEC-137
+shipped instrumented code whose attachment was missing while every offline gate passed. That a real
+browser's **preflight** is satisfied by the deployed CORS block; this section exists partly because
+the preflight was found broken on 2026-08-27 by a browser and by nothing else. And that an
+assumed-role credential minted inside a Lambda actually reaches S3 against the deployed portal role
+*through the ported route*.
+
+**Sign in FRESH, signed out to start.** A signed-in pass never tests the token path.
+
+```bash
+API=https://api.dataquarry.app
+SPA=https://portal.dataquarry.app
+```
+
+**F.1 — The feature, rendered. BLOCKING, and the assertion is on the NAMES.**
+
+Open each of the three dialogs that suggest usernames — **`AddMembersDialog`** (Connections → a
+space → Add members), **`TableShareDialog`** (a table → Share) and **`SendFilesDialog`** (Files →
+select → Send) — and type a prefix of a username you know is in the directory.
+
+- [ ] Suggestions **render**, and they are the names you expected. A `200` carrying an empty array
+      looks identical to a healthy but empty directory, so "the request succeeded" proves nothing
+      here — the rendered names are the only evidence the whole path worked.
+- [ ] In the network panel: **one** request to `GET {API}/v1/user-directory`, status **200**,
+      preceded by a **preflight**, with `access-control-allow-origin` **exactly** the SPA origin and
+      `cache-control: no-store`.
+- [ ] The three dialogs together issue **one** request, not three: the hour-long `staleTime` is
+      unchanged by the port.
+
+**F.2 — The preflight, in a browser. BLOCKING, and `curl` cannot settle it.**
+
+This is the check that was failing on 2026-08-27, before the router answered `OPTIONS`.
+
+```js
+await fetch('https://api.dataquarry.app/v1/user-directory', {headers: {authorization: 'Bearer x'}})
+```
+
+- [ ] The `OPTIONS` preflight returns **2xx** and lists `authorization`, `content-type` and
+      `x-request-id` in `access-control-allow-headers`.
+- [ ] The request is **sent** — a 401 is the expected answer, and the point is that it was sent
+      rather than blocked before leaving the browser.
+- [ ] Run it from **both** origins: the container and the CloudFront rollback.
+- [ ] **Safari as well as Chromium.** A Chromium pass corroborates and cannot discharge.
+
+**F.3 — The refusals, from `curl`. BLOCKING.**
+
+```bash
+curl -s -D - -o /dev/stdout -w '\n%{http_code}\n' "$API/v1/user-directory"
+```
+
+- [ ] **401**, envelope-shaped: `{"error": {"code": "SessionExpired", "requestId": "…"}}`, with a
+      `requestId` present. Repeat with an expired token and a token from another issuer: all three
+      **401**, all three byte-identical apart from the request id.
+- [ ] `curl -H 'Origin: https://example.invalid'` on the preflight → **no**
+      `access-control-allow-origin`. This is the assertion a `"*"` configuration fails and the
+      positive one passes.
+- [ ] `curl -X POST "$API/v1/user-directory"` — a registered path, an unregistered method → **404**,
+      never 405.
+- [ ] `curl -X POST "$API/v1/nope" -d '{"requestId":"spoofed"}'` → **404**, envelope-shaped.
+
+**F.4 — The correlation key is the gateway's. BLOCKING.**
+
+After the sweep has run for that window, read the record for F.3's last request back from
+`logs/service=api/…/data.jsonl`.
+
+- [ ] Its correlation field is the **API Gateway request id**, and **not** `spoofed`. The structured
+      logging layer falls back to parsing the event `body` for a `requestId`, and an API Gateway v2
+      body *is* a JSON string — so this is a live check of a trap the offline suite also covers.
+- [ ] The same record carries `env: "prod"`, a `version` equal to the build sha and neither empty
+      nor `0.0.0`, `route_id`, `status` and `actor`.
+- [ ] **Absent** from the day's records: any bearer substring, any email address, and the
+      `usernames` array. `username_count` is present instead.
+
+**F.5 — The refresh-once path. BLOCKING, and this is the spec that can finally run it.**
+
+Owed since SPEC-195, when `apiFetch` had no caller. It has one now.
+
+- [ ] Leave a tab idle past the token's hour, then open a suggesting dialog. In the network panel:
+      **exactly two** requests — the 401 and the retry that succeeds — and the user is **not**
+      signed out.
+- [ ] Then break the refresh (sign out in a second tab) and repeat: the retry 401s and there is
+      **no third request**. A refresh loop against a dead refresh token is invisible in a passing
+      offline test and obvious here.
+
+**F.6 — Cold start. BLOCKING.**
+
+- [ ] The **first** invocation after a deploy succeeds. That is the one that exercises layer
+      attachment, and the failure mode is silent everywhere else.
+
+**F.7 — Owed, and passed on rather than fudged**
+
+- **The isolation proof.** `GET /v1/user-directory` cannot carry it and does not claim to: the
+  `ReadTheUsernameDirectory` grant is unconditioned and the document is byte-identical for every
+  caller, so the route returns the same bytes with the principal tag dropped. What it *does* prove
+  live is the plane — an assumed-role credential reaching S3 through the API at all. **→ SPEC-198's
+  first per-user route.**
+- **A live 403 on this plane**, which cannot be staged against a bucket-wide grant. **→ SPEC-198.**
 
 ## 14. Cleanup
 

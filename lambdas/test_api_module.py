@@ -240,6 +240,107 @@ def test_cors_names_exact_origins_and_refuses_credentials() -> None:
     assert re.search(r"max_age\s*=\s*[1-9]", source), "max_age must be non-zero"
 
 
+def test_the_allowed_headers_admit_every_header_the_browser_client_sends() -> None:
+    """Read back from the Terraform, against the client's own list rather than a copy of it.
+
+    A header the preflight does not admit fails the PREFLIGHT, so the request never reaches the
+    API and the browser reports a generic network error — indistinguishable, from the user's
+    side, from the API being down. That is why this is asserted rather than inferred from the
+    app working.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a header the client sends is not admitted.
+    """
+    source = (API / "apigateway.tf").read_text()
+    client = (INFRA.parent / "apps" / "portal" / "src" / "lib" / "apiClient.ts").read_text()
+
+    block = re.search(r"allow_headers\s*=\s*\[([^\]]*)\]", source)
+    assert block is not None
+    admitted = {value.strip().strip('"').lower() for value in block.group(1).split(",") if value.strip()}
+
+    # Read from the CLIENT rather than restated here: a header renamed in one place and not the
+    # other is exactly the drift this exists to catch, and a hand-kept copy cannot see it.
+    sent = {
+        match.group(1).lower()
+        for match in re.finditer(r"^\s*'?([a-zA-Z-]+)'?:\s*(?:`Bearer|requestId\(\)|'application/json')", client, re.MULTILINE)
+    }
+    assert "x-request-id" in sent, "the client no longer sends the header this admits"
+    assert "authorization" in sent
+
+    assert sent <= admitted, (
+        f"the browser sends {sorted(sent - admitted)}, which the preflight does not admit"
+    )
+
+
+def test_the_browser_client_mirrors_the_PYTHON_timeout_constants() -> None:
+    """The client's two constants are read back against the ones that size everything else.
+
+    The browser cannot import Python, so the values are copied — and a copy with a comment saying
+    it is pinned, but no pin, is worse than an unexplained copy. This is the pin. What it protects
+    is the ORDERING: the function must give up before the client does, so a client abort always
+    means a genuinely dead connection rather than a request the server is still completing, which
+    for a write is a mutation the user has been told failed.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the copies drift, or the ordering is lost.
+    """
+    client = (INFRA.parent / "apps" / "portal" / "src" / "lib" / "apiClient.ts").read_text()
+
+    copies = {
+        name: int(match)
+        for name, match in re.findall(
+            r"export const (API_FUNCTION_TIMEOUT_SECONDS|API_GATEWAY_INTEGRATION_CEILING_SECONDS)"
+            r"\s*=\s*(\d+);",
+            client,
+        )
+    }
+
+    assert copies == {
+        "API_FUNCTION_TIMEOUT_SECONDS": API_FUNCTION_TIMEOUT_SECONDS,
+        "API_GATEWAY_INTEGRATION_CEILING_SECONDS": API_GATEWAY_INTEGRATION_CEILING_SECONDS,
+    }, f"the browser's copies drifted from cpcommon.jwks: {copies}"
+    assert API_FUNCTION_TIMEOUT_SECONDS < API_GATEWAY_INTEGRATION_CEILING_SECONDS
+
+
+def test_the_allowed_methods_cover_every_method_the_contract_declares() -> None:
+    """Read back from the Terraform, against the route table rather than a hand-kept list.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a declared route's method is not allowed.
+    """
+    import sys
+
+    sys.path.insert(0, str(INFRA.parent / "lambdas" / "api"))
+    from apicommon import contract
+
+    source = (API / "apigateway.tf").read_text()
+    block = re.search(r"allow_methods\s*=\s*\[([^\]]*)\]", source)
+    assert block is not None
+    allowed = {value.strip().strip('"').upper() for value in block.group(1).split(",") if value.strip()}
+
+    declared = {route.method for route in contract.ROUTES}
+    assert declared <= allowed, f"the contract declares {sorted(declared - allowed)}"
+    assert "OPTIONS" in allowed, "the preflight's own method must be allowed"
+
+
 def test_the_invoke_permission_is_scoped_to_this_api() -> None:
     """`"*"` would let any API Gateway in the account invoke the function.
 

@@ -17,9 +17,10 @@ import type {RuntimeConfigKey} from '../types/runtimeConfig.types';
 /**
  * Which `VITE_*` variable stands in for each runtime-configuration key, in a dev build.
  *
- * `null` means the key has no dev fallback at all: nothing in the browser reads
- * `apiBaseUrl` yet, and a variable nobody reads is dead weight in every `.env` file.
- * The document is its only source.
+ * `null` means the key has no dev fallback at all. Every required key has one: the boot
+ * warning below is driven from the classification, so a required key with no variable
+ * would name nothing when it is missing — `[null].join()` is the empty string, and the
+ * warning would fire forever saying nothing at all.
  *
  * `satisfies` rather than an annotation, so this is the SINGLE list of variable names —
  * `PortalEnvVar` is derived from it below, and `readEnv`'s table is then exhaustive
@@ -39,7 +40,7 @@ export const VITE_NAME = {
   cognitoUserPoolId: 'VITE_COGNITO_USER_POOL_ID',
   cognitoUserPoolClientId: 'VITE_COGNITO_USER_POOL_CLIENT_ID',
   cognitoDomain: 'VITE_COGNITO_DOMAIN',
-  apiBaseUrl: null,
+  apiBaseUrl: 'VITE_API_BASE_URL',
   environment: 'VITE_ENVIRONMENT',
   maxUploadBytes: 'VITE_MAX_UPLOAD_BYTES',
   sharedSpaceBucket: 'VITE_S3_SHARED_SPACE_BUCKET',
@@ -73,6 +74,7 @@ export type PortalEnvVar = Exclude<(typeof VITE_NAME)[RuntimeConfigKey], null>;
  */
 function readEnv(): Record<PortalEnvVar, string | undefined> {
   return {
+    VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL as string | undefined,
     VITE_AWS_REGION: import.meta.env.VITE_AWS_REGION as string | undefined,
     VITE_COGNITO_USER_POOL_ID: import.meta.env.VITE_COGNITO_USER_POOL_ID as string | undefined,
     VITE_COGNITO_USER_POOL_CLIENT_ID: import.meta.env.VITE_COGNITO_USER_POOL_CLIENT_ID as string | undefined,

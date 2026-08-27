@@ -15,6 +15,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import handler as m
+from apicommon import errors
 from conftest import bearer
 
 FORBIDDEN_HANDLER_NAMES = (
@@ -152,7 +153,7 @@ def test_a_malformed_event_from_an_identified_caller_is_a_json_404() -> None:
     event = {"requestContext": {"http": {}}, "headers": bearer()}
     response = m.handler(event, None)
     assert response["statusCode"] == 404
-    assert json.loads(response["body"])["error"] == "not_found"
+    assert json.loads(response["body"])["error"]["code"] == errors.NOT_FOUND_CODE
 
 
 def test_the_handler_holds_no_aws_surface_and_no_session() -> None:

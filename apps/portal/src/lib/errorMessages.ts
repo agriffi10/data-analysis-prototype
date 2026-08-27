@@ -215,6 +215,48 @@ const CODE_RULES: readonly ErrorRule[] = [
     userFixable: false
   },
 
+  // ── The API's remaining machine codes. NONE is passthrough, and that is the point rather
+  // than an oversight: the API returns operator text nobody renders, so every sentence a user
+  // sees for an API failure is authored here. A guard asserts the API's codes and the
+  // passthrough codes below stay disjoint sets. ──
+
+  // Trigger: the API refused a request body as malformed — a key it does not declare, one it
+  // requires and did not get, or a value of the wrong type. Not user-fixable: a user cannot edit
+  // a request, and every one of these is a defect on our side.
+  {code: 'InvalidRequest', message: `Something went wrong. ${CONTACT_ADMIN}`, userFixable: false},
+
+  // Trigger: the request lost a race — the name was taken, the lock was held. Distinct from
+  // `Collision` above, which is our own service layer naming the colliding item; this one is the
+  // API's, and it can name nothing, so the wording must stand without specifics.
+  {code: 'Conflict', message: 'That changed while you were working. Refresh and try again.', userFixable: true},
+
+  // Trigger: the request body exceeded the gateway's limit. Distinct from `TooLarge` above,
+  // which is our upload path naming the file and the limit; this is the transport's, and it
+  // carries neither.
+  {
+    code: 'PayloadTooLarge',
+    message: 'That request was too large. Try again with less selected.',
+    userFixable: true
+  },
+  {code: 'UnsupportedMediaType', message: `Something went wrong. ${CONTACT_ADMIN}`, userFixable: false},
+
+  // Trigger: the API throttled us. Same wording as the AWS throttles below, deliberately — from
+  // a user's side it is the same situation and the same action.
+  {code: 'RateLimited', message: 'The service is busy. Wait a moment and try again.', userFixable: true},
+
+  // Trigger: an unpredicted fault inside the API. The detail names the exception TYPE and is
+  // read in a devtools panel; the user gets the one sentence that is true of all of them.
+  {code: 'InternalError', message: `Something went wrong. ${CONTACT_ADMIN}`, userFixable: false},
+
+  // ── The two codes the API client mints. The server can produce neither: both are facts
+  // about this browser rather than answers from a server. ──
+  {code: 'RequestTimeout', message: 'That took too long. Try again.', userFixable: true},
+  {
+    code: 'NetworkUnavailable',
+    message: 'Can’t reach the server. Check your connection and try again.',
+    userFixable: true
+  },
+
   {code: 'ExpiredToken', message: 'Your session expired. Sign in again.', userFixable: true},
   {code: 'ExpiredTokenException', message: 'Your session expired. Sign in again.', userFixable: true},
   {code: 'CredentialsProviderError', message: 'Your session expired. Sign in again.', userFixable: true},
@@ -240,6 +282,20 @@ const CODE_RULES: readonly ErrorRule[] = [
 ];
 
 const CODE_INDEX = new Map<string, ErrorRule>(CODE_RULES.map((r) => [r.code as string, r]));
+
+/**
+ * Every code whose rule returns the SERVICE's own message unchanged.
+ *
+ * COMPUTED from the rules, never hand-listed — a second list is a list that stops matching, and
+ * the guard reading it would then be comparing two stale copies rather than two derived sets.
+ *
+ * It exists to be intersected with the API's codes. A passthrough rule renders whatever text the
+ * failure carried, so if the API ever returned one of these codes, server-authored text would
+ * reach a user through a rule written to prevent exactly that.
+ */
+export const PASSTHROUGH_CODES: readonly string[] = CODE_RULES.filter((rule) => rule.passthrough).map(
+  (rule) => rule.code as string
+);
 
 // ── Athena engine-message patterns. ───────────────────
 // Query failures surface as {code: 'FAILED', message: stateChangeReason}; there

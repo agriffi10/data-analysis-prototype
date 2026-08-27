@@ -27,7 +27,6 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import handler as api_handler
-import pytest
 import router
 from conftest import USERNAME_CLAIM, bearer, token
 
@@ -65,7 +64,7 @@ def _every_failure_path():
 def test_the_sentinel_reaches_no_byte_of_any_record(captured_events):
     """Every failure path, driven with a marked token, serialised whole and searched."""
     for _, headers in _every_failure_path():
-        api_handler.handler(_event("GET", "/_auth/whoami", headers), None)
+        api_handler.handler(_event("GET", "/v1/user-directory", headers), None)
 
     serialised = json.dumps(captured_events.events)
     assert SENTINEL not in serialised, "a token's payload survived into a log record"
@@ -81,14 +80,19 @@ def test_a_raising_path_DOES_capture_a_stack(captured_events, monkeypatch):
     successfully and carries no `error` at all — which makes "the sentinel is in no stack" true
     of records that have no stack. This drives a path that genuinely raises through the span and
     asserts a stack was captured, so the assertion above is measuring something.
+
+    The fault no longer escapes the entry point — it is converted into the envelope's
+    InternalError one frame outside the span — so this asserts the recorded stack and the
+    declared status together. The catch sits outside the span precisely so both remain true; a
+    catch one frame in would end the span successfully and there would be no stack to scrub.
     """
     def _explode(headers):
         raise RuntimeError("verifier exploded")
 
     monkeypatch.setattr(router.principal, "resolve", _explode)
 
-    with pytest.raises(RuntimeError):
-        api_handler.handler(_event("GET", "/_auth/whoami", bearer()), None)
+    response = api_handler.handler(_event("GET", "/v1/user-directory", bearer()), None)
+    assert response["statusCode"] == 500, "the fault did not reach the caller as a declared code"
 
     ended = [event for event in captured_events.events if event["message"] == "span.end"]
     stacks = [event for event in ended if "error" in event]
@@ -106,10 +110,9 @@ def test_a_raising_path_carrying_the_sentinel_still_leaks_nothing(captured_event
     monkeypatch.setattr(router.principal, "resolve", _explode)
 
     marked = _sentinel_token()
-    with pytest.raises(RuntimeError):
-        api_handler.handler(
-            _event("GET", "/_auth/whoami", {"authorization": f"Bearer {marked}"}), None
-        )
+    api_handler.handler(
+        _event("GET", "/v1/user-directory", {"authorization": f"Bearer {marked}"}), None
+    )
 
     serialised = json.dumps(captured_events.events)
     assert "error" in serialised, "no error was captured, so this proves nothing"

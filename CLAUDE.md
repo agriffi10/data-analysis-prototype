@@ -22,8 +22,8 @@ Loaded every session — keep it lean. Deep docs live in `docs/` and are pulled 
 
 A web portal where authenticated users upload/download files to/from their own S3 prefix.
 Auth is AWS Cognito (standalone User Pool + Identity Pool). The browser calls AWS directly with
-scoped credentials **today**; Arc B is moving that behind an API (`api.dataquarry.app` exists and
-serves `/healthz`, and no route is ported yet). Status: greenfield, no production users yet.
+scoped credentials **today**; Arc B is moving that behind an API (`api.dataquarry.app` serves
+`/healthz` and `GET /v1/user-directory` — one route ported, sixteen services still calling AWS). Status: greenfield, no production users yet.
 
 ## Monorepo (npm workspaces)
 
@@ -75,12 +75,14 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 
 ### Current work
 
-- **API layer & containerisation (192 → 202, 192–196 done)** — "Arc B". CloudFront is still
-  production and the rollback. Next: the transport contract (197), which also deletes both probe
-  routes. Bucket CORS admits the CloudFront origin only, so the container's direct S3 calls fail
-  preflight until 198 — expected. **§D and §E of `docs/testing/arc-b-api-container-e2e.md` are
-  owed** — Arc B's live verification runs once, at 202 — and 198 inherits the slot-tag proof and
-  the presigned-URL margin, 199 the Lake Formation one. Read the `ARCS.md` arc entry first.
+- **API layer & containerisation (192 → 202, 192–197 done)** — "Arc B". CloudFront is still
+  production and the rollback. Next: the S3 surface (198), which inherits the **isolation proof**
+  (197's route grant is unconditioned, so it cannot carry one), a live 403, the slot-tag proof and
+  the presigned-URL margin; 199 the Lake Formation one. Bucket CORS admits the CloudFront origin
+  only, so the container's direct S3 calls fail preflight until 198 — expected. **§F of
+  `docs/testing/arc-b-api-container-e2e.md` is owed**, and §D/§E were **partly run on 2026-08-27**
+  (`sessions.md`) because 197 deletes the probes they are driven through. Read the `ARCS.md` arc
+  entry first.
 
 ### Live checks
 
@@ -113,10 +115,12 @@ post-signup redirect. Browser → AWS direct today; Arc B is porting that behind
   ways** — shorter caps every presigned link, longer is refused because this is role chaining.
   Tag-key agreement is **asserted, not structural** (the templates hard-code the literal), and the
   trust statement's `sts:TagKeys` is a **ceiling that cannot require a tag was stamped**.
-- **Two credential planes, user by default, API by registry — the failure fails OPEN.** A wrong
+- **Two credential planes, user by default, declared ON THE ROUTE — the failure fails OPEN.** A wrong
   client *succeeds* against the wrong identity. One construction site (asserted as a **count**), an
   AST sweep that also forbids `cpcommon.clients` and any minted `UserIdentity`, exemptions by
-  **exact module path**. The route is set on the way **IN**: a warm container has no fresh context,
+  **exact module path**. The plane is a **required field on the contract's `Route`**, derived per
+  call — so the old registry's set-equality guard is now a tautology, kept as a labelled tripwire,
+  and the teeth are the required field plus a **raise on a plane value that is neither of the two**. The route is set on the way **IN**: a warm container has no fresh context,
   so cleanup-on-exit alone lets the next request inherit a declaration. **An assume failure is a
   FAULT, never a denial** — STS says `AccessDenied` for a wrong trust policy, so the layer *wraps*
   it; that wrap, not the classifier's ordering, is what holds.
@@ -125,6 +129,32 @@ post-signup redirect. Browser → AWS direct today; Arc B is porting that behind
   margin is the life of **one request**, derived from the function timeout; the forced re-assume is
   the skew allowance, and it retries on a **new** client because boto3 binds credentials at
   construction.
+
+- **The API's error shape is a machine CODE plus operator text nobody renders** — a success body is
+  the payload itself, the error envelope is the only wrapped shape, and wording is chosen
+  client-side from the code. The trap is a rule written to uphold it: eight `passthrough` rules
+  return the service's message unchanged, so a guard intersects the generated `API_ERROR_CODES`
+  with a computed `PASSTHROUGH_CODES` — **two derived sets, never two lists**. An unrecognised code
+  resolves to the generic sentence, which is the deploy-skew case rather than a fallback nobody
+  meets. **A code rule wins over an engine-message match rule.**
+- **The wire is declared in PYTHON and the TypeScript is GENERATED**, with two gates: CI refuses a
+  regeneration diff (catching both drift directions) and `tsc -b` fails at every call site on a
+  changed type. The validator and the emitter read **one** walk of one annotation. The type
+  vocabulary is **closed and never falls back** — a fallback type agrees with every possible value,
+  so the day the emitter meets a shape it cannot express is the day the contract stops being checked
+  and nothing goes red.
+- **`apiRequest` retries NOTHING**, asserted as a call count, with exactly one exception: a 401 takes
+  one forced refresh and one retry — the browser's only refresh path, so deleting it signs everyone
+  out at the hour mark with a green suite. Idempotency is declared **per route**, never derived from
+  the method. The client's timeout sits **above the function's**, so the server gives up first and an
+  abort always means a dead connection.
+- **`$default` matches OPTIONS**, so API Gateway's own CORS responder never sees a preflight and the
+  router must answer one **before authentication**. Found live: every bearer-carrying `fetch` failed
+  as an opaque `TypeError`, which reads as "the API is down" — and `curl` cannot see it, because only
+  a browser enforces CORS. **The FIX is offline-asserted and live-OWED** (§F.2): that the gateway
+  overlays its CORS headers onto the integration's own `OPTIONS` 200 is read from AWS's docs, not
+  measured, and if it is wrong the suggestions simply stop appearing — the degraded path is silent
+  by design.
 
 **One string is four things:** username = S3 prefix = principal tag = Glue database name, so it is
 catalog-safe by construction (`^[a-z][a-z0-9_]{2,62}$`). The username directory is built from **S3,
@@ -218,7 +248,9 @@ DLQ lets one malformed request dead-letter someone else's work.
   must not become an existence oracle: the data-quality report view takes its space **from the route,
   never derived**, and an unreachable space renders denied while issuing **no S3 request at all**.
 - **Structured logging** goes through `cpcommon.observability` only; the logs queue is FIFO, swept on
-  a schedule, appended under ETag CAS, retained forever. `@traced` outermost; messages are literals.
+  a schedule, appended under ETag CAS, retained forever. `@traced` outermost — **except the API**, where one decorator sits
+  outside it to turn an unpredicted fault into a declared code: a catch INSIDE the span ends every
+  failed request successfully and the fault is recorded nowhere. Messages are literals.
   The **`error.stack` exemption covers file contents, NOT credentials**; the API scrubs at its
   boundary.
 

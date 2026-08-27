@@ -104,24 +104,31 @@ recipe anywhere** — write one when you run it.
 | **The whole CSS list** (`e2e.md` §4.15) | A Chromium run **corroborates and cannot discharge** rendering. Andrew browses in Safari. |
 | **The 400px pass** | Not reachable by window resize on macOS — Chrome's floor is 606px, and `resize_window` reports success while changing nothing the page sees. Use DevTools device toolbar (⌘⇧M) and assert on `matchMedia`. |
 
-### The whole of SPEC-196's live verification, deferred to SPEC-202 by decision
+### SPEC-196's live verification — PARTLY RUN 2026-08-27, the rest owed
 
-**Every item in [`arc-b-api-container-e2e.md`](arc-b-api-container-e2e.md) §E is owed.** The section
-is written and runnable; none of it has been run. The decision (2026-08-27) is that Arc B's live
-verification happens once, at SPEC-202, rather than per spec. Recorded as rows rather than as one
-line because a later reader settling some of them needs to see which are still open.
+**Six items ran on 2026-08-27** and are struck through below, with the evidence in
+[`sessions.md`](sessions.md). The rest of [`arc-b-api-container-e2e.md`](arc-b-api-container-e2e.md)
+§E is still owed.
+
+The 2026-08-27 decision to run Arc B's live verification once at SPEC-202 was **narrowed for this
+section**: SPEC-197 deletes the probe routes §E is driven through, so running it at 202 would have
+meant deleting the only instrument that can observe the isolation model before it was ever observed.
+
+**The probes are gone now, so what remains needs a different vehicle** — noted per row. Recorded as
+rows rather than as one line because a later reader settling some of them needs to see which are
+still open.
 
 | Check | Why it is owed |
 |---|---|
-| **The ID token really carries the claims** (§E.0) | Every offline test supplies its own claims. The inference from `identity-pool.tf` is strong — AWS reads those very claims out of this very token today — but a token that did not carry them would pass the entire suite and fail on the first real request. **Run this first**; if it fails nothing else in the section matters. |
-| **The trust policy admits the API with BOTH actions** (§E.1) | `sts:AssumeRole` without `sts:TagSession` renders, plans, applies and unit-tests green. |
-| **The `username` tag is actually stamped** (§E.2) | Behavioural only: this account records **no `AssumeRole` event anywhere** — the one trail carries data events on the archive bucket alone — so a criterion phrased against CloudTrail cannot fail. §E.6's `ownPrefixListable` is the observation. |
+| ~~**The ID token really carries the claims** (§E.0)~~ **DISCHARGED 2026-08-27** — `cognito:username` and `custom:shared_space_1` both present. | Every offline test supplies its own claims. The inference from `identity-pool.tf` is strong — AWS reads those very claims out of this very token today — but a token that did not carry them would pass the entire suite and fail on the first real request. **Run this first**; if it fails nothing else in the section matters. |
+| ~~**The trust policy admits the API with BOTH actions** (§E.1)~~ **DISCHARGED 2026-08-27** — `/_identity/self` answered 200, which needs both. | `sts:AssumeRole` without `sts:TagSession` renders, plans, applies and unit-tests green. |
+| ~~**The `username` tag is actually stamped** (§E.2)~~ **DISCHARGED 2026-08-27** — `ownPrefixListable: true`, unreachable without the tag. | Behavioural only: this account records **no `AssumeRole` event anywhere** — the one trail carries data events on the archive bucket alone — so a criterion phrased against CloudTrail cannot fail. §E.6's `ownPrefixListable` is the observation. |
 | **The ten SLOT tags are stamped** (§E.2, second half) | **SPEC-196 cannot discharge this at all.** Every call it ships touches the user-space bucket, and `spaceCount` comes from the token's claims — it reports the same number with every slot tag dropped. Settled by the first user-plane call against a shared space the caller belongs to, where the bucket has no policy and the tag set is the entire gate. **Passed to SPEC-198.** |
-| **The bucket-policy allowlist admits the assumed session** (§E.3) | `simulate-principal-policy` does not fetch a bucket policy, so `aws:PrincipalArn` resolving to the role's IAM ARN under `sts:AssumeRole` — rather than `AssumeRoleWithWebIdentity` — needs a real call. The probe is that call. |
+| ~~**The bucket-policy allowlist admits the assumed session** (§E.3)~~ **DISCHARGED 2026-08-27** — the probe made the call. | `simulate-principal-policy` does not fetch a bucket policy, so `aws:PrincipalArn` resolving to the role's IAM ARN under `sts:AssumeRole` — rather than `AssumeRoleWithWebIdentity` — needs a real call. The probe is that call. |
 | **Lake Formation still authorizes the session** (§E.4) | LF is not modelled by the simulator, and confirming it needs one Athena query on the user plane. **There is no route until SPEC-199**, which discharges it. Running it from a laptop proves nothing: the local IAM user is a different principal. |
 | **The credential cache does not leak in a warm container** (§E.5) | Needs two callers interleaved in one execution environment, confirmed by a shared `logStream` — otherwise the observation is two cold starts and proves nothing. The offline sequence pins the algorithm; it cannot pin the runtime. |
-| **Both probe booleans** (§E.6) | The whole point is the conjunction. Recording only `ownPrefixListable` would pass with the isolation model deleted. |
-| **A real `env` and a real build sha in the records** (§E.7) | The stamp is written into the deployment package by the deploy script; offline the resolver returns the unstamped value, so only a deployed invocation can show a real sha. |
+| ~~**Both probe booleans** (§E.6)~~ **DISCHARGED 2026-08-27** — `own: true, foreign: false`, the conjunction. | The whole point is the conjunction. Recording only `ownPrefixListable` would pass with the isolation model deleted. |
+| ~~**A real `env` and a real build sha in the records** (§E.7)~~ **DISCHARGED 2026-08-27** — `env: "prod"`, a real sha, on all 44 records. | The stamp is written into the deployment package by the deploy script; offline the resolver returns the unstamped value, so only a deployed invocation can show a real sha. |
 | **The propagation delay is unchanged** (§E.8) | Both halves are required: refusing before a refresh alone is indistinguishable from a broken grant, and succeeding after one alone from a grant that was always live. |
 | **The twelve-row IAM simulation against the DEPLOYED role** (§E.9) | Every denial paired with an `allowed` control — an `implicitDeny` alone cannot tell an ungranted action from a wrong ARN. |
 
@@ -136,6 +143,32 @@ line because a later reader settling some of them needs to see which are still o
 | **The API plane's declaration mechanism has no live subject** (SPEC-196 FR-005) | `api_client` has no caller in shipped code, and both `ROUTE_PLANES` entries are empty, so the runtime guard is exercised only by synthetic test routes. Forced: assuming happens for every route, so it cannot go through a door that refuses undeclared ones. The first real subject is SPEC-200's queue writes. |
 | **The single expiry retry does not cover a paginator** (SPEC-196 FR-006) | It proxies direct method calls; a paginator, a waiter and anything reached through `meta` hold their own client reference. Fail-closed, not a leak. A tripwire asserts no route paginates, so the limitation is announced rather than discovered. |
 
+### Tab-scoped Cognito tokens — the change that touches what a warm session cannot test
+
+Amplify's token storage moved from `localStorage` to `sessionStorage` (2026-08-27, at Andrew's
+direction, outside SPEC-197's scope and shipped as its own commit). It changes **sign-in**, which is
+the one path a signed-in session cannot exercise — so it ships with rows rather than a claim.
+
+| Owed | Why it is not settled offline |
+|---|---|
+| **The Hosted UI redirect still completes** | The offline tests assert which store the provider is given; they cannot exercise a real authorization-code round trip. Amplify keeps the OAuth `state` and PKCE verifier in its own store, so the two halves are now in different stores — that is expected to be fine and has not been observed. **Sign in FRESH, in a private window.** |
+| **A second tab signs in cleanly** | The intended cost of the change, and it must be confirmed to be a clean sign-in rather than a broken one: open the portal in a new tab of the same window and confirm it lands on the Hosted UI and returns signed in. |
+| **A deep link in a new tab returns to the link** | `lib/returnPath.ts` restores the intended path after sign-in; with per-tab storage the new tab has no session, so the restore now runs on a path that previously never needed it. |
+| **SPEC-192's fresh-sign-in check is RE-INVALIDATED** | It was recorded against browser-wide storage. Whatever it discharged about first-load sign-in must be re-run under tab-scoped storage. |
+
+### SPEC-197's live verification — written and runnable, not yet run
+
+**Every item in [`arc-b-api-container-e2e.md`](arc-b-api-container-e2e.md) §F is owed**, and §F says
+how to run each one. These are not unobservable — they are unrun, which is a different thing and is
+why they are not in the section below.
+
+| Owed | Why it is not settled offline |
+|---|---|
+| **The preflight is answered, in a browser** (SPEC-197 FR-010) | Found broken live on 2026-08-27 and fixed in the router: `$default` matches `OPTIONS`, so API Gateway's own CORS responder never saw a preflight and the Lambda refused it deny-by-default. Every bearer-carrying `fetch` then failed as an opaque `TypeError`. `curl` cannot settle it — only a browser enforces CORS — and the offline tests assert the router's answer, not the browser's acceptance of it. |
+| **Suggestions RENDER from the ported route** (SPEC-197 FR-013) | A `200` with an empty array looks identical to a healthy but empty directory, so the assertion is on the rendered NAMES, from a fixture known to be in the document, in all three dialogs — `AddMembersDialog`, `TableShareDialog`, `SendFilesDialog`. |
+| **The isolation proof against a PER-USER route** (SPEC-197 FR-014) | `GET /v1/user-directory` cannot carry it and does not claim to: the `ReadTheUsernameDirectory` grant is unconditioned and the document is byte-identical for every caller, so the route returns the same bytes with the principal tag dropped. **Passed to SPEC-198's first per-user route.** |
+| **The browser's refresh-once path** (SPEC-195 FR-008) | Now runnable: `GET /v1/user-directory` is issued by three dialogs, so a 401 has a request to count. **Owed to SPEC-197's live pass** — exactly two requests on a 401, the user not signed out, and then with the refresh broken a retry that 401s with **no third request**. A refresh loop against a dead refresh token is invisible in a passing offline test and obvious in a network panel. |
+
 ### Not observable at all
 
 | Check | Why |
@@ -147,7 +180,8 @@ line because a later reader settling some of them needs to see which are still o
 | **A partial restore, and `restore_timed_out`** | Forcing one item to fail mid-copy means denying a destination the guard would have refused up front. Seven hours of waiting to observe a counter. |
 | **A JWKS key rotation across the refetch cooldown** (SPEC-195) | For up to 60 s after a provider rotates its signing keys this API refuses tokens signed with the new one — the accepted cost of bounding an unauthenticated amplification vector. Cognito publishes both keys across a rotation and the window sits far inside any overlap, so no real rotation is expected to reach a user. Forcing one means rotating a pool key; **accepted rather than verified**. |
 | **The unknown-`kid` refetch bound under real load** (SPEC-195) | The counter is asserted offline against a fake transport. What is not observed is the fetch rate a real burst produces against the real JWKS endpoint. |
-| **The browser's refresh-once path** (SPEC-195 FR-008) | `apiFetch` has **no caller** until the first route is ported, so no user action issues a request to count. It becomes an ordinary check the day SPEC-197 ports one, and belongs to that spec's pass — not a gap in the boundary. |
+| **A live 403 on the user plane** (SPEC-197) | Cannot be staged against a bucket-wide grant. **Passed to SPEC-198.** |
+| **What `setUnauthenticatedHandler` should DO** (SPEC-197 FR-007) | The hook ships with **no handler registered**, deliberately: `apiRequest` never navigates, and what a genuinely-dead session should do to the UI is a product decision this spec's scope excludes. Until one is registered, a surviving 401 resolves to "Your session expired. Sign in again." and nothing else happens. |
 | **Stale root-level static assets** (SPEC-141) | An accepted orphan class, not a check. Removals are by hand, and **not verifiable by status code** — the distribution maps `403/404 → /index.html` with a **200**, so check `content-type` and `x-cache: Error from cloudfront`. |
 
 ### Accepted exposure, with an owner

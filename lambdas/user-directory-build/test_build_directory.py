@@ -278,11 +278,25 @@ def test_no_other_lambda_references_the_directory(s3):
     asserts the accompanying DENY covers this key. That is the exact opposite of reading the
     document — it is making sure nothing can WRITE to it — and dropping the mention would leave
     the widening's narrowest edge unasserted to satisfy a tripwire aimed elsewhere.
+
+    `api/routes/user_directory.py` is the fourth, and it is the one that READS the object — so
+    it is worth being explicit about why that is not what this forbids. It SERVES the document
+    to the browser, which is where the read already happened; the API route is that same read
+    moved behind the transport, and it makes no decision from what it finds. The property this
+    tripwire protects is that no code treats the list as an authorization input, and the
+    assertion below it — that this module reaches no authorization helper — is what keeps that
+    checkable for the one module now allowed to open the document.
     """
     allowed = {
         "data-quality-common/dqcommon/config.py",
         "test_feature_flags_config.py",
         "test_archive_bucket_isolation.py",
+        "api/routes/user_directory.py",
+        # The route's own suite, and the same class as the two test files above: it names the key
+        # in order to ASSERT which object the route opens. Forbidding the mention would delete the
+        # assertion that the route and the builder agree on one object, which is the coupling this
+        # tripwire cares about most.
+        "api/test_user_directory_route.py",
     }
     markers = ("usernames.json", "_directory/", "DIRECTORY_PREFIX", "DIRECTORY_KEY")
     offenders = []
@@ -298,6 +312,39 @@ def test_no_other_lambda_references_the_directory(s3):
         if any(marker in text for marker in markers):
             offenders.append(relative)
     assert offenders == [], f"the directory document is not an authorization input: {offenders}"
+
+
+def test_the_route_that_serves_the_directory_decides_nothing_from_it():
+    """The allowlisted reader is a pipe, not a gate.
+
+    Reading the document is permitted for exactly one module because the browser's own read moved
+    behind the API. What is NOT permitted is what the tripwire above is really about: deciding
+    something from a list that is up to a day stale, missing every unprovisioned user, and made
+    wrong by anyone who has not opened the file browser. Asserted rather than assumed, because
+    "it only serves it" is a claim that stops being true one convenience check later.
+    """
+    import ast
+
+    source = (LAMBDAS / "api" / "routes" / "user_directory.py").read_text()
+    tree = ast.parse(source)
+
+    # The IDENTIFIERS the module reaches for, never its prose. A marker matched against raw text
+    # trips on a docstring explaining why the route is authorized by an existing grant, and a
+    # tripwire that fires on its own explanation is one somebody deletes.
+    reached = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            reached.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            reached.add(node.attr)
+        elif isinstance(node, ast.FunctionDef):
+            reached.add(node.name)
+
+    for deciding in ("admin_get_user", "memberships", "authorize", "is_member", "list_users"):
+        assert deciding not in reached, (
+            f"the directory route reached for {deciding!r} — the document is advisory, and a "
+            "decision made from it is a decision made from a stale, incomplete list"
+        )
 
 
 # -- FR-008: observability -------------------------------------------------------------

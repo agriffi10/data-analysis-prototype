@@ -151,6 +151,10 @@ files = [
     # New code with no legacy to ratchet through, so it joins the BLOCKING list rather than
     # the report-only one — and it enters at zero, which is only free while it is new.
     "lambdas/api",
+    # The generator joins the ratchet with the change that creates it, entering at zero on
+    # the precedent above. It is the one module whose failure mode is a silent fallback
+    # type, so it is the last place that should be invisible to the type checker.
+    "scripts/generate_api_contract.py",
 ]
 # The suites and the test doubles are not shipped and are not the contract.
 exclude = '(/test_[^/]*\.py|/conftest\.py|/fakes\.py)$'

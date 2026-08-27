@@ -66,6 +66,7 @@ SPA_VARIABLES = ROOT / "infra" / "modules" / "spa" / "variables.tf"
 ROOT_MAIN = ROOT / "infra" / "main.tf"
 APP_CLOUDFRONT = ROOT / "infra" / "modules" / "app" / "cloudfront.tf"
 CONFIG_TYPES = ROOT / "apps" / "portal" / "src" / "types" / "runtimeConfig.types.ts"
+MATRIX_SCRIPT = ROOT / ".github" / "scripts" / "spa-image-matrix.sh"
 CONFIG_LOADER = ROOT / "apps" / "portal" / "src" / "lib" / "runtimeConfig.ts"
 
 WRITABLE_PATHS = ("/tmp", "/var/cache/nginx")  # noqa: S108 — container paths, not host temp files
@@ -483,6 +484,38 @@ def test_the_entrypoint_renders_exactly_the_classified_keys() -> None:
         "The entrypoint's required set differs from the classification's. Too few and it starts "
         "serving a document that cannot boot; too many and a healthy deployment refuses to start."
     )
+
+    # THE THIRD LIST, and the one nothing compared until a key moved. The image matrix splits its
+    # fixture into a required half and an optional half, and drops one required key at a time to
+    # prove the container refuses to start. A key that becomes required in the classification but
+    # stays in the fixture's optional half is supplied to no refusal case — so EVERY case refuses
+    # for that key instead of the one it names, and the happy-path container never starts at all.
+    # Caught in CI rather than here the first time, which is what this closes.
+    matrix = MATRIX_SCRIPT.read_text()
+    fixture_required = set(
+        re.findall(r"^\s*-e CONFIG_(\w+)=", _shell_array_body(matrix, "REQUIRED_ENV"), re.MULTILINE)
+    )
+    assert fixture_required == set(required), (
+        "The image matrix's required fixture differs from the classification's required set: "
+        f"{sorted(fixture_required ^ set(required))}"
+    )
+
+
+def _shell_array_body(source: str, name: str) -> str:
+    """The text between a shell array's parentheses.
+
+    Args:
+      source: The script's text.
+      name: The array's name.
+
+    Returns:
+      The body, or the empty string when the array is absent.
+
+    Raises:
+      None.
+    """
+    match = re.search(rf"^{name}=\((.*?)^\)", source, re.DOTALL | re.MULTILINE)
+    return match.group(1) if match else ""
 
 
 def test_the_rendered_version_is_the_one_the_browser_accepts() -> None:

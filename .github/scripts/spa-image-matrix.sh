@@ -42,6 +42,7 @@ EXPECTED_CSP="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-in
 # container-less shell with no TypeScript, and the agreement between this list and the
 # classification is asserted by the Python suite, which can read both.
 REQUIRED_ENV=(
+  -e CONFIG_apiBaseUrl=https://api.fixture.test
   -e CONFIG_appUrl=https://portal.fixture.test
   -e CONFIG_awsRegion=us-east-1
   -e CONFIG_userSpaceBucket=fixture-user-space
@@ -51,7 +52,6 @@ REQUIRED_ENV=(
   -e CONFIG_cognitoDomain=auth.fixture.test
 )
 OPTIONAL_ENV=(
-  -e CONFIG_apiBaseUrl=https://api.fixture.test
   -e "CONFIG_environment=$AWKWARD_VALUE"
   -e CONFIG_maxUploadBytes=1048576
   -e CONFIG_sharedSpaceBucket=fixture-shared-space

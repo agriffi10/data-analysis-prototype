@@ -6,6 +6,7 @@ Public surface only — the code is the source of truth; verify signatures befor
 
 | Symbol | File | Purpose |
 |---|---|---|
+| `API_ROUTES`, `API_ERROR_CODES`, `ApiRouteId`, `RequestOf<R>`, `ResponseOf<R>` | `types/apiContract.generated.ts` | GENERATED from `lambdas/api/apicommon/contract.py` — do not edit. CI refuses a regeneration diff and `tsc -b` fails at every call site on a changed type. Prettier-ignored, ESLint-ignored and coverage-excluded, because a formatter reformatting a file no human wrote is a diff the regeneration gate then rejects. |
 | `ServiceResult<T>` | `types/service.types.ts` | The canonical discriminated-union result for every service fn (success/data \| error). |
 | `S3FileItem`, `S3FolderItem`, `S3Item` | `types/s3.types.ts` | Listing row shapes. |
 | `FileList`, `FileListPage` | `types/s3.types.ts` | Listing + one paginated page (with `isTruncated`/`nextContinuationToken`). |

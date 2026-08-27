@@ -28,14 +28,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pytest
 import router
 from apicommon import errors
-from conftest import USERNAME_CLAIM, bearer, token
+from conftest import USERNAME_CLAIM, bearer, declare_route, token
 from jwt.exceptions import (
     PyJWKClientConnectionError,
     PyJWKClientError,
     PyJWKSetError,
 )
 
-UNDECLARED = ("GET", "/_test/undeclared")
+UNDECLARED = ("GET", "/v1/_test-undeclared")
 
 
 def _refusals():
@@ -57,16 +57,21 @@ def _refusals():
     ]
 
 
-def test_a_valid_token_reaches_the_handler():
-    """The control. It proves the wiring and nothing about the verification."""
-    response = router.route("GET", "/_auth/whoami", bearer("alice"))
+def test_a_valid_token_reaches_the_handler(stub_directory):
+    """The control. It proves the wiring and nothing about the verification.
+
+    The one row here that dispatches, so it is the one that needs the user plane stubbed. Every
+    refusal below is refused before a handler runs and reaches no AWS call at all — which is
+    also what makes the call count in the next test meaningful.
+    """
+    response = router.route("GET", "/v1/user-directory", bearer("alice"))
     assert response["statusCode"] == 200
-    assert json.loads(response["body"]) == {"username": "alice"}
+    assert json.loads(response["body"])["usernames"] == ["alice", "bob_smith"]
 
 
 def test_all_eight_refusals_are_byte_identical():
     """A body that varied per failure would map which check failed, for anyone probing."""
-    bodies = {label: router.route("GET", "/_auth/whoami", headers) for label, headers in _refusals()}
+    bodies = {label: router.route("GET", "/v1/user-directory", headers) for label, headers in _refusals()}
 
     for label, response in bodies.items():
         assert response["statusCode"] == 401, f"{label} did not return 401"
@@ -84,16 +89,16 @@ def test_the_expired_body_is_byte_identical_to_the_no_token_body():
     client nothing and costs the oracle the test above forbids. This is the assertion that
     reddens when someone adds one to drive the refresh.
     """
-    expired = router.route("GET", "/_auth/whoami", bearer(exp=int(time.time()) - 60))
-    absent = router.route("GET", "/_auth/whoami", {})
+    expired = router.route("GET", "/v1/user-directory", bearer(exp=int(time.time()) - 60))
+    absent = router.route("GET", "/v1/user-directory", {})
     assert expired == absent
 
 
 def test_every_refusal_carries_the_challenge_header_and_the_settled_code():
     for label, headers in _refusals():
-        response = router.route("GET", "/_auth/whoami", headers)
+        response = router.route("GET", "/v1/user-directory", headers)
         assert response["headers"]["www-authenticate"] == "Bearer", label
-        assert json.loads(response["body"])["code"] == errors.UNAUTHENTICATED_CODE, label
+        assert json.loads(response["body"])["error"]["code"] == errors.UNAUTHENTICATED_CODE, label
 
 
 def test_the_eight_refusals_produce_eight_DISTINCT_reason_codes(captured_events):
@@ -105,7 +110,7 @@ def test_the_eight_refusals_produce_eight_DISTINCT_reason_codes(captured_events)
     """
     reasons = []
     for _, headers in _refusals():
-        router.route("GET", "/_auth/whoami", headers, "req-1")
+        router.route("GET", "/v1/user-directory", headers, "req-1")
         reasons.append(captured_events.messages("request refused")[-1]["fields"]["reason"])
 
     assert len(set(reasons)) >= 4, (
@@ -121,12 +126,22 @@ def test_an_undeclared_route_is_refused_rather_than_served():
     Registered here rather than argued about: a router defaulting to public passes every other
     test in this spec, because every other test declares its route.
     """
-    router.ROUTES[UNDECLARED] = lambda context: {"secret": "served"}
-    try:
+    from apicommon import contract
+
+    declared = contract.Route(
+        id="test.undeclared",
+        method=UNDECLARED[0],
+        path=UNDECLARED[1],
+        idempotent=True,
+        plane="user",
+        request=None,
+        response=contract.UserDirectoryResponse,
+    )
+
+    assert router.route(*UNDECLARED, {})["statusCode"] == 401
+    with declare_route(declared, lambda context: {"secret": "served"}):
         assert router.route(*UNDECLARED, {})["statusCode"] == 401
         assert router.route(*UNDECLARED, bearer())["statusCode"] == 200
-    finally:
-        del router.ROUTES[UNDECLARED]
 
 
 def test_the_public_list_holds_exactly_the_health_check():
@@ -151,9 +166,9 @@ def test_a_credential_is_read_from_the_bearer_header_and_nowhere_else(headers):
 
     The query string and the body are not tested here because they are UNREACHABLE: the router
     is handed the headers alone, so there is nothing to read them from. That is the stronger
-    arrangement, and the whoami test is where the caller-stated username is driven.
+    arrangement, and the identity suite is where a caller-stated username is driven.
     """
-    assert router.route("GET", "/_auth/whoami", headers)["statusCode"] == 401
+    assert router.route("GET", "/v1/user-directory", headers)["statusCode"] == 401
 
 
 @pytest.mark.parametrize(
@@ -181,7 +196,7 @@ def test_a_header_that_is_not_exactly_a_bearer_credential_is_refused(shape):
     whitespace, passed every one of them.
     """
     value = shape.format(token=token())
-    assert router.route("GET", "/_auth/whoami", {"authorization": value})["statusCode"] == 401
+    assert router.route("GET", "/v1/user-directory", {"authorization": value})["statusCode"] == 401
 
 
 def test_two_credentials_are_refused_rather_than_one_being_picked():
@@ -193,25 +208,25 @@ def test_two_credentials_are_refused_rather_than_one_being_picked():
     today; that is exactly why refusing costs nothing and why nobody would notice it wrong.
     """
     both = {"authorization": f"Bearer {token('alice')}", "Authorization": f"Bearer {token('bob')}"}
-    assert router.route("GET", "/_auth/whoami", both)["statusCode"] == 401
+    assert router.route("GET", "/v1/user-directory", both)["statusCode"] == 401
 
 
 def test_the_gateways_comma_joined_duplicate_is_refused():
     """How a duplicate ACTUALLY arrives through API Gateway v2, which joins them."""
     joined = f"Bearer {token('alice')},Bearer {token('bob')}"
-    assert router.route("GET", "/_auth/whoami", {"authorization": joined})["statusCode"] == 401
+    assert router.route("GET", "/v1/user-directory", {"authorization": joined})["statusCode"] == 401
 
 
 @pytest.mark.parametrize("name", ["authorization", "Authorization", "AUTHORIZATION"])
-def test_the_header_name_is_matched_case_insensitively(name):
+def test_the_header_name_is_matched_case_insensitively(name, stub_directory):
     """A header name is case-insensitive by definition, and only some gateways normalise it."""
-    response = router.route("GET", "/_auth/whoami", {name: f"Bearer {token()}"})
+    response = router.route("GET", "/v1/user-directory", {name: f"Bearer {token()}"})
     assert response["statusCode"] == 200
 
 
 @pytest.mark.parametrize("scheme", ["Bearer", "bearer", "BEARER", "BeArEr"])
-def test_the_scheme_is_matched_case_insensitively(scheme):
-    response = router.route("GET", "/_auth/whoami", {"authorization": f"{scheme} {token()}"})
+def test_the_scheme_is_matched_case_insensitively(scheme, stub_directory):
+    response = router.route("GET", "/v1/user-directory", {"authorization": f"{scheme} {token()}"})
     assert response["statusCode"] == 200
 
 
@@ -221,10 +236,10 @@ def test_the_refusal_record_names_the_route_and_the_request_but_never_the_creden
     # it minted a token, sent the placeholder "x", and then asserted the unsent token was
     # absent from the record. Adding the raw header as a log field left it green.
     supplied = token(exp=int(time.time()) - 60)
-    router.route("GET", "/_auth/whoami", {"authorization": f"Bearer {supplied}"}, "req-42")
+    router.route("GET", "/v1/user-directory", {"authorization": f"Bearer {supplied}"}, "req-42")
 
     record = captured_events.messages("request refused")[-1]
-    assert record["fields"]["route"] == "GET /_auth/whoami"
+    assert record["fields"]["route"] == "GET /v1/user-directory"
     assert record["fields"]["request_id"] == "req-42"
 
     serialised = json.dumps(record)
@@ -262,14 +277,19 @@ def test_the_401_and_the_403_cannot_collapse_into_each_other():
         for node in _constants(tree)
         if node.value in (403, "403")
     }
-    assert minting == {"apicommon/errors.py"}, (
-        f"a 403 is minted in {sorted(minting)} — the refusal surface is one module, so the "
-        "statuses and their codes stay one decision"
+    assert minting == {"apicommon/contract.py"}, (
+        f"a 403 is minted in {sorted(minting)} — a status is decided once, in the contract's "
+        "code-to-status map, so the wire's status set stays one decision in one place"
     )
 
-    assert errors.FORBIDDEN_STATUS == 403
-    assert errors.UNAUTHENTICATED_STATUS == 401
-    assert errors.FORBIDDEN_STATUS != errors.UNAUTHENTICATED_STATUS
+    from apicommon import contract
+
+    assert contract.ERROR_STATUS[errors.FORBIDDEN_CODE] == 403
+    assert contract.ERROR_STATUS[errors.UNAUTHENTICATED_CODE] == 401
+    assert (
+        contract.ERROR_STATUS[errors.FORBIDDEN_CODE]
+        != contract.ERROR_STATUS[errors.UNAUTHENTICATED_CODE]
+    )
     assert errors.FORBIDDEN_CODE != errors.UNAUTHENTICATED_CODE
     assert errors.IDENTITY_UNAVAILABLE_CODE != errors.UNAUTHENTICATED_CODE
 
@@ -282,7 +302,7 @@ def test_the_provider_configuration_failing_is_a_server_fault_and_never_a_401(mo
     """
     monkeypatch.delenv("OIDC_ISSUER", raising=False)
 
-    response = router.route("GET", "/_auth/whoami", bearer())
+    response = router.route("GET", "/v1/user-directory", bearer())
     assert response["statusCode"] >= 500
     assert response["statusCode"] != 401
 
@@ -319,7 +339,7 @@ def test_a_provider_that_cannot_be_READ_is_a_server_fault_and_never_a_401(label,
     clients._jwks = {}
     clients.jwks = lambda url: broken
 
-    response = router.route("GET", "/_auth/whoami", bearer())
+    response = router.route("GET", "/v1/user-directory", bearer())
     assert response["statusCode"] >= 500, f"{label} was answered {response['statusCode']}"
     assert response["statusCode"] != 401
 
