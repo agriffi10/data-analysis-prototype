@@ -402,15 +402,14 @@ def test_the_route_table_and_the_public_list_are_what_they_claim() -> None:
 
     sys.path.insert(0, str(HERE))
     import router
+    from apicommon import contract
 
     assert frozenset({("GET", "/healthz")}) == router.PUBLIC_ROUTES
-    assert set(router.ROUTES) == {
-        ("GET", "/_auth/whoami"),
-        ("GET", "/_identity/self"),
-    }, (
-        "both are scaffolding and both leave together: the spec that ports the first real route "
-        "deletes them, on the condition that the verification pass has actually been run"
+    assert set(router.HANDLERS) == {"userDirectory.get"}, (
+        "both probe routes came down with the first ported one; a handler left behind is code "
+        "the router can never dispatch"
     )
+    assert {route.path for route in contract.ROUTES} == {"/v1/user-directory"}
     assert json.loads(router.route("GET", "/healthz", {})["body"])["status"] == "ok"
 
 

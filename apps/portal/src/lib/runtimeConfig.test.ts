@@ -199,18 +199,21 @@ describe('runtimeConfig — the dev fallback', () => {
     // The two tables are exhaustive by the compiler; that a key is paired with the RIGHT
     // variable is not a thing a type can say.
     const paired = [...REQUIRED_CONFIG, ...OPTIONAL_CONFIG].filter((key) => VITE_NAME[key] !== null);
-    expect(paired).toHaveLength(19);
+    expect(paired).toHaveLength(20);
 
     for (const key of paired) vi.stubEnv(VITE_NAME[key] as string, `env-${key}`);
 
     for (const key of paired) expect(configValue(key)).toBe(`env-${key}`);
   });
 
-  it('has no fallback for a key with no VITE_ variable', () => {
-    // Nothing in the browser reads it yet, so a variable for it would be dead weight in
-    // every .env file. The document is its only source.
-    expect(VITE_NAME.apiBaseUrl).toBeNull();
-    expect(configValue('apiBaseUrl')).toBeUndefined();
+  it('gives EVERY required key a dev fallback', () => {
+    // The dev-boot warning is driven from the classification, so a required key with no
+    // variable would warn about nothing: `[null].join(', ')` is the empty string, and the
+    // warning fires forever naming no key at all. `apiBaseUrl` gained one the day it became
+    // required, and this is the rule that keeps the next one from arriving without it.
+    const missing = REQUIRED_CONFIG.filter((key) => VITE_NAME[key] === null);
+
+    expect(missing).toEqual([]);
   });
 
   it('survives a failed load and keeps answering', async () => {

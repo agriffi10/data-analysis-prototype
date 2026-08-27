@@ -42,8 +42,8 @@ FUNCTION_TREE = (
     "apicommon/config.py",
     "apicommon/principal.py",
     "routes/__init__.py",
-    "routes/whoami.py",
-    "routes/test_whoami.py",
+    "routes/example_route.py",
+    "routes/test_example_route.py",
 )
 
 MUST_SHIP = (
@@ -53,10 +53,10 @@ MUST_SHIP = (
     "apicommon/config.py",
     "apicommon/principal.py",
     "routes/__init__.py",
-    "routes/whoami.py",
+    "routes/example_route.py",
 )
 
-MUST_NOT_SHIP = ("conftest.py", "test_router.py", "routes/test_whoami.py")
+MUST_NOT_SHIP = ("conftest.py", "test_router.py", "routes/test_example_route.py")
 
 
 def _build_block() -> str:

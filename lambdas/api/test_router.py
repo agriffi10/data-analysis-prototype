@@ -19,6 +19,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import router
+from apicommon import errors
 from conftest import bearer
 
 FORBIDDEN_HEADER_PREFIX = "access-control-"
@@ -139,8 +140,8 @@ def test_every_other_method_and_path_is_a_json_404() -> None:
         response = router.route(method, path, bearer())
 
         assert response["statusCode"] == 404, f"{method} {path} must not be served"
-        assert response["headers"]["content-type"] == "application/json"
-        assert json.loads(response["body"])["error"] == "not_found"
+        assert response["headers"]["content-type"] == "application/json; charset=utf-8"
+        assert json.loads(response["body"])["error"]["code"] == errors.NOT_FOUND_CODE
 
 
 def test_no_response_carries_a_cors_header() -> None:
@@ -215,23 +216,36 @@ def test_every_body_is_a_STRING_because_a_status_makes_the_envelope_literal() ->
         assert isinstance(json.loads(body), dict)
 
 
-def test_a_refusal_bounds_what_it_echoes_back() -> None:
-    """The method and path are caller-controlled and are reflected into the body.
+def test_a_refusal_bounds_what_it_echoes_back(captured_events) -> None:
+    """The caller-supplied path is bounded where it actually travels: the log record.
 
-    The body is JSON and never HTML, so this is a size bound rather than an escaping one — a
-    request line is not a place to let an arbitrary payload round-trip.
+    **The response no longer echoes it at all** — the envelope carries a code and a request id and
+    nothing a caller supplied — so the assertion moved rather than being deleted with the fields it
+    used to read. The log field was always the half that mattered and the half easy to forget: a
+    response reads as caller-facing while a log field reads as internal, so an unbounded path lands
+    whole in the operator store and is billed, retained and searched forever.
 
     Args:
-      None.
+      captured_events: The emitted records.
 
     Returns:
       None.
 
     Raises:
-      AssertionError: If either value is echoed unbounded.
+      AssertionError: If the path is echoed to the caller, or recorded unbounded.
     """
     body = json.loads(router.route("GET", "/" + "a" * 5000, bearer())["body"])
 
-    assert len(body["path"]) <= router.MAX_ECHOED_CHARS, (
-        "the refusal echoed the whole caller-supplied path back"
-    )
+    assert set(body["error"]) <= {"code", "requestId", "detail"}
+    assert "a" * 200 not in json.dumps(body), "the refusal echoed the caller-supplied path back"
+
+    routes = [
+        event["fields"]["route"]
+        for event in captured_events.events
+        if isinstance(event.get("fields"), dict) and "route" in event["fields"]
+    ]
+    assert routes, "nothing recorded the request, so the bound below measures nothing"
+    for recorded in routes:
+        assert len(recorded) <= 2 * router.MAX_ECHOED_CHARS + 1, (
+            "the record carried the whole caller-supplied path"
+        )

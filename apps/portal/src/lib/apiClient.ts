@@ -1,105 +1,280 @@
-import {getIdToken} from './awsCredentials';
+import {API_ROUTES} from '../types/apiContract.generated';
+import type {ApiErrorCode, ApiRouteId, RequestOf, ResponseOf} from '../types/apiContract.generated';
 import {configValue} from './runtimeConfig';
 import type {ServiceResult} from '../types/service.types';
 
 /**
- * The auth-shaped failures. The transport contract widens this union; these two
- * are settled here because they are the pair a user must be able to tell apart.
+ * The two codes this module mints. The server can produce neither, deliberately: a timeout and
+ * an unreachable network are facts about this browser, not answers from an API.
  *
- * `SessionExpired` means sign in again and it will work. `AccessDenied` means
- * signing in again cannot help. Rendering one wording for both is the defect this
- * split exists to prevent.
+ * They are NOT in the generated enum, and a guard asserts all three sets stay disjoint — the
+ * generated codes, these, and `errorMessages`' passthrough codes.
  */
-export type ApiAuthCode = 'SessionExpired' | 'AccessDenied' | 'ApiUnavailable';
+export type ApiClientCode = 'RequestTimeout' | 'NetworkUnavailable';
 
-/** What a caller asks for. Deliberately thin — the transport contract widens it. */
-export type ApiRequest = {
-  /** Path under the API origin, beginning with a slash. */
-  path: string;
-  /** HTTP method. Defaults to GET. */
-  method?: string;
-};
+/**
+ * The API function's own timeout. Mirrored from `cpcommon.jwks`, and pinned to it by a test that
+ * reads the Python rather than trusting this copy.
+ */
+export const API_FUNCTION_TIMEOUT_SECONDS = 29;
+
+/**
+ * AWS's hard ceiling on an HTTP API integration. Not raisable, which is what makes the ordering
+ * below a property rather than a preference.
+ */
+export const API_GATEWAY_INTEGRATION_CEILING_SECONDS = 30;
+
+/**
+ * How long this client waits, and it is deliberately ABOVE the function's own timeout.
+ *
+ * The order is the whole point: the *server* gives up first, so an abort here always means a
+ * genuinely dead connection rather than a request the server is still completing. A shorter
+ * client timeout aborts work the server then finishes — which for a write is a mutation the user
+ * has been told failed.
+ */
+export const TIMEOUT_MS = API_GATEWAY_INTEGRATION_CEILING_SECONDS * 1000;
 
 /** How many times a 401 is retried. Exactly one, and it is the only retry in this app. */
 const MAX_AUTH_RETRIES = 1;
 
+type TokenProvider = (forceRefresh: boolean) => Promise<string | null>;
+
+let tokenProvider: TokenProvider | undefined;
+let unauthenticatedHandler: (() => void) | undefined;
+
 /**
- * Resolve the API origin, or say why we cannot.
+ * Register where the bearer comes from. Called once, by the composition root.
  *
- * The value carries NO trailing slash — the infrastructure builds it that way, and every path
- * below is joined to it directly. Nothing on this side would notice if that changed, so it is
- * written down here rather than left as a fact two repositories apart agree on by luck.
+ * Injected rather than imported so this module has no opinion about how a session is obtained —
+ * the auth feature owns that, including the forced refresh — and so a test can drive the
+ * no-session arm without a Cognito stub.
  *
- * `configValue` THROWS in a production build before the runtime document has loaded,
- * and `apiBaseUrl` is an optional key with no dev fallback — so it is legitimately
- * `undefined` on a laptop, in the test suite, and in any deployment predating the API.
- * Both are handled here rather than at the call site, because `apiFetch` promises never
- * to throw and the first thing it does is read this.
+ * The provider takes `forceRefresh` because the 401 path needs a *forced* refresh, which is the
+ * browser's only token-refresh path. A no-argument provider cannot express it, and reaching
+ * around the seam to force it would make the seam decorative.
+ *
+ * @param provider - Returns a bearer, or `null` when there is no usable session.
+ * @returns None.
  */
+export function setAuthTokenProvider(provider: TokenProvider): void {
+  tokenProvider = provider;
+}
+
+/**
+ * Register what happens when a 401 SURVIVES the single refresh-and-retry.
+ *
+ * `apiRequest` itself never navigates. A service that navigates makes every test touching a 401 a
+ * navigation test, and makes a background refetch able to throw a user out of a half-filled form.
+ *
+ * @param handler - Called once per genuinely-dead session.
+ * @returns None.
+ */
+export function setUnauthenticatedHandler(handler: () => void): void {
+  unauthenticatedHandler = handler;
+}
+
+/** Test seam: forget both registrations, so a suite starts from the unregistered state. */
+export function resetApiClientForTests(): void {
+  tokenProvider = undefined;
+  unauthenticatedHandler = undefined;
+}
+
+/**
+ * Whether a route may be retried above this client.
+ *
+ * The ONLY source of a TanStack Query `retry` value for an API-backed hook. Idempotency is a
+ * property of the route, declared in the contract, so a hook cannot decide it locally and be
+ * wrong — the Data Explorer once carried `retry: 1` on a billed, stateful `StartQueryExecution`
+ * because it looked like a read.
+ *
+ * @param route - The route id.
+ * @returns `false` for anything not declared idempotent; a retry count otherwise.
+ */
+export function apiRetryPolicy(route: ApiRouteId): false | number {
+  return API_ROUTES[route].idempotent ? 1 : false;
+}
+
+/** What a caller may pass. A route id, never a URL — see the module's one-door rule. */
+export type ApiRequestOptions<R extends ApiRouteId> = {
+  body?: RequestOf<R>;
+  query?: Record<string, string>;
+  signal?: AbortSignal;
+};
+
+/**
+ * The browser's one door to the API.
+ *
+ * Takes a ROUTE ID from the generated table rather than a path: a service that builds a URL is
+ * outside the contract, outside the retry rule and outside the type that says what comes back.
+ *
+ * It never throws, and no server text reaches a rendered string — the `code` carries the wording,
+ * which `lib/errorMessages.ts` resolves. The server's `detail` is operator text and goes to the
+ * dev console alone.
+ *
+ * @param route - The route id.
+ * @param options - An optional body, query parameters and caller abort signal.
+ * @returns The parsed payload, or the machine code a surface maps to wording.
+ */
+export async function apiRequest<R extends ApiRouteId>(
+  route: R,
+  options: ApiRequestOptions<R> = {}
+): Promise<ServiceResult<ResponseOf<R>>> {
+  const origin = apiOrigin();
+  // Legitimately absent on a laptop and in the test suite; in production the app refuses to boot
+  // without it, so this arm cannot reach a user.
+  if (origin === undefined) return failure('ApiUnavailable');
+
+  const {method, path} = API_ROUTES[route];
+  const url = `${origin}${path}${queryString(options.query)}`;
+
+  for (let attempt = 0; attempt <= MAX_AUTH_RETRIES; attempt += 1) {
+    if (!tokenProvider) return failure('SessionExpired');
+    // Forced on the retry only: a forced refresh on every first attempt spends a network round
+    // trip per call and defeats the provider's own caching.
+    const token = await tokenProvider(attempt > 0);
+    if (!token) {
+      // A FORCED refresh returning nothing is the same condition as a 401 surviving the retry —
+      // the session is gone — so it takes the same exit. On the first attempt it is not: that is
+      // an ordinary not-signed-in-yet call, and firing the handler there would act on every
+      // mount before sign-in completes.
+      if (attempt > 0) unauthenticatedHandler?.();
+      return failure('SessionExpired');
+    }
+
+    const outcome = await send(url, method, token, options);
+    if (outcome.status !== 401) return outcome.result;
+  }
+
+  // Both attempts 401'd, so the refresh did not help and the session is genuinely gone. There is
+  // no third request, which is what stops a dead refresh token spinning.
+  unauthenticatedHandler?.();
+  return failure('SessionExpired');
+}
+
+/** Read at CALL time, never captured at module load: the document is not in hand until boot. */
 function apiOrigin(): string | undefined {
   try {
+    // No trailing slash — the infrastructure builds it that way and every path is joined
+    // directly, so it is written down here rather than left as luck between two repositories.
     return configValue('apiBaseUrl');
   } catch {
     return undefined;
   }
 }
 
-/** The one failure shape, so no branch below can invent a second wording. */
-function failure<T>(code: ApiAuthCode): ServiceResult<T> {
-  return {success: false, error: {message: '', code}};
+/** URL-encoded, always. S3 continuation tokens carry `+`, `/` and `=`, and `+` decodes to a space. */
+function queryString(query: Record<string, string> | undefined): string {
+  if (!query) return '';
+  const encoded = new URLSearchParams(query).toString();
+  return encoded ? `?${encoded}` : '';
+}
+
+async function send<R extends ApiRouteId>(
+  url: string,
+  method: string,
+  token: string,
+  options: ApiRequestOptions<R>
+): Promise<{status: number; result: ServiceResult<ResponseOf<R>>}> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  // The caller's signal and the deadline both abort this request, and neither cancels the other:
+  // an unmounted component and a dead connection are different reasons for the same stop.
+  const onCallerAbort = () => controller.abort();
+  // Checked as well as listened for: the token is awaited before this runs, so a caller that
+  // aborts in that window has already fired its event and no listener would ever see it.
+  if (options.signal?.aborted) controller.abort();
+  options.signal?.addEventListener('abort', onCallerAbort);
+
+  try {
+    const response = await fetch(url, {
+      method,
+      // Explicit, so a cookie that appears on this domain for any reason is never sent. There is
+      // no ambient credential in this design, and therefore no CSRF surface to go with one.
+      credentials: 'omit',
+      signal: controller.signal,
+      headers: {
+        authorization: `Bearer ${token}`,
+        'x-request-id': requestId(),
+        ...(options.body === undefined ? {} : {'content-type': 'application/json'})
+      },
+      ...(options.body === undefined ? {} : {body: JSON.stringify(options.body)})
+    });
+    return {status: response.status, result: await interpret<R>(response)};
+  } catch (err) {
+    // A CORS failure is INDISTINGUISHABLE from a network failure here — the browser hands `fetch`
+    // an opaque TypeError either way — so a mis-set allowed origin presents to a user as "the API
+    // is down". That is why the origin list is asserted against a real preflight, not inferred
+    // from the app working.
+    const aborted = (err as {name?: string})?.name === 'AbortError';
+    return {status: 0, result: failure(aborted ? 'RequestTimeout' : 'NetworkUnavailable')};
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener('abort', onCallerAbort);
+  }
+}
+
+async function interpret<R extends ApiRouteId>(response: Response): Promise<ServiceResult<ResponseOf<R>>> {
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    body = undefined;
+  }
+
+  if (response.ok) {
+    if (body === undefined || body === null || typeof body !== 'object') {
+      return failure('ApiUnavailable');
+    }
+    return {success: true, data: body as ResponseOf<R>};
+  }
+
+  const envelope = (body as {error?: {code?: unknown; detail?: unknown}} | undefined)?.error;
+  if (envelope && typeof envelope.code === 'string') {
+    logDetail(envelope.code, envelope.detail);
+    return failure(envelope.code as ApiErrorCode);
+  }
+
+  // NOT envelope-shaped, and never parsed for text. API Gateway's own errors — its 413 at the
+  // payload limit, a 429 under account throttling, a 502/504 on an invocation failure — are
+  // produced ABOVE the router and carry AWS's wording, which no surface may render.
+  return failure(byStatus(response.status));
+}
+
+function byStatus(status: number): ApiErrorCode {
+  if (status === 413) return 'PayloadTooLarge';
+  if (status === 429) return 'RateLimited';
+  if (status === 404) return 'NotFound';
+  if (status === 403) return 'AccessDenied';
+  if (status === 401) return 'SessionExpired';
+  if (status === 400) return 'InvalidRequest';
+  // Everything else, named rather than left to fall through: a status with no mapping would
+  // reach `toUserMessage` as `undefined` and resolve to the generic wording by accident rather
+  // than by decision.
+  return 'ApiUnavailable';
 }
 
 /**
- * The browser's one door to the API.
+ * The server's operator text, to the dev console and nowhere else.
  *
- * Fetches the ID token per call and attaches it as a bearer; on any 401 it forces
- * exactly one token refresh and retries exactly once; it never throws, and no API or
- * provider text reaches a rendered string — the `code` carries the wording.
- *
- * THE TOKEN IS NEVER CACHED HERE. Amplify owns its lifecycle, including the silent
- * refresh, and a second cache in this module serves a stale token after one.
- *
- * THE 401 CAUSE IS NOT READ, because the API deliberately does not disclose it: every
- * refusal is byte-identical on purpose. That is why the retry is unconditional rather
- * than driven by a discriminator, and it is the whole of why one retry is enough.
- *
- * @param request - The path and method to call.
- * @returns The parsed body, or the machine code a surface maps to wording.
+ * It is English written for whoever reads a log, never a sentence for a user — so it must not
+ * reach `ServiceResult.error.message`, which is what a surface renders.
  */
-export async function apiFetch<T>(request: ApiRequest): Promise<ServiceResult<T>> {
-  const origin = apiOrigin();
-  if (origin === undefined) return failure<T>('ApiUnavailable');
-
-  for (let attempt = 0; attempt <= MAX_AUTH_RETRIES; attempt += 1) {
-    // Forced on the retry only. A forced refresh on the first attempt would spend a
-    // network round trip per call and defeat Amplify's own caching.
-    const token = await getIdToken(attempt > 0);
-    if (!token.success) return failure<T>('SessionExpired');
-
-    let response: Response;
-    try {
-      response = await fetch(`${origin}${request.path}`, {
-        method: request.method ?? 'GET',
-        headers: {authorization: `Bearer ${token.data}`}
-      });
-    } catch {
-      // A network failure, a timeout, a CORS refusal. NOT retried — the single retry
-      // this module has belongs to the 401 path and to nothing else.
-      return failure<T>('ApiUnavailable');
-    }
-
-    if (response.status === 401) continue;
-    if (response.status === 403) return failure<T>('AccessDenied');
-    if (!response.ok) return failure<T>('ApiUnavailable');
-
-    try {
-      return {success: true, data: (await response.json()) as T};
-    } catch {
-      return failure<T>('ApiUnavailable');
-    }
+function logDetail(code: string, detail: unknown): void {
+  if (import.meta.env.DEV && typeof detail === 'string' && detail !== '') {
+    console.warn(`[apiClient] ${code}: ${detail}`);
   }
+}
 
-  // Every attempt 401'd. The refresh did not help, so the session is genuinely gone —
-  // and there is no third request, which is what stops a dead refresh token spinning.
-  return failure<T>('SessionExpired');
+/**
+ * The failure shape, built in ONE place so no branch can invent a second wording.
+ *
+ * `message` is deliberately empty: the wording is chosen client-side from the code, by
+ * `lib/errorMessages.ts`. A message authored here would be a second source of user-facing text.
+ */
+function failure<T>(code: ApiErrorCode | ApiClientCode): ServiceResult<T> {
+  return {success: false, error: {message: '', code}};
+}
+
+function requestId(): string {
+  return crypto.randomUUID();
 }

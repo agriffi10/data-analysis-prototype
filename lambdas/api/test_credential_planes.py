@@ -38,8 +38,18 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import router
-from apicommon import identity, planes
-from conftest import bearer
+from apicommon import contract, identity, planes
+from conftest import bearer, declare_route
+
+_API_PLANE_ROUTE = contract.Route(
+    id="test.apiPlane",
+    method="GET",
+    path="/v1/_test-api-plane",
+    idempotent=True,
+    plane="api",
+    request=None,
+    response=contract.UserDirectoryResponse,
+)
 
 HERE = pathlib.Path(__file__).resolve().parent
 
@@ -235,7 +245,6 @@ def test_the_sweep_has_a_subject_and_its_exemption_is_an_identity_not_a_pattern(
     for near_miss in (
         "apicommon/identity_helpers.py",
         "apicommon/identity2.py",
-        "routes/identity_self.py",
         "identity.py",
         "apicommon/identity.py ",
     ):
@@ -427,7 +436,7 @@ def test_a_route_that_did_not_declare_the_api_plane_is_refused_before_any_call(n
       AssertionError: If the call is allowed, or a client was built on the way to refusing.
     """
     planes.begin_request()
-    planes.begin_dispatch(("GET", "/_auth/whoami"))
+    planes.begin_dispatch("userDirectory.get")
 
     with pytest.raises(identity.PlaneViolationError):
         identity.api_client("sts")
@@ -447,11 +456,13 @@ def test_a_route_that_declared_the_api_plane_gets_its_client(no_aws, monkeypatch
     Raises:
       AssertionError: If the declared route is refused.
     """
-    monkeypatch.setitem(
-        planes.ROUTE_PLANES, ("POST", "/_test/api-plane"), frozenset({planes.Plane.API})
+    monkeypatch.setattr(
+        planes,
+        "planes_for",
+        lambda route_id: frozenset({planes.Plane.API}) if route_id == "test.apiPlane" else frozenset(),
     )
     planes.begin_request()
-    planes.begin_dispatch(("POST", "/_test/api-plane"))
+    planes.begin_dispatch("test.apiPlane")
 
     identity.api_client("sts")
     assert no_aws == ["sts"]
@@ -474,16 +485,18 @@ def test_a_route_key_left_behind_by_the_last_request_authorizes_nothing(no_aws, 
     Raises:
       AssertionError: If the second request inherits the first's declaration.
     """
-    monkeypatch.setitem(
-        planes.ROUTE_PLANES, ("POST", "/_test/api-plane"), frozenset({planes.Plane.API})
+    monkeypatch.setattr(
+        planes,
+        "planes_for",
+        lambda route_id: frozenset({planes.Plane.API}) if route_id == "test.apiPlane" else frozenset(),
     )
 
     planes.begin_request()
-    planes.begin_dispatch(("POST", "/_test/api-plane"))
+    planes.begin_dispatch("test.apiPlane")
     identity.api_client("sts")
 
     planes.begin_request()
-    planes.begin_dispatch(("GET", "/_auth/whoami"))
+    planes.begin_dispatch("userDirectory.get")
     with pytest.raises(identity.PlaneViolationError):
         identity.api_client("sts")
 
@@ -569,13 +582,13 @@ def test_a_request_that_never_DISPATCHES_cannot_inherit_the_last_one_declaration
         identity.api_client("sts")
         return {"ok": True}
 
-    monkeypatch.setitem(router.ROUTES, ("GET", "/_test/api-plane"), _api_plane_route)
-    monkeypatch.setitem(
-        planes.ROUTE_PLANES, ("GET", "/_test/api-plane"), frozenset({planes.Plane.API})
-    )
+    # NOT stubbed: `_API_PLANE_ROUTE` declares `plane="api"`, so the grant resolves through the
+    # real derivation. Stubbing `planes_for` here would exercise the stub rather than the arm that
+    # actually hands out the execution role.
     monkeypatch.setattr(planes, "end_dispatch", lambda: None)
 
-    router.route("GET", "/_test/api-plane", bearer())
+    with declare_route(_API_PLANE_ROUTE, _api_plane_route):
+        router.route("GET", "/v1/_test-api-plane", bearer())
     assert no_aws == ["sts"], "the declared route did not get its client"
 
     router.route("GET", "/healthz", {})
@@ -598,16 +611,18 @@ def test_an_undispatched_refusal_also_leaves_the_plane_at_the_sentinel(no_aws, m
     Raises:
       AssertionError: If either leaves a declaration behind.
     """
-    monkeypatch.setitem(
-        planes.ROUTE_PLANES, ("GET", "/_test/api-plane"), frozenset({planes.Plane.API})
+    monkeypatch.setattr(
+        planes,
+        "planes_for",
+        lambda route_id: frozenset({planes.Plane.API}) if route_id == "test.apiPlane" else frozenset(),
     )
     monkeypatch.setattr(planes, "end_dispatch", lambda: None)
 
     for method, path, headers in (
-        ("GET", "/_auth/whoami", {}),
+        ("GET", "/v1/user-directory", {}),
         ("GET", "/_no/such/route", bearer()),
     ):
-        planes.begin_dispatch(("GET", "/_test/api-plane"))
+        planes.begin_dispatch("test.apiPlane")
         router.route(method, path, headers)
         assert planes.current_route() == planes.NO_ROUTE, (
             f"{method} {path} returned before dispatch and left a declaration behind"
@@ -626,7 +641,7 @@ def test_a_public_route_leaves_the_plane_at_the_sentinel() -> None:
     Raises:
       AssertionError: If the public path leaves a route key behind.
     """
-    planes.begin_dispatch(("POST", "/_test/api-plane"))
+    planes.begin_dispatch("test.apiPlane")
     router.route("GET", "/healthz", {})
     assert planes.current_route() == planes.NO_ROUTE
 
@@ -651,12 +666,17 @@ def test_every_dispatched_route_declares_a_plane_and_every_declaration_dispatche
     Raises:
       AssertionError: If the two sets differ, or a public route acquired a declaration.
     """
-    assert set(planes.ROUTE_PLANES) == set(router.ROUTES), (
-        f"declared {sorted(planes.ROUTE_PLANES)} but the router dispatches "
-        f"{sorted(router.ROUTES)}"
+    assert set(planes.route_planes()) == set(router.HANDLERS), (
+        f"declared {sorted(planes.route_planes())} but the router dispatches "
+        f"{sorted(router.HANDLERS)}"
     )
-    assert not (set(planes.ROUTE_PLANES) & router.PUBLIC_ROUTES)
-    assert planes.NO_ROUTE not in planes.ROUTE_PLANES
+
+    public_paths = {path for _, path in router.PUBLIC_ROUTES}
+    assert not {route.id for route in contract.ROUTES if route.path in public_paths}, (
+        "a public route acquired a plane declaration; it runs before dispatch and is left at "
+        "the sentinel, which authorizes nothing"
+    )
+    assert planes.NO_ROUTE not in planes.route_planes()
 
 
 def test_the_user_plane_is_the_default_and_is_never_listed() -> None:
@@ -671,7 +691,7 @@ def test_the_user_plane_is_the_default_and_is_never_listed() -> None:
     Raises:
       AssertionError: If any entry lists the user plane, or the user plane is ever refused.
     """
-    for route_key, declared in planes.ROUTE_PLANES.items():
+    for route_key, declared in planes.route_planes().items():
         assert planes.Plane.USER not in declared, (
             f"{route_key} lists the user plane — it is implicit, and listing it invites an "
             "entry that lists nothing to be read as declaring nothing rather than as user-only"
@@ -679,3 +699,39 @@ def test_the_user_plane_is_the_default_and_is_never_listed() -> None:
 
     planes.begin_request()
     planes.require(planes.Plane.USER)
+
+
+def test_a_plane_that_is_neither_of_the_two_is_REFUSED_rather_than_defaulted() -> None:
+    """The half the old set-equality guard could never carry.
+
+    Deriving the plane from the route's own declaration makes "a route cannot be added without
+    choosing" structural — the field is required to construct one. What that does NOT give is
+    protection from choosing wrongly: a typo resolving quietly to user-only looks identical to a
+    correct user-only route, and the fail-closed guarantee would be gone with nothing to show it.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If an unrecognised plane resolves instead of raising.
+    """
+    typo = contract.Route(
+        id="typo.get",
+        method="GET",
+        path="/v1/typo",
+        idempotent=True,
+        plane="API",
+        request=None,
+        response=contract.UserDirectoryResponse,
+    )
+
+    original = contract.ROUTES
+    contract.ROUTES = (*original, typo)
+    try:
+        with pytest.raises(ValueError):
+            planes.planes_for("typo.get")
+    finally:
+        contract.ROUTES = original

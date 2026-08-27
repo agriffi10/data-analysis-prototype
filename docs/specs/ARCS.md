@@ -2196,9 +2196,32 @@ runs, and queries **time out at 30 minutes, one hour maximum**.
    it reuses `cpcommon.observability` (so API records land in `logs/` beside the seven planes), the
    Lambda deploy matrix, the layer packaging and the blocking `ruff`/`mypy` gates. The cost is that
    the transport contract exists in two languages, so **SPEC-197** must ship a mechanism holding them
-   in agreement rather than two hand-edited copies. One function behind a proxy integration, not one
+   in agreement rather than two hand-edited copies. **As built:** declared once in Python, the
+   TypeScript generated from it, with a CI regeneration-diff gate and `tsc -b` as the second gate. One function behind a proxy integration, not one
    per route: the API is thin, and per-plane privilege is expressed by which role a request assumes
    (**SPEC-196**), never by which function ran.
+
+### What SPEC-197 found, and what it passed on
+
+**A preflight was refused by the router, so no browser could reach the API with a bearer.**
+`$default` matches `OPTIONS`, and API Gateway auto-answers a preflight only when *no* route matches
+— so preflights reached the Lambda and were denied by default. Every bearer-carrying `fetch` failed
+as an opaque `TypeError`, which reads to a user as "the API is down". Invisible to `curl`, which does
+not enforce CORS, and to every offline gate. The router now answers `OPTIONS` before authentication —
+**offline-asserted and live-owed**: that the gateway overlays its configured CORS headers onto the
+integration's own `OPTIONS` 200 is taken from AWS's documentation rather than measured, and the
+failure mode if it is wrong is silent (suggestions stop appearing, with no banner).
+
+**The isolation proof passes to SPEC-198, and SPEC-196 Premise 2 must not be read as discharged.**
+`GET /v1/user-directory` cannot carry it: the `ReadTheUsernameDirectory` grant is unconditioned and
+the document is byte-identical for every caller, so the route returns the same bytes with the
+principal tag dropped. What it does prove live is the *plane*. A live 403 on this plane passes too —
+it cannot be staged against a bucket-wide grant.
+
+**§D and §E were partly run on 2026-08-27** rather than at SPEC-202, because SPEC-197 deletes the
+probe routes they are driven through; running them at 202 would have deleted the only instrument
+that can observe the isolation model before it was ever observed. What ran and what did not is in
+`docs/testing/sessions.md`.
 
 ### One more decision the arc took, because it supersedes a Key Decision
 
@@ -2269,9 +2292,14 @@ the suite nor `tsc` can see it — Vitest runs with `import.meta.env.DEV` true, 
 every read. Reverting the switchover alone restores a working bundle.
 
 **The document is 20 keys, not the spec's nineteen**, because Arc A's `VITE_FILE_OPS_QUEUE_URL`
-landed first; it joins group (b), so the end-of-arc figure of **ten** is unchanged. `apiBaseUrl` has
-**no `VITE_*` variable** — nothing reads it before SPEC-197 — and is rendered from a non-`VITE_`
-repository variable.
+landed first; it joins group (b), so the end-of-arc figure of **ten** is unchanged.
+
+> **CORRECTED by SPEC-197 as built (2026-08-27).** `apiBaseUrl` had no `VITE_*` variable because
+> nothing read it. It is **required** now and has `VITE_API_BASE_URL`, on the rule that every
+> required key has a dev fallback: the dev-boot warning is driven from the classification, so a
+> required key without one warns about nothing at all — `[null].join(', ')` is the empty string.
+> Seeding the test harness instead, as SPEC-197 FR-007 describes, was measured at 69 failures
+> across 3 files, because a one-key seed moves every `vi.stubEnv` suite onto the document path.
 
 **SPEC-194 inherits four obligations.** (1) `/config.json` is served by the SPA's own container and
 **never proxied** to API Gateway — the SPA must render its own error states while the API is down.

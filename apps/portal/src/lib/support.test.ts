@@ -466,8 +466,18 @@ describe('env', () => {
       expect(devFallbackValue('athenaWorkgroup')).toBeUndefined();
     });
 
-    it('has nothing to read for a key with no variable of its own', () => {
-      expect(devFallbackValue('apiBaseUrl')).toBeUndefined();
+    it('ACCEPTED: every key currently HAS a variable, so the null branch is unreachable', () => {
+      // This used to assert the one key with no `VITE_` variable read as undefined. `apiBaseUrl`
+      // gained one when it became required, and no key is null now — so the case the old test
+      // named no longer exists, and it would have kept passing for a reason it disowns.
+      //
+      // Pinned rather than deleted: `devFallbackValue`'s null branch and `PortalEnvVar`'s
+      // `Exclude<…, null>` both exist for a key without one, and a later key may reintroduce the
+      // case. If this reddens, a key has gone back to having no fallback — REVISIT whether that is
+      // right (a REQUIRED one must not, or the dev boot warning names nothing), do not delete it.
+      const unpaired = Object.entries(VITE_NAME).filter(([, name]) => name === null);
+
+      expect(unpaired).toEqual([]);
     });
   });
 

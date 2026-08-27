@@ -142,6 +142,18 @@ jobs:
         # (validate_feature_flags.py). Nothing else in that directory is Python today.
         run: ruff check lambdas/ scripts/ .github/scripts/
 
+      # GATE ONE on the two-language contract. The wire is declared once in Python and the
+      # TypeScript is emitted from it, so this catches drift in BOTH directions: a Python type
+      # edited without regenerating, and the generated TypeScript edited by hand. Gate two is
+      # `npm run build` in the app job, where a changed type fails at every call site.
+      #
+      # `--exit-code` on the generated file alone, not on the tree: a job that diffed everything
+      # would also fail for an unrelated dirty file and teach a reader to ignore it.
+      - name: Regenerate the API contract and refuse a diff
+        run: |
+          python3 scripts/generate_api_contract.py
+          git diff --exit-code -- apps/portal/src/types/apiContract.generated.ts
+
       # The documentation layout is a gate because prose was not one. Every rule the script
       # holds already existed in CLAUDE.md or docs/process.md, and every one was violated
       # anyway: `## Specs` regrew to 371 lines of changelog against its own "prune, never

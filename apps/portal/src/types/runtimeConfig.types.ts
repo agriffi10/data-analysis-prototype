@@ -9,9 +9,14 @@
  */
 
 /**
- * Variables the portal cannot work at all without: the region every SDK client needs,
- * the three Cognito values that make sign-in possible, the app's own URL, the bucket
- * every read and write targets, and the workgroup every query runs in.
+ * Variables the portal cannot work at all without: the API's origin, the region every
+ * SDK client needs, the three Cognito values that make sign-in possible, the app's own
+ * URL, the bucket every read and write targets, and the workgroup every query runs in.
+ *
+ * `apiBaseUrl` joined the day the first feature was ported. Its degraded path is not
+ * partial — a portal that cannot reach the API cannot suggest a username, and every
+ * later port widens that — so it belongs with the values whose absence stops the app
+ * rather than one feature.
  *
  * The queue URLs are NOT here — each enqueue path degrades on its own through
  * `enqueueFifo`'s `notConfiguredMessage`, which disables one feature rather than the
@@ -21,6 +26,7 @@
  * app is useful without it.
  */
 export const REQUIRED_CONFIG = [
+  'apiBaseUrl',
   'appUrl',
   'awsRegion',
   'userSpaceBucket',
@@ -32,9 +38,6 @@ export const REQUIRED_CONFIG = [
 
 /** Set in a working deployment, but each with its own degraded path when absent. */
 export const OPTIONAL_CONFIG = [
-  // Nothing reads it yet. Optional so a deployment predating the API does not hard-fail
-  // on a value no code asks for; it becomes required when the first route is ported.
-  'apiBaseUrl',
   // Which block of the feature-flag document this deployment resolves. Optional because
   // its degraded path is total: an unset value resolves to the document's own `defaults`
   // and still reports 'ready'. A deployment that ships it unset silently ignores every

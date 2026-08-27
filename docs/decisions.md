@@ -205,6 +205,10 @@ One heading per entry. **Jump to the one you need — never read this file whole
 - [The API reads the same claims and assumes the same role with the same tag set (SPEC-196)](#the-api-reads-the-same-claims-and-assumes-the-same-role-with-the-same-tag-set-spec-196)
 - [Two credential planes, declared per route, defaulting to the user plane (SPEC-196)](#two-credential-planes-declared-per-route-defaulting-to-the-user-plane-spec-196)
 - [The credential cache is keyed on the whole tag set (SPEC-196)](#the-credential-cache-is-keyed-on-the-whole-tag-set-spec-196)
+- [The error shape: a machine code, and operator text nobody renders (SPEC-197)](#the-error-shape-a-machine-code-and-operator-text-nobody-renders-spec-197)
+- [The contract is declared in Python and the TypeScript is generated (SPEC-197)](#the-contract-is-declared-in-python-and-the-typescript-is-generated-spec-197)
+- [`apiRequest` retries nothing, and idempotency is declared per route (SPEC-197)](#apirequest-retries-nothing-and-idempotency-is-declared-per-route-spec-197)
+- [Cognito tokens are held per TAB, not per browser (2026-08-27)](#cognito-tokens-are-held-per-tab-not-per-browser-2026-08-27)
 
 ---
 
@@ -5010,6 +5014,20 @@ The S3 delivery path needs three prefix-scoped sync passes because one pass cann
 
 ### Two credential planes, declared per route, defaulting to the user plane (SPEC-196)
 
+> **AMENDED by SPEC-197 (2026-08-27) — the registry became a FIELD, and the guard's teeth moved.**
+> `ROUTE_PLANES` is gone. The plane is declared on the route itself (`Route.plane`) in the transport
+> contract, and `planes.planes_for()` derives it per call. The decision below is unchanged in every
+> respect that matters — two planes, the user plane by default, the dangerous direction one-way —
+> but the *mechanism* named in it is not what ships.
+>
+> The set-equality guard between the table and the dispatch table becomes a **tautology** once one
+> derives from the other, so it is retained as a labelled regression tripwire rather than as the
+> guard. What carries the guarantee instead: `plane` is a **required** `Literal` field, so a route
+> cannot be declared without choosing; and a value that is neither of the two **raises at
+> derivation**. That last half is one the set equality could never carry — a typo resolving quietly
+> to user-only is indistinguishable from a correct user-only route, and the fail-closed guarantee
+> would be gone with nothing to show for it.
+
 **The failure mode fails OPEN, which is the whole reason this is machinery rather than convention.** A helper handing back the wrong client does not error — the call **succeeds**, against the wrong identity, returning right-looking data. There is no symptom to wait for. So: every AWS client comes from exactly one of two constructors, the **user plane** (the caller's assumed session) or the **API plane** (the execution role); the user plane is the default, because the dangerous direction is a user-scoped call escaping onto the execution role; and a route reaches the API plane only by being named in a registry whose keys are guarded for **set equality** against the router's dispatch table, because a hand-maintained list rots.
 
 **The enumeration is an AST sweep, not review.** It forbids `boto3.client`/`resource`/`Session` and any import of `cpcommon.clients` — the second half matters as much as the first, because that module is a cache of *default-credential* clients, exactly the shape that works in every single-user test and serves the execution role's identity in production. The sweep **counts**: the package holds exactly one construction site, since "none outside the layer" is satisfied by a layer building six. It also closes the doors *around* the doors — a private import from the identity layer, and a `UserIdentity` minted anywhere but its own module, which would assume the role as somebody else and pass every test supplying a matching token. Every exemption is by **exact module path**, never a pattern: a pattern exemption silently exempts the next module named similarly.
@@ -5026,3 +5044,106 @@ The S3 delivery path needs three prefix-scoped sync passes because one pass cann
 
 **The expiry margin is the life of one REQUEST, derived from the function's own timeout** — the schedulable unit — with the longest downstream call subsumed by the same bound rather than omitted from it. No clock-skew literal is invented on top: the single forced re-assume **is** that allowance. The retry runs on a **new** client, because boto3 binds credentials at construction, so a proxy that re-assumes and re-calls the object it already holds fails again — fail-closed, but decorative, and green.
 
+### The error shape: a machine code, and operator text nobody renders (SPEC-197)
+
+A failure body is `{"error": {code, requestId, detail?}}` — the only wrapped shape in the API, since
+a success body is the payload itself and a `{data: …}` level is one every ported service would strip
+forever. `code` is drawn from a closed enum; `detail` is operator text authored at the raise site,
+read in a devtools panel and in `logs/`, and **rendered nowhere**.
+
+The browser chooses every user-facing sentence from the code, through `lib/errorMessages.ts`. An API
+that returned a sentence for the SPA to display would reverse that quietly, because the sentence
+would look fine in every screenshot.
+
+**The trap is a rule written to uphold it.** `CODE_RULES` contains eight `passthrough` rules whose
+whole behaviour is *return the service's message unchanged*. If the API ever returned one of those
+codes, server text would reach a user through one of the rules protecting against exactly that. The
+guard intersects `API_ERROR_CODES` (generated from the Python contract) with `PASSTHROUGH_CODES`
+(computed from the rules) — **two derived sets, never two lists** — and covers the two codes the
+client mints as a third. Verified by adding a passthrough code to the Python contract and watching
+it redden.
+
+**An unrecognised code resolves to the generic sentence, and that is the deploy-skew case rather
+than a fallback nobody meets:** the API deploys before the SPA image, so an old bundle *will* meet a
+new code. A missing rule is not a crash — it is the generic wording, which is right for an unknown
+code and wrong for a known one, and only a guard tells them apart.
+
+One collision surfaced on the way: `InvalidRequest` is both an API code and a code two browser
+services already mint. Both resolve to the same generic sentence, so nothing changed for them — but
+a **code** rule wins over an engine-message **match** rule, so a fixture sending `InvalidRequest`
+with Athena text stopped reaching the column-name hint. The fixture now sends Athena's real
+`InvalidRequestException`, which carries no code rule.
+
+### The contract is declared in Python and the TypeScript is generated (SPEC-197)
+
+Two hand-edited copies rot. A contract test both sides hand-wrote against each other compares a copy
+of the answer with itself, and it agrees most confidently exactly when both were written by the same
+session on the same afternoon. So `lambdas/api/apicommon/contract.py` is the single declaration and
+`scripts/generate_api_contract.py` emits the TypeScript.
+
+Python is the source rather than TypeScript because the runtime request validator and the wire types
+must read **one** declaration — a validator written against a separate schema is a third copy, and
+the third copy is the one nobody regenerates. The generator and the validator consume the same
+`walk` of the same annotation, asserted structurally: an AST check that the generator defines no
+walker of its own.
+
+**Two gates.** CI regenerates and refuses a diff on the generated file, which catches both
+directions — a Python type edited without regenerating, and the generated TypeScript hand-edited.
+`npm run build` is the second: a field removed or renamed regenerates into a changed type and fails
+at every call site, which no test has to be written for.
+
+**The type vocabulary is closed and the emitter never falls back.** `str`, `int`, `float`, `bool`,
+`None`, `list[X]`, `X | None`, `Literal` over strings, references to declared `TypedDict`s, and
+optional keys in both spellings. Anything else **raises**. This is the requirement that can silently
+succeed: a fallback type agrees with every possible value, so the day the emitter meets a shape it
+cannot express is the day the contract stops being checked and nothing goes red. It never emits
+`unknown` and never emits `any`.
+
+### `apiRequest` retries nothing, and idempotency is declared per route (SPEC-197)
+
+Zero retries under every condition — a timeout, a 429, a 503, a network failure — asserted as a
+`fetch` call count of exactly one. Retrying a 429 amplifies the condition that caused it.
+
+**Exactly one exception, and deleting it signs every user out at the hour mark with a green suite:**
+a 401 triggers one forced token refresh and one retry, and no more. That refresh is the browser's
+only token-refresh path. The test that says so is a count — a 401-then-200 sequence issues exactly
+two requests, and a 401-then-401 sequence issues exactly two as well.
+
+Whether a call may be retried *above* the client is a property of the **route**, declared in the
+contract and never derived from the method: a `POST` that resolves a free name is a read, and a `PUT`
+that appends is not. `apiRetryPolicy(routeId)` is the only source of a TanStack Query `retry` value
+for an API-backed hook, and the test enumerates the generated table so a route added later is covered
+without the test being edited. The reason it is a rule rather than a habit: a failing apply in the
+Data Explorer once issued **two** `StartQueryExecution` calls 1.1 s apart, because `retry: 1` had been
+set on something that looked like a read and was a billed, stateful action.
+
+**The client's timeout sits ABOVE the function's**, so the server always gives up first and a client
+abort always means a genuinely dead connection. A shorter client timeout aborts requests the server
+then completes, which for a write is a mutation the user believes failed. The ordering is created by
+the function's 29 s against the integration's 30 s ceiling — not, as the spec's constant name
+suggested, by a 29-second gateway timeout that does not exist.
+
+### Cognito tokens are held per TAB, not per browser (2026-08-27)
+
+Amplify's default token store is `localStorage`, so an ID token survived a browser restart and was
+readable by anything running on the origin. `configureAmplify` now hands the provider the
+tab-scoped store instead.
+
+**The cost is deliberate and user-visible**, which is why it is a decision rather than a tidy-up:
+there is no "stay signed in" any more, a second tab signs in again rather than inheriting the
+first one's session, and a link opened in a new tab lands on the Hosted UI first. Nothing in
+`helpContent.ts` promised otherwise, so no guide became untrue — but a later spec adding one must
+know this is the behaviour.
+
+**Set AFTER `Amplify.configure`, never before**: the provider resolves the pool it was configured
+with, and a store installed on an unconfigured provider is discarded. Both halves are guarded, and
+both guards were verified by planting the mistake.
+
+**It touches sign-in, which a warm session cannot exercise.** The offline tests assert which store
+the provider is given; they cannot drive a real authorization-code round trip, and Amplify keeps
+the OAuth `state` and PKCE verifier in its own store — so the two now live in different stores.
+Expected to be fine, not observed. Recorded in `owed.md`, along with the SPEC-192 fresh-sign-in
+check this **re-invalidates**.
+
+Requested by Andrew alongside SPEC-197 and shipped as its own commit, so it can be reverted without
+the port.

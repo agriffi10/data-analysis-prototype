@@ -1,11 +1,3 @@
-/** The document the daily builder publishes to `_directory/usernames.json`. */
-export type UserDirectoryDocument = {
-  version: number;
-  generatedAt: string;
-  count: number;
-  usernames: string[];
-};
-
 /** What the service returns. */
 export type UserDirectory = {
   usernames: string[];

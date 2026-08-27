@@ -1,264 +1,341 @@
-// The browser's half of the auth boundary.
-//
-// EVERY ASSERTION THAT MATTERS HERE IS A FETCH COUNT. A refresh loop against a dead
-// refresh token is invisible in a passing test that only checks the returned value —
-// the call still resolves to "sign in again", correctly, after hammering the API — and
-// obvious in production. So the counts are what is asserted, not just the outcomes.
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {
+  API_FUNCTION_TIMEOUT_SECONDS,
+  API_GATEWAY_INTEGRATION_CEILING_SECONDS,
+  TIMEOUT_MS,
+  apiRequest,
+  apiRetryPolicy,
+  resetApiClientForTests,
+  setAuthTokenProvider,
+  setUnauthenticatedHandler
+} from './apiClient';
+import {API_ROUTES} from '../types/apiContract.generated';
+import {toUserText} from './errorMessages';
+import {clearRuntimeConfig, seedRuntimeConfig} from '../test/seedRuntimeConfig';
 
-import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {apiFetch} from './apiClient';
-import type {ApiAuthCode} from './apiClient';
-import {toUserMessage} from './errorMessages';
+const ORIGIN = 'https://api.example.test';
 
-const getIdToken = vi.hoisted(() => vi.fn());
-const configValue = vi.hoisted(() => vi.fn());
+const fetchMock = vi.fn();
 
-vi.mock('./awsCredentials', () => ({getIdToken}));
-vi.mock('./runtimeConfig', () => ({configValue}));
+/** A response with a JSON body, as `fetch` would hand it back. */
+function json(status: number, body: unknown): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body
+  } as unknown as Response;
+}
 
-/** A fetch stub that answers with the given statuses in order, counting calls. */
-function respondWith(...statuses: number[]) {
-  const calls: string[] = [];
-  const fetchMock = vi.fn(async (url: string) => {
-    calls.push(url);
-    const status = statuses[calls.length - 1] ?? statuses[statuses.length - 1];
-    return {
-      status,
-      ok: status >= 200 && status < 300,
-      json: async () => ({username: 'alice'})
-    } as unknown as Response;
-  });
-  vi.stubGlobal('fetch', fetchMock);
-  return {fetchMock, calls};
+/** A response whose body is not JSON at all — a gateway's HTML error page, or nothing. */
+function opaque(status: number): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => {
+      throw new SyntaxError('Unexpected token < in JSON');
+    }
+  } as unknown as Response;
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
-  configValue.mockReturnValue('https://api.example');
-  getIdToken.mockResolvedValue({success: true, data: 'a-token'});
+  vi.stubGlobal('fetch', fetchMock);
+  seedRuntimeConfig({apiBaseUrl: ORIGIN});
+  setAuthTokenProvider(async () => 'a-token');
 });
 
-describe('apiFetch', () => {
-  it('attaches the token as a bearer and returns the parsed body', async () => {
-    const {fetchMock} = respondWith(200);
+afterEach(() => {
+  fetchMock.mockReset();
+  resetApiClientForTests();
+  clearRuntimeConfig();
+  vi.unstubAllGlobals();
+});
 
-    const result = await apiFetch<{username: string}>({path: '/_auth/whoami'});
+describe('apiRequest — the call it makes', () => {
+  it('builds the URL from the ROUTE ID, never from a path a caller passed', async () => {
+    fetchMock.mockResolvedValue(json(200, {usernames: [], generatedAt: null}));
 
-    expect(result).toEqual({success: true, data: {username: 'alice'}});
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.example/_auth/whoami',
-      expect.objectContaining({headers: {authorization: 'Bearer a-token'}})
-    );
+    await apiRequest('userDirectory.get');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${ORIGIN}${API_ROUTES['userDirectory.get'].path}`);
+    expect(init.method).toBe('GET');
   });
 
-  it('sends the method it was given', async () => {
-    const {fetchMock} = respondWith(200);
+  it('reads the API origin at CALL time, not at module load', async () => {
+    // The counterpart of the bucket-name assertion this service used to carry: a module-level
+    // const would have been captured before the document was seeded.
+    seedRuntimeConfig({apiBaseUrl: 'https://a-different-api.test'});
+    fetchMock.mockResolvedValue(json(200, {usernames: [], generatedAt: null}));
 
-    await apiFetch({path: '/thing', method: 'POST'});
+    await apiRequest('userDirectory.get');
 
-    // `method` is public surface from this PR even though the transport contract lands later.
-    // Hard-coding GET leaves every other test here green and silently ignores a caller.
-    expect(fetchMock).toHaveBeenCalledWith('https://api.example/thing', expect.objectContaining({method: 'POST'}));
+    expect(String(fetchMock.mock.calls[0][0])).toContain('a-different-api.test');
   });
 
-  it('reads the token per call rather than caching it', async () => {
-    respondWith(200);
+  it('sends the bearer, a request id, and no cookie', async () => {
+    fetchMock.mockResolvedValue(json(200, {}));
 
-    await apiFetch({path: '/one'});
-    await apiFetch({path: '/two'});
+    await apiRequest('userDirectory.get');
 
-    // Amplify owns the token's lifecycle including the silent refresh. A cache here
-    // serves a stale token after one, and the staleness is invisible until it expires.
-    expect(getIdToken).toHaveBeenCalledTimes(2);
+    const init = fetchMock.mock.calls[0][1];
+    expect(init.headers.authorization).toBe('Bearer a-token');
+    expect(init.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+    expect(init.credentials).toBe('omit');
   });
 
-  it('never forces a refresh on the first attempt', async () => {
-    respondWith(200);
-    await apiFetch({path: '/one'});
-    expect(getIdToken).toHaveBeenCalledWith(false);
+  it('sends no content-type when there is no body', async () => {
+    fetchMock.mockResolvedValue(json(200, {}));
+
+    await apiRequest('userDirectory.get');
+
+    expect(fetchMock.mock.calls[0][1].headers['content-type']).toBeUndefined();
+    expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
   });
 
-  it('issues NO request at all when the token cannot be obtained', async () => {
-    const {fetchMock} = respondWith(200);
-    getIdToken.mockResolvedValue({success: false, error: {message: 'no session'}});
+  it('URL-encodes a query value, so a continuation token survives the round trip', async () => {
+    // S3's NextContinuationToken is base64 and routinely carries all three of these. Unencoded,
+    // `+` decodes to a space server-side and the next page silently restarts from the beginning.
+    fetchMock.mockResolvedValue(json(200, {}));
 
-    const result = await apiFetch({path: '/_auth/whoami'});
+    await apiRequest('userDirectory.get', {query: {nextToken: 'a+b/c=='}});
 
-    expect(fetchMock).toHaveBeenCalledTimes(0);
-    expect(result).toEqual({success: false, error: {message: '', code: 'SessionExpired'}});
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.searchParams.get('nextToken')).toBe('a+b/c==');
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('a+b/c==');
+  });
+});
+
+describe('apiRequest — no session', () => {
+  it('returns SessionExpired and issues ZERO requests with no provider registered', async () => {
+    resetApiClientForTests();
+
+    const result = await apiRequest('userDirectory.get');
+
+    expect(result).toMatchObject({success: false, error: {code: 'SessionExpired'}});
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('refreshes once and retries once on a 401, then succeeds', async () => {
-    const {fetchMock} = respondWith(401, 200);
+  it('returns SessionExpired and issues ZERO requests when the provider has no token', async () => {
+    // Every consuming hook gates on a signed-in user, but an unauthenticated burst on mount is a
+    // real pattern in this app — so this arm must cost nothing rather than merely fail politely.
+    setAuthTokenProvider(async () => null);
 
-    const result = await apiFetch<{username: string}>({path: '/_auth/whoami'});
+    const result = await apiRequest('userDirectory.get');
 
-    expect(result.success).toBe(true);
+    expect(result).toMatchObject({success: false, error: {code: 'SessionExpired'}});
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('apiRequest — the 401 path', () => {
+  it('refreshes once and retries once: a 401 then a 200 is exactly TWO requests', async () => {
+    // Typed rather than bare: the arity is what the assertion below reads, and an inferred
+    // zero-argument mock makes `calls[0][0]` a type error rather than a `false`.
+    const provider = vi.fn(async (forceRefresh: boolean) => (forceRefresh ? 'a-token' : 'a-token'));
+    setAuthTokenProvider(provider);
+    fetchMock
+      .mockResolvedValueOnce(json(401, {error: {code: 'SessionExpired', requestId: 'r1'}}))
+      .mockResolvedValueOnce(json(200, {usernames: ['alice'], generatedAt: null}));
+
+    const result = await apiRequest('userDirectory.get');
+
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(getIdToken).toHaveBeenNthCalledWith(1, false);
-    expect(getIdToken).toHaveBeenNthCalledWith(2, true);
+    expect(provider.mock.calls.map(([forced]) => forced)).toEqual([false, true]);
+    expect(result).toMatchObject({success: true});
   });
 
-  it('does NOT retry a second time when the retry also 401s', async () => {
-    const {fetchMock} = respondWith(401, 401);
+  it('a 401 that SURVIVES the retry is exactly two requests, never a third', async () => {
+    // A refresh loop against a dead refresh token is invisible in a passing test and obvious in
+    // a network panel, so the count is the assertion.
+    fetchMock.mockResolvedValue(json(401, {error: {code: 'SessionExpired', requestId: 'r1'}}));
 
-    const result = await apiFetch({path: '/_auth/whoami'});
+    const result = await apiRequest('userDirectory.get');
 
-    // The count is the assertion. Without the bound this loops against a dead refresh
-    // token, which the returned value below cannot distinguish.
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(getIdToken).toHaveBeenCalledTimes(2);
-    expect(result).toEqual({success: false, error: {message: '', code: 'SessionExpired'}});
+    expect(result).toMatchObject({success: false, error: {code: 'SessionExpired'}});
   });
 
-  // A browser fetch timeout REJECTS, so it is the same code path as the network-failure case
-  // above rather than a distinct one — and `apiFetch` passes no AbortSignal, so there is no
-  // timeout of its own to drive. Recorded here rather than left implied: the acceptance
-  // criterion names four cases and this suite runs three plus a proxy.
+  it('invokes the unauthenticated handler ONLY after the retry has failed', async () => {
+    const handler = vi.fn();
+    setUnauthenticatedHandler(handler);
+    fetchMock
+      .mockResolvedValueOnce(json(401, {error: {code: 'SessionExpired', requestId: 'r1'}}))
+      .mockResolvedValueOnce(json(200, {}));
+
+    await apiRequest('userDirectory.get');
+    expect(handler).not.toHaveBeenCalled();
+
+    fetchMock.mockResolvedValue(json(401, {error: {code: 'SessionExpired', requestId: 'r1'}}));
+    await apiRequest('userDirectory.get');
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('never navigates', async () => {
+    // A service that navigates makes every test touching a 401 a navigation test, and lets a
+    // background refetch throw a user out of a half-filled form.
+    const assign = vi.fn();
+    vi.stubGlobal('location', {assign, href: 'https://portal.example.test/files'});
+    fetchMock.mockResolvedValue(json(401, {error: {code: 'SessionExpired', requestId: 'r1'}}));
+
+    await apiRequest('userDirectory.get');
+
+    expect(assign).not.toHaveBeenCalled();
+  });
+});
+
+describe('apiRequest — the retry rule', () => {
   it.each([
-    ['429', 429],
-    ['503', 503],
-    ['500', 500],
-    ['404', 404]
-  ])('does not retry a %s', async (_label, status) => {
-    const {fetchMock} = respondWith(status);
+    ['a 429', json(429, {error: {code: 'RateLimited', requestId: 'r'}})],
+    ['a 503', json(503, {error: {code: 'ApiUnavailable', requestId: 'r'}})],
+    ['a 500', json(500, {error: {code: 'InternalError', requestId: 'r'}})]
+  ])('issues exactly one request for %s', async (_label, response) => {
+    fetchMock.mockResolvedValue(response);
 
-    await apiFetch({path: '/_auth/whoami'});
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not retry a network failure', async () => {
-    const fetchMock = vi.fn(async () => {
-      throw new TypeError('Failed to fetch');
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await apiFetch({path: '/_auth/whoami'});
+    await apiRequest('userDirectory.get');
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({success: false, error: {message: '', code: 'ApiUnavailable'}});
   });
 
-  it('maps a 403 to a DIFFERENT user message than a 401', async () => {
-    respondWith(403);
-    const denied = await apiFetch({path: '/_auth/whoami'});
+  it('issues exactly one request when the network fails', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
 
-    respondWith(401, 401);
-    const expired = await apiFetch({path: '/_auth/whoami'});
+    const result = await apiRequest('userDirectory.get');
 
-    expect(denied).toEqual({success: false, error: {message: '', code: 'AccessDenied'}});
-    expect(expired).toEqual({success: false, error: {message: '', code: 'SessionExpired'}});
-
-    // The difference between "sign in again" and "signing in again cannot help". One
-    // wording for both is the defect this asserts against, and it is a wording defect
-    // rather than a logic one — which is why it is checked through the mapper.
-    const deniedText = toUserMessage(denied.success ? undefined : denied.error).message;
-    const expiredText = toUserMessage(expired.success ? undefined : expired.error).message;
-    expect(deniedText).not.toEqual(expiredText);
-    expect(expiredText.toLowerCase()).toContain('sign in');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({success: false, error: {code: 'NetworkUnavailable'}});
   });
 
-  it('never throws, and never renders API or provider text', async () => {
-    respondWith(500);
-    const result = await apiFetch({path: '/_auth/whoami'});
-
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      // The code carries the wording; the message is not a place for server text.
-      expect(result.error.message).toBe('');
-      const rendered = toUserMessage(result.error).message;
-      expect(rendered).not.toContain('500');
+  it('returns false for every route the contract does not declare idempotent', () => {
+    // Enumerated from the generated table, so a route added later is covered without this test
+    // being edited.
+    for (const [id, route] of Object.entries(API_ROUTES)) {
+      const policy = apiRetryPolicy(id as keyof typeof API_ROUTES);
+      if (!route.idempotent) expect(policy).toBe(false);
+      else expect(policy).toBe(1);
     }
   });
 
-  it('does not throw when a success body is not JSON', async () => {
-    // A 204, an empty 200, or an HTML error page from a proxy. The guard around the parse was
-    // the only unmutated line in the module and the only one coverage could not reach —
-    // without this, "never throws" is unheld on the one path that actually parses.
-    const fetchMock = vi.fn(
-      async () =>
-        ({
-          status: 200,
-          ok: true,
-          json: async () => {
-            throw new SyntaxError('Unexpected token < in JSON at position 0');
-          }
-        }) as unknown as Response
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const result = await apiFetch({path: '/_auth/whoami'});
-
-    expect(result).toEqual({success: false, error: {message: '', code: 'ApiUnavailable'}});
+  it('refuses to retry a NON-idempotent route, driven rather than waited for', () => {
+    // The enumeration above cannot reach this arm: the contract declares one route today and it
+    // is idempotent, so `return 1` unconditionally passes it. That is the exact incident FR-008
+    // names — a retry on something that looked like a read and was a billed, stateful action — so
+    // the arm is driven with a route of this test's own rather than left until SPEC-198 supplies
+    // one.
+    const table = API_ROUTES as unknown as Record<string, {method: string; path: string; idempotent: boolean}>;
+    table['test.write'] = {method: 'POST', path: '/v1/test-write', idempotent: false};
+    try {
+      expect(apiRetryPolicy('test.write' as keyof typeof API_ROUTES)).toBe(false);
+    } finally {
+      delete table['test.write'];
+    }
   });
 
-  it('fails with no request when the API origin is not configured', async () => {
-    const {fetchMock} = respondWith(200);
-    configValue.mockReturnValue(undefined);
+  it('issues exactly one request when the request times out', () => {
+    // Named separately because FR-008 lists a timeout among the conditions that must not retry,
+    // and a timeout is the one that looks most like a transient worth retrying.
+    fetchMock.mockRejectedValue(Object.assign(new Error('aborted'), {name: 'AbortError'}));
 
-    const result = await apiFetch({path: '/_auth/whoami'});
-
-    expect(fetchMock).toHaveBeenCalledTimes(0);
-    expect(result).toEqual({success: false, error: {message: '', code: 'ApiUnavailable'}});
-  });
-
-  it('fails with no request when reading the configuration THROWS', async () => {
-    // A production build throws here before the runtime document has loaded. `apiFetch`
-    // promises never to throw and this is the first thing it does, so the throw has to
-    // be caught rather than assumed away.
-    const {fetchMock} = respondWith(200);
-    configValue.mockImplementation(() => {
-      throw new Error('Runtime configuration read before /config.json was loaded');
+    return apiRequest('userDirectory.get').then(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
-
-    const result = await apiFetch({path: '/_auth/whoami'});
-
-    expect(fetchMock).toHaveBeenCalledTimes(0);
-    expect(result).toEqual({success: false, error: {message: '', code: 'ApiUnavailable'}});
-  });
-
-  it('does not read the 401 body, because the API does not disclose a cause', async () => {
-    const json = vi.fn(async () => ({code: 'TokenExpired'}));
-    const fetchMock = vi.fn(async () => ({status: 401, ok: false, json}) as unknown as Response);
-    vi.stubGlobal('fetch', fetchMock);
-
-    await apiFetch({path: '/_auth/whoami'});
-
-    // Every 401 body is byte-identical on purpose. A client that read one would be
-    // relying on a discriminator the API deliberately does not provide.
-    expect(json).not.toHaveBeenCalled();
   });
 });
 
-describe('the wording contract', () => {
-  // Every code this module can return, walked as a table. `ErrorRule.code` is typed `string`,
-  // so nothing type-links `ApiAuthCode` to the rule set — a rename or a typo drifts silently to
-  // the generic "Contact the Administrator" and still compiles. Deleting the `ApiUnavailable`
-  // rule left the entire 2917-test suite green before this existed, and that is the wording
-  // most users would actually have seen: it is returned on five of this module's seven failure
-  // exits.
-  const CODES: ApiAuthCode[] = ['SessionExpired', 'AccessDenied', 'ApiUnavailable'];
+describe('apiRequest — failures that are not envelopes', () => {
+  it.each([
+    [413, 'PayloadTooLarge'],
+    [429, 'RateLimited'],
+    [502, 'ApiUnavailable'],
+    [504, 'ApiUnavailable']
+  ])('maps a gateway %s by STATUS, never by parsing it for text', async (status, code) => {
+    // API Gateway's own errors are produced ABOVE the router, carry AWS's wording and are not
+    // envelope-shaped. A client that assumed every non-2xx was an envelope would throw a
+    // SyntaxError the first time the gateway answered.
+    fetchMock.mockResolvedValue(json(status, {message: 'Forbidden'}));
 
-  const generic = toUserMessage({code: 'a-code-no-rule-claims'}).message;
+    const result = await apiRequest('userDirectory.get');
 
-  it.each(CODES)('%s resolves to its own authored wording, not the generic', (code) => {
-    const rendered = toUserMessage({message: '', code}).message;
-
-    expect(rendered).not.toBe(generic);
-    expect(rendered).not.toBe('');
+    expect(result).toMatchObject({success: false, error: {code}});
+    expect(JSON.stringify(result)).not.toContain('Forbidden');
   });
 
-  it('gives each code a distinct wording', () => {
-    const rendered = CODES.map((code) => toUserMessage({message: '', code}).message);
-    expect(new Set(rendered).size).toBe(CODES.length);
+  it('does not throw on an HTML error page or an empty body', async () => {
+    for (const status of [413, 429, 502, 504]) {
+      fetchMock.mockResolvedValue(opaque(status));
+      await expect(apiRequest('userDirectory.get')).resolves.toMatchObject({success: false});
+    }
   });
 
-  it('says what is actually true of each case', () => {
-    // Anchored to the substance, so a rewording that changed the MEANING reddens. Sign-in
-    // advice is right for exactly one of these and wrong for the other two.
-    expect(toUserMessage({message: '', code: 'SessionExpired'}).message.toLowerCase()).toContain('sign in');
-    expect(toUserMessage({message: '', code: 'ApiUnavailable'}).message.toLowerCase()).toContain('reach the server');
-    expect(toUserMessage({message: '', code: 'AccessDenied'}).message.toLowerCase()).toContain('permission');
+  it('treats a 200 that is not a JSON object as a failure rather than data', async () => {
+    fetchMock.mockResolvedValue(opaque(200));
+
+    await expect(apiRequest('userDirectory.get')).resolves.toMatchObject({success: false});
+  });
+});
+
+describe('apiRequest — the wording boundary', () => {
+  it('carries the server code VERBATIM and never the server detail', async () => {
+    fetchMock.mockResolvedValue(
+      json(403, {
+        error: {code: 'AccessDenied', requestId: 'r1', detail: 'DISTINCTIVE-OPERATOR-MARKER'}
+      })
+    );
+
+    const result = await apiRequest('userDirectory.get');
+
+    expect(result).toMatchObject({success: false, error: {code: 'AccessDenied'}});
+    expect(JSON.stringify(result)).not.toContain('DISTINCTIVE-OPERATOR-MARKER');
+    expect(result.success === false && result.error.message).toBe('');
+  });
+
+  it('resolves an unrecognised code to the generic wording', async () => {
+    // The deploy-skew case: the API deploys before the SPA image, so an old bundle WILL meet a
+    // code it has no rule for.
+    fetchMock.mockResolvedValue(json(400, {error: {code: 'SomeCodeFromANewerApi', requestId: 'r1'}}));
+
+    const result = await apiRequest('userDirectory.get');
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(toUserText(result.error)).toBe('Something went wrong. Contact the Administrator.');
+  });
+});
+
+describe('the timeout', () => {
+  it('sits above the FUNCTION timeout, so the server always gives up first', () => {
+    // Pinned against the constants rather than against a number: a client that aborts first
+    // cancels requests the server then completes, which for a write is a mutation the user
+    // believes failed.
+    expect(API_FUNCTION_TIMEOUT_SECONDS).toBeLessThan(API_GATEWAY_INTEGRATION_CEILING_SECONDS);
+    expect(TIMEOUT_MS).toBeGreaterThan(API_FUNCTION_TIMEOUT_SECONDS * 1000);
+    expect(TIMEOUT_MS).toBe(API_GATEWAY_INTEGRATION_CEILING_SECONDS * 1000);
+  });
+
+  it('produces RequestTimeout when the request is aborted', async () => {
+    fetchMock.mockRejectedValue(Object.assign(new Error('aborted'), {name: 'AbortError'}));
+
+    const result = await apiRequest('userDirectory.get');
+
+    expect(result).toMatchObject({success: false, error: {code: 'RequestTimeout'}});
+  });
+
+  it("honours a caller's own abort signal", async () => {
+    const controller = new AbortController();
+    // Modelled on the real thing: `fetch` rejects IMMEDIATELY for a signal that is already
+    // aborted, and only listens otherwise. A mock that merely listened would hang here — which
+    // is exactly the window the client has to handle, since the token is awaited first.
+    fetchMock.mockImplementation((_url: string, init: RequestInit) => {
+      const abortError = () => Object.assign(new Error('aborted'), {name: 'AbortError'});
+      if (init.signal?.aborted) return Promise.reject(abortError());
+      return new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(abortError()));
+      });
+    });
+
+    const pending = apiRequest('userDirectory.get', {signal: controller.signal});
+    controller.abort();
+
+    await expect(pending).resolves.toMatchObject({success: false, error: {code: 'RequestTimeout'}});
   });
 });

@@ -1,7 +1,7 @@
 # Spec: The Transport Contract & the First Ported Feature
 
 **ID:** SPEC-197
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-18
 **Depends On:** SPEC-192 (`lib/runtimeConfig.ts` — `apiBaseUrl`, the call-time accessor, `seedRuntimeConfig`), SPEC-193 (the HTTP API, the `$default` proxy integration, the single Lambda and its internal router, and the CORS block this spec adds one header to), SPEC-195 (the API's auth boundary — the verified bearer, the claims the router hands on, the SPA's token provider, and the `error.stack` treatment this spec inherits), SPEC-196 (the credential planes, `ROUTE_PLANES`, and the three failure conditions whose statuses and codes this spec serialises), SPEC-106 (`toUserMessage` is the only source of user-facing wording — the constraint the error shape is built around), SPEC-146/147/158 (the username directory: the published document, the forgiving reader, and the `SuggestionSource` prop lift), SPEC-153/163/186 (the set-equality guard, the registry-walked-in-both-states discipline, and the `?raw` sweep), SPEC-127/137/186 (`cpcommon.observability`, the field rule, and `env`/`version` on every record)
 

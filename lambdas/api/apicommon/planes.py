@@ -21,19 +21,26 @@ then reaches the API plane and **succeeds** against the execution role. Setting 
 thing in the router makes every path start from "authorizes nothing", whether or not the last one
 finished tidily.
 
+**The plane is DERIVED from the route's own declaration, per call.** It used to be a second
+hand-written table equated to the router's by a guard. It is now read from the one place a route
+is declared whole, which is stronger than the guard was: a route cannot be added without choosing,
+because the field is required to construct one. What the guard could never do — and what is
+asserted instead — is refuse a plane value that is neither of the two, which would otherwise
+resolve to the less privileged one and quietly delete the fail-closed half.
+
+Per call rather than cached at import, so the table cannot go stale against a route table a test
+replaced — and so "adding a route makes it reachable with no other edit" is a claim something can
+actually check.
+
 Attributes:
-  NO_ROUTE: The sentinel a request starts from. It is not a key in the table, so it authorizes
-    nothing — a request that has not reached dispatch cannot reach the API plane.
-  ROUTE_PLANES: Route key to the planes that route may use BEYOND the user plane. The user plane
-    is implicit and never listed; an empty set means user-only. Keyed identically to the router's
-    dispatch table so the two can be compared as sets rather than through a transformation, which
-    would be one more place to get it wrong. A hand-maintained list rots, so a guard equates the
-    two.
+  NO_ROUTE: The sentinel a request starts from. It names no route, so it authorizes nothing — a
+    request that has not reached dispatch cannot reach the API plane.
 """
 
 import enum
-from collections.abc import Mapping
 from contextvars import ContextVar
+
+from . import contract
 
 
 class Plane(enum.Enum):
@@ -48,14 +55,51 @@ class Plane(enum.Enum):
     API = "api"
 
 
-NO_ROUTE = ("", "")
+NO_ROUTE = ""
 
-ROUTE_PLANES: Mapping[tuple[str, str], frozenset[Plane]] = {
-    ("GET", "/_auth/whoami"): frozenset(),
-    ("GET", "/_identity/self"): frozenset(),
-}
+_CURRENT_ROUTE: ContextVar[str] = ContextVar("current_route", default=NO_ROUTE)
 
-_CURRENT_ROUTE: ContextVar[tuple[str, str]] = ContextVar("current_route", default=NO_ROUTE)
+
+def planes_for(route_id: str) -> frozenset[Plane]:
+    """The planes one route may reach BEYOND the user plane.
+
+    The user plane is implicit and never listed, so an empty set means user-only — which is also
+    what an unknown route id resolves to, because the dangerous direction is one-way.
+
+    Args:
+      route_id: The route's id.
+
+    Returns:
+      The extra planes that route declared, empty when it declared none or does not exist.
+
+    Raises:
+      ValueError: If the route declares a plane that is neither of the two. Refused rather than
+        defaulted: a typo resolving silently to user-only would look identical to a correct
+        user-only route, and the fail-closed guarantee would be gone with nothing to show it.
+    """
+    route = contract.route_by_id(route_id)
+    if route is None:
+        return frozenset()
+    if route.plane == "user":
+        return frozenset()
+    if route.plane == "api":
+        return frozenset({Plane.API})
+    raise ValueError(f"{route_id} declares an unknown credential plane: {route.plane!r}")
+
+
+def route_planes() -> dict[str, frozenset[Plane]]:
+    """Every declared route's extra planes.
+
+    Args:
+      None.
+
+    Returns:
+      Route id to the planes beyond the user plane.
+
+    Raises:
+      ValueError: If any route declares an unknown plane.
+    """
+    return {route.id: planes_for(route.id) for route in contract.ROUTES}
 
 
 def begin_request() -> None:
@@ -77,11 +121,11 @@ def begin_request() -> None:
     _CURRENT_ROUTE.set(NO_ROUTE)
 
 
-def begin_dispatch(route_key: tuple[str, str]) -> None:
+def begin_dispatch(route_id: str) -> None:
     """Names the route about to run, so its declaration can be looked up.
 
     Args:
-      route_key: The method and path this request matched.
+      route_id: The id of the route this request matched.
 
     Returns:
       None.
@@ -89,7 +133,7 @@ def begin_dispatch(route_key: tuple[str, str]) -> None:
     Raises:
       None.
     """
-    _CURRENT_ROUTE.set(route_key)
+    _CURRENT_ROUTE.set(route_id)
 
 
 def end_dispatch() -> None:
@@ -110,14 +154,14 @@ def end_dispatch() -> None:
     _CURRENT_ROUTE.set(NO_ROUTE)
 
 
-def current_route() -> tuple[str, str]:
+def current_route() -> str:
     """Returns the route currently dispatching, or the sentinel.
 
     Args:
       None.
 
     Returns:
-      The route key, or ``NO_ROUTE`` if no dispatch is in progress.
+      The route id, or ``NO_ROUTE`` if no dispatch is in progress.
 
     Raises:
       None.
@@ -148,8 +192,7 @@ def require(plane: Plane) -> None:
 
     if plane is Plane.USER:
         return
-    route_key = _CURRENT_ROUTE.get()
-    if plane not in ROUTE_PLANES.get(route_key, frozenset()):
+    if plane not in planes_for(_CURRENT_ROUTE.get()):
         raise PlaneViolationError(
             f"the running route did not declare the {plane.value} plane"
         )

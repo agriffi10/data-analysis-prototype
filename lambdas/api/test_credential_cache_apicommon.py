@@ -48,10 +48,45 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from typing import TypedDict
+
 import handler as api_handler
 import router
-from apicommon import config, errors, identity, planes
-from conftest import bearer, token
+from apicommon import config, contract, errors, identity
+from conftest import bearer, declare_route, token
+
+
+class _ClaimingBody(TypedDict):
+    """A body that ASSERTS a username, declared so the contract accepts it.
+
+    Declared rather than omitted on purpose: the point of the tests below is that a caller-stated
+    username cannot reach the session tags, and a body the transport refuses before dispatch would
+    prove that by never arriving. This one is admitted all the way to the router and still cannot
+    influence anything.
+    """
+
+    username: str
+
+
+_TEST_ROUTE = contract.Route(
+    id="test.assume",
+    method="GET",
+    path="/v1/_test-assume",
+    idempotent=True,
+    plane="user",
+    request=_ClaimingBody,
+    response=contract.UserDirectoryResponse,
+)
+
+_FAILURE_ROUTE = contract.Route(
+    id="test.failure",
+    method="GET",
+    path="/v1/_test-failure",
+    idempotent=True,
+    plane="user",
+    request=None,
+    response=contract.UserDirectoryResponse,
+)
 
 HERE = pathlib.Path(__file__).resolve().parent
 
@@ -59,7 +94,6 @@ IDENTITY_LAYER = (
     "apicommon/identity.py",
     "apicommon/planes.py",
     "apicommon/context.py",
-    "routes/identity_self.py",
 )
 
 CREDENTIAL_SENTINEL = "do-not-log-7f3a2c9e"
@@ -234,13 +268,11 @@ def test_the_tags_come_from_the_CLAIM_when_the_request_says_otherwise(aws) -> No
         identity.user_client("s3", context.acting_as)
         return {"ok": True}
 
-    router.ROUTES[("GET", "/_test/assume")] = _assuming
-    planes.ROUTE_PLANES[("GET", "/_test/assume")] = frozenset()
-    try:
+    with declare_route(_TEST_ROUTE, _assuming):
         api_handler.handler(
             {
                 "requestContext": {
-                    "http": {"method": "GET", "path": "/_test/assume"},
+                    "http": {"method": "GET", "path": "/v1/_test-assume"},
                     "requestId": "req-1",
                 },
                 "headers": {**bearer("alice"), "x-username": "mallory"},
@@ -249,9 +281,6 @@ def test_the_tags_come_from_the_CLAIM_when_the_request_says_otherwise(aws) -> No
             },
             None,
         )
-    finally:
-        del router.ROUTES[("GET", "/_test/assume")]
-        del planes.ROUTE_PLANES[("GET", "/_test/assume")]
 
     assert len(aws.assume_calls) == 1
     tags = aws.assume_calls[0]["Tags"]
@@ -653,23 +682,17 @@ def _drive_via_handler(handler_fn, headers=None):
     Raises:
       None.
     """
-    key = ("GET", "/_test/failure")
-    router.ROUTES[key] = handler_fn
-    planes.ROUTE_PLANES[key] = frozenset()
-    try:
+    with declare_route(_FAILURE_ROUTE, handler_fn):
         return api_handler.handler(
             {
                 "requestContext": {
-                    "http": {"method": "GET", "path": "/_test/failure"},
+                    "http": {"method": "GET", "path": "/v1/_test-failure"},
                     "requestId": "req-span",
                 },
                 "headers": bearer() if headers is None else headers,
             },
             None,
         )
-    finally:
-        del router.ROUTES[key]
-        del planes.ROUTE_PLANES[key]
 
 
 def _drive(handler_fn, headers=None):
@@ -685,14 +708,8 @@ def _drive(handler_fn, headers=None):
     Raises:
       None.
     """
-    key = ("GET", "/_test/failure")
-    router.ROUTES[key] = handler_fn
-    planes.ROUTE_PLANES[key] = frozenset()
-    try:
-        return router.route("GET", "/_test/failure", bearer() if headers is None else headers)
-    finally:
-        del router.ROUTES[key]
-        del planes.ROUTE_PLANES[key]
+    with declare_route(_FAILURE_ROUTE, handler_fn):
+        return router.route("GET", "/v1/_test-failure", bearer() if headers is None else headers)
 
 
 def test_an_assume_failure_is_a_FAULT_even_though_sts_calls_it_access_denied(aws) -> None:
@@ -715,8 +732,8 @@ def test_an_assume_failure_is_a_FAULT_even_though_sts_calls_it_access_denied(aws
 
     response = _drive(_assuming_route)
 
-    assert response["statusCode"] == errors.IDENTITY_UNAVAILABLE_STATUS
-    assert json.loads(response["body"])["code"] == errors.IDENTITY_UNAVAILABLE_CODE
+    assert response["statusCode"] == contract.ERROR_STATUS[errors.IDENTITY_UNAVAILABLE_CODE]
+    assert json.loads(response["body"])["error"]["code"] == errors.IDENTITY_UNAVAILABLE_CODE
 
 
 def test_a_denial_on_the_user_plane_is_a_403_and_stays_one(aws) -> None:
@@ -738,8 +755,8 @@ def test_a_denial_on_the_user_plane_is_a_403_and_stays_one(aws) -> None:
 
     response = _drive(_denied)
 
-    assert response["statusCode"] == errors.FORBIDDEN_STATUS
-    assert json.loads(response["body"])["code"] == errors.FORBIDDEN_CODE
+    assert response["statusCode"] == contract.ERROR_STATUS[errors.FORBIDDEN_CODE]
+    assert json.loads(response["body"])["error"]["code"] == errors.FORBIDDEN_CODE
 
 
 def test_a_lake_formation_denial_arrives_under_the_other_code(aws) -> None:
@@ -759,7 +776,7 @@ def test_a_lake_formation_denial_arrives_under_the_other_code(aws) -> None:
         aws.operation_errors = [_Denied("AccessDeniedException")]
         return client.list_objects_v2(Bucket="b", Prefix="x/")
 
-    assert _drive(_denied)["statusCode"] == errors.FORBIDDEN_STATUS
+    assert _drive(_denied)["statusCode"] == contract.ERROR_STATUS[errors.FORBIDDEN_CODE]
 
 
 def test_a_tag_set_that_cannot_be_BUILT_is_the_same_fault_as_a_failed_assume(
@@ -784,8 +801,8 @@ def test_a_tag_set_that_cannot_be_BUILT_is_the_same_fault_as_a_failed_assume(
 
     response = _drive(_assuming_route)
 
-    assert response["statusCode"] == errors.IDENTITY_UNAVAILABLE_STATUS
-    assert json.loads(response["body"])["code"] == errors.IDENTITY_UNAVAILABLE_CODE
+    assert response["statusCode"] == contract.ERROR_STATUS[errors.IDENTITY_UNAVAILABLE_CODE]
+    assert json.loads(response["body"])["error"]["code"] == errors.IDENTITY_UNAVAILABLE_CODE
     assert aws.assume_calls == [], "a call was issued with a tag set that could not be built"
 
 
@@ -808,8 +825,8 @@ def test_a_route_that_hits_a_MISCONFIGURATION_gets_a_server_fault_with_a_code(aw
 
     response = _drive(_misconfigured)
 
-    assert response["statusCode"] == errors.SERVER_FAULT_STATUS
-    assert json.loads(response["body"])["code"] == errors.SERVER_FAULT_CODE
+    assert response["statusCode"] == contract.ERROR_STATUS[errors.SERVER_FAULT_CODE]
+    assert json.loads(response["body"])["error"]["code"] == errors.SERVER_FAULT_CODE
     assert errors.UNAUTHENTICATED_CODE not in response["body"]
 
 
@@ -835,7 +852,7 @@ def test_the_refusal_of_an_unrepresentable_username_is_LOGGED_with_that_username
 
     response = _drive_via_handler(_assuming_route, bearer(refused))
 
-    assert response["statusCode"] == errors.IDENTITY_UNAVAILABLE_STATUS
+    assert response["statusCode"] == contract.ERROR_STATUS[errors.IDENTITY_UNAVAILABLE_CODE]
     assert refused not in json.dumps(response), "the refused name travelled to the caller"
     assert aws.assume_calls == [], "a call was issued for a name that cannot be a session name"
     stamped = [
@@ -858,7 +875,7 @@ def test_the_three_conditions_are_three_statuses_and_three_codes(aws) -> None:
     Raises:
       AssertionError: If any two conditions share a status or a code.
     """
-    unauthenticated = router.route("GET", "/_auth/whoami", {})
+    unauthenticated = router.route("GET", "/v1/user-directory", {})
 
     aws.sts_error = _Denied("AccessDenied")
     unavailable = _drive(_assuming_route)
@@ -872,7 +889,7 @@ def test_the_three_conditions_are_three_statuses_and_three_codes(aws) -> None:
     forbidden = _drive(_denied)
 
     statuses = [response["statusCode"] for response in (unauthenticated, forbidden, unavailable)]
-    codes = [json.loads(response["body"])["code"] for response in (unauthenticated, forbidden, unavailable)]
+    codes = [json.loads(response["body"])["error"]["code"] for response in (unauthenticated, forbidden, unavailable)]
 
     assert statuses == [401, 403, 500]
     assert len(set(statuses)) == 3
@@ -919,7 +936,8 @@ def test_the_403_names_nothing_and_so_cannot_become_an_existence_oracle(aws) -> 
 
     body = json.loads(_drive(_denied)["body"])
 
-    assert set(body) == {"error", "code"}
+    assert set(body) == {"error"}
+    assert set(body["error"]) == {"code", "requestId"}
     for leaked in ("secret-bucket", "finance-team", "q4", "alice", "Prefix", "s3"):
         assert leaked not in json.dumps(body)
 
@@ -980,7 +998,7 @@ def test_the_classifier_answers_401_to_nothing(raised) -> None:
     answer = errors.for_exception(raised)
     if answer is None:
         return
-    assert answer["statusCode"] != errors.UNAUTHENTICATED_STATUS
+    assert answer["statusCode"] != contract.ERROR_STATUS[errors.UNAUTHENTICATED_CODE]
     assert errors.UNAUTHENTICATED_CODE not in answer["body"]
 
 
@@ -1120,7 +1138,9 @@ def test_no_session_material_reaches_a_record_that_DOES_carry_a_stack(
     RETURNED, so its span closes successfully and carries no stack at all; "the sentinel is in no
     record" would then be true of records that have no stack. So this drives a path that raises
     THROUGH the span, holding a real assumed session, and asserts a stack was captured before
-    asserting what is not in it.
+    asserting what is not in it. The entry point converts that fault into the envelope's
+    InternalError one frame OUTSIDE the span, which is what keeps both true at once — a catch
+    inside would close the span successfully and leave nothing to scrub.
 
     Args:
       aws: The recorder.
@@ -1138,8 +1158,8 @@ def test_no_session_material_reaches_a_record_that_DOES_carry_a_stack(
         identity.user_client("s3", context.acting_as)
         raise RuntimeError("something went wrong after the session existed")
 
-    with pytest.raises(RuntimeError):
-        _drive_via_handler(_route, {"authorization": f"Bearer {supplied}"})
+    response = _drive_via_handler(_route, {"authorization": f"Bearer {supplied}"})
+    assert response["statusCode"] == 500, "the fault did not reach the caller as a declared code"
 
     ended = [event for event in captured_events.events if event["message"] == "span.end"]
     with_error = [event for event in ended if "error" in event]

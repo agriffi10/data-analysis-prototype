@@ -10,6 +10,68 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-08-27 (the auth boundary and the identity layer, §D and §E)
+
+Run against **`https://api.dataquarry.app`**, `main` at `951e6a8a`, signed in as **`agriffith_three`**
+in **Chrome** (desktop). Instruments: `curl` from the laptop, in-page `fetch` from the deployed
+CloudFront origin, and the log objects under `logs/service=api/year=2026/month=08/day=27/`.
+
+**Why now rather than at SPEC-202.** SPEC-197 FR-014 deletes both probe routes, and conditions each
+deletion on the verification that route exists for having been run. The arc's 2026-08-27 decision had
+moved all live verification to SPEC-202 — which would have deleted the only instruments that can
+observe the boundary and the isolation model before either was ever observed. Settled with Andrew:
+run §D and §E first, then delete. **This section is what made that deletion legitimate.**
+
+### Passed
+
+| Check | Result |
+|---|---|
+| §E.0 — the claims are in the token | `cognito:username` and `custom:shared_space_1` both present; RS256, `kid` present, issuer `…/us-east-1_zOlWYrE9K` |
+| §D.1 — the happy path | `200 {"username": "agriffith_three"}` — the username, not the `sub` |
+| §D.2 — four refusals | no-token / access-token / flipped-payload / foreign-key all **401**, all four bodies `sha256 aebffec4…9261` (one digest, four times), `www-authenticate: Bearer` on all four, body exactly `{"error": "unauthorized", "code": "SessionExpired"}`. A wrong *scheme* (`Basic`) answers identically. |
+| §E.1 / §E.2 (username half) / §E.3 | `GET /_identity/self` → `{"username": "agriffith_three", "spaceCount": 1, "ownPrefixListable": true, "foreignPrefixListable": false}` |
+| §E.7 — a real `env` and build sha | `env: "prod"` on all 44 of the day's records; `version` a real commit sha, never `0.0.0` |
+| The field rule, on real traffic | Across the whole day's records: zero emails, zero `@`, zero `Bearer`, zero `eyJ` |
+| CORS negative control | `Origin: https://example.invalid` → **no** `access-control-allow-origin`. Both real origins are echoed, so nothing has been narrowed. |
+
+`ownPrefixListable: true` is the observation that proves the `username` tag was stamped: the portal
+role grants `s3:ListBucket` **only** under `"s3:prefix": ["${aws:PrincipalTag/username}/", …]`, so it
+is unreachable without it. `foreignPrefixListable: false` is AWS refusing — the isolation model
+working, and the negative control that a probe asserting only its own prefix would pass with the
+model deleted.
+
+### Failed — and it is fixed in SPEC-197
+
+**Every bearer-carrying request from a browser was impossible.** `infra/modules/api/apigateway.tf`
+declares only `$default`, which matches `OPTIONS`; AWS auto-answers a preflight only when no route
+matches, so preflights reached the Lambda and were refused deny-by-default:
+
+```
+OPTIONS /_auth/whoami  →  401  {"error": "unauthorized", "code": "SessionExpired"}
+```
+
+Browsers require a 2xx preflight, so every such `fetch` failed as an opaque `TypeError`. Isolated
+from the page: `fetch(API + '/healthz')` (simple, no preflight) → **200**; the same URL with an
+`authorization` header → **threw**. So CSP, DNS, TLS and the origin echo were all fine and only the
+preflight was wrong — which is exactly the failure mode that reads to a user as "the API is down".
+
+Invisible to every offline test and to `curl`. **SPEC-197 answers `OPTIONS` in the router, before
+authentication**, and a browser is the only instrument that can confirm it — recorded as owed below.
+
+### Still owed after this session
+
+- **D.3 — a genuinely expired token.** Needs the app client's ID-token validity temporarily cut to
+  its 5-minute minimum and then restored; not run.
+- **D.5 in Safari.** Chrome only, and Safari is the browser in use.
+- **D.6 — the token-segment scrub against a real refusal.** The flipped-payload call was made; the
+  records for that window had not yet been swept when the session ended.
+- **§E.2's slot half.** `agriffith_three` belongs to **one** shared space, and `spaceCount` is
+  counted from the token's claims — it reads the same with every slot tag dropped. → SPEC-198.
+- **§E.4, §E.5, §E.8, §E.9** — untouched by this session.
+- **The preflight fix, live.** Only a browser can confirm it.
+
+---
+
 ## Live-check session — 2026-08-27 (the SPA container, SPEC-194)
 
 Run against **`https://portal.dataquarry.app`**, the deployed load balancer, immediately after

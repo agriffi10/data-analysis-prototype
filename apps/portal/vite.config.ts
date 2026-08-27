@@ -34,7 +34,10 @@ export default defineConfig({
         // the split. Both are composition; their ORDER and REACH are what matters, and
         // `src/bootstrap.test.tsx` asserts those directly.
         'src/main.tsx',
-        'src/AppRoot.tsx'
+        'src/AppRoot.tsx',
+        // Emitted from the Python contract, so it is that declaration's coverage to earn,
+        // not this suite's. It does not match the `.types.ts` rule above.
+        'src/types/apiContract.generated.ts'
       ],
       reporter: ['text', 'text-summary', 'html', 'lcov'],
       // RATCHETS AT THE MEASURED LEVEL, NOT TARGETS. Each is today's measured

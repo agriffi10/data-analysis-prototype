@@ -202,7 +202,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 194 — The SPA Container | Completed |
 | 195 — The API's Auth Boundary: Verifying the Bearer Token | Completed |
 | 196 — The AWS Identity Layer | Completed |
-| 197 — The Transport Contract & the First Ported Feature | Draft |
+| 197 — The Transport Contract & the First Ported Feature | Completed |
 | 198 — The S3 Surface & Presigned Bytes | Draft |
 | 199 — The Catalog Surface: Athena & Glue | Draft |
 | 200 — The Enqueue Paths & the Delegated Actor Contract | Draft |
