@@ -81,9 +81,31 @@ if ! has layer && ! has tbcommon && ! has tscommon && ! has cpcommon; then
   pip install --quiet --requirement lambdas/requirements.txt --target "$BUILD_DIR"
 fi
 
-cp lambdas/"${NAME}"/*.py "$BUILD_DIR"/
-# Never ship tests.
-rm -f "$BUILD_DIR"/test_*.py
+# Copy the function's modules, SUBPACKAGES INCLUDED. The flat `cp .../*.py` this replaces
+# silently dropped every subdirectory: a function laid out as a package deployed with its
+# top-level modules only, and failed at cold start on an import that resolves perfectly under
+# pytest (conftest.py puts the function directory on sys.path) and against which
+# `update-function-code` reports success. That is the same shape as the signup outage — green
+# tests, green deploy, ModuleNotFoundError in production.
+#
+# Tests and conftest are pruned by NAME at any depth, not by a top-level glob, for the same
+# reason. conftest.py was being shipped before this: the old prune matched only test_*.py.
+# Hidden directories are skipped because a developer's .pytest_cache/.ruff_cache sits inside
+# two function directories, and a recursive copy is the first thing that would carry them.
+(
+  cd lambdas/"${NAME}"
+  find . -name '*.py' ! -name 'test_*.py' ! -name 'conftest.py' ! -path './.*' -print
+) | while IFS= read -r module; do
+  mkdir -p "$BUILD_DIR/$(dirname "$module")"
+  cp "lambdas/${NAME}/$module" "$BUILD_DIR/$module"
+done
+
+# Nothing below should be able to reintroduce them, so the refusal is here rather than in a
+# comment: a package carrying a suite is a package whose test doubles are importable at runtime.
+if find "$BUILD_DIR" \( -name 'test_*.py' -o -name 'conftest.py' \) | grep -q .; then
+  echo "::error::${NAME} package contains test files after the prune — refusing to deploy."
+  exit 1
+fi
 
 # SPEC-186 FR-005: the build stamp travels IN THE PACKAGE, not in the function's
 # environment. Tofu owns the environment map and `update-function-configuration
