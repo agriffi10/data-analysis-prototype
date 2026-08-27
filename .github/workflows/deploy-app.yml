@@ -179,6 +179,12 @@ jobs:
       # so a stale ROOT-level object (a favicon we stop shipping) is never removed from
       # the bucket and must be deleted by hand.
       #
+      # SUPERSEDED IN PART: that class is a property of THIS delivery path, and there are
+      # two now. The container image IS the file set — nothing to reconcile, no key
+      # surviving a build, no pass ordering — so it has neither the passes nor the orphan.
+      # Both retire outright when the distribution does. Until then this workflow keeps
+      # deploying on every push and remains the working portal and the rollback.
+      #
       # THAT IS A SPEC CHOICE, NOT A CLI CONSTRAINT, and the distinction matters because an
       # earlier version of this comment presented it as the latter. Adding --delete to the
       # shell pass above WOULD reconcile stale root objects, and --exclude would protect

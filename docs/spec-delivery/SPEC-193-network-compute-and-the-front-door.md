@@ -22,8 +22,8 @@ Nothing a user can see changes. `portal.dataquarry.app` serves a placeholder nob
 - **The runtime-configuration block** — the fifth wiring point. Root names the 20 keys and their
   values in `local.spa_runtime_config`; the module renders one `CONFIG_<key>` variable per entry,
   derived, so a container cannot ship carrying part of the document.
-- **`.github/workflows/push-placeholder-image.yml`** — dispatch-only, idempotent, and **SPEC-194
-  deletes it** when the real image pipeline lands.
+- **`.github/workflows/push-placeholder-image.yml`** — dispatch-only, idempotent, and **deleted by
+  SPEC-194** when the real image pipeline landed.
 - Deploy-role IAM across two managed policies, `dat-deploy-platform` and
   `dat-deploy-platform-frontdoor`, because one document exceeds the 6,144-character limit.
 

@@ -824,7 +824,14 @@ CloudFront (OAC origin; custom error responses 403/404 → `/index.html` for SPA
 response-headers policy carries the enforcing CSP + security header set — SPEC-140, `decisions.md`).
 `deploy-app.yml` uploads `dist/` in **three prefix-scoped passes** so hashed assets are `immutable`
 and the shell is `no-cache`, with exactly one `--delete` — SPEC-141, `decisions.md` — and renders and
-publishes `/config.json` (below) alongside them. `VITE_*` vars are GitHub Actions variables (see
+publishes `/config.json` (below) alongside them.
+
+> **Superseded in part by SPEC-194 (2026-08-27).** The passes, the single `--delete` and the
+> stale-root-object orphan class are properties of the S3 delivery path, and they describe **one of
+> two** delivery paths now. The container is the file set: nothing to reconcile, no key surviving a
+> build, no pass ordering, and no orphan class — it reproduces the per-class cache scheme in nginx
+> and nothing else. Both claims retire outright when the distribution does; until then this
+> paragraph is true of `deploy-app.yml` and false of the image. `VITE_*` vars are GitHub Actions variables (see
 `.github/workflows/README.md`) and are now the **dev fallback only**; resource→spec mapping and
 current values come from `tofu -chdir=infra output`. Security scanning: `security.yml` runs the
 report-only scanner suite (SPEC-138); `deploy-infra.yml`'s plan job Checkov-scans the **rendered**

@@ -130,6 +130,11 @@ shape leaves (stale root files or stale chunks) and the delivery doc names it.
 #### Acceptance Criteria
 
 - [ ] Exactly one sync pass carries `--delete`.
+
+> **Superseded in part by SPEC-194 (2026-08-27).** This criterion binds `deploy-app.yml` and
+> nothing else. The container image IS the file set, so it has no reconciliation pass to constrain
+> and no orphan class to accept; it reproduces the per-class scheme above and stops there. The
+> criterion retires with the distribution.
 - [ ] The passes run in the stated order — assets before shell, deletions reconciled last — and no
       file is uploaded by more than one pass (the mtime re-upload trap above); verified by checking
       the headers on an asset **after** a full deploy, not after the assets pass alone.

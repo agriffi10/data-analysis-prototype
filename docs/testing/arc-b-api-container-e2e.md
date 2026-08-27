@@ -183,6 +183,12 @@ docker build --platform linux/amd64 -f apps/portal/Dockerfile.placeholder -t "$R
 docker push "$REPO:$SHA"
 ```
 
+> **The placeholder is gone (SPEC-194, 2026-08-27).** `Dockerfile.placeholder` and the dispatch
+> workflow that pushed it are deleted; `Deploy SPA image` builds and pushes the real image on every
+> push to `main`, and its own `workflow_dispatch` re-points the service at an existing tag. This
+> block is kept because §B's steps were run against the placeholder and the record should say what
+> was actually executed — it is not a procedure to re-run.
+
 - [ ] `--platform linux/amd64` is not optional on an Apple Silicon machine. Without it the task fails
       with an image-manifest error that reads nothing like the architecture mismatch it is.
 - [ ] `:latest` is impossible here by construction — the repository is `IMMUTABLE` and the tag is the
@@ -250,6 +256,129 @@ aws acm describe-certificate --certificate-arn "$SPA_CERT" \
 - [ ] It reports `RenewalEligibility: ELIGIBLE` once the listener holds it, and `InUseBy` names the
       load balancer. `INELIGIBLE` means the certificate is attached to nothing — which is exactly
       the state it was in before this PR.
+
+---
+
+## C. The SPA container (SPEC-194) — runnable NOW, outside the merge order
+
+Like §A and §B, this stands outside the merge sequence: `portal.dataquarry.app` serves the **real
+SPA** from a container while CloudFront remains production and the rollback. Nothing a user can see
+has changed.
+
+**What the offline gates already prove, so this section does not re-prove it.** The image's
+behaviour matrix runs against a real container started the way ECS starts it — read-only root, uid
+101, the two tmpfs mounts — and asserts 189 checks over the response classes, the refusals, the
+cache classes and the compression. **What it cannot prove is anything between the container and the
+browser**, which is what §C is for.
+
+**Two expected non-failures, so they are not diagnosed as defects.** Bucket CORS allowlists the
+CloudFront origin and localhost only, so the browser's direct S3 calls fail **preflight** from the
+container origin until SPEC-198 — the portal loads and signs in; file operations do not work. And
+Terraform registers task-definition revisions that CI never points the service at, so a change to
+the runtime-configuration map or the CSP does not reach the running container until the next push
+to `main`; the deploy workflow's `workflow_dispatch` is the lever.
+
+**Already discharged (2026-08-27), recorded so they are not re-run blindly.** Read back from
+`https://portal.dataquarry.app` against the deployed load balancer:
+
+- **The full header set on five response classes** — the shell, a deep link, a hashed asset, the
+  honest 404 and `/config.json` — every one carrying CSP, HSTS, `X-Frame-Options`, `nosniff`,
+  `Referrer-Policy`, `Permissions-Policy`, COOP and CORP. **The load balancer adds and strips
+  nothing**, which is the assertion no offline gate can make.
+- `strict-transport-security: max-age=31536000; includeSubDomains` with **no `preload`**, and **no
+  `Cross-Origin-Embedder-Policy` on any response**.
+- `server: nginx` with **no version**.
+- The cache classes: `/` and a deep link `no-cache`, `/assets/<hashed>`
+  `public, max-age=31536000, immutable`, `/config.json` and `/healthz` `no-store`.
+- `GET /config.json` → 200 / `application/json` / `no-store`, **21 keys** (`version` plus the 20
+  classified) and `version: 1`.
+- `GET /healthz` → 200 / `text/plain` / body exactly `ok`.
+- `GET /assets/index-DEADBEEF.js` → **404**, `content-type: application/javascript`, body
+  `not found` — not the shell, and not HTML.
+- A hashed asset with `Accept-Encoding: gzip` → `content-encoding: gzip` + `vary: Accept-Encoding`;
+  with `Accept-Encoding: br` → **no** `content-encoding`, the accepted brotli residual.
+- **The served `connect-src` carries all ten terms**, both Cognito hosts among them:
+  `'self'`, `cognito-idp.us-east-1`, `cognito-identity.us-east-1`,
+  `dat-prod-portal.auth.us-east-1.amazoncognito.com`, both bucket endpoints, `athena.`, `glue.`,
+  `sqs.` and `https://api.dataquarry.app`.
+- The deploy reported `desired=1 running=1 rollout=COMPLETED`, the settled PRIMARY equalled the
+  revision the run registered, and the revision carried **20 configuration keys**.
+
+### C.1 — Fresh sign-in, in a private window. BLOCKING, and it cannot be substituted.
+
+**A signed-in pass never tests sign-in.** The authorization-code exchange is the only `fetch` to the
+Hosted UI host; a warm tab never makes it. A `connect-src` missing that host produces a portal that
+works for everyone already signed in and for nobody else — which is this repository's own recorded
+outage, and it lasted a day. **A pass that begins at an authenticated `/files` has not tested this
+and must not be recorded as having done so.**
+
+1. Sign out. **Close the window.** Open a **private** one.
+2. Go to `https://portal.dataquarry.app`, open DevTools → Console with `Preserve log` **on**.
+3. Complete the Hosted UI round trip.
+4. - [ ] The redirect back is redeemed and the app renders signed in.
+   - [ ] **Zero CSP violations in the console**, across the redirect — not just after it.
+   - [ ] The `POST` to `dat-prod-portal.auth.us-east-1.amazoncognito.com/oauth2/token` succeeded.
+
+### C.2 — The CSP is enforcing, with a negative control. BLOCKING.
+
+A pass that reports no violations proves nothing on its own — it may have succeeded *because* the
+policy was inert. **Do not use CDP `Runtime.evaluate`**: it bypasses page CSP entirely and once
+reported `new Function` as allowed under `script-src 'self'`.
+
+- [ ] From a **same-origin page script**, `new Function('return 1')()` is **blocked** — the negative
+      control that proves enforcement is live.
+- [ ] `fetch('https://example.com')` is blocked; a fetch to the API origin is not.
+
+### C.3 — Safari, once. BLOCKING.
+
+The tooling here is Chromium, so this step names the browser. Safari refuses to evaluate a
+report-only policy naming no reporting endpoint — the blind spot no Chromium harness surfaces.
+
+- [ ] Sign in fresh in Safari, private window. The app renders and the console shows no CSP error.
+
+### C.4 — Deep links, cold, in a private window. BLOCKING.
+
+- [ ] `/files?prefix=…`, `/explore` and `/query` each load the SPA on a **cold** load, not a 404.
+- [ ] `curl -I` each of the four cache classes — devtools reports *effective* freshness rather than
+      the header, which is why this is `curl` and not the network panel.
+
+### C.5 — A rolling deployment, watched. BLOCKING.
+
+FR-002's residual, observed rather than assumed: a task serves exactly one image's file set, so a
+browser holding the **old** shell routed to a **new** task 404s a lazily-imported chunk immediately.
+
+1. Open the portal and leave the tab open.
+2. Merge any change to `apps/portal/` and let `Deploy SPA image` run.
+3. - [ ] Navigating to a lazy route in the **old** tab may 404 inside the Suspense boundary.
+   - [ ] **A reload recovers**, because the shell is `no-cache`.
+
+### C.6 — The health check doing its job. BLOCKING, and it needs the right kind of broken.
+
+**The obvious version of this check cannot run.** The pipeline is build → matrix → push → deploy, so
+an entrypoint that exits 1 reddens at the **matrix** and never reaches the deploy gate — recording
+that as discharged would prove only the matrix.
+
+Break it in a way the matrix's fixture environment cannot see: add a required key to the
+entrypoint's baked `REQUIRED` list that the **task definition** does not supply. The matrix passes
+(its fixture supplies its own set), the image pushes, and the container then refuses on Fargate.
+
+- [ ] The ECS deployment does **not** reach `COMPLETED`.
+- [ ] **The workflow goes red**, on `rolloutState`, not on a timeout alone.
+- [ ] Revert, and confirm the next run is green.
+
+### C.7 — A ZAP baseline against the container origin. Non-blocking.
+
+- [ ] Diff against `security-baseline.md` **per alert ID, never by total** — a clearing and an
+      appearing finding once cancelled out at 305 and made the total look untouched.
+- [ ] Expect the `style-src 'unsafe-inline'` Medium and the COEP Info to persist **by decision**.
+- [ ] **No new *Server Leaks Version Information* row** — that alert fires on a version, and
+      `server_tokens off` is what keeps it clear.
+
+### C.8 — Owed, because nothing offline or in one session can settle it
+
+- That a browser honours `immutable` across a real deployment.
+- That a warm-cache user of the CloudFront origin is unaffected while both delivery paths run.
+- Whether the ALB's own idle timeout or header handling changes under load.
 
 ---
 

@@ -75,12 +75,12 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 
 ### Current work
 
-- **API layer & containerisation (192 → 202, 192–193 done)** — "Arc B": a real API in front of AWS, containerised
-  SPA and API, retiring CloudFront and the Identity Pool. **192 and 193 are done**: the SPA reads
-  `/config.json` at runtime, and `portal.`/`api.dataquarry.app` serve a placeholder and a `/healthz`
-  from a VPC with no NAT. Next is the real image. Acceptance script:
-  `docs/testing/arc-b-api-container-e2e.md` (§A and §B are discharged); read the arc entry in
-  `ARCS.md` first.
+- **API layer & containerisation (192 → 202, 192–194 done)** — "Arc B": a real API in front of
+  AWS, containerised SPA and API, retiring CloudFront and the Identity Pool.
+  `portal.dataquarry.app` serves the **real SPA** from a container; CloudFront is still production
+  and the rollback. Next: the API's auth boundary (195). Bucket CORS admits the CloudFront origin
+  only, so the container's direct S3 calls fail preflight until 198 — expected. Acceptance script:
+  `docs/testing/arc-b-api-container-e2e.md`; read the `ARCS.md` arc entry first.
 
 ### Live checks
 
@@ -279,9 +279,9 @@ OpenTofu, bounded-context modules under `infra/modules/`, IAM policies as `.tftp
 reads and enqueues.
 
 - **Deploy-role IAM is in-scope work for any spec that provisions new infra**, and **grants land in
-  their own PR before the resources that need them**. Every grants-only PR in Arc B applied green on its
-  first run — which is the claim the record supports, and **not** that grants-first prevents a red
-  main: this arc went red three times afterwards, on things no grant review would have found.
+  their own PR before the resources that need them** — every grants-only PR in Arc B applied green
+  first run. That is the whole claim: it does **not** prevent a red main, which this arc hit three
+  times afterwards on things no grant review would have found.
 - **Scopability is MEASURED, never assumed.** `simulate-custom-policy` gives an
   `implicitDeny`/`allowed` pair before the policy is written. Actions with no resource type sit alone
   in a wildcard statement. **A simulate matches PATTERNS, not the ARN the service passes** — it
@@ -301,40 +301,51 @@ reads and enqueues.
   default; an unset repo variable renders as exactly that. Guard with `validation`, not with the
   absence of a default.
 - **The container platform (193):** no NAT gateway anywhere — private subnets reach AWS through
-  endpoints and nothing else, the residual is a **connect timeout** (hence flow logs), and a
-  successful pull proves nothing unless read beside `describe-route-tables`. The API function is
-  **not** in the VPC and authorization lives in the **router**, both asserted as absences. The image
+  endpoints alone, the residual is a **connect timeout** (hence flow logs), and a successful pull
+  proves nothing unless read beside `describe-route-tables`. The API function is **not** in the VPC
+  and authorization lives in the **router**, both asserted as absences. The image
   tag is the commit sha (`IMMUTABLE` ECR, no `:latest`), `task_definition` is ignored while
   `desired_count` is not — so **CI must point the service**, and a pipeline that only registers a
   revision leaves a `CannotPullContainerError` **indistinguishable from the endpoint failure the
   platform is tested for**. A Fargate task volume arrives empty and root-owned and does **not**
   initialise from the image: writable paths are `linuxParameters.tmpfs`, one uid feeding both `user`
   and every mount option.
-- **Configuration is a RUNTIME document** (`/config.json`, `no-store`, refused whole on version) with
-  **no production fallback**. Its key set is wired in five places and asserted across all of them.
-  The API's **verifier** configuration is server-side and never in the browser's document — and the
-  exclusion cuts one way: a rule forbidding "anything identity-shaped" takes Amplify's own Cognito
-  keys with it.
-- **Origins are admitted ADDITIVELY** and narrowed only at the cutover — an allowlist naming one
+- **The SPA image reproduces every CloudFront job; three are DIVERGENCES** — `Server: nginx`, no
+  brotli, no HSTS `preload`. **`add_header` is inherited only by a level defining none of its
+  own**, so every location `include`s one snippet with `always` throughout, and errors raised
+  before a location resolves need a server-level floor. Asserted on **responses**, never config
+  text; `/healthz` is exact-match, or a probe falls through and a broken container reads healthy.
+- **Configuration is a RUNTIME document** (`/config.json`, `no-store`, refused whole on version)
+  with **no production fallback**. Its key set is wired in six places, asserted across all, and the
+  container **refuses to start** on a required one unset or empty. The API's **verifier** config is
+  server-side, never in the browser's document — and the exclusion cuts one way: a rule forbidding
+  "anything identity-shaped" takes Amplify's own Cognito keys with it.
+- **Origins are admitted ADDITIVELY**, narrowed only at the cutover — an allowlist naming one
   origin makes the other a rollback nobody can exercise.
 - **CSP `connect-src` IS the app's network surface** — enumerate it from the hosts the app fetches,
-  not the AWS services it uses. The omitted Hosted UI domain broke fresh sign-in for a day.
-- **Static assets deploy in three prefix-scoped passes**; `--exclude` protects keys from `--delete`,
-  so a pass that excludes a prefix can never reconcile it.
+  not the AWS services it uses. The omitted Hosted UI domain broke fresh sign-in for a day. **Both
+  CSP locals live at ROOT** — a root check cannot read a module local, and `modules/app` dies at
+  the cutover. The container takes `connect-src` from the task definition and bakes the rest;
+  **nginx has no escaping**, so anything interpolated in is allowlisted — a quote truncates the
+  policy and a `;` appends a directive, on a container reporting healthy.
+- **Static assets deploy in three prefix-scoped passes** — `--exclude` protects keys from
+  `--delete`, so a pass excluding a prefix can never reconcile it. **S3 path only:** the image IS
+  the file set — no reconciliation, no orphan class, an honest 404 under `/assets/`; the root's
+  200-as-`text/html` trap is preserved and pinned.
 
 ### Gates, scanners and tests
 
-- **A gate blocks on a NARROWED count, never a total.** Checkov enforces a list of check IDs measured
-  at **zero** — enforcing what already passes rather than suppressing what does not — and the plan
-  scan accepts by check ID **and** resource. **A line matching no finding is a hard error.**
+- **A gate blocks on a NARROWED count, never a total.** Checkov enforces check IDs measured at
+  **zero** — enforcing what passes rather than suppressing what does not — and the plan scan
+  accepts by check ID **and** resource. **A line matching no finding is a hard error.**
 - **"Did not run" is never "clean."** A broken scanner fails the job even in report mode, and
   `--quiet` must never come back: without `passed_checks` the gate cannot tell a pass from a check
   that never ran.
-- **A new finding is scoped, not accepted.** Every scanner failure that ships carries a written
-  disposition; the enforce list is regenerated by **any** spec that adds a resource family.
-- **Mutation-test every guard.** This project has repeatedly shipped assertions that passed while the
-  thing they claimed was false — presence where the claim was behaviour, serializability where the
-  claim was correctness. Break the thing the name claims, watch it go red, revert.
+- **A new finding is scoped, not accepted.** Every shipped scanner failure carries a written
+  disposition; the enforce list is regenerated by **any** spec adding a resource family.
+- **Mutation-test every guard.** This project repeatedly ships assertions that pass while the thing
+  they name is false — including four workflow guards that survived a `#` in front of the line they
+  guarded. Break what the name claims, watch it redden, revert.
 - **`ACCEPTED_` tripwires record what has NOT been verified**: pin today's behaviour, name the
   reasoning, and say *revisit the decision, don't delete the test*.
 - **No silent caps.** If a check bounds coverage, say what was dropped — silent truncation reads as

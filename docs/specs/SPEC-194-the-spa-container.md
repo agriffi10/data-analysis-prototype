@@ -1,7 +1,7 @@
 # Spec: The SPA Container
 
 **ID:** SPEC-194
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-18
 **Depends On:** SPEC-192 (the runtime configuration document — its shape, its accessor and its required/optional classification; this spec renders and serves it, and defines none of it), SPEC-193 (the ECR repository, ECS cluster/service/task definition, target group and ALB listener this image runs inside), SPEC-140 (the response-headers policy and enforcing CSP this container must reproduce, and its verification rules), SPEC-141 (the per-class cache scheme, and the orphan class this spec retires), SPEC-186 (the `BUILD_VERSION` stamping convention — the stamp travels in the artefact, never in the environment), SPEC-138 (the ZAP baseline and `security-baseline.md`, the measuring stick for the header set), SPEC-162 (`VITE_ENVIRONMENT` — the flag document's environment key becomes a runtime value here)
 
@@ -654,7 +654,7 @@ does not conclude the container is configured the same way.
 
 ```
 apps/portal/Dockerfile
-apps/portal/.dockerignore
+.dockerignore                          # AT THE ROOT: the build context is the repo root
 apps/portal/docker/nginx.conf
 apps/portal/docker/default.conf.template
 apps/portal/docker/snippets/security-headers.conf
@@ -664,7 +664,7 @@ infra/main.tf                                                # + local.content_s
 infra/modules/app/cloudfront.tf                              # − the two CSP locals, + the policy input
 .github/workflows/deploy-spa-image.yml
 .github/scripts/spa-image-matrix.sh                          # FR-011's assertion table
-infra/modules/base/policies/github-actions-deploy-spa-image.json.tftpl
+infra/modules/base/policies/            # NOT created — see the delivery doc
 docs/testing/arc-b-api-container-e2e.md                            # Phase 5
 ```
 

@@ -2159,6 +2159,17 @@ runs, and queries **time out at 30 minutes, one hour maximum**.
    **not** SPEC-140's enumeration of AWS service hosts — still derived from Terraform variables, never
    frozen as a string, and rendered into the nginx config at container start. **SPEC-194** owns it;
    **SPEC-202** asserts the final state.
+
+   > **Answered and shipped by SPEC-194 (2026-08-27).** That end state is right and the **start
+   > state is not** — on the day the container shipped the list is every host SPEC-140 enumerates
+   > **plus** the API origin, because nothing is ported yet, and it shrinks one entry per porting
+   > spec. Both CSP locals live at **root**; the container takes `connect-src` from the task
+   > definition as one variable and bakes every other directive, those being properties of the
+   > bundle rather than of the environment. Two things this question did not anticipate: nginx has
+   > **no escaping**, so anything interpolated into its configuration must be allowlist-validated —
+   > a quote truncated the policy and a `;` appended a directive, on a container that reported
+   > healthy — and a policy assembled with `join` needs its **separator** asserted, since joined on
+   > a space it is one malformed directive with every element still present.
 3. **`lib/returnPath.ts` is replaced by a server-side return path**, held beside `state` in the BFF's
    login transaction, which survives private browsing where `sessionStorage` degrades. The module is
    deleted. **SPEC-195** owns it.
