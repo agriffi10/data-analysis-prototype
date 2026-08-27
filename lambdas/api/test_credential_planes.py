@@ -17,14 +17,15 @@ not declaring a route are both tested against a process where nothing else has r
 design actually invites is a warm container whose *previous* request declared the API plane, so
 that case is driven as a sequence.
 
+**The ``conftest`` import below is at MODULE scope deliberately**, matching the other suites
+here. Inside a function it resolves at run time, by which point another package's ``conftest``
+owns that name in ``sys.modules`` — green alone, ImportError in the full run.
+
 Attributes:
   HERE: This function's package root.
-
-Note on the ``conftest`` import below: it is at MODULE scope deliberately, matching the other
-suites here. Inside a function it resolves at run time, by which point another package's
-``conftest`` owns that name in ``sys.modules`` — green alone, ImportError in the full run.
   EXEMPT_MODULES: The modules allowed to construct a client, by exact relative path.
   FORBIDDEN_CLIENT_CALLS: The boto3 entry points that mint a client on default credentials.
+  CLIENT_FACTORY_METHODS: Factory methods that do the same without naming boto3.
 """
 
 import ast
@@ -43,7 +44,11 @@ from conftest import bearer
 HERE = pathlib.Path(__file__).resolve().parent
 
 EXEMPT_MODULES = ("apicommon/identity.py",)
-FORBIDDEN_CLIENT_CALLS = ("client", "resource", "Session")
+FORBIDDEN_CLIENT_CALLS = frozenset({"client", "resource", "Session"})
+
+#: Factory METHODS that mint a client without naming boto3 at the call site. `create_client` is
+#: botocore's own door and reaches default credentials exactly as `boto3.client` does.
+CLIENT_FACTORY_METHODS = frozenset({"create_client"})
 
 
 def _shipped():
@@ -83,11 +88,44 @@ def is_exempt(relative_path: str) -> bool:
     return relative_path in EXEMPT_MODULES
 
 
+def _aliases(tree, module: str, names: set[str]) -> set[str]:
+    """Every local name bound to one of ``names`` imported from ``module``.
+
+    Import aliasing is the cheapest way past a sweep that matches on the name it expects, and it
+    is not an exotic evasion — ``from boto3 import client`` is how a lot of code is written.
+
+    Args:
+      tree: The parsed module.
+      module: The module the names would be imported from.
+      names: The names of interest. Empty means "any name".
+
+    Returns:
+      The local names bound to them.
+
+    Raises:
+      None.
+    """
+    bound = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "") == module:
+            for alias in node.names:
+                if not names or alias.name in names:
+                    bound.add(alias.asname or alias.name)
+    return bound
+
+
 def findings(tree) -> list[tuple[str, str]]:
     """Every way a module could reach AWS or an identity around the two doors.
 
     Returned as tagged findings rather than asserted here, so the same checker can be driven
     against a synthetic module that is supposed to be caught.
+
+    **Each shape below was reached past an earlier version of this checker**, which matched only
+    ``boto3.client(...)`` as an attribute call and only ``UserIdentity`` as a bare name. A route
+    doing ``from boto3 import client as mk`` and ``identity.UserIdentity(username="mallory", ...)``
+    — the second being the form every route naturally reaches for, since they all already import
+    the module — passed the whole suite while constructing a default-credentials client AND
+    assuming the portal role as somebody else. Every row is now in the parametrized guard below.
 
     Args:
       tree: The parsed module.
@@ -99,26 +137,50 @@ def findings(tree) -> list[tuple[str, str]]:
       None.
     """
     found: list[tuple[str, str]] = []
+
+    boto3_names = _aliases(tree, "boto3", set())
+    identity_names = _aliases(tree, "apicommon.identity", {"UserIdentity"}) | _aliases(
+        tree, ".identity", {"UserIdentity"}
+    ) | _aliases(tree, "identity", {"UserIdentity"})
+
     for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "boto3"
-            and node.func.attr in FORBIDDEN_CLIENT_CALLS
-        ):
-            found.append(("client_construction", f"boto3.{node.func.attr}"))
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "UserIdentity"
-        ):
-            found.append(("identity_construction", "UserIdentity"))
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute):
+                if (
+                    isinstance(func.value, ast.Name)
+                    and func.value.id == "boto3"
+                    and func.attr in FORBIDDEN_CLIENT_CALLS
+                ):
+                    found.append(("client_construction", f"boto3.{func.attr}"))
+                if func.attr in CLIENT_FACTORY_METHODS:
+                    found.append(("client_construction", func.attr))
+                if func.attr == "UserIdentity":
+                    found.append(("identity_construction", "UserIdentity"))
+                if func.attr == "replace" and any(
+                    isinstance(argument, ast.Attribute) and argument.attr == "acting_as"
+                    for argument in node.args
+                ):
+                    found.append(("identity_construction", "dataclasses.replace"))
+            if isinstance(func, ast.Name):
+                if func.id in boto3_names:
+                    found.append(("client_construction", func.id))
+                if func.id == "UserIdentity" or func.id in identity_names:
+                    found.append(("identity_construction", func.id))
+            if (
+                isinstance(func, ast.Name)
+                and func.id == "getattr"
+                and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and str(node.args[1].value).startswith("_")
+            ):
+                found.append(("private_identity_access", str(node.args[1].value)))
+
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name.startswith("cpcommon.clients"):
                     found.append(("clients_import", alias.name))
-                if alias.name == "boto3":
+                if alias.name in ("boto3", "botocore") or alias.name.startswith("botocore."):
                     found.append(("boto3_import", alias.name))
         if isinstance(node, ast.ImportFrom):
             module = node.module or ""
@@ -126,6 +188,8 @@ def findings(tree) -> list[tuple[str, str]]:
                 found.append(("clients_import", "cpcommon.clients"))
             if module.startswith("cpcommon.clients"):
                 found.append(("clients_import", module))
+            if module == "boto3" or module.startswith(("boto3.", "botocore")):
+                found.append(("boto3_import", module))
             if module in ("apicommon.identity", ".identity", "identity"):
                 for alias in node.names:
                     if alias.name.startswith("_"):
@@ -160,7 +224,10 @@ def test_the_sweep_has_a_subject_and_its_exemption_is_an_identity_not_a_pattern(
       AssertionError: If the subject is empty, or the exemption matches anything but itself.
     """
     modules = {path for path, _ in _shipped()}
-    assert len(modules) >= 6, f"the sweep's subject collapsed to {sorted(modules)}"
+    assert len(modules) >= 10, (
+        f"the sweep's subject is {len(modules)} modules: {sorted(modules)}. A floor set well "
+        "below the real count lets half the package leave the sweep without anyone noticing."
+    )
     for exempt in EXEMPT_MODULES:
         assert exempt in modules, f"{exempt} is exempted and does not exist"
 
@@ -194,6 +261,40 @@ def test_no_module_outside_the_identity_layer_reaches_aws_or_mints_an_identity()
         assert findings(tree) == [], f"{path} reaches around the two doors: {findings(tree)}"
 
 
+def test_a_route_has_exactly_TWO_doors_onto_aws() -> None:
+    """The criterion is about how many ways IN a route has, which is not how many boto3 calls exist.
+
+    The identity layer holds a third, private constructor that both public doors delegate to — the
+    single construction site. That is exempt by module identity, and the sweeps above are what stop
+    a route reaching it. This asserts the public surface itself: two doors, both taking what they
+    need as parameters, and no third.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the module grows another public way to get a client.
+    """
+    import inspect
+
+    public = {
+        name
+        for name, value in vars(identity).items()
+        if not name.startswith("_")
+        and inspect.isfunction(value)
+        and value.__module__ == identity.__name__
+        and "client" in name
+    }
+    assert public == {"user_client", "api_client"}, (
+        f"the identity layer exposes {sorted(public)} — a route reaches AWS through exactly two"
+    )
+    assert list(inspect.signature(identity.user_client).parameters) == ["service", "caller"]
+    assert list(inspect.signature(identity.api_client).parameters) == ["service"]
+
+
 def test_the_package_holds_exactly_one_client_construction_site() -> None:
     """A COUNT, not an absence — "none outside the layer" permits six inside it.
 
@@ -222,6 +323,11 @@ def test_the_identity_is_constructed_in_one_module_and_nowhere_else() -> None:
     It would compile, pass review and pass every test that supplies a matching token — the
     credential-selection defect the tag rule forbids, wearing a scoping parameter's clothes.
 
+    **Equality, not a subset.** ``builders <= EXEMPT_MODULES`` is satisfied by an EMPTY builders
+    set, so a detector that stopped recognising the construction would report clean — which is
+    exactly how the aliased and attribute-qualified forms stayed invisible. The count is what
+    makes a broken detector redden.
+
     Args:
       None.
 
@@ -237,7 +343,9 @@ def test_the_identity_is_constructed_in_one_module_and_nowhere_else() -> None:
         for kind, _ in findings(tree)
         if kind == "identity_construction"
     }
-    assert builders <= set(EXEMPT_MODULES), f"{sorted(builders)} mint an identity"
+    assert builders == set(EXEMPT_MODULES), (
+        f"identities are minted in {sorted(builders)}, expected exactly {sorted(EXEMPT_MODULES)}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -251,6 +359,13 @@ def test_the_identity_is_constructed_in_one_module_and_nowhere_else() -> None:
         ("a private door", "from apicommon.identity import _execution_client\n", "private_identity_import"),
         ("a private door by attribute", "from apicommon import identity\nx = identity._execution_client('s3')\n", "private_identity_access"),
         ("an identity", "from apicommon.identity import UserIdentity\nu = UserIdentity(username='x', memberships={})\n", "identity_construction"),
+        ("a client by from-import", "from boto3 import client\nc = client('s3')\n", "boto3_import"),
+        ("a client by aliased from-import", "from boto3 import client as mk\nc = mk('s3')\n", "client_construction"),
+        ("an identity through the module", "from apicommon import identity\nu = identity.UserIdentity(username='x', memberships={})\n", "identity_construction"),
+        ("an identity by aliased import", "from apicommon.identity import UserIdentity as UI\nu = UI(username='x', memberships={})\n", "identity_construction"),
+        ("an identity by dataclass replace", "import dataclasses\nu = dataclasses.replace(context.acting_as, username='bob')\n", "identity_construction"),
+        ("a client through botocore", "import botocore.session\nc = botocore.session.get_session().create_client('s3')\n", "client_construction"),
+        ("a private door by getattr", "from apicommon import identity\nc = getattr(identity, '_client')('s3')\n", "private_identity_access"),
     ],
 )
 def test_the_checker_catches_every_shape_it_claims_to(label, source, kind) -> None:
@@ -423,16 +538,22 @@ def test_the_router_resets_the_plane_on_the_way_IN(monkeypatch) -> None:
     )
 
 
-def test_the_entry_reset_is_what_saves_the_next_request_when_cleanup_is_SKIPPED(
+def test_a_request_that_never_DISPATCHES_cannot_inherit_the_last_one_declaration(
     no_aws, monkeypatch
 ) -> None:
-    """The entry reset, observed behaviourally — by taking the exit reset away.
+    """The window the entry reset actually protects, driven where it can be stale.
 
-    While cleanup always runs, the two resets are indistinguishable and only the source ordering
-    tells them apart. So this simulates the case the entry reset exists for: a path that does not
-    reach its cleanup. With ``end_dispatch`` neutered, request A's declaration is still in the
-    context when request B arrives, and the ONLY thing that stops B reaching the execution role
-    is the reset at the top of ``route``.
+    **The first version of this test was tautological, and the correction is worth stating.** It
+    claimed the entry reset was "the ONLY thing that stops B", drove two dispatching requests, and
+    still passed with ``begin_request`` gutted — because ``begin_dispatch`` overwrites the route
+    key unconditionally before any handler runs, so a *dispatching* request can never read a stale
+    one. The reset is not what protects that path.
+
+    What it does protect is the window before dispatch, and the paths that never reach it at all:
+    a public route, a 404, a refusal. With cleanup skipped, a request that returns early leaves
+    whatever the last one declared — and a call reaching the API plane in that window is allowed.
+    So this drives exactly that: an API-plane request, cleanup neutered, then a public route, then
+    a reach for the API plane.
 
     Args:
       no_aws: The construction recorder.
@@ -442,29 +563,55 @@ def test_the_entry_reset_is_what_saves_the_next_request_when_cleanup_is_SKIPPED(
       None.
 
     Raises:
-      AssertionError: If B inherits A's declaration.
+      AssertionError: If the API plane is reachable after a request that never dispatched.
     """
     def _api_plane_route(context):
         identity.api_client("sts")
         return {"ok": True}
 
-    def _user_plane_route(context):
-        identity.api_client("sts")
-        return {"ok": True}
-
     monkeypatch.setitem(router.ROUTES, ("GET", "/_test/api-plane"), _api_plane_route)
-    monkeypatch.setitem(router.ROUTES, ("GET", "/_test/user-plane"), _user_plane_route)
     monkeypatch.setitem(
         planes.ROUTE_PLANES, ("GET", "/_test/api-plane"), frozenset({planes.Plane.API})
     )
-    monkeypatch.setitem(planes.ROUTE_PLANES, ("GET", "/_test/user-plane"), frozenset())
     monkeypatch.setattr(planes, "end_dispatch", lambda: None)
 
     router.route("GET", "/_test/api-plane", bearer())
     assert no_aws == ["sts"], "the declared route did not get its client"
 
+    router.route("GET", "/healthz", {})
+    assert planes.current_route() == planes.NO_ROUTE
+
     with pytest.raises(identity.PlaneViolationError):
-        router.route("GET", "/_test/user-plane", bearer())
+        identity.api_client("sts")
+
+
+def test_an_undispatched_refusal_also_leaves_the_plane_at_the_sentinel(no_aws, monkeypatch) -> None:
+    """The other early-return paths: a refusal and a route that does not exist.
+
+    Args:
+      no_aws: The construction recorder.
+      monkeypatch: pytest's patcher.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If either leaves a declaration behind.
+    """
+    monkeypatch.setitem(
+        planes.ROUTE_PLANES, ("GET", "/_test/api-plane"), frozenset({planes.Plane.API})
+    )
+    monkeypatch.setattr(planes, "end_dispatch", lambda: None)
+
+    for method, path, headers in (
+        ("GET", "/_auth/whoami", {}),
+        ("GET", "/_no/such/route", bearer()),
+    ):
+        planes.begin_dispatch(("GET", "/_test/api-plane"))
+        router.route(method, path, headers)
+        assert planes.current_route() == planes.NO_ROUTE, (
+            f"{method} {path} returned before dispatch and left a declaration behind"
+        )
 
 
 def test_a_public_route_leaves_the_plane_at_the_sentinel() -> None:

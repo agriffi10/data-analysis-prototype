@@ -50,6 +50,24 @@ through the span while holding a real assumed session, and the residual is a row
 - **The prefix budget, the tag-count bound and the credential margin are computed**, each naming
   the budget that sizes it and the schedulable unit.
 
+## Two deviations from the spec as written, both forced, both recorded
+
+**The `sts:AssumeRole` call goes through the API plane's *credentials* but not through its
+*door*.** FR-001 asks that STS be reached "through the API plane" and Phase 3 says
+`assume_user_role` over `api_client("sts")`. Built, it uses the private constructor. It cannot be
+otherwise: `api_client` refuses any route that has not declared the plane, no route declares one,
+and assuming happens for *every* route — including the ones that must never reach the execution
+role. The plane is right; the declaration mechanism ships with **no live subject** and is exercised
+by tests alone until SPEC-200's queue writes, which are the route-declared use it was built for.
+
+**The portal role's trust policy names a principal, so it needed a real dependency edge.** Every
+other cross-module role ARN in the composition is a constructed string, because they all feed
+bucket-policy *conditions* — `aws:PrincipalArn` comparisons, which are string matches needing no
+principal to exist. A trust policy's `Principal.AWS` is **validated by IAM**, so the first draft
+(a constructed string, matching the local convention) would have been green on every existing
+deployment and would have failed a from-scratch apply with `MalformedPolicyDocument`. It is a
+module output reference now, and the reasoning that justified the string is corrected in place.
+
 ## What this layer deliberately does not do
 
 **No redactor**, **no `ForAnyValue` floor on `sts:TagKeys`** (a ceiling cannot require the username

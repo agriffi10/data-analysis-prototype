@@ -24,6 +24,7 @@ Attributes:
   REPO: The repository root.
   INFRA: The IaC tree.
   BASELINE_COMMIT: The commit these templates are pinned to.
+  ADDED_SINCE_BASELINE: Permission templates added since, named one by one.
   TRUST: The one template this spec edits.
   API_ROLE_ARN: A rendered API execution role ARN.
   PORTAL_ROLE_ARN: A rendered portal role ARN.
@@ -33,10 +34,12 @@ Attributes:
 """
 
 import json
+import os
 import pathlib
 import re
 import shutil
 import subprocess
+import tempfile
 
 import pytest
 
@@ -44,6 +47,12 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 INFRA = REPO / "infra"
 
 BASELINE_COMMIT = "b01930c8"
+
+#: Permission templates added since the baseline, each named deliberately. Empty today. A new
+#: plane adds its name here in the same commit that adds its template — the point is not to
+#: forbid additions but to stop one arriving unread, since a byte comparison against the baseline
+#: cannot see a file that was not in it.
+ADDED_SINCE_BASELINE: frozenset[str] = frozenset()
 
 TRUST = "infra/modules/data/policies/portal-role-trust.json.tftpl"
 
@@ -214,6 +223,14 @@ def test_ACCEPTED_the_portal_role_permission_templates_are_byte_identical_to_the
     }
     missing = baseline - present
     assert not missing, f"a portal-role permission template was deleted: {sorted(missing)}"
+
+    added = present - baseline - ADDED_SINCE_BASELINE
+    assert not added, (
+        f"a portal-role permission template was ADDED and is un-baselined: {sorted(added)}. "
+        "Additions are allowed — Arc A adds a tenth — but a new template is the one direction "
+        "no byte comparison covers, and only the named-absence sweep is looking at it. Name it "
+        "in ADDED_SINCE_BASELINE so it is an argued edit rather than a silent one."
+    )
 
     for path in sorted(baseline):
         assert _git("show", f"{BASELINE_COMMIT}:{path}") == (REPO / path).read_text(), (
@@ -530,11 +547,16 @@ def test_the_api_assumes_the_EXISTING_portal_role_and_creates_none() -> None:
     )
 
 
-def test_the_execution_role_arn_is_built_the_same_way_in_both_places() -> None:
-    """Constructed at root and again inside the module, so the two must agree.
+def test_the_trust_policys_principal_is_ORDERED_behind_the_role_it_names() -> None:
+    """The one cross-module role ARN here that must not be a constructed string.
 
-    That duplication is the cost of keeping the value known at plan time; this is what stops it
-    becoming a silent mismatch that admits nobody.
+    Every other one in this composition feeds a bucket-policy **condition** — an
+    ``aws:PrincipalArn`` comparison, which is a string match and needs no principal to exist. This
+    one feeds a trust policy's ``Principal.AWS``, which IAM **validates**: an ARN naming a role
+    that does not exist yet is refused as a malformed policy document. ``module.data`` has no other
+    tie to ``module.api``, so a constructed string leaves a from-scratch apply free to create the
+    portal role first and fail — green on every existing deployment, and only ever wrong on a
+    rebuild.
 
     Args:
       None.
@@ -543,33 +565,68 @@ def test_the_execution_role_arn_is_built_the_same_way_in_both_places() -> None:
       None.
 
     Raises:
-      AssertionError: If the two constructions diverge.
+      AssertionError: If the value stops being a real reference, or the output stops being the
+        role resource's own ARN.
     """
     main = (INFRA / "main.tf").read_text()
-    root = re.search(
-        r"api_execution_role_arn\s*=\s*\"arn:aws:iam::\$\{[^}]+\}:role/([^\"]+)\"", main
-    )
-    assert root, "root no longer constructs the API execution role ARN"
+    start = main.index('module "data" {')
+    block = main[start : main.index("\n}\n", start)]
 
-    lambda_tf = (INFRA / "modules" / "api" / "lambda.tf").read_text()
-    function_name = re.search(r'function_name\s*=\s*"([^"]+)"', lambda_tf)
-    role_name = re.search(r'name\s*=\s*"(\$\{local\.function_name\}[^"]*)"', lambda_tf)
-    assert function_name and role_name, "the API module's naming changed shape"
-
-    module_side = role_name.group(1).replace(
-        "${local.function_name}", function_name.group(1)
-    )
-    assert root.group(1) == module_side, (
-        f"root builds {root.group(1)!r} and the module builds {module_side!r}"
+    assert re.search(
+        r"api_execution_role_arn\s*=\s*module\.api\.api_execution_role_arn", block
+    ), (
+        "the trust policy's principal is not a real module reference, so nothing orders the "
+        "portal role behind the role it names"
     )
 
+    outputs = (INFRA / "modules" / "api" / "outputs.tf").read_text()
+    assert re.search(
+        r'output "api_execution_role_arn"[^}]*value\s*=\s*aws_iam_role\.api\.arn', outputs, re.DOTALL
+    ), "the output is not the role resource's own ARN, so the dependency edge is not real"
 
-def test_the_session_length_is_inside_the_roles_own_ceiling() -> None:
+
+def test_ACCEPTED_a_recreated_api_role_would_not_redraw_the_trust_policy() -> None:
+    """A tripwire for a trap nothing in this repo can currently detect.
+
+    IAM stores a trust policy's principal as the role's **unique id**, not as the ARN written. If
+    the API's execution role is ever destroyed and recreated — a project or environment rename, a
+    taint — the rendered ARN string is unchanged, so Terraform sees no diff, never rewrites the
+    trust policy, and every API request fails with a refusal that names nothing. The old unique id
+    is simply dead.
+
+    There is no offline assertion that can catch this and no plan that shows it. What this test
+    pins is that the exposure is still the one described: exactly one statement in the trust policy
+    names an AWS principal, so a reader chasing an inexplicable blanket refusal has one place to
+    look. **If this reddens, do not delete it** — re-read the note above and decide whether the new
+    shape has the same trap.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the trust policy's shape changed enough to invalidate the note.
+    """
+    principals = [
+        statement
+        for statement in _rendered_trust()["Statement"]
+        if "AWS" in statement.get("Principal", {})
+    ]
+    assert len(principals) == 1
+
+
+def test_the_session_length_is_inside_the_portal_ROLES_own_ceiling() -> None:
     """A shorter ceiling on the role plans green, applies green, and breaks every request.
 
-    Absent means AWS's default of one hour, which is exactly what is requested. It cannot be
-    RAISED either: the function runs on an assumed-role session of its own, so this call is role
-    chaining, which AWS caps at one hour and fails rather than clamps.
+    Asserted on the role's own resource block rather than on the file, so a
+    ``max_session_duration`` belonging to some other role cannot become this test's subject.
+    Absent means AWS's default of one hour, which is exactly what is requested — and that is
+    asserted as a value, not left as an ``if`` whose body never runs.
+
+    It cannot be RAISED either: the function runs on an assumed-role session of its own, so this
+    call is role chaining, which AWS caps at one hour and fails rather than clamps.
 
     Args:
       None.
@@ -578,34 +635,136 @@ def test_the_session_length_is_inside_the_roles_own_ceiling() -> None:
       None.
 
     Raises:
-      AssertionError: If the role declares a ceiling below the requested duration.
+      AssertionError: If the role's block is gone, or it caps a session below the hour requested.
     """
     iam = (INFRA / "modules" / "data" / "iam.tf").read_text()
-    declared = re.search(r"max_session_duration\s*=\s*(\d+)", iam)
-    if declared is not None:
-        assert int(declared.group(1)) >= 3600, (
-            f"the portal role caps a session at {declared.group(1)}s, below the hour the API "
-            "requests — every request would fail at runtime with nothing in the plan to warn it"
-        )
+    start = iam.index('resource "aws_iam_role" "portal" {')
+    block = iam[start : iam.index("\n}\n", start)]
+
+    declared = re.search(r"max_session_duration\s*=\s*(\d+)", block)
+    if declared is None:
+        assert "max_session_duration" not in block
+        return
+
+    assert int(declared.group(1)) >= 3600, (
+        f"the portal role caps a session at {declared.group(1)}s, below the hour the API "
+        "requests — every request would fail at runtime with nothing in the plan to warn it"
+    )
 
 
-@pytest.mark.parametrize("name", ["principal_tag_key", "max_shared_memberships"])
-def test_the_variables_that_size_the_tag_set_refuse_a_value_that_would_break_it(name) -> None:
-    """A default guards nothing on its own: an empty repo variable overrides one.
+def _plan_root_variable(name: str, value: str) -> bool:
+    """Plans one root variable declaration with a value, and reports whether it was refused.
+
+    Extracted into a scratch module rather than planned in place: the root needs a provider and a
+    backend, and this is about one validation condition. Extracted, the module declares no
+    provider, so the init is offline and no credentials are involved. The same shape the provider
+    block's own refusal test already uses.
 
     Args:
-      name: The variable to check.
+      name: The root variable to plan.
+      value: The value to plan it with.
+
+    Returns:
+      True if OpenTofu refused the value.
+
+    Raises:
+      AssertionError: If the declaration cannot be extracted, or tofu is unavailable — a skip
+        here would read as coverage this suite would not have.
+    """
+    tofu = shutil.which("tofu")
+    assert tofu, "OpenTofu is not on PATH — this assertion cannot be skipped into passing"
+
+    source = (INFRA / "variables.tf").read_text()
+    match = re.search(rf'variable\s+"{name}"\s*\{{', source)
+    assert match, f"root no longer declares {name}"
+    index, depth = source.index("{", match.start()), 0
+    while index < len(source):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                break
+        index += 1
+    declaration = source[match.start() : index + 1]
+
+    with tempfile.TemporaryDirectory() as scratch:
+        pathlib.Path(scratch, "variables.tf").write_text(declaration + "\n")
+        environment = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": os.environ.get("HOME", ""),
+            "TF_IN_AUTOMATION": "1",
+            f"TF_VAR_{name}": value,
+        }
+        setup = subprocess.run(  # noqa: S603
+            [tofu, "init", "-backend=false", "-input=false"],
+            cwd=scratch, env=environment, capture_output=True, text=True, check=False,
+        )
+        assert setup.returncode == 0, (
+            f"tofu init failed in the scratch module:\n{setup.stdout}\n{setup.stderr}"
+        )
+        plan = subprocess.run(  # noqa: S603
+            [tofu, "plan", "-input=false"],
+            cwd=scratch, env=environment, capture_output=True, text=True, check=False,
+        )
+    return plan.returncode != 0
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("principal_tag_key", ""),
+        ("principal_tag_key", "user"),
+        ("max_shared_memberships", "0"),
+        ("max_shared_memberships", "-1"),
+    ],
+)
+def test_the_variables_that_size_the_tag_set_actually_REFUSE_a_breaking_value(name, value) -> None:
+    """Runs the validations rather than checking that a validation block is present.
+
+    The difference is the whole test, and it was found by mutation: both conditions were
+    rewritten to ``true`` and the presence check stayed green. A block can be present with its
+    condition weakened to something that accepts anything, and presence cannot tell.
+
+    Each value here breaks something specific. An empty ``principal_tag_key`` is what an unset
+    repo variable renders as, and it satisfies a required variable *and* overrides a default. A
+    non-empty wrong one is worse: the API stamps a tag no policy statement expands, so every API
+    path refuses while the browser path keeps working, and nothing names the cause. Zero or fewer
+    membership slots stamps no membership tags at all, which presents as the propagation delay
+    rather than as a failure.
+
+    Args:
+      name: The root variable.
+      value: The value it must refuse.
 
     Returns:
       None.
 
     Raises:
-      AssertionError: If the variable carries no validation.
+      AssertionError: If OpenTofu accepts it.
     """
-    source = (INFRA / "variables.tf").read_text()
-    block = re.search(rf'variable "{name}" \{{(.*?)\n\}}', source, re.DOTALL)
-    assert block, f"root no longer declares {name}"
-    assert "validation {" in block.group(1), (
-        f"{name} has no validation — an empty TF_VAR satisfies a required variable AND overrides "
-        "a default, so the absence of one guards nothing"
+    assert _plan_root_variable(name, value), (
+        f"{name} accepted {value!r} — the validation is present but does not refuse it"
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [("principal_tag_key", "username"), ("max_shared_memberships", "10")],
+)
+def test_the_same_validations_ACCEPT_the_value_that_deploys(name, value) -> None:
+    """The control. A condition that refused everything would pass the test above.
+
+    Args:
+      name: The root variable.
+      value: The value that actually deploys.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If OpenTofu refuses the deployed value.
+    """
+    assert not _plan_root_variable(name, value), (
+        f"{name} refused {value!r}, which is the value that deploys"
     )

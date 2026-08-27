@@ -50,6 +50,7 @@ Attributes:
 import json
 from typing import Any
 
+from .config import ConfigError
 from .identity import IdentityUnavailableError, aws_error_code
 
 UNAUTHENTICATED_STATUS = 401
@@ -183,6 +184,11 @@ def for_exception(exc: BaseException) -> dict[str, Any] | None:
     Args:
       exc: The exception a route raised.
 
+    A configuration failure raised by a route is answered the same way the boundary above already
+    answers one — a server fault, never a 401 and never a denial. Without that it reaches the
+    caller as a bare gateway 500 carrying no code, which is the one outcome the wire contract has
+    no name for.
+
     Returns:
       The response, or None if this is not a condition with a defined answer.
 
@@ -191,6 +197,8 @@ def for_exception(exc: BaseException) -> dict[str, Any] | None:
     """
     if isinstance(exc, IdentityUnavailableError):
         return identity_unavailable()
+    if isinstance(exc, ConfigError):
+        return server_fault()
     if aws_error_code(exc) in DENIAL_CODES:
         return forbidden()
     return None

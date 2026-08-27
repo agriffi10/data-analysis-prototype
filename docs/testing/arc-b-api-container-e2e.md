@@ -393,6 +393,12 @@ check prove nothing.
 
 ---
 
+> **§E (SPEC-196, the AWS identity layer) follows this section**, at the end of the file rather
+> than here, because it is the only section that has not been run at all — Arc B's live
+> verification happens once, at SPEC-202. It stands outside the merge order like §A–§D. Its
+> items 1 and 9 overlap §11's trust-statement and IAM-simulation steps deliberately: whichever
+> runs first discharges both, and the other records that it did.
+
 ## D. The API's auth boundary (SPEC-195) — runnable NOW, outside the merge order
 
 Like §A–§C this stands outside the merge sequence. **No feature is ported**: the browser still calls

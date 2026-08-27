@@ -174,11 +174,12 @@ def route(
 
     **The credential plane is reset on the way IN, before anything else happens here.** A warm
     container does not give each invocation a fresh context, so a route key left behind by the
-    last request would still be readable by this one — and if that route declared the API plane
-    and this one did not, this one reaches the execution role and succeeds. Resetting on the way
-    out alone is not enough, because every path that skips the cleanup leaves the previous value
-    in place. The reset below runs before the public-route check, so even a request that never
-    reaches dispatch starts from a sentinel that authorizes nothing.
+    last request is still readable by this one. A handler is not the exposure — the dispatch below
+    sets the key unconditionally before one runs — but every path that returns BEFORE dispatch is:
+    the health route, an unknown route, and every refusal. Resetting on the way out alone does not
+    cover them, because those are the paths most likely to skip the cleanup. The reset runs before
+    the public-route check, so a request that never dispatches still starts from a sentinel that
+    authorizes nothing.
 
     **A failure a route raises is classified, never flattened.** A denial from AWS is the
     isolation model working and is answered 403; an identity this API cannot assume is a fault on
@@ -197,9 +198,11 @@ def route(
     Raises:
       AttributeError: If ``headers`` is not a mapping of strings.
       TypeError: If the method or path is not a string.
+      Exception: Whatever a route raised that the failure mapping does not recognise, re-raised
+        rather than flattened.
 
-      Both are fail-closed and neither can reach a handler, so they surface as a gateway error
-      that discloses nothing. They are named rather than claimed absent because a shape the
+      The first two are fail-closed and neither can reach a handler, so they surface as a gateway
+      error that discloses nothing. They are named rather than claimed absent because a shape the
       type contract forbids is still a shape a caller can construct.
     """
     planes.begin_request()

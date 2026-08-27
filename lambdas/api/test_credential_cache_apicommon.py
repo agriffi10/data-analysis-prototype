@@ -25,7 +25,9 @@ Attributes:
   HERE: This function's package root.
   IDENTITY_LAYER: The modules this spec adds, named by EXACT path. The subject of the sweeps that
     say what this layer must never do — never a pattern, and never the refusal surface, which
-    legitimately owns the unauthenticated code.
+    legitimately owns the unauthenticated code. **Every module the spec ships is here**: naming
+    only the two obvious ones left the route and the request context outside both sweeps, which
+    is a rule quietly covering less than its name claims.
   CREDENTIAL_SENTINEL: Marks every value the stubbed STS issues, so "no credential reached a
     record" is a search for a string that could only have come from a session.
   FAR_FUTURE_SECONDS: How much life a stubbed session has by default — comfortably past the
@@ -39,6 +41,7 @@ import datetime
 import json
 import os
 import pathlib
+import re
 import sys
 
 import pytest
@@ -55,6 +58,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 IDENTITY_LAYER = (
     "apicommon/identity.py",
     "apicommon/planes.py",
+    "apicommon/context.py",
+    "routes/identity_self.py",
 )
 
 CREDENTIAL_SENTINEL = "do-not-log-7f3a2c9e"
@@ -498,7 +503,6 @@ def test_the_margin_is_the_life_of_one_request_computed_from_the_timeout() -> No
 
     infra = pathlib.Path(__file__).resolve().parent.parent.parent / "infra"
     declared = infra / "modules" / "api" / "lambda.tf"
-    import re
 
     timeout = re.search(r"^\s*timeout\s*=\s*(\d+)", declared.read_text(), re.MULTILINE)
     assert timeout, "the API function no longer declares a timeout"
@@ -756,6 +760,90 @@ def test_a_lake_formation_denial_arrives_under_the_other_code(aws) -> None:
         return client.list_objects_v2(Bucket="b", Prefix="x/")
 
     assert _drive(_denied)["statusCode"] == errors.FORBIDDEN_STATUS
+
+
+def test_a_tag_set_that_cannot_be_BUILT_is_the_same_fault_as_a_failed_assume(
+    aws, monkeypatch
+) -> None:
+    """Tag construction reads configuration, so it is a third way into the same condition.
+
+    Outside the wrap this reached the caller as a bare gateway fault carrying no code — the one
+    outcome the wire contract has no name for, and indistinguishable from a crash.
+
+    Args:
+      aws: The recorder.
+      monkeypatch: pytest's patcher.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If it is not answered as an unavailable identity.
+    """
+    monkeypatch.setenv("PRINCIPAL_TAG_KEY", "")
+
+    response = _drive(_assuming_route)
+
+    assert response["statusCode"] == errors.IDENTITY_UNAVAILABLE_STATUS
+    assert json.loads(response["body"])["code"] == errors.IDENTITY_UNAVAILABLE_CODE
+    assert aws.assume_calls == [], "a call was issued with a tag set that could not be built"
+
+
+def test_a_route_that_hits_a_MISCONFIGURATION_gets_a_server_fault_with_a_code(aws) -> None:
+    """Not a 401, not a denial, and not a bare 500 either.
+
+    Args:
+      aws: The recorder.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If it is answered as anything but a named server fault.
+    """
+    from apicommon.config import ConfigError
+
+    def _misconfigured(context):
+        raise ConfigError("required environment variable 'SOMETHING' is unset or empty")
+
+    response = _drive(_misconfigured)
+
+    assert response["statusCode"] == errors.SERVER_FAULT_STATUS
+    assert json.loads(response["body"])["code"] == errors.SERVER_FAULT_CODE
+    assert errors.UNAUTHENTICATED_CODE not in response["body"]
+
+
+def test_the_refusal_of_an_unrepresentable_username_is_LOGGED_with_that_username(
+    aws, captured_events
+) -> None:
+    """A fixed reason code is not enough on its own: an operator needs to know who.
+
+    The username is user metadata and the field rule admits it. It rides the request stamp rather
+    than the exception, which is why the assertion is on the records rather than on the raise.
+
+    Args:
+      aws: The recorder.
+      captured_events: The capturing sink.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If no record names the refused caller.
+    """
+    refused = "has-a-hyphen"
+
+    response = _drive_via_handler(_assuming_route, bearer(refused))
+
+    assert response["statusCode"] == errors.IDENTITY_UNAVAILABLE_STATUS
+    assert refused not in json.dumps(response), "the refused name travelled to the caller"
+    assert aws.assume_calls == [], "a call was issued for a name that cannot be a session name"
+    stamped = [
+        event
+        for event in captured_events.events
+        if event.get("fields", {}).get("username") == refused
+    ]
+    assert stamped, "the refusal names no caller, so an operator cannot tell who was refused"
 
 
 def test_the_three_conditions_are_three_statuses_and_three_codes(aws) -> None:
@@ -1127,7 +1215,10 @@ def test_no_module_interpolates_SESSION_MATERIAL_into_text_that_travels() -> Non
                     assert part.attr not in forbidden, (
                         f"{path.name} renders .{part.attr} into text that travels"
                     )
-    assert checked >= 6, f"the sweep looked at {checked} modules"
+    assert checked >= 10, (
+        f"the sweep looked at {checked} modules. A floor set well below the real count lets half "
+        "the package leave the sweep without anyone noticing."
+    )
 
 
 def test_every_record_carries_a_real_env_and_a_version_from_the_package_stamp(

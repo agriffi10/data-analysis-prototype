@@ -354,8 +354,12 @@ def _assume(caller: UserIdentity) -> AssumedCredentials:
       The assumed session.
 
     Raises:
-      IdentityUnavailableError: If the username cannot be a session name, or STS refuses or
-        cannot be reached. **The wrap below is load-bearing, not tidiness.** STS answers
+      IdentityUnavailableError: If the username cannot be a session name, if the tag set cannot
+        be built, or if STS refuses or cannot be reached. **Tag construction is INSIDE the wrap**
+        deliberately: it reads configuration, so an unset tag key raises a configuration error,
+        and outside the wrap that reaches the caller as a bare gateway fault carrying no code at
+        all. The three conditions the failure mapping distinguishes are only distinguishable if
+        each one actually arrives as itself. **The wrap below is load-bearing, not tidiness.** STS answers
         ``AccessDenied`` when the trust policy is wrong — a missing ``sts:TagSession`` renders,
         plans, applies and unit-tests green — and an unwrapped one reaches the failure mapping
         carrying that service code, where it is indistinguishable from the isolation model
@@ -364,13 +368,13 @@ def _assume(caller: UserIdentity) -> AssumedCredentials:
         what it is.
     """
     session_name = role_session_name(caller.username)
-    tags = session_tags(caller)
     observability.info(
         "assuming the caller's role",
         username=caller.username,
         membership_slots=len(caller.memberships),
     )
     try:
+        tags = session_tags(caller)
         response = _client("sts").assume_role(
             RoleArn=config.portal_role_arn(),
             RoleSessionName=session_name,
@@ -450,6 +454,12 @@ class _RetryingClient:
     It sees direct method calls only. A paginator, a waiter or anything reached through ``meta``
     holds its own reference and bypasses this; nothing here paginates today and a tripwire says
     so, rather than leaving the limit to be discovered by the spec that first needs one.
+
+    One more edge, benign but worth naming: a caller that keeps the bound method — ``op =
+    client.list_objects_v2`` then ``op()`` twice — makes its first attempt on the client that was
+    current when it took the reference, so after a replacement every call pays an expiry and a
+    re-assume before succeeding. Correct, and never the wrong identity; just wasteful. Call
+    through the proxy rather than holding a method off it.
     """
 
     def __init__(self, service: str, caller: UserIdentity, client: Any) -> None:
@@ -540,6 +550,15 @@ def api_client(service: str) -> Any:
     request. Construct-then-check would leave a usable client in the hands of a route that was
     about to be refused, and the refusal is the only thing standing between that route and the
     execution role's own identity.
+
+    **It has no caller in shipped code today, and that is a deviation worth naming rather than
+    leaving to be noticed.** The spec asks that the assume-role call itself be made "through the
+    API plane", and it is — on the execution role's credentials — but through the private
+    constructor rather than through this door. It cannot be otherwise: the guard refuses any route
+    that has not declared the plane, no route declares it, and assuming is framework work that
+    happens for every route including the ones that must never reach the execution role. So the
+    declaration mechanism ships with no live subject and is exercised by tests alone until the
+    first queue write arrives, which is the route-declared use it was built for.
 
     Args:
       service: The AWS service name.

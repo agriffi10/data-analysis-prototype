@@ -348,12 +348,14 @@ def test_the_function_role_grants_logs_the_queue_and_ONE_assume_and_nothing_else
     """Rendered, not read as a template — a placeholder can expand into a grant.
 
     **SPEC-196 owns this edit, and made it in the same commit that added the statement.** Until
-    the identity layer landed this asserted zero statements naming STS, which was correct then
-    and goes red the moment the API is allowed to act as its caller. Left as it was, the repair a
-    builder reaches for is deleting the sweep — which also removes the session-store, key-store,
-    secrets-store and identity-provider guards that have nothing to do with this change. So it is
-    narrowed rather than dropped: exactly one STS statement, with both actions, on the portal role
-    and nothing else.
+    the identity layer landed this asserted an exact action set that named no STS action at all,
+    which was correct then and goes red the moment the API is allowed to act as its caller. Left
+    as it was, the repair a builder reaches for is deleting the assertion — and with it the only
+    thing standing between this role and a session store, a key store, a secrets store or a call
+    to the identity provider, none of which it has any business reaching. Those were implicit in
+    the exact set before; they are named explicitly now, so a narrowing is a narrowing rather than
+    a loss. The STS half is bounded instead of dropped: exactly one statement, both actions, on
+    the portal role and nothing else.
 
     Both actions matter and either alone is the trap. ``sts:AssumeRole`` without ``sts:TagSession``
     renders, plans, applies and unit-tests green, then fails at runtime with a refusal naming

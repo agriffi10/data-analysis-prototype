@@ -44,16 +44,6 @@ locals {
   portal_role_name = var.portal_role_name != "" ? var.portal_role_name : "${var.project_name}-portal-user-role"
   portal_role_arn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.portal_role_name}"
 
-  # API Lambda execution role ARN, constructed like every other cross-module role ARN here
-  # (module.api creates it as "${project}-${env}-api-role"). Root-constructed rather than read
-  # back as a module output, and the reason is plan-time knowability rather than a cycle:
-  # module.api consumes nothing from module.data, so a real reference would not be one. But an
-  # output is (known after apply) on any plan where the API role changes, and the portal role's
-  # trust policy is not a place to accept an unknown -- it would also order the portal role's
-  # creation behind the API on a fresh account, which is backwards. Every other role ARN that
-  # crosses a module boundary in this file is constructed for the same reason.
-  api_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-api-role"
-
   # Deploy role ARN, constructed the same cycle-free way (base creates the role as
   # "${project_name}-deploy-role"). Passed to the data module so the user-space
   # bucket policy can EXCLUDE the deploy role from its data-access Deny — without
@@ -563,7 +553,16 @@ module "data" {
   # caller, with the same tag set read from the same claims. The key set the statement admits is
   # built from the same two variables the function's environment carries, so the two cannot drift
   # apart by transcription.
-  api_execution_role_arn = local.api_execution_role_arn
+  #
+  # A REAL module reference, and it is the one cross-module role ARN in this file that must not be
+  # a constructed string. The others feed bucket-policy CONDITIONS -- `aws:PrincipalArn`
+  # comparisons, which are string matches needing no principal to exist. This one feeds a trust
+  # policy's `Principal.AWS`, which IAM VALIDATES: an ARN naming a role that does not exist yet is
+  # refused as a malformed policy document. module.data has no other tie to module.api, so without
+  # this edge a from-scratch apply is free to create the portal role first and fail. The value is
+  # (known after apply) only on the apply that creates the API role, and it feeds a policy document
+  # rather than a for_each, so an unknown there is benign.
+  api_execution_role_arn = module.api.api_execution_role_arn
   principal_tag_key      = var.principal_tag_key
   max_shared_memberships = var.max_shared_memberships
 
