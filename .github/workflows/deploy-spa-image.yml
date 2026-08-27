@@ -1,0 +1,337 @@
+name: Deploy SPA image
+
+# Builds the SPA image on every push to main, proves it, pushes it to the registry tagged by
+# commit sha, registers a task-definition revision carrying that tag, points the service at it and
+# WAITS — then asserts the service actually settled on what this run built.
+#
+# NO `paths:` FILTER, deliberately, and it is not an oversight. deploy-app.yml deploys the
+# CloudFront bundle on every push to main, and the container has to track main the same way: a
+# filter means the running image and HEAD diverge on any commit the filter misses, and "which
+# commit is in production" stops having an answer — which is the question the sha tagging exists to
+# answer. The PR-side gate (spa-image.yml) IS filtered, because it only proves the image.
+#
+# THE DISPATCH PATH IS NOT A CONVENIENCE. Two situations need it and neither is hypothetical.
+# Terraform registers task-definition revisions of its own — the service carries
+# `ignore_changes = [task_definition]` precisely so CI owns which revision runs — so a change to
+# the runtime-configuration map or the CSP produces a revision nobody points the service at, and
+# the running container keeps the old value until the next push to main. And if this pipeline
+# lands broken, the registry is IMMUTABLE: the failing sha cannot be re-pushed, and no local
+# identity may write to production. A dispatch with an existing tag re-points without rebuilding.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Tag to deploy. Empty means build this commit. Naming an EXISTING tag skips the build and only re-points the service.'
+        required: false
+        default: ''
+
+# Two overlapping deploys of one service is last-writer-wins, and cancelling one mid-flight leaves
+# a half-rolled service — so runs queue rather than race, and none is cancelled. The same reasoning
+# deploy-app.yml carries.
+concurrency:
+  group: deploy-spa-image
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # The build is ~3 minutes, the matrix ~2, and `wait services-stable` caps itself at 10. Twenty-five
+    # bounds a hung run clear of that without sitting against GitHub's six-hour default.
+    timeout-minutes: 25
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          # Cap the OIDC assume-role retries. The default is 12, and a connect timeout to STS once
+          # cost ~7 minutes per attempt — one job spent 82 minutes failing.
+          retry-max-attempts: 3
+
+      - name: Resolve the registry, the cluster and the tag
+        id: names
+        env:
+          PROJECT: ${{ vars.TF_VAR_project_name || 'dat' }}
+          ENVIRONMENT: ${{ vars.TF_VAR_environment || 'prod' }}
+          TAG_INPUT: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+
+          # CONSTRUCTED FROM THE SAME TWO VARIABLES TERRAFORM BUILDS IT FROM, then confirmed with a
+          # describe that NAMES it. An unfiltered describe-repositories authorizes against
+          # `repository/*` while the deploy role is scoped to this repository — so asking the
+          # registry "which one ends in -spa" needs a strictly WIDER grant than constructing the
+          # name does, and it was refused when it was tried.
+          NAME="${PROJECT}-${ENVIRONMENT}-spa"
+          if ! REPO=$(aws ecr describe-repositories --repository-names "$NAME" \
+                        --query 'repositories[0].repositoryUri' --output text 2>/dev/null); then
+            echo "::error title=Registry::no repository named $NAME. Terraform builds it from project_name and environment; set TF_VAR_project_name / TF_VAR_environment if this deployment does not use the defaults."
+            exit 1
+          fi
+
+          TAG="${TAG_INPUT:-$GITHUB_SHA}"
+
+          # A DISPATCH NAMES AN IMAGE THAT ALREADY EXISTS; it does not name a new one. Building
+          # under an arbitrary string bakes it as BUILD_VERSION and as the revision label, so the
+          # stamp stops being the commit that produced the image — which is the one question the
+          # whole tagging scheme exists to answer.
+          if [ -n "$TAG_INPUT" ] && [ "$TAG_INPUT" != "$GITHUB_SHA" ] \
+             && ! aws ecr describe-images --repository-name "$NAME" --image-ids imageTag="$TAG_INPUT" >/dev/null 2>&1; then
+            echo "::error title=Unknown tag::$TAG_INPUT is not in the registry. This input re-points at an image that already exists; leave it empty to build this commit."
+            exit 1
+          fi
+          {
+            echo "repo=$REPO"
+            echo "family=$NAME"
+            echo "cluster=$NAME"
+            echo "service=$NAME"
+            echo "tag=$TAG"
+          } >> "$GITHUB_OUTPUT"
+
+          # An existing tag means this run only re-points. The repository is IMMUTABLE, so a tag
+          # cannot be overwritten — treating that as a failure would make the workflow unrunnable
+          # exactly when only the pointing is needed.
+          if aws ecr describe-images --repository-name "$NAME" --image-ids imageTag="$TAG" >/dev/null 2>&1; then
+            echo "build=skip" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Already present::$NAME:$TAG is in the registry; this run only points the service."
+          else
+            echo "build=run" >> "$GITHUB_OUTPUT"
+          fi
+
+      # linux/amd64 EXPLICITLY: the task definition declares X86_64, and an arm64 image fails at
+      # task start with a manifest error that reads nothing like the architecture mismatch it is.
+      - name: Build
+        if: steps.names.outputs.build == 'run'
+        # Through `env:`, like every other value here. The tag can originate in a dispatch input,
+        # and a value interpolated straight into `run:` is a command-injection sink — and one
+        # carrying a newline could write a second line into $GITHUB_OUTPUT above.
+        env:
+          TAG: ${{ steps.names.outputs.tag }}
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64 \
+            -f apps/portal/Dockerfile \
+            --build-arg BUILD_VERSION="$TAG" \
+            -t "spa:$TAG" .
+
+      # BEFORE THE PUSH, so a wrong cache header never reaches a registry it cannot be deleted from.
+      # This is the same script the pull-request gate runs, against the same image.
+      - name: Assert the behaviour matrix
+        if: steps.names.outputs.build == 'run'
+        env:
+          TAG: ${{ steps.names.outputs.tag }}
+        run: .github/scripts/spa-image-matrix.sh "spa:$TAG" "$TAG"
+
+      - name: Push
+        if: steps.names.outputs.build == 'run'
+        env:
+          REPO: ${{ steps.names.outputs.repo }}
+          TAG: ${{ steps.names.outputs.tag }}
+        run: |
+          set -euo pipefail
+          aws ecr get-login-password --region "${{ vars.AWS_REGION }}" \
+            | docker login --username AWS --password-stdin "${REPO%%/*}"
+          docker tag "spa:${TAG}" "${REPO}:${TAG}"
+          docker push "${REPO}:${TAG}"
+
+      - name: Register a revision carrying this image
+        id: register
+        env:
+          FAMILY: ${{ steps.names.outputs.family }}
+          REPO: ${{ steps.names.outputs.repo }}
+          TAG: ${{ steps.names.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          # CLONED FROM THE FAMILY'S NEWEST ACTIVE REVISION, never from the one the service is
+          # currently running. After a rollback the service points at an OLDER revision, and
+          # cloning that would silently revert whatever Terraform last added to the environment
+          # block — a configuration key or a CSP term, gone, with a green deploy.
+          #
+          # TAGS ARE ASKED FOR EXPLICITLY. describe-task-definition omits them by default, so a
+          # clone without --include TAGS produces revisions that are untagged from here on, and
+          # every cost report and tag-based query silently stops seeing the running task.
+          aws ecs describe-task-definition --task-definition "$FAMILY" --include TAGS \
+            --output json > /tmp/described.json
+
+          # The read-only fields the register call refuses. Left in, it fails with a parameter
+          # error that reads as a malformed request rather than as a copied field. Tags travel
+          # beside the definition in the response and inside it in the request.
+          jq '.taskDefinition
+              | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities,
+                    .registeredAt, .registeredBy, .deregisteredAt)' /tmp/described.json > /tmp/base.json
+
+          jq --slurpfile described /tmp/described.json --arg image "${REPO}:${TAG}" \
+            '.containerDefinitions |= map(if .name == "spa" then .image = $image else . end)
+             | if ($described[0].tags // []) == [] then . else .tags = $described[0].tags end' \
+            /tmp/base.json > /tmp/next.json
+
+          # THE ENVIRONMENT BLOCK MUST SURVIVE THE CLONE, and this is where that is checked rather
+          # than discovered. Terraform derives one CONFIG_ entry per key of the runtime-configuration
+          # map, so a clone that lost the block — or a Terraform apply that never ran — produces a
+          # container that refuses to start, and the workflow would otherwise report only that the
+          # deployment failed.
+          declared=$(awk '/spa_runtime_config = \{/{f=1;next} f&&/^  \}/{exit} f&&/^    [A-Za-z_][A-Za-z0-9_]* *=/{n++} END{print n+0}' infra/main.tf)
+          if [ "$declared" -eq 0 ]; then
+            echo "::error title=Parse::could not count the runtime-configuration keys in infra/main.tf. A zero here would make the check below pass on an empty environment block."
+            exit 1
+          fi
+
+          # WAITS RATHER THAN FAILING ON THE FIRST READ, because the two workflows race. A commit
+          # that adds a configuration key triggers this pipeline AND the infrastructure apply, with
+          # no ordering between them: read too early and the newest revision predates the apply, so
+          # the count is short and main goes red on exactly the commits that change configuration.
+          # Read too late and it is fine. Polling makes the outcome deterministic instead of a
+          # coin-flip, and still fails loudly if the apply never happened at all.
+          carried=0
+          for _ in $(seq 1 20); do
+            carried=$(jq '[.containerDefinitions[] | select(.name=="spa") | .environment[] | select(.name | startswith("CONFIG_"))] | length' /tmp/next.json)
+            [ "$carried" -eq "$declared" ] && break
+            echo "the newest revision carries $carried of $declared configuration keys; waiting for the infrastructure apply"
+            sleep 15
+            aws ecs describe-task-definition --task-definition "$FAMILY" --include TAGS \
+              --output json > /tmp/described.json
+            jq '.taskDefinition
+                | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities,
+                      .registeredAt, .registeredBy, .deregisteredAt)' /tmp/described.json > /tmp/base.json
+            jq --slurpfile described /tmp/described.json --arg image "${REPO}:${TAG}" \
+              '.containerDefinitions |= map(if .name == "spa" then .image = $image else . end)
+               | if ($described[0].tags // []) == [] then . else .tags = $described[0].tags end' \
+              /tmp/base.json > /tmp/next.json
+          done
+
+          if [ "$carried" -ne "$declared" ]; then
+            echo "::error title=Configuration::the revision carries $carried CONFIG_ entries; root declares $declared, and five minutes was not enough for the infrastructure apply to register one that matches. A container missing part of its document refuses to start."
+            exit 1
+          fi
+          if ! jq -e '[.containerDefinitions[] | select(.name=="spa") | .environment[] | select(.name=="PORTAL_CSP_CONNECT_SRC")] | length == 1' /tmp/next.json >/dev/null; then
+            echo "::error title=Configuration::the revision does not carry PORTAL_CSP_CONNECT_SRC. The container would refuse to start."
+            exit 1
+          fi
+
+          # THE SWAP IS A `map` OVER A PREDICATE, AND A PREDICATE THAT MATCHES NOTHING RETURNS THE
+          # LIST UNCHANGED. There is no error in that: register succeeds, update-service points at a
+          # revision carrying the PREVIOUS image, the task is healthy, the wait returns and every
+          # assertion in the final step passes — a green deploy of whatever was running before,
+          # which for the first run is the placeholder. So the swap is checked rather than assumed.
+          if ! jq -e --arg want "${REPO}:${TAG}" \
+               '[.containerDefinitions[] | select(.name == "spa" and .image == $want)] | length == 1' \
+               /tmp/next.json >/dev/null; then
+            echo "::error title=Image::the clone does not carry ${REPO}:${TAG}. The container name the swap matches on has diverged from the one in the task definition."
+            jq -r '.containerDefinitions[] | "  \(.name) -> \(.image)"' /tmp/next.json
+            exit 1
+          fi
+
+          ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/next.json \
+                  --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "arn=$ARN" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Registered::$ARN carrying ${TAG} and $carried configuration keys"
+
+      - name: Point the service and wait for it to settle
+        env:
+          CLUSTER: ${{ steps.names.outputs.cluster }}
+          SERVICE: ${{ steps.names.outputs.service }}
+          ARN: ${{ steps.register.outputs.arn }}
+        run: |
+          set -euo pipefail
+
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" \
+            --task-definition "$ARN" --query 'service.taskDefinition' --output text
+
+          # `update-service` returns success the moment the API accepts the request, so a container
+          # that crashes at start would leave this workflow green over a service still running last
+          # week's image. Waiting is what makes a bad image able to fail the deploy.
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
+
+      - name: Assert the service settled on THIS revision
+        # Runs even when the wait failed, so a rollback is reported as a rollback rather than as
+        # "Max attempts exceeded" — the wait caps at 40 polls of 15 seconds and a rollback usually
+        # outlasts that.
+        if: always() && steps.register.outputs.arn != ''
+        env:
+          CLUSTER: ${{ steps.names.outputs.cluster }}
+          SERVICE: ${{ steps.names.outputs.service }}
+          ARN: ${{ steps.register.outputs.arn }}
+          EXPECTED_TAG: ${{ steps.names.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+            --query 'services[0]' --output json > /tmp/service.json
+
+          desired=$(jq -r '.desiredCount' /tmp/service.json)
+          running=$(jq -r '.runningCount' /tmp/service.json)
+          primary=$(jq -r '.deployments[] | select(.status=="PRIMARY") | .taskDefinition' /tmp/service.json)
+          rollout=$(jq -r '.deployments[] | select(.status=="PRIMARY") | .rolloutState // "NONE"' /tmp/service.json)
+
+          echo "desired=$desired running=$running rollout=$rollout"
+          echo "primary=$primary"
+          echo "wanted =$ARN"
+
+          # A SERVICE AT ZERO MAKES EVERY CHECK BELOW VACUOUS. `services-stable` returns instantly
+          # when nothing is meant to be running, `describe-services` reports the revision
+          # update-service just set, and a deliberately broken image deploys green. The count is a
+          # repository variable a human sets, so this fails loudly rather than skipping.
+          if [ "$desired" -eq 0 ]; then
+            echo "::error title=Not deployed::the service's desired count is 0, so nothing was proved. Set TF_VAR_spa_desired_count and run Deploy Infrastructure."
+            exit 1
+          fi
+          if [ "$running" -ne "$desired" ]; then
+            echo "::error title=Not running::$running of $desired tasks are running."
+            jq -r '.deployments[] | "  \(.status) \(.taskDefinition) \(.rolloutState // "-") \(.rolloutStateReason // "-")"' /tmp/service.json
+            jq -r '.events[:5][] | "  \(.message)"' /tmp/service.json
+            exit 1
+          fi
+
+          # THE CHECK THAT ACTUALLY CATCHES A BAD IMAGE TODAY, and it is worth being exact about
+          # which one that is. The circuit breaker runs with rollback DISABLED, so a failing
+          # deployment does not revert: PRIMARY stays on the revision this run registered, and the
+          # ARN comparison below cannot fire. `runningCount` does not catch it either — it counts
+          # the OLD deployment's healthy tasks, which satisfy the desired count while the new ones
+          # are dying. So detection rests here, on the rollout state, with the wait's own timeout
+          # as the thing that gets us to this point.
+          #
+          # `COMPLETED` and nothing else. Tolerating an absent state would make this vacuous
+          # exactly when the field stops being reported, which is the shape a check must not have.
+          if [ "$rollout" != "COMPLETED" ]; then
+            echo "::error title=Deployment did not complete::rollout state is $rollout."
+            jq -r '.deployments[] | "  \(.status) \(.taskDefinition) \(.rolloutState // "-") \(.rolloutStateReason // "-")"' /tmp/service.json
+            jq -r '.events[:5][] | "  \(.message)"' /tmp/service.json
+            exit 1
+          fi
+
+          # LIVE ONLY IF ROLLBACK IS EVER ENABLED, and kept for that reason. A rolled-back service
+          # is stable and healthy — running the PREVIOUS image — so stability would then be no
+          # evidence at all about what this run deployed. Keeping it costs nothing and means
+          # enabling rollback does not silently remove a check.
+          if [ "$primary" != "$ARN" ]; then
+            echo "::error title=Not this revision::the service settled on $primary, not the revision this run registered. Rollout: $rollout"
+            jq -r '.deployments[] | "  \(.status) \(.taskDefinition) \(.rolloutState // "-") \(.rolloutStateReason // "-")"' /tmp/service.json
+            exit 1
+          fi
+
+          # THE ARN IS NOT THE IMAGE. Comparing ARNs proves which revision the service settled on;
+          # it proves nothing about what that revision runs. Read back from the settled revision so
+          # the workflow's success statement is about the thing that was actually deployed.
+          settled_image=$(aws ecs describe-task-definition --task-definition "$ARN" \
+            --query 'taskDefinition.containerDefinitions[?name==`spa`].image' --output text)
+          if [ -z "$settled_image" ]; then
+            echo "::error title=Unreadable::could not read the settled revision's image."
+            exit 1
+          fi
+          if [ "${settled_image##*:}" != "$EXPECTED_TAG" ]; then
+            echo "::error title=Wrong image::the settled revision runs ${settled_image##*:}, not $EXPECTED_TAG."
+            exit 1
+          fi
+
+          echo "::notice title=Deployed::$ARN running $settled_image, $running/$desired tasks"
