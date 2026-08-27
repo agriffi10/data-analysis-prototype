@@ -1,0 +1,106 @@
+# The SPA's server. Every location includes the shared header snippet; see that file for why
+# omitting it from one block is invisible until somebody reads a response.
+
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    error_log /dev/stderr ${PORTAL_LOG_LEVEL};
+
+    # A container behind a load balancer must never emit a redirect naming its own listen port:
+    # the browser is told to go to :8080 on the balancer, which answers nothing. Relative
+    # Location values sidestep the whole question, including the trailing-slash 301 that
+    # `try_files`' directory element produces. `port_in_redirect` matters only for absolute
+    # redirects and is therefore already dead here — kept as a belt, not claimed as a control.
+    absolute_redirect off;
+    port_in_redirect off;
+
+    # ── The floor, for the responses no location ever sees ────────────────────
+    # nginx generates some errors BEFORE it resolves a location: a malformed request line, a
+    # malformed header, a URI past the buffer. Measured, those came back as HTML carrying no
+    # Cache-Control and not one security header — which is precisely the response shape the
+    # per-location discipline below exists to make impossible, arriving by the one route that
+    # discipline cannot reach.
+    #
+    # Declared here the inheritance rule works FOR us: a location that sets its own add_header
+    # overrides this level entirely, so every class below keeps its own cache value and its own
+    # copy of the snippet, and only the responses that match no location fall back to these.
+    add_header Cache-Control "no-store" always;
+    include /tmp/nginx-conf/snippets/security-headers.conf;
+
+    # ── The shell, and the 200 that cannot be believed ────────────────────────
+    # Client-side routes must survive a direct load and a reload, so anything unmatched answers
+    # the shell with a 200. That reproduces what the distribution did, INCLUDING its trap: a
+    # deleted root-level file still answers 200, so a removal is never verifiable by status code
+    # — read `content-type` instead.
+    #
+    # DO NOT ADD `location = /index.html`. The fallback below is an internal redirect that
+    # re-enters location matching, so a more specific block for that path would silently steal
+    # the fallback's headers and every deep link would lose its cache class.
+    location / {
+        add_header Cache-Control "no-cache" always;
+        include /tmp/nginx-conf/snippets/security-headers.conf;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # ── Content-hashed assets ─────────────────────────────────────────────────
+    # Scoped by PREFIX, never by extension: this directory carries fonts and source maps beside
+    # the js and css, and an extension rule misses them.
+    #
+    # `=404` rather than the fallback, and that is the one deliberate divergence from the
+    # distribution: a missing hashed chunk gets an honest 404. It used to answer `index.html` as
+    # `text/html` to a `<script type="module">` request, which failed the MIME check anyway —
+    # more confusingly, and with no way to tell "removed" from "never existed".
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        include /tmp/nginx-conf/snippets/security-headers.conf;
+
+        # The build writes a .gz beside every compressible asset, so the maximum-ratio artefact
+        # is served with no per-request CPU. Declared here and nowhere else: globally it would
+        # change the shell's behaviour the moment a .gz appeared beside index.html.
+        gzip_static on;
+
+        try_files $uri =404;
+        error_page 404 = @asset_missing;
+    }
+
+    # The honest 404's body. `return 404;` with no body string emits nginx's stock HTML page and
+    # ignores `default_type` entirely — measured — so the body is stated. The content-type still
+    # varies with the request's extension, because nginx fixes it before `error_page` runs; what
+    # matters, and what is asserted, is that it is never `text/html`.
+    location @asset_missing {
+        add_header Cache-Control "no-store" always;
+        include /tmp/nginx-conf/snippets/security-headers.conf;
+        default_type text/plain;
+        return 404 "not found\n";
+    }
+
+    # ── The runtime configuration document ────────────────────────────────────
+    # `root /tmp` rather than an alias: same resolved path, no alias-remainder semantics for a
+    # later edit to get wrong. Reached by no fallback, so a container whose render failed answers
+    # 404 here rather than handing the browser a shell it cannot configure.
+    #
+    # `no-store` because a document answered from a cache populated in another environment renders
+    # a working, fully-functional portal pointed at the wrong account, and nothing on screen
+    # distinguishes it from a healthy one.
+    location = /config.json {
+        root /tmp;
+        add_header Cache-Control "no-store" always;
+        include /tmp/nginx-conf/snippets/security-headers.conf;
+        default_type application/json;
+    }
+
+    # ── The health endpoint ───────────────────────────────────────────────────
+    # EXACT MATCH, and that is the whole point of it. As a prefix it would be reachable by the
+    # fallback, and with the fallback answering 200 for everything, a load balancer probing any
+    # path reads an entirely broken container as healthy and keeps it in rotation forever.
+    location = /healthz {
+        access_log off;
+        add_header Cache-Control "no-store" always;
+        include /tmp/nginx-conf/snippets/security-headers.conf;
+        default_type text/plain;
+        return 200 "ok";
+    }
+}

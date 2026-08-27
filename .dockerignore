@@ -1,0 +1,22 @@
+# Read from the CONTEXT ROOT, which is this directory — the build needs the workspace's manifests,
+# so it cannot be scoped to apps/portal/, and an ignore file placed beside the Dockerfile would be
+# consulted by nothing.
+#
+# A .env reaching the build context is a secret leak that no test of the built image can see: the
+# runtime stage copies only dist/, so anything that leaks in is invisible downstream and permanent
+# upstream. The build stage asserts these are absent for that reason.
+
+.git
+.github
+.claude
+node_modules
+**/node_modules
+**/.env
+**/.env.*
+infra
+lambdas
+docs
+**/dist
+**/coverage
+htmlcov
+**/__pycache__
