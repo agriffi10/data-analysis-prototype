@@ -473,8 +473,14 @@ def test_the_connect_src_moved_to_root_carrying_every_term_plus_the_api() -> Non
     )
 
 
-def test_the_app_module_reads_the_connect_src_and_no_longer_builds_it() -> None:
+def test_the_app_module_reads_the_policy_and_no_longer_builds_any_of_it() -> None:
     """Two builders would drift, and the deployed one is not the one a reader opens.
+
+    The seam has moved twice. It was four inputs assembled here; then ``connect-src`` at root with
+    the policy still assembled here; now the whole policy arrives from root, because the container
+    needs the same computation and a check at root cannot read a local inside a module.
+    ``test_csp_policy.py`` owns the policy's content — this asserts only that nothing is rebuilt
+    here.
 
     Args:
       None.
@@ -483,15 +489,19 @@ def test_the_app_module_reads_the_connect_src_and_no_longer_builds_it() -> None:
       None.
 
     Raises:
-      AssertionError: If the module still assembles the list, or stopped reading the input.
+      AssertionError: If the module assembles either local, or stopped reading the input.
     """
     source = APP_CLOUDFRONT.read_text()
 
     assert "csp_connect_src = join(" not in source, (
         "modules/app must not build connect-src — root does, because the API's origin lives there"
     )
-    assert "connect-src ${var.csp_connect_src}" in source, (
-        "the CSP must interpolate the list root passes in"
+    assert "content_security_policy = join(" not in source, (
+        "modules/app must not assemble the policy — root does, so one computation feeds both the "
+        "distribution and the container, and so this module's retirement orphans nothing"
+    )
+    assert "content_security_policy = var.content_security_policy" in source, (
+        "the response-headers policy must emit the string root passes in"
     )
 
 

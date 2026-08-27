@@ -12,54 +12,12 @@ resource "aws_cloudfront_origin_access_control" "static_assets" {
 # Closes Checkov CKV2_AWS_32 and every Medium plus six of eight Low
 # findings from the 2026-08-03 ZAP baseline — two scanners reporting one gap.
 #
-# The CSP is assembled from variables, never literals: a hardcoded region or
-# bucket would have to be found and edited by hand during the client-environment
-# transition (docs/transition_plan.md).
-#
-# The CSP is ENFORCING (Phase 4). It shipped report-only first, and that was not
-# ceremony: a CSP wrong about `worker-src` or `style-src` breaks the Monaco
-# editor in production and nowhere else, because no unit test observes a CSP.
-# Report-only earned its keep twice — it caught the fonts.googleapis.com
-# omission below, and it exposed that Safari will not evaluate a report-only
-# policy naming no reporting endpoint (so an unverified CSP would have looked
-# verified). Promotion happened as its own commit, revertible alone.
-
-locals {
-  content_security_policy = join("; ", [
-    "default-src 'self'",
-    "script-src 'self'",
-    # 'unsafe-inline' is for STYLES ONLY, and it is monaco-editor's requirement:
-    # it injects <style> elements at runtime for theming. Scripts get no such
-    # allowance, which is the allowance that matters.
-    #
-    # fonts.googleapis.com is NOT optional: src/index.css line 1 is
-    # `@import url('https://fonts.googleapis.com/css2?family=Inter…')`, and Vite
-    # leaves remote @imports in the built CSS. Without this the app loses its
-    # typeface site-wide — caught by the Phase 3 harness before it ever reached
-    # an enforcing policy.
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "img-src 'self' data:",
-    # The Google stylesheet above serves its actual font files from gstatic.
-    "font-src 'self' data: https://fonts.gstatic.com",
-    # Monaco's worker is a Vite `?worker` import (SqlEditor.tsx). Vite emits a
-    # same-origin chunk, but its worker shim can fall back to a blob: URL.
-    "worker-src 'self' blob:",
-    "connect-src ${var.csp_connect_src}",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    # These two are INERT in report-only by spec — Safari says so out loud
-    # ("directive is ignored when delivered in a report-only policy"). They
-    # take effect only now that the policy is enforcing, so report-only never
-    # tested them. Both were assessed instead of assumed:
-    #   frame-ancestors — its enforcing twin X-Frame-Options: DENY has been
-    #     live since Phase 2 and nothing broke, so framing is already proven.
-    #   upgrade-insecure-requests — every subresource is already https
-    #     (same-origin assets, Google Fonts, AWS endpoints), so it is a no-op.
-    "frame-ancestors 'none'",
-    "upgrade-insecure-requests",
-  ])
-}
+# THE POLICY STRING ITSELF IS NOT BUILT HERE. It arrives assembled from root, so
+# that one computation feeds both delivery paths — this distribution and the
+# container — and so that a root-level check has something it can read. A local
+# inside a module is invisible to one, and this module is deleted when the
+# distribution is retired, which would orphan the computation the container
+# depends on.
 
 resource "aws_cloudfront_response_headers_policy" "portal" {
   name    = "${var.project_name}-security-headers"
@@ -106,7 +64,7 @@ resource "aws_cloudfront_response_headers_policy" "portal" {
     # running a statement included, which is the path exercising Monaco's
     # worker, its runtime style injection and the Athena/Glue endpoints.
     content_security_policy {
-      content_security_policy = local.content_security_policy
+      content_security_policy = var.content_security_policy
       override                = true
     }
   }

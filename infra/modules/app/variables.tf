@@ -3,11 +3,11 @@ variable "project_name" {
   type        = string
 }
 
-# The four below exist only to build the CSP's connect-src. They are
-# passed as constructed strings from root locals, never as module outputs: this
-# module is upstream of base -> data, so a module reference would be a cycle.
+# The policy string arrives whole. It used to be assembled here from four
+# constructed strings, and before that from `csp_connect_src` alone; both are
+# gone. The reasoning for the move lives beside the computation at root.
 
-variable "csp_connect_src" {
-  description = "The whole connect-src directive, built at root. It used to be assembled here from four inputs; it moved out because the API's origin has to join it and root is where that origin exists — and because three consumers now need the list where only this module did before."
+variable "content_security_policy" {
+  description = "The assembled Content-Security-Policy header value, computed once at root and shared with the container so both delivery paths emit one policy. Never built here: a local inside this module is unreadable to a root-level check, and this module is deleted when the distribution is retired."
   type        = string
 }

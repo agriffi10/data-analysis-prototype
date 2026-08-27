@@ -351,6 +351,61 @@ locals {
     local.api_origin,
   ])
 
+
+  # ── The Content-Security-Policy, assembled once ─────────────────────────────
+  # AT ROOT, and that placement is the decision. `connect-src` above is one
+  # directive of this policy; every other directive describes the BUNDLE — what
+  # it may execute, style, fetch a font from, spawn a worker as — so the two
+  # halves have different owners and only this one is environment-shaped.
+  #
+  # Three consumers read the result and none of them could read a module local:
+  # the distribution's response-headers policy, the container's nginx (which
+  # takes only `connect-src` and carries the rest in its own image), and the
+  # checks that assert the two agree. `modules/app` is also deleted when the
+  # distribution is retired, which would orphan this computation entirely.
+  #
+  # The policy is ENFORCING. It shipped report-only first, and that was not
+  # ceremony: a CSP wrong about `worker-src` or `style-src` breaks the Monaco
+  # editor in production and nowhere else, because no unit test observes a CSP.
+  # Report-only earned its keep twice — it caught the fonts.googleapis.com
+  # omission below, and it exposed that Safari will not evaluate a report-only
+  # policy naming no reporting endpoint (so an unverified CSP would have looked
+  # verified).
+  content_security_policy = join("; ", [
+    "default-src 'self'",
+    "script-src 'self'",
+    # 'unsafe-inline' is for STYLES ONLY, and it is monaco-editor's requirement:
+    # it injects <style> elements at runtime for theming. Scripts get no such
+    # allowance, which is the allowance that matters.
+    #
+    # fonts.googleapis.com is NOT optional: src/index.css line 1 is
+    # `@import url('https://fonts.googleapis.com/css2?family=Inter…')`, and Vite
+    # leaves remote @imports in the built CSS. Without this the app loses its
+    # typeface site-wide — caught by the Phase 3 harness before it ever reached
+    # an enforcing policy.
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "img-src 'self' data:",
+    # The Google stylesheet above serves its actual font files from gstatic.
+    "font-src 'self' data: https://fonts.gstatic.com",
+    # Monaco's worker is a Vite `?worker` import (SqlEditor.tsx). Vite emits a
+    # same-origin chunk, but its worker shim can fall back to a blob: URL.
+    "worker-src 'self' blob:",
+    "connect-src ${local.csp_connect_src}",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    # These two are INERT in report-only by spec — Safari says so out loud
+    # ("directive is ignored when delivered in a report-only policy"). They
+    # take effect only now that the policy is enforcing, so report-only never
+    # tested them. Both were assessed instead of assumed:
+    #   frame-ancestors — its enforcing twin X-Frame-Options: DENY has been
+    #     live since Phase 2 and nothing broke, so framing is already proven.
+    #   upgrade-insecure-requests — every subresource is already https
+    #     (same-origin assets, Google Fonts, AWS endpoints), so it is a no-op.
+    "frame-ancestors 'none'",
+    "upgrade-insecure-requests",
+  ])
+
   # ── The runtime configuration document, as the container receives it ────────
   # Every key the portal's runtime-configuration classification declares, with its value. The
   # container renders /config.json from these; the CloudFront build renders the same document
@@ -395,10 +450,10 @@ module "app" {
 
   project_name = var.project_name
 
-  # The whole connect-src, built at root. It used to be assembled inside this module from
-  # four inputs; it moved out because the API's origin has to join it and root is where
-  # that origin exists.
-  csp_connect_src = local.csp_connect_src
+  # The whole policy, built at root. It used to be assembled inside this module; it moved
+  # out so one computation feeds both delivery paths, so a root-level check has a referent
+  # it can read, and because this module does not outlive the distribution.
+  content_security_policy = local.content_security_policy
 }
 
 module "base" {
