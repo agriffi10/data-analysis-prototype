@@ -1,7 +1,7 @@
 # Spec: The AWS Identity Layer — Role Assumption, the Two Credential Planes
 
 **ID:** SPEC-196
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-27
 **Depends On:** SPEC-011 (the Identity Pool ABAC model this spec preserves — the `username` principal tag stamped server-side from the verified claim), SPEC-013/016/032/056 (the portal role's prefix-, Glue- and membership-scoped policies that must keep enforcing unchanged), SPEC-033 (the catalog-safe username rule the session name is validated against), SPEC-106 (`toUserMessage` — raw AWS text is never rendered), SPEC-127→137 (`cpcommon.observability`, the one door, and the field rule), SPEC-186 (`env` + `version` on every log record; the deployed-role IAM simulation discipline), SPEC-193 (the API Lambda, its execution role and the placeholder route this spec proves itself with), SPEC-195 (the API's auth boundary — the verified ID token whose claims this layer reads its tag values from)
 

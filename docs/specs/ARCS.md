@@ -1908,6 +1908,14 @@ Arc A lands; an API built around a synchronous folder copy sets its own shape.
 - **AWS credentials never reach the browser.** The API assumes a role carrying the user's identity —
   a `username` session tag now, an Identity Center identity context later — and makes the calls
   itself. Every existing IAM policy, bucket policy and Lake Formation grant keeps enforcing unchanged.
+
+  > **CORRECTED by SPEC-196 as built (2026-08-27): "a `username` session tag" understates it.** The
+  > identity is **eleven** tags — `username` plus one `shared_space_k` per occupied membership slot —
+  > and the slots are the half that fails **silently**. Stamp `username` alone and personal S3,
+  > personal Glue, notifications and the file browser all keep working; only shared spaces refuse,
+  > which is indistinguishable from the propagation delay the product already documents and already
+  > offers a recovery for. The slot tags are also the half SPEC-196 **cannot prove live** — nothing
+  > it ships touches a shared space — so that proof is owed to SPEC-198.
 - **File bytes: presigned URLs**, both directions. The browser talks to S3 for bytes only, which is
   why **bucket CORS is still required** for the new origin. **In the target this survives only if the
   API can presign from `GetDataAccess`-vended credentials — gate G9** (`transition_plan.md` §5.5,
