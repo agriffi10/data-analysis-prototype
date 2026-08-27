@@ -1,9 +1,19 @@
-"""Route table for the portal API — one function serves every path, so routing is internal.
+"""Route table for the portal API, and the gate every route but one passes through.
 
 API Gateway sends every request to one integration through a ``$default`` route, which means the
 route table lives here rather than in the API's configuration. That is the arc's decision and not
 an accident of the placeholder: a per-route integration would put the route list in two places, and
-the authorization this arc adds later resolves a principal once, before dispatch.
+the authorization below resolves a principal once, before dispatch.
+
+**Deny by default.** A principal is resolved before any handler is invoked, and a route that has
+not declared itself public does not run — including a route that does not exist, which is refused
+as unauthenticated rather than reported as absent. The distinction matters both ways: a router
+that defaults to public passes every other test in this module, because every other test declares
+its route; and a 404 to an unauthenticated caller tells them which paths exist.
+
+**The gate is a module this calls, not logic written here.** The target environment splits the two
+— a Lambda authorizer decides, a worker serves — and what makes that a wiring change rather than a
+rewrite is that the verifier has no dependency on this file.
 
 **This module emits no CORS header of any kind, and that is a rule rather than an omission.** CORS
 is configured on the API. AWS documents that an HTTP API with a CORS configuration *ignores* CORS
@@ -11,24 +21,41 @@ headers returned by the backend integration, so a header emitted here would not 
 but the rule stands on its own ground: two places able to answer the same question is how they come
 to disagree, and the one that would win is not the one a reader is looking at.
 
-What routes exist today is deliberately almost nothing. The placeholder proves the pipeline — the
-deploy matrix, the layer attachment, the environment contract and the log record — and a later spec
-replaces the table wholesale.
-
 Attributes:
-  HEALTH_PATH: The one path with a handler of its own.
+  HEALTH_PATH: The one path with a handler of its own and no credential.
+  PUBLIC_ROUTES: Every route reachable without a token. Exactly one, and it returns nothing
+    user-identifying — a health check that needed a token could not be used by a load balancer.
+  ROUTES: Method and path to the handler serving it. A route absent from here does not run, and
+    a route present here runs only for a caller who has been identified.
   JSON_CONTENT_TYPE: The content type every response carries, success or not.
-  MAX_ECHOED_CHARS: How much of a caller-supplied method or path a refusal echoes back.
+  MAX_ECHOED_CHARS: How much of a caller-supplied method or path travels anywhere — into a
+    refusal body, and into the log record's ``route`` field. The second is easy to forget and is
+    the one that keeps costing: the response is obviously caller-facing, while a log field reads
+    as internal, so an unbounded path lands whole in the operator store and is billed, retained
+    and searched forever.
 """
 
 import json
+from collections.abc import Callable, Mapping
 from typing import Any
 
+from apicommon import errors, principal
+from apicommon.config import ConfigError
+from apicommon.context import RequestContext
+from cpcommon import observability
+from cpcommon.auth import AuthError, VerifierUnavailable
 from cpcommon.observability import build_version
+from routes.whoami import whoami
 
 HEALTH_PATH = "/healthz"
 JSON_CONTENT_TYPE = "application/json"
 MAX_ECHOED_CHARS = 128
+
+PUBLIC_ROUTES = frozenset({("GET", HEALTH_PATH)})
+
+ROUTES: dict[tuple[str, str], Callable[[RequestContext], dict[str, Any]]] = {
+    ("GET", "/_auth/whoami"): whoami,
+}
 
 
 def _response(status: int, body: dict[str, Any]) -> dict[str, Any]:
@@ -78,7 +105,10 @@ def _health() -> dict[str, Any]:
 
 
 def _not_found(method: str, path: str) -> dict[str, Any]:
-    """Refuses a path this router does not serve.
+    """Refuses a path this router does not serve, for a caller who has been identified.
+
+    Only reachable after authentication, deliberately: an unidentified caller gets the same 401
+    whatever path they ask for, so this cannot be used to learn which routes exist.
 
     Both values are caller-controlled and are echoed back, so both are truncated. The body is
     served as JSON and never as HTML, so this is a size bound rather than an escaping one — a
@@ -104,19 +134,77 @@ def _not_found(method: str, path: str) -> dict[str, Any]:
     )
 
 
-def route(method: str, path: str) -> dict[str, Any]:
-    """Dispatches one request to its handler.
+def _refuse(reason: str, route: str, request_id: str) -> dict[str, Any]:
+    """Emits the refusal record and returns the one 401.
+
+    The record carries a fixed reason code, the route and the request id — and no token, no
+    Authorization header, no raw event and no email. The caller learns none of it.
 
     Args:
-      method: The request's HTTP method, uppercased by the caller.
-      path: The request's path, without the stage or query string.
+      reason: The fixed literal naming which check refused.
+      route: The method and path asked for.
+      request_id: The gateway's id for this request.
 
     Returns:
-      The response for that method and path, or a 404 when no route matches.
+      The 401 response.
 
     Raises:
       None.
     """
-    if method == "GET" and path == HEALTH_PATH:
+    observability.warning(
+        "request refused", reason=reason, route=route, request_id=request_id
+    )
+    return errors.unauthenticated()
+
+
+def route(
+    method: str,
+    path: str,
+    headers: Mapping[str, str] | None = None,
+    request_id: str = "",
+) -> dict[str, Any]:
+    """Identifies the caller, then dispatches.
+
+    A misconfiguration and an unreachable provider are answered with a server fault and NEVER
+    with a 401. Neither says anything about the caller's token: one is this API misconfigured,
+    the other is the provider not answering. Refusing them as unauthenticated would send every
+    user through a token refresh that cannot help, and would present an outage as a login problem.
+
+    Args:
+      method: The request's HTTP method, uppercased by the caller.
+      path: The request's path, without the stage or query string.
+      headers: The request's headers, the only place a credential is read from.
+      request_id: The gateway's id for this request, for the log record.
+
+    Returns:
+      The response for that method and path.
+
+    Raises:
+      AttributeError: If ``headers`` is not a mapping of strings.
+      TypeError: If the method or path is not a string.
+
+      Both are fail-closed and neither can reach a handler, so they surface as a gateway error
+      that discloses nothing. They are named rather than claimed absent because a shape the
+      type contract forbids is still a shape a caller can construct.
+    """
+    asked_for = f"{method[:MAX_ECHOED_CHARS]} {path[:MAX_ECHOED_CHARS]}"
+    if (method, path) in PUBLIC_ROUTES:
         return _health()
-    return _not_found(method, path)
+
+    try:
+        caller = principal.resolve(headers or {})
+    except AuthError as exc:
+        return _refuse(str(exc), asked_for, request_id)
+    except (ConfigError, VerifierUnavailable) as exc:
+        observability.error(
+            "request could not be served",
+            reason=type(exc).__name__,
+            route=asked_for,
+            request_id=request_id,
+        )
+        return errors.server_fault()
+
+    handler = ROUTES.get((method, path))
+    if handler is None:
+        return _not_found(method, path)
+    return _response(200, handler(RequestContext(caller, asked_for, request_id)))
