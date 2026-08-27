@@ -82,12 +82,33 @@ variable "max_shared_memberships" {
   description = "Number of shared-space membership slots per user (Cognito custom attributes custom:shared_space_1..N + Identity-Pool principal tags shared_space_1..N + portal-role policy slots). Single source for the slot count across auth/data/shared-spaces. Bounded because a Cognito Identity Pool maps each claim to exactly one single-valued principal tag; raising it enlarges the portal-role policy (see docs/architecture.md, Bucket 2 membership slots)."
   type        = number
   default     = 10
+
+  # An empty repo variable renders as the empty string, which is not a number — but a zero or a
+  # negative one plans clean and would leave the API stamping no membership tags at all, which
+  # presents as the documented propagation delay rather than as a fault.
+  validation {
+    condition     = var.max_shared_memberships >= 1
+    error_message = "max_shared_memberships must be at least 1. Zero would stamp no membership tags, which presents as the propagation delay rather than as a failure."
+  }
 }
 
 variable "principal_tag_key" {
-  description = "IAM principal-tag key carrying the username. Scopes the portal role's analytics Glue/results ARNs. Default 'username' — matches the Identity Pool attribute mapping."
+  description = "IAM principal-tag key carrying the username. Scopes the portal role's analytics Glue/results ARNs, and bounds the portal role's API trust statement. Default 'username' — matches the Identity Pool attribute mapping."
   type        = string
   default     = "username"
+
+  # Pinned to the literal, and the validation is the point rather than the default. This key is
+  # hard-coded in identity-pool.tf's principal_tags map and in two of the portal role's
+  # permission templates, none of which this variable reaches — so "one variable feeds both,
+  # therefore they cannot drift" is false. An empty repo variable satisfies a required variable
+  # AND overrides a default, so a TF_VAR override would silently produce sessions whose tags
+  # match no policy statement: AccessDenied on every API path, the browser path still working,
+  # and nothing naming the cause. Refuse it at plan instead. Changing this key means threading it
+  # through those three sites first, and this line is the reminder.
+  validation {
+    condition     = var.principal_tag_key == "username"
+    error_message = "principal_tag_key must be \"username\" while identity-pool.tf and the portal-role permission templates hard-code it. Thread the variable through those first, then change this."
+  }
 }
 
 # NOTE: the post-confirmation Lambda exec role ARN that module.analytics

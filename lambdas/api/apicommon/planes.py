@@ -52,6 +52,7 @@ NO_ROUTE = ("", "")
 
 ROUTE_PLANES: Mapping[tuple[str, str], frozenset[Plane]] = {
     ("GET", "/_auth/whoami"): frozenset(),
+    ("GET", "/_identity/self"): frozenset(),
 }
 
 _CURRENT_ROUTE: ContextVar[tuple[str, str]] = ContextVar("current_route", default=NO_ROUTE)

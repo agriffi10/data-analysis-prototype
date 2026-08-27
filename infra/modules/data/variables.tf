@@ -97,3 +97,20 @@ variable "user_directory_build_role_arn" {
   type        = string
   default     = ""
 }
+
+variable "api_execution_role_arn" {
+  description = "ARN of the API Lambda's execution role, admitted by the portal role's second trust statement so the API can act as its caller. A root-constructed string like every other cross-module role ARN here: a module output would be (known after apply) on any plan where the API role changes, and would order this role's creation behind the API on a fresh account."
+  type        = string
+}
+
+variable "principal_tag_key" {
+  description = "The session-tag key carrying the username. Bounds the trust statement's sts:TagKeys list. NOT threaded into the permission templates, which hard-code the literal -- editing those is forbidden while both credential paths run, so the agreement is asserted by test instead of made structural."
+  type        = string
+  default     = "username"
+}
+
+variable "max_shared_memberships" {
+  description = "Number of shared-space membership slots. Sizes the trust statement's sts:TagKeys list, and is the same variable that sizes the Cognito attributes, the Identity Pool tag map and the portal role's shared-space policy."
+  type        = number
+  default     = 10
+}

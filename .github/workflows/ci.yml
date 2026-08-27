@@ -85,6 +85,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Full history, for one reason: the portal-role preservation guard compares the
+          # permission templates against their pre-change blob with `git show`, and the
+          # default shallow clone has no such blob. The guard FAILS rather than skips when
+          # the blob is unreachable, so a shallow checkout would redden here rather than
+          # quietly passing -- but it would redden for the wrong reason.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v7

@@ -44,6 +44,16 @@ locals {
   portal_role_name = var.portal_role_name != "" ? var.portal_role_name : "${var.project_name}-portal-user-role"
   portal_role_arn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.portal_role_name}"
 
+  # API Lambda execution role ARN, constructed like every other cross-module role ARN here
+  # (module.api creates it as "${project}-${env}-api-role"). Root-constructed rather than read
+  # back as a module output, and the reason is plan-time knowability rather than a cycle:
+  # module.api consumes nothing from module.data, so a real reference would not be one. But an
+  # output is (known after apply) on any plan where the API role changes, and the portal role's
+  # trust policy is not a place to accept an unknown -- it would also order the portal role's
+  # creation behind the API on a fresh account, which is backwards. Every other role ARN that
+  # crosses a module boundary in this file is constructed for the same reason.
+  api_execution_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-api-role"
+
   # Deploy role ARN, constructed the same cycle-free way (base creates the role as
   # "${project_name}-deploy-role"). Passed to the data module so the user-space
   # bucket policy can EXCLUDE the deploy role from its data-access Deny — without
@@ -548,6 +558,14 @@ module "data" {
   user_space_bucket_name = local.user_space_bucket_name
   portal_role_name       = local.portal_role_name
   deploy_role_arn        = local.deploy_role_arn
+
+  # The portal role's SECOND trust statement: the API assumes this same role to act as its
+  # caller, with the same tag set read from the same claims. The key set the statement admits is
+  # built from the same two variables the function's environment carries, so the two cannot drift
+  # apart by transcription.
+  api_execution_role_arn = local.api_execution_role_arn
+  principal_tag_key      = var.principal_tag_key
+  max_shared_memberships = var.max_shared_memberships
 
   # Excluded from the bucket-policy data-access Deny so Lake Formation (assuming
   # this role) can read the registered location when serving Athena queries.
@@ -1381,6 +1399,13 @@ module "api" {
   # this provider rather than about the verifier. Keeping it at the composition root leaves the
   # module and every Python module downstream treating the URL as opaque — so swapping the
   # provider is this line plus the four beside it.
+  # The identity layer. The role is the EXISTING portal role, named by the same local the
+  # Identity Pool's role attachment uses -- reusing it is what keeps the user-space bucket
+  # policy's hand-maintained allowlist correct without a new entry.
+  portal_role_arn        = local.portal_role_arn
+  principal_tag_key      = var.principal_tag_key
+  max_shared_memberships = var.max_shared_memberships
+
   oidc_issuer          = local.cognito_issuer
   oidc_audience        = module.auth.user_pool_client_id
   oidc_jwks_uri        = "${local.cognito_issuer}/.well-known/jwks.json"

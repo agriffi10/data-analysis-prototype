@@ -13,6 +13,30 @@ resource "time_sleep" "wait_for_portal_role_perms" {
   create_duration = "30s"
 }
 
+# The API's second door onto this role, and what its conditions can and cannot do.
+#
+# Both credential paths run side by side for the whole arc: the browser keeps exchanging its ID
+# token with the Identity Pool, and the API assumes THE SAME ROLE with THE SAME TAG SET read from
+# THE SAME CLAIMS. That is what makes "not one IAM policy, bucket policy or Lake Formation grant is
+# rewritten" a provable statement rather than an argument -- a policy sees a session tag, not who
+# stamped it.
+#
+# BOTH actions are required and either alone is a trap: sts:AssumeRole without sts:TagSession
+# renders, plans, applies and unit-tests green, then fails at runtime with an AccessDenied naming
+# neither the tag nor the missing action. It reads as a permissions bug in whichever feature
+# happened to call first.
+#
+# STATE THE LIMIT HONESTLY. `sts:TagKeys` constrains which tag KEYS may appear. It does NOT
+# constrain their VALUES, and IAM offers no way to. It is also a CEILING and not a floor:
+# ForAllValues:StringEquals is satisfied by a request carrying a subset of the listed keys, and
+# equally by one carrying none at all -- so this cannot require that `username` was stamped.
+# The unspoofability argument rests entirely on where the value comes from: a claim of a
+# signature-verified ID token, and nothing else the request carries. Not on this condition.
+#
+# The `Null` condition requires transitive tag keys to be ABSENT. A transitive tag survives role
+# chaining; nothing here chains onward, and a tag that outlives its session is a durable
+# escalation. Its value is the STRING "true" -- a JSON boolean is a MalformedPolicyDocument at
+# apply.
 resource "aws_iam_role" "portal" {
   name = var.portal_role_name
 
@@ -21,6 +45,15 @@ resource "aws_iam_role" "portal" {
   # required for the principal tag mapping to take effect).
   assume_role_policy = templatefile("${path.module}/policies/portal-role-trust.json.tftpl", {
     identity_pool_id = var.identity_pool_id
+
+    api_execution_role_arn = var.api_execution_role_arn
+
+    # Built from the same two variables the function's own environment carries, so the key set
+    # the API stamps and the key set this statement admits cannot drift apart by transcription.
+    session_tag_keys = jsonencode(concat(
+      [var.principal_tag_key],
+      [for k in range(1, var.max_shared_memberships + 1) : "shared_space_${k}"]
+    ))
   })
 
   depends_on = [time_sleep.wait_for_portal_role_perms]

@@ -62,6 +62,7 @@ _IDENTITY_VARS = {
     "PORTAL_ROLE_ARN": "PORTAL_ROLE_ARN",
     "PRINCIPAL_TAG_KEY": "PRINCIPAL_TAG_KEY",
     "MAX_SHARED_MEMBERSHIPS": "MAX_SHARED_MEMBERSHIPS",
+    "USER_SPACE_BUCKET": "USER_SPACE_BUCKET",
 }
 
 
@@ -198,3 +199,18 @@ def max_shared_memberships() -> int:
             f"{_IDENTITY_VARS['MAX_SHARED_MEMBERSHIPS']} must be at least 1"
         )
     return slots
+
+
+def user_space_bucket() -> str:
+    """Returns the bucket holding every user's personal prefix.
+
+    Args:
+      None.
+
+    Returns:
+      The bucket name.
+
+    Raises:
+      ConfigError: If the variable is unset or empty.
+    """
+    return _require(_IDENTITY_VARS["USER_SPACE_BUCKET"])

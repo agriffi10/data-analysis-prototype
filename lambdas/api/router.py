@@ -45,6 +45,7 @@ from apicommon.context import RequestContext
 from cpcommon import observability
 from cpcommon.auth import AuthError, VerifierUnavailable
 from cpcommon.observability import build_version
+from routes.identity_self import identity_self
 from routes.whoami import whoami
 
 HEALTH_PATH = "/healthz"
@@ -55,6 +56,7 @@ PUBLIC_ROUTES = frozenset({("GET", HEALTH_PATH)})
 
 ROUTES: dict[tuple[str, str], Callable[[RequestContext], dict[str, Any]]] = {
     ("GET", "/_auth/whoami"): whoami,
+    ("GET", "/_identity/self"): identity_self,
 }
 
 
