@@ -1884,6 +1884,16 @@ Arc A lands; an API built around a synchronous folder copy sets its own shape.
   **not** raisable; only regional/private REST APIs can be raised, at the cost of throttle quota).
 - **SPA: a container on ECS Fargate behind an ALB.** It cannot go through CloudFront. `infra/modules/app`
   (CloudFront + static site) is retired.
+> **SUPERSEDED for this arc by SPEC-195 (2026-08-27) — the NEXT THREE BULLETS describe the
+> DEFERRED design, inherited by the later arc rather than cancelled.** What shipped is a
+> **verifier, not an OIDC client**: no code exchange, no refresh token, no session, no cookie.
+> Sign-in is untouched — the browser keeps its Cognito ID token and sends it as an
+> `Authorization` bearer, which is the trust model the seven control planes have had since
+> SPEC-011, with the token on a different transport. The relaxation matters: **no ambient
+> credential means no CSRF surface**, so a later spec introducing a cookie re-opens CSRF,
+> `SameSite` and the one-registrable-domain requirement this arc downgraded from a requirement
+> to a preference. CORS is still required either way.
+
 - **Two origins, one registrable domain.** SPA and API are separate hosts, so they must be subdomains
   of one parent — *same-site*, so the session cookie is delivered to both under `SameSite=Lax`, with
   CORS and `credentials: 'include'` on the API.
@@ -1894,6 +1904,7 @@ Arc A lands; an API built around a synchronous folder copy sets its own shape.
   gets an opaque `httpOnly` cookie and nothing else. **The SPA never constructs an IdP URL** — it
   navigates to the API's own login endpoint, which mints the redirect and holds the PKCE verifier and
   `state` server-side.
+
 - **AWS credentials never reach the browser.** The API assumes a role carrying the user's identity —
   a `username` session tag now, an Identity Center identity context later — and makes the calls
   itself. Every existing IAM policy, bucket policy and Lake Formation grant keeps enforcing unchanged.

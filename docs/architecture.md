@@ -13,6 +13,8 @@ Pointers (don't duplicate these here):
 
 - **System Overview** — orientation; the no-backend + principal-tag model in one paragraph.
 - **Authentication Flow** — read when touching login, the token→credential exchange, or refresh.
+  - **The API's auth boundary** — one token, one verification path, two transports; read before touching
+    the API's identity handling or a provider parameter.
 - **Authorization Model** — read when touching IAM/isolation: user space, shared-space slots, analytics (TBAC).
 - **Control Planes** — read *The shared pattern* before any plane work; each plane section is its decision record:
   - **Control Planes → Shared Spaces** — space lifecycle, registry, per-user caches, roster.
@@ -62,6 +64,24 @@ Trust policy → `infra/modules/data/policies/portal-role-trust.json.tftpl`. The
 is `aws_cognito_identity_pool_provider_principal_tag` in `infra/modules/auth/identity-pool.tf` — the
 tag **value** must be the `cognito:username` claim (the bare `username` claim doesn't exist in a User
 Pool ID token, so it never stamps).
+
+### The API's auth boundary, beside the control planes' (SPEC-195)
+
+**One token, one verification path, two transports.** The seven control-plane verbs have taken the
+identity from a *verified* Cognito ID token since SPEC-011, carried in an SQS message body. The API
+verifies the same token through the same code — `cpcommon.auth` — carried in an `Authorization`
+bearer header instead. Nothing re-derives a username, and nothing anywhere reads a username the
+caller stated.
+
+The verifier is driven by a `VerifierConfig` (issuer, audience, JWKS URI, username claim, required
+claims) rather than by Cognito-shaped constants, so the target environment swaps the provider by
+changing five environment values. The API resolves a principal **before** dispatch and refuses any
+route that has not declared itself public, including one that does not exist; every refusal is
+byte-identical, and a provider that cannot be *read* answers 5xx rather than 401 — an outage is not
+a bad token, and "sign in again" cannot fix one.
+
+Sign-in itself is unchanged: Hosted UI, Amplify and the Identity Pool flow above all behave exactly
+as described. The API is a **verifier, not an OIDC client** — see `decisions.md`.
 
 ## Authorization Model
 
@@ -1009,7 +1029,7 @@ timeout looks like.
 
 **`infra/modules/api/`** — an HTTP API, one `$default` route, one integration, a regional custom
 domain at `api.`, CORS admitting both origins, access logging, and a placeholder function that is
-**not in the VPC**. Authorization will live in the router (SPEC-195), never in an authorizer.
+**not in the VPC**. Authorization is a **verifier the router calls** — never an authorizer, which would be a second reader of the same token — and the verifier deliberately has no router dependency, so the gate can later move without the verification moving with it.
 
 **`infra/modules/spa/`** — ECR (immutable tags, scan on push, AES256, bounded lifecycle), an ECS
 cluster, two task roles (**the task role holds nothing** — the container makes no AWS call), the task

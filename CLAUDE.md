@@ -75,18 +75,14 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 
 ### Current work
 
-- **API layer & containerisation (192 → 202, 192–194 done)** — "Arc B": a real API in front of
-  AWS, containerised SPA and API, retiring CloudFront and the Identity Pool.
-  `portal.dataquarry.app` serves the **real SPA** from a container; CloudFront is still production
-  and the rollback. Next: the API's auth boundary (195). Bucket CORS admits the CloudFront origin
-  only, so the container's direct S3 calls fail preflight until 198 — expected. Acceptance script:
-  `docs/testing/arc-b-api-container-e2e.md`; read the `ARCS.md` arc entry first.
+- **API layer & containerisation (192 → 202, 192–195 done)** — "Arc B". CloudFront is still
+  production and the rollback. Next: the AWS identity layer (196). Bucket CORS admits the
+  CloudFront origin only, so the container's direct S3 calls fail preflight until 198 — expected.
+  §D of `docs/testing/arc-b-api-container-e2e.md` is **owed**; read the `ARCS.md` arc entry first.
 
 ### Live checks
 
-`@docs/testing/e2e.md` is **the** guide — one signed-in account, keyed by feature. `owed.md` is the
-ledger of what a signed-in session cannot settle; `sessions.md` is what has been run. **Do not
-restate an owed check here.**
+Keyed by feature in `@docs/testing/e2e.md`. **Do not restate an owed check here.**
 
 
 ## Key Decisions (settled — don't re-litigate)
@@ -102,6 +98,11 @@ Cognito User Pool → Identity Pool, ABAC. The `username` principal tag is stamp
 the verified claim**, so it cannot be spoofed; one shared role, isolation by
 `${aws:PrincipalTag/username}`. Hosted UI is **Managed Login v2** — the classic one broke the
 post-signup redirect. Browser → AWS direct today; Arc B is porting that behind an API.
+
+- **The API VERIFIES a bearer, and is not an OIDC client.** No cookie → no CSRF surface; CORS
+  still required. Provider-agnosticism is **five config fields**, the JWKS URL built once at the
+  **root**. **A key-retrieval fault is 5xx, never 401.** Refusals are byte-identical; **expiry is
+  not disclosed**, because the browser refreshes once on any 401.
 
 **One string is four things:** username = S3 prefix = principal tag = Glue database name, so it is
 catalog-safe by construction (`^[a-z][a-z0-9_]{2,62}$`). The username directory is built from **S3,
@@ -196,6 +197,8 @@ DLQ lets one malformed request dead-letter someone else's work.
   never derived**, and an unreachable space renders denied while issuing **no S3 request at all**.
 - **Structured logging** goes through `cpcommon.observability` only; the logs queue is FIFO, swept on
   a schedule, appended under ETag CAS, retained forever. `@traced` outermost; messages are literals.
+  The **`error.stack` exemption covers file contents, NOT credentials**; the API scrubs at its
+  boundary.
 
 ### Analytics, the catalog, and two SQL dialects
 

@@ -10,7 +10,9 @@ this file is the same rules where CI can see them.
 
 Budgets are RATCHETS AT THE MEASURED LEVEL, not targets — the convention SPEC-150 set for the
 coverage floors. Lowering one when a doc grows is the failure mode; the fix is to move the
-detail down a tier, which is what every budget here exists to force.
+detail down a tier, which is what every budget here exists to force. **One documented
+exception: ``CLAUDE_MAX_BYTES``, whose entry below says why a ratchet was the wrong shape
+for that one file.**
 
 Runs on every pull request (``ci.yml``). Takes no arguments and imports nothing outside the
 standard library.
@@ -32,6 +34,16 @@ Attributes:
     eight blocks grouped by AREA. The list had stopped being a reminder and become a changelog:
     every closing spec appended one, and the file hit its own ratchet exactly when a spec tried to
     close. Group into the existing blocks; do not start a new line per spec.
+
+    **Raised from 34,000 to 50,000 (user decision, 2026-08-27), and this is the ONE budget here
+    deliberately not held at the measured level.** A ratchet at the measured level assumes the file
+    only grows by accretion, and after the second cut that stopped being true: what remains is
+    fences, and the completion ritual REQUIRES every closing spec to fold in a clause. At 34,000
+    with 161 bytes free, SPEC-195 could not close without pruning another area's fences to pay for
+    its own — which is the gate causing the damage it exists to prevent. The anti-regrowth rules
+    that actually bind are the shape ones (group by area, no per-spec line, DIGEST_MAX_CHARS), and
+    they are unchanged. If this file approaches 50,000 the answer is still a cut, not another
+    raise: two cuts have already been needed, and both were structural.
   DIGEST_MAX_CHARS: The longest a single Key Decisions bullet may be, measured on the LOGICAL
     bullet — continuation lines joined. It was measured per physical line until 2026-08-26, which
     stopped meaning anything the moment the section was rewritten as wrapped prose: the longest
@@ -60,7 +72,7 @@ TESTING_PERMANENT = frozenset({"e2e.md", "owed.md", "sessions.md"})
 TESTING_INFLIGHT_MAX = 1
 
 FIXTURES_MAX_SCRIPTS = 1
-CLAUDE_MAX_BYTES = 34_000
+CLAUDE_MAX_BYTES = 50_000
 DIGEST_MAX_CHARS = 1_400
 DELIVERY_MAX_LINES = 260
 STATUS_WORDS = ("shipped", "complete", "active", "draft", "in progress", "filed", "scoped")
@@ -189,7 +201,10 @@ def check_claude_budget() -> list[str]:
     if size > CLAUDE_MAX_BYTES:
         errors.append(
             f"CLAUDE.md is {size:,} bytes against a {CLAUDE_MAX_BYTES:,} budget. It loads every "
-            "session: move the detail into docs/ behind a pointer rather than raising the cap."
+            "session: move the detail into docs/ behind a pointer. This cap was raised once, "
+            "deliberately, so a closing spec was not forced to prune another area's fences — see "
+            "CLAUDE_MAX_BYTES above. Raising it again is not the answer; both previous fixes were "
+            "structural cuts."
         )
     section = text[text.index("## Key Decisions") : text.index("## Out of Scope")]
 
