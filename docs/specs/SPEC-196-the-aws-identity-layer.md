@@ -2,7 +2,7 @@
 
 **ID:** SPEC-196
 **Status:** Draft
-**Last Updated:** 2026-08-18
+**Last Updated:** 2026-08-27
 **Depends On:** SPEC-011 (the Identity Pool ABAC model this spec preserves — the `username` principal tag stamped server-side from the verified claim), SPEC-013/016/032/056 (the portal role's prefix-, Glue- and membership-scoped policies that must keep enforcing unchanged), SPEC-033 (the catalog-safe username rule the session name is validated against), SPEC-106 (`toUserMessage` — raw AWS text is never rendered), SPEC-127→137 (`cpcommon.observability`, the one door, and the field rule), SPEC-186 (`env` + `version` on every log record; the deployed-role IAM simulation discipline), SPEC-193 (the API Lambda, its execution role and the placeholder route this spec proves itself with), SPEC-195 (the API's auth boundary — the verified ID token whose claims this layer reads its tag values from)
 
 ## Overview
@@ -322,8 +322,18 @@ user unambiguously.
 - [ ] A test **computes** the containment rather than asserting it: every string the catalog rule
       admits is 3–63 characters drawn from `[a-z0-9_]`, which is a strict subset of `\w` and inside
       2–64, so no valid username needs escaping. The same test computes why **a prefix is not
-      available**: 63 + any non-empty prefix exceeds 64, and truncating would collapse two usernames
-      onto one CloudTrail identity.
+      available**, and truncating would collapse two usernames onto one CloudTrail identity.
+
+      > **CORRECTED 2026-08-27, during build — this criterion's arithmetic was off by one, and
+      > computing it rather than asserting it is what found that.** This spec said "63 + any
+      > non-empty prefix exceeds 64". It does not: the longest catalog-safe username is 63 and STS
+      > admits 64, so the **prefix budget is exactly one character** and a one-character prefix
+      > fits. **The requirement is unchanged** — the session name is the username verbatim — but
+      > the reason is not the one written down. The true reason is the budget itself: one
+      > character is not a namespace, so any prefix worth having (a service name, an environment,
+      > a separator) overflows for the longest usernames, and the only way to make it fit is to
+      > truncate, which is the collision this criterion already names. The test computes the
+      > budget, fails if it ever grows, and says so in its own docstring.
 - [ ] A username that fails either rule is **refused** — never sanitised, never truncated. The
       request fails as `IdentityUnavailable` (FR-007), the refusal is logged with the username (user
       metadata, permitted by the field rule), and no `AssumeRole` is issued. Asserted by a test that
