@@ -58,7 +58,14 @@ import pytest
 # layers, and its process-wide worker/config already has purpose-built save-and-restore in
 # the `captured_events` fixture below. Two mechanisms restoring the same globals in an order
 # nobody chose is how a quiet teardown bug starts.
-_LAYER_PREFIXES = ("cpcommon", "tbcommon", "tscommon", "dqcommon", "fscommon", "arcommon", "focommon")
+# `apicommon` is not a layer — it ships inside the API function's own package — but it is a
+# shared module set that tests patch, which is the only property this fixture cares about.
+# Left out, a test that patches apicommon.config leaks into the next one, which is the exact
+# failure the fixture exists to stop.
+_LAYER_PREFIXES = (
+    "cpcommon", "tbcommon", "tscommon", "dqcommon", "fscommon", "arcommon", "focommon",
+    "apicommon",
+)
 
 #: shared-space-common publishes FLAT modules, so they have no package prefix to match on.
 #: DERIVED FROM THE DIRECTORY, never hand-listed: a hand-list drifts silently, and the leak
@@ -109,6 +116,15 @@ _REQUIRED_ENV = {
     "PORTAL_ROLE_ARN": "arn:aws:iam::000000000000:role/test-portal",
     "ATHENA_WORKGROUP": "test-workgroup",
     "AWS_REGION": "us-east-1",
+    # The API's provider block. Stamped here beside the fleet's variables so a suite reaching
+    # apicommon.config reads a coherent provider rather than each test inventing one — and so
+    # that a test which MEANS to exercise the missing-configuration path has to unset it
+    # deliberately rather than getting it for free.
+    "OIDC_ISSUER": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_testpool",
+    "OIDC_AUDIENCE": "test-app-client",
+    "OIDC_JWKS_URI": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_testpool/.well-known/jwks.json",
+    "OIDC_USERNAME_CLAIM": "cognito:username",
+    "OIDC_REQUIRED_CLAIMS": '{"token_use":"id"}',
 }
 
 for _name, _value in _REQUIRED_ENV.items():

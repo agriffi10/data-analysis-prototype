@@ -136,7 +136,7 @@ def build_version() -> str:
 _initialized = False
 
 
-def init(service: str, **defaults: object) -> None:
+def init(service: str, max_stack_bytes: int | None = None, **defaults: object) -> None:
     """Configures log-foundry for this container, once per process.
 
     With a queue URL the sink is an SQS sink alone, deliberately not a MultiSink with stdout:
@@ -154,11 +154,21 @@ def init(service: str, **defaults: object) -> None:
     stays anyway because it is the cold-start safety property this whole module is shaped
     around. It exposes nothing CloudWatch does not already hold.
 
+    ``max_stack_bytes`` is a NAMED parameter rather than one more entry in ``defaults``, and
+    the distinction is not cosmetic: passed through ``**defaults`` the name would be stamped on
+    every event as a FIELD called ``max_stack_bytes`` and would bound nothing at all. It is a
+    ceiling on the stack attached to a failed span, not a control over whether one is attached —
+    ``log-foundry`` offers no way to turn that capture off, and its validator rejects any value
+    below 1, so a caller that must not emit credentials scrubs at its boundary and does not
+    reach for this.
+
     Args:
       service: The control-plane name — ``data-quality``, never
           ``data-quality-inspect-source``. It becomes an S3 key prefix under ``logs/`` when
           the sweep partitions the events, so one plane's runs stay one queryable set; the
           per-verb identity rides as the ``verb`` field that ``traced`` stamps.
+      max_stack_bytes: Ceiling on ``error.stack``. ``None`` inherits the library's default,
+          which is what every control plane does.
       **defaults: Extra fields stamped on every event from this process.
 
     Returns:
@@ -199,6 +209,7 @@ def init(service: str, **defaults: object) -> None:
         env=os.environ.get("ENV_NAME", ""),
         sink=sink,  # type: ignore[arg-type]
         defaults=dict(defaults),
+        max_stack_bytes=max_stack_bytes,
     )
     _initialized = True
 
