@@ -585,3 +585,155 @@ def test_the_jwks_timeout_is_sized_against_the_timeouts_terraform_actually_sets(
         "the function must answer before the integration gives up — otherwise the caller gets a "
         "504 while the invocation keeps running and keeps billing"
     )
+
+
+#: The provider block the API verifies tokens against. Five keys, and the verifier reads
+#: nothing else about who issues them.
+OIDC_KEYS = (
+    "OIDC_ISSUER",
+    "OIDC_AUDIENCE",
+    "OIDC_JWKS_URI",
+    "OIDC_USERNAME_CLAIM",
+    "OIDC_REQUIRED_CLAIMS",
+)
+
+
+def _api_environment() -> dict[str, str]:
+    """Reads the function's environment map as key to raw Terraform expression.
+
+    Args:
+      None.
+
+    Returns:
+      Each environment key mapped to the expression assigned to it.
+
+    Raises:
+      None.
+    """
+    function = blocks((API / "lambda.tf").read_text(), "aws_lambda_function")["api"]
+    body = re.search(r"environment\s*\{(.*?)\n  \}", function, re.DOTALL).group(1)
+    return {
+        match.group(1): match.group(2).strip()
+        for match in re.finditer(r"^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.+)$", body, re.MULTILINE)
+    }
+
+
+def test_the_provider_block_reaches_the_function() -> None:
+    """All five, or the verifier cannot say who it is verifying against.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a key is missing from the environment map.
+    """
+    environment = _api_environment()
+    missing = [key for key in OIDC_KEYS if key not in environment]
+    assert not missing, f"the function environment omits {missing}"
+
+
+def test_the_required_claims_value_is_pinned_to_what_makes_a_token_an_id_token() -> None:
+    """READ FROM THE TERRAFORM, not restated.
+
+    This is the check that decides whether a Cognito ACCESS token — genuine, correctly signed,
+    unexpired, from the same pool — is refused. Rendered as `jsonencode({})` the whole thing
+    still deploys, every offline test that stubs its own configuration still passes, and the
+    only symptom is that a token type the API should never accept is accepted. So the deployed
+    value is asserted rather than assumed, at the one place it is actually decided.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the deployed required-claims map is not exactly the ID-token check.
+    """
+    expression = _api_environment()["OIDC_REQUIRED_CLAIMS"]
+    assert expression == "var.oidc_required_claims", (
+        "the module must pass the value through, so root stays the single wiring site"
+    )
+
+    call = re.search(r'module\s+"api"\s*\{(.*?)\n\}', ROOT_MAIN.read_text(), re.DOTALL).group(1)
+    rendered = re.search(r"oidc_required_claims\s*=\s*jsonencode\((.+?)\)\n", call).group(1)
+
+    assert re.fullmatch(r"\{\s*token_use\s*=\s*\"id\"\s*\}", rendered.strip()), (
+        f"the deployed required claims are {rendered.strip()} — an empty or altered map stops "
+        "the token-type check running at all, and a Cognito access token would be accepted"
+    )
+
+
+def test_the_module_treats_the_jwks_url_as_opaque() -> None:
+    """The provider assumption lives on ONE line of root Terraform, and this says where.
+
+    Cognito publishes its keys under its issuer; other providers do not. So the concatenation
+    is a fact about this provider rather than about the verifier, and it belongs at the
+    composition root — which already knows which provider it composed. Rebuilding it inside the
+    module, or in any Python module downstream, would put the assumption somewhere a provider
+    swap does not look.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the module derives the JWKS URL instead of receiving it.
+    """
+    source = _api_source_without_comments()
+    assert "well-known" not in source, (
+        "the API module builds a JWKS URL — it must receive one, so the provider assumption "
+        "stays at the root where a swap will find it"
+    )
+    assert _api_environment()["OIDC_JWKS_URI"] == "var.oidc_jwks_uri"
+
+    call = re.search(r'module\s+"api"\s*\{(.*?)\n\}', ROOT_MAIN.read_text(), re.DOTALL).group(1)
+    assert "well-known" in call, "root must be where the JWKS URL is built"
+
+
+def test_the_provider_block_stays_out_of_the_browsers_dev_fallback() -> None:
+    """`.env.example` is the SPA's dev fallback and has no non-VITE line.
+
+    These five are server-side and Terraform computes them. A "server-side section" there would
+    be a second, unchecked home for a value nothing in the browser may ever read.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a provider-block key appears in the SPA's example environment.
+    """
+    example = (INFRA.parent / "apps" / "portal" / ".env.example").read_text()
+    assert "OIDC_" not in example
+
+
+def test_every_provider_variable_refuses_the_empty_string() -> None:
+    """An unset repo variable renders as "", which satisfies a required variable AND overrides
+    a default — so having no default guards nothing. The validation block is the guard.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a provider variable would accept an empty value.
+    """
+    source = (API / "variables.tf").read_text()
+    for key in OIDC_KEYS:
+        name = key.lower()
+        declaration = re.search(rf'variable\s+"{name}"\s*\{{(.*?)\n\}}', source, re.DOTALL)
+        assert declaration, f"{name} is not declared"
+        assert "validation {" in declaration.group(1), (
+            f"{name} has no validation block, so an unset repo variable reaches the function as "
+            "an empty string and fails far from its cause"
+        )

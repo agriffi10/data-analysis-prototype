@@ -313,6 +313,11 @@ locals {
   spa_origin = "https://${var.spa_subdomain}.${var.parent_domain}"
   api_origin = "https://${var.api_subdomain}.${var.parent_domain}"
 
+  # The pool's OIDC issuer, in the one form AWS documents. Built once here because both
+  # the issuer and the JWKS URL are derived from it, and two spellings of the same string
+  # is how they come to disagree.
+  cognito_issuer = "https://cognito-idp.${var.aws_region}.amazonaws.com/${module.auth.user_pool_id}"
+
   # The load balancer's access-log prefix in the admin bucket. At ROOT because two modules must
   # agree on it: the one that points the balancer at it and writes the bucket policy, and the one
   # that owns the bucket's lifecycle rules. A literal in each would be two literals.
@@ -1369,6 +1374,18 @@ module "api" {
   user_space_bucket   = local.user_space_bucket_name
   shared_space_bucket = local.shared_space_bucket_name
   athena_workgroup    = local.athena_workgroup_name
+
+  # The provider block, computed here from resources Terraform already owns. THE JWKS URL IS
+  # BUILT ON THIS LINE AND NOWHERE ELSE, and that placement is the decision: Cognito publishes
+  # its keys under its issuer and other providers do not, so the concatenation is a fact about
+  # this provider rather than about the verifier. Keeping it at the composition root leaves the
+  # module and every Python module downstream treating the URL as opaque — so swapping the
+  # provider is this line plus the four beside it.
+  oidc_issuer          = local.cognito_issuer
+  oidc_audience        = module.auth.user_pool_client_id
+  oidc_jwks_uri        = "${local.cognito_issuer}/.well-known/jwks.json"
+  oidc_username_claim  = "cognito:username"
+  oidc_required_claims = jsonencode({ token_use = "id" })
 
   # base grants the deploy role the apigateway, function, role and log-group permissions
   # BEFORE anything here lands.
