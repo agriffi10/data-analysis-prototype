@@ -311,10 +311,10 @@ reads and enqueues.
   initialise from the image: writable paths are `linuxParameters.tmpfs`, one uid feeding both `user`
   and every mount option.
 - **The SPA image reproduces every CloudFront job; three are DIVERGENCES** — `Server: nginx`, no
-  brotli, no HSTS `preload`. **`add_header` is inherited only by a level defining none of its
-  own**, so every location `include`s one snippet with `always` throughout, and errors raised
-  before a location resolves need a server-level floor. Asserted on **responses**, never config
-  text; `/healthz` is exact-match, or a probe falls through and a broken container reads healthy.
+  brotli, no HSTS `preload`. **`add_header` is inherited only by a level defining none of its own**
+  (hence one snippet per location, `always` throughout, and a server-level floor for errors raised
+  before a location resolves); assert on **responses**, never config text; `/healthz` is
+  exact-match, or a probe falls through and a broken container reads healthy.
 - **Configuration is a RUNTIME document** (`/config.json`, `no-store`, refused whole on version)
   with **no production fallback**. Its key set is wired in six places, asserted across all, and the
   container **refuses to start** on a required one unset or empty. The API's **verifier** config is
@@ -324,14 +324,12 @@ reads and enqueues.
   origin makes the other a rollback nobody can exercise.
 - **CSP `connect-src` IS the app's network surface** — enumerate it from the hosts the app fetches,
   not the AWS services it uses. The omitted Hosted UI domain broke fresh sign-in for a day. **Both
-  CSP locals live at ROOT** — a root check cannot read a module local, and `modules/app` dies at
-  the cutover. The container takes `connect-src` from the task definition and bakes the rest;
-  **nginx has no escaping**, so anything interpolated in is allowlisted — a quote truncates the
-  policy and a `;` appends a directive, on a container reporting healthy.
+  CSP locals live at ROOT** — a root check cannot read a module local. The container takes
+  `connect-src` from the task definition and bakes the rest; **nginx has no escaping**, so anything
+  interpolated in is allowlisted — a quote truncates the policy on a container reporting healthy.
 - **Static assets deploy in three prefix-scoped passes** — `--exclude` protects keys from
   `--delete`, so a pass excluding a prefix can never reconcile it. **S3 path only:** the image IS
-  the file set — no reconciliation, no orphan class, an honest 404 under `/assets/`; the root's
-  200-as-`text/html` trap is preserved and pinned.
+  the file set — no reconciliation, no orphan class, an honest 404 under `/assets/`.
 
 ### Gates, scanners and tests
 

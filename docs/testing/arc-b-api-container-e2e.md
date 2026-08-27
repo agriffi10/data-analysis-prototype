@@ -297,7 +297,7 @@ to `main`; the deploy workflow's `workflow_dispatch` is the lever.
   `not found` — not the shell, and not HTML.
 - A hashed asset with `Accept-Encoding: gzip` → `content-encoding: gzip` + `vary: Accept-Encoding`;
   with `Accept-Encoding: br` → **no** `content-encoding`, the accepted brotli residual.
-- **The served `connect-src` carries all ten terms**, both Cognito hosts among them:
+- **The served `connect-src` carries all ten terms**, including the two a signed-in tester cannot miss the loss of — the User Pool endpoint and the Hosted UI domain:
   `'self'`, `cognito-idp.us-east-1`, `cognito-identity.us-east-1`,
   `dat-prod-portal.auth.us-east-1.amazoncognito.com`, both bucket endpoints, `athena.`, `glue.`,
   `sqs.` and `https://api.dataquarry.app`.
@@ -358,9 +358,20 @@ browser holding the **old** shell routed to a **new** task 404s a lazily-importe
 an entrypoint that exits 1 reddens at the **matrix** and never reaches the deploy gate — recording
 that as discharged would prove only the matrix.
 
-Break it in a way the matrix's fixture environment cannot see: add a required key to the
-entrypoint's baked `REQUIRED` list that the **task definition** does not supply. The matrix passes
-(its fixture supplies its own set), the image pushes, and the container then refuses on Fargate.
+**And the obvious alternative does not work either.** Adding a key to the entrypoint's baked
+`REQUIRED` list reddens `pytest` before anything builds — a test pins that list against the
+browser's classification — and removing a key from `local.spa_runtime_config` reddens the portal
+suite. Every offline gate has an opinion about both ends of the document.
+
+The break has to be **env-only, on the task-definition side, in a variable the image defaults**.
+Add `PORTAL_LOG_LEVEL = "chatty"` to the container definition's `environment` block and apply.
+The image defaults that variable to `warn`, so the matrix never supplies it and never sees the
+change; no test pins the task definition's environment *set*, only that the configuration keys are
+derived. On Fargate the entrypoint's level allowlist refuses, and the container never starts.
+
+Confirm before writing any new recipe down that no test pins whatever you are about to change —
+two of the three obvious breaks are caught offline, which is the gates working, and would make this
+check prove nothing.
 
 - [ ] The ECS deployment does **not** reach `COMPLETED`.
 - [ ] **The workflow goes red**, on `rolloutState`, not on a timeout alone.

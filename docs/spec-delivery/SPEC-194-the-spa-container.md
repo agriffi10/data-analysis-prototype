@@ -131,7 +131,7 @@ real state.
 Deployed and read back from `https://portal.dataquarry.app`: the full header set on five response
 classes, HSTS without `preload`, no COEP, `server: nginx` with no version, all four cache classes,
 `/config.json` at 21 keys and `version: 1`, `/healthz` returning exactly `ok`, the honest 404, gzip
-served and brotli refused, and **all ten `connect-src` terms including both Cognito hosts**. The
+served and brotli refused, and **all ten `connect-src` terms, the two whose loss a signed-in tester cannot see among them — the User Pool endpoint and the Hosted UI domain**. The
 deploy reported `desired=1 running=1 rollout=COMPLETED` on the revision it registered, carrying 20
 configuration keys. **The load balancer adds and strips nothing** — the one assertion no offline
 gate can make.

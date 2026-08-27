@@ -2227,8 +2227,9 @@ does.
 image promote across environments, and the OIDC provider block lives here — see *What 192 found*
 below); **193** the VPC, ALB, API
 Gateway, ECR and ECS, with the deploy-role IAM expansion as in-scope work; **194** the SPA container
-and its nginx config, which must reproduce every job CloudFront was doing (SPA fallback, SPEC-141's
-per-class cache headers, SPEC-140's security headers, compression, health check); **195** the BFF —
+and its nginx config, which reproduced every job CloudFront was doing — SPA fallback, per-class
+cache headers, the security header set, compression, health check — three of them as **named
+divergences** (`Server: nginx`, no brotli, no HSTS `preload`); **195** the BFF —
 session, provider-agnostic OIDC, the DynamoDB store; **196** the AWS identity layer, per-plane
 credential providers; **197** the transport contract plus one small feature ported end to end to
 prove the spine; **198** the file browser and presigned URLs; **199** catalog (Athena + Glue); **200**
@@ -2261,6 +2262,28 @@ agreement test at the ECS task definition, the fifth wiring point. (4) The inter
 behaviour dies with the distribution, so nginx's `no-store` becomes the only guarantee — and the
 reason it matters is measured: CachingOptimized applies its **1 s MinTTL even against an origin
 `no-store`**, and an object reaching an edge without the header takes a **24-hour** DefaultTTL.
+
+> **SPEC-194 IS COMPLETE (2026-08-27), and here is what it settled.** All four obligations are
+> discharged: `/config.json` is rendered by the container's own entrypoint and served by its own
+> nginx, never proxied; the build context excludes it, from a `.dockerignore` **at the repository
+> root** rather than beside the Dockerfile, which is where Docker would not have read it; the
+> agreement test reaches the task definition, and the entrypoint's own key list is a **sixth**
+> wiring point, not the fifth — it is the leg that actually renders the served document; and
+> nginx's `no-store` is asserted on the response.
+>
+> **What the next spec inherits.** The image is live on `portal.dataquarry.app` and CloudFront is
+> still production and still the rollback, so two delivery paths run until the cutover. Bucket CORS
+> admits the CloudFront origin only, so the browser's direct S3 calls fail **preflight** from the
+> container origin until SPEC-198 — expected, not a defect. Terraform registers task-definition
+> revisions the service is never pointed at (`ignore_changes = [task_definition]`), so a change to
+> the runtime-configuration map or the CSP reaches the running container only on the next push to
+> `main`, or through the deploy workflow's `workflow_dispatch`.
+>
+> **Two traps worth carrying forward.** nginx has **no escaping mechanism**, so anything
+> interpolated into its configuration must be allowlist-validated — a quote truncated the policy
+> and a `;` appended a directive, on a container that started and reported healthy. And responses
+> nginx generates **before it resolves a location** reach no location block at all, so a
+> per-location header discipline needs a server-level floor beneath it.
 
 **One live check was withdrawn rather than deferred**, and it is worth knowing why before someone
 re-adds it: after `/config.json` gets a `CachingDisabled` behaviour, no observation distinguishes a

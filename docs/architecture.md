@@ -831,7 +831,9 @@ publishes `/config.json` (below) alongside them.
 > two** delivery paths now. The container is the file set: nothing to reconcile, no key surviving a
 > build, no pass ordering, and no orphan class — it reproduces the per-class cache scheme in nginx
 > and nothing else. Both claims retire outright when the distribution does; until then this
-> paragraph is true of `deploy-app.yml` and false of the image. `VITE_*` vars are GitHub Actions variables (see
+> paragraph is true of `deploy-app.yml` and false of the image.
+
+`VITE_*` vars are GitHub Actions variables (see
 `.github/workflows/README.md`) and are now the **dev fallback only**; resource→spec mapping and
 current values come from `tofu -chdir=infra output`. Security scanning: `security.yml` runs the
 report-only scanner suite (SPEC-138); `deploy-infra.yml`'s plan job Checkov-scans the **rendered**
@@ -860,10 +862,12 @@ document is what makes `dev → prod` a repoint rather than a rebuild, and a rol
 - **A dev build falls back to `import.meta.env`**, and a production build must not. The fallback's key
   tables are eliminated from the production bundle, asserted on the built output by
   `npm run check:bundle`.
-- **A key is wired in five places:** the classification in `types/runtimeConfig.types.ts` (+ its
-  `VITE_` name in `lib/env.ts`), `.env.example`, the GitHub repository variable, **both** the build env and the
-  render step in `deploy-app.yml`, and — from the container spec — the ECS task definition. A test
-  compares them.
+- **A key is wired in six places:** the classification in `types/runtimeConfig.types.ts` (+ its
+  `VITE_` name in `lib/env.ts`), `.env.example`, the GitHub repository variable, **both** the build
+  env and the render step in `deploy-app.yml`, the ECS task definition, and the container
+  entrypoint's own `KEYS`/`REQUIRED` lists in
+  `apps/portal/docker/docker-entrypoint.d/40-render-portal-config.sh` — which is the leg that
+  actually renders the served document. A test compares them.
 
 ### The OIDC provider block — the API's token verifier
 
@@ -989,8 +993,10 @@ this list before merging:
 
 ### The container platform (SPEC-193)
 
-The network, the API's front door and the SPA's runtime. It serves a placeholder today; SPEC-194
-builds the real image and SPEC-202 retires CloudFront.
+The network, the API's front door and the SPA's runtime. It serves the **real SPA** — built and
+deployed on every push to `main`, with CloudFront still production and still the rollback until the
+cutover retires it. What the image IS, and the five CloudFront jobs its nginx configuration
+reproduces (three of them as named divergences), live in `decisions.md`.
 
 **`infra/modules/network/`** — a VPC across two AZs, two public and two private /20s. The private
 subnets carry **no default route of any kind**: a task reaches ECR through `ecr.api`, `ecr.dkr` and

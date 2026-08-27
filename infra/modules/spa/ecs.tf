@@ -72,10 +72,10 @@ resource "aws_ecs_task_definition" "spa" {
   execution_role_arn       = aws_iam_role.task_execution.arn
   task_role_arn            = aws_iam_role.task.arn
 
-  # DECLARED, not defaulted. The default is X86_64 either way, but a placeholder image built by
-  # hand on an Apple Silicon laptop is arm64, and the task then fails with an image-manifest
-  # error that reads nothing like the architecture mismatch it is. Stating it here means the
-  # build command has something to agree with.
+  # DECLARED, not defaulted. The default is X86_64 either way, but an image built by hand on an
+  # Apple Silicon laptop is arm64, and the task then fails with an image-manifest error that
+  # reads nothing like the architecture mismatch it is. Stating it here means the build command
+  # has something to agree with — CI names `--platform linux/amd64` for the same reason.
   runtime_platform {
     operating_system_family = "LINUX"
     cpu_architecture        = "X86_64"

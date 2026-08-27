@@ -10,6 +10,38 @@ from a user's.
 
 ---
 
+## Live-check session — 2026-08-27 (the SPA container, SPEC-194)
+
+Run against **`https://portal.dataquarry.app`**, the deployed load balancer, immediately after
+`Deploy SPA image` reported `desired=1 running=1 rollout=COMPLETED` on the revision it registered
+(`main` at `783275d1`, task definition `dat-prod-spa:6`, 20 configuration keys carried).
+
+**The instrument was `curl`, not a browser, and that is the whole limit of this session.** Every
+assertion below is about bytes on the wire. **Nothing here discharges a rendering, a script
+execution or a sign-in** — which is exactly why §C.1 (fresh sign-in from a private window), §C.2
+(the CSP's negative control) and §C.3 (Safari) remain owed rather than being marked off by it.
+
+**Everything checked passed. Nothing was found broken.**
+
+| What | Result |
+|---|---|
+| The full security header set on **five** response classes — the shell, a deep link, a hashed asset, the honest 404 and `/config.json` | CSP, HSTS, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, COOP and CORP present on every one. **This is the ALB assertion**: nothing between the container and the client adds or strips a header |
+| HSTS | `max-age=31536000; includeSubDomains`, **no `preload`** |
+| `Cross-Origin-Embedder-Policy` | absent on every response, by decision |
+| `Server` | exactly `nginx`, no version |
+| Cache classes | `/` and a deep link `no-cache`; `/assets/<hashed>` `public, max-age=31536000, immutable`; `/config.json` and `/healthz` `no-store` |
+| `GET /config.json` | 200 / `application/json` / `no-store`, **21 keys** (`version` + the 20 classified), `version: 1` |
+| `GET /healthz` | 200 / `text/plain`, body exactly `ok` |
+| `GET /assets/index-DEADBEEF.js` | **404**, `application/javascript`, body `not found` — the honest 404, not the shell |
+| A hashed asset with `Accept-Encoding: gzip` | `content-encoding: gzip` + `vary: Accept-Encoding` |
+| The same asset with `Accept-Encoding: br` | **no** `content-encoding` — the accepted brotli residual |
+| The served `connect-src` | all **ten** terms, including the two whose loss a signed-in tester cannot see: the `cognito-idp` endpoint and the Hosted UI domain |
+
+**Not exercised, and not to be read as passing:** any file operation. Bucket CORS admits the
+CloudFront origin and localhost only, so the browser's direct S3 calls fail preflight from this
+origin until the presigned-bytes spec widens it. Expected, and stated so it is not diagnosed as a
+container defect.
+
 ## Live-check session — 2026-08-24 (runtime configuration, SPEC-192)
 
 Run against deployed prod (`d1kbh4bnvh1je8.cloudfront.net`) in **Chromium via the agent's browser

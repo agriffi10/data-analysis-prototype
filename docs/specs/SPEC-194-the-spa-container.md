@@ -2,7 +2,7 @@
 
 **ID:** SPEC-194
 **Status:** Completed
-**Last Updated:** 2026-08-18
+**Last Updated:** 2026-08-27
 **Depends On:** SPEC-192 (the runtime configuration document — its shape, its accessor and its required/optional classification; this spec renders and serves it, and defines none of it), SPEC-193 (the ECR repository, ECS cluster/service/task definition, target group and ALB listener this image runs inside), SPEC-140 (the response-headers policy and enforcing CSP this container must reproduce, and its verification rules), SPEC-141 (the per-class cache scheme, and the orphan class this spec retires), SPEC-186 (the `BUILD_VERSION` stamping convention — the stamp travels in the artefact, never in the environment), SPEC-138 (the ZAP baseline and `security-baseline.md`, the measuring stick for the header set), SPEC-162 (`VITE_ENVIRONMENT` — the flag document's environment key becomes a runtime value here)
 
 ## Overview
@@ -38,16 +38,19 @@ a genuine improvement retiring a settled decision: the image **is** the file set
   `infra/main.tf` and are passed into `module.app` and into SPEC-193's task-definition environment, so
   one computation feeds both delivery paths.
 
-> **Superseded by SPEC-193 PR 4 (2026-08-26).** `local.csp_connect_src` has ALREADY moved to
-> root, with `api_origin` added, because the API's origin comes into existence there and the
-> CloudFront bundle needs it before this spec runs. **Only `local.content_security_policy`
-> remains to move.** `modules/app` now takes `csp_connect_src` as an input.
+> **Both CSP locals now live at root (SPEC-194, 2026-08-27).** `csp_connect_src` moved first,
+> with `api_origin` added, because the API's origin comes into existence there; the assembled
+> policy followed. **Nothing remains to move**, and `modules/app` takes exactly one CSP input —
+> `content_security_policy`, the whole assembled string. It does **not** take `csp_connect_src`:
+> that variable is deleted, because a module receiving the finished policy has no use for the
+> source list, and a surviving unused input is a second place a later reader would wire.
 
 - The four **re-decisions** this move forces, each with its cost: HSTS `preload`, the `Server` header,
   brotli, and the honest 404 on `/assets/`.
 - A **CI header/behaviour matrix** run against the freshly built image before it is pushed — the gate
   that makes every criterion above able to fail.
-- `.github/workflows/deploy-spa-image.yml`: build, stamp, tag by commit sha, push to ECR, register a
+- `.github/workflows/deploy-spa-image.yml
+.github/workflows/spa-image.yml                                      # the pull-request gate`: build, stamp, tag by commit sha, push to ECR, register a
   task-definition revision, update the service, **fail on a rolled-back deployment**.
 - The **deploy-role IAM expansion** for the push/deploy half, as in-scope work per the CLAUDE.md infra
   rule — `architecture.md` → *Deploy-role IAM — adding a new resource type* is required reading first.
@@ -337,10 +340,12 @@ live policy's first directive, and the one a reader enumerating "the interesting
 unchanged from SPEC-140 including Monaco's `style-src 'unsafe-inline'` and `worker-src blob:` — and
 **the task definition supplies `connect-src`** as one variable, `PORTAL_CSP_CONNECT_SRC`.
 
-> **Superseded by SPEC-193 PR 4 (2026-08-26).** `local.csp_connect_src` has ALREADY moved to
-> root, with `api_origin` added, because the API's origin comes into existence there and the
-> CloudFront bundle needs it before this spec runs. **Only `local.content_security_policy`
-> remains to move.** `modules/app` now takes `csp_connect_src` as an input.
+> **Both CSP locals now live at root (SPEC-194, 2026-08-27).** `csp_connect_src` moved first,
+> with `api_origin` added, because the API's origin comes into existence there; the assembled
+> policy followed. **Nothing remains to move**, and `modules/app` takes exactly one CSP input —
+> `content_security_policy`, the whole assembled string. It does **not** take `csp_connect_src`:
+> that variable is deleted, because a module receiving the finished policy has no use for the
+> source list, and a surviving unused input is a second place a later reader would wire.
 
 **Both CSP locals move to root, and this spec is where they move.** `local.csp_connect_src` and
 `local.content_security_policy` live in `infra/modules/app/cloudfront.tf` today; root `main.tf` passes
@@ -355,10 +360,12 @@ environment. It is a move, not a re-derivation: the strings are unchanged on the
 CloudFront-served policy is byte-identical to what it emits today, and after SPEC-202 the surviving
 referent is the same one both origins shared.
 
-> **Superseded by SPEC-193 PR 4 (2026-08-26).** `local.csp_connect_src` has ALREADY moved to
-> root, with `api_origin` added, because the API's origin comes into existence there and the
-> CloudFront bundle needs it before this spec runs. **Only `local.content_security_policy`
-> remains to move.** `modules/app` now takes `csp_connect_src` as an input.
+> **Both CSP locals now live at root (SPEC-194, 2026-08-27).** `csp_connect_src` moved first,
+> with `api_origin` added, because the API's origin comes into existence there; the assembled
+> policy followed. **Nothing remains to move**, and `modules/app` takes exactly one CSP input —
+> `content_security_policy`, the whole assembled string. It does **not** take `csp_connect_src`:
+> that variable is deleted, because a module receiving the finished policy has no use for the
+> source list, and a surviving unused input is a second place a later reader would wire.
 
 SPEC-140's record is why this is an FR and not a line, and this arc does not retire that record — it
 inherits it. **The omitted Hosted UI domain broke fresh sign-in for a day**, because the code exchange
@@ -394,6 +401,12 @@ Amplify assigns `window.location`. Do not infer a wider need from them than the 
 - [ ] The rendered policy's non-`connect-src` directives are byte-identical to root
       `local.content_security_policy`'s, `connect-src` excepted — one referent, readable from root,
       shared by the distribution and the container and surviving SPEC-202.
+> **Amended on delivery (2026-08-27).** `csp_connect_src` had already moved to root **with**
+> `api_origin` in it, so the container's value is the CloudFront value rather than a superset of
+> it. Asserted as **identity** — that `module.spa`'s input is the root local unmodified — because
+> "it degenerates to identity" is a claim to assert, not to assume: a later refactor interposing a
+> filter would otherwise go unnoticed.
+
 - [ ] **The value Terraform computes for the deployed task is a superset of root
       `local.csp_connect_src`**, asserted term by term against that local rather than against a
       retyped list — every host in it, plus the API host. A term dropped from it is a feature that
@@ -587,6 +600,11 @@ as a stated decision, never as a blanket widening.
 - [ ] The pushed image is tagged `${GITHUB_SHA}` and no other tag. `latest` appears nowhere in the
       workflow.
 - [ ] The registered task-definition revision references the image by that sha tag.
+> **The recipe does not work as written (2026-08-27).** The pipeline is build → matrix → push →
+> deploy, so an entrypoint that exits 1 reddens at the **matrix** and never reaches the deploy
+> gate — recording that as discharged would prove only the matrix. The break has to be invisible
+> to the pre-push gate; the acceptance script names one that is.
+
 - [ ] A deliberately broken image (entrypoint exits 1) makes the workflow **red**, not green — the
       criterion that distinguishes waiting for stability from firing and forgetting.
 - [ ] `BUILD_VERSION` inside a running container equals the commit sha that built it, and equals the
@@ -594,6 +612,13 @@ as a stated decision, never as a blanket widening.
 - [ ] The workflow is serialized with a `concurrency` group and `cancel-in-progress: false`, on
       `deploy-app.yml`'s reasoning: two overlapping deploys of one service is the last-writer-wins
       outcome, and cancelling one mid-flight leaves a half-rolled service.
+> **Replaced on delivery (2026-08-27).** No policy of this spec's own was created: every action
+> the pipeline calls was already granted, scoped and simulate-measured, and a fourth document
+> restating them would be a second owner of one set of grants. The wildcard clause is therefore
+> replaced by this repository's settled measured-non-scopability rule, discharged by the existing
+> wildcard and PassRole tests, plus a presence test so a later narrowing reddens in review rather
+> than at a registry push on `main`.
+
 - [ ] The deploy role's rendered policy grants exactly these actions and no `Resource: "*"` beyond
       `ecr:GetAuthorizationToken`; `iam:PassRole` carries the `iam:PassedToService` condition. A
       `PassRole` without it lets the deploy role attach **any** role to a task.
@@ -656,9 +681,9 @@ does not conclude the container is configured the same way.
 apps/portal/Dockerfile
 .dockerignore                          # AT THE ROOT: the build context is the repo root
 apps/portal/docker/nginx.conf
-apps/portal/docker/default.conf.template
-apps/portal/docker/snippets/security-headers.conf
-apps/portal/docker/docker-entrypoint.d/40-render-config-json.sh
+apps/portal/docker/portal/default.conf.template
+apps/portal/docker/portal/snippets/security-headers.conf.template   # a TEMPLATE: it carries the CSP
+apps/portal/docker/docker-entrypoint.d/40-render-portal-config.sh    # renders all three documents
 infra/main.tf                                                # + local.content_security_policy, moved (FR-006);
                                                              #   local.csp_connect_src moved with SPEC-193 PR 4
 infra/modules/app/cloudfront.tf                              # − the two CSP locals, + the policy input
