@@ -144,10 +144,12 @@ _DIR_IDS = sorted(HANDLER_DIRS)
 
 #: Files in a FUNCTION directory that the deploy does not copy into the package.
 #:
-#: Deliberately NOT ``_NOT_SHIPPED``, which serves the layer copy lists and excludes
-#: ``__init__.py`` — right for a layer publishing flat modules, wrong here: a function laid out
-#: as a package ships its ``__init__.py`` and a layer import inside one is exactly as fatal as
-#: anywhere else. Two rules because there are genuinely two questions.
+#: Deliberately NOT ``_NOT_SHIPPED``, which serves the layer copy lists. That tuple excludes
+#: ``__init__.py`` AND ``fakes.py``, and the deploy script prunes NEITHER from a function
+#: directory — an ``__init__.py`` is how a package is a package, and a function's ``fakes.py``
+#: ships like any other module. Both would therefore go unscanned, and a layer import inside
+#: either is exactly as fatal as anywhere else. Two rules because there are genuinely two
+#: questions; do not "simplify" this to the other one.
 _NOT_PACKAGED = ("test_", "conftest.py")
 
 
@@ -440,8 +442,8 @@ def test_the_fleet_assertion_scans_the_PACKAGE_and_not_the_entry_points() -> Non
     Measured before writing it: **no function in the fleet currently has a non-handler module
     importing a layer its entry point does not**, so the narrow scan and the wide one return
     identical results for all 82. Every behavioural assertion therefore passes either way —
-    including the two below, which drive the helper directly — and reverting the fleet
-    assertion's subject to ``HANDLER_DIRS`` is invisible.
+    including the two that drive the helper directly — and reverting the fleet assertion's
+    subject to ``HANDLER_DIRS`` is invisible.
 
     That is the whole reason this reads the source instead. The gap it guards is not
     hypothetical: it is the state this file was in until the scan was widened, and the thing
@@ -465,12 +467,22 @@ def test_the_fleet_assertion_scans_the_PACKAGE_and_not_the_entry_points() -> Non
         if isinstance(node, ast.FunctionDef)
         and node.name == "test_every_imported_layer_package_is_attached"
     )
+    # The BODY, not the whole FunctionDef: the decorator list legitimately parametrizes over
+    # HANDLER_DIRS, where "which directories are Lambdas" is exactly the right question. Walking
+    # the decorators too made a behaviour-preserving refactor fail with a message that was then
+    # false about what it had found.
     called = {
-        node.func.id
-        for node in ast.walk(target)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        inner.func.id
+        for node in target.body
+        for inner in ast.walk(node)
+        if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name)
     }
-    read = {node.id for node in ast.walk(target) if isinstance(node, ast.Name)}
+    read = {
+        inner.id
+        for node in target.body
+        for inner in ast.walk(node)
+        if isinstance(inner, ast.Name)
+    }
 
     assert "_packaged_modules" in called, (
         "the fleet assertion no longer scans everything the deploy ships — a layer import "
@@ -479,6 +491,47 @@ def test_the_fleet_assertion_scans_the_PACKAGE_and_not_the_entry_points() -> Non
     assert "HANDLER_DIRS" not in read, (
         "the fleet assertion reads the entry-point map; that map answers which directories are "
         "Lambdas, not which modules must be able to import"
+    )
+
+
+def test_no_deployed_function_can_drop_out_of_the_fleet() -> None:
+    """A function that leaves ``HANDLER_DIRS`` loses EVERY per-function check in this file.
+
+    ``_handler_dirs`` finds a Lambda by globbing the directory FLAT for a module defining a
+    top-level ``handler``. Move that module into a subpackage — which the packaging change made
+    possible, and which is the layout this file's own widening exists to cover — and the
+    directory stops being a Lambda as far as every assertion here is concerned. Measured: with
+    ``lambdas/api/handler.py`` moved to ``lambdas/api/app/handler.py`` AND carrying an import of
+    a layer its row does not attach, the suite passed 188 and exited 0. That is the failure this
+    file exists to prevent, arriving by the door it just opened.
+
+    The floor on the sweep's size cannot see it — dropping one function from 82 clears any
+    floor. What catches it is the deploy table, which is maintained by hand and is the
+    authority on what actually gets deployed: every row in it must be a directory this file
+    recognises.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a deployed function is not recognised as one, or the reverse.
+    """
+    deployed = set(MATRIX)
+    recognised = set(HANDLER_DIRS)
+
+    vanished = deployed - recognised
+    assert not vanished, (
+        f"{sorted(vanished)} are deployed but no longer recognised as Lambdas — every "
+        "per-function assertion in this file has silently stopped covering them"
+    )
+
+    unlisted = recognised - deployed
+    assert not unlisted, (
+        f"{sorted(unlisted)} look like Lambdas but no deploy row builds them — either the row "
+        f"was dropped or {FUNCTIONS.name} and the tree have diverged"
     )
 
 
