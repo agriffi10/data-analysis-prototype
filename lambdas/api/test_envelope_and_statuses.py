@@ -11,6 +11,33 @@ import router
 from apicommon import contract, envelope, errors
 from conftest import bearer, declare_route
 
+
+class _ServiceError(Exception):
+    """A botocore-shaped client error, built here rather than imported.
+
+    `botocore` is provided by the Lambda runtime and is declared as a dependency nowhere, so it is
+    absent in CI — importing it passes on a laptop that happens to have boto3 and fails on the
+    runner. The identity layer classifies by reading `response["Error"]["Code"]`, which is all the
+    shape any of this needs.
+    """
+
+    def __init__(self, code, message=""):
+        """Builds the error.
+
+        Args:
+          code: The service error code.
+          message: The service's own message, which must reach no response body.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        super().__init__(code)
+        self.response = {"Error": {"Code": code, "Message": message}}
+
+
 _FAULT_ROUTE = contract.Route(
     id="envelope.fault",
     method="GET",
@@ -266,19 +293,10 @@ def test_raw_aws_text_never_reaches_the_body() -> None:
     Raises:
       AssertionError: If any of the service's text survives into the response.
     """
-    from botocore.exceptions import ClientError
-
-    denial = ClientError(
-        {
-            "Error": {
-                "Code": "AccessDenied",
-                "Message": (
-                    "User: arn:aws:sts::696000197480:assumed-role/dat-portal-user-role/alice "
-                    "is not authorized to perform: s3:ListBucket"
-                ),
-            }
-        },
-        "ListObjectsV2",
+    denial = _ServiceError(
+        "AccessDenied",
+        "User: arn:aws:sts::696000197480:assumed-role/dat-portal-user-role/alice "
+        "is not authorized to perform: s3:ListBucket",
     )
 
     def _denied(context):

@@ -20,6 +20,33 @@ from apicommon import identity
 from conftest import StubS3, bearer, directory_document
 
 
+class _ServiceError(Exception):
+    """A botocore-shaped client error, built here rather than imported.
+
+    `botocore` is provided by the Lambda runtime and is declared as a dependency nowhere, so it is
+    absent in CI — importing it passes on a laptop that happens to have boto3 and fails on the
+    runner. The identity layer classifies by reading `response["Error"]["Code"]`, which is all the
+    shape any of this needs.
+    """
+
+    def __init__(self, code, message=""):
+        """Builds the error.
+
+        Args:
+          code: The service error code.
+          message: The service's own message, which must reach no response body.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        super().__init__(code)
+        self.response = {"Error": {"Code": code, "Message": message}}
+
+
+
 def _get(headers=None):
     """Runs one authenticated request against the route.
 
@@ -90,10 +117,7 @@ def test_a_missing_document_is_the_empty_state_and_never_a_404(stub_directory) -
     Raises:
       AssertionError: If a missing object produces anything but the empty success.
     """
-    from botocore.exceptions import ClientError
-
-    missing = ClientError({"Error": {"Code": "NoSuchKey", "Message": "does not exist"}}, "GetObject")
-    stub_directory(StubS3(error=missing))
+    stub_directory(StubS3(error=_ServiceError("NoSuchKey", "does not exist")))
 
     response = _get()
 
@@ -259,10 +283,7 @@ def test_a_DENIAL_is_a_real_fault_and_not_an_empty_directory(stub_directory) -> 
     Raises:
       AssertionError: If a denial is reported as an empty success.
     """
-    from botocore.exceptions import ClientError
-
-    denied = ClientError({"Error": {"Code": "AccessDenied", "Message": "denied"}}, "GetObject")
-    stub_directory(StubS3(error=denied))
+    stub_directory(StubS3(error=_ServiceError("AccessDenied", "denied")))
 
     response = _get()
 
