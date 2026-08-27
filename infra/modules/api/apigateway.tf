@@ -25,7 +25,13 @@ resource "aws_apigatewayv2_api" "api" {
     allow_origins = compact([var.spa_origin, var.app_url])
 
     allow_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-    allow_headers = ["content-type", "authorization"]
+
+    # `x-request-id` is minted by the browser's API client on every call, and a header the
+    # preflight does not admit fails the preflight — so the request never reaches the API and
+    # the browser reports a generic network error. That failure is indistinguishable from the
+    # API being down, which is why this list is asserted against the client's headers rather
+    # than inferred from the app working.
+    allow_headers = ["content-type", "authorization", "x-request-id"]
 
     # False, and not merely unset. The arc sends the ID token as an Authorization bearer,
     # which is not a credential in the CORS sense — so true would grant a capability
@@ -34,7 +40,9 @@ resource "aws_apigatewayv2_api" "api" {
     # browser rejects while applying green.
     allow_credentials = false
 
-    max_age = 300
+    # Every request carries `Authorization`, so EVERY request is preflighted — the cache
+    # duration is a latency decision rather than a nicety.
+    max_age = 600
   }
 }
 
