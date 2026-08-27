@@ -21,16 +21,20 @@ key. Stated because a reason that reads false to whoever checks it is worse than
 
 Attributes:
   SERVICE: The service name every log record from this function carries.
+  MAX_STACK_BYTES: Imported for the one call below. It is a plain constant with no environment
+    read behind it, deliberately — this ``init`` runs at module scope, so a required value read
+    here would be a cold-start failure that no test and no deploy can see.
 """
 
 from typing import Any
 
+from apicommon.config import MAX_STACK_BYTES
 from cpcommon import observability
 from router import route
 
 SERVICE = "api"
 
-observability.init(service=SERVICE)
+observability.init(service=SERVICE, max_stack_bytes=MAX_STACK_BYTES)
 
 
 @observability.traced("request")
@@ -40,6 +44,10 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
     A malformed event — one carrying no ``requestContext.http`` — is routed rather than refused,
     because the router's own 404 is a better answer than a traceback for something that cannot
     reach this function through the API anyway.
+
+    The headers are handed to the router whole and the rest of the event is not, which is what
+    keeps a caller-stated username out of reach of every handler: the query string and the body
+    never leave this function.
 
     Args:
       event: The API Gateway payload-format-2.0 request.
@@ -51,7 +59,9 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
     Raises:
       None.
     """
-    http = event.get("requestContext", {}).get("http", {})
+    context_block = event.get("requestContext", {})
+    http = context_block.get("http", {})
     method = str(http.get("method", "")).upper()
     path = str(http.get("path", ""))
-    return route(method, path)
+    headers = event.get("headers") or {}
+    return route(method, path, headers, str(context_block.get("requestId", "")))
