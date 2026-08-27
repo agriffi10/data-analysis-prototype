@@ -80,6 +80,16 @@ jobs:
           fi
 
           TAG="${TAG_INPUT:-$GITHUB_SHA}"
+
+          # A DISPATCH NAMES AN IMAGE THAT ALREADY EXISTS; it does not name a new one. Building
+          # under an arbitrary string bakes it as BUILD_VERSION and as the revision label, so the
+          # stamp stops being the commit that produced the image — which is the one question the
+          # whole tagging scheme exists to answer.
+          if [ -n "$TAG_INPUT" ] && [ "$TAG_INPUT" != "$GITHUB_SHA" ] \
+             && ! aws ecr describe-images --repository-name "$NAME" --image-ids imageTag="$TAG_INPUT" >/dev/null 2>&1; then
+            echo "::error title=Unknown tag::$TAG_INPUT is not in the registry. This input re-points at an image that already exists; leave it empty to build this commit."
+            exit 1
+          fi
           {
             echo "repo=$REPO"
             echo "family=$NAME"
@@ -102,17 +112,25 @@ jobs:
       # task start with a manifest error that reads nothing like the architecture mismatch it is.
       - name: Build
         if: steps.names.outputs.build == 'run'
+        # Through `env:`, like every other value here. The tag can originate in a dispatch input,
+        # and a value interpolated straight into `run:` is a command-injection sink — and one
+        # carrying a newline could write a second line into $GITHUB_OUTPUT above.
+        env:
+          TAG: ${{ steps.names.outputs.tag }}
         run: |
+          set -euo pipefail
           docker build --platform linux/amd64 \
             -f apps/portal/Dockerfile \
-            --build-arg BUILD_VERSION="${{ steps.names.outputs.tag }}" \
-            -t "spa:${{ steps.names.outputs.tag }}" .
+            --build-arg BUILD_VERSION="$TAG" \
+            -t "spa:$TAG" .
 
       # BEFORE THE PUSH, so a wrong cache header never reaches a registry it cannot be deleted from.
       # This is the same script the pull-request gate runs, against the same image.
       - name: Assert the behaviour matrix
         if: steps.names.outputs.build == 'run'
-        run: .github/scripts/spa-image-matrix.sh "spa:${{ steps.names.outputs.tag }}" "${{ steps.names.outputs.tag }}"
+        env:
+          TAG: ${{ steps.names.outputs.tag }}
+        run: .github/scripts/spa-image-matrix.sh "spa:$TAG" "$TAG"
 
       - name: Push
         if: steps.names.outputs.build == 'run'
@@ -163,18 +181,54 @@ jobs:
           # map, so a clone that lost the block — or a Terraform apply that never ran — produces a
           # container that refuses to start, and the workflow would otherwise report only that the
           # deployment failed.
-          declared=$(awk '/spa_runtime_config = \{/{f=1;next} f&&/^  \}/{exit} f&&/^    [A-Za-z][A-Za-z0-9]* *=/{n++} END{print n+0}' infra/main.tf)
-          carried=$(jq '[.containerDefinitions[] | select(.name=="spa") | .environment[] | select(.name | startswith("CONFIG_"))] | length' /tmp/next.json)
+          declared=$(awk '/spa_runtime_config = \{/{f=1;next} f&&/^  \}/{exit} f&&/^    [A-Za-z_][A-Za-z0-9_]* *=/{n++} END{print n+0}' infra/main.tf)
           if [ "$declared" -eq 0 ]; then
             echo "::error title=Parse::could not count the runtime-configuration keys in infra/main.tf. A zero here would make the check below pass on an empty environment block."
             exit 1
           fi
+
+          # WAITS RATHER THAN FAILING ON THE FIRST READ, because the two workflows race. A commit
+          # that adds a configuration key triggers this pipeline AND the infrastructure apply, with
+          # no ordering between them: read too early and the newest revision predates the apply, so
+          # the count is short and main goes red on exactly the commits that change configuration.
+          # Read too late and it is fine. Polling makes the outcome deterministic instead of a
+          # coin-flip, and still fails loudly if the apply never happened at all.
+          carried=0
+          for _ in $(seq 1 20); do
+            carried=$(jq '[.containerDefinitions[] | select(.name=="spa") | .environment[] | select(.name | startswith("CONFIG_"))] | length' /tmp/next.json)
+            [ "$carried" -eq "$declared" ] && break
+            echo "the newest revision carries $carried of $declared configuration keys; waiting for the infrastructure apply"
+            sleep 15
+            aws ecs describe-task-definition --task-definition "$FAMILY" --include TAGS \
+              --output json > /tmp/described.json
+            jq '.taskDefinition
+                | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities,
+                      .registeredAt, .registeredBy, .deregisteredAt)' /tmp/described.json > /tmp/base.json
+            jq --slurpfile described /tmp/described.json --arg image "${REPO}:${TAG}" \
+              '.containerDefinitions |= map(if .name == "spa" then .image = $image else . end)
+               | if ($described[0].tags // []) == [] then . else .tags = $described[0].tags end' \
+              /tmp/base.json > /tmp/next.json
+          done
+
           if [ "$carried" -ne "$declared" ]; then
-            echo "::error title=Configuration::the revision carries $carried CONFIG_ entries; root declares $declared. Run Deploy Infrastructure first — a container missing part of its document refuses to start."
+            echo "::error title=Configuration::the revision carries $carried CONFIG_ entries; root declares $declared, and five minutes was not enough for the infrastructure apply to register one that matches. A container missing part of its document refuses to start."
             exit 1
           fi
           if ! jq -e '[.containerDefinitions[] | select(.name=="spa") | .environment[] | select(.name=="PORTAL_CSP_CONNECT_SRC")] | length == 1' /tmp/next.json >/dev/null; then
             echo "::error title=Configuration::the revision does not carry PORTAL_CSP_CONNECT_SRC. The container would refuse to start."
+            exit 1
+          fi
+
+          # THE SWAP IS A `map` OVER A PREDICATE, AND A PREDICATE THAT MATCHES NOTHING RETURNS THE
+          # LIST UNCHANGED. There is no error in that: register succeeds, update-service points at a
+          # revision carrying the PREVIOUS image, the task is healthy, the wait returns and every
+          # assertion in the final step passes — a green deploy of whatever was running before,
+          # which for the first run is the placeholder. So the swap is checked rather than assumed.
+          if ! jq -e --arg want "${REPO}:${TAG}" \
+               '[.containerDefinitions[] | select(.name == "spa" and .image == $want)] | length == 1' \
+               /tmp/next.json >/dev/null; then
+            echo "::error title=Image::the clone does not carry ${REPO}:${TAG}. The container name the swap matches on has diverged from the one in the task definition."
+            jq -r '.containerDefinitions[] | "  \(.name) -> \(.image)"' /tmp/next.json
             exit 1
           fi
 
@@ -208,6 +262,7 @@ jobs:
           CLUSTER: ${{ steps.names.outputs.cluster }}
           SERVICE: ${{ steps.names.outputs.service }}
           ARN: ${{ steps.register.outputs.arn }}
+          EXPECTED_TAG: ${{ steps.names.outputs.tag }}
         run: |
           set -euo pipefail
 
@@ -237,18 +292,46 @@ jobs:
             jq -r '.events[:5][] | "  \(.message)"' /tmp/service.json
             exit 1
           fi
-          # THE ONE THAT CATCHES A ROLLBACK. A rolled-back service is stable and healthy — running
-          # the PREVIOUS image. Without this the deploy reports success over a revision it did not
-          # produce, which is the failure the whole wait exists to catch.
-          if [ "$primary" != "$ARN" ]; then
-            echo "::error title=Rolled back::the service settled on $primary, not the revision this run registered. Rollout: $rollout"
+
+          # THE CHECK THAT ACTUALLY CATCHES A BAD IMAGE TODAY, and it is worth being exact about
+          # which one that is. The circuit breaker runs with rollback DISABLED, so a failing
+          # deployment does not revert: PRIMARY stays on the revision this run registered, and the
+          # ARN comparison below cannot fire. `runningCount` does not catch it either — it counts
+          # the OLD deployment's healthy tasks, which satisfy the desired count while the new ones
+          # are dying. So detection rests here, on the rollout state, with the wait's own timeout
+          # as the thing that gets us to this point.
+          #
+          # `COMPLETED` and nothing else. Tolerating an absent state would make this vacuous
+          # exactly when the field stops being reported, which is the shape a check must not have.
+          if [ "$rollout" != "COMPLETED" ]; then
+            echo "::error title=Deployment did not complete::rollout state is $rollout."
             jq -r '.deployments[] | "  \(.status) \(.taskDefinition) \(.rolloutState // "-") \(.rolloutStateReason // "-")"' /tmp/service.json
-            exit 1
-          fi
-          if [ "$rollout" != "COMPLETED" ] && [ "$rollout" != "NONE" ]; then
-            echo "::error title=Not completed::rollout state is $rollout."
-            jq -r '.deployments[] | "  \(.rolloutStateReason // "-")"' /tmp/service.json
+            jq -r '.events[:5][] | "  \(.message)"' /tmp/service.json
             exit 1
           fi
 
-          echo "::notice title=Deployed::$ARN, $running/$desired running"
+          # LIVE ONLY IF ROLLBACK IS EVER ENABLED, and kept for that reason. A rolled-back service
+          # is stable and healthy — running the PREVIOUS image — so stability would then be no
+          # evidence at all about what this run deployed. Keeping it costs nothing and means
+          # enabling rollback does not silently remove a check.
+          if [ "$primary" != "$ARN" ]; then
+            echo "::error title=Not this revision::the service settled on $primary, not the revision this run registered. Rollout: $rollout"
+            jq -r '.deployments[] | "  \(.status) \(.taskDefinition) \(.rolloutState // "-") \(.rolloutStateReason // "-")"' /tmp/service.json
+            exit 1
+          fi
+
+          # THE ARN IS NOT THE IMAGE. Comparing ARNs proves which revision the service settled on;
+          # it proves nothing about what that revision runs. Read back from the settled revision so
+          # the workflow's success statement is about the thing that was actually deployed.
+          settled_image=$(aws ecs describe-task-definition --task-definition "$ARN" \
+            --query 'taskDefinition.containerDefinitions[?name==`spa`].image' --output text)
+          if [ -z "$settled_image" ]; then
+            echo "::error title=Unreadable::could not read the settled revision's image."
+            exit 1
+          fi
+          if [ "${settled_image##*:}" != "$EXPECTED_TAG" ]; then
+            echo "::error title=Wrong image::the settled revision runs ${settled_image##*:}, not $EXPECTED_TAG."
+            exit 1
+          fi
+
+          echo "::notice title=Deployed::$ARN running $settled_image, $running/$desired tasks"

@@ -597,6 +597,28 @@ def test_the_task_definition_overrides_no_command() -> None:
         )
 
 
+def _uncommented(path: pathlib.Path) -> str:
+    """Returns a workflow's source with comment-only lines dropped.
+
+    Every assertion in this section names a directive that must be PRESENT, and a raw read finds
+    it just as happily on a line that has been commented out — which is how a directive is most
+    likely to be removed in the first place. Measured: commenting out the wait, the zero-count
+    guard and the settled-revision check left all three of their guards green.
+
+    Args:
+      path: The workflow to read.
+
+    Returns:
+      The source without comment-only lines.
+
+    Raises:
+      AssertionError: When the file reads empty, so nothing below runs vacuously.
+    """
+    text = path.read_text()
+    assert text.strip(), f"{path} is empty."
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
 def test_the_pipeline_tags_by_commit_sha_and_never_mutably() -> None:
     """``latest`` makes the running revision unidentifiable and a rollback a rebuild.
 
@@ -613,8 +635,7 @@ def test_the_pipeline_tags_by_commit_sha_and_never_mutably() -> None:
     Raises:
       AssertionError: When any mutable tag appears, or the build does not stamp the sha.
     """
-    text = DEPLOY.read_text()
-    body = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    body = _uncommented(DEPLOY)
 
     assert ":latest" not in body and "latest\"" not in body, (
         "The deploy workflow names a `latest` tag somewhere."
@@ -638,11 +659,11 @@ def test_the_pipeline_proves_the_image_before_it_pushes() -> None:
     Raises:
       AssertionError: When the matrix does not run, or does not run before the push.
     """
-    text = DEPLOY.read_text()
-    assert "spa-image-matrix.sh" in text, "The deploy pipeline never runs the behaviour matrix."
+    body = _uncommented(DEPLOY)
+    assert "spa-image-matrix.sh" in body, "The deploy pipeline never runs the behaviour matrix."
 
-    matrix_at = text.index("spa-image-matrix.sh")
-    push_at = text.index("docker push")
+    matrix_at = body.index("spa-image-matrix.sh")
+    push_at = body.index("docker push")
     assert matrix_at < push_at, (
         "The matrix runs after the push. The registry is immutable, so a bad image cannot be "
         "replaced at its tag."
@@ -666,18 +687,18 @@ def test_the_deploy_waits_and_refuses_to_pass_on_a_vacuous_wait() -> None:
     Raises:
       AssertionError: When the wait, the zero-count guard or the settled-revision check is absent.
     """
-    text = DEPLOY.read_text()
+    body = _uncommented(DEPLOY)
 
-    assert "wait services-stable" in text, (
+    assert "wait services-stable" in body, (
         "The pipeline does not wait, so a rolled-back deployment reports success."
     )
-    assert 'desired" -eq 0' in text, (
+    assert 'desired" -eq 0' in body, (
         "Nothing refuses a desired count of zero, where every check below it is vacuous: the wait "
         "returns instantly and a deliberately broken image deploys green."
     )
     # THE ONE THAT CATCHES A ROLLBACK. A rolled-back service is stable and healthy — running the
     # PREVIOUS image — so stability alone is not evidence that this run's image is live.
-    assert 'primary" != "$ARN"' in text, (
+    assert 'primary" != "$ARN"' in body, (
         "Nothing compares the settled revision with the one this run registered, so a rollback "
         "reads as a successful deploy."
     )
@@ -700,8 +721,7 @@ def test_the_deploy_clones_the_family_not_the_running_revision() -> None:
       AssertionError: When the clone reads the service's revision, or does not verify the
         configuration survived.
     """
-    text = DEPLOY.read_text()
-    body = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    body = _uncommented(DEPLOY)
 
     assert 'describe-task-definition --task-definition "$FAMILY"' in body, (
         "The clone does not read the family's newest revision by name."
@@ -710,12 +730,62 @@ def test_the_deploy_clones_the_family_not_the_running_revision() -> None:
         "The clone reads the revision the SERVICE is running, which after a rollback is stale."
     )
     # The register call refuses these, with a parameter error that reads as a malformed request.
-    for read_only in ("taskDefinitionArn", "requiresAttributes", "compatibilities", "registeredAt"):
-        assert read_only in body, f"The clone does not strip {read_only}, which register rejects."
+    # Read out of the `del(…)` expression itself: `taskDefinitionArn` also appears in a --query
+    # further down the step, so a bare substring check passed with the field left in the clone.
+    stripped = re.search(r"del\(([^)]*)\)", body)
+    assert stripped, "The clone strips no read-only fields at all."
+    for read_only in ("taskDefinitionArn", "revision", "status", "requiresAttributes",
+                      "compatibilities", "registeredAt", "registeredBy"):
+        assert f".{read_only}" in stripped.group(1), (
+            f"The clone does not strip {read_only}, which register-task-definition rejects."
+        )
     assert 'startswith("CONFIG_")' in body, (
         "Nothing checks the cloned revision still carries the runtime-configuration block. A "
         "container missing part of its document refuses to start, and the workflow would report "
         "only that the deployment failed."
+    )
+
+
+def test_the_deploy_swaps_the_image_on_the_container_the_task_definition_names() -> None:
+    """A `map` over a predicate that matches nothing returns the list unchanged, with no error.
+
+    The register call then succeeds, the service is pointed at a revision carrying the PREVIOUS
+    image, the task is healthy, the wait returns and every assertion on the settled service passes
+    — a green deploy of whatever was running before, which on the first run is the placeholder.
+
+    The workflow checks the swap took at runtime, and this catches the same thing before the merge
+    by holding it to the container name the task definition actually declares.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the swap names a container the task definition does not, or when the
+        workflow stops verifying that the image reached the revision.
+    """
+    body = _uncommented(DEPLOY)
+
+    declared = re.search(r'name\s*=\s*"([a-z-]+)"\s*\n\s*image\s*=', SPA_ECS.read_text())
+    assert declared, "The task definition no longer names its container beside the image."
+    container = declared.group(1)
+
+    assert f'.name == "{container}" then .image' in body, (
+        f'The deploy swaps the image on a container the task definition does not name. It '
+        f'declares "{container}". A predicate that matches nothing leaves the list unchanged and '
+        "deploys the previous image, green."
+    )
+
+    # The runtime half, which catches the same divergence arriving from the other side — a rename
+    # in the task definition rather than in the workflow.
+    assert '.name == "spa" and .image == $want' in body, (
+        "The deploy does not verify the registered revision actually carries the image it built."
+    )
+    assert "settled_image" in body, (
+        "The deploy never reads the image back off the settled revision. An ARN comparison proves "
+        "which revision is running, not what that revision runs."
     )
 
 
@@ -735,7 +805,7 @@ def test_both_workflows_build_for_the_architecture_the_task_declares() -> None:
       AssertionError: When either workflow builds without naming the platform.
     """
     for workflow in (PR_GATE, DEPLOY):
-        assert "--platform linux/amd64" in workflow.read_text(), (
+        assert "--platform linux/amd64" in _uncommented(workflow), (
             f"{workflow.name} builds without naming the platform."
         )
 
@@ -755,9 +825,9 @@ def test_the_deploy_is_serialized_and_never_cancelled_mid_flight() -> None:
     Raises:
       AssertionError: When the workflow is unserialized or cancels in progress.
     """
-    text = DEPLOY.read_text()
-    assert "concurrency:" in text, "The deploy is not serialized."
-    assert "cancel-in-progress: false" in text, (
+    body = _uncommented(DEPLOY)
+    assert "concurrency:" in body, "The deploy is not serialized."
+    assert "cancel-in-progress: false" in body, (
         "The deploy cancels in-flight runs, which leaves a service half-rolled."
     )
 
@@ -777,8 +847,7 @@ def test_the_static_site_deploy_is_untouched() -> None:
     Raises:
       AssertionError: When the static-site workflow stops deploying on every push to main.
     """
-    static = ROOT / ".github" / "workflows" / "deploy-app.yml"
-    text = static.read_text()
+    text = _uncommented(ROOT / ".github" / "workflows" / "deploy-app.yml")
     assert "branches: [main]" in text, (
         "deploy-app.yml no longer deploys on pushes to main. It is the working portal and the "
         "rollback for this whole transition."

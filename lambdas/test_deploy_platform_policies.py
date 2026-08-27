@@ -768,8 +768,15 @@ def test_the_image_pipeline_keeps_every_grant_it_needs() -> None:
         "Expected exactly one iam:PassRole statement conditioned on ecs-tasks.amazonaws.com, "
         f"found {len(conditioned)}. register-task-definition passes both task roles through it."
     )
+    # THE NAMES, not the count. An arity check passes on `["*", "*"]`, which is the exact
+    # privilege escalation the condition exists to prevent — the deploy role could then hand any
+    # role it can name to a task.
     resources = conditioned[0]["Resource"]
-    assert isinstance(resources, list) and len(resources) == 2, (
+    assert isinstance(resources, list), f"The ECS PassRole statement names {resources!r}."
+    assert {resource.rsplit("/", 1)[-1] for resource in resources} == {
+        "dat-*-spa-task-role",
+        "dat-*-spa-task-execution-role",
+    }, (
         f"The ECS PassRole statement names {resources!r}; it must name exactly the task role and "
-        "the task execution role."
+        "the task execution role, and no wildcard."
     )
