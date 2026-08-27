@@ -15,6 +15,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import handler as m
+from conftest import bearer
 
 FORBIDDEN_HANDLER_NAMES = (
     "boto3",
@@ -115,8 +116,13 @@ def test_the_method_is_upper_cased_before_routing() -> None:
     assert m.handler(_event("get", "/healthz"), None)["statusCode"] == 200
 
 
-def test_an_unroutable_request_is_a_404_not_a_traceback() -> None:
-    """A malformed event cannot arrive through the API, so a 404 beats a raise.
+def test_an_unroutable_request_is_refused_not_a_traceback() -> None:
+    """A malformed event cannot arrive through the API, so an answer beats a raise.
+
+    The status this asserts CHANGED when the router began identifying callers first, and the
+    new one is the honest answer: an event carrying no request context also carries no
+    credential, so it is refused as unauthenticated rather than reported as a missing route.
+    Telling an unidentified caller which paths exist is what deny-by-default is for.
 
     Args:
       None.
@@ -125,10 +131,28 @@ def test_an_unroutable_request_is_a_404_not_a_traceback() -> None:
       None.
 
     Raises:
-      AssertionError: If a missing request context raises instead of routing.
+      AssertionError: If a missing request context raises instead of being refused.
     """
     for event in ({}, {"requestContext": {}}, {"requestContext": {"http": {}}}):
-        assert m.handler(event, None)["statusCode"] == 404
+        assert m.handler(event, None)["statusCode"] == 401
+
+
+def test_a_malformed_event_from_an_identified_caller_is_a_json_404() -> None:
+    """The other half, which is what the previous shape of this test actually proved.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If an identified caller's unroutable request is not a JSON 404.
+    """
+    event = {"requestContext": {"http": {}}, "headers": bearer()}
+    response = m.handler(event, None)
+    assert response["statusCode"] == 404
+    assert json.loads(response["body"])["error"] == "not_found"
 
 
 def test_the_handler_holds_no_aws_surface_and_no_session() -> None:

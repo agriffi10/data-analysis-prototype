@@ -19,6 +19,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import router
+from conftest import bearer
 
 FORBIDDEN_HEADER_PREFIX = "access-control-"
 FORBIDDEN_ROUTER_NAMES = ("boto3", "clients", "assume_role", "sts")
@@ -135,7 +136,7 @@ def test_every_other_method_and_path_is_a_json_404() -> None:
         ("DELETE", "/anything"),
         ("", ""),
     ):
-        response = router.route(method, path)
+        response = router.route(method, path, bearer())
 
         assert response["statusCode"] == 404, f"{method} {path} must not be served"
         assert response["headers"]["content-type"] == "application/json"
@@ -155,7 +156,7 @@ def test_no_response_carries_a_cors_header() -> None:
       AssertionError: If any response carries an ``access-control-*`` header.
     """
     for method, path in (("GET", "/healthz"), ("GET", "/nope"), ("OPTIONS", "/healthz")):
-        headers = router.route(method, path)["headers"]
+        headers = router.route(method, path, bearer())["headers"]
 
         offending = [
             name for name in headers if name.lower().startswith(FORBIDDEN_HEADER_PREFIX)
@@ -205,7 +206,7 @@ def test_every_body_is_a_STRING_because_a_status_makes_the_envelope_literal() ->
       AssertionError: If any response body is not an already-serialized string.
     """
     for method, path in (("GET", "/healthz"), ("GET", "/nope"), ("POST", "/healthz")):
-        body = router.route(method, path)["body"]
+        body = router.route(method, path, bearer())["body"]
 
         assert isinstance(body, str), (
             f"{method} {path} returned a {type(body).__name__} body beside a statusCode — "
@@ -229,7 +230,7 @@ def test_a_refusal_bounds_what_it_echoes_back() -> None:
     Raises:
       AssertionError: If either value is echoed unbounded.
     """
-    body = json.loads(router.route("GET", "/" + "a" * 5000)["body"])
+    body = json.loads(router.route("GET", "/" + "a" * 5000, bearer())["body"])
 
     assert len(body["path"]) <= router.MAX_ECHOED_CHARS, (
         "the refusal echoed the whole caller-supplied path back"
