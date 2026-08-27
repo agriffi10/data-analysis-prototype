@@ -126,7 +126,9 @@ def test_no_test_file_reaches_the_package_at_any_depth(built: pathlib.Path) -> N
     """A suite in the package makes its test doubles importable at runtime.
 
     ``conftest.py`` is included deliberately: the prune this replaces matched ``test_*.py``
-    only, so every function shipped its conftest.
+    only, so the two function directories that have one were shipping it. (Two, not all — the
+    third ``conftest.py`` under ``lambdas/`` is the parent directory's, which the glob never
+    reached.)
 
     Args:
       built: The package root the build block produced.
@@ -143,8 +145,6 @@ def test_no_test_file_reaches_the_package_at_any_depth(built: pathlib.Path) -> N
         if path.name.startswith("test_") or path.name == "conftest.py"
     ]
     assert not shipped, f"the package ships {shipped}"
-    for relative in MUST_NOT_SHIP:
-        assert not (built / relative).exists()
 
 
 def test_the_flat_copy_this_replaces_would_have_failed(tmp_path: pathlib.Path) -> None:
@@ -208,7 +208,7 @@ def test_the_block_refuses_rather_than_shipping_a_suite(tmp_path: pathlib.Path) 
     (root / "lambdas" / "api" / "test_planted.py").write_text("VALUE = 1\n")
 
     result = subprocess.run(  # noqa: S603
-        [BASH, "-c", f'set -uo pipefail\nNAME=api\nBUILD_DIR="build/api"\n{block}\n'],
+        [BASH, "-c", f'set -euo pipefail\nNAME=api\nBUILD_DIR="build/api"\n{block}\n'],
         cwd=root,
         capture_output=True,
         text=True,
@@ -221,10 +221,13 @@ def test_the_block_refuses_rather_than_shipping_a_suite(tmp_path: pathlib.Path) 
 def test_every_shipped_function_still_packages_identically() -> None:
     """The blast radius. This block builds all 82 functions, not just the one that needed it.
 
-    Every function is flat today, so the new block must produce exactly what the old one
-    produced for each — minus the conftest that should never have shipped. The subject is the
-    deploy table, not every directory under ``lambdas/``: the layer directories are built by
-    ``build-layer.sh`` and this block never touches them.
+    Nothing may be LOST for any function, and nothing may be gained at the TOP LEVEL — where
+    the old glob already looked. A gain inside a subdirectory is the entire point of the change,
+    so asserting plain equality here would forbid the layout this exists to enable, and would
+    redden on the very next change with a message reading as a bug report.
+
+    The subject is the deploy table, not every directory under ``lambdas/``: the layer
+    directories are built by ``build-layer.sh`` and this block never touches them.
 
     Args:
       None.
@@ -253,8 +256,88 @@ def test_every_shipped_function_still_packages_identically() -> None:
             and module.name != "conftest.py"
             and not any(part.startswith(".") for part in module.relative_to(directory).parts)
         }
-        assert new_shape == old_shape - {"conftest.py"}, (
-            f"{entry['name']} packages differently under the new block: "
-            f"gained {sorted(new_shape - old_shape)}, "
-            f"lost {sorted(old_shape - new_shape - {'conftest.py'})}"
+        lost = old_shape - new_shape - {"conftest.py"}
+        assert not lost, f"{entry['name']} would stop shipping {sorted(lost)}"
+
+        gained = {module for module in new_shape - old_shape if "/" not in module}
+        assert not gained, (
+            f"{entry['name']} gained top-level modules the old block would have carried "
+            f"anyway: {sorted(gained)}"
         )
+
+
+def test_a_function_with_nothing_to_ship_is_refused(tmp_path: pathlib.Path) -> None:
+    """An empty package deploys green and is dead at cold start.
+
+    Two cases, and only one of them is new. A truly EMPTY directory used to be refused by
+    accident — `cp` found no match and failed — and the recursive form would have accepted it,
+    which is a regression this closes. A directory holding only tests was accepted BEFORE this
+    change too: the glob copied them and the prune removed them, leaving nothing. Both are
+    refused now, on purpose rather than by accident.
+
+    Args:
+      tmp_path: Scratch directory.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a package with no modules is allowed to deploy.
+    """
+    for label, contents in (("empty", ()), ("tests only", ("test_it.py", "conftest.py"))):
+        root = tmp_path / label.replace(" ", "-")
+        (root / "lambdas" / "api").mkdir(parents=True)
+        for name in contents:
+            (root / "lambdas" / "api" / name).write_text("VALUE = 1\n")
+        (root / "build" / "api").mkdir(parents=True)
+
+        result = subprocess.run(  # noqa: S603
+            [
+                BASH,
+                "-c",
+                f'set -euo pipefail\nNAME=api\nBUILD_DIR="build/api"\n{_build_block()}\n',
+            ],
+            cwd=root, capture_output=True, text=True, check=False,
+        )
+        assert result.returncode != 0, f"{label}: an empty package was allowed to deploy"
+        assert "no shippable modules" in result.stdout + result.stderr, label
+
+
+def test_a_hidden_directory_is_skipped_at_any_depth(tmp_path: pathlib.Path) -> None:
+    """A developer's .ruff_cache sits inside two function directories.
+
+    Nested is the case that matters and the one a top-level-only exclusion misses. `-mindepth 1`
+    is what makes the prune safe to write at all: `.` matches `.*`, so without it the prune
+    matches the search root and the find returns nothing — which reads as "no modules" and,
+    since the refusal above exists, at least fails loudly rather than shipping an empty package.
+
+    Args:
+      tmp_path: Scratch directory.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a hidden directory's contents reach the package.
+    """
+    root = tmp_path / "hidden"
+    function = root / "lambdas" / "api"
+    (function / ".ruff_cache").mkdir(parents=True)
+    (function / "pkg" / ".pytest_cache").mkdir(parents=True)
+    (function / "handler.py").write_text("VALUE = 1\n")
+    (function / "pkg" / "__init__.py").write_text("VALUE = 1\n")
+    (function / ".ruff_cache" / "cached.py").write_text("VALUE = 1\n")
+    (function / "pkg" / ".pytest_cache" / "deep.py").write_text("VALUE = 1\n")
+    build_dir = root / "build" / "api"
+    build_dir.mkdir(parents=True)
+
+    result = subprocess.run(  # noqa: S603
+        [BASH, "-c", f'set -euo pipefail\nNAME=api\nBUILD_DIR="build/api"\n{_build_block()}\n'],
+        cwd=root, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+    shipped = {str(path.relative_to(build_dir)) for path in build_dir.rglob("*.py")}
+    assert shipped == {"handler.py", "pkg/__init__.py"}, (
+        f"a hidden directory reached the package: {sorted(shipped)}"
+    )

@@ -89,24 +89,41 @@ fi
 # tests, green deploy, ModuleNotFoundError in production.
 #
 # Tests and conftest are pruned by NAME at any depth, not by a top-level glob, for the same
-# reason. conftest.py was being shipped before this: the old prune matched only test_*.py.
-# Hidden directories are skipped because a developer's .pytest_cache/.ruff_cache sits inside
-# two function directories, and a recursive copy is the first thing that would carry them.
-(
-  cd lambdas/"${NAME}"
-  find . -name '*.py' ! -name 'test_*.py' ! -name 'conftest.py' ! -path './.*' -print
-) | while IFS= read -r module; do
+# reason. The old prune matched only test_*.py, so the two functions that have a conftest were
+# shipping it. Hidden directories are pruned at any depth because two function directories
+# hold a developer's .pytest_cache or .ruff_cache, and a recursive copy is the first thing that
+# would carry them; `-mindepth 1` is load-bearing there, since `.` itself matches `.*` and
+# pruning it would silently match nothing at all.
+#
+# CDPATH is cleared because a `cd` under a set CDPATH PRINTS the resolved directory on stdout,
+# which this pipeline would then read as a module name.
+MODULES=$(
+  CDPATH= cd -- "lambdas/${NAME}" &&
+  find . -mindepth 1 -name '.*' -prune -o \
+       -name '*.py' ! -name 'test_*.py' ! -name 'conftest.py' -print
+)
+
+# A function with nothing to ship is a function that is dead at cold start, and the deploy
+# would report success. The flat glob refused an EMPTY directory by accident (`cp` found no
+# match) and accepted a tests-only one; this refuses both on purpose.
+if [ -z "$MODULES" ]; then
+  echo "::error::${NAME} has no shippable modules — refusing to deploy an empty package."
+  exit 1
+fi
+
+printf '%s\n' "$MODULES" | while IFS= read -r module; do
   mkdir -p "$BUILD_DIR/$(dirname "$module")"
   cp "lambdas/${NAME}/$module" "$BUILD_DIR/$module"
 done
 
-# Nothing below should be able to reintroduce them, so the refusal is here rather than in a
-# comment: a package carrying a suite is a package whose test doubles are importable at runtime.
-if find "$BUILD_DIR" \( -name 'test_*.py' -o -name 'conftest.py' \) | grep -q .; then
+# Nothing above should be able to reintroduce a suite, so the refusal is here rather than in a
+# comment. Scoped to the module list rather than to $BUILD_DIR, which by this point may also
+# hold pip-installed dependencies — a vendored package's own tests would otherwise fire this
+# and blame a prune that is not at fault.
+if printf '%s\n' "$MODULES" | grep -qE '(^|/)(test_[^/]*\.py|conftest\.py)$'; then
   echo "::error::${NAME} package contains test files after the prune — refusing to deploy."
   exit 1
 fi
-
 # SPEC-186 FR-005: the build stamp travels IN THE PACKAGE, not in the function's
 # environment. Tofu owns the environment map and `update-function-configuration
 # --environment` REPLACES it whole, so writing a version there would either race Tofu or
