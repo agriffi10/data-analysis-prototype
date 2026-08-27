@@ -35,6 +35,15 @@ Attributes:
   MAX_ROLE_SESSION_NAME: STS's ceiling on that name.
   REASON_UNREPRESENTABLE_USERNAME: Logged when a username cannot be a session name. A fixed
     literal; the username travels as a field, where an operator can read it.
+  REASON_ASSUME_FAILED: Raised when STS refuses or cannot be reached. Fixed, and deliberately
+    carrying nothing STS said — a role ARN and an account id travel in the provider's own text.
+  REASON_CREDENTIALS_EXPIRED: Raised when a second attempt with freshly assumed credentials
+    expires too. One retry is the whole allowance.
+  EXPIRED_CREDENTIAL_CODES: The service codes meaning "these credentials are past their expiry",
+    which is the one downstream failure worth a forced re-assume.
+  _CREDENTIAL_CACHE: Per-container credentials, keyed on the WHOLE tag set. A warm container
+    serves many callers in sequence, so this survives the invocation deliberately and is keyed
+    rather than cleared — the opposite of trace baggage, and for the opposite reason.
 """
 
 import dataclasses
@@ -43,6 +52,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from cpcommon import observability
 from cpcommon.auth import Principal
 from cpcommon.config import CATALOG_IDENTIFIER_RE
 
@@ -55,6 +65,12 @@ ROLE_SESSION_NAME_RE = re.compile(r"^[\w+=,.@-]{2,64}$")
 MAX_ROLE_SESSION_NAME = 64
 
 REASON_UNREPRESENTABLE_USERNAME = "unrepresentable_username"
+REASON_ASSUME_FAILED = "assume_role_failed"
+REASON_CREDENTIALS_EXPIRED = "credentials_expired"
+
+EXPIRED_CREDENTIAL_CODES = frozenset({"ExpiredToken", "ExpiredTokenException"})
+
+_CREDENTIAL_CACHE: dict[tuple[object, ...], "AssumedCredentials"] = {}
 
 
 class PlaneViolationError(RuntimeError):
@@ -217,30 +233,304 @@ def role_session_name(username: str) -> str:
     return username
 
 
-def _execution_client(service: str) -> Any:
-    """Builds a client on the function's own execution role. The ONE construction site.
+def _client(service: str, credentials: AssumedCredentials | None = None) -> Any:
+    """Builds an AWS client. The ONE construction site in this package.
+
+    With no credentials it is the function's own execution role — the API plane, which is how the
+    assume-role call itself is made. With credentials it is the caller's assumed session — the
+    user plane, and the only isolation-enforced door.
 
     Private, unguarded, and exempt from the sweep by module identity rather than by any name or
-    filename pattern — a pattern exemption silently exempts the next module somebody names
-    similarly. Every other module in this package reaches AWS through the two public doors below,
-    and the sweep asserts that this package holds exactly one client construction, not merely that
-    the others hold none.
+    filename pattern: a pattern exemption silently exempts the next module somebody names
+    similarly. The sweep asserts this package holds exactly ONE construction, not merely that
+    every other module holds none — the second is satisfied by a layer that builds six.
 
-    boto3 is imported at the call rather than at module scope, matching the layer's own client
-    factories: a request that needs no client should not pay for the import.
+    The keyword arguments are assembled before the call rather than split across two calls, so
+    there is one site to find and one site to get wrong. boto3 is imported here rather than at
+    module scope, matching the layer's own factories: a request needing no client should not pay
+    for the import.
 
     Args:
       service: The AWS service name.
+      credentials: The caller's assumed session, or None for the execution role.
 
     Returns:
-      A client on the execution role's credentials.
+      A client on those credentials.
 
     Raises:
       None.
     """
     import boto3
 
-    return boto3.client(service)
+    session: dict[str, str] = {}
+    if credentials is not None:
+        session = {
+            "aws_access_key_id": credentials.access_key_id,
+            "aws_secret_access_key": credentials.secret_access_key,
+            "aws_session_token": credentials.session_token,
+        }
+    return boto3.client(service, **session)
+
+
+def aws_error_code(exc: BaseException) -> str:
+    """Reads the service error code off a botocore client error, if it is one.
+
+    Duck-typed rather than caught by class so this module does not import botocore to read a
+    field. The shape is botocore's own and stable.
+
+    PUBLIC deliberately, and it is not a door: it reads a field off an exception and reaches no
+    credential. A route needs it to tell a denial from a fault on a call it is deliberately
+    expecting to be refused, and the sweep that keeps the two credential doors exclusive should
+    not push that route into duplicating this.
+
+    Args:
+      exc: The exception to inspect.
+
+    Returns:
+      The service's error code, or the empty string.
+
+    Raises:
+      None.
+    """
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        error = response.get("Error")
+        if isinstance(error, dict):
+            return str(error.get("Code", ""))
+    return ""
+
+
+def _cache_key(caller: UserIdentity) -> tuple[object, ...]:
+    """The key a caller's credentials are cached under: the WHOLE tag set.
+
+    Never the username alone. A username-only key pins a caller to whichever membership set their
+    first request of the hour happened to carry — which turns the product's refresh-to-propagate
+    contract into refresh-and-nothing-happens. Never nothing at all, which serves the second
+    caller the first caller's session.
+
+    Args:
+      caller: The verified identity.
+
+    Returns:
+      A hashable key covering the username and the ordered membership slots.
+
+    Raises:
+      None.
+    """
+    return (caller.username, tuple(sorted(caller.memberships.items())))
+
+
+def _usable(credentials: AssumedCredentials, now: datetime.datetime) -> bool:
+    """Whether a cached session has enough life left to serve a whole request.
+
+    Args:
+      credentials: The cached session.
+      now: The current time, timezone-aware.
+
+    Returns:
+      True if more than the margin remains.
+
+    Raises:
+      TypeError: If either value is naive. Deliberately not defended against — STS returns an
+        aware expiry, so a naive one means a fixture is measuring a shape the service never
+        produces, and a silent mis-compare would be worse than the raise.
+    """
+    return (
+        credentials.expires_at - now
+    ).total_seconds() > config.CREDENTIAL_EXPIRY_MARGIN_SECONDS
+
+
+@observability.step("assume_user_role")
+def _assume(caller: UserIdentity) -> AssumedCredentials:
+    """Assumes the portal role as this caller, tagged from their verified claims.
+
+    The session name is resolved FIRST, so a username that cannot be represented is refused
+    before any call is issued rather than after one.
+
+    Args:
+      caller: The verified identity.
+
+    Returns:
+      The assumed session.
+
+    Raises:
+      IdentityUnavailableError: If the username cannot be a session name, or STS refuses or
+        cannot be reached. **The wrap below is load-bearing, not tidiness.** STS answers
+        ``AccessDenied`` when the trust policy is wrong — a missing ``sts:TagSession`` renders,
+        plans, applies and unit-tests green — and an unwrapped one reaches the failure mapping
+        carrying that service code, where it is indistinguishable from the isolation model
+        working. Every user would be told they lack a permission, for something only an operator
+        can fix. Wrapping strips the service response, so the failure can only be classified by
+        what it is.
+    """
+    session_name = role_session_name(caller.username)
+    tags = session_tags(caller)
+    observability.info(
+        "assuming the caller's role",
+        username=caller.username,
+        membership_slots=len(caller.memberships),
+    )
+    try:
+        response = _client("sts").assume_role(
+            RoleArn=config.portal_role_arn(),
+            RoleSessionName=session_name,
+            DurationSeconds=config.ASSUME_ROLE_DURATION_SECONDS,
+            Tags=tags,
+        )
+    except Exception as exc:
+        raise IdentityUnavailableError(REASON_ASSUME_FAILED) from exc
+
+    block = response["Credentials"]
+    return AssumedCredentials(
+        access_key_id=block["AccessKeyId"],
+        secret_access_key=block["SecretAccessKey"],
+        session_token=block["SessionToken"],
+        expires_at=block["Expiration"],
+    )
+
+
+def assume_user_role(caller: UserIdentity, *, force: bool = False) -> AssumedCredentials:
+    """Returns this caller's assumed session, from the per-container cache where possible.
+
+    Args:
+      caller: The verified identity.
+      force: Skip the cache and re-assume. Used by the single expiry retry.
+
+    Returns:
+      The assumed session. Annotated at the call below because the tracing decorator is
+      untyped, so the type is lost through it rather than absent from it.
+
+    Raises:
+      IdentityUnavailableError: If the role cannot be assumed.
+      ConfigError: If the layer's configuration is unusable.
+    """
+    key = _cache_key(caller)
+    if not force:
+        cached = _CREDENTIAL_CACHE.get(key)
+        if cached is not None and _usable(
+            cached, datetime.datetime.now(datetime.UTC)
+        ):
+            return cached
+    fresh: AssumedCredentials = _assume(caller)
+    _CREDENTIAL_CACHE[key] = fresh
+    return fresh
+
+
+def reset_credential_cache() -> None:
+    """Empties the per-container cache. Test fixtures only.
+
+    Called by this package's fixture so a leak between TESTS cannot mask a leak between
+    REQUESTS — the sequence that catches a wrongly-keyed cache only means something if each test
+    starts empty.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+    """
+    _CREDENTIAL_CACHE.clear()
+
+
+class _RetryingClient:
+    """A client that survives its credentials expiring, exactly once.
+
+    The server-side successor to the browser's single credential retry, and it exists for the
+    same reason: a session can expire between the check and the call, and re-driving the user's
+    whole action to recover from something invisible to them is worse than one silent retry.
+
+    **The retry is issued on a NEW client.** boto3 binds credentials at construction, so a proxy
+    that re-assumes and then retries on the same object hits the same expired session, fails
+    again, and reports a fault — fail-closed, but the retry does nothing while every test of it
+    passes.
+
+    It sees direct method calls only. A paginator, a waiter or anything reached through ``meta``
+    holds its own reference and bypasses this; nothing here paginates today and a tripwire says
+    so, rather than leaving the limit to be discovered by the spec that first needs one.
+    """
+
+    def __init__(self, service: str, caller: UserIdentity, client: Any) -> None:
+        """Wraps a client for one caller.
+
+        Args:
+          service: The AWS service name, kept so a replacement can be built.
+          caller: The identity to re-assume as.
+          client: The client to proxy.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+        """
+        self._service = service
+        self._caller = caller
+        self._client = client
+
+    def __getattr__(self, name: str) -> Any:
+        """Proxies an operation, retrying once if the session expired underneath it.
+
+        Private names are refused rather than proxied, which keeps this object's own state out
+        of a route's reach and stops the lookup recursing during construction.
+
+        Args:
+          name: The attribute asked for.
+
+        Returns:
+          The attribute, or a callable wrapping it.
+
+        Raises:
+          AttributeError: If a private name is asked for.
+        """
+        if name.startswith("_"):
+            raise AttributeError(name)
+
+        attribute = getattr(self._client, name)
+        if not callable(attribute):
+            return attribute
+
+        def _call(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return attribute(*args, **kwargs)
+            except Exception as first:
+                if aws_error_code(first) not in EXPIRED_CREDENTIAL_CODES:
+                    raise
+                self._client = _client(
+                    self._service, assume_user_role(self._caller, force=True)
+                )
+                try:
+                    return getattr(self._client, name)(*args, **kwargs)
+                except Exception as second:
+                    if aws_error_code(second) in EXPIRED_CREDENTIAL_CODES:
+                        raise IdentityUnavailableError(
+                            REASON_CREDENTIALS_EXPIRED
+                        ) from second
+                    raise
+
+        return _call
+
+
+def user_client(service: str, caller: UserIdentity) -> Any:
+    """A client on THIS caller's assumed session — the only isolation-enforced door.
+
+    The identity is a PARAMETER and may never be read from a request-scoped global: a module-level
+    "current identity" is the credential leak this design most invites, wearing a different hat.
+
+    Args:
+      service: The AWS service name.
+      caller: The verified identity to act as.
+
+    Returns:
+      A client carrying that caller's session tags.
+
+    Raises:
+      IdentityUnavailableError: If the role cannot be assumed.
+      ConfigError: If the layer's configuration is unusable.
+    """
+    return _RetryingClient(service, caller, _client(service, assume_user_role(caller)))
 
 
 def api_client(service: str) -> Any:
@@ -262,4 +552,26 @@ def api_client(service: str) -> Any:
         dispatching at all.
     """
     planes.require(planes.Plane.API)
-    return _execution_client(service)
+    return _client(service)
+
+
+def for_request(caller: Principal) -> UserIdentity:
+    """Builds the identity this request acts as, and stamps it on every record the request emits.
+
+    The stamp is here rather than around the assume, and the placement is the point: the assume
+    is cached, so a stamp inside it would fire on a cold cache and on nothing else — leaving the
+    overwhelming majority of requests, the warm ones, unattributable in the log store while every
+    offline test passed.
+
+    Args:
+      caller: The verified caller.
+
+    Returns:
+      The identity, carrying the username and every occupied membership slot.
+
+    Raises:
+      ConfigError: If the slot count is unset or unusable.
+    """
+    acting_as = identity_from(caller)
+    observability.stamp(username=acting_as.username)
+    return acting_as

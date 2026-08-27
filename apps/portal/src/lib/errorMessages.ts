@@ -204,6 +204,17 @@ const CODE_RULES: readonly ErrorRule[] = [
     userFixable: true
   },
 
+  // Trigger: the API could not act as the caller at all — the role would not assume, or the
+  // username cannot be a session name. The user did nothing wrong and can do nothing about it,
+  // so this must NOT read as a permission problem (AccessDenied above) or as a stale session
+  // (SessionExpired above). Never passthrough: the technical message is AWS's own and names a
+  // role ARN and an account id. ──
+  {
+    code: 'IdentityUnavailable',
+    message: `Something went wrong on our side. ${CONTACT_ADMIN}`,
+    userFixable: false
+  },
+
   {code: 'ExpiredToken', message: 'Your session expired. Sign in again.', userFixable: true},
   {code: 'ExpiredTokenException', message: 'Your session expired. Sign in again.', userFixable: true},
   {code: 'CredentialsProviderError', message: 'Your session expired. Sign in again.', userFixable: true},

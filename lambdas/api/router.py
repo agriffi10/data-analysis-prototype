@@ -39,7 +39,7 @@ import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from apicommon import errors, planes, principal
+from apicommon import errors, identity, planes, principal
 from apicommon.config import ConfigError
 from apicommon.context import RequestContext
 from cpcommon import observability
@@ -178,6 +178,11 @@ def route(
     in place. The reset below runs before the public-route check, so even a request that never
     reaches dispatch starts from a sentinel that authorizes nothing.
 
+    **A failure a route raises is classified, never flattened.** A denial from AWS is the
+    isolation model working and is answered 403; an identity this API cannot assume is a fault on
+    this side and is answered 5xx. Anything else keeps rising, so an unexpected failure is
+    recorded by the span rather than dressed up as a refusal that says something untrue about it.
+
     Args:
       method: The request's HTTP method, uppercased by the caller.
       path: The request's path, without the stage or query string.
@@ -203,6 +208,7 @@ def route(
 
     try:
         caller = principal.resolve(headers or {})
+        acting_as = identity.for_request(caller)
     except AuthError as exc:
         return _refuse(str(exc), asked_for, request_id)
     except (ConfigError, VerifierUnavailable) as exc:
@@ -220,6 +226,16 @@ def route(
 
     planes.begin_dispatch((method, path))
     try:
-        return _response(200, handler(RequestContext(caller, asked_for, request_id)))
+        return _response(
+            200, handler(RequestContext(caller, acting_as, asked_for, request_id))
+        )
+    except Exception as exc:
+        refusal = errors.for_exception(exc)
+        if refusal is None:
+            raise
+        observability.warning(
+            "request refused", reason=type(exc).__name__, route=asked_for, request_id=request_id
+        )
+        return refusal
     finally:
         planes.end_dispatch()

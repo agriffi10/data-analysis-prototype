@@ -538,6 +538,22 @@ The identity layer's spans go through `cpcommon.observability` — the only door
       — or an STS response holding a `SecretAccessKey`/`SessionToken` — can pull one in. The test
       raises a synthetic exception whose `__cause__` message carries a token-shaped string and a
       credential-shaped string, and asserts no emitted record contains either.
+
+      > **CORRECTED 2026-08-27, during build — this criterion asked for a mechanism SPEC-195 did
+      > not build, and its two halves contradicted each other.** It says the treatment is
+      > *inherited* from SPEC-195 FR-007, and separately that a record must not *contain* a
+      > credential written into an exception message. SPEC-195 FR-007's mechanism is
+      > **preventative, not a redactor**: a sweep forbidding this repo's code from rendering a
+      > token into an f-string, a `%`-format, a `.format()` call or a `raise` argument, plus a
+      > sentinel test. `log-foundry` 0.6.0 still exposes no way to turn stack capture off and no
+      > redactor exists, so a test that deliberately writes a credential into an exception message
+      > and then demands its absence asks for something neither spec ships — it is red by
+      > construction. **Settled 2026-08-27 (Andrew): prevent, and record the residual.** This
+      > layer extends the interpolation sweep to the four session-material names it introduces,
+      > and the sentinel test drives a path that genuinely raises through the span while holding a
+      > real assumed session — so the absence is asserted where a stack actually exists. The
+      > residual — a future route that interpolates a session value despite the sweep — is
+      > recorded in `owed.md` rather than implied to be closed.
 - [ ] **The scrub does NOT extend to user data, and that boundary is deliberate.** The settled
       2026-07-23 decision **accepts** file contents reaching `error.stack` — `logs/` is admin-only and
       a stack is diagnostic metadata a failed run needs — and pins it with

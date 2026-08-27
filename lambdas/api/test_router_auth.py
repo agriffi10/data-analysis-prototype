@@ -243,13 +243,35 @@ def test_the_logged_route_is_bounded_in_the_record(captured_events):
     )
 
 
-def test_a_403_is_never_minted_by_this_boundary():
-    """It becomes reachable when an authenticated caller is refused an action. Until then, this
-    is the guard that 401 and 403 cannot collapse into each other — which is the difference
-    between telling a user to sign in again and telling them signing in again cannot help."""
-    for path, tree in _shipped_modules():
-        for node in _constants(tree):
-            assert node.value not in (403, "403"), f"{path} mints a 403"
+def test_the_401_and_the_403_cannot_collapse_into_each_other():
+    """The same guard as before, at the moment 403 became reachable — SPEC-196 owns this edit.
+
+    Until an authenticated caller could be refused an action, the strongest available form of
+    this was "nothing here mints a 403 at all". A denial is now a real answer, so the property
+    the guard was always about is asserted directly instead: the two statuses are distinct, they
+    are minted in exactly one module, and neither borrows the other's code. That difference is
+    the difference between telling a user to sign in again and telling them signing in again
+    cannot help.
+
+    Left as it was, this reddens the day the identity layer lands and the repair a builder
+    reaches for is deletion — which also removes the collapse guard itself.
+    """
+    minting = {
+        str(path)
+        for path, tree in _shipped_modules()
+        for node in _constants(tree)
+        if node.value in (403, "403")
+    }
+    assert minting == {"apicommon/errors.py"}, (
+        f"a 403 is minted in {sorted(minting)} — the refusal surface is one module, so the "
+        "statuses and their codes stay one decision"
+    )
+
+    assert errors.FORBIDDEN_STATUS == 403
+    assert errors.UNAUTHENTICATED_STATUS == 401
+    assert errors.FORBIDDEN_STATUS != errors.UNAUTHENTICATED_STATUS
+    assert errors.FORBIDDEN_CODE != errors.UNAUTHENTICATED_CODE
+    assert errors.IDENTITY_UNAVAILABLE_CODE != errors.UNAUTHENTICATED_CODE
 
 
 def test_the_provider_configuration_failing_is_a_server_fault_and_never_a_401(monkeypatch):
