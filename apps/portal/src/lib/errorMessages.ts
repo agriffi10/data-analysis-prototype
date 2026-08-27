@@ -189,6 +189,21 @@ const CODE_RULES: readonly ErrorRule[] = [
   // (or the session lapsed). User-fixable — sign in. ──
   {code: 'NotAuthenticated', message: 'Sign in to continue.', userFixable: true},
 
+  // Trigger: the API refused a request as unauthenticated. Every one of its 401s is
+  // byte-identical on purpose — no token, a bad one and an expired one are
+  // indistinguishable — so this one wording has to cover all of them, and it is the
+  // wording that is true of every case: sign in again and it will work. Its pair is
+  // AccessDenied above, which is the case where signing in again cannot help. ──
+  {code: 'SessionExpired', message: 'Your session expired. Sign in again.', userFixable: true},
+
+  // Trigger: the API could not be reached, answered a 5xx, or is not configured in this
+  // build. Not a credential problem, so the wording must not tell the user to sign in. ──
+  {
+    code: 'ApiUnavailable',
+    message: `Can’t reach the server. Check your connection and try again.`,
+    userFixable: true
+  },
+
   {code: 'ExpiredToken', message: 'Your session expired. Sign in again.', userFixable: true},
   {code: 'ExpiredTokenException', message: 'Your session expired. Sign in again.', userFixable: true},
   {code: 'CredentialsProviderError', message: 'Your session expired. Sign in again.', userFixable: true},
