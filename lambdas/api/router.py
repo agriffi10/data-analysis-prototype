@@ -39,7 +39,7 @@ import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from apicommon import errors, principal
+from apicommon import errors, planes, principal
 from apicommon.config import ConfigError
 from apicommon.context import RequestContext
 from cpcommon import observability
@@ -170,6 +170,14 @@ def route(
     the other is the provider not answering. Refusing them as unauthenticated would send every
     user through a token refresh that cannot help, and would present an outage as a login problem.
 
+    **The credential plane is reset on the way IN, before anything else happens here.** A warm
+    container does not give each invocation a fresh context, so a route key left behind by the
+    last request would still be readable by this one — and if that route declared the API plane
+    and this one did not, this one reaches the execution role and succeeds. Resetting on the way
+    out alone is not enough, because every path that skips the cleanup leaves the previous value
+    in place. The reset below runs before the public-route check, so even a request that never
+    reaches dispatch starts from a sentinel that authorizes nothing.
+
     Args:
       method: The request's HTTP method, uppercased by the caller.
       path: The request's path, without the stage or query string.
@@ -187,6 +195,8 @@ def route(
       that discloses nothing. They are named rather than claimed absent because a shape the
       type contract forbids is still a shape a caller can construct.
     """
+    planes.begin_request()
+
     asked_for = f"{method[:MAX_ECHOED_CHARS]} {path[:MAX_ECHOED_CHARS]}"
     if (method, path) in PUBLIC_ROUTES:
         return _health()
@@ -207,4 +217,9 @@ def route(
     handler = ROUTES.get((method, path))
     if handler is None:
         return _not_found(method, path)
-    return _response(200, handler(RequestContext(caller, asked_for, request_id)))
+
+    planes.begin_dispatch((method, path))
+    try:
+        return _response(200, handler(RequestContext(caller, asked_for, request_id)))
+    finally:
+        planes.end_dispatch()

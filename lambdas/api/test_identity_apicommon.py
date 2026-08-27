@@ -36,8 +36,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from apicommon import config, identity  # noqa: E402
-from cpcommon.config import CATALOG_IDENTIFIER_RE  # noqa: E402
+from apicommon import config, identity
+from cpcommon.config import CATALOG_IDENTIFIER_RE
 
 INFRA = pathlib.Path(__file__).resolve().parent.parent.parent / "infra"
 IDENTITY_POOL = INFRA / "modules" / "auth" / "identity-pool.tf"
@@ -127,7 +127,7 @@ def principal_tag_map(source: str, slots: int) -> dict[str, str]:
       AssertionError: If neither shape is found, so a parser that silently matches nothing
         cannot report an empty map as agreement.
     """
-    block = re.search(r"principal_tags\s*=\s*merge\((.*?)\n\s*\)", source, re.S)
+    block = re.search(r"principal_tags\s*=\s*merge\((.*?)\n\s*\)", source, re.DOTALL)
     assert block, "no principal_tags merge() was found — the parser has no subject"
     body = block.group(1)
 

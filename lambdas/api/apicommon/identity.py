@@ -41,11 +41,12 @@ import dataclasses
 import datetime
 import re
 from collections.abc import Mapping
+from typing import Any
 
 from cpcommon.auth import Principal
 from cpcommon.config import CATALOG_IDENTIFIER_RE
 
-from . import config
+from . import config, planes
 
 SHARED_SPACE_CLAIM = "custom:shared_space_{}"
 SHARED_SPACE_TAG = "shared_space_{}"
@@ -214,3 +215,51 @@ def role_session_name(username: str) -> str:
     ):
         raise IdentityUnavailableError(REASON_UNREPRESENTABLE_USERNAME)
     return username
+
+
+def _execution_client(service: str) -> Any:
+    """Builds a client on the function's own execution role. The ONE construction site.
+
+    Private, unguarded, and exempt from the sweep by module identity rather than by any name or
+    filename pattern — a pattern exemption silently exempts the next module somebody names
+    similarly. Every other module in this package reaches AWS through the two public doors below,
+    and the sweep asserts that this package holds exactly one client construction, not merely that
+    the others hold none.
+
+    boto3 is imported at the call rather than at module scope, matching the layer's own client
+    factories: a request that needs no client should not pay for the import.
+
+    Args:
+      service: The AWS service name.
+
+    Returns:
+      A client on the execution role's credentials.
+
+    Raises:
+      None.
+    """
+    import boto3
+
+    return boto3.client(service)
+
+
+def api_client(service: str) -> Any:
+    """A client on the execution role, for a route that declared the API plane.
+
+    The check runs BEFORE the client is built, so a violation reaches no AWS service and costs no
+    request. Construct-then-check would leave a usable client in the hands of a route that was
+    about to be refused, and the refusal is the only thing standing between that route and the
+    execution role's own identity.
+
+    Args:
+      service: The AWS service name.
+
+    Returns:
+      A client on the execution role's credentials.
+
+    Raises:
+      PlaneViolationError: If the running route did not declare the API plane, or if no route is
+        dispatching at all.
+    """
+    planes.require(planes.Plane.API)
+    return _execution_client(service)
