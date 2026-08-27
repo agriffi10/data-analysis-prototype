@@ -286,13 +286,6 @@ jobs:
             echo "::error title=Not deployed::the service's desired count is 0, so nothing was proved. Set TF_VAR_spa_desired_count and run Deploy Infrastructure."
             exit 1
           fi
-          if [ "$running" -ne "$desired" ]; then
-            echo "::error title=Not running::$running of $desired tasks are running."
-            jq -r '.deployments[] | "  \(.status) \(.taskDefinition) \(.rolloutState // "-") \(.rolloutStateReason // "-")"' /tmp/service.json
-            jq -r '.events[:5][] | "  \(.message)"' /tmp/service.json
-            exit 1
-          fi
-
           # THE CHECK THAT ACTUALLY CATCHES A BAD IMAGE TODAY, and it is worth being exact about
           # which one that is. The circuit breaker runs with rollback DISABLED, so a failing
           # deployment does not revert: PRIMARY stays on the revision this run registered, and the
@@ -303,8 +296,35 @@ jobs:
           #
           # `COMPLETED` and nothing else. Tolerating an absent state would make this vacuous
           # exactly when the field stops being reported, which is the shape a check must not have.
+          #
+          # POLLED, because `rolloutState` LAGS `wait services-stable` — measured: the wait
+          # returned, the new task was running and the old one had drained, and this field still
+          # read `IN_PROGRESS` a second later. Reading it once turns a successful deploy red on a
+          # race. Polling keeps the check's teeth: a genuinely failed rollout reports `FAILED` and
+          # never reaches `COMPLETED`, so it still fails — just on the state rather than the clock.
+          for _ in $(seq 1 24); do
+            [ "$rollout" = "COMPLETED" ] && break
+            [ "$rollout" = "FAILED" ] && break
+            sleep 5
+            aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+              --query 'services[0]' --output json > /tmp/service.json
+            rollout=$(jq -r '.deployments[] | select(.status=="PRIMARY") | .rolloutState // "NONE"' /tmp/service.json)
+            desired=$(jq -r '.desiredCount' /tmp/service.json)
+            running=$(jq -r '.runningCount' /tmp/service.json)
+            primary=$(jq -r '.deployments[] | select(.status=="PRIMARY") | .taskDefinition' /tmp/service.json)
+            echo "  rollout=$rollout running=$running/$desired"
+          done
+
           if [ "$rollout" != "COMPLETED" ]; then
-            echo "::error title=Deployment did not complete::rollout state is $rollout."
+            echo "::error title=Deployment did not complete::rollout state is $rollout after two minutes."
+            jq -r '.deployments[] | "  \(.status) \(.taskDefinition) \(.rolloutState // "-") \(.rolloutStateReason // "-")"' /tmp/service.json
+            jq -r '.events[:5][] | "  \(.message)"' /tmp/service.json
+            exit 1
+          fi
+
+          # Read after the poll, not before it: mid-rollout the counts legitimately disagree.
+          if [ "$running" -ne "$desired" ]; then
+            echo "::error title=Not running::$running of $desired tasks are running."
             jq -r '.deployments[] | "  \(.status) \(.taskDefinition) \(.rolloutState // "-") \(.rolloutStateReason // "-")"' /tmp/service.json
             jq -r '.events[:5][] | "  \(.message)"' /tmp/service.json
             exit 1
