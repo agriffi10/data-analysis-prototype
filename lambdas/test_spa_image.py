@@ -703,6 +703,23 @@ def test_the_deploy_waits_and_refuses_to_pass_on_a_vacuous_wait() -> None:
         "reads as a successful deploy."
     )
 
+    # THE LOAD-BEARING ONE, and it is worth naming which that is. The circuit breaker runs with
+    # rollback DISABLED, so a failing deployment does not revert — PRIMARY stays on this run's
+    # revision and the comparison above cannot fire. `runningCount` does not catch it either: it
+    # counts the OLD deployment's healthy tasks, which satisfy the desired count while the new ones
+    # die. Detection rests here.
+    assert 'rollout" != "COMPLETED"' in body, (
+        "Nothing requires the rollout to have COMPLETED. With rollback disabled that is the only "
+        "check that catches a bad image — the revision comparison cannot fire and the running "
+        "count is satisfied by the outgoing deployment's tasks."
+    )
+    # POLLED, not read once: the field lags `wait services-stable`, so a single read turns a
+    # successful deploy red on a race. Measured, on the deploy that first hit it.
+    assert re.search(r'for _ in \$\(seq 1 \d+\); do\s*\n\s*\[ "\$rollout" = "COMPLETED" \]', body), (
+        "The rollout state is read once rather than polled. It lags the stability wait, so a "
+        "successful deployment reads IN_PROGRESS and the workflow reddens on a race."
+    )
+
 
 def test_the_deploy_clones_the_family_not_the_running_revision() -> None:
     """After a rollback the service points at an OLDER revision, and cloning it reverts config.
