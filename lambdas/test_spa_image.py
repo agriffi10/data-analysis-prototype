@@ -90,8 +90,8 @@ def _ts_string_array(text: str, name: str) -> tuple[str, ...]:
       Each member, unquoted, in declaration order.
 
     Raises:
-      AssertionError: When the constant or its closing bracket cannot be found, so no comparison
-        below runs against an empty tuple and passes.
+      AssertionError: When the constant or its closing bracket cannot be found, or a line inside
+        it does not parse, so no comparison below runs against an empty tuple and passes.
     """
     start = text.find(f"export const {name} = [")
     assert start > -1, f"No `export const {name} = [` — the parse went trivial."
@@ -147,6 +147,9 @@ def test_every_source_was_found() -> None:
         ENTRYPOINT,
         MATRIX,
         SPA_ECS,
+        SPA_VARIABLES,
+        ROOT_MAIN,
+        APP_CLOUDFRONT,
         CONFIG_TYPES,
         CONFIG_LOADER,
     ):
@@ -212,12 +215,9 @@ def test_the_health_endpoint_is_the_path_the_balancer_probes() -> None:
     )
     assert probed, "modules/spa no longer declares a health_check_path default."
 
-    served = re.search(r"location\s*=\s*(/\S+)\s*\{", SERVER_TEMPLATE.read_text())
-    assert served, "The image serves no exact-match location at all."
-
-    # EXACT MATCH, asserted separately from the path. As a prefix it is reachable by the fallback,
-    # and a criterion that only checks "the path is /healthz" passes on a container with no health
-    # endpoint whatsoever — the fallback answers 200 for everything.
+    # EXACT MATCH, asserted as one claim with the path. As a prefix it is reachable by the
+    # fallback, and a criterion that only checks "the path is /healthz" passes on a container with
+    # no health endpoint whatsoever — the fallback answers 200 for everything.
     assert f"location = {probed.group(1)} {{" in SERVER_TEMPLATE.read_text(), (
         f"The image does not serve {probed.group(1)} as an EXACT-match location."
     )
@@ -556,7 +556,9 @@ def test_the_render_substitutes_only_what_it_declares() -> None:
     declared = re.search(r"^SUBSTITUTE='([^']+)'", text, re.MULTILINE)
     assert declared, "The entrypoint does not declare which variables it substitutes."
 
-    for invocation in re.findall(r"^envsubst\s+(\S+)", text, re.MULTILINE):
+    invocations = re.findall(r"^\s*envsubst\s+(\S+)", text, re.MULTILINE)
+    assert invocations, "The entrypoint invokes envsubst nowhere — the parse went trivial."
+    for invocation in invocations:
         assert invocation == '"$SUBSTITUTE"', (
             f"envsubst is invoked as `envsubst {invocation}` — anything but the declared list "
             "substitutes every defined variable, nginx's own among them."

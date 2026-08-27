@@ -19,6 +19,12 @@ on:
     branches: [main]
     paths:
       - 'apps/portal/**'
+      # The Dockerfile's first COPY, and `npm ci` runs off them: a root lockfile bump changes the
+      # bundle and can break the build, which is exactly the change class that would otherwise
+      # land without this gate running.
+      - 'package.json'
+      - 'package-lock.json'
+      - '.nvmrc'
       - '.dockerignore'
       - '.github/scripts/spa-image-matrix.sh'
       - '.github/workflows/spa-image.yml'

@@ -53,6 +53,43 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
+# ── Then refuse what cannot be safely interpolated ────────────────────────────
+# THE TWO VALUES BELOW ARE SUBSTITUTED INTO NGINX CONFIGURATION, and nginx configuration has no
+# escaping mechanism the way `jq --arg` does. A value carrying a `"` closes the directive it sits
+# in and everything after it inside that directive is LOST — for the policy that means
+# `object-src`, `base-uri`, `form-action`, `frame-ancestors` and `upgrade-insecure-requests` all
+# silently gone — while a trailing `;` starts a new directive of the attacker's choosing and a `#`
+# comments out the rest of the line. Measured: the container starts, reports healthy, enters the
+# target group, and serves a truncated policy with an injected header.
+#
+# A value that does NOT parse is barely better: nginx dies with `[emerg]` and no explanation of
+# which variable was at fault, which is the generic essential-container exit this whole image is
+# written to avoid producing.
+#
+# So both are validated against what they are allowed to contain, not scanned for what they are
+# not. An allowlist cannot be outflanked by a character nobody thought of.
+
+# A CSP source list: hosts, schemes, keywords, wildcards. Nothing else has any business here.
+case "$PORTAL_CSP_CONNECT_SRC" in
+  *[!A-Za-z0-9\'\:/.\ _*-]*)
+    echo "portal: refusing to start. PORTAL_CSP_CONNECT_SRC contains a character that is not" >&2
+    echo "portal: valid in a CSP source list. Interpolated into nginx configuration, a quote" >&2
+    echo "portal: truncates the policy and a semicolon appends a directive of its own." >&2
+    exit 1
+    ;;
+esac
+
+# nginx's eight levels, named. Anything else is either an [emerg] at start with no attribution, or
+# — with the right punctuation — the same injection as above.
+case "$PORTAL_LOG_LEVEL" in
+  debug|info|notice|warn|error|crit|alert|emerg) ;;
+  *)
+    echo "portal: refusing to start. PORTAL_LOG_LEVEL is not one of nginx's levels" >&2
+    echo "portal: (debug info notice warn error crit alert emerg)." >&2
+    exit 1
+    ;;
+esac
+
 # ── The runtime configuration document ────────────────────────────────────────
 # `jq -n --arg`, never a heredoc. A heredoc produces a document that parses today and breaks
 # on the first value carrying a `"`, a `\` or a newline — presenting as a blank app, because

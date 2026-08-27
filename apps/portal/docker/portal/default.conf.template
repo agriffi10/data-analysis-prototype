@@ -17,6 +17,19 @@ server {
     absolute_redirect off;
     port_in_redirect off;
 
+    # ── The floor, for the responses no location ever sees ────────────────────
+    # nginx generates some errors BEFORE it resolves a location: a malformed request line, a
+    # malformed header, a URI past the buffer. Measured, those came back as HTML carrying no
+    # Cache-Control and not one security header — which is precisely the response shape the
+    # per-location discipline below exists to make impossible, arriving by the one route that
+    # discipline cannot reach.
+    #
+    # Declared here the inheritance rule works FOR us: a location that sets its own add_header
+    # overrides this level entirely, so every class below keeps its own cache value and its own
+    # copy of the snippet, and only the responses that match no location fall back to these.
+    add_header Cache-Control "no-store" always;
+    include /tmp/nginx-conf/snippets/security-headers.conf;
+
     # ── The shell, and the 200 that cannot be believed ────────────────────────
     # Client-side routes must survive a direct load and a reload, so anything unmatched answers
     # the shell with a 200. That reproduces what the distribution did, INCLUDING its trap: a

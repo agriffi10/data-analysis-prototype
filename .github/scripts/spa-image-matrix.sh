@@ -21,11 +21,22 @@ EXPECTED_VERSION="${2:-}"
 
 PORT=18099
 BASE="http://localhost:${PORT}"
-NAME="spa-matrix-$$"
+NAME="spa-matrix"
 
 # Fixture values, chosen so a value that leaks somewhere it should not is recognisable on sight.
 CONNECT_SRC="'self' https://cognito-idp.us-east-1.amazonaws.com https://auth.fixture.test https://api.fixture.test"
 CONNECT_SRC_ALT="'self' https://alternate.fixture.test"
+
+# Deliberately awkward, and carried by a real key rather than a probe of its own: a quote, a
+# backslash and a newline are what a heredoc render breaks on, and every one of them is legal in a
+# configuration value.
+AWKWARD_VALUE='he said "hi" \ then left
+on a new line'
+
+# Every directive but connect-src is a property of the BUNDLE and ships baked in the image; this
+# is the whole policy those two halves compose to. Its agreement with the Terraform local is the
+# Python suite's assertion — here it is what every response class is measured against.
+EXPECTED_CSP="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data:; font-src 'self' data: https://fonts.gstatic.com; worker-src 'self' blob:; connect-src ${CONNECT_SRC}; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
 
 # The document's required keys. Restated here rather than imported: this script runs in a
 # container-less shell with no TypeScript, and the agreement between this list and the
@@ -41,7 +52,7 @@ REQUIRED_ENV=(
 )
 OPTIONAL_ENV=(
   -e CONFIG_apiBaseUrl=https://api.fixture.test
-  -e CONFIG_environment=fixture
+  -e "CONFIG_environment=$AWKWARD_VALUE"
   -e CONFIG_maxUploadBytes=1048576
   -e CONFIG_sharedSpaceBucket=fixture-shared-space
   -e CONFIG_cognitoIdentityPoolId=us-east-1:fixture
@@ -118,8 +129,34 @@ check_absent() {
   fi
 }
 
+# FAIL CLOSED. Four probes below shell out to docker and compare the output to "nothing found".
+# Given a `${X:-clean}` default, a command that failed for ANY reason — a typo in the entrypoint
+# override, an image that will not run, a path that moved — produces no output and reads as clean.
+# So the container prints a sentinel after the real command, and its absence is the failure.
+probe_image() {
+  docker run --rm --platform linux/amd64 --entrypoint sh "$IMAGE" -c "$1; echo __probe_ran__" 2>&1
+}
+
+check_probe() {
+  local label="$1" output="$2"
+  if [[ "$output" != *"__probe_ran__"* ]]; then
+    fail "$label" "the probe did not run to completion: ${output:-(no output at all)}"
+    return 0
+  fi
+  local found="${output%%__probe_ran__*}"
+  if [ -n "$(printf '%s' "$found" | tr -d '[:space:]')" ]; then
+    fail "$label" "found: $(printf '%s' "$found" | head -3 | tr '\n' ' ')"
+  else
+    pass "$label"
+  fi
+}
+
 cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
+
+# Clear anything an interrupted earlier run left holding the port, before the first start rather
+# than after a confusing failure.
+cleanup
 
 # ── Static properties of the image ────────────────────────────────────────────
 section() { printf '\n== %s\n' "$1"; }
@@ -146,10 +183,8 @@ fi
 
 # The runtime stage copies only dist/, so this cannot fail on a leak into the CONTEXT — the build
 # stage asserts that, where it can be seen. This is the second half: nothing unwanted was copied.
-STRAYS=$(docker run --rm --platform linux/amd64 --entrypoint find "$IMAGE" / -xdev \
-           \( -name node_modules -o -name '.git' -o -name '*.env' -o -name '.env.example' \
-              -o -name '*.test.ts' -o -name '*.test.tsx' \) -print 2>/dev/null | head -5)
-check_eq "no node_modules, .git, env file or test file in the image" "${STRAYS:-clean}" "clean"
+check_probe "no node_modules, .git, env file or test file in the image" \
+  "$(probe_image "find / -xdev \( -name node_modules -o -name .git -o -name '*.env' -o -name .env.example -o -name '*.test.ts' -o -name '*.test.tsx' \) -print 2>/dev/null | head -5")"
 
 # One server, on one port. The base image ships a default site that also listens on 8080; if its
 # include survived, whichever parsed first would become the default server and half the header
@@ -169,8 +204,8 @@ section "No environment is baked into the image"
 #
 # The rendered output under /tmp legitimately carries the hosts and is out of scope by design.
 for literal in amazonaws.com fixture-user-space fixture-shared-space us-east-1 api.fixture.test auth.fixture.test; do
-  HITS=$(docker run --rm --platform linux/amd64 --entrypoint grep "$IMAGE" -rl "$literal" /etc/nginx /docker-entrypoint.d 2>/dev/null | head -3)
-  check_eq "no '$literal' under /etc/nginx or /docker-entrypoint.d" "${HITS:-clean}" "clean"
+  check_probe "no '$literal' under /etc/nginx or /docker-entrypoint.d" \
+    "$(probe_image "grep -rl '$literal' /etc/nginx /docker-entrypoint.d 2>/dev/null | head -3")"
 done
 
 # ── The running container ─────────────────────────────────────────────────────
@@ -208,8 +243,11 @@ header()  { grep -i "^$1:" /tmp/matrix-head | head -1 | cut -d' ' -f2- | tr -d '
 # symptom, and no configuration review catches it.
 assert_security_headers() {
   local label="$1"
-  check_contains "$label: CSP names the fixture connect-src" "$(header content-security-policy)" "connect-src ${CONNECT_SRC}"
-  check_contains "$label: CSP keeps default-src" "$(header content-security-policy)" "default-src 'self'"
+  # THE WHOLE HEADER, not a directive or two of it. A policy is only as good as its least
+  # asserted directive: dropping `frame-ancestors` or `object-src` from the snippet used to leave
+  # this gate at 151/151 green. Built from one expected string, so every directive is covered by
+  # construction rather than by whoever remembered to add a check.
+  check_eq "$label: the whole CSP" "$(header content-security-policy)" "$EXPECTED_CSP"
   check_eq "$label: HSTS" "$(header strict-transport-security)" "max-age=31536000; includeSubDomains"
   check_absent "$label: HSTS claims no preload" "$(header strict-transport-security)" "preload"
   check_eq "$label: X-Frame-Options" "$(header x-frame-options)" "DENY"
@@ -281,12 +319,37 @@ assert_security_headers "config.json"
 # ASSERTED ON THE SERVED DOCUMENT, not on the entrypoint's source. A key list read from the script
 # is the config-file-text assertion this file forbids.
 SERVED_KEYS=$(jq -r '[keys[]] | sort | join(",")' /tmp/matrix-body 2>/dev/null)
-EXPECTED_KEYS=$(printf '%s\n' version apiBaseUrl appUrl awsRegion environment maxUploadBytes \
-  cognitoUserPoolId cognitoUserPoolClientId cognitoDomain cognitoIdentityPoolId userSpaceBucket \
-  sharedSpaceBucket athenaWorkgroup sharedSpaceQueueUrl notificationsQueueUrl tableBuildQueueUrl \
-  tableShareQueueUrl dataQualityQueueUrl fileSendQueueUrl archiveQueueUrl fileOpsQueueUrl | sort | paste -sd, -)
-check_eq "the document carries exactly version plus the 20 classified keys" "$SERVED_KEYS" "$EXPECTED_KEYS"
+
+# DERIVED FROM THE FIXTURE, not restated beside it. A key added to the entrypoint but to neither
+# the fixture nor a hand-written expectation renders empty, is dropped from the document, and both
+# sides of a restated comparison agree that it is absent — the container then ships one feature
+# silently unconfigured with this check green.
+#
+# The entrypoint's own key list is compared against the browser's classification by the Python
+# suite, which can read TypeScript; this end asserts that everything supplied is served.
+EXPECTED_KEYS=$(
+  { printf 'version\n'
+    printf '%s\n' "${REQUIRED_ENV[@]}" "${OPTIONAL_ENV[@]}" \
+      | sed -n 's/^CONFIG_\([A-Za-z]*\)=.*/\1/p'
+  } | sort | paste -sd, -
+)
+check_eq "the document serves exactly version plus every key the task definition supplied" \
+  "$SERVED_KEYS" "$EXPECTED_KEYS"
+
+# Guard-the-guard: a fixture that stopped supplying keys would make the comparison above agree on
+# a nearly empty document.
+SUPPLIED=$(printf '%s\n' "$EXPECTED_KEYS" | tr ',' '\n' | wc -l | tr -d ' ')
+if [ "$SUPPLIED" -lt 21 ]; then
+  fail "the fixture supplies the whole document" "only $SUPPLIED keys, so the check above proves little"
+else
+  pass "the fixture supplies the whole document ($SUPPLIED keys)"
+fi
 check_eq "the document's version is the one the browser accepts" "$(jq -r '.version' /tmp/matrix-body)" "1"
+# A HEREDOC RENDER PASSES EVERY CHECK ABOVE and breaks on the first value carrying a quote, a
+# backslash or a newline — presenting as a blank app, because the loader refuses what it cannot
+# parse. This is the assertion the `jq -n --arg` decision exists to satisfy.
+check_eq "a value carrying a quote and a backslash round-trips" \
+  "$(jq -r '.environment' /tmp/matrix-body)" "$AWKWARD_VALUE"
 
 section "The health endpoint"
 fetch "/healthz"
@@ -319,11 +382,39 @@ check_eq "a removed root file still answers 200" "$(status)" "200"
 # never be verified by status code here — read content-type instead.
 check_contains "…as text/html, which is why removals are read from content-type" "$(header content-type)" "text/html"
 
-fetch "/assets"
+# Sent with the Host an ALB sends, not the fixture's own. Under `Host: localhost:PORT` a
+# scheme-and-host redirect is indistinguishable from a relative one, which is the single Host value
+# that hides this.
+fetch "/assets" -H 'Host: portal.fixture.test'
 check_eq "the directory form redirects" "$(status)" "301"
-# A container behind a load balancer that redirects to its own listen port sends the browser to an
-# address that answers nothing.
-check_absent "the redirect names no :8080" "$(header location)" "8080"
+# THE VALUE, not the absence of a port. Deleting `absolute_redirect off` leaves the port suppressed
+# by `port_in_redirect off` and downgrades the scheme instead — `http://portal.fixture.test/assets/`
+# behind an HTTPS-terminating balancer. An absence check stayed green through exactly that.
+check_eq "the redirect is relative, so neither scheme nor port can be wrong" "$(header location)" "/assets/"
+
+section "The responses generated before a location is resolved"
+# A malformed request line, a malformed header and an over-long URI are answered by nginx before it
+# resolves a location, so the per-location discipline cannot reach them. Measured, they came back
+# as HTML with no Cache-Control and not one security header — the exact response shape this whole
+# configuration is written to make impossible.
+for probe in '--path-as-is /../../etc/passwd' 'long-uri'; do
+  if [ "$probe" = "long-uri" ]; then
+    long=$(head -c 20000 < /dev/zero | tr '\0' 'a')
+    curl -sS --raw -o /tmp/matrix-body -D /tmp/matrix-head "${BASE}/${long}"
+    label="an over-long URI"
+  else
+    curl -sS --raw --path-as-is -o /tmp/matrix-body -D /tmp/matrix-head "${BASE}/../../etc/passwd"
+    label="a malformed request"
+  fi
+  code=$(status)
+  if [ "${code:0:1}" != "4" ]; then
+    fail "$label is refused" "expected a 4xx, got [$code]"
+  else
+    pass "$label is refused ($code)"
+    assert_security_headers "$label"
+    check_eq "$label: cache class" "$(header cache-control)" "no-store"
+  fi
+done
 
 section "Compression"
 fetch "/assets/${ASSET}" -H 'Accept-Encoding: gzip'
@@ -346,8 +437,8 @@ else
   fail "the gzip body decompresses to the on-disk file"
 fi
 
-MISSING_GZ=$(docker exec "$NAME" sh -c 'cd /usr/share/nginx/html/assets && for f in *.js *.css; do [ -f "$f.gz" ] || echo "$f"; done' | head -3)
-check_eq "every asset js and css has a .gz sibling" "${MISSING_GZ:-complete}" "complete"
+check_probe "every asset js and css has a .gz sibling" \
+  "$(probe_image 'cd /usr/share/nginx/html/assets && for f in *.js *.css; do [ -f "$f.gz" ] || echo "missing $f.gz"; done | head -3')"
 
 fetch "/assets/${ASSET}" -H 'Accept-Encoding: br'
 # The residual, pinned: brotli needs the same third-party compile stage the Server header was
@@ -394,30 +485,80 @@ section "Refusals"
 # makes. Unset and empty must behave identically: an unset repository variable, an unset Terraform
 # input and an unsubstituted expansion all arrive as the empty string, and a check written as
 # `[ -z "${VAR+x}" ]` passes all three.
+# DETACHED AND BOUNDED, not a foreground run. A container that refuses exits in under a second, so
+# a foreground `docker run` reads its status immediately — but the FAILURE case is a container that
+# starts and stays up, and in the foreground that hangs the gate until the job's own timeout rather
+# than reporting anything. The failure mode a check exists to catch must not be the one that stops
+# it reporting.
 refusal() {
   local label="$1"; shift
-  local out code
-  out=$(docker run --rm --platform linux/amd64 "${RUNTIME_FLAGS[@]}" "$@" "$IMAGE" 2>&1)
-  code=$?
-  if [ "$code" -eq 0 ]; then
-    fail "$label" "the container started; it must refuse"
+  local container="spa-refusal-$RANDOM"
+
+  if ! docker run -d --name "$container" --platform linux/amd64 "${RUNTIME_FLAGS[@]}" "$@" "$IMAGE" >/dev/null 2>&1; then
+    fail "$label" "the container could not be created at all"
+    return 0
+  fi
+
+  local state code
+  for _ in $(seq 1 20); do
+    state=$(docker inspect -f '{{.State.Status}}' "$container" 2>/dev/null)
+    [ "$state" = "exited" ] && break
+    sleep 1
+  done
+
+  code=$(docker inspect -f '{{.State.ExitCode}}' "$container" 2>/dev/null)
+  local out
+  out=$(docker logs "$container" 2>&1)
+  docker rm -f "$container" >/dev/null 2>&1
+
+  if [ "$state" != "exited" ]; then
+    fail "$label" "the container is still running after 20s; it must refuse and exit"
+  elif [ "$code" -eq 0 ]; then
+    fail "$label" "the container exited 0; a refusal must be non-zero"
   elif [[ "$out" != *"refusing to start"* ]]; then
-    fail "$label" "exited $code but never named the missing variable"
+    fail "$label" "exited $code without saying what it refused: $(echo "$out" | tail -1)"
   else
     local named
-    named=$(echo "$out" | grep -o 'Unset or empty:.*' | head -1)
-    pass "$label (exit $code — $named)"
+    named=$(echo "$out" | grep -o 'refusing to start\..*' | head -1)
+    pass "$label (exit $code — ${named:-refused})"
   fi
 }
 
-MOST_OF_IT=(-e CONFIG_awsRegion=us-east-1 -e CONFIG_userSpaceBucket=b -e CONFIG_athenaWorkgroup=w
-            -e CONFIG_cognitoUserPoolId=u -e CONFIG_cognitoUserPoolClientId=c -e CONFIG_cognitoDomain=d)
-refusal "a required key UNSET"        "${MOST_OF_IT[@]}" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
-refusal "a required key EMPTY"        "${MOST_OF_IT[@]}" -e CONFIG_appUrl= -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
+# EVERY required key, one at a time, unset and then empty. Fixing on one of them left the other
+# six unproven — and this script, not the unit suite, is what the deploy pipeline runs before it
+# pushes to a registry the image cannot be deleted from.
+for held_out in "${REQUIRED_ENV[@]}"; do
+  case "$held_out" in -e) continue ;; esac
+  key="${held_out%%=*}"
+
+  without=()
+  for entry in "${REQUIRED_ENV[@]}"; do
+    case "$entry" in -e) continue ;; "$held_out") continue ;; esac
+    without+=(-e "$entry")
+  done
+
+  refusal "$key UNSET" "${without[@]}" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
+  refusal "$key EMPTY" "${without[@]}" -e "${key}=" -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC"
+done
+
 # Not "starts and serves connect-src ;", which is a policy that blocks every fetch and presents to
 # a user as a network outage rather than as a misconfiguration.
-refusal "connect-src EMPTY"           "${REQUIRED_ENV[@]}" -e PORTAL_CSP_CONNECT_SRC=
-refusal "connect-src UNSET"           "${REQUIRED_ENV[@]}"
+refusal "connect-src EMPTY" "${REQUIRED_ENV[@]}" -e PORTAL_CSP_CONNECT_SRC=
+refusal "connect-src UNSET" "${REQUIRED_ENV[@]}"
+
+# THE TWO VALUES SUBSTITUTED INTO NGINX CONFIGURATION, which has no escaping mechanism. Measured
+# before these refusals existed: a connect-src carrying a quote truncated the policy after
+# `connect-src` — object-src, base-uri, form-action, frame-ancestors and upgrade-insecure-requests
+# all gone — and appended a header of its own, on a container that started, reported healthy and
+# entered the target group.
+refusal "connect-src carrying a quote and a semicolon" "${REQUIRED_ENV[@]}" \
+  -e PORTAL_CSP_CONNECT_SRC='self"; add_header X-Injected yes always; #'
+refusal "connect-src carrying a newline" "${REQUIRED_ENV[@]}" \
+  -e "PORTAL_CSP_CONNECT_SRC=$(printf "'self'\nadd_header X-Injected yes always;")"
+# Not one of nginx's eight levels: without this it is either an [emerg] at start naming no
+# variable, or — with the right punctuation — the same injection.
+refusal "a log level nginx does not have" "${REQUIRED_ENV[@]}" \
+  -e PORTAL_CSP_CONNECT_SRC="$CONNECT_SRC" -e PORTAL_LOG_LEVEL=chatty
 
 section "One image, two environments"
 docker rm -f "$NAME" >/dev/null 2>&1
@@ -442,8 +583,12 @@ docker run -d --name "$NAME" --platform linux/amd64 "${RUNTIME_FLAGS[@]}" "${REQ
 for _ in $(seq 1 30); do curl -fsS -o /dev/null "${BASE}/healthz" 2>/dev/null && break; sleep 1; done
 fetch "/files?prefix=alice/"
 check_eq "routing still works with a variable named uri in the environment" "$(status)" "200"
-LEAKED=$(docker exec "$NAME" sh -c 'grep -c SENTINEL /tmp/nginx-conf/default.conf || true')
-check_eq "no sentinel reached the rendered configuration" "${LEAKED:-0}" "0"
+LEAKED=$(docker exec "$NAME" sh -c 'grep -c SENTINEL /tmp/nginx-conf/default.conf; echo "__ran__"' 2>&1)
+if [[ "$LEAKED" != *"__ran__"* ]]; then
+  fail "no sentinel reached the rendered configuration" "the probe never ran: $LEAKED"
+else
+  check_eq "no sentinel reached the rendered configuration" "$(printf '%s' "${LEAKED%%__ran__*}" | tr -d '[:space:]')" "0"
+fi
 
 printf '\n%s\n' "----------------------------------------"
 if [ "$FAILURES" -eq 0 ]; then
