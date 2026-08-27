@@ -26,6 +26,10 @@ const MAX_AUTH_RETRIES = 1;
 /**
  * Resolve the API origin, or say why we cannot.
  *
+ * The value carries NO trailing slash — the infrastructure builds it that way, and every path
+ * below is joined to it directly. Nothing on this side would notice if that changed, so it is
+ * written down here rather than left as a fact two repositories apart agree on by luck.
+ *
  * `configValue` THROWS in a production build before the runtime document has loaded,
  * and `apiBaseUrl` is an optional key with no dev fallback — so it is legitimately
  * `undefined` on a laptop, in the test suite, and in any deployment predating the API.

@@ -7,6 +7,7 @@
 
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {apiFetch} from './apiClient';
+import type {ApiAuthCode} from './apiClient';
 import {toUserMessage} from './errorMessages';
 
 const getIdToken = vi.hoisted(() => vi.fn());
@@ -48,6 +49,16 @@ describe('apiFetch', () => {
       'https://api.example/_auth/whoami',
       expect.objectContaining({headers: {authorization: 'Bearer a-token'}})
     );
+  });
+
+  it('sends the method it was given', async () => {
+    const {fetchMock} = respondWith(200);
+
+    await apiFetch({path: '/thing', method: 'POST'});
+
+    // `method` is public surface from this PR even though the transport contract lands later.
+    // Hard-coding GET leaves every other test here green and silently ignores a caller.
+    expect(fetchMock).toHaveBeenCalledWith('https://api.example/thing', expect.objectContaining({method: 'POST'}));
   });
 
   it('reads the token per call rather than caching it', async () => {
@@ -100,6 +111,10 @@ describe('apiFetch', () => {
     expect(result).toEqual({success: false, error: {message: '', code: 'SessionExpired'}});
   });
 
+  // A browser fetch timeout REJECTS, so it is the same code path as the network-failure case
+  // above rather than a distinct one — and `apiFetch` passes no AbortSignal, so there is no
+  // timeout of its own to drive. Recorded here rather than left implied: the acceptance
+  // criterion names four cases and this suite runs three plus a proxy.
   it.each([
     ['429', 429],
     ['503', 503],
@@ -157,6 +172,27 @@ describe('apiFetch', () => {
     }
   });
 
+  it('does not throw when a success body is not JSON', async () => {
+    // A 204, an empty 200, or an HTML error page from a proxy. The guard around the parse was
+    // the only unmutated line in the module and the only one coverage could not reach —
+    // without this, "never throws" is unheld on the one path that actually parses.
+    const fetchMock = vi.fn(
+      async () =>
+        ({
+          status: 200,
+          ok: true,
+          json: async () => {
+            throw new SyntaxError('Unexpected token < in JSON at position 0');
+          }
+        }) as unknown as Response
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await apiFetch({path: '/_auth/whoami'});
+
+    expect(result).toEqual({success: false, error: {message: '', code: 'ApiUnavailable'}});
+  });
+
   it('fails with no request when the API origin is not configured', async () => {
     const {fetchMock} = respondWith(200);
     configValue.mockReturnValue(undefined);
@@ -192,5 +228,37 @@ describe('apiFetch', () => {
     // Every 401 body is byte-identical on purpose. A client that read one would be
     // relying on a discriminator the API deliberately does not provide.
     expect(json).not.toHaveBeenCalled();
+  });
+});
+
+describe('the wording contract', () => {
+  // Every code this module can return, walked as a table. `ErrorRule.code` is typed `string`,
+  // so nothing type-links `ApiAuthCode` to the rule set — a rename or a typo drifts silently to
+  // the generic "Contact the Administrator" and still compiles. Deleting the `ApiUnavailable`
+  // rule left the entire 2917-test suite green before this existed, and that is the wording
+  // most users would actually have seen: it is returned on five of this module's seven failure
+  // exits.
+  const CODES: ApiAuthCode[] = ['SessionExpired', 'AccessDenied', 'ApiUnavailable'];
+
+  const generic = toUserMessage({code: 'a-code-no-rule-claims'}).message;
+
+  it.each(CODES)('%s resolves to its own authored wording, not the generic', (code) => {
+    const rendered = toUserMessage({message: '', code}).message;
+
+    expect(rendered).not.toBe(generic);
+    expect(rendered).not.toBe('');
+  });
+
+  it('gives each code a distinct wording', () => {
+    const rendered = CODES.map((code) => toUserMessage({message: '', code}).message);
+    expect(new Set(rendered).size).toBe(CODES.length);
+  });
+
+  it('says what is actually true of each case', () => {
+    // Anchored to the substance, so a rewording that changed the MEANING reddens. Sign-in
+    // advice is right for exactly one of these and wrong for the other two.
+    expect(toUserMessage({message: '', code: 'SessionExpired'}).message.toLowerCase()).toContain('sign in');
+    expect(toUserMessage({message: '', code: 'ApiUnavailable'}).message.toLowerCase()).toContain('reach the server');
+    expect(toUserMessage({message: '', code: 'AccessDenied'}).message.toLowerCase()).toContain('permission');
   });
 });
