@@ -55,3 +55,53 @@ def blocks(text: str, kind: str) -> dict[str, str]:
             index += 1
         found[match.group(1)] = text[match.end() : index - 1]
     return found
+
+
+def join_list_items(text: str, local_name: str) -> tuple[str, str]:
+    """Splits a ``<name> = join("<sep>", [ … ])`` local into its separator and its elements.
+
+    **Quoted AND unquoted elements**, which is the whole reason this lives here rather than in
+    one suite. A regex over quoted strings alone is complete only while every element is a
+    literal; these lists also carry interpolated locals, and a term that arrives as one is
+    invisible to that pattern — a directive silently added to a policy, or a host silently added
+    to a network surface, with every assertion over it still green. That has been rediscovered
+    once already.
+
+    **The separator is returned, not discarded.** It is part of the emitted bytes: a policy
+    joined on `" "` instead of `"; "` is one malformed directive, every other directive dropped
+    by the browser, and an element-only comparison cannot see it.
+
+    Order is preserved, because a CSP is a sequence and a set comparison would accept a
+    reordering.
+
+    Args:
+      text: The Terraform source to read.
+      local_name: The local's name, e.g. ``content_security_policy``.
+
+    Returns:
+      The separator literal and the elements, each unquoted if it was quoted.
+
+    Raises:
+      ValueError: When the local, its list or its separator cannot be found — never a silent
+        empty result, which every caller would compare against and pass.
+    """
+    start = text.find(f"{local_name} = join(")
+    if start == -1:
+        raise ValueError(f"no `{local_name} = join(...)` local — the parse went trivial")
+    end = text.find("])", start)
+    if end <= start:
+        raise ValueError(f"`{local_name}`'s list does not close where expected")
+
+    block = text[start:end]
+    opening = block.index("[")
+    separator = block[block.index("(") + 1 : opening].strip().rstrip(",").strip()
+    if not separator.startswith('"'):
+        raise ValueError(f"`{local_name}`'s separator is not a literal: {separator!r}")
+
+    items = []
+    for raw in block[opening:].splitlines()[1:]:
+        line = raw.strip().rstrip(",")
+        if not line or line.startswith("#"):
+            continue
+        items.append(line[1:-1] if line.startswith('"') and line.endswith('"') else line)
+    return separator[1:-1], tuple(items)
