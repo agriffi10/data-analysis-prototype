@@ -445,6 +445,13 @@ def test_the_parity_table_covers_every_entry_point_and_shape():
     assert len(PARITY) == 10
     assert set(PARITY) == set(_shapes())
     assert all(len(row) == len(_ENTRY_POINTS) for row in PARITY.values())
+    # `_cognito_detail` collapses every required-claim mismatch onto "not an ID token",
+    # which is true only while Cognito requires exactly one claim. With a second entry a
+    # `scope` mismatch would be reported to a user as "not an ID token".
+    assert len(auth.COGNITO_REQUIRED_CLAIMS) == 1, (
+        "a second required claim needs its own wording before it can be added — the single "
+        "sentence below stops being true the moment this map grows"
+    )
     assert PARITY["expired"][1] == "OK" and PARITY["expired"][3] == "OK", (
         "the ignoring-expiry columns must PASS an expired token — that is what proves the "
         "relaxation survived, and pinning them as failures would hide its loss"
@@ -520,9 +527,11 @@ def test_expiry_is_enforced():
     assert _refused(_generic_token(exp=int(time.time()) - 60)) == auth.REASON_VERIFICATION_FAILED
 
 
-def test_not_before_is_enforced():
-    """PyJWT defaults this on, so the option is stated rather than inherited — and a default
-    that is relied on silently is a default that can change under you."""
+def test_not_before_is_refused_though_pyjwt_is_what_refuses_it():
+    """Named for what it measures. Deleting ``"verify_nbf": True`` leaves this GREEN, because
+    PyJWT defaults it on — so this pins the OUTCOME, and the argument spy is what pins our
+    having asked for it. The same shape as the two forgery tests above, and worth saying twice
+    because a test named "is enforced" is read as proof that this repo enforces it."""
     assert _refused(_generic_token(nbf=int(time.time()) + 3600)) == auth.REASON_VERIFICATION_FAILED
 
 
@@ -669,3 +678,25 @@ def test_the_algorithm_list_passed_to_the_decoder_is_exactly_rs256():
     assert seen["options"]["require"] == ["exp", "iss", "aud"]
     assert seen["options"]["verify_exp"] is True
     assert seen["options"]["verify_nbf"] is True
+
+
+def test_an_unreachable_provider_propagates_through_the_control_plane_entry_points():
+    """The one documented exception to "the four entry points are behaviourally unchanged".
+
+    A transport fault used to arrive as TerminalError("unauthorized"); it now escapes as
+    VerifierUnavailable, deliberately, because an outage is not a bad token. The claim that no
+    caller's except chain recaptures it is only worth making if something holds it here, at the
+    entry points the seven control planes actually call.
+    """
+
+    class _Unreachable:
+        def get_signing_key_from_jwt(self, token):
+            from jwt.exceptions import PyJWKClientConnectionError
+
+            raise PyJWKClientConnectionError("endpoint unreachable")
+
+    clients.jwks = lambda url: _Unreachable()
+
+    for _, entry in _ENTRY_POINTS:
+        with pytest.raises(auth.VerifierUnavailable):
+            entry(_token())

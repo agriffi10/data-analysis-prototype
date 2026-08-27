@@ -36,6 +36,13 @@ import json
 import pathlib
 import re
 
+from cpcommon.jwks import (
+    API_FUNCTION_TIMEOUT_SECONDS,
+    API_GATEWAY_INTEGRATION_CEILING_SECONDS,
+    JWKS_HTTP_TIMEOUT_SECONDS,
+)
+from tf_blocks import blocks
+
 INFRA = pathlib.Path(__file__).resolve().parent.parent / "infra"
 API = INFRA / "modules" / "api"
 ROOT_MAIN = INFRA / "main.tf"
@@ -533,3 +540,48 @@ def test_the_callback_list_gains_the_container_origin_and_loses_nothing() -> Non
     assert "logout_urls   = local.callback_urls" in source or re.search(
         r"logout_urls\s*=\s*local\.callback_urls", source
     ), "the logout list must be the same list — two lists is two things to keep in step"
+
+
+def test_the_jwks_timeout_is_sized_against_the_timeouts_terraform_actually_sets() -> None:
+    """The verifier's HTTP timeout is sized against a budget, so read the budget.
+
+    ``cpcommon.jwks`` names the function timeout and the integration ceiling as constants, and
+    a constant hand-copied from Terraform agrees with it only until Terraform changes. Drop the
+    function to 3 seconds and a 5-second JWKS fetch silently outlives the invocation it is
+    running inside, with every offline assertion still green — the verifier would give up after
+    the caller already had.
+
+    So the numbers come from the Terraform, and the constants are checked against them rather
+    than trusted. What is asserted is the ORDER: a JWKS fetch finishes inside the function's
+    budget, and the function answers before the integration gives up.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the constants have drifted from Terraform, or the order is wrong.
+    """
+    function = blocks((API / "lambda.tf").read_text(), "aws_lambda_function")["api"]
+    integration = blocks((API / "apigateway.tf").read_text(), "aws_apigatewayv2_integration")["api"]
+
+    declared_timeout = int(re.search(r"^\s*timeout\s*=\s*(\d+)", function, re.MULTILINE).group(1))
+    declared_ceiling_ms = int(
+        re.search(r"^\s*timeout_milliseconds\s*=\s*(\d+)", integration, re.MULTILINE).group(1)
+    )
+    declared_ceiling = declared_ceiling_ms // 1000
+
+    assert declared_timeout == API_FUNCTION_TIMEOUT_SECONDS, (
+        f"cpcommon.jwks says the function times out at {API_FUNCTION_TIMEOUT_SECONDS}s and "
+        f"Terraform sets {declared_timeout}s — the JWKS timeout is sized against a number that "
+        "no longer exists"
+    )
+    assert declared_ceiling == API_GATEWAY_INTEGRATION_CEILING_SECONDS
+
+    assert JWKS_HTTP_TIMEOUT_SECONDS < declared_timeout < declared_ceiling, (
+        "the order is what matters: a JWKS fetch must finish inside the function's budget, and "
+        "the function must answer before the integration gives up — otherwise the caller gets a "
+        "504 while the invocation keeps running and keeps billing"
+    )

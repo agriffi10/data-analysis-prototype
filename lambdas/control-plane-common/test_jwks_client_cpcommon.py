@@ -91,6 +91,16 @@ def _client(kids=(KNOWN_KID,), clock=None, fail=None):
     return client, fetches, published
 
 
+def _raising(fetches, error):
+    """A fetch that counts itself and then fails, for the unhealthy-endpoint case."""
+
+    def fetch_data():
+        fetches[0] += 1
+        raise error
+
+    return fetch_data
+
+
 def _token(kid):
     """Mints a token whose header names the given kid."""
     return jwt.encode({"sub": "alice"}, _KEY, algorithm="RS256", headers={"kid": kid})
@@ -218,3 +228,48 @@ def test_a_transport_failure_is_unavailable_and_never_an_auth_failure():
         "an unreachable provider must not be catchable as an authentication failure"
     )
     assert str(raised.value) == auth.REASON_JWKS_UNAVAILABLE
+
+
+def test_a_failing_refetch_still_spends_the_window():
+    """The stamp precedes the fetch, and this is what says so.
+
+    Stamped afterwards, a refetch that raises never records itself — so every subsequent
+    unknown kid tries again and the bound is gone exactly when the provider is already
+    unhealthy, which is when it carries weight. Moving the stamp one line down leaves every
+    other test in this file green.
+    """
+    clock = _Clock()
+    client, fetches, _ = _client(clock=clock)
+
+    # Warm the key set first, so the count below is only about refetches.
+    client.get_signing_key_from_jwt(_token(KNOWN_KID))
+    assert fetches[0] == 1
+
+    client.fetch_data = _raising(fetches, PyJWKClientConnectionError("endpoint down"))
+
+    for index in range(10):
+        with pytest.raises((PyJWKClientError, PyJWKClientConnectionError)):
+            client.get_signing_key_from_jwt(_token(f"unknown-{index}"))
+
+    assert fetches[0] == 2, (
+        f"10 unknown kids against a DOWN endpoint caused {fetches[0] - 1} refetches — a fetch "
+        "that raises is not recording itself, so the bound is absent while the provider is "
+        "unhealthy"
+    )
+
+
+def test_the_deployed_factory_builds_a_cooled_client_and_not_a_bare_one():
+    """The production wiring, which no other test in this suite names.
+
+    Reverting `clients.jwks` to `PyJWKClient(url)` removes both hazards from every deployed
+    control plane, and the only thing that failed before this existed was an unrelated stub
+    shape in another file — which reads as an incidental break to be repaired rather than as
+    the guard it is.
+    """
+    clients._jwks = {}
+    try:
+        built = clients.jwks(JWKS_URI)
+        assert isinstance(built, CooldownJWKClient)
+        assert built.timeout == JWKS_HTTP_TIMEOUT_SECONDS
+    finally:
+        clients._jwks = {}

@@ -72,6 +72,11 @@ def _no_matching_key(kid: str) -> PyJWKClientError:
 class CooldownJWKClient(PyJWKClient):
     """A ``PyJWKClient`` whose cache-bypassing refetch is rate-limited per container.
 
+    **One invocation per container is assumed**, which is the Lambda execution model this
+    fleet runs under. The cooldown stamp is not synchronised, so under genuine concurrency
+    the bound degrades to one refetch per thread rather than one per container — still
+    bounded, but by a different number than the one this class is named for.
+
     Attributes:
       _cooldown: Seconds that must pass between two refetches.
       _clock: Monotonic time source, injected so a test can advance it.
@@ -113,6 +118,12 @@ class CooldownJWKClient(PyJWKClient):
     def get_signing_key(self, kid: str) -> PyJWK:
         """Returns the signing key for ``kid``, refetching at most once per cooldown window.
 
+        **The refetch is stamped before it is attempted, not after.** Stamping afterwards
+        means a fetch that raises never records itself, so every subsequent unknown ``kid``
+        tries again and the bound evaporates exactly when the endpoint is already
+        unhealthy — which is when it carries weight. The cost is that one failed fetch
+        spends the window.
+
         The first lookup goes through ``get_signing_keys()`` rather than reading the cache
         directly. That distinction matters: the inherited key-set cache is empty on a cold
         container and expires on its own lifespan, so reading it directly would refuse every
@@ -126,7 +137,7 @@ class CooldownJWKClient(PyJWKClient):
           The matching signing key.
 
         Raises:
-            PyJWKClientError: If no key matches, whether or not a refetch was permitted.
+          PyJWKClientError: If no key matches, whether or not a refetch was permitted.
         """
         signing_key = self.match_kid(self.get_signing_keys(), kid)
         if signing_key is not None:

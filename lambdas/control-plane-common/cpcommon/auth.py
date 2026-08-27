@@ -52,6 +52,7 @@ Attributes:
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import cast
 
 import jwt
@@ -67,7 +68,7 @@ REASON_MISSING_USERNAME = "missing_username_claim"
 REASON_JWKS_UNAVAILABLE = "jwks_unavailable"
 
 COGNITO_USERNAME_CLAIM = "cognito:username"
-COGNITO_REQUIRED_CLAIMS = {"token_use": "id"}
+COGNITO_REQUIRED_CLAIMS = MappingProxyType({"token_use": "id"})
 
 
 class VerifierUnavailable(Exception):
@@ -169,7 +170,7 @@ def _verify_claims(token: str, cfg: VerifierConfig, *, verify_exp: bool) -> Prin
     username = claims.get(cfg.username_claim)
     if not username:
         raise AuthError(REASON_MISSING_USERNAME)
-    return Principal(username=cast("str", username), claims=claims)
+    return Principal(username=cast("str", username), claims=MappingProxyType(claims))
 
 
 def verify_token(token: str, cfg: VerifierConfig) -> Principal:
@@ -267,7 +268,7 @@ def _verify(id_token: str, missing_token_detail: str, *, verify_exp: bool) -> di
         principal = _verify_claims(id_token, _cognito_config(), verify_exp=verify_exp)
     except AuthError as exc:
         raise AuthError(_cognito_detail(exc, missing_token_detail)) from exc.__cause__
-    return cast("dict", principal.claims)
+    return dict(principal.claims)
 
 
 def verify_id_token(id_token: str, *, missing_token_detail: str = "missing idToken") -> dict:
