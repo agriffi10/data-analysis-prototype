@@ -351,6 +351,12 @@ describe('runtimeConfig — every key has a source in every environment', () => 
    * The fifth wiring point: the ECS task definition that serves the container's document.
    * Two files, because the wiring is split on purpose — root names the keys and their
    * values, and the module renders one environment entry per key without naming any of them.
+   *
+   * THERE IS A SIXTH, and it is not asserted here: the container's entrypoint, which turns
+   * those environment variables into the served document. It is checked in
+   * `lambdas/test_spa_image.py`, with the rest of the image's agreements, because nothing
+   * in this suite can read a shell script's key list against a Dockerfile's user and a
+   * task definition's mounts. A key added to the classification must reach it too.
    */
   const ROOT_MAIN = Object.values(
     import.meta.glob('../../../../infra/main.tf', {query: '?raw', import: 'default', eager: true})
