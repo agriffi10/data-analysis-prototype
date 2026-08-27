@@ -57,7 +57,10 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
       The payload-format-2.0 response for that request.
 
     Raises:
-      None.
+      Exception: Whatever a route raised that the failure mapping does not recognise. Deliberately
+        not caught here: a fault with no defined answer must reach the span, which records it,
+        rather than being flattened into a refusal that says something untrue about it. The
+        gateway turns it into a 500 that discloses nothing.
     """
     context_block = event.get("requestContext", {})
     http = context_block.get("http", {})

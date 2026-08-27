@@ -60,6 +60,24 @@ def _offline_jwks():
     clients.jwks = lambda url: _Jwks()
 
 
+@pytest.fixture(autouse=True)
+def _identity_environment(monkeypatch):
+    """The identity layer's three required values, and an empty credential cache.
+
+    The cache survives an invocation by design, so it survives a TEST by design too — and a leak
+    between tests would mask exactly the leak between requests the sequence tests exist to catch.
+    """
+    monkeypatch.setenv("PORTAL_ROLE_ARN", "arn:aws:iam::696000197480:role/dat-portal-user-role")
+    monkeypatch.setenv("PRINCIPAL_TAG_KEY", "username")
+    monkeypatch.setenv("MAX_SHARED_MEMBERSHIPS", "10")
+
+    from apicommon import identity
+
+    identity.reset_credential_cache()
+    yield
+    identity.reset_credential_cache()
+
+
 def token(username="alice", **over):
     """Mints a genuine ID token for the configured provider.
 

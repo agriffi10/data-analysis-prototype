@@ -39,12 +39,13 @@ import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from apicommon import errors, principal
+from apicommon import errors, identity, planes, principal
 from apicommon.config import ConfigError
 from apicommon.context import RequestContext
 from cpcommon import observability
 from cpcommon.auth import AuthError, VerifierUnavailable
 from cpcommon.observability import build_version
+from routes.identity_self import identity_self
 from routes.whoami import whoami
 
 HEALTH_PATH = "/healthz"
@@ -55,6 +56,7 @@ PUBLIC_ROUTES = frozenset({("GET", HEALTH_PATH)})
 
 ROUTES: dict[tuple[str, str], Callable[[RequestContext], dict[str, Any]]] = {
     ("GET", "/_auth/whoami"): whoami,
+    ("GET", "/_identity/self"): identity_self,
 }
 
 
@@ -170,6 +172,20 @@ def route(
     the other is the provider not answering. Refusing them as unauthenticated would send every
     user through a token refresh that cannot help, and would present an outage as a login problem.
 
+    **The credential plane is reset on the way IN, before anything else happens here.** A warm
+    container does not give each invocation a fresh context, so a route key left behind by the
+    last request is still readable by this one. A handler is not the exposure — the dispatch below
+    sets the key unconditionally before one runs — but every path that returns BEFORE dispatch is:
+    the health route, an unknown route, and every refusal. Resetting on the way out alone does not
+    cover them, because those are the paths most likely to skip the cleanup. The reset runs before
+    the public-route check, so a request that never dispatches still starts from a sentinel that
+    authorizes nothing.
+
+    **A failure a route raises is classified, never flattened.** A denial from AWS is the
+    isolation model working and is answered 403; an identity this API cannot assume is a fault on
+    this side and is answered 5xx. Anything else keeps rising, so an unexpected failure is
+    recorded by the span rather than dressed up as a refusal that says something untrue about it.
+
     Args:
       method: The request's HTTP method, uppercased by the caller.
       path: The request's path, without the stage or query string.
@@ -182,17 +198,22 @@ def route(
     Raises:
       AttributeError: If ``headers`` is not a mapping of strings.
       TypeError: If the method or path is not a string.
+      Exception: Whatever a route raised that the failure mapping does not recognise, re-raised
+        rather than flattened.
 
-      Both are fail-closed and neither can reach a handler, so they surface as a gateway error
-      that discloses nothing. They are named rather than claimed absent because a shape the
+      The first two are fail-closed and neither can reach a handler, so they surface as a gateway
+      error that discloses nothing. They are named rather than claimed absent because a shape the
       type contract forbids is still a shape a caller can construct.
     """
+    planes.begin_request()
+
     asked_for = f"{method[:MAX_ECHOED_CHARS]} {path[:MAX_ECHOED_CHARS]}"
     if (method, path) in PUBLIC_ROUTES:
         return _health()
 
     try:
         caller = principal.resolve(headers or {})
+        acting_as = identity.for_request(caller)
     except AuthError as exc:
         return _refuse(str(exc), asked_for, request_id)
     except (ConfigError, VerifierUnavailable) as exc:
@@ -207,4 +228,19 @@ def route(
     handler = ROUTES.get((method, path))
     if handler is None:
         return _not_found(method, path)
-    return _response(200, handler(RequestContext(caller, asked_for, request_id)))
+
+    planes.begin_dispatch((method, path))
+    try:
+        return _response(
+            200, handler(RequestContext(caller, acting_as, asked_for, request_id))
+        )
+    except Exception as exc:
+        refusal = errors.for_exception(exc)
+        if refusal is None:
+            raise
+        observability.warning(
+            "request refused", reason=type(exc).__name__, route=asked_for, request_id=request_id
+        )
+        return refusal
+    finally:
+        planes.end_dispatch()

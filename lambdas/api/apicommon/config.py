@@ -21,15 +21,34 @@ Attributes:
     which happens at module scope, so an environment read here would be the cold-start failure
     this module's laziness exists to prevent. It is a ceiling and not a control — what keeps a
     credential out of a log record is the scrub, never this number.
+  ASSUME_ROLE_DURATION_SECONDS: How long a caller's assumed session lasts. Matches the enhanced
+    flow's hour exactly, and it is a CEILING IN BOTH DIRECTIONS. Shortening it caps every
+    presigned download link and every multipart upload window at the shorter value, a
+    user-visible regression with no failing test. Lengthening it is refused by AWS: the function
+    runs on an assumed-role session of its own, so this call is role chaining, which AWS caps at
+    one hour and FAILS rather than clamps.
+  CREDENTIAL_EXPIRY_MARGIN_SECONDS: How much life a cached credential must have left to be
+    handed out again. DERIVED from the function's own timeout rather than chosen: the
+    schedulable unit is one request, a request's whole life is bounded by that timeout, and the
+    longest call it makes is subsumed by the same bound rather than omitted from it. Clock skew
+    is not allowed for here and deliberately so — the single forced re-assume on an expired
+    credential is that allowance, and an invented number would hide a wrong model.
   _OIDC_VARS: Attribute name to environment variable, for the provider block.
+  _IDENTITY_VARS: Attribute name to environment variable, for the identity layer. Required like
+    the provider block and for the same reason: a defaulted role ARN fails far from its cause,
+    and a defaulted membership count silently drops every shared space a user is in.
 """
 
 import json
 import os
 
 from cpcommon.auth import VerifierConfig
+from cpcommon.jwks import API_FUNCTION_TIMEOUT_SECONDS
 
 MAX_STACK_BYTES = 8192
+
+ASSUME_ROLE_DURATION_SECONDS = 3600
+CREDENTIAL_EXPIRY_MARGIN_SECONDS = API_FUNCTION_TIMEOUT_SECONDS
 
 _OIDC_VARS = {
     "ISSUER": "OIDC_ISSUER",
@@ -37,6 +56,13 @@ _OIDC_VARS = {
     "JWKS_URI": "OIDC_JWKS_URI",
     "USERNAME_CLAIM": "OIDC_USERNAME_CLAIM",
     "REQUIRED_CLAIMS": "OIDC_REQUIRED_CLAIMS",
+}
+
+_IDENTITY_VARS = {
+    "PORTAL_ROLE_ARN": "PORTAL_ROLE_ARN",
+    "PRINCIPAL_TAG_KEY": "PRINCIPAL_TAG_KEY",
+    "MAX_SHARED_MEMBERSHIPS": "MAX_SHARED_MEMBERSHIPS",
+    "USER_SPACE_BUCKET": "USER_SPACE_BUCKET",
 }
 
 
@@ -101,3 +127,90 @@ def verifier_config() -> VerifierConfig:
         username_claim=_require(_OIDC_VARS["USERNAME_CLAIM"]),
         required_claims={str(claim): str(value) for claim, value in required.items()},
     )
+
+
+def portal_role_arn() -> str:
+    """Returns the role the API assumes to act as its caller.
+
+    Read per call rather than at import, like every other value here. It is the EXISTING portal
+    role — the same ARN the Identity Pool's role attachment names — so every policy, bucket
+    policy and Lake Formation grant that authorizes a browser session authorizes this one too.
+
+    Args:
+      None.
+
+    Returns:
+      The portal role's ARN.
+
+    Raises:
+      ConfigError: If the variable is unset or empty.
+    """
+    return _require(_IDENTITY_VARS["PORTAL_ROLE_ARN"])
+
+
+def principal_tag_key() -> str:
+    """Returns the session-tag key carrying the username.
+
+    Configuration rather than a literal, and its agreement with the stamper is ASSERTED rather
+    than structural: the Identity Pool's principal-tag map and two of the portal role's policy
+    templates hard-code this name, and threading a variable through them would edit templates
+    this spec is forbidden to touch. A wrong value here produces a session whose tags match no
+    policy statement, which reads as a denial everywhere and names nothing.
+
+    Args:
+      None.
+
+    Returns:
+      The tag key.
+
+    Raises:
+      ConfigError: If the variable is unset or empty.
+    """
+    return _require(_IDENTITY_VARS["PRINCIPAL_TAG_KEY"])
+
+
+def max_shared_memberships() -> int:
+    """Returns how many membership slots a caller can carry.
+
+    The same count that sizes the Cognito custom attributes, the Identity Pool's tag map and the
+    portal role's shared-space policy. A hand-copied number here drops the slots above it, and
+    dropping a slot leaves every personal feature working while shared spaces refuse — which
+    presents as the propagation delay the product already documents.
+
+    Args:
+      None.
+
+    Returns:
+      The slot count.
+
+    Raises:
+      ConfigError: If the variable is unset, empty, or not a positive integer. A non-numeric
+        value is the same case as an unset one: neither can size anything.
+    """
+    raw = _require(_IDENTITY_VARS["MAX_SHARED_MEMBERSHIPS"])
+    try:
+        slots = int(raw)
+    except ValueError as exc:
+        raise ConfigError(
+            f"{_IDENTITY_VARS['MAX_SHARED_MEMBERSHIPS']} is not an integer"
+        ) from exc
+    if slots < 1:
+        raise ConfigError(
+            f"{_IDENTITY_VARS['MAX_SHARED_MEMBERSHIPS']} must be at least 1"
+        )
+    return slots
+
+
+def user_space_bucket() -> str:
+    """Returns the bucket holding every user's personal prefix.
+
+    Args:
+      None.
+
+    Returns:
+      The bucket name.
+
+    Raises:
+      ConfigError: If the variable is unset or empty.
+    """
+    return _require(_IDENTITY_VARS["USER_SPACE_BUCKET"])

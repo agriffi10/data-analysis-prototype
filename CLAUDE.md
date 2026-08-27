@@ -75,10 +75,12 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 
 ### Current work
 
-- **API layer & containerisation (192 → 202, 192–195 done)** — "Arc B". CloudFront is still
-  production and the rollback. Next: the AWS identity layer (196). Bucket CORS admits the
-  CloudFront origin only, so the container's direct S3 calls fail preflight until 198 — expected.
-  §D of `docs/testing/arc-b-api-container-e2e.md` is **owed**; read the `ARCS.md` arc entry first.
+- **API layer & containerisation (192 → 202, 192–196 done)** — "Arc B". CloudFront is still
+  production and the rollback. Next: the transport contract (197), which also deletes both probe
+  routes. Bucket CORS admits the CloudFront origin only, so the container's direct S3 calls fail
+  preflight until 198 — expected. **§D and §E of `docs/testing/arc-b-api-container-e2e.md` are
+  owed** — Arc B's live verification runs once, at 202 — and 198 inherits the slot-tag proof and
+  the presigned-URL margin, 199 the Lake Formation one. Read the `ARCS.md` arc entry first.
 
 ### Live checks
 
@@ -103,6 +105,26 @@ post-signup redirect. Browser → AWS direct today; Arc B is porting that behind
   still required. Provider-agnosticism is **five config fields**, the JWKS URL built once at the
   **root**. **A key-retrieval fault is 5xx, never 401.** Refusals are byte-identical; **expiry is
   not disclosed**, because the browser refreshes once on any 401.
+- **The API assumes the SAME role with the SAME tags from the SAME claims** — one computation over
+  one input, which is why no policy is rewritten. The claim names are the only thing copied from
+  `identity-pool.tf`; sourcing membership from the registry would break the equivalence. The role
+  is **reused, never minted**: `aws:PrincipalArn` resolves to the *role's* ARN, so the
+  hand-maintained bucket-policy allowlist stays correct. `DurationSeconds` 3600 is a ceiling **both
+  ways** — shorter caps every presigned link, longer is refused because this is role chaining.
+  Tag-key agreement is **asserted, not structural** (the templates hard-code the literal), and the
+  trust statement's `sts:TagKeys` is a **ceiling that cannot require a tag was stamped**.
+- **Two credential planes, user by default, API by registry — the failure fails OPEN.** A wrong
+  client *succeeds* against the wrong identity. One construction site (asserted as a **count**), an
+  AST sweep that also forbids `cpcommon.clients` and any minted `UserIdentity`, exemptions by
+  **exact module path**. The route is set on the way **IN**: a warm container has no fresh context,
+  so cleanup-on-exit alone lets the next request inherit a declaration. **An assume failure is a
+  FAULT, never a denial** — STS says `AccessDenied` for a wrong trust policy, so the layer *wraps*
+  it; that wrap, not the classifier's ordering, is what holds.
+- **The credential cache is keyed on the WHOLE tag set**, never the username alone (which freezes
+  membership until the next cold start) and never nothing (which serves B the session of A). Its
+  margin is the life of **one request**, derived from the function timeout; the forced re-assume is
+  the skew allowance, and it retries on a **new** client because boto3 binds credentials at
+  construction.
 
 **One string is four things:** username = S3 prefix = principal tag = Glue database name, so it is
 catalog-safe by construction (`^[a-z][a-z0-9_]{2,62}$`). The username directory is built from **S3,

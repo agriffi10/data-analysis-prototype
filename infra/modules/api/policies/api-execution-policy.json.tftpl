@@ -15,6 +15,15 @@
       "Effect": "Allow",
       "Action": "sqs:SendMessage",
       "Resource": "${logs_queue_arn}"
+    },
+    {
+      "Sid": "AssumeThePortalRoleAsTheCaller",
+      "Effect": "Allow",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:TagSession"
+      ],
+      "Resource": "${portal_role_arn}"
     }
   ]
 }

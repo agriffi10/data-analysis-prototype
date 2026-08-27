@@ -18,6 +18,25 @@
           "cognito-identity.amazonaws.com:amr": "authenticated"
         }
       }
+    },
+    {
+      "Sid": "TheApiMayActAsAUser",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "${api_execution_role_arn}"
+      },
+      "Action": [
+        "sts:AssumeRole",
+        "sts:TagSession"
+      ],
+      "Condition": {
+        "ForAllValues:StringEquals": {
+          "sts:TagKeys": ${session_tag_keys}
+        },
+        "Null": {
+          "sts:TransitiveTagKeys": "true"
+        }
+      }
     }
   ]
 }

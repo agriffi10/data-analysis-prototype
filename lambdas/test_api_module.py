@@ -30,6 +30,8 @@ Attributes:
   FORBIDDEN_IN_API_MODULE: Resource and block types whose presence is the first half of an
     attachment somebody started.
   API_ROLE_ALLOWED_ACTIONS: The whole of the API function's permissions.
+  API_ROLE_FORBIDDEN_SERVICES: The services whose arrival would mean a server-side login flow
+    started being built here.
   OIDC_KEYS: The provider block — the five values the verifier reads about who issues
     its tokens, and the only five.
   _VALID_PROVIDER_BLOCK: A provider block satisfying every validation, so one field
@@ -73,8 +75,19 @@ CSP_CONNECT_SRC_TERMS = (
 FORBIDDEN_IN_API_MODULE = ("vpc_config", "aws_security_group", "aws_subnet", "subnet_ids")
 
 API_ROLE_ALLOWED_ACTIONS = frozenset(
-    {"logs:CreateLogStream", "logs:PutLogEvents", "sqs:SendMessage"}
+    {
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "sqs:SendMessage",
+        "sts:AssumeRole",
+        "sts:TagSession",
+    }
 )
+
+#: Services this role must never learn about. The session store, its key and the secrets store
+#: belong to a server-side login flow this API deliberately does not perform; the identity
+#: provider is something it VERIFIES against and never calls.
+API_ROLE_FORBIDDEN_SERVICES = ("dynamodb:", "kms:", "secretsmanager:", "cognito-idp:", "cognito-identity:")
 
 
 def _api_source() -> str:
@@ -331,8 +344,22 @@ def test_the_custom_domain_is_regional_and_takes_the_validated_certificate() -> 
     )
 
 
-def test_the_function_role_grants_exactly_logs_and_the_logs_queue() -> None:
+def test_the_function_role_grants_logs_the_queue_and_ONE_assume_and_nothing_else() -> None:
     """Rendered, not read as a template — a placeholder can expand into a grant.
+
+    **SPEC-196 owns this edit, and made it in the same commit that added the statement.** Until
+    the identity layer landed this asserted an exact action set that named no STS action at all,
+    which was correct then and goes red the moment the API is allowed to act as its caller. Left
+    as it was, the repair a builder reaches for is deleting the assertion — and with it the only
+    thing standing between this role and a session store, a key store, a secrets store or a call
+    to the identity provider, none of which it has any business reaching. Those were implicit in
+    the exact set before; they are named explicitly now, so a narrowing is a narrowing rather than
+    a loss. The STS half is bounded instead of dropped: exactly one statement, both actions, on
+    the portal role and nothing else.
+
+    Both actions matter and either alone is the trap. ``sts:AssumeRole`` without ``sts:TagSession``
+    renders, plans, applies and unit-tests green, then fails at runtime with a refusal naming
+    neither the tag nor the missing action.
 
     Args:
       None.
@@ -341,7 +368,8 @@ def test_the_function_role_grants_exactly_logs_and_the_logs_queue() -> None:
       None.
 
     Raises:
-      AssertionError: If the role names any action outside the allowed set.
+      AssertionError: If the role grants anything outside the set, names a forbidden service, or
+        reaches STS on more than the portal role.
     """
     rendered = (
         (API / "policies" / "api-execution-policy.json.tftpl")
@@ -353,6 +381,9 @@ def test_the_function_role_grants_exactly_logs_and_the_logs_queue() -> None:
         .replace(
             "${logs_queue_arn}", "arn:aws:sqs:us-east-1:696000197480:dat-prod-logs.fifo"
         )
+        .replace(
+            "${portal_role_arn}", "arn:aws:iam::696000197480:role/dat-portal-user-role"
+        )
     )
     document = json.loads(rendered)
 
@@ -362,9 +393,38 @@ def test_the_function_role_grants_exactly_logs_and_the_logs_queue() -> None:
         actions.update([declared] if isinstance(declared, str) else declared)
 
     assert actions == set(API_ROLE_ALLOWED_ACTIONS), (
-        f"the API role grants {sorted(actions)} — it calls no AWS service, so anything beyond "
-        "logs and the logs queue belongs to the spec that needs it"
+        f"the API role grants {sorted(actions)} — anything beyond logs, the logs queue and the "
+        "one assume belongs to the spec that needs it"
     )
+
+    serialised = json.dumps(document)
+    for service in API_ROLE_FORBIDDEN_SERVICES:
+        assert service not in serialised, (
+            f"the API role names {service} — a session store, its key, a secrets store and the "
+            "identity provider all belong to a login flow this API does not perform"
+        )
+
+    sts_statements = [
+        statement
+        for statement in document["Statement"]
+        if any(
+            action.startswith("sts:")
+            for action in (
+                [statement["Action"]]
+                if isinstance(statement["Action"], str)
+                else statement["Action"]
+            )
+        )
+    ]
+    assert len(sts_statements) == 1, (
+        f"{len(sts_statements)} statements name STS — the API acts as its caller through exactly "
+        "one door"
+    )
+    assert set(sts_statements[0]["Action"]) == {"sts:AssumeRole", "sts:TagSession"}
+    assert sts_statements[0]["Resource"] == (
+        "arn:aws:iam::696000197480:role/dat-portal-user-role"
+    ), "the assume is not scoped to the portal role alone"
+
     assert all(statement["Effect"] == "Allow" for statement in document["Statement"])
     assert '"*"' not in json.dumps(document["Statement"]), "no wildcard resource"
 

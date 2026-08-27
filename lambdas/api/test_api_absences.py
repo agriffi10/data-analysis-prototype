@@ -404,7 +404,13 @@ def test_the_route_table_and_the_public_list_are_what_they_claim() -> None:
     import router
 
     assert frozenset({("GET", "/healthz")}) == router.PUBLIC_ROUTES
-    assert set(router.ROUTES) == {("GET", "/_auth/whoami")}
+    assert set(router.ROUTES) == {
+        ("GET", "/_auth/whoami"),
+        ("GET", "/_identity/self"),
+    }, (
+        "both are scaffolding and both leave together: the spec that ports the first real route "
+        "deletes them, on the condition that the verification pass has actually been run"
+    )
     assert json.loads(router.route("GET", "/healthz", {})["body"])["status"] == "ok"
 
 

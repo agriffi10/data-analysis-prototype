@@ -18,6 +18,23 @@ describe('errorMessages', () => {
       expect(message).toBe('"reports/q4.csv" already exists.');
     });
 
+    it('answers an identity the API could not assume without blaming the user (SPEC-196 FR-007)', () => {
+      // The three AWS-side conditions must stay tellable apart in the WORDING, not just in the
+      // status. Signing in again cannot fix this one and neither can asking for access, so it
+      // must read as neither. The raw text names a role ARN and an account id, and none of it
+      // travels: this code is deliberately not `passthrough`.
+      const {message} = toUserMessage({code: 'IdentityUnavailable', message: RAW_AWS});
+      expect(message).toBe('Something went wrong on our side. Contact the Administrator.');
+      expect(message).not.toContain('arn:aws');
+      expect(message).not.toContain('123');
+
+      expect(message).not.toBe(toUserMessage({code: 'SessionExpired'}).message);
+      expect(message).not.toBe(toUserMessage({code: 'AccessDenied', message: RAW_AWS}).message);
+      expect(toUserMessage({code: 'SessionExpired'}).message).not.toBe(
+        toUserMessage({code: 'AccessDenied', message: RAW_AWS}).message
+      );
+    });
+
     it('maps a recognized AWS error name to friendly non-fixable text, ignoring the raw message', () => {
       const {message} = toUserMessage({code: 'AccessDenied', message: RAW_AWS});
       expect(message).toBe("You don't have permission to do that. Contact the Administrator.");

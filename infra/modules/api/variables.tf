@@ -148,3 +148,24 @@ variable "oidc_required_claims" {
     error_message = "oidc_required_claims must be a JSON object such as {\"token_use\":\"id\"} — not a scalar, not a list. An empty value means it was never computed, and would silently stop the token-type check from running at all."
   }
 }
+
+# ── The identity layer ────────────────────────────────────────────────────────
+# Three values, all required at first use and none defaulted in the function: a defaulted role
+# ARN fails a long way from its cause, and a defaulted slot count silently drops every shared
+# space a user is in -- which presents as the membership propagation delay the product already
+# documents, so nothing about the running system distinguishes it from correct behaviour.
+
+variable "portal_role_arn" {
+  description = "The EXISTING portal role the API assumes to act as its caller -- the same ARN the Identity Pool's role attachment names. No new role is created: the user-space bucket policy's hand-maintained allowlist already names this one, and aws:PrincipalArn resolves an assumed-role request to the role's IAM ARN, so assuming the same role keeps that entry valid."
+  type        = string
+}
+
+variable "principal_tag_key" {
+  description = "The session-tag key carrying the username. Agreement with the Identity Pool's map is asserted by test rather than made structural: the map and two of the portal role's permission templates hard-code the literal, and threading a variable through them would edit templates this arc must leave byte-identical."
+  type        = string
+}
+
+variable "max_shared_memberships" {
+  description = "Number of shared-space membership slots the API stamps tags for. The same variable that sizes the Cognito custom attributes, the Identity Pool tag map and the portal role's shared-space policy."
+  type        = number
+}

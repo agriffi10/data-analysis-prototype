@@ -201,7 +201,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 193 — The Network, the Compute & the Front Door | Completed |
 | 194 — The SPA Container | Completed |
 | 195 — The API's Auth Boundary: Verifying the Bearer Token | Completed |
-| 196 — The AWS Identity Layer | Draft |
+| 196 — The AWS Identity Layer | Completed |
 | 197 — The Transport Contract & the First Ported Feature | Draft |
 | 198 — The S3 Surface & Presigned Bytes | Draft |
 | 199 — The Catalog Surface: Athena & Glue | Draft |

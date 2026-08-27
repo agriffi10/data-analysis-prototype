@@ -260,6 +260,15 @@ than restating it: one status, one code, one refresh, one retry.
       SPEC-196, for an authenticated caller refused an action — at which point this criterion stays as the
       guard that the *auth boundary* never mints one, so 401 and 403 cannot collapse into each other.
       Conflating them is what makes an app tell a user to sign in again when signing in again cannot help.
+
+      > **SUPERSEDED in part by SPEC-196 FR-007 (2026-08-27):** the "*auth boundary* never mints one" clause.
+      > SPEC-196 makes 403 reachable, and the module that mints it is `apicommon/errors.py` — the same
+      > refusal surface that owns the 401, because this API has exactly one and splitting it would put the
+      > two statuses in two places to disagree. **The property the criterion is about is unchanged and is
+      > still asserted**: the two statuses and their codes are distinct, and exactly one module mints a 403,
+      > so any *other* module doing so still reddens. SPEC-196 owns the edit and made it in the same commit,
+      > for the same reason it owns FR-009 AC2's: left as written the test goes red the day that spec lands,
+      > and the repair a builder reaches for is deletion — which removes the collapse guard itself.
 - [ ] No response body, header or status carries provider text: not a PyJWT message, not a `kid`, not an
       issuer, not the token. A test asserts a sentinel embedded in the token appears in no byte of the
       response.

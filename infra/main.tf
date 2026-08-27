@@ -549,6 +549,23 @@ module "data" {
   portal_role_name       = local.portal_role_name
   deploy_role_arn        = local.deploy_role_arn
 
+  # The portal role's SECOND trust statement: the API assumes this same role to act as its
+  # caller, with the same tag set read from the same claims. The key set the statement admits is
+  # built from the same two variables the function's environment carries, so the two cannot drift
+  # apart by transcription.
+  #
+  # A REAL module reference, and it is the one cross-module role ARN in this file that must not be
+  # a constructed string. The others feed bucket-policy CONDITIONS -- `aws:PrincipalArn`
+  # comparisons, which are string matches needing no principal to exist. This one feeds a trust
+  # policy's `Principal.AWS`, which IAM VALIDATES: an ARN naming a role that does not exist yet is
+  # refused as a malformed policy document. module.data has no other tie to module.api, so without
+  # this edge a from-scratch apply is free to create the portal role first and fail. The value is
+  # (known after apply) only on the apply that creates the API role, and it feeds a policy document
+  # rather than a for_each, so an unknown there is benign.
+  api_execution_role_arn = module.api.api_execution_role_arn
+  principal_tag_key      = var.principal_tag_key
+  max_shared_memberships = var.max_shared_memberships
+
   # Excluded from the bucket-policy data-access Deny so Lake Formation (assuming
   # this role) can read the registered location when serving Athena queries.
   lf_registration_role_arn = local.lf_registration_role_arn
@@ -1381,6 +1398,13 @@ module "api" {
   # this provider rather than about the verifier. Keeping it at the composition root leaves the
   # module and every Python module downstream treating the URL as opaque — so swapping the
   # provider is this line plus the four beside it.
+  # The identity layer. The role is the EXISTING portal role, named by the same local the
+  # Identity Pool's role attachment uses -- reusing it is what keeps the user-space bucket
+  # policy's hand-maintained allowlist correct without a new entry.
+  portal_role_arn        = local.portal_role_arn
+  principal_tag_key      = var.principal_tag_key
+  max_shared_memberships = var.max_shared_memberships
+
   oidc_issuer          = local.cognito_issuer
   oidc_audience        = module.auth.user_pool_client_id
   oidc_jwks_uri        = "${local.cognito_issuer}/.well-known/jwks.json"

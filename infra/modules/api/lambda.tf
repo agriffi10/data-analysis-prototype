@@ -45,8 +45,9 @@ resource "aws_iam_role_policy" "api" {
   role = aws_iam_role.api.id
 
   policy = templatefile("${path.module}/policies/api-execution-policy.json.tftpl", {
-    log_group_arn  = aws_cloudwatch_log_group.api.arn
-    logs_queue_arn = var.logs_queue_arn
+    log_group_arn   = aws_cloudwatch_log_group.api.arn
+    logs_queue_arn  = var.logs_queue_arn
+    portal_role_arn = var.portal_role_arn
   })
 }
 
@@ -76,6 +77,13 @@ resource "aws_lambda_function" "api" {
       ATHENA_WORKGROUP      = var.athena_workgroup
       LOGS_QUEUE_URL        = var.logs_queue_url
       ENV_NAME              = var.environment
+
+      # The identity layer. The role is the one the Identity Pool already vends for; the tag key
+      # and the slot count are the same variables that size the pool's principal-tag map, so the
+      # set the API stamps and the set the policies expand cannot drift by transcription.
+      PORTAL_ROLE_ARN        = var.portal_role_arn
+      PRINCIPAL_TAG_KEY      = var.principal_tag_key
+      MAX_SHARED_MEMBERSHIPS = tostring(var.max_shared_memberships)
 
       # The provider block. The verifier reads these five and nothing else about who issues
       # its tokens, which is what makes a provider swap a configuration change. They are

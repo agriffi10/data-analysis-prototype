@@ -1,8 +1,8 @@
 # Spec: The AWS Identity Layer — Role Assumption, the Two Credential Planes
 
 **ID:** SPEC-196
-**Status:** Draft
-**Last Updated:** 2026-08-18
+**Status:** Completed
+**Last Updated:** 2026-08-27
 **Depends On:** SPEC-011 (the Identity Pool ABAC model this spec preserves — the `username` principal tag stamped server-side from the verified claim), SPEC-013/016/032/056 (the portal role's prefix-, Glue- and membership-scoped policies that must keep enforcing unchanged), SPEC-033 (the catalog-safe username rule the session name is validated against), SPEC-106 (`toUserMessage` — raw AWS text is never rendered), SPEC-127→137 (`cpcommon.observability`, the one door, and the field rule), SPEC-186 (`env` + `version` on every log record; the deployed-role IAM simulation discipline), SPEC-193 (the API Lambda, its execution role and the placeholder route this spec proves itself with), SPEC-195 (the API's auth boundary — the verified ID token whose claims this layer reads its tag values from)
 
 ## Overview
@@ -322,8 +322,18 @@ user unambiguously.
 - [ ] A test **computes** the containment rather than asserting it: every string the catalog rule
       admits is 3–63 characters drawn from `[a-z0-9_]`, which is a strict subset of `\w` and inside
       2–64, so no valid username needs escaping. The same test computes why **a prefix is not
-      available**: 63 + any non-empty prefix exceeds 64, and truncating would collapse two usernames
-      onto one CloudTrail identity.
+      available**, and truncating would collapse two usernames onto one CloudTrail identity.
+
+      > **CORRECTED 2026-08-27, during build — this criterion's arithmetic was off by one, and
+      > computing it rather than asserting it is what found that.** This spec said "63 + any
+      > non-empty prefix exceeds 64". It does not: the longest catalog-safe username is 63 and STS
+      > admits 64, so the **prefix budget is exactly one character** and a one-character prefix
+      > fits. **The requirement is unchanged** — the session name is the username verbatim — but
+      > the reason is not the one written down. The true reason is the budget itself: one
+      > character is not a namespace, so any prefix worth having (a service name, an environment,
+      > a separator) overflows for the longest usernames, and the only way to make it fit is to
+      > truncate, which is the collision this criterion already names. The test computes the
+      > budget, fails if it ever grows, and says so in its own docstring.
 - [ ] A username that fails either rule is **refused** — never sanitised, never truncated. The
       request fails as `IdentityUnavailable` (FR-007), the refusal is logged with the username (user
       metadata, permitted by the field rule), and no `AssumeRole` is issued. Asserted by a test that
@@ -528,6 +538,22 @@ The identity layer's spans go through `cpcommon.observability` — the only door
       — or an STS response holding a `SecretAccessKey`/`SessionToken` — can pull one in. The test
       raises a synthetic exception whose `__cause__` message carries a token-shaped string and a
       credential-shaped string, and asserts no emitted record contains either.
+
+      > **CORRECTED 2026-08-27, during build — this criterion asked for a mechanism SPEC-195 did
+      > not build, and its two halves contradicted each other.** It says the treatment is
+      > *inherited* from SPEC-195 FR-007, and separately that a record must not *contain* a
+      > credential written into an exception message. SPEC-195 FR-007's mechanism is
+      > **preventative, not a redactor**: a sweep forbidding this repo's code from rendering a
+      > token into an f-string, a `%`-format, a `.format()` call or a `raise` argument, plus a
+      > sentinel test. `log-foundry` 0.6.0 still exposes no way to turn stack capture off and no
+      > redactor exists, so a test that deliberately writes a credential into an exception message
+      > and then demands its absence asks for something neither spec ships — it is red by
+      > construction. **Settled 2026-08-27 (Andrew): prevent, and record the residual.** This
+      > layer extends the interpolation sweep to the four session-material names it introduces,
+      > and the sentinel test drives a path that genuinely raises through the span while holding a
+      > real assumed session — so the absence is asserted where a stack actually exists. The
+      > residual — a future route that interpolates a session value despite the sweep — is
+      > recorded in `owed.md` rather than implied to be closed.
 - [ ] **The scrub does NOT extend to user data, and that boundary is deliberate.** The settled
       2026-07-23 decision **accepts** file contents reaching `error.stack` — `logs/` is admin-only and
       a stack is diagnostic metadata a failed run needs — and pins it with
