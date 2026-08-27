@@ -791,9 +791,15 @@ def _plan_with(values: dict[str, str]) -> set[str]:
             "TF_IN_AUTOMATION": "1",
             **{f"TF_VAR_{key.lower()}": value for key, value in values.items()},
         }
-        subprocess.run(  # noqa: S603
+        setup = subprocess.run(  # noqa: S603
             [tofu, "init", "-backend=false", "-input=false"],
-            cwd=scratch, env=environment, capture_output=True, text=True, check=True,
+            cwd=scratch, env=environment, capture_output=True, text=True, check=False,
+        )
+        # Asserted rather than `check=True`: a CalledProcessError names the command and hides
+        # the reason, and this init runs in an environment (minimal, no wrapper) that differs
+        # from the one a developer reproduces in.
+        assert setup.returncode == 0, (
+            f"tofu init failed in the scratch module:\n{setup.stdout}\n{setup.stderr}"
         )
         plan = subprocess.run(  # noqa: S603
             [tofu, "plan", "-input=false"],
