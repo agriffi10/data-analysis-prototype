@@ -25,6 +25,8 @@ Attributes:
   HEADERS_TEMPLATE: The shared snippet every location includes.
   ENTRYPOINT: The script that refuses, then renders.
   MATRIX: The behaviour gate, asserted to exist and to be wired.
+  PR_GATE: The pull-request workflow that runs the matrix before merge.
+  DEPLOY: The pipeline that builds, proves, pushes and points the service.
   SPA_ECS: The task definition whose port, uid and mounts the image must agree with.
   SPA_VARIABLES: Where the health path and container port defaults live.
   ROOT_MAIN: Where the assembled policy is computed.
@@ -57,6 +59,8 @@ ENTRYPOINT = (
     / "40-render-portal-config.sh"
 )
 MATRIX = ROOT / ".github" / "scripts" / "spa-image-matrix.sh"
+PR_GATE = ROOT / ".github" / "workflows" / "spa-image.yml"
+DEPLOY = ROOT / ".github" / "workflows" / "deploy-spa-image.yml"
 SPA_ECS = ROOT / "infra" / "modules" / "spa" / "ecs.tf"
 SPA_VARIABLES = ROOT / "infra" / "modules" / "spa" / "variables.tf"
 ROOT_MAIN = ROOT / "infra" / "main.tf"
@@ -146,6 +150,8 @@ def test_every_source_was_found() -> None:
         HEADERS_TEMPLATE,
         ENTRYPOINT,
         MATRIX,
+        PR_GATE,
+        DEPLOY,
         SPA_ECS,
         SPA_VARIABLES,
         ROOT_MAIN,
@@ -589,3 +595,192 @@ def test_the_task_definition_overrides_no_command() -> None:
             f"The task definition sets {override}. The image's entrypoint scripts would not run, "
             "and the container would start clean serving no configuration at all."
         )
+
+
+def test_the_pipeline_tags_by_commit_sha_and_never_mutably() -> None:
+    """``latest`` makes the running revision unidentifiable and a rollback a rebuild.
+
+    "Which commit is in production" is the question the whole stamping mechanism exists to answer,
+    and a mutable tag makes it unanswerable — the registry is configured immutable partly so this
+    cannot be done by accident, but a workflow can still ask.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When any mutable tag appears, or the build does not stamp the sha.
+    """
+    text = DEPLOY.read_text()
+    body = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+    assert ":latest" not in body and "latest\"" not in body, (
+        "The deploy workflow names a `latest` tag somewhere."
+    )
+    assert "--build-arg BUILD_VERSION=" in body, "The build does not stamp BUILD_VERSION."
+    assert "GITHUB_SHA" in body, "The tag is not derived from the commit sha."
+
+
+def test_the_pipeline_proves_the_image_before_it_pushes() -> None:
+    """A wrong cache header must never reach a registry it cannot be deleted from.
+
+    The repository is immutable, so a bad image cannot be replaced at its tag — only superseded by
+    a new commit. Running the gate after the push would make every failure permanent.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the matrix does not run, or does not run before the push.
+    """
+    text = DEPLOY.read_text()
+    assert "spa-image-matrix.sh" in text, "The deploy pipeline never runs the behaviour matrix."
+
+    matrix_at = text.index("spa-image-matrix.sh")
+    push_at = text.index("docker push")
+    assert matrix_at < push_at, (
+        "The matrix runs after the push. The registry is immutable, so a bad image cannot be "
+        "replaced at its tag."
+    )
+
+
+def test_the_deploy_waits_and_refuses_to_pass_on_a_vacuous_wait() -> None:
+    """``update-service`` returns the moment the API accepts the request.
+
+    So a container that crashes at start leaves the workflow green over a service still running
+    last week's image. Waiting is what makes a bad image able to fail a deploy — and the wait is
+    itself vacuous at a desired count of zero, where it returns instantly and the service reports
+    the revision that was just set.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the wait, the zero-count guard or the settled-revision check is absent.
+    """
+    text = DEPLOY.read_text()
+
+    assert "wait services-stable" in text, (
+        "The pipeline does not wait, so a rolled-back deployment reports success."
+    )
+    assert 'desired" -eq 0' in text, (
+        "Nothing refuses a desired count of zero, where every check below it is vacuous: the wait "
+        "returns instantly and a deliberately broken image deploys green."
+    )
+    # THE ONE THAT CATCHES A ROLLBACK. A rolled-back service is stable and healthy — running the
+    # PREVIOUS image — so stability alone is not evidence that this run's image is live.
+    assert 'primary" != "$ARN"' in text, (
+        "Nothing compares the settled revision with the one this run registered, so a rollback "
+        "reads as a successful deploy."
+    )
+
+
+def test_the_deploy_clones_the_family_not_the_running_revision() -> None:
+    """After a rollback the service points at an OLDER revision, and cloning it reverts config.
+
+    The environment block is Terraform's, derived from the runtime-configuration map. Cloning a
+    stale revision silently drops whatever was last added to it — a configuration key or a CSP
+    term — and the deploy is green.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the clone reads the service's revision, or does not verify the
+        configuration survived.
+    """
+    text = DEPLOY.read_text()
+    body = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+    assert 'describe-task-definition --task-definition "$FAMILY"' in body, (
+        "The clone does not read the family's newest revision by name."
+    )
+    assert "services[0].taskDefinition" not in body, (
+        "The clone reads the revision the SERVICE is running, which after a rollback is stale."
+    )
+    # The register call refuses these, with a parameter error that reads as a malformed request.
+    for read_only in ("taskDefinitionArn", "requiresAttributes", "compatibilities", "registeredAt"):
+        assert read_only in body, f"The clone does not strip {read_only}, which register rejects."
+    assert 'startswith("CONFIG_")' in body, (
+        "Nothing checks the cloned revision still carries the runtime-configuration block. A "
+        "container missing part of its document refuses to start, and the workflow would report "
+        "only that the deployment failed."
+    )
+
+
+def test_both_workflows_build_for_the_architecture_the_task_declares() -> None:
+    """An arm64 image fails at task start with a manifest error that reads nothing like one.
+
+    The runner is amd64 today, which is exactly what makes leaving this unwritten dangerous: it
+    works until the day the runner image changes.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When either workflow builds without naming the platform.
+    """
+    for workflow in (PR_GATE, DEPLOY):
+        assert "--platform linux/amd64" in workflow.read_text(), (
+            f"{workflow.name} builds without naming the platform."
+        )
+
+
+def test_the_deploy_is_serialized_and_never_cancelled_mid_flight() -> None:
+    """Two overlapping deploys of one service is last-writer-wins.
+
+    And cancelling one mid-flight leaves a half-rolled service, which is worse than the queueing it
+    saves — the same reasoning the static-site deploy carries.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the workflow is unserialized or cancels in progress.
+    """
+    text = DEPLOY.read_text()
+    assert "concurrency:" in text, "The deploy is not serialized."
+    assert "cancel-in-progress: false" in text, (
+        "The deploy cancels in-flight runs, which leaves a service half-rolled."
+    )
+
+
+def test_the_static_site_deploy_is_untouched() -> None:
+    """Both delivery paths run side by side for the length of this transition, deliberately.
+
+    The distribution stays the working portal while the container is being proved, so anything
+    that stops it deploying turns a rollback into an outage.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When the static-site workflow stops deploying on every push to main.
+    """
+    static = ROOT / ".github" / "workflows" / "deploy-app.yml"
+    text = static.read_text()
+    assert "branches: [main]" in text, (
+        "deploy-app.yml no longer deploys on pushes to main. It is the working portal and the "
+        "rollback for this whole transition."
+    )
+    assert "aws s3 sync" in text, "deploy-app.yml no longer publishes the bundle."

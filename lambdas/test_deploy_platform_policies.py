@@ -698,3 +698,78 @@ def test_the_platform_grant_pause_sits_after_the_attachments_and_re_fires_on_cha
     assert duration and int(duration.group(1)) >= 30, (
         "the pause must be a real floor on eventual consistency"
     )
+
+
+def test_the_image_pipeline_keeps_every_grant_it_needs() -> None:
+    """The push-and-deploy half, asserted as PRESENCE so a later narrowing reddens here.
+
+    These grants were written for the placeholder push and are now what the image pipeline runs
+    on: it authenticates to the registry, uploads layers, registers a task-definition revision,
+    points the service at it and reads the service back. No policy of its own was added — every
+    action it needs is already granted and already measured for scopability, and a second document
+    restating them would be a second owner of one set of grants.
+
+    What that leaves is the risk this test covers. A grant removed as "unused" during some later
+    tidy-up breaks the deploy pipeline, and it breaks it at the point of pushing to a registry
+    rather than at plan time — so the failure lands on ``main`` after a merge, not in review.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: When any action the pipeline calls is no longer granted, or when
+        ``iam:PassRole`` for the task roles loses its service condition.
+    """
+    granted = {
+        action
+        for path in PLATFORM_POLICIES
+        for statement in _statements(path)
+        if statement["Effect"] == "Allow"
+        for action in _actions(statement)
+    }
+
+    # Named as the calls the workflow actually makes, in the order it makes them, so a reader can
+    # check the list against the file rather than against a memory of what ECR needs.
+    for action, call in (
+        ("ecr:GetAuthorizationToken", "docker login"),
+        ("ecr:DescribeRepositories", "resolving the registry URI by name"),
+        ("ecr:DescribeImages", "deciding whether this tag is already present"),
+        ("ecr:BatchCheckLayerAvailability", "docker push"),
+        ("ecr:InitiateLayerUpload", "docker push"),
+        ("ecr:UploadLayerPart", "docker push"),
+        ("ecr:CompleteLayerUpload", "docker push"),
+        ("ecr:PutImage", "docker push"),
+        ("ecs:DescribeTaskDefinition", "cloning the family's newest revision"),
+        ("ecs:RegisterTaskDefinition", "registering the revision carrying this image"),
+        ("ecs:UpdateService", "pointing the service"),
+        ("ecs:DescribeServices", "reading the service back to prove it settled"),
+        ("iam:PassRole", "register-task-definition, which passes the task and execution roles"),
+    ):
+        assert action in granted, (
+            f"{action} is no longer granted, and the image pipeline calls it for: {call}. "
+            "Removing it fails the deploy on main rather than in review."
+        )
+
+    # The task roles' PassRole must stay conditioned on the service that receives them. Without the
+    # condition the deploy role can attach ANY role it can name to a task, which is the
+    # privilege-escalation shape the scoping exercise exists to avoid.
+    conditioned = [
+        statement
+        for path in PLATFORM_POLICIES
+        for statement in _statements(path)
+        if "iam:PassRole" in _actions(statement)
+        and statement.get("Condition", {}).get("StringEquals", {}).get("iam:PassedToService")
+        == "ecs-tasks.amazonaws.com"
+    ]
+    assert len(conditioned) == 1, (
+        "Expected exactly one iam:PassRole statement conditioned on ecs-tasks.amazonaws.com, "
+        f"found {len(conditioned)}. register-task-definition passes both task roles through it."
+    )
+    resources = conditioned[0]["Resource"]
+    assert isinstance(resources, list) and len(resources) == 2, (
+        f"The ECS PassRole statement names {resources!r}; it must name exactly the task role and "
+        "the task execution role."
+    )
