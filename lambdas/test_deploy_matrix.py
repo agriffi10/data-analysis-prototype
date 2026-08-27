@@ -142,12 +142,63 @@ HANDLER_DIRS = _handler_dirs()
 _DIR_IDS = sorted(HANDLER_DIRS)
 
 
+#: Files in a FUNCTION directory that the deploy does not copy into the package.
+#:
+#: Deliberately NOT ``_NOT_SHIPPED``, which serves the layer copy lists and excludes
+#: ``__init__.py`` — right for a layer publishing flat modules, wrong here: a function laid out
+#: as a package ships its ``__init__.py`` and a layer import inside one is exactly as fatal as
+#: anywhere else. Two rules because there are genuinely two questions.
+_NOT_PACKAGED = ("test_", "conftest.py")
+
+
+def _packaged_modules(directory):
+    """Every module the deploy actually copies into one function's package.
+
+    **This is deliberately NOT ``_handler_dirs``, and the difference is the whole point.**
+    That function answers "which directories are Lambdas", by looking for a module defining a
+    top-level ``handler`` — a definition it shares with the instrumentation harness so the two
+    cannot drift into covering different fleets. Reusing it to decide *what to scan for imports*
+    conflated two questions: only the entry point was ever read, so a layer import in any
+    sibling module was invisible, and after the packaging change a layer import anywhere under a
+    subpackage was invisible too.
+
+    The set is derived from the rule ``deploy-lambda.sh`` copies by — every ``*.py`` at any
+    depth, minus tests, minus ``conftest.py``, minus hidden directories — because the property
+    being asserted is "everything in the package can import what it names", and the package is
+    what the deploy puts there. A hand-kept list would answer a different question tomorrow.
+
+    Args:
+      directory: The function directory.
+
+    Returns:
+      The sorted module paths that reach the package.
+
+    Raises:
+      None.
+    """
+    return sorted(
+        path
+        for path in directory.rglob("*.py")
+        if not path.name.startswith(_NOT_PACKAGED)
+        and not any(part.startswith(".") for part in path.relative_to(directory).parts)
+    )
+
+
 def _imported_roots(paths):
-    """The top-level package names imported by any module in one function's directory.
+    """The top-level package names imported by any of the given modules.
 
     Walks the whole tree rather than only ``tree.body``: ``post_confirmation.py`` imports
     ``cpcommon`` below its ``logging`` setup, and a lazily-imported layer package inside a
     function body needs the layer attached just as much as a top-level one does.
+
+    Args:
+      paths: The modules to read.
+
+    Returns:
+      The set of top-level package names they import.
+
+    Raises:
+      None.
     """
     roots = set()
     for path in paths:
@@ -317,13 +368,18 @@ def test_every_imported_layer_package_is_attached(name):
 
     An import of a layer package with the matching flag unset is a ``ModuleNotFoundError`` at
     cold start — after a green test run and a green deploy.
+
+    Scanned over EVERY module the deploy ships, not only the entry point. The entry point is
+    where the outage happened to be, and scanning only it left the rest of a function's own
+    package unguarded against the identical failure — silently, and for a function whose
+    modules a reader would assume were covered.
     """
     flags = MATRIX.get(name)
     if flags is None:
         pytest.skip("covered by test_every_lambda_directory_is_in_the_deploy_matrix")
 
     missing = []
-    for root in sorted(_imported_roots(HANDLER_DIRS[name])):
+    for root in sorted(_imported_roots(_packaged_modules(LAMBDAS / name))):
         if root not in LAYER_PACKAGES:
             continue
         if root == "polars":
@@ -338,6 +394,129 @@ def test_every_imported_layer_package_is_attached(name):
         f"lambdas/{name}/ imports {', '.join(missing)} but its {FUNCTIONS.name} row does not "
         f"attach the layer — the function will raise ModuleNotFoundError at cold start"
     )
+
+
+def test_the_import_scan_reads_more_than_the_entry_point() -> None:
+    """The blind spot this scan had, pinned so it cannot come back quietly.
+
+    The scan used to walk only modules defining a top-level ``handler``, because that is how the
+    fleet answers "which directories are Lambdas". A layer import in any sibling module was
+    therefore invisible, and once a function is laid out as a package, so is every module under
+    it — the failure being guarded against is a cold-start ``ModuleNotFoundError`` that no test
+    and no deploy can see, which is the outage this whole file exists because of.
+
+    Asserted against a real function rather than a synthetic one, so it stays true as the tree
+    changes.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the scan reads only entry points, or misses a subpackage.
+    """
+    for name, handler_modules in HANDLER_DIRS.items():
+        packaged = _packaged_modules(LAMBDAS / name)
+        assert set(handler_modules) <= set(packaged), (
+            f"{name}: the scan no longer covers its own entry point"
+        )
+
+    wider = [
+        name
+        for name, handler_modules in HANDLER_DIRS.items()
+        if len(_packaged_modules(LAMBDAS / name)) > len(handler_modules)
+    ]
+    assert wider, (
+        "no function has a module beyond its entry point, so this assertion proves nothing — "
+        "if that is genuinely true of the fleet, this test needs a synthetic subject instead"
+    )
+
+
+def test_the_fleet_assertion_scans_the_PACKAGE_and_not_the_entry_points() -> None:
+    """A wiring guard, and it is structural because nothing behavioural can do the job.
+
+    Measured before writing it: **no function in the fleet currently has a non-handler module
+    importing a layer its entry point does not**, so the narrow scan and the wide one return
+    identical results for all 82. Every behavioural assertion therefore passes either way —
+    including the two below, which drive the helper directly — and reverting the fleet
+    assertion's subject to ``HANDLER_DIRS`` is invisible.
+
+    That is the whole reason this reads the source instead. The gap it guards is not
+    hypothetical: it is the state this file was in until the scan was widened, and the thing
+    that made it survive was exactly this equivalence.
+
+    If a function ever does import a layer only from a sibling, replace this with that.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the fleet assertion reads entry points rather than the package.
+    """
+    tree = ast.parse(pathlib.Path(__file__).read_text())
+    target = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "test_every_imported_layer_package_is_attached"
+    )
+    called = {
+        node.func.id
+        for node in ast.walk(target)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    read = {node.id for node in ast.walk(target) if isinstance(node, ast.Name)}
+
+    assert "_packaged_modules" in called, (
+        "the fleet assertion no longer scans everything the deploy ships — a layer import "
+        "outside the entry point is invisible again, and no other test in this file can see it"
+    )
+    assert "HANDLER_DIRS" not in read, (
+        "the fleet assertion reads the entry-point map; that map answers which directories are "
+        "Lambdas, not which modules must be able to import"
+    )
+
+
+def test_a_layer_import_in_a_non_handler_module_is_caught(tmp_path) -> None:
+    """The fix, driven end to end: the property, not the plumbing.
+
+    Built as a real directory tree rather than by calling the internals, so it exercises the
+    same walk the fleet assertion does — including into a subpackage, which is where the gap
+    grew after functions stopped being flat.
+
+    Args:
+      tmp_path: Scratch directory.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If an import outside the entry point escapes the scan.
+    """
+    function = tmp_path / "some-function"
+    (function / "helpers").mkdir(parents=True)
+    (function / "helpers" / ".cache").mkdir()
+
+    (function / "handler.py").write_text("def handler(event, context):\n    return 1\n")
+    (function / "router.py").write_text("import tbcommon\n")
+    (function / "helpers" / "__init__.py").write_text("")
+    (function / "helpers" / "work.py").write_text("from dqcommon import messages\n")
+    (function / "test_router.py").write_text("import arcommon\n")
+    (function / "conftest.py").write_text("import fscommon\n")
+    (function / "helpers" / ".cache" / "stale.py").write_text("import tscommon\n")
+
+    roots = _imported_roots(_packaged_modules(function))
+
+    assert "tbcommon" in roots, "a sibling module's import escaped the scan"
+    assert "dqcommon" in roots, "a subpackage module's import escaped the scan"
+    assert "arcommon" not in roots, "a test module was scanned — it does not reach the package"
+    assert "fscommon" not in roots, "conftest was scanned — it does not reach the package"
+    assert "tscommon" not in roots, "a hidden directory was scanned"
 
 
 def _shard_bindings():
