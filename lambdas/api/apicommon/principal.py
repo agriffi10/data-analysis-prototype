@@ -44,13 +44,11 @@ def _bearer_token(headers: Mapping[str, str]) -> str:
     Raises:
       AuthError: If the header is absent, or is not exactly a bearer credential.
     """
-    value = ""
-    for name, supplied in headers.items():
-        if name.lower() == AUTHORIZATION:
-            value = supplied or ""
-            break
+    supplied = [value for name, value in headers.items() if name.lower() == AUTHORIZATION]
+    if len(supplied) != 1:
+        raise AuthError(REASON_NO_CREDENTIAL)
 
-    parts = value.split(" ")
+    parts = (supplied[0] or "").split(" ")
     if len(parts) != 2 or parts[0].lower() != BEARER or not parts[1]:
         raise AuthError(REASON_NO_CREDENTIAL)
     return parts[1]

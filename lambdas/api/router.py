@@ -180,7 +180,12 @@ def route(
       The response for that method and path.
 
     Raises:
-      None.
+      AttributeError: If ``headers`` is not a mapping of strings.
+      TypeError: If the method or path is not a string.
+
+      Both are fail-closed and neither can reach a handler, so they surface as a gateway error
+      that discloses nothing. They are named rather than claimed absent because a shape the
+      type contract forbids is still a shape a caller can construct.
     """
     asked_for = f"{method[:MAX_ECHOED_CHARS]} {path[:MAX_ECHOED_CHARS]}"
     if (method, path) in PUBLIC_ROUTES:

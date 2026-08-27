@@ -169,25 +169,68 @@ def test_no_module_interpolates_the_event_the_headers_or_a_token():
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
-            if not isinstance(node, ast.JoinedStr):
+            # An f-string, a %-format, a .format() call and a raise argument are the same
+            # mistake wearing four hats: a value that reads as internal being rendered into
+            # text that travels. Sweeping only the first would have let the other three past.
+            rendered = (
+                isinstance(node, ast.JoinedStr)
+                or (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod))
+                or (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "format"
+                )
+                or isinstance(node, ast.Raise)
+            )
+            if not rendered:
                 continue
             for part in ast.walk(node):
                 if isinstance(part, ast.Name):
                     assert part.id not in forbidden, (
-                        f"{path.name} interpolates {part.id!r} into an f-string"
+                        f"{path.name} renders {part.id!r} into text that travels"
                     )
                 if isinstance(part, ast.Attribute):
                     assert part.attr not in forbidden, (
-                        f"{path.name} interpolates .{part.attr} into an f-string"
+                        f"{path.name} renders .{part.attr} into text that travels"
                     )
 
 
-def test_the_stack_ceiling_is_set_explicitly_rather_than_inherited(monkeypatch):
+def test_the_handler_passes_the_stack_ceiling_at_its_real_call_site():
+    """The assertion the test below CANNOT make, and the reason both exist.
+
+    Its first version called `observability.init(..., max_stack_bytes=...)` itself and then
+    asserted on what it had just passed — so editing `handler.py` to drop the argument left the
+    whole suite green. What that proved was a property of the logging layer, which is worth
+    keeping; what it claimed was that this function sets the ceiling, which it never checked.
+
+    So this reads the call `handler.py` actually makes.
+    """
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(api_handler))
+    init_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "init"
+    ]
+    assert init_calls, "handler.py no longer configures structured logging at all"
+    assert any(
+        keyword.arg == "max_stack_bytes" for call in init_calls for keyword in call.keywords
+    ), (
+        "handler.py configures logging without a stack ceiling, so a failed span attaches the "
+        "library's default — this API handles a bearer credential and does not inherit that"
+    )
+
+
+def test_a_named_ceiling_is_applied_rather_than_stamped_as_a_field(monkeypatch):
     """A ceiling, not a control — and a reader must not mistake it for the scrub.
 
     Passed through **defaults it would be stamped on every event as a FIELD named
     max_stack_bytes and would bound nothing at all, which is a change that looks correct in a
-    diff and does nothing.
+    diff and does nothing. This pins the logging layer's half; the test above pins the caller's.
     """
     from cpcommon import observability
 

@@ -29,6 +29,11 @@ import pytest
 import router
 from apicommon import errors
 from conftest import USERNAME_CLAIM, bearer, token
+from jwt.exceptions import (
+    PyJWKClientConnectionError,
+    PyJWKClientError,
+    PyJWKSetError,
+)
 
 UNDECLARED = ("GET", "/_test/undeclared")
 
@@ -152,22 +157,49 @@ def test_a_credential_is_read_from_the_bearer_header_and_nowhere_else(headers):
 
 
 @pytest.mark.parametrize(
-    "value",
+    "shape",
     [
         "Bearer",
         "Bearer ",
-        " Bearer x",
-        "Bearer  x",
-        "Bearer x y",
-        "Basic x",
-        "Bearer, Basic x",
+        " Bearer {token}",
+        "Bearer  {token}",
+        "Bearer {token} junk",
+        "Basic {token}",
+        "Bearer, Basic {token}",
+        "{token}",
         "",
     ],
 )
-def test_a_header_that_is_not_exactly_a_bearer_credential_is_refused(value):
+def test_a_header_that_is_not_exactly_a_bearer_credential_is_refused(shape):
     """Refused rather than salvaged. Guessing at a malformed credential is how a parser comes
-    to accept something the thing on the other side never emitted."""
+    to accept something the thing on the other side never emitted.
+
+    EVERY SHAPE CARRIES A GENUINELY VALID TOKEN, and that is what makes this able to fail. The
+    first version used the placeholder "x", so each row returned 401 because the token was
+    unverifiable — not because the header was malformed. A parser relaxed to
+    `len(parts) < 2 or not parts[-1]`, which happily salvages a second scheme and stray
+    whitespace, passed every one of them.
+    """
+    value = shape.format(token=token())
     assert router.route("GET", "/_auth/whoami", {"authorization": value})["statusCode"] == 401
+
+
+def test_two_credentials_are_refused_rather_than_one_being_picked():
+    """A header name is case-insensitive, so these are one header arriving twice.
+
+    Picking either is a coin toss decided by dictionary order, which is salvage wearing a
+    different hat — and the one that would win is not the one a reader is looking at. The
+    gateway lowercases names and comma-joins duplicates, so this cannot arrive through it
+    today; that is exactly why refusing costs nothing and why nobody would notice it wrong.
+    """
+    both = {"authorization": f"Bearer {token('alice')}", "Authorization": f"Bearer {token('bob')}"}
+    assert router.route("GET", "/_auth/whoami", both)["statusCode"] == 401
+
+
+def test_the_gateways_comma_joined_duplicate_is_refused():
+    """How a duplicate ACTUALLY arrives through API Gateway v2, which joins them."""
+    joined = f"Bearer {token('alice')},Bearer {token('bob')}"
+    assert router.route("GET", "/_auth/whoami", {"authorization": joined})["statusCode"] == 401
 
 
 @pytest.mark.parametrize("name", ["authorization", "Authorization", "AUTHORIZATION"])
@@ -185,8 +217,11 @@ def test_the_scheme_is_matched_case_insensitively(scheme):
 
 def test_the_refusal_record_names_the_route_and_the_request_but_never_the_credential(captured_events):
     """The field rule at the one boundary that handles a bearer credential."""
-    supplied = token()
-    router.route("GET", "/_auth/whoami", {"authorization": "Bearer x"}, "req-42")
+    # Expired, so it is still refused — but genuinely SENT, which the first version was not:
+    # it minted a token, sent the placeholder "x", and then asserted the unsent token was
+    # absent from the record. Adding the raw header as a log field left it green.
+    supplied = token(exp=int(time.time()) - 60)
+    router.route("GET", "/_auth/whoami", {"authorization": f"Bearer {supplied}"}, "req-42")
 
     record = captured_events.messages("request refused")[-1]
     assert record["fields"]["route"] == "GET /_auth/whoami"
@@ -197,14 +232,10 @@ def test_the_refusal_record_names_the_route_and_the_request_but_never_the_creden
     assert "authorization" not in serialised.lower()
 
 
-def test_the_logged_route_is_bounded():
+def test_the_logged_route_is_bounded_in_the_record(captured_events):
     """A response obviously faces the caller; a log field reads as internal and is the one that
     gets forgotten. An unbounded caller-supplied path lands whole in the operator store, and is
     billed, retained and searched forever."""
-    router.route("GET", "/" + "a" * 5000, {}, "req-1")
-
-
-def test_the_logged_route_is_bounded_in_the_record(captured_events):
     router.route("GET", "/" + "a" * 5000, {}, "req-1")
     logged = captured_events.messages("request refused")[-1]["fields"]["route"]
     assert len(logged) <= 2 * router.MAX_ECHOED_CHARS + 1, (
@@ -234,20 +265,40 @@ def test_the_provider_configuration_failing_is_a_server_fault_and_never_a_401(mo
     assert response["statusCode"] != 401
 
 
-def test_an_unreachable_provider_is_a_server_fault_and_never_a_401():
-    """Same reasoning, other cause. A provider outage is not a bad token, and answering 401
-    would send every user through a refresh that cannot help."""
+@pytest.mark.parametrize(
+    ("label", "fault"),
+    [
+        ("connection refused", PyJWKClientConnectionError("endpoint unreachable")),
+        ("a proxy page instead of JSON", json.JSONDecodeError("x", "doc", 0)),
+        ("a JSON array instead of an object", PyJWKClientError("not a JSON object")),
+        ("a key set with no usable keys", PyJWKSetError("no keys")),
+        ("TLS failure", OSError("certificate verify failed")),
+    ],
+)
+def test_a_provider_that_cannot_be_READ_is_a_server_fault_and_never_a_401(label, fault):
+    """A provider outage is not a bad token, and answering 401 would send every user through
+    a refresh that cannot help — and every SPA into a refresh storm at once.
+
+    ONLY THE FIRST ROW USED TO PASS. The verifier treated the transport error as the
+    unavailable case and everything else as a verification failure, and PyJWT raises that one
+    type for exactly two causes — so a provider answering a proxy page, an array, an empty key
+    set, or failing TLS all reached users as "sign in again". The single-row version of this
+    test read as covering the case and did not.
+    """
     from cpcommon import clients
-    from jwt.exceptions import PyJWKClientConnectionError
+    from cpcommon.jwks import CooldownJWKClient
 
-    class _Down:
-        def get_signing_key_from_jwt(self, token_value):
-            raise PyJWKClientConnectionError("endpoint unreachable")
+    broken = CooldownJWKClient("https://provider.example/keys")
 
-    clients.jwks = lambda url: _Down()
+    def _raise():
+        raise fault
+
+    broken.fetch_data = _raise
+    clients._jwks = {}
+    clients.jwks = lambda url: broken
 
     response = router.route("GET", "/_auth/whoami", bearer())
-    assert response["statusCode"] >= 500
+    assert response["statusCode"] >= 500, f"{label} was answered {response['statusCode']}"
     assert response["statusCode"] != 401
 
 

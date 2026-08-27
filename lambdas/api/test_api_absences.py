@@ -113,7 +113,9 @@ def test_the_sweeps_have_a_subject() -> None:
 
 
 def test_no_module_reaches_for_a_server_side_login_flow() -> None:
-    """Args:
+    """No cookie, no CSRF token, no PKCE parameter, no login route.
+
+    Args:
       None.
 
     Returns:
@@ -256,6 +258,11 @@ def test_the_verifier_has_no_dependency_on_the_router() -> None:
 def test_the_function_is_instrumented_as_one_service() -> None:
     """Records land under one service prefix, so the API's runs stay one queryable set.
 
+    PARSED, not grepped. The first version asserted three substrings against the source text,
+    and a ``#`` in front of the ``init`` line left it green — which is the precise failure this
+    project has already paid for four times over, in workflow guards that survived being
+    commented out. Every other sweep in this file already parses; this one was the exception.
+
     Args:
       None.
 
@@ -265,10 +272,36 @@ def test_the_function_is_instrumented_as_one_service() -> None:
     Raises:
       AssertionError: If the service name is not the one the log layout expects.
     """
-    source = (HERE / "handler.py").read_text(encoding="utf-8")
-    assert 'SERVICE = "api"' in source
-    assert "observability.init(service=SERVICE" in source
-    assert "@observability.traced" in source
+    tree = ast.parse((HERE / "handler.py").read_text(encoding="utf-8"))
+
+    service = [
+        node.value.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "SERVICE" for t in node.targets)
+        and isinstance(node.value, ast.Constant)
+    ]
+    assert service == ["api"], f"the service name is {service}"
+
+    initialised = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "init"
+    ]
+    assert initialised, "handler.py does not configure structured logging"
+
+    traced = [
+        decorator
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        for decorator in node.decorator_list
+        if isinstance(decorator, ast.Call)
+        and isinstance(decorator.func, ast.Attribute)
+        and decorator.func.attr == "traced"
+    ]
+    assert traced, "no function in handler.py opens a span"
 
 
 def test_the_provider_keys_the_code_reads_are_exactly_the_keys_terraform_declares() -> None:
@@ -373,3 +406,24 @@ def test_the_route_table_and_the_public_list_are_what_they_claim() -> None:
     assert frozenset({("GET", "/healthz")}) == router.PUBLIC_ROUTES
     assert set(router.ROUTES) == {("GET", "/_auth/whoami")}
     assert json.loads(router.route("GET", "/healthz", {})["body"])["status"] == "ok"
+
+
+def test_no_module_here_constructs_a_principal() -> None:
+    """The verified caller is minted by the verifier and nowhere else.
+
+    A ``Principal(username="anonymous", claims={})`` inside a handler or the router is an
+    identity nobody proved, and it would satisfy every type in the package.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If any module builds one.
+    """
+    for path, _, tree in _shipped():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                assert node.func.id != "Principal", f"{path} constructs a Principal"

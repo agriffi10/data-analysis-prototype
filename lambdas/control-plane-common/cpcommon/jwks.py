@@ -40,13 +40,37 @@ import time
 from collections.abc import Callable
 
 from jwt import PyJWK, PyJWKClient
-from jwt.exceptions import PyJWKClientError
+from jwt.exceptions import PyJWKClientConnectionError, PyJWKClientError
 
 JWKS_HTTP_TIMEOUT_SECONDS = 5
 JWKS_REFRESH_COOLDOWN_SECONDS = 60
 
 API_GATEWAY_INTEGRATION_CEILING_SECONDS = 30
 API_FUNCTION_TIMEOUT_SECONDS = 29
+
+
+def _unavailable(exc: Exception) -> PyJWKClientConnectionError:
+    """Presents any failure to READ the key set as one unavailable-provider type.
+
+    The distinction this draws is the one an HTTP status turns on: "this token is bad" against
+    "whether this token is good could not be established". Only the transport error was treated
+    as the second, and PyJWT raises it for exactly two causes — so a provider answering a proxy
+    page, an array instead of an object, a key set with no usable keys, or failing TLS all
+    arrived as ordinary verification failures and were refused as 401. That tells every user to
+    sign in again for an outage, and brings a refresh storm with it.
+
+    Args:
+      exc: The failure raised while reading the key set.
+
+    Returns:
+      The exception to raise in its place.
+
+    Raises:
+      None.
+    """
+    return PyJWKClientConnectionError(
+        f"the key set could not be read: {type(exc).__name__}"
+    )
 
 
 def _no_matching_key(kid: str) -> PyJWKClientError:
@@ -139,7 +163,7 @@ class CooldownJWKClient(PyJWKClient):
         Raises:
           PyJWKClientError: If no key matches, whether or not a refetch was permitted.
         """
-        signing_key = self.match_kid(self.get_signing_keys(), kid)
+        signing_key = self.match_kid(self._key_set(refresh=False), kid)
         if signing_key is not None:
             return signing_key
 
@@ -148,7 +172,29 @@ class CooldownJWKClient(PyJWKClient):
             raise _no_matching_key(kid)
 
         self._last_refresh = now
-        signing_key = self.match_kid(self.get_signing_keys(refresh=True), kid)
+        signing_key = self.match_kid(self._key_set(refresh=True), kid)
         if signing_key is None:
             raise _no_matching_key(kid)
         return signing_key
+
+    def _key_set(self, *, refresh: bool) -> list[PyJWK]:
+        """Reads the key set, or reports the provider as unavailable.
+
+        A ``kid`` that is genuinely absent from a key set that WAS read is left alone — that is
+        an authentication failure and stays one. Everything here is the other case.
+
+        Args:
+          refresh: Whether to bypass the cache.
+
+        Returns:
+          The signing keys.
+
+        Raises:
+          PyJWKClientConnectionError: If the key set could not be read, for any reason.
+        """
+        try:
+            return self.get_signing_keys(refresh=refresh)
+        except PyJWKClientConnectionError:
+            raise
+        except Exception as exc:
+            raise _unavailable(exc) from exc
