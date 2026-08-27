@@ -1249,6 +1249,17 @@ The rest of what CloudFront was doing, each of which needs explicit configuratio
 | Security headers | The **shipped** response-headers policy (SPEC-140: enforcing CSP + HSTS + framing/nosniff/referrer/Permissions-Policy/COOP/CORP, `Server` stripped — `architecture.md` → *Infrastructure & Deployment*) moves into the nginx config. The CSP's `connect-src` is derived from Terraform variables; the nginx copy needs the same derivation, not a frozen string. HSTS currently carries `preload` (inert on `*.cloudfront.net`, never submitted) — re-decide `preload` deliberately for the new domain before emitting it there. |
 | Health check | The load balancer or orchestrator needs an endpoint to probe. |
 
+> **Delivered by SPEC-194 (2026-08-27); this table now records what was decided, not what is
+> open.** Every row above has an owner and an answer. The fallback, the per-class cache scheme and
+> the full header set are reproduced; the health endpoint is an exact-match `location` deliberately
+> outside the fallback, because a probe that falls through to the shell reads a broken container as
+> healthy. Three rows are **divergences, not parity**: `Server: nginx` remains (`server_tokens off`;
+> removing it needs a third-party module the official images do not ship), there is **no brotli**
+> (same compile stage, refused once), and HSTS drops `preload` — re-decided, as this row asked,
+> because emitting it claims a submission this deployment has not made against a registrable domain
+> it does not own. `connect-src` is derived from Terraform and supplied per environment by the task
+> definition, never frozen into the image.
+
 **Two coupling points that reach outside this workstream:**
 
 - **The OIDC provider's callback and logout URLs must match the new origin exactly** — the Cognito app client under **[B]**, the Entra app registration under **[A]** — and

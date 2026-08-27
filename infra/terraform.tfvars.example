@@ -63,8 +63,8 @@ state_lock_table  = "your-tofu-lock-table-name"
 # same VITE_MAX_UPLOAD_BYTES repository variable deploy-app.yml renders the CloudFront
 # document from, so the two renderers of /config.json cannot disagree.
 #
-# The service ships at a desired count of ZERO, so the first apply creates it before
-# any image exists. Verification pushes the placeholder image, sets both variables and
-# re-applies. The registry has IMMUTABLE tags — there is no :latest to point at, and a
+# The service ships at a desired count of ZERO, so the very first apply creates it before
+# any image exists. Raise it once an image is in the registry; the image pipeline refuses
+# to report success at zero, where waiting for stability proves nothing. The registry has IMMUTABLE tags — there is no :latest to point at, and a
 # tag cannot be re-pushed after a bad build, which is why the tag is a variable rather
 # than a constant in the task definition.

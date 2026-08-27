@@ -165,7 +165,7 @@ variable "api_subdomain" {
 }
 
 variable "spa_desired_count" {
-  description = "Tasks the SPA service runs. Zero by default, so the first apply creates a service before any image exists; verification pushes the placeholder image and raises this to 1. Set as the TF_VAR_spa_desired_count repo variable — deploy-infra.yml falls back to 0 so an unset variable never arrives as the empty string."
+  description = "Tasks the SPA service runs. Zero by default, so the very first apply can create a service before any image exists; a running deployment sets it to 1 or more, and the image pipeline REFUSES to report success at zero, where waiting for stability proves nothing. Set as the TF_VAR_spa_desired_count repo variable — deploy-infra.yml falls back to 0 so an unset variable never arrives as the empty string."
   type        = number
   default     = 0
 
@@ -176,7 +176,7 @@ variable "spa_desired_count" {
 }
 
 variable "spa_image_tag" {
-  description = "Tag of the SPA image the task definition references. The registry is IMMUTABLE — there is no :latest and no tag that can be re-pushed after a bad build — so this is the commit sha of the image CI pushed. The placeholder default exists only so the first apply can create a task definition before any image does. Set as the TF_VAR_spa_image_tag repo variable."
+  description = "Tag of the SPA image the task definition references. The registry is IMMUTABLE — there is no :latest and no tag that can be re-pushed after a bad build — so this is the commit sha of the image CI pushed. The default exists only so the very first apply can create a task definition before any image does; CI has owned the running revision since the image pipeline landed, so this value no longer describes what runs. Set as the TF_VAR_spa_image_tag repo variable."
   type        = string
   default     = "placeholder"
 

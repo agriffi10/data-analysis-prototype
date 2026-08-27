@@ -320,6 +320,19 @@ What remains, and why:
 real improvement, but "zero Medium" was never reachable once we shipped a CSP with a style
 allowance — and the criterion that said so was written before we knew ZAP would grade our own work.
 
+### Addendum — the container origin (SPEC-194), recorded ahead of its first scan
+
+The table above is the **2026-08-03 run against the CloudFront origin** and enumerates that run's
+twenty alerts. Neither disposition below belongs to it: the container origin has not been scanned
+yet — that baseline is owed, non-blocking, in `arc-b-api-container-e2e.md` §C.7. They are recorded
+now so the first scan has something to diff **per alert ID** rather than a judgement to make.
+
+| Alert | Disposition |
+|---|---|
+| **`Server: nginx` on the container origin (SPEC-194)** | **ACCEPT — a divergence from the CloudFront path, stated rather than assumed.** The distribution strips `Server` outright; nginx cannot. `server_tokens off` hides the **version** and nothing more, and removing the header needs the third-party `headers-more` module, which the official images do not ship. Compiling it against the runtime base's exact source, in lockstep with every base bump and with an ABI mismatch stopping nginx from starting, is real maintenance coupling bought for a banner that now discloses only "nginx". **This alert fires on a VERSION, so it does not regress** — the Phase 5 ZAP diff is read per alert ID to confirm no new *Server Leaks Version Information* row appears. Re-open if a client security review objects to the banner; `headers-more` is the path, and the brotli decision moves with it, both being the same "no third-party module compile stage" call. |
+| **HSTS `preload` dropped on the container origin (SPEC-194)** | **ACCEPT, and it costs no finding.** **`CKV_AWS_259` is a CloudFront check**, evaluated against `aws_cloudfront_response_headers_policy.portal` — which still carries HSTS with `preload` and still passes it. nginx's header is invisible to that check, so dropping `preload` on the container origin regresses nothing. **When the distribution is deleted, `CKV_AWS_259` must come off `.github/checkov-enforced.txt` in the same change**: an enforced check ID matching no finding is a hard error, which is the gate working as designed. Three reasons in order of weight: emitting `preload` claims a submission this deployment has not made and does not intend, which is the class of silent divergence the container work exists to catch; the grant is against the **registrable domain** and is close to irreversible, and the SPA and API are subdomains of a parent this repository does not own, so the claim commits sibling services nobody asked; and the cost of dropping it is zero. `max-age=31536000; includeSubDomains` is kept. **Do not re-flip this to satisfy `CKV_AWS_259`** — that check does not read this header, and after the distribution goes it reads nothing at all. |
+
+
 ### Design finding — notifications `create` spoofing (not scanner-derived)
 
 Found in the SPEC-115→122 design review (2026-07-12), previously recorded only inside the cancelled

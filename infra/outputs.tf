@@ -193,9 +193,9 @@ output "api_certificate_arn" {
 }
 
 # ── The container platform ────────────────────────────────────────────────────
-# All four are read by hand during verification: the registry to push the placeholder image
-# to, the cluster and service to describe, and the load balancer's own name to prove the
-# alias record points at THIS balancer rather than at a stale one.
+# All four are read by hand during verification: the registry CI pushes the image to, the
+# cluster and service to describe, and the load balancer's own name to prove the alias
+# record points at THIS balancer rather than at a stale one.
 output "ecr_repository_url" {
   description = "Registry the SPA image is pushed to."
   value       = module.spa.ecr_repository_url

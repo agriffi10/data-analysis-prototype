@@ -575,10 +575,11 @@ resource "time_sleep" "wait_for_verification_grant" {
 # needs the grant, and on `CreateTags` it would forbid tagging anything that already exists —
 # which is exactly what `aws_default_security_group` is.
 #
-# NO `ecr:GetAuthorizationToken` AND NO PUSH GRANTS. The deploy role creates the registry and
-# never writes to it: the placeholder image is pushed by hand from a human identity, and the
-# pipeline that pushes on every commit arrives with the workflow that owns it. A registry token
-# with no layer-upload actions beside it authorizes nothing at all.
+# THE PUSH GRANTS ARE HERE, and they were not always. The deploy role creates the registry AND
+# writes to it, because the image pipeline runs as that role: `ecr:GetAuthorizationToken` (which
+# takes no resource type, so it sits alone in a wildcard statement) plus the layer and manifest
+# actions, all scoped to this project's SPA repository. A registry token with no layer-upload
+# actions beside it would authorize nothing at all, so the two travel together.
 #
 # NO `iam:AttachRolePolicy` EITHER, and that absence is load-bearing. All four roles below carry
 # INLINE policies rendered from `.tftpl`, which `PutRolePolicy` covers. The one that invites a

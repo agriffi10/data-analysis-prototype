@@ -488,10 +488,12 @@ upload passes with their invalidation.
       at every site still stating them (FR-011). SPEC-194 retired the orphan class; this spec retires
       the passes.
 
-> **Superseded by SPEC-193 PR 4 (2026-08-26).** `local.csp_connect_src` has ALREADY moved to
-> root, with `api_origin` added, because the API's origin comes into existence there and the
-> CloudFront bundle needs it before this spec runs. **Only `local.content_security_policy`
-> remains to move.** `modules/app` now takes `csp_connect_src` as an input.
+> **Both CSP locals now live at root (SPEC-194, 2026-08-27).** `csp_connect_src` moved first,
+> with `api_origin` added, because the API's origin comes into existence there; the assembled
+> policy followed. **Nothing remains to move**, and `modules/app` takes exactly one CSP input —
+> `content_security_policy`, the whole assembled string. It does **not** take `csp_connect_src`:
+> that variable is deleted, because a module receiving the finished policy has no use for the
+> source list, and a surviving unused input is a second place a later reader would wire.
 
 ### FR-008: The final header and `connect-src` state, asserted against the deployed container
 

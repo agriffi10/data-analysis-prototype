@@ -1397,9 +1397,9 @@ module "network" {
 
 
 # ── The container platform ────────────────────────────────────────────────────
-# The registry, the cluster, the task definition and the load balancer that will serve the
-# SPA. It runs a placeholder image at a desired count of zero until the spec that builds the
-# real one pushes it: production is still CloudFront, and nothing here is pointed at a user.
+# The registry, the cluster, the task definition and the load balancer that serve the SPA.
+# It runs the real image, which CI builds and pushes on every commit to main. Production is
+# still CloudFront, which stays the working portal and the rollback until the cutover.
 #
 # It takes the network's ids rather than building any of its own — the two modules are split
 # because the network outlives the front door, not because the front door is optional to it.
