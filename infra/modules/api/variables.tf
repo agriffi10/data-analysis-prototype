@@ -137,12 +137,14 @@ variable "oidc_required_claims" {
   description = "JSON object of claim name to the exact value a token must carry, e.g. {\"token_use\":\"id\"}. An empty object is valid for a provider asserting no such claim; an empty STRING is not, and is what an unset variable looks like."
   type        = string
 
-  # `tomap` and not `jsondecode` alone: jsondecode accepts a bare scalar, so `42` and `"id"`
-  # both satisfy a can(jsondecode(…)) guard, reach the function, and fail in the verifier's
-  # parse instead of here. tomap additionally rejects a list. An empty OBJECT still passes,
-  # which is correct — a provider asserting no such claim is not thereby misconfigured.
+  # Three layers, each measured rather than assumed. `jsondecode` alone accepts a bare
+  # scalar, so `42` and `"id"` reach the function and fail in the verifier's parse instead
+  # of here. `tomap` rejects those and a list. `keys` is what rejects the literal `null`,
+  # which tomap accepts and which plans clean end to end — and a null arriving is exactly
+  # the "token-type check never runs" outcome the message below names. An empty OBJECT
+  # still passes, which is correct: a provider asserting no such claim is not misconfigured.
   validation {
-    condition     = can(tomap(jsondecode(var.oidc_required_claims)))
+    condition     = can(keys(tomap(jsondecode(var.oidc_required_claims))))
     error_message = "oidc_required_claims must be a JSON object such as {\"token_use\":\"id\"} — not a scalar, not a list. An empty value means it was never computed, and would silently stop the token-type check from running at all."
   }
 }

@@ -91,6 +91,15 @@ jobs:
         with:
           python-version: '3.12'
 
+      # This job already owns the repo's Terraform suite — test_api_module, test_network_module,
+      # test_spa_module and test_csp_policy all read infra/ as text. One of them now RUNS tofu
+      # instead of reading it, because a variable's validation block can be asserted present
+      # while its condition has been weakened to something that accepts anything, and only
+      # evaluating it can tell those apart. The module under test declares no provider, so the
+      # init is offline and needs no credentials.
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v2
+
       - name: Install lint + test tools
         # control-plane-common/requirements.txt is installed so cpcommon's own layer
         # dependencies are importable under test — log-foundry (SPEC-127) is declared only

@@ -30,11 +30,19 @@ Attributes:
   FORBIDDEN_IN_API_MODULE: Resource and block types whose presence is the first half of an
     attachment somebody started.
   API_ROLE_ALLOWED_ACTIONS: The whole of the API function's permissions.
+  OIDC_KEYS: The provider block — the five values the verifier reads about who issues
+    its tokens, and the only five.
+  _VALID_PROVIDER_BLOCK: A provider block satisfying every validation, so one field
+    can be varied at a time.
 """
 
 import json
+import os
 import pathlib
 import re
+import shutil
+import subprocess
+import tempfile
 
 from cpcommon.jwks import (
     API_FUNCTION_TIMEOUT_SECONDS,
@@ -658,8 +666,10 @@ def test_the_required_claims_value_is_pinned_to_what_makes_a_token_an_id_token()
         "the module must pass the value through, so root stays the single wiring site"
     )
 
-    call = re.search(r'module\s+"api"\s*\{(.*?)\n\}', ROOT_MAIN.read_text(), re.DOTALL).group(1)
-    rendered = re.search(r"oidc_required_claims\s*=\s*jsonencode\((.+?)\)\n", call).group(1)
+    call = _root_module_block("api")
+    match = re.search(r"oidc_required_claims\s*=\s*jsonencode\((.+?)\)\n", call)
+    assert match, "root does not render oidc_required_claims with jsonencode"
+    rendered = match.group(1)
 
     assert re.fullmatch(r"\{\s*token_use\s*=\s*\"id\"\s*\}", rendered.strip()), (
         f"the deployed required claims are {rendered.strip()} — an empty or altered map stops "
@@ -692,8 +702,17 @@ def test_the_module_treats_the_jwks_url_as_opaque() -> None:
     )
     assert _api_environment()["OIDC_JWKS_URI"] == "var.oidc_jwks_uri"
 
-    call = re.search(r'module\s+"api"\s*\{(.*?)\n\}', ROOT_MAIN.read_text(), re.DOTALL).group(1)
-    assert "well-known" in call, "root must be where the JWKS URL is built"
+    # Deliberately NOT asserting the path convention. Cognito publishes under
+    # `/.well-known/jwks.json` and Entra does not — so pinning that string here would turn a
+    # fact about ONE provider into a repo invariant, and go red on a correct configuration the
+    # day the provider changes. What matters is where the value is decided, not its shape.
+    call = _root_module_block("api")
+    assignment = re.search(r"^\s*oidc_jwks_uri\s*=\s*(.+)$", call, re.MULTILINE)
+    assert assignment, "root does not assign oidc_jwks_uri"
+    assert not assignment.group(1).strip().startswith("var."), (
+        "root is forwarding oidc_jwks_uri from a variable — it must be the place the value is "
+        "decided, so a provider swap has one site to change"
+    )
 
 
 def test_the_provider_block_stays_out_of_the_browsers_dev_fallback() -> None:
@@ -715,9 +734,94 @@ def test_the_provider_block_stays_out_of_the_browsers_dev_fallback() -> None:
     assert "OIDC_" not in example
 
 
-def test_every_provider_variable_refuses_the_empty_string() -> None:
-    """An unset repo variable renders as "", which satisfies a required variable AND overrides
-    a default — so having no default guards nothing. The validation block is the guard.
+#: A provider block that satisfies every validation, so a test can vary one field at a time.
+_VALID_PROVIDER_BLOCK = {
+    "OIDC_ISSUER": "https://provider.example/tenant",
+    "OIDC_AUDIENCE": "a-client-id",
+    "OIDC_JWKS_URI": "https://provider.example/keys",
+    "OIDC_USERNAME_CLAIM": "preferred_username",
+    "OIDC_REQUIRED_CLAIMS": '{"token_use":"id"}',
+}
+
+
+def _plan_with(values: dict[str, str]) -> set[str]:
+    """Plans the five variable declarations with the given values and reports what was refused.
+
+    The declarations are extracted into a scratch module rather than planned in place: the real
+    module needs a dozen other inputs and a provider, and this test is about five validation
+    conditions and nothing else. Extracted, the module declares no provider at all, so the init
+    is offline and no credentials are involved.
+
+    Args:
+      values: Environment key to the value to plan with.
+
+    Returns:
+      The lowercased names of the variables OpenTofu refused. Empty means all were accepted.
+
+    Raises:
+      AssertionError: If the declarations cannot be extracted, or tofu is unavailable — a
+        skip here would read as coverage this suite would not have.
+    """
+    tofu = shutil.which("tofu")
+    assert tofu, "OpenTofu is not on PATH — this assertion cannot be skipped into passing"
+
+    source = (API / "variables.tf").read_text()
+    declarations = []
+    for match in re.finditer(r'variable\s+"(oidc_[a-z_]+)"\s*\{', source):
+        index, depth = source.index("{", match.start()), 0
+        while index < len(source):
+            if source[index] == "{":
+                depth += 1
+            elif source[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            index += 1
+        declarations.append(source[match.start() : index + 1])
+
+    assert len(declarations) == len(OIDC_KEYS), (
+        f"extracted {len(declarations)} provider variables, expected {len(OIDC_KEYS)}"
+    )
+
+    with tempfile.TemporaryDirectory() as scratch:
+        pathlib.Path(scratch, "variables.tf").write_text("\n\n".join(declarations) + "\n")
+        environment = {
+            "PATH": os.environ.get("PATH", ""),
+            "HOME": os.environ.get("HOME", ""),
+            "TF_IN_AUTOMATION": "1",
+            **{f"TF_VAR_{key.lower()}": value for key, value in values.items()},
+        }
+        subprocess.run(  # noqa: S603
+            [tofu, "init", "-backend=false", "-input=false"],
+            cwd=scratch, env=environment, capture_output=True, text=True, check=True,
+        )
+        plan = subprocess.run(  # noqa: S603
+            [tofu, "plan", "-input=false"],
+            cwd=scratch, env=environment, capture_output=True, text=True, check=False,
+        )
+
+    if plan.returncode == 0:
+        return set()
+    return {
+        name
+        for name in (key.lower() for key in OIDC_KEYS)
+        if f'variable "{name}"' in plan.stderr + plan.stdout
+    }
+
+
+def test_every_provider_variable_actually_REFUSES_an_empty_value() -> None:
+    """Runs the validations rather than checking that a validation block is present.
+
+    The difference is the whole test. A block can be present with its condition weakened to
+    something that accepts anything — `length(var.x) >= 0`, or plain `true` — and a presence
+    check passes against every one of those. So this extracts the five declarations into a
+    scratch module and plans it with each value empty, asserting OpenTofu refuses.
+
+    An unset repo variable renders as the empty string, which satisfies a required variable AND
+    overrides a default, so "no default" guards nothing on its own. The condition is the guard,
+    and this is what says the condition works.
+
+    The scratch module declares no provider, so the init is offline and needs no credentials.
 
     Args:
       None.
@@ -726,14 +830,108 @@ def test_every_provider_variable_refuses_the_empty_string() -> None:
       None.
 
     Raises:
-      AssertionError: If a provider variable would accept an empty value.
+      AssertionError: If any provider variable accepts an empty value.
     """
-    source = (API / "variables.tf").read_text()
+    refused = _plan_with(dict.fromkeys(OIDC_KEYS, ""))
     for key in OIDC_KEYS:
-        name = key.lower()
-        declaration = re.search(rf'variable\s+"{name}"\s*\{{(.*?)\n\}}', source, re.DOTALL)
-        assert declaration, f"{name} is not declared"
-        assert "validation {" in declaration.group(1), (
-            f"{name} has no validation block, so an unset repo variable reaches the function as "
-            "an empty string and fails far from its cause"
+        assert key.lower() in refused, (
+            f"{key.lower()} accepted an empty value — an unset repo variable reaches the "
+            "function as an empty string and fails far from its cause"
         )
+
+
+def test_the_required_claims_variable_refuses_what_would_silently_disable_the_check() -> None:
+    """A claim map is an object. Everything else here plans clean and breaks in the verifier.
+
+    Each of these was measured rather than reasoned about, and two were surprises: `jsondecode`
+    accepts a bare scalar, and `tomap` accepts the literal `null`. A null arriving is exactly
+    the "the token-type check never runs" outcome — which means a genuine Cognito ACCESS token
+    would be accepted.
+
+    An empty OBJECT is deliberately allowed: a provider that asserts no such claim is not
+    thereby misconfigured.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a non-object is accepted, or an empty object is refused.
+    """
+    for value in ("", "null", "42", '"id"', "[]", '["a"]'):
+        refused = _plan_with({**_VALID_PROVIDER_BLOCK, "OIDC_REQUIRED_CLAIMS": value})
+        assert "oidc_required_claims" in refused, (
+            f"oidc_required_claims accepted {value!r}, which reaches the verifier and stops the "
+            "token-type check running at all"
+        )
+
+    for value in ("{}", '{"token_use":"id"}'):
+        refused = _plan_with({**_VALID_PROVIDER_BLOCK, "OIDC_REQUIRED_CLAIMS": value})
+        assert not refused, f"oidc_required_claims refused {value!r}, which is a valid claim map"
+
+
+def test_the_issuer_terraform_sends_is_the_one_the_verifier_builds() -> None:
+    """Two spellings of one string, in two languages, and nothing joined them.
+
+    `cpcommon.auth` derives a Cognito issuer from REGION + USER_POOL_ID for the control planes;
+    root Terraform renders one into OIDC_ISSUER for the API. They agree today. A trailing slash
+    on either — the likeliest divergence, and invisible to every other test here — makes every
+    token fail `iss` verification on the day the API starts reading it.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the two templates differ once their interpolations are normalised.
+    """
+    root = ROOT_MAIN.read_text()
+    terraform = re.search(r'cognito_issuer\s*=\s*"([^"]+)"', root)
+    assert terraform, "root no longer builds a cognito issuer local"
+
+    source = (
+        pathlib.Path(__file__).resolve().parent
+        / "control-plane-common"
+        / "cpcommon"
+        / "auth.py"
+    ).read_text()
+    python = re.search(r'issuer = f"([^"]+)"', source)
+    assert python, "cpcommon.auth no longer builds a Cognito issuer"
+
+    normalise = lambda text: re.sub(r"\$?\{[^}]+\}", "{}", text)  # noqa: E731
+    assert normalise(terraform.group(1)) == normalise(python.group(1)), (
+        f"Terraform sends {terraform.group(1)!r} and the verifier builds {python.group(1)!r} — "
+        "these must be the same string or every token fails issuer verification"
+    )
+
+
+def test_the_three_literal_provider_values_are_pinned() -> None:
+    """The two that are literals, and the audience, which is the likeliest silent mis-wiring.
+
+    Pointing `oidc_audience` at the pool id rather than the app client id, or naming `sub` as
+    the username claim, plans clean and passes every other assertion in this file. The first
+    refuses every token; the second attributes every request to an opaque uuid rather than to
+    the username this whole product is keyed on.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If any of the three has drifted.
+    """
+    call = _root_module_block("api")
+    assert re.search(r'oidc_username_claim\s*=\s*"cognito:username"', call), (
+        "the username claim is not cognito:username — every request would be attributed to "
+        "whatever this names instead"
+    )
+    assert re.search(r"oidc_audience\s*=\s*module\.auth\.user_pool_client_id", call), (
+        "the audience must be the app client the SPA's ID token is issued to, not the pool"
+    )
+    assert re.search(r"oidc_issuer\s*=\s*local\.cognito_issuer", call)
