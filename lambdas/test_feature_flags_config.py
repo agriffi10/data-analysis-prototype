@@ -59,7 +59,7 @@ BUCKET_POLICY = ROOT / "infra" / "modules" / "data" / "policies" / "user-space-b
 DATA_S3 = ROOT / "infra" / "modules" / "data" / "s3.tf"
 # connect-src is built at ROOT, not in the app module: the API's origin comes into
 # existence there, and three consumers read the list where only CloudFront did before.
-CLOUDFRONT = ROOT / "infra" / "main.tf"
+ROOT_MAIN = ROOT / "infra" / "main.tf"
 
 
 def _valid_document() -> dict:
@@ -380,7 +380,7 @@ def test_the_user_space_bucket_allows_browser_gets():
 
 def test_the_user_space_bucket_host_is_in_the_csp_connect_src():
     """The enforcing CSP governs this fetch. An omitted host is SPEC-140's day-long sign-in break."""
-    connect_src = CLOUDFRONT.read_text().split("csp_connect_src = join(", 1)[1].split("])", 1)[0]
+    connect_src = ROOT_MAIN.read_text().split("csp_connect_src = join(", 1)[1].split("])", 1)[0]
     # `local.`, not `var.`: the list is built at root now, where the bucket name is a local
     # rather than a module input. The host it names is unchanged.
     assert "${local.user_space_bucket_name}.s3.${var.aws_region}.amazonaws.com" in connect_src

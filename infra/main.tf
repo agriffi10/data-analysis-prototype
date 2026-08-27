@@ -358,11 +358,17 @@ locals {
   # it may execute, style, fetch a font from, spawn a worker as — so the two
   # halves have different owners and only this one is environment-shaped.
   #
-  # Three consumers read the result and none of them could read a module local:
-  # the distribution's response-headers policy, the container's nginx (which
-  # takes only `connect-src` and carries the rest in its own image), and the
-  # checks that assert the two agree. `modules/app` is also deleted when the
-  # distribution is retired, which would orphan this computation entirely.
+  # ONE consumer reads this string today, the distribution's response-headers
+  # policy, and it still does not belong inside that module: a check at root
+  # cannot read a local declared in one, and the module is deleted outright when
+  # the distribution is retired, which would orphan the computation. The
+  # container reads `csp_connect_src` alone and carries every other directive
+  # in its own image.
+  #
+  # ASSEMBLED FROM VARIABLES, NEVER LITERALS. A hardcoded region or bucket has
+  # to be found and edited by hand during the client-environment transition
+  # (docs/transition_plan.md), which is the one thing this file is read for
+  # then.
   #
   # The policy is ENFORCING. It shipped report-only first, and that was not
   # ceremony: a CSP wrong about `worker-src` or `style-src` breaks the Monaco
@@ -381,7 +387,7 @@ locals {
     # fonts.googleapis.com is NOT optional: src/index.css line 1 is
     # `@import url('https://fonts.googleapis.com/css2?family=Inter…')`, and Vite
     # leaves remote @imports in the built CSS. Without this the app loses its
-    # typeface site-wide — caught by the Phase 3 harness before it ever reached
+    # typeface site-wide — caught by the report-only pass before it ever reached
     # an enforcing policy.
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "img-src 'self' data:",
@@ -398,8 +404,8 @@ locals {
     # ("directive is ignored when delivered in a report-only policy"). They
     # take effect only now that the policy is enforcing, so report-only never
     # tested them. Both were assessed instead of assumed:
-    #   frame-ancestors — its enforcing twin X-Frame-Options: DENY has been
-    #     live since Phase 2 and nothing broke, so framing is already proven.
+    #   frame-ancestors — its enforcing twin X-Frame-Options: DENY was already
+    #     live and nothing broke, so framing is already proven.
     #   upgrade-insecure-requests — every subresource is already https
     #     (same-origin assets, Google Fonts, AWS endpoints), so it is a no-op.
     "frame-ancestors 'none'",
