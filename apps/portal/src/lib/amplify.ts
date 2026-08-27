@@ -1,4 +1,6 @@
 import {Amplify} from 'aws-amplify';
+import {cognitoUserPoolsTokenProvider} from 'aws-amplify/auth/cognito';
+import {sessionStorage as tabScopedStorage} from 'aws-amplify/utils';
 import {configValue} from './runtimeConfig';
 
 /**
@@ -30,6 +32,12 @@ export function isAmplifyConfigured(): boolean {
  * Called once by the bootstrap, after the document resolves and before the first render:
  * a sign-in that begins against an unconfigured Amplify fails in a way a warm session
  * never reproduces.
+ *
+ * TOKENS ARE HELD PER TAB, not per browser. Amplify's default is `localStorage`, where an
+ * ID token outlives the browser being closed and is readable by anything running on the
+ * origin; scoping it to the tab means closing the tab ends the session. The cost is
+ * deliberate and visible: there is no "stay signed in", and a second tab signs in again
+ * rather than inheriting the first one's session.
  *
  * @returns None.
  */
@@ -74,4 +82,8 @@ export function configureAmplify(): void {
       }
     });
   }
+
+  // After `configure`, never before: the provider resolves the pool it was configured
+  // with, and a storage set on an unconfigured provider is discarded.
+  cognitoUserPoolsTokenProvider.setKeyValueStorage(tabScopedStorage);
 }
