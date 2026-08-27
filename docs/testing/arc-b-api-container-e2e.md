@@ -393,6 +393,135 @@ check prove nothing.
 
 ---
 
+## D. The API's auth boundary (SPEC-195) — runnable NOW, outside the merge order
+
+Like §A–§C this stands outside the merge sequence. **No feature is ported**: the browser still calls
+AWS directly, and the only routes the API serves are `GET /healthz` and the temporary probe
+`GET /_auth/whoami`, which SPEC-197 deletes once this section has been run and recorded.
+
+**EVERY LOAD-BEARING CHECK BELOW IS NEGATIVE, and that is the whole design of this section.** A
+request carrying a genuine token succeeds against a correct implementation *and against one that
+does not verify at all* — so the happy path proves the wiring and nothing else. What can fail is the
+refusals, and three of them cannot be reached offline at any price: that the JWKS endpoint is
+reachable from the function's network placement, that a browser preflight allows the bearer header,
+and that a genuinely expired token is refused **by the expiry check** rather than by something
+earlier.
+
+**What the offline gates already prove, so this section does not re-prove it.** 77 assertions over
+the boundary, including: eight refusal shapes returning byte-identical responses; the expired body
+byte-identical to the no-token body; four distinct reason codes in the log records, which is what
+says four different checks actually ran; an undeclared route refused rather than served; the token
+read from the bearer header and nowhere else; five provider-unreachable shapes answering 5xx and
+never 401; and a sentinel token appearing in no byte of any log record, `error.stack` included.
+
+```bash
+API=https://api.dataquarry.app
+SPA=https://portal.dataquarry.app
+```
+
+**D.1 — The happy path, once. It proves the wiring and nothing about the verification.**
+
+Take a real ID token from a signed-in browser session (DevTools → Application → Local Storage →
+the `...idToken` key), then:
+
+```bash
+ID_TOKEN='<paste>'
+curl -s -o /dev/stdout -w '\n%{http_code}\n' -H "authorization: Bearer $ID_TOKEN" "$API/_auth/whoami"
+```
+
+- [ ] `200` and `{"username":"<your signed-in username>"}` — the username, not the `sub`.
+
+**D.2 — The four refusals, and their bodies compared. BLOCKING.**
+
+Row 2 is the cheapest real proof that `aud` and `token_use` are enforced: a genuine, correctly
+signed, unexpired token **from the same pool and the same user**, which an implementation checking
+only the signature accepts.
+
+```bash
+ACCESS_TOKEN='<paste the accessToken from the same session>'
+FLIPPED=$(python3 - "$ID_TOKEN" <<'EOF'
+import sys
+h, p, s = sys.argv[1].split('.')
+print(f"{h}.{p[:-1]}{'A' if p[-1] != 'A' else 'B'}.{s}")
+EOF
+)
+
+for label in no-token access-token flipped-payload; do
+  case $label in
+    no-token)        AUTH=() ;;
+    access-token)    AUTH=(-H "authorization: Bearer $ACCESS_TOKEN") ;;
+    flipped-payload) AUTH=(-H "authorization: Bearer $FLIPPED") ;;
+  esac
+  printf '%s: ' "$label"
+  curl -s -D /tmp/h.$label -o /tmp/b.$label -w '%{http_code}\n' "${AUTH[@]}" "$API/_auth/whoami"
+done
+md5 -q /tmp/b.no-token /tmp/b.access-token /tmp/b.flipped-payload
+grep -i www-authenticate /tmp/h.no-token
+```
+
+- [ ] All three are `401`.
+- [ ] All three bodies hash **identically** — one hash repeated three times.
+- [ ] The body is `{"error": "unauthorized", "code": "SessionExpired"}` and carries no reason,
+      no `kid`, no issuer and no fragment of the token.
+- [ ] `www-authenticate: Bearer` is present on every one.
+
+**D.3 — A genuinely expired token, and it cannot be reached incidentally. BLOCKING.**
+
+A Cognito ID token lives an hour, so this needs setting up rather than waiting for. Create a
+throwaway app client on the same pool with the **5-minute minimum** ID-token validity, sign in
+through it, capture the token, wait six minutes.
+
+- [ ] `401`, and the body hashes **identically to `/tmp/b.no-token`** from D.2.
+- [ ] This is the only way to see the verifier reach the expiry check at all rather than failing
+      earlier — every offline test that fakes the clock cannot distinguish the two.
+
+**D.4 — The browser's refresh-once path, which is what the short-validity client is really for.
+BLOCKING, and it must be watched in the network panel.**
+
+With the short-validity client, leave a tab idle past expiry, then act.
+
+- [ ] Exactly **two** requests to `$API`: the 401 and the retry that succeeds. Not three.
+- [ ] The user is **not** signed out.
+- [ ] Then break the refresh — sign out in a second tab — act again, and confirm the retry `401`s
+      and there is **no third request**. A refresh loop against a dead refresh token is invisible in
+      a passing offline test and obvious here.
+
+**D.5 — The preflight, in a browser. BLOCKING, and curl proves nothing here.**
+
+Only a browser enforces CORS. From the SPA origin's console:
+
+```js
+await fetch('https://api.dataquarry.app/_auth/whoami', {headers: {authorization: 'Bearer x'}})
+```
+
+- [ ] The `OPTIONS` preflight returns `authorization` in `access-control-allow-headers`, and the
+      request reaches the API (a 401 is the expected answer — the point is that it was *sent*).
+- [ ] **Run this in Safari as well as Chromium.** Safari is the browser this project has been
+      surprised by before.
+
+**D.6 — The stack scrub against a REAL token. BLOCKING.**
+
+The offline sentinel is synthetic; the question here is whether a real token's characters survive a
+real serialisation path.
+
+```bash
+curl -s -o /dev/null -H "authorization: Bearer $ID_TOKEN" "$API/_auth/whoami?force=nonexistent"
+# wait for the logs sweep, then, for the day's partition:
+aws s3 cp "s3://<admin-bucket>/logs/service=api/year=YYYY/month=MM/day=DD/data.jsonl" - \
+  | grep -c "$(cut -d. -f2 <<<"$ID_TOKEN")"
+```
+
+- [ ] `0` — the token's payload segment appears in no record.
+- [ ] The day's records carry a real `env` and a real build sha, **never `0.0.0`**.
+
+**D.7 — Owed, because nothing in one signed-in session can settle it**
+
+- A JWKS **rotation** across the cooldown window. Cognito publishes both keys across a rotation and
+  the window is 60s, so no real rotation is expected to reach a user — untestable without forcing a
+  pool key rotation, and recorded as accepted rather than verified.
+- The unknown-`kid` **refetch bound** under real load. The counter is asserted offline; what is not
+  observed is the fetch rate a real burst produces against the real endpoint.
+
 ## 0. Gates, before anything — BLOCKING
 
 Run this section **before merge 1 is merged.**

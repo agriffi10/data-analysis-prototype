@@ -20,6 +20,9 @@ same property, and a Chromium run standing in for Safari are all recorded here, 
 | **Cross-user prefix isolation** (SPEC-013 FR-004) | As `alice`, every S3 verb against `bob/` is denied and a root listing leaks nothing, while the same calls against `alice/` succeed. The app never issues the cross-prefix call, so it needs two users' portal credentials or a policy simulation. The **paired success is what makes the denial mean anything**, and it must be driven from `npm run dev` — the production bundle's console cannot `import()` a bare specifier. |
 | **A share's recipient queries the result** (SPEC-161) | `SELECT count(*)` from the recipient's own database must return the source's row count, not zero. |
 
+| **A JWKS key rotation across the refetch cooldown** (SPEC-195) | For up to 60 s after a provider rotates, this API refuses tokens signed with the new key — the accepted cost of bounding an unauthenticated amplification vector. Cognito publishes both keys across a rotation and the window sits far inside any overlap, so no real rotation is expected to reach a user. Untestable without forcing a pool key rotation; **accepted rather than verified**. |
+| **The unknown-`kid` refetch bound under real load** (SPEC-195) | The counter is asserted offline against a fake transport. What is not observed is the fetch rate a real burst produces against the real JWKS endpoint. |
+
 ### Needs the CLI
 
 | Check | Why | Recipe |

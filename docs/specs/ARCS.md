@@ -1894,6 +1894,16 @@ Arc A lands; an API built around a synchronous folder copy sets its own shape.
   gets an opaque `httpOnly` cookie and nothing else. **The SPA never constructs an IdP URL** — it
   navigates to the API's own login endpoint, which mints the redirect and holds the PKCE verifier and
   `state` server-side.
+
+  > **SUPERSEDED for this arc by SPEC-195 (2026-08-27), and INHERITED BY THE LATER ARC.** What
+  > shipped is a **verifier, not an OIDC client**: no code exchange, no refresh token, no session,
+  > no cookie. Sign-in is untouched — the browser keeps its Cognito ID token and sends it as an
+  > `Authorization` bearer, which is the trust model the seven control planes have had since
+  > SPEC-011 with the token on a different transport. The three bullets above (BFF compute,
+  > Session, and the two-origins/`SameSite` constraint) describe the **deferred** design, and the
+  > relaxation matters: **no ambient credential means no CSRF surface**, so a later spec
+  > introducing a cookie re-opens CSRF, `SameSite` and the one-registrable-domain requirement this
+  > arc downgraded to a preference. CORS is still required either way.
 - **AWS credentials never reach the browser.** The API assumes a role carrying the user's identity —
   a `username` session tag now, an Identity Center identity context later — and makes the calls
   itself. Every existing IAM policy, bucket policy and Lake Formation grant keeps enforcing unchanged.

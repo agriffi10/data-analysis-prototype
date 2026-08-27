@@ -1,7 +1,7 @@
 # Spec: The API's Auth Boundary — Verifying the Bearer Token
 
 **ID:** SPEC-195
-**Status:** Draft
+**Status:** Completed
 **Last Updated:** 2026-08-18
 **Depends On:** SPEC-006/007 (the Cognito User Pool and Managed Login v2 — **unchanged by this spec**), SPEC-011 (the identity is a verified claim, never a caller assertion; the tag SPEC-196 builds from it), SPEC-106 (`toUserMessage` — raw provider text is never rendered), SPEC-126 (the DLQ drain's expiry-relaxed verification, and why this boundary may not reuse it), SPEC-127/130/137/186 (`cpcommon.observability`, the field rule, the `error.stack` exemption this spec re-opens, and `env`/`version` on every record), SPEC-150 (`ServiceResult` and the catch discipline), SPEC-156 (**one** JWKS path in this repo — parameterised here, not forked), SPEC-192 (the runtime accessors, `apiBaseUrl`, and the server-side provider block), SPEC-193 (the API Lambda, its router, its deliberate absence from the VPC, and the API Gateway CORS configuration)
 

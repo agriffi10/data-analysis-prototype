@@ -63,6 +63,24 @@ is `aws_cognito_identity_pool_provider_principal_tag` in `infra/modules/auth/ide
 tag **value** must be the `cognito:username` claim (the bare `username` claim doesn't exist in a User
 Pool ID token, so it never stamps).
 
+### The API's auth boundary, beside the control planes' (SPEC-195)
+
+**One token, one verification path, two transports.** The seven control-plane verbs have taken the
+identity from a *verified* Cognito ID token since SPEC-011, carried in an SQS message body. The API
+verifies the same token through the same code — `cpcommon.auth` — carried in an `Authorization`
+bearer header instead. Nothing re-derives a username, and nothing anywhere reads a username the
+caller stated.
+
+The verifier is driven by a `VerifierConfig` (issuer, audience, JWKS URI, username claim, required
+claims) rather than by Cognito-shaped constants, so the target environment swaps the provider by
+changing five environment values. The API resolves a principal **before** dispatch and refuses any
+route that has not declared itself public, including one that does not exist; every refusal is
+byte-identical, and a provider that cannot be *read* answers 5xx rather than 401 — an outage is not
+a bad token, and "sign in again" cannot fix one.
+
+Sign-in itself is unchanged: Hosted UI, Amplify and the Identity Pool flow above all behave exactly
+as described. The API is a **verifier, not an OIDC client** — see `decisions.md`.
+
 ## Authorization Model
 
 Two buckets, both enforced purely at the IAM layer (no app-level access control).

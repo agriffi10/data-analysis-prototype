@@ -200,7 +200,7 @@ Add a row when a spec is created; update its status on completion (status only �
 | 192 — Runtime Configuration & the Provider Block | Completed |
 | 193 — The Network, the Compute & the Front Door | Completed |
 | 194 — The SPA Container | Completed |
-| 195 — The API's Auth Boundary: Verifying the Cognito Token | Draft |
+| 195 — The API's Auth Boundary: Verifying the Bearer Token | Completed |
 | 196 — The AWS Identity Layer | Draft |
 | 197 — The Transport Contract & the First Ported Feature | Draft |
 | 198 — The S3 Surface & Presigned Bytes | Draft |
