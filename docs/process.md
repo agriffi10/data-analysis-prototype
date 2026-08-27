@@ -349,7 +349,12 @@ When a spec is done, in the same pass:
 > every delivery doc to a line cap; and every relative markdown link to resolving. **The budgets
 > are ratchets at the measured level** (SPEC-150's convention for the coverage floors) — raising
 > one so a growing doc passes is the failure mode the gate exists to catch. Move the detail down a
-> tier instead. Every rule it holds existed in prose first and was violated anyway; that is why it
+> tier instead. **One exception, taken deliberately (user decision, 2026-08-27):**
+> `CLAUDE_MAX_BYTES` is 50,000 rather than the measured level, because the completion ritual
+> requires every closing spec to fold a clause into Key Decisions — so a ratchet there makes each
+> completion a forced prune of some other area's fences, which is the gate causing the damage it
+> exists to prevent. The shape rules are what bind that file: group by area, no per-spec line, and
+> a per-bullet length cap. Every rule it holds existed in prose first and was violated anyway; that is why it
 > is a gate.
 
 
