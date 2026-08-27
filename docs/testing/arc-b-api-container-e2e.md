@@ -1106,6 +1106,145 @@ Record these as **owed**, not discharged:
   simulation or a `logs/` record is **unaffected**. Leaving one unclassified is how a discharged check
   silently becomes stale.
 
+## E. The AWS identity layer (SPEC-196) — WRITTEN, NOT YET RUN
+
+> **STATUS: every item below is OWED.** No live check in this section has been run. The decision
+> (2026-08-27) is that live verification for the whole arc happens once, at SPEC-202, rather than
+> per spec — so this is a runnable script recorded in advance, not a record of a pass. Every item
+> also has a row in [`owed.md`](owed.md). **Do not read a written step as a discharged one.**
+
+**Everything that matters in SPEC-196 is invisible to the offline suite**, and each of the reasons
+is one this project has already paid for once. Every offline test supplies its own claims and its
+own stubbed STS: not one of them can tell you that the token really carries the claims, that the
+trust policy admits the API, that the tag was stamped, or that the bucket policy's allowlist
+resolves an assumed-role request the way `s3.tf`'s comment says it does.
+
+**Two mechanisms were verified BY READING while building, and they are recorded here as mechanism
+only.** Recording them matters because a later reader cannot otherwise tell a proof from a
+coincidence:
+
+- The portal role's `UserPrefixList` statement grants `s3:ListBucket` **only** under
+  `"s3:prefix": ["$${aws:PrincipalTag/username}/", …]`
+  (`infra/modules/data/policies/portal-role-permissions.json.tftpl`). That is why item 6's
+  `ownPrefixListable: true` is reachable **only** with the username tag correctly stamped —
+  behaviour is the proof, because this account records no `AssumeRole` event anywhere.
+- `DenyDataAccessExceptPortalRole` lists **`s3:ListBucket`** beside `GetObject`/`PutObject`/
+  `DeleteObject`, on `${bucket_arn}` as well as `${bucket_arn}/*`
+  (`infra/modules/data/policies/user-space-bucket-policy.json.tftpl`). That is why the probe's
+  listing is subject to the same allowlist a `GetObject` would be.
+
+**Sign in as a member of at least two shared spaces.** Items 0 and 8 both need it.
+
+```bash
+API=https://api.dataquarry.app
+```
+
+**E.0 — The claims this whole spec reads are actually in the ID token. DO THIS FIRST.**
+If it fails, nothing else in the section matters. Capture the ID token from a signed-in session and
+decode its payload; confirm `cognito:username` **and** one `custom:shared_space_k` per occupied slot
+are present. The inference from `identity-pool.tf` is strong — AWS reads those very claims out of
+this very token to stamp today's tags — but it is an inference, and a token that turned out not to
+carry them would pass the entire offline suite and fail on the first real request.
+
+```bash
+ID_TOKEN='<paste>'
+python3 -c "import base64,json,sys;p=sys.argv[1].split('.')[1];print(json.dumps(json.loads(base64.urlsafe_b64decode(p+'='*(-len(p)%4))),indent=2))" "$ID_TOKEN" | grep -E 'cognito:username|shared_space'
+```
+
+**E.1 — The trust policy admits the API's role, with BOTH actions.** A statement granting
+`sts:AssumeRole` without `sts:TagSession` renders, plans, applies and unit-tests green. Any
+successful response from E.6 proves it; a failure that names neither the tag nor the action is what
+this looks like when it is wrong.
+
+**E.2 — The tags are stamped, and only the `username` half is observable in this spec.**
+There is **no `AssumeRole` event to read**: the account's only trail is one advanced event selector
+for data events on the archive bucket, with `is_multi_region_trail = false` and management events
+recorded for nothing. A criterion phrased against that trail **cannot fail** — it returns nothing
+whether the call happened or not. So the username tag is proved **behaviourally**, by E.6's own
+session, against the mechanism recorded above.
+
+> **The slot half is OWED and this spec cannot discharge it.** Every call SPEC-196 ships touches the
+> user-space bucket only, and `spaceCount` is counted from the token's claims rather than from the
+> session's tags — it reports the same number with the slot tags dropped entirely. The first
+> observation that can settle it is a successful user-plane call against a shared space the caller
+> belongs to, where the shared-space bucket has no bucket policy and the tag set is therefore the
+> entire gate. That arrives with SPEC-198's routes.
+
+**E.3 — The user-space bucket-policy allowlist admits the assumed session.** The IAM simulator does
+not fetch a bucket policy, so `aws:PrincipalArn` resolving to the role's IAM ARN under
+`sts:AssumeRole` — as opposed to `AssumeRoleWithWebIdentity` — needs a real call through the assumed
+session. `GET /_identity/self` is that call, for the mechanism reason recorded above. A principal
+the allowlist did not admit would be Denied outright and `ownPrefixListable` would come back
+**false**.
+
+**E.4 — Lake Formation still authorizes the session. OWED, and not runnable here.** LF is not
+modelled by the simulator at all, and confirming it needs one Athena query on the user plane, for
+which there is no route until SPEC-199. Running it by hand from a laptop proves nothing about this
+layer — the local IAM user is a different principal.
+
+**E.5 — The cache does not leak in a real warm container.** Two users' tokens, interleaved inside
+one execution environment. **Confirm the same `logStream`**, or the observation is two cold starts
+and proves nothing. The observation is the two **responses**, not a trail: each body must carry its
+**own** caller's `username` and `ownPrefixListable: true` — a leaked session makes the second one's
+username wrong, or its `ownPrefixListable` false, because the cached session's tag no longer matches
+the prefix it lists. Confirm as well that `logs/service=api/` shows the second request carrying the
+second username.
+
+**E.6 — The probe, and both booleans.** Recording only the first proves nothing: an unstamped tag
+makes the first false, and an over-granted policy makes the second true.
+
+```bash
+curl -s -H "authorization: Bearer $ID_TOKEN" "$API/_identity/self"
+# expect: {"username":"...","spaceCount":N,"ownPrefixListable":true,"foreignPrefixListable":false}
+```
+
+**E.7 — The records carry a real `env` and a real build sha**, neither empty nor `0.0.0`, and no
+record contains a token or an email. Read `logs/service=api/` for the day.
+
+**E.8 — The propagation delay is what SPEC-056 documents, not something new.** Add the signed-in
+user to a new shared space and, **without refreshing the token**, confirm the API still refuses that
+space; then press **Refresh connections** and confirm the same request now succeeds. Both halves are
+required: the first alone is indistinguishable from a broken grant, and the second alone from a
+grant that was always live.
+
+### E.9 — The IAM policy simulation, against the DEPLOYED role
+
+**Every denial is paired with an `allowed` control**, because an `implicitDeny` alone cannot
+distinguish an ungranted action from a wrong ARN — this repo learned that on `dat-prod-athena-admin`.
+
+```bash
+ROLE=$(aws iam get-role --role-name dat-portal-user-role --query 'Role.Arn' --output text)
+aws iam simulate-principal-policy --policy-source-arn "$ROLE" \
+  --action-names s3:GetObject --resource-arns arn:aws:s3:::dat-prod-user-space/alice/x.csv \
+  --context-entries ContextKeyName=aws:PrincipalTag/username,ContextKeyType=string,ContextKeyValues=alice \
+  --query 'EvaluationResults[].EvalDecision' --output text
+```
+
+| Action | Resource | Context | Expect |
+|---|---|---|---|
+| `s3:GetObject` | `user-space/alice/x.csv` | `username=alice` | `allowed` (control) |
+| `s3:GetObject` | `user-space/bob/x.csv` | `username=alice` | `implicitDeny` |
+| `s3:ListBucket` | `user-space` | `username=alice`, `s3:prefix=alice/` | `allowed` (control) |
+| `s3:ListBucket` | `user-space` | `username=alice`, `s3:prefix=bob/` | `implicitDeny` |
+| `s3:DeleteObject` | `user-space/alice/reports/x.csv` | `username=alice` | `allowed` (control) |
+| `s3:DeleteObject` | `user-space/alice/DO_NOT_DELETE.txt` | `username=alice` | `explicitDeny` |
+| `s3:PutObject` | `user-space/alice/archive/r.txt` | `username=alice` | `explicitDeny` |
+| `glue:GetTable` | `database/alice` | `username=alice` | `allowed` (control) |
+| `glue:GetTable` | `database/bob` | `username=alice` | `implicitDeny` |
+| `s3:GetObject` | `shared-space/marketing/x` | `shared_space_1=marketing` | `allowed` (control) |
+| `s3:GetObject` | `shared-space/marketing/x` | **slot tags absent** | `implicitDeny` |
+| `s3:DeleteObject` | `shared-space/marketing/athenaresults/x` | `shared_space_1=marketing` | `explicitDeny` |
+
+**The last two rows are the ones worth the trouble:** the eleventh is the silent-success failure
+made visible, and the twelfth proves the Deny is matching rather than merely present.
+
+### E.10 — Cleanup
+
+- [ ] `GET /_identity/self` and `GET /_auth/whoami` are both scaffolding and leave together, deleted
+      by SPEC-197 — **on the condition that §D and §E have actually been run and recorded**, not on
+      SPEC-197 merely arriving.
+
+
 ## 14. Cleanup
 
 **Restore the app client's ID-token validity if D.3 was run.** It is shortened to five minutes to

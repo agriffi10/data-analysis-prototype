@@ -104,6 +104,36 @@ recipe anywhere** — write one when you run it.
 | **The whole CSS list** (`e2e.md` §4.15) | A Chromium run **corroborates and cannot discharge** rendering. Andrew browses in Safari. |
 | **The 400px pass** | Not reachable by window resize on macOS — Chrome's floor is 606px, and `resize_window` reports success while changing nothing the page sees. Use DevTools device toolbar (⌘⇧M) and assert on `matchMedia`. |
 
+### The whole of SPEC-196's live verification, deferred to SPEC-202 by decision
+
+**Every item in [`arc-b-api-container-e2e.md`](arc-b-api-container-e2e.md) §E is owed.** The section
+is written and runnable; none of it has been run. The decision (2026-08-27) is that Arc B's live
+verification happens once, at SPEC-202, rather than per spec. Recorded as rows rather than as one
+line because a later reader settling some of them needs to see which are still open.
+
+| Check | Why it is owed |
+|---|---|
+| **The ID token really carries the claims** (§E.0) | Every offline test supplies its own claims. The inference from `identity-pool.tf` is strong — AWS reads those very claims out of this very token today — but a token that did not carry them would pass the entire suite and fail on the first real request. **Run this first**; if it fails nothing else in the section matters. |
+| **The trust policy admits the API with BOTH actions** (§E.1) | `sts:AssumeRole` without `sts:TagSession` renders, plans, applies and unit-tests green. |
+| **The `username` tag is actually stamped** (§E.2) | Behavioural only: this account records **no `AssumeRole` event anywhere** — the one trail carries data events on the archive bucket alone — so a criterion phrased against CloudTrail cannot fail. §E.6's `ownPrefixListable` is the observation. |
+| **The ten SLOT tags are stamped** (§E.2, second half) | **SPEC-196 cannot discharge this at all.** Every call it ships touches the user-space bucket, and `spaceCount` comes from the token's claims — it reports the same number with every slot tag dropped. Settled by the first user-plane call against a shared space the caller belongs to, where the bucket has no policy and the tag set is the entire gate. **Passed to SPEC-198.** |
+| **The bucket-policy allowlist admits the assumed session** (§E.3) | `simulate-principal-policy` does not fetch a bucket policy, so `aws:PrincipalArn` resolving to the role's IAM ARN under `sts:AssumeRole` — rather than `AssumeRoleWithWebIdentity` — needs a real call. The probe is that call. |
+| **Lake Formation still authorizes the session** (§E.4) | LF is not modelled by the simulator, and confirming it needs one Athena query on the user plane. **There is no route until SPEC-199**, which discharges it. Running it from a laptop proves nothing: the local IAM user is a different principal. |
+| **The credential cache does not leak in a warm container** (§E.5) | Needs two callers interleaved in one execution environment, confirmed by a shared `logStream` — otherwise the observation is two cold starts and proves nothing. The offline sequence pins the algorithm; it cannot pin the runtime. |
+| **Both probe booleans** (§E.6) | The whole point is the conjunction. Recording only `ownPrefixListable` would pass with the isolation model deleted. |
+| **A real `env` and a real build sha in the records** (§E.7) | The stamp is written into the deployment package by the deploy script; offline the resolver returns the unstamped value, so only a deployed invocation can show a real sha. |
+| **The propagation delay is unchanged** (§E.8) | Both halves are required: refusing before a refresh alone is indistinguishable from a broken grant, and succeeding after one alone from a grant that was always live. |
+| **The twelve-row IAM simulation against the DEPLOYED role** (§E.9) | Every denial paired with an `allowed` control — an `implicitDeny` alone cannot tell an ungranted action from a wrong ARN. |
+
+### Identified by review, deliberately not built, with a reason
+
+| Item | Disposition |
+|---|---|
+| **A `ForAnyValue:StringEquals` floor on the trust statement's `sts:TagKeys`** (SPEC-196 FR-003) | `ForAllValues` is a **ceiling**: it is satisfied by a request carrying a subset of the listed keys **and equally by one carrying none**, so the statement permits a tagless `AssumeRole` and cannot require that `username` was stamped. A `ForAnyValue` clause alongside would read "a subset of the eleven, and at least the username key". **Not added in SPEC-196**, deliberately: that spec ships zero live verification, the bug it guards (one that drops the whole tag list) already surfaces as `AccessDenied` everywhere, and adding an IAM condition every user's every request depends on — one that cannot be exercised until SPEC-202 and can only fail closed — trades a named risk for an unnamed one. **Land it with SPEC-198**, when a live call can prove it. |
+| **A credential written into an exception message is not redacted** (SPEC-196 FR-009) | The mechanism is **preventative**: an AST sweep forbids this repo's code from rendering the event, the headers, a token or any of four session-material names into an f-string, a `%`-format, a `.format()` call or a `raise` argument, and a sentinel test drives a path that genuinely raises through the span while holding a real assumed session. **No redactor exists** — `log-foundry` 0.6.0 exposes no way to turn stack capture off — so a future route that interpolates a session value *despite* the sweep would still reach the log store. Settled 2026-08-27; revisit if the library gains an opt-out, and do not delete the sweep. |
+| **A presigned URL signed from a cached session dies with that session** (SPEC-196 FR-006) | The credential margin is sized for the life of **one request**, so a URL signed with 29 s of credential left is valid for 29 s and not for its stated expiry. Nothing in the API presigns today and a tripwire asserts it, so the spec that first does must revisit the margin rather than inherit a silently wrong one. **Passed to SPEC-198.** |
+| **The single expiry retry does not cover a paginator** (SPEC-196 FR-006) | It proxies direct method calls; a paginator, a waiter and anything reached through `meta` hold their own client reference. Fail-closed, not a leak. A tripwire asserts no route paginates, so the limitation is announced rather than discovered. |
+
 ### Not observable at all
 
 | Check | Why |
