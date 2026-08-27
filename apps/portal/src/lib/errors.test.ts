@@ -440,7 +440,14 @@ describe('serviceErrorContract', () => {
         // return annotation naming the field); a value literal can only ever write
         // `code:`, so accepting both weakens nothing and stops the adapters' own
         // signatures reading as findings.
-        .filter((literal) => !/(?:^|[{,\s])code\s*\??:/.test(literal) && !DELEGATES.test(literal))
+        //
+        // `code,` and `code}` are the ES6 SHORTHAND forms, and they were a false
+        // NEGATIVE of this scan rather than a loophole in it: `{message: '', code}`
+        // names the code as plainly as `code: code` does, and was reported as an
+        // omission. Left unfixed, the repair someone reaches for is the allowlist —
+        // which would exempt a file wholesale from a rule it actually satisfies. Still
+        // anchored to a property position, so `notcode,` does not match.
+        .filter((literal) => !/(?:^|[{,\s])code\s*(?:\??:|[,}])/.test(literal) && !DELEGATES.test(literal))
         .map((literal) => ({path, literal: literal.replace(/\s+/g, ' ').slice(0, 120)}))
     )
     .filter(({path, literal}) => !ALLOWLIST.some((a) => a.path === path && literal.includes(a.snippet)));
