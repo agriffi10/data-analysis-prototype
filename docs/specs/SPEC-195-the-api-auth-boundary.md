@@ -174,6 +174,19 @@ reaches production unset fails far from its cause.
       issuer. Cognito's happens to live at `{issuer}/.well-known/jwks.json`; Entra's does not, and a
       concatenation that works today is the provider assumption this FR exists to remove. A test asserts no
       module builds a JWKS URL from `OIDC_ISSUER`.
+
+      > **AMENDED 2026-08-27, during build.** As written this criterion has no boundary, and the
+      > composition root cannot honour it without re-spelling the region and the pool id in a
+      > second literal — which is the drift the criterion is trying to prevent, moved rather than
+      > removed. What the harm actually is, in this FR's own words and `decisions.md`'s, is a
+      > **verifier** that knows which provider it is verifying. So the boundary is named instead:
+      > **the concatenation may appear once, at the composition root** — which already names
+      > Cognito through `module.auth`, the Hosted UI domain and the CSP, and is therefore already
+      > a site any provider swap edits — and **never inside `infra/modules/api/`, never in any
+      > module under `lambdas/`.** Both halves are asserted. The test deliberately does **not**
+      > pin the `/.well-known/jwks.json` path: doing so would make a fact about *one* provider a
+      > repo invariant and turn it red on a correct Entra configuration, which is the shape that
+      > gets a guard deleted rather than read.
 - [ ] `OIDC_REQUIRED_CLAIMS` is a JSON object of claim → expected value; the deployed Cognito value is
       `{"token_use":"id"}`, pinned by a test that **reads it from the Tofu environment map** rather than
       restating it.
@@ -282,8 +295,15 @@ boundary, and both were harmless while the only caller was a Step Functions verb
 
 #### Acceptance Criteria:
 
-- [ ] The client is built with an explicit HTTP `timeout` **below API Gateway's 29-second integration
-      ceiling** — PyJWT's default is `30`. A test asserts the argument is passed and asserts the inequality
+- [ ] The client is built with an explicit HTTP `timeout` **below the API function's own 29-second
+      budget**, which is itself set one second under API Gateway's hard 30-second integration
+      ceiling so the function answers before the integration gives up — PyJWT's default is `30`.
+
+      > **CORRECTED 2026-08-27, during build.** This criterion said "API Gateway's 29-second
+      > integration ceiling", conflating two different numbers: the integration ceiling is **30**
+      > seconds and is not raisable, and the **function** timeout is 29. The timeout is sized
+      > against the smaller of the two, which is the function's, and the test reads both out of
+      > the Terraform rather than restating either. A test asserts the argument is passed and asserts the inequality
       against the ceiling as a named constant, not a literal. Left at the default, a hung JWKS endpoint
       produces a gateway 504 that reads as an API fault and names nothing.
 - [ ] An **unknown `kid` does not cause an unbounded JWKS refetch.** `PyJWKClient.get_signing_key` refreshes

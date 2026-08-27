@@ -78,3 +78,73 @@ variable "athena_workgroup" {
   description = "Athena workgroup name, carried as ATHENA_WORKGROUP."
   type        = string
 }
+
+# ── The provider block ────────────────────────────────────────────────────────
+# Five fields, and the verifier reads nothing else about who issues its tokens. That is the
+# whole point of them: the target environment swaps the identity provider by changing these
+# values rather than by rewriting an authorization path. Every one is computed at root from
+# resources Terraform already owns — none is an operator input today.
+#
+# The client secret, redirect URI and post-logout URI are deliberately ABSENT. They belong to
+# a server-side login flow this API does not perform, and a required variable that reaches
+# production unset fails a long way from its cause.
+#
+# Each carries a validation rather than relying on having no default. An unset repo variable
+# renders as the EMPTY STRING, which satisfies a required variable and overrides a default —
+# so "no default" guards nothing on its own.
+
+variable "oidc_issuer" {
+  description = "Exact `iss` the API requires on every token. Computed at root from the pool."
+  type        = string
+
+  validation {
+    condition     = can(regex("^https://[^ ]+$", var.oidc_issuer))
+    error_message = "oidc_issuer must be an https URL. An empty value means it was never computed."
+  }
+}
+
+variable "oidc_audience" {
+  description = "Exact `aud` the API requires — the app client the SPA's ID token is issued to."
+  type        = string
+
+  validation {
+    condition     = length(var.oidc_audience) > 0
+    error_message = "oidc_audience must be the app client id. Empty means it was never computed."
+  }
+}
+
+variable "oidc_jwks_uri" {
+  description = "Where the signing keys are published. Passed in whole and treated here as opaque: Cognito happens to publish under the issuer and other providers do not, so a URL built from oidc_issuer inside this module would bake in the provider assumption the block exists to remove."
+  type        = string
+
+  validation {
+    condition     = can(regex("^https://[^ ]+$", var.oidc_jwks_uri))
+    error_message = "oidc_jwks_uri must be an https URL. An empty value means it was never computed."
+  }
+}
+
+variable "oidc_username_claim" {
+  description = "Which claim carries the username everything in this product is keyed on."
+  type        = string
+
+  validation {
+    condition     = length(var.oidc_username_claim) > 0
+    error_message = "oidc_username_claim must name a claim. Empty would leave every request unattributable."
+  }
+}
+
+variable "oidc_required_claims" {
+  description = "JSON object of claim name to the exact value a token must carry, e.g. {\"token_use\":\"id\"}. An empty object is valid for a provider asserting no such claim; an empty STRING is not, and is what an unset variable looks like."
+  type        = string
+
+  # Three layers, each measured rather than assumed. `jsondecode` alone accepts a bare
+  # scalar, so `42` and `"id"` reach the function and fail in the verifier's parse instead
+  # of here. `tomap` rejects those and a list. `keys` is what rejects the literal `null`,
+  # which tomap accepts and which plans clean end to end — and a null arriving is exactly
+  # the "token-type check never runs" outcome the message below names. An empty OBJECT
+  # still passes, which is correct: a provider asserting no such claim is not misconfigured.
+  validation {
+    condition     = can(keys(tomap(jsondecode(var.oidc_required_claims))))
+    error_message = "oidc_required_claims must be a JSON object such as {\"token_use\":\"id\"} — not a scalar, not a list. An empty value means it was never computed, and would silently stop the token-type check from running at all."
+  }
+}

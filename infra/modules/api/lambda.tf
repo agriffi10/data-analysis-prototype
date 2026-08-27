@@ -76,6 +76,15 @@ resource "aws_lambda_function" "api" {
       ATHENA_WORKGROUP      = var.athena_workgroup
       LOGS_QUEUE_URL        = var.logs_queue_url
       ENV_NAME              = var.environment
+
+      # The provider block. The verifier reads these five and nothing else about who issues
+      # its tokens, which is what makes a provider swap a configuration change. They are
+      # computed at root, so there is exactly one wiring site and it is Terraform's.
+      OIDC_ISSUER          = var.oidc_issuer
+      OIDC_AUDIENCE        = var.oidc_audience
+      OIDC_JWKS_URI        = var.oidc_jwks_uri
+      OIDC_USERNAME_CLAIM  = var.oidc_username_claim
+      OIDC_REQUIRED_CLAIMS = var.oidc_required_claims
     }
   }
 
