@@ -165,17 +165,22 @@ def jwks(url):
     the wrong JWKS. Latent while there is one user pool, and a likely source of
     inexplicable signature failures once Identity Center federation lands.
 
+    The client is a ``CooldownJWKClient`` rather than a bare ``PyJWKClient``: it carries an
+    explicit HTTP timeout and rate-limits the cache-bypassing refetch that an unknown ``kid``
+    triggers. Both of PyJWT's defaults were harmless while the only caller was a Step Functions
+    verb and neither is once an unauthenticated caller can reach the verifier — see ``jwks``.
+
     Args:
       url: The JWKS endpoint to build or look up a client for.
 
     Returns:
-      The cached PyJWKClient for that URL.
+      The cached JWKS client for that URL.
 
     Raises:
       None.
     """
     if url not in _jwks:
-        from jwt import PyJWKClient
+        from .jwks import CooldownJWKClient
 
-        _jwks[url] = PyJWKClient(url)
+        _jwks[url] = CooldownJWKClient(url)
     return _jwks[url]
