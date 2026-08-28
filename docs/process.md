@@ -150,10 +150,12 @@ context that produced the artifact. An author reviewing their own work assumes i
 intended and rubber-stamps it; that is as true of a plan as of code, and a wrong plan is the more
 expensive of the two, because the code that follows will faithfully implement it.
 
-- **The gate is blocking.** A spec is not Draft-ready, and a plan does not start code, until it has
-  been through a review round and every finding is either **fixed** or **explicitly rejected in
-  writing** — in the spec/plan itself, or in the session summary, saying which finding and why. A
-  finding that is silently dropped is a finding that was not reviewed.
+- **The gate is blocking, and what it asks for is an answer, not a filing.** A spec is not
+  Draft-ready, a plan does not start code, and a branch does not reach the remote, until every
+  finding has been either **fixed** or **flagged** — said out loud, so the call is visible and can be
+  argued with. A finding silently dropped is a finding that was not reviewed; a finding rejected in
+  one sentence is a finding that was. **Write a rejection down only when it carries a lesson worth
+  keeping** — then it belongs in the register or the spec, as reasoning, not as a paper trail.
 - **The reviewer gets the artifact and its sources, never the author's reasoning.** For a spec: the
   spec file, its arc entry in `ARCS.md`, the `decisions/` entries it claims to follow, and the specs
   it depends on. For a plan: the plan, the spec, and the
@@ -167,9 +169,10 @@ expensive of the two, because the code that follows will faithfully implement it
   criterion have a phase that delivers it; is existing reuse used rather than re-built; has
   out-of-scope work crept in; is a phase resting on a premise nobody has checked. A **diff** review
   checks the change against the acceptance criteria and the rulebooks — not "does it look fine."
-- **A reviewer finding is not an instruction.** The author decides; the record of the decision is
-  what the gate requires. A rejected finding that turns out right is a cheap lesson with a written
-  trail; a fixed finding that was wrong is a silent regression.
+- **A reviewer finding is not an instruction.** The author decides. Rejecting one is ordinary and
+  costs a sentence; the thing to avoid is deciding silently, because then nobody can tell a
+  considered rejection from a finding that was never read. A fixed finding that was wrong is a
+  silent regression, which is the same failure in the other direction.
 
 **Rotating the frame, and knowing when to stop**
 
@@ -280,7 +283,7 @@ who had to pick, and neither by a reader.
 
 **Landing the spec — watch PRs and watch `main`**
 - **A branch reaches the remote already reviewed.** The gate above is the precondition for the push,
-  so a PR opens carrying work whose findings are already fixed or rejected in writing. If a review
+  so a PR opens carrying work whose findings are already fixed or answered. If a review
   round happens after a push anyway — a late finding, a rotated frame, a reviewer that ran long — its
   fixes are committed and reviewed locally before the next push, rather than each one going up as it
   lands.
@@ -313,7 +316,7 @@ Specs are written from `docs/templates/spec-template.md`. What makes a spec *bui
   with unanswered questions. Issues that only surface during the build are handled in-session (§3),
   not parked in the spec.
 - **Then the reviewer gate** (§3, *The reviewer contract*). A freshly-authored spec goes to a
-  fresh-context reviewer before it is Draft-ready, and its findings are fixed or rejected in writing.
+  fresh-context reviewer before it is Draft-ready, and its findings are fixed or answered.
   The commonest thing this catches is not a wrong requirement — it is an acceptance criterion that
   cannot fail, and an Out of Scope bullet that an FR quietly needs.
 
