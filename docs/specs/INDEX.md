@@ -212,6 +212,15 @@ Add a row when a spec is created; update its status on completion (status only �
 | 204 — Shared-Space Entitlements as Grants | Draft |
 | 205 — A Delete Empties a Space and Destroys Nothing | Draft |
 | 206 — The Notifications `create` Boundary | Completed |
+| 207 — Contextual Help: the Guide Panel, Deep Links & Per-Page Help Buttons | Draft |
+| 208 — Shared-Space Ownership Transfer | Draft |
+| 209 — The Draggable Editor/Results Divider | Draft |
+| 210 — Dark Mode: the Measured Dark Palette, the Theme Switch and Monaco | Draft |
+| 211 — Give Feedback: the API Route, the Writer Queue and the Daily Document | Draft |
+| 212 — Container Lambdas: the Base Image, ECR and the Build Pipeline | Draft |
+| 213 — Container Lambdas: the `docker-lambda` Module and the Cutover | Draft |
+| 214 — Container Lambdas: Retiring the Layers and the Deploy Tables | Draft |
+| 215 — Configuration from Terraform State (retiring the repository variables) | Draft |
 
 ## Arcs
 
