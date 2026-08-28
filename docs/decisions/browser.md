@@ -471,6 +471,24 @@ empty string (measured), which would have made that guard pass by finding nothin
 file, through a one-function ambient declaration rather than by adding `"node"` to the app's
 `types` and handing every module in `src/` the Node surface.
 
+**That parse is scoped to the `@theme` block, and the scoping is the load-bearing part.** A
+whole-file `--color-*` match reads every token declaration anywhere in the stylesheet, so the day a
+second block appears — which is what a dark theme adds — its values overwrite the light ones and
+every contrast assertion goes on passing while measuring a palette the light theme never paints. A
+synthetic two-block stylesheet asserts it, because `index.css` cannot exercise the case until that
+second block exists.
+
+> **Both of this entry's guards were deleted and restored.** The 2026-08-28 suite reduction
+> (`a41bda69`) removed the `index.css` agreement test *and* the sampled-gradient cross product. It
+> left `src/test/node-fs.d.ts` with a docstring whose stated *reason* — that the palette has to be
+> checked against `index.css` — described a check that no longer existed; the declaration itself
+> kept a live consumer in `lib/runtimeConfig.test.ts`, which is why nothing pointed at the gap. And
+> it left this entry and `dataExplorer.constants.ts`'s own comment both claiming a guarantee the
+> repo no longer held. Restored 2026-08-28. The lesson is about the shape, not the commit: **a copy
+> of a source of truth is only as good as the test that pins it, and deleting that test is
+> invisible** — the mirror keeps working, the suite stays green, and the three places that promise
+> the guard exists go on promising it.
+
 ## The URL transformer's encoding is position-dependent, and both simple rules are wrong
 
 Encoding the value **unconditionally** is right inside a path or a query — a value must not climb
