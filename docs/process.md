@@ -456,6 +456,13 @@ These pass locally and fail later — check them as part of the work, not as an 
   typechecks and `tsc -p tsconfig.json` silently checks nothing. The Python linter is
   `ruff check lambdas/ scripts/ .github/scripts/` — **all three trees**, since `scripts/` holds the
   doc gate every reviewer is told to run — and `pytest` never sees it. Run both before pushing.
+- **Never hand-roll a CI watch.** `gh pr checks --watch` can exit clean against the **previous**
+  commit's checks, and a hand-written shell condition inverted and printed "settled" while two
+  deploys were still running — both reported a green that was not there. Use
+  `python3 scripts/watch_ci.py --pr <n>` (or `--branch main` after a merge): every query is keyed to
+  one resolved sha, so a stale-sha report is not expressible, and the "are we done" and "did it pass"
+  decisions are unit-tested in `lambdas/test_watch_ci.py`. Exit 0 means settled **and** green, so it
+  composes with `&&`; anything unfinished, unknown or absent exits non-zero.
 - **Vitest needs the Vite config for jsdom.** Running vitest with an explicit file path *from the repo
   root* uses no Vite config → `document is not defined`. Run from `apps/portal` or via
   `npm run test -w apps/portal`.
