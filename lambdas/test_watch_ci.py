@@ -201,10 +201,122 @@ class TestWatchExitStatus:
         )
         assert watch_ci.watch("abc", interval=0, timeout=1, once=True) == 2
 
-    def test_a_moved_ref_stops_the_watch_non_zero(self, monkeypatch):
-        """Rather than returning a verdict about the commit that was superseded."""
+    def test_a_moved_ref_stops_the_watch_AND_SAYS_SO(self, monkeypatch, capsys):
+        """Asserting the reason, not just the code — 2 is also what a timeout returns.
+
+        The first version of this test asserted only ``== 2`` and passed with the moved-ref
+        guard **deleted**, because the deadline path returns 2 as well. A test that cannot
+        tell its own guard from the one beside it is not holding anything.
+
+        ``once=True`` rather than a long timeout, so deleting the guard fails this in
+        milliseconds instead of spinning until the deadline — which the guard sitting above
+        the ``once`` branch is what makes possible.
+        """
         monkeypatch.setattr(
             watch_ci, "fetch_runs", lambda sha: [run("CI", status="in_progress", conclusion=None)]
         )
         monkeypatch.setattr(watch_ci, "moved", lambda sha, pr, branch: "def")
-        assert watch_ci.watch("abc", interval=0, timeout=1, once=False, pr=538) == 2
+        assert watch_ci.watch("abc", interval=0, timeout=9999, once=True, pr=538) == 2
+        assert "the ref moved to def" in capsys.readouterr().out
+
+    def test_a_moved_ref_stops_a_watch_that_would_have_gone_GREEN(self, monkeypatch, capsys):
+        """The settled path is the one that returns 0, so it is the one that must be gated.
+
+        The guard originally sat below the settled branch, so a watch that settled green on
+        the old commit never asked whether the ref had moved — and the `&&` the docs
+        recommend would then merge the new head on the strength of a verdict about the old.
+        """
+        monkeypatch.setattr(watch_ci, "fetch_runs", lambda sha: [run("CI")])
+        monkeypatch.setattr(watch_ci, "moved", lambda sha, pr, branch: "def")
+        assert watch_ci.watch("abc", interval=0, timeout=9999, once=False, pr=538) == 2
+        out = capsys.readouterr().out
+        assert "the ref moved to def" in out
+        assert "green" not in out
+
+
+class TestReport:
+    """What gets printed, since the report is the product.
+
+    ``verdict`` counts a null conclusion against, which is correct for a finished run and
+    wrong for one still going — so a report that ran it over an unsettled list called healthy
+    in-flight jobs failures. These pin the two shapes apart.
+    """
+
+    def test_an_unsettled_report_gives_NO_verdict_and_calls_nothing_failed(self, capsys):
+        """The `--once`-during-CI case, which printed `RED … failed: CI (no conclusion)`."""
+        runs = [
+            run("CI", status="in_progress", conclusion=None),
+            run("Security", status="queued", conclusion=None),
+        ]
+        watch_ci._report("abc", runs, settled=False)
+        out = capsys.readouterr().out
+        assert "no verdict on abc" in out
+        assert "2 of 2 still going" in out
+        assert "RED" not in out
+        assert "failed:" not in out
+
+    def test_a_settled_green_report_says_green(self, capsys):
+        """And names the sha, so a reader can check the attachment themselves."""
+        watch_ci._report("abc", [run("CI"), run("apply", conclusion="skipped")], settled=True)
+        out = capsys.readouterr().out
+        assert "green on abc" in out
+        assert "RED" not in out
+
+    def test_a_settled_red_report_names_the_failure(self, capsys):
+        """A count without a name sends the reader hunting."""
+        watch_ci._report("abc", [run("CI", conclusion="failure")], settled=True)
+        out = capsys.readouterr().out
+        assert "RED on abc" in out
+        assert "failed: CI (failure)" in out
+
+    def test_once_during_running_ci_exits_2_without_claiming_red(self, monkeypatch, capsys):
+        """End to end: the invocation the docs advertise, against healthy in-flight CI."""
+        monkeypatch.setattr(
+            watch_ci,
+            "fetch_runs",
+            lambda sha: [run("CI", status="in_progress", conclusion=None)],
+        )
+        assert watch_ci.watch("abc", interval=0, timeout=1, once=True) == 2
+        assert "RED" not in capsys.readouterr().out
+
+
+class TestFetchRuns:
+    """The one place a silent cap could hide."""
+
+    def test_a_second_page_of_runs_is_refused_not_silently_dropped(self, monkeypatch):
+        """Judging the first hundred of more, and calling it the whole, is this file's own bug."""
+        monkeypatch.setattr(
+            watch_ci, "_gh", lambda *a: '{"total": 140, "runs": [{"name": "CI"}]}'
+        )
+        with pytest.raises(watch_ci.WatchError, match="fit one page"):
+            watch_ci.fetch_runs("abc")
+
+    def test_a_single_page_is_returned(self, monkeypatch):
+        """The ordinary case still works."""
+        monkeypatch.setattr(watch_ci, "_gh", lambda *a: '{"total": 1, "runs": [{"name": "CI"}]}')
+        assert watch_ci.fetch_runs("abc") == [{"name": "CI"}]
+
+
+class TestMainSelectors:
+    """The CLI, which had its own way past the mutual-exclusion refusal."""
+
+    def test_sha_with_pr_is_refused(self, monkeypatch, capsys):
+        """`args.sha or resolve_sha(...)` short-circuited, so the refusal never ran.
+
+        With all three passed, `moved` also self-disabled silently; with `--sha X --pr N`, a
+        deliberately pinned commit got aborted as "the ref moved".
+        """
+        monkeypatch.setattr("sys.argv", ["watch_ci.py", "--sha", "abc", "--pr", "1"])
+        assert watch_ci.main() == 2
+        assert "Pass one of the three" in capsys.readouterr().err
+
+    def test_an_unexpected_exception_exits_2_not_1(self, monkeypatch, capsys):
+        """1 means "settled and red". A broken watch must not be readable as a failed build."""
+        monkeypatch.setattr("sys.argv", ["watch_ci.py", "--sha", "abc"])
+
+        def boom(*a, **k):
+            raise RuntimeError("something else")
+
+        monkeypatch.setattr(watch_ci, "watch", boom)
+        assert watch_ci.main() == 2
+        assert "the watch itself broke" in capsys.readouterr().err
