@@ -1,73 +1,36 @@
-# ── Control-plane IAM roles ─────────────────────────────────────────────────────────────────
-# ONE shared execution role for every verb Lambda (the consolidated model every plane has
-# used by every plane), plus the Step Function role and the Pipe role. Trust + permission
-# policies are .tftpl templates rendered with templatefile() (no inline jsonencode IAM,
-# per architecture.md).
+# ── Control-plane IAM roles ───────────────────────────────────────────────────
+# One shared execution role, the Step Function role and the Pipe role.
 #
-# The execution policy grants exactly what the shipped verbs need: the registry read that
-# authorizes a shared source, the notifications and logs queues, its own log group, and —
-# — the source listing and read, the copy plan and manifest in the admin
-# bucket, the receipt write, the archive vault, and the SOURCE DELETION.
+# ⚠ THE SOURCE DELETION IS THE STATEMENT TO READ TWICE, AND IT IS WHY THIS ROLE IS UNLIKE
+# EVERY OTHER PLANE'S. Every other plane carries a blanket Deny s3:DeleteObject forever; this
+# one cannot, so the narrower property is written out instead: DeleteObject on the two SPACE
+# buckets only, then NeverDeletePortalManagedObjects Denies it under athenaresults/,
+# user_settings/, archive/ and any DO_NOT_DELETE.txt at any depth. AN EXPLICIT DENY BEATS EVERY
+# ALLOW, INCLUDING A FUTURE ONE — which is why it is a Deny and not a narrowed Allow.
 #
-# THE SOURCE DELETION IS THE STATEMENT TO READ TWICE, AND IT IS WHY THIS ROLE IS UNLIKE
-# EVERY OTHER PLANE'S. Archiving is the only operation in this repo that deletes a user's
-# data as a side effect of a copy. File-send and table-share each carry a blanket
-# `Deny s3:DeleteObject` from their first apply and have that be an enforced property
-# forever; this role cannot, so the property that replaces it is narrower and is written
-# out rather than assumed:
+# THE IAM NARROWING IS THE SECOND LINE OF DEFENCE, NOT THE FIRST. The first is the commit gate;
+# the second is arcommon.delete.assert_deletable, which refuses the WHOLE list before issuing
+# anything, so a key the policy would refuse fails the run rather than stopping half way.
 #
-#   * DeleteObject is granted on the two SPACE buckets only — never the admin bucket, and
-#     never the archive bucket's own data by this statement;
-#   * NeverDeletePortalManagedObjects then Denies it under `athenaresults/` (the portal
-#     role's own results, which the bucket policy would refuse mid-batch anyway),
-#     `user_settings/` (the notification inbox and connections cache), `archive/` (the
-#     receipts THIS plane writes — archiving an archive) and on any `DO_NOT_DELETE.txt` at
-#     any depth, because `*` matches `/` in an IAM resource;
-#   * an explicit Deny beats every Allow, including a future one, which is the point of
-#     writing it as a Deny rather than by narrowing the Allow.
+# The archive bucket's own DeleteObject is THE ROLLBACK'S — a partial copy is not an archive,
+# and without this the residue sits at the GLACIER 90-day minimum until the 7-year expiry.
 #
-# The IAM narrowing is the second line of defence and not the first. The first is the
-# commit gate — the source is deleted only when every object has been confirmed copied —
-# and the second is `arcommon.delete.assert_deletable`, which refuses the whole list
-# BEFORE issuing anything, so a key the policy would refuse fails the run rather than
-# stopping a deletion half way through.
-#
-# THE ARCHIVE BUCKET'S DeleteObject IS THE ROLLBACK'S, and it is the one grant that looks
-# surprising on a vault. A partial copy is not an archive, so it is removed; without this
-# the gate could refuse the deletion but not clean up after itself, and the residue would
-# sit at the GLACIER 90-day minimum until the 7-year expiry. The restore uses the same grant
-# to clear a restored archive.
-#
-# THE RESTORE ADDS TWO THINGS, AND THE SECOND IS A DELIBERATE WIDENING THAT MUST NOT ARRIVE
-# SILENTLY IN A DIFF.
-#
-#   * s3:RestoreObject on the vault (ArchiveVaultRetrieve). It is a DISTINCT ACTION from
-#     GetObject and PutObject — a role holding both still cannot initiate a retrieval, and
-#     the failure would be an AccessDenied at the point of no return rather than at plan
-#     time.
-#   * s3:PutObject on the two SPACE buckets, unrestricted by prefix within the space root
-# (SpaceDataWrite, replacing the ReceiptWrite). The archive needed only `*/archive/*`
-#     because the only thing it wrote into a user's space was a receipt. A RESTORE writes
-#     wherever the data came from, which is anywhere in the space, so the narrow grant cannot
-#     stand. The multipart pair joins it because an archived object may be up to
-#     ARCHIVE_MAX_OBJECT_BYTES (10 GiB) and the copy-back part-copies above 5 GiB.
+# THE RESTORE'S TWO ADDITIONS MUST NOT ARRIVE SILENTLY IN A DIFF: s3:RestoreObject is a
+# DISTINCT ACTION (a role holding Get and Put still cannot retrieve, and the failure would land
+# at the point of no return), and s3:PutObject widened from */archive/* to the whole space root
+# because a restore writes wherever the data came from.
 #
 # NeverOverwritePortalManagedObjects is the narrowing that goes with that widening, and it
-# is defence in depth rather than the rule itself. `athenaresults/` and `user_settings/` can
-# never appear in an archive — RESERVED_SOURCE_ROOTS refuses them at archive time,
-# plan._assert_deletable_folder refuses them at ANY depth, and the destination guard's
-# fail-closed 403-is-occupied rule refuses them again at restore time — so this Deny cannot
-# refuse a legitimate restore. What it buys is that a plan which somehow named one of them
-# could not overwrite the notification inbox or a user's query results. It deliberately does
-# NOT cover `archive/`, which is where the receipt this plane writes lives.
+# ALSO covers _config/ and _directory/, WHICH ARE AT THE BUCKET ROOT — a */x/* pattern cannot
+# match a key with one segment before the folder, so the feature-flag document and the username
+# directory were outside a statement whose name claims to cover portal-managed state.
 #
-# IT ALSO COVERS `_config/` AND `_directory/`, WHICH ARE AT THE BUCKET ROOT AND NOT INSIDE ANY
-# SPACE. A `*/x/*` pattern cannot match a key with one segment before the folder, so the two
-# documents that are arguably the most dangerous things in that bucket — the feature-flag
-# document that decides what every user can see and the username directory
-# — were outside a statement whose name claims to cover portal-managed state. They
-# are unreachable from code, because every restore destination is built by paths.origin_key
-# under an authorized space root, but the widening is what made naming them cheap and correct.
+# The two Denies are different VERBS on overlapping prefixes, and the difference is the
+# receipt: this plane may WRITE under archive/ and may never DELETE there.
+#
+# ⚠ IAM REJECTS A "//" COMMENT KEY INSIDE A STATEMENT, so rationale goes HERE, never in the
+# .tftpl. states:DescribeExecution is on THIS role because it is the notify-failure LAMBDA that
+# calls it, invoked by EventBridge outside any execution. README.md.
 
 # NOTE: the Deny above and NeverDeletePortalManagedObjects are two different verbs on two
 # overlapping prefix sets, and the difference is the receipt: this plane may WRITE under
@@ -107,18 +70,13 @@ resource "aws_iam_role_policy" "execution" {
 }
 
 # ── Portal role — archive enqueue policy ───────────────────
-# THE BROWSER'S ONLY POSITIVE ARCHIVE PRIVILEGE: sqs:SendMessage to the request queue.
-# It is granted NOTHING on the archive bucket — not GetObject, not ListBucket, nothing —
-# and a rendered-policy test asserts the portal role has no statement of any kind naming
-# that ARN. The browser's only relationship with that bucket is that it has none, and the
-# only route to archived bytes is a restore request through this plane.
+# The browser's ONLY positive privilege here: sqs:SendMessage. IT IS GRANTED NOTHING ON THE
+# ARCHIVE BUCKET — not GetObject, not ListBucket, nothing — and a rendered-policy test asserts
+# the portal role has no statement of any kind naming that ARN. The only route to archived
+# bytes is a restore through this plane.
 #
-# A small inline policy on the shared portal role, attached BY NAME like the
-# file-send / table-builder / table-share / notifications modules (the role is created in
-# module.data; the root module-level depends_on guarantees it exists first). The two
-# `archive/` write DENIES that go with this live in the space buckets' own portal
-# templates (modules/data, modules/shared-spaces) — beside the Allows they narrow, which
-# is the honest home for them.
+# The two `archive/` write DENIES that go with this live in the space buckets' own portal
+# templates, beside the Allows they narrow. README.md.
 resource "aws_iam_role_policy" "portal_archive" {
   name = "archive-enqueue"
   role = var.portal_role_name
@@ -138,12 +96,9 @@ resource "aws_iam_role_policy" "sfn" {
   name = "permissions"
   role = aws_iam_role.sfn.id
 
-  # InvokeFunction on the verbs + log delivery, plus the Distributed Map's own
-  # permissions — which belong HERE and not on the execution role: the state machine is
-  # what calls StartExecution for each child and what reads the ItemReader object and
-  # writes the ResultWriter export. Putting them on the Lambda role renders, applies and
-  # unit-tests green, then fails on the first real archive with AccessDenied at the
-  # ItemReader.
+  # ⚠ THE MAP'S GRANTS BELONG HERE AND NOT ON THE EXECUTION ROLE. Putting them on the Lambda
+  # role renders, applies and unit-tests green, then fails on the first real archive with
+  # AccessDenied at the ItemReader.
   policy = templatefile("${path.module}/policies/sfn-permissions.json.tftpl", {
     function_arns_json           = jsonencode(local.archive_function_arns)
     sfn_log_group_arn            = local.sfn_log_group_arn

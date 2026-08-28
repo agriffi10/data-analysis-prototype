@@ -1,11 +1,10 @@
 # ── Shared Athena Workgroup ────────────────────────────────
-# One workgroup every authenticated user queries through. Per-user isolation is
-# NOT at the workgroup layer — it's the Glue database/table ARN scoped by the
-# `username` principal tag plus the per-user results prefix. Athena has
-# no built-in per-user result location, so enforcement is OFF and the app sets a
-# per-user OutputLocation (s3://<user-space-bucket>/{username}/athenaresults/) on
-# every StartQueryExecution; IAM is what actually confines each caller to
-# its own prefix.
+# One workgroup for every user. PER-USER ISOLATION IS NOT AT THIS LAYER — it is the Glue
+# database/table ARN scoped by the `username` principal tag, plus the per-user results prefix.
+# README.md.
+
+# IAM propagation guard: the deploy role's first CreateWorkGroup / CreateBucket call in the
+# same apply can race its own grant.
 
 # IAM propagation guard: the module-level depends_on = [module.base] orders the
 # deploy-role policy (which now grants Athena/S3-admin-bucket perms) before
@@ -21,27 +20,23 @@ resource "aws_athena_workgroup" "portal" {
   name = var.workgroup_name
 
   configuration {
-    # OFF on purpose: the client supplies a per-user OutputLocation per query (see
-    # header). The real per-user boundary is the IAM scoping, noted here so
-    # nobody "hardens" this to true and breaks per-user result routing.
+    # OFF ON PURPOSE — the client supplies a per-user OutputLocation per query, and IAM is the
+    # real boundary. DO NOT "harden" this to true: it breaks per-user result routing.
     enforce_workgroup_configuration    = false
     publish_cloudwatch_metrics_enabled = true
 
-    # Pin engine v3 explicitly (not "AUTO") so engine upgrades are a deliberate,
-    # reviewed change rather than silent.
+    # Pinned, not AUTO, so an engine upgrade is a deliberate reviewed change.
     engine_version {
       selected_engine_version = "Athena engine version 3"
     }
 
-    # Cost guardrail — fail a query that would scan more than this. Tunable.
+    # Cost guardrail. Also the cutoff a data-quality check over a large source hits.
     bytes_scanned_cutoff_per_query = var.query_scan_cutoff_bytes
 
     result_configuration {
-      # DEFAULT/fallback only → the admin-only bucket. Any query that ever
-      # omits an explicit OutputLocation writes here, never to a user-readable place.
-      # Scoped to a fallback-results/ prefix (not the bucket root) so the
-      # expire-admin-results lifecycle rule can target ONLY transient fallback output
-      # and leave the shared-spaces/ registry prefix untouched (s3.tf).
+      # DEFAULT/fallback ONLY, to the admin bucket — a query that omits an explicit
+      # OutputLocation writes here, NEVER to a user-readable place. Under fallback-results/
+      # rather than the root so the expiry rule cannot reach the registry prefix.
       output_location = "s3://${var.athena_admin_bucket_name}/fallback-results/"
 
       encryption_configuration {

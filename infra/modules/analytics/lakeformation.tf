@@ -1,46 +1,16 @@
 # ── Lake Formation bootstrap ───────────────────────────────
-# Make LF the enforcing authority for the Glue Data Catalog: designate admins and
-# remove the default IAMAllowedPrincipals "Super" grants, so new databases/tables
-# get NO automatic catalog-wide access and LF genuinely gates the catalog.
-#
-# SAFE TO ENABLE NOW because:
-#   (a) the file browser reads the user-space bucket via direct S3 IAM (hybrid mode) — NOT through LF — so removing the Super grant doesn't touch it;
-# (b) no per-user Glue databases exist yet, so there's nothing to lock
-# out. The end-to-end query path only works once the post-confirmation
-#       Lambda creates a user's database AND LF-grants the shared role on it.
-# Until then, the Glue IAM scoping + this enforcement simply deny catalog
-# access — the correct, safe state.
+# Removes the default IAMAllowedPrincipals "Super" grants so new databases and tables get NO
+# automatic catalog-wide access. Safe to enable because the file browser reads via direct S3
+# IAM (hybrid mode), not through LF. README.md.
 resource "aws_lakeformation_data_lake_settings" "this" {
-  # Admins can grant/revoke and register locations:
-  #   - deploy role        — runs the IaC
-  #   - provisioner Lambda — issues per-database grants (root wires module.auth's
-  #                          output into lambda_provisioner_role_arn)
-  # (The account root was briefly a direct admin to validate the per-user databases;
-  # removed once confirmed.) All ARNs are KNOWN at plan time (constructed strings);
-  # an unknown element inside this compact() silently drops the admins change.
-  # compact() also drops any empty ARN so the module still plans standalone.
-  # - shared-space orchestrator — grants on shared DBs + the shared
-  #     location; constructed string, ordered after module.shared_spaces so it exists.
-  #   - table-builder execution role (shared by all five verbs) — Describes
-  #     (check-table-absent) + CREATEs (execute-ddl) tables in the dynamic per-user +
-  #     per-shared-space target DBs (can't be statically enumerated → catalog-wide
-  #     Describe/create via LF admin). Constructed string; the role is created by
-  #     module.table_builder (which depends_on this module), so a from-scratch first
-  # apply may need a re-run once the role exists.
-  #   - table-share execution role (same model) — reads LF-gated source
-  #     tables (inspect-source), Describes recipient DBs (check-target-absent) and
-  #     CREATEs the clone tables (create-table) in the dynamic recipient DBs.
-  #   - data-quality execution role (same model, shared by all nine verbs) —
-  #     CREATEs (create-temp-tables) and DELETEs (drop-temp-tables) the THROWAWAY
-  #     dq_tmp_* external tables Athena profiles the source through, in the actor's own
-  #     database or the shared space's. Every table it creates is dropped on both the
-  #     success and the failure path, so this admin leaves no catalog artefact behind.
-  #     Constructed string; the role is created by module.data_quality (which
-  #     module.analytics depends_on), so it exists before LF validates the principal.
+  # ⚠ EVERY ARN HERE IS A CONSTRUCTED STRING, KNOWN AT PLAN TIME — an unknown element inside
+  # this compact() SILENTLY DROPS THE ADMINS CHANGE. compact() also drops empty ARNs so the
+  # module plans standalone. Some of these roles are created by modules that depends_on this
+  # one, so a from-scratch first apply may need a re-run once they exist. README.md.
   admins = compact([var.deploy_role_arn, var.lambda_provisioner_role_arn, var.shared_space_orchestrator_role_arn, var.table_builder_execution_role_arn, var.table_share_execution_role_arn, var.data_quality_execution_role_arn])
 
-  # Empty default permissions for the special IAMAllowedPrincipals principal =
-  # remove the automatic "Super" grant on newly created databases and tables.
+  # Empty defaults for IAMAllowedPrincipals = remove the automatic "Super" grant on newly
+  # created databases and tables.
   create_database_default_permissions {
     permissions = []
     principal   = "IAM_ALLOWED_PRINCIPALS"
@@ -55,14 +25,11 @@ resource "aws_lakeformation_data_lake_settings" "this" {
 }
 
 # ── Hybrid-mode registration of the user-space bucket ──────
-# Register the user-space bucket as an LF location in HYBRID access mode so the
-# same data is reachable two ways:
-# - NON-opted-in principals (the file browser direct S3 IAM) — unchanged
-#   - opted-in principals (the portal role for analytics) — via LF credential vending
-# LF assumes the custom registration role (iam.tf) to vend creds for this location.
+# HYBRID, so the same data is reachable by direct S3 IAM (the file browser) and by LF
+# credential vending (the portal role for analytics).
 #
-# WARNING: do NOT flip this to enforced (non-hybrid) mode without opting in EVERY
-# principal first — it would break the file browser's direct S3 access.
+# ⚠ DO NOT FLIP THIS TO ENFORCED without opting in EVERY principal first — it would break the
+# file browser's direct S3 access. README.md.
 resource "aws_lakeformation_resource" "user_space" {
   arn                   = var.user_space_bucket_arn
   role_arn              = aws_iam_role.lf_registration.arn
@@ -71,14 +38,10 @@ resource "aws_lakeformation_resource" "user_space" {
   depends_on = [aws_iam_role_policy.lf_registration]
 }
 
-# Data-location grant: the shared portal role needs
-# DATA_LOCATION_ACCESS on the registered location to CREATE any table over it —
-# both CREATE EXTERNAL TABLE (read-only) and CTAS / INSERT INTO (writes). This is a
-# single location-level grant (not per-user); per-user gating still comes from IAM
-# (the Glue database ARN principal-tag scoping and S3
-# ${aws:PrincipalTag/username}/*), so the role can only actually
-# create/write within its own session's prefix. The LF INSERT *table* permission
-# for writes is granted later, per-database, by the post-confirmation Lambda.
+# DATA_LOCATION_ACCESS is required to CREATE any table over the location — both CREATE
+# EXTERNAL TABLE and CTAS / INSERT INTO. A SINGLE location-level grant, not per-user; per-user
+# gating still comes from IAM. The LF INSERT table permission is granted later, per-database,
+# by the post-confirmation Lambda.
 resource "aws_lakeformation_permissions" "portal_data_location" {
   principal   = var.portal_role_arn
   permissions = ["DATA_LOCATION_ACCESS"]
@@ -94,22 +57,15 @@ resource "aws_lakeformation_permissions" "portal_data_location" {
 }
 
 # ── TBAC: control-plane create-table access to every managed database ─────────
-# Being an LF data-lake ADMIN does NOT grant a role
-# CREATE_TABLE on a database it did not create — so table-builder / table-share /
-# data-quality (all admins) cannot create tables in the dynamic per-user /
-# per-shared-space target DBs. Rather than loop a per-DB named grant onto each of
-# these shared admin roles (exactly the toil LF-Tags exist to remove), tag every
-# managed DB with ONE `portal-managed` LF-Tag and grant the roles on the TAG. The
-# provisioning Lambdas (post_confirmation / create_space) attach the tag to each new
-# DB; a table inherits its DB's tag, so a created table is reachable by the same
-# grant. Adding a future control-plane role is then one grant here — no Lambda change.
+# ⚠ BEING AN LF DATA-LAKE ADMIN DOES NOT GRANT CREATE_TABLE on a database the role did not
+# create. Rather than loop a per-DB named grant onto each shared role, every managed database
+# carries ONE `portal-managed` tag and the roles are granted on the TAG. A table inherits its
+# database's tag, so adding a future control-plane role is one grant here — no Lambda change.
 #
-# The portal role is deliberately NOT tag-granted: its per-user isolation depends on
-# the named database ARN + IAM principal tag, so it keeps its per-DB named grant
-# (issued by the post-confirmation Lambda) rather than blanket tag access to every DB.
+# The portal role is deliberately NOT tag-granted: its isolation depends on the named database
+# ARN plus the IAM principal tag. README.md.
 locals {
-  # The three shared control-plane execution roles that create tables in dynamic
-  # managed DBs. compact() drops any empty ARN so the module still plans standalone.
+  # compact() drops any empty ARN so the module still plans standalone.
   control_plane_role_arns = toset(compact([
     var.table_builder_execution_role_arn,
     var.table_share_execution_role_arn,
@@ -117,11 +73,9 @@ locals {
   ]))
 }
 
-# NOTE `portal-managed` (this, a Lake Formation tag on DATABASES, hyphenated) is NOT
-# `portal.managed` (a table TBLPROPERTY, dotted — cpcommon/ddl.py). This
-# one GRANTS: it is how the control-plane roles get CREATE_TABLE in dynamic databases.
-# That one only RECORDS that the portal created a table, and nothing reads it to decide
-# anything. One character apart, unrelated jobs.
+# ⚠ `portal-managed` (a Lake Formation tag on DATABASES, hyphenated) is NOT `portal.managed`
+# (a table TBLPROPERTY, dotted, in cpcommon/ddl.py). This one GRANTS; that one only RECORDS,
+# and nothing reads it to decide anything. ONE CHARACTER APART, UNRELATED JOBS.
 resource "aws_lakeformation_lf_tag" "portal_managed" {
   key    = "portal-managed"
   values = ["true"]
@@ -129,15 +83,11 @@ resource "aws_lakeformation_lf_tag" "portal_managed" {
   depends_on = [aws_lakeformation_data_lake_settings.this]
 }
 
-# ASSIGNING the tag to a database requires ASSOCIATE permission ON THE TAG — and, like
-# CREATE_TABLE, LF data-lake ADMIN status does NOT implicitly grant it (confirmed live:
-# the post-confirmation role, an admin, got "Required ASSOCIATE on portal-managed" from
-# AddLFTagsToResource). The tag CREATOR (the deploy role, via Terraform) has it
-# implicitly; the two provisioning roles that call AddLFTagsToResource — post_confirmation
-# (personal DBs) and the shared-space orchestrator (shared DBs) — must be granted it
-# explicitly. DESCRIBE lets them reference the tag. The control-plane execution roles
-# do NOT assign the tag (they only benefit from the tag-policy grants below), so they
-# are not granted ASSOCIATE.
+# ⚠ ASSIGNING the tag requires ASSOCIATE ON THE TAG, and LF ADMIN STATUS DOES NOT IMPLICITLY
+# GRANT IT — confirmed live: the post-confirmation role, an admin, got "Required ASSOCIATE on
+# portal-managed" from AddLFTagsToResource. The tag CREATOR has it implicitly; the two
+# provisioning roles must be granted it explicitly. The execution roles do not assign the tag,
+# so they are not granted ASSOCIATE. README.md.
 resource "aws_lakeformation_permissions" "provisioner_tag_associate" {
   for_each    = toset(compact([var.lambda_provisioner_role_arn, var.shared_space_orchestrator_role_arn]))
   principal   = each.value
@@ -150,38 +100,23 @@ resource "aws_lakeformation_permissions" "provisioner_tag_associate" {
 
   depends_on = [aws_lakeformation_lf_tag.portal_managed]
 
-  # THIS BROKE MAIN, AND WITHOUT IT EVERY FUTURE INFRA APPLY FAILS. Read before removing.
+  # ⚠ THIS BROKE MAIN, AND WITHOUT IT EVERY FUTURE INFRA APPLY FAILS. Read README.md before
+  # removing.
   #
-  # Lake Formation does not read this grant back the way Terraform wrote it. We grant
-  # ASSOCIATE+DESCRIBE on values ["true"]; a refresh returns values ["*"] with
-  # permissions_with_grant_option ["ALTER","ASSOCIATE","DESCRIBE","DROP"] — the principal's
-  # EFFECTIVE permissions, because these two roles are also data-lake admins. `values` is
-  # replacement-forcing, so every plan showed "must be replaced" and every apply tried to
-  # revoke-then-regrant.
+  # Lake Formation does not read this grant back the way Terraform wrote it: a refresh returns
+  # the principal's EFFECTIVE permissions, because these roles are also data-lake admins.
+  # `values` is replacement-forcing, so every plan showed "must be replaced" — and the revoke
+  # then FAILS, because the grant it describes was never explicitly made.
   #
-  # The revoke then FAILS, because the grant it describes was never explicitly made:
-  #   InvalidInputException: No permissions revoked. Revoking Tag permissions on Tags
-  #   that grantee does not have permissions on.
-  # (Observed once on a merge that aborted the apply before it
-  # reached the state machine. Nothing was revoked, so the grants survived — a louder
-  # failure than it looks, and a luckier one.)
-  #
-  # The grant itself is correct and is doing its job: it is what lets post_confirmation and
-  # create_space call AddLFTagsToResource (the live e2e passed on it). Only the
-  # read-back diverges. The tag has exactly ONE value, so LF's ["*"] and our ["true"] are
-  # the same grant described two ways.
-  #
-  # WHAT THIS COSTS: a genuine out-of-band revocation of these grants would no longer show
-  # up as drift. That is the accepted trade — the alternative is a permanently red main and
-  # an infra pipeline that cannot deploy anything. If provisioning ever fails with
-  # "Required ASSOCIATE on portal-managed", check this grant FIRST; Terraform will not.
+  # WHAT THIS COSTS: a genuine out-of-band revocation would no longer show up as drift. IF
+  # PROVISIONING EVER FAILS WITH "Required ASSOCIATE on portal-managed", CHECK THIS GRANT
+  # FIRST — Terraform will not.
   lifecycle {
     ignore_changes = [lf_tag, permissions_with_grant_option]
   }
 }
 
-# DB level: DESCRIBE + CREATE_TABLE/ALTER/DROP on any database carrying the tag —
-# what lets a verb create (and clean up) tables in the target DB.
+# DB level: what lets a verb create and clean up tables in the target database.
 resource "aws_lakeformation_permissions" "control_plane_tag_database" {
   for_each    = local.control_plane_role_arns
   principal   = each.value
@@ -198,9 +133,8 @@ resource "aws_lakeformation_permissions" "control_plane_tag_database" {
   depends_on = [aws_lakeformation_lf_tag.portal_managed]
 }
 
-# Table level (via tag inheritance): read + write + table DDL on every table in a
-# tagged DB, so a verb can SELECT/INSERT and DROP the tables it manages. Mirrors the
-# portal role's per-DB table grant; row-level DELETE is still granted nowhere.
+# Table level, via tag inheritance. Mirrors the portal role's per-DB table grant; row-level
+# DELETE is still granted nowhere.
 resource "aws_lakeformation_permissions" "control_plane_tag_table" {
   for_each    = local.control_plane_role_arns
   principal   = each.value
@@ -217,11 +151,9 @@ resource "aws_lakeformation_permissions" "control_plane_tag_table" {
   depends_on = [aws_lakeformation_lf_tag.portal_managed]
 }
 
-# The location half LF-Tags can't express: DATA_LOCATION_ACCESS on the registered
-# user-space bucket for each control-plane role, so `CREATE EXTERNAL TABLE` over a
-# `{username}/…` prefix passes LF's location check. A single per-BUCKET grant covers
-# every user prefix, exactly like the portal role's grant above; which user's data a
-# role may touch is gated by validate-authorize, not per-prefix IAM.
+# THE LOCATION HALF LF-TAGS CANNOT EXPRESS — tags cover DB and table resources, not S3
+# locations. One per-BUCKET grant covers every user prefix; which user's data a role may touch
+# is gated by validate-authorize, not per-prefix IAM.
 resource "aws_lakeformation_permissions" "control_plane_user_data_location" {
   for_each    = local.control_plane_role_arns
   principal   = each.value
@@ -237,19 +169,12 @@ resource "aws_lakeformation_permissions" "control_plane_user_data_location" {
   ]
 }
 
-# ── The read-only verification principal ────────────────────────────────────
-# The catalog half of that role's access. DESCRIBE alone, on the same `portal-managed` tag
-# the control-plane roles hang off — because the databases are created at runtime, one per
-# username and one per shared space, so nothing static can enumerate them.
+# ── The read-only verification principal ──────────────────────────────────────
+# DESCRIBE alone, on the same `portal-managed` tag, because the databases are created at
+# runtime and nothing static can enumerate them. The IAM half lives in modules/verification.
 #
-# The IAM grants (glue:GetTable / GetTableVersions, the trail objects) live in
-# modules/verification; this is the half Lake Formation gates INDEPENDENTLY, and its refusal
-# — `Insufficient Lake Formation permission(s): Required Describe` — is the exact error the
-# owed read-backs hit from every principal a human has.
-#
-# WHAT IS DELIBERATELY ABSENT: `SELECT` and `DATA_LOCATION_ACCESS`. This role reads a table's
-# DEFINITION and cannot read a byte of what the table points at, which is what makes it a
-# verification principal rather than a widening of the data path (the own Out of Scope).
+# DELIBERATELY ABSENT: SELECT and DATA_LOCATION_ACCESS. This role reads a table's DEFINITION
+# and cannot read a byte of what the table points at. README.md.
 locals {
   verification_role_arns = toset(compact([var.verification_role_arn]))
 }

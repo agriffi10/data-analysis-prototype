@@ -266,6 +266,8 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 | [`docs/lambda-rationale.md`](docs/lambda-rationale.md) | The long-form *why* behind `lambdas/` — sizing evidence, rejected designs, the traps |
 | [`apps/portal/info/component-inventory/INDEX.md`](apps/portal/info/component-inventory/INDEX.md) | **Router** to the per-area inventories in [`apps/portal/info/component-inventory/`](apps/portal/info/component-inventory/) (reusable services / hooks / components / types / utilities) |
 | [`docs/best-practices/INDEX.md`](docs/best-practices/INDEX.md) | Router to the domain rulebooks — React, Python, lambdas, accessibility |
+| [`lambdas/info/INDEX.md`](lambdas/info/INDEX.md) | Every Lambda grouped by control plane, with a page per plane |
+| [`infra/info/INDEX.md`](infra/info/INDEX.md) | Every Terraform module; each has a `README.md` carrying its reasoning |
 | [`docs/specs/`](docs/specs/) | Feature specs — what each feature should do; [`INDEX.md`](docs/specs/INDEX.md) is status, [`ARCS.md`](docs/specs/ARCS.md) is arc narrative |
 | [`docs/spec-delivery/`](docs/spec-delivery/) | Delivery records — what was actually built per spec, plus later-change amendments |
 | [`docs/testing/e2e.md`](docs/testing/e2e.md) | **The** end-to-end validation guide; [`owed.md`](docs/testing/owed.md) is what it cannot settle, [`sessions.md`](docs/testing/sessions.md) is what has been run |

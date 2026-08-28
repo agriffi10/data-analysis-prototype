@@ -17,6 +17,9 @@ the domain rulebooks and inventories live beside the code they govern, in each t
   the code they govern: `apps/portal/info/best-practices/` (React, accessibility) and
   `lambdas/info/best-practices/` (Lambda shape, Python style). Route here, then load only the section(s) you need
 - `@docs/transition_plan.md` — **single source of truth** for the client-environment transition (Entra ID sign-in in **two variants** — §3.3 — IdC propagation, one credential plane with S3 Access Grants, de-provisioning, LF re-keying, ODBC/JDBC driver migration); read before touching auth, provisioning or LF
+- `@lambdas/info/INDEX.md` — every Lambda, grouped by control plane, with a page per plane
+- `@infra/info/INDEX.md` — every Terraform module, and the README beside each one carrying its
+  reasoning; `control-plane-shape.md` is the shape all seven planes share
 - `@docs/lambda-rationale.md` — the long-form *why* behind `lambdas/` (sizing evidence, rejected designs, the traps); read the one entry for the area you're changing, never in full
 
 **Context discipline:** these are pointers, not a reading list. Pull a doc when a task needs it.

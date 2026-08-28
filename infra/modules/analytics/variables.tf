@@ -1,7 +1,6 @@
-# ── analytics module variables ────────────────────────────────────
-# Final resource names are computed in the root module (like user_space_bucket_name)
-# and passed in, so naming lives in one place and base's deploy policy can be scoped
-# to the same ARNs without a dependency cycle.
+# ── analytics module variables ─────────────────────────────────
+# Final resource names are computed in the ROOT module and passed in, so naming lives in one
+# place and base's deploy policy can be scoped to the same ARNs without a cycle. README.md.
 
 variable "workgroup_name" {
   description = "Name of the shared Athena workgroup all users query through (computed by the root module; default {project_name}-prod-portal-wg)."

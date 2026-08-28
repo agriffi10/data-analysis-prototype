@@ -14,8 +14,12 @@ resource "time_sleep" "wait_for_portal_role_perms" {
 # BOTH sts:AssumeRole AND sts:TagSession are required, and either alone is a trap: the missing
 # one renders, plans, applies and unit-tests green, then fails at runtime naming neither.
 #
-# `sts:TagKeys` is a CEILING, NOT A FLOOR — it cannot require that `username` was stamped, and
-# constrains no VALUE. The unspoofability argument rests on the claim, not on this condition.
+# STATE THE LIMIT HONESTLY: `sts:TagKeys` constrains which tag KEYS may appear. It does NOT
+# constrain their VALUES, and IAM offers no way to. It is a CEILING and not a floor —
+# ForAllValues:StringEquals is satisfied by a request carrying a subset of the listed keys, and
+# equally by one carrying none at all, SO THIS CANNOT REQUIRE THAT `username` WAS STAMPED. The
+# unspoofability argument rests entirely on where the value comes from: a claim of a
+# signature-verified ID token. Not on this condition.
 # The `Null` condition's value is the STRING "true"; a JSON boolean fails at apply. README.md.
 resource "aws_iam_role" "portal" {
   name = var.portal_role_name
