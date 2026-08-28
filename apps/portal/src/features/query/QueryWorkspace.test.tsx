@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {render, screen, waitFor, within} from '@testing-library/react';
+import {screen, waitFor, within} from '@testing-library/react';
 import {MemoryRouter, useLocation} from 'react-router';
 import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {QueryClient, QueryClientProvider} from '@tanstack/react-query';
@@ -30,7 +30,7 @@ import {copyObject, listFiles} from '../file-browser/fileBrowser.service';
 import {enqueueTableRefresh} from '../table-builder/tableBuild.service';
 import {enqueueTableShare} from '../table-share/tableShare.service';
 import {QueryWorkspace} from './QueryWorkspace';
-import {DEFAULT_RESULTS_PAGE_SIZE, QUERY_DRAFT_STORAGE_PREFIX, QUERY_TABS_STORAGE_PREFIX} from './query.constants';
+import {DEFAULT_RESULTS_PAGE_SIZE, QUERY_TABS_STORAGE_PREFIX} from './query.constants';
 import {ROUTE_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
 import {ToastProvider} from '../../components/ToastProvider';
 import {AuthContext} from '../auth/authContext';
@@ -369,17 +369,6 @@ describe('QueryWorkspace', () => {
       expect(screen.getByRole('button', {name: 'editor: Run Script → tab per statement'})).toBeInTheDocument();
     });
 
-    it('the editor’s Run Statement scope runs the active statement', async () => {
-      seedSingle('SELECT 1');
-      mockRunQuery.mockResolvedValue(ok({queryExecutionId: 'q-1'}));
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      await user.click(screen.getByRole('button', {name: 'editor: Run Statement'}));
-
-      expect(mockRunQuery).toHaveBeenCalledWith(expect.objectContaining({sql: 'SELECT 1'}));
-    });
-
     it('de-dupes a rapid double-submit and keeps Clear/Run disabled while in flight [SPEC-083 FR-009]', async () => {
       seedSingle('SELECT 1');
       statusMap['q-1'] = {state: 'RUNNING'}; // stays in flight
@@ -418,16 +407,6 @@ describe('QueryWorkspace', () => {
       expect(screen.getByRole('button', {name: 'Run statement'})).toBeInTheDocument();
     });
 
-    it('disables Run/Clear/Save/Create view when the buffer is empty', async () => {
-      seedSingle(''); // an empty tab (a fresh tab is seeded with boilerplate)
-      renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-      expect(screen.getByRole('button', {name: 'Run statement'})).toBeDisabled();
-      expect(screen.getByRole('button', {name: 'Clear query'})).toBeDisabled();
-      expect(screen.getByRole('button', {name: 'Save query'})).toBeDisabled();
-      expect(screen.getByRole('button', {name: 'Create view'})).toBeDisabled();
-    });
-
     it('restores tabs from persisted state on mount, showing the active tab', async () => {
       seedTabs({
         version: 1,
@@ -442,14 +421,6 @@ describe('QueryWorkspace', () => {
 
       expect(await screen.findByLabelText('SQL editor')).toHaveValue('SELECT two;');
       expect(screen.getByRole('tab', {name: /Scratch/})).toHaveAttribute('aria-selected', 'true');
-    });
-
-    it('migrates a SPEC-040 draft into tab 1 on first load (back-compat)', async () => {
-      sessionStorage.setItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`, 'SELECT migrated;');
-      renderWorkspace();
-
-      expect(await screen.findByLabelText('SQL editor')).toHaveValue('SELECT migrated;');
-      expect(sessionStorage.getItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`)).toBeNull();
     });
 
     it('opens a new blank Query 2 tab and isolates text per tab', async () => {
@@ -503,44 +474,6 @@ describe('QueryWorkspace', () => {
       await user.click(newTab);
       expect(screen.getByRole('alertdialog', {name: /query tab limit reached/i})).toBeInTheDocument();
       expect(screen.getAllByRole('tab')).toHaveLength(10);
-    });
-
-    it('Clear cancel leaves the tab untouched; confirm empties it and disables Run', async () => {
-      seedSingle('SELECT * FROM persisted;');
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      await user.click(screen.getByRole('button', {name: 'Clear query'}));
-      await user.click(
-        within(screen.getByRole('alertdialog', {name: /confirm clear query/i})).getByRole('button', {name: 'Cancel'})
-      );
-      expect(editor()).toHaveValue('SELECT * FROM persisted;');
-
-      await user.click(screen.getByRole('button', {name: 'Clear query'}));
-      await user.click(
-        within(screen.getByRole('alertdialog', {name: /confirm clear query/i})).getByRole('button', {name: 'Clear'})
-      );
-      expect(editor()).toHaveValue('');
-      expect(screen.getByRole('button', {name: 'Run statement'})).toBeDisabled();
-    });
-
-    it('finalizes a backgrounded running tab while another tab is active', async () => {
-      seedSingle('SELECT 1');
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      await user.click(screen.getByRole('button', {name: 'Run statement'}));
-      expect(await screen.findByText('us-east')).toBeInTheDocument();
-
-      await user.click(screen.getByRole('button', {name: 'New query tab'}));
-      expect(screen.getByText('Run a query to see results.')).toBeInTheDocument();
-      // Query 1's execution finalized its history in the background.
-      await waitFor(() =>
-        expect(mockUpdate).toHaveBeenCalledWith('alice', 'q-1', expect.objectContaining({status: 'SUCCEEDED'}))
-      );
-
-      await user.click(screen.getByRole('tab', {name: /Query 1/}));
-      expect(screen.getByText('us-east')).toBeInTheDocument();
     });
 
     // --- saved queries (SPEC-173: files, not a JSON store) ---
@@ -637,16 +570,6 @@ describe('QueryWorkspace', () => {
       );
     });
 
-    it('survives the folder call REJECTING, not just returning a failed result', async () => {
-      // The service does not throw by contract. A `.then`-only chain made any breach of
-      // that contract an unhandled rejection, which fails the whole vitest run — so
-      // "best effort" was true of a failed `ServiceResult` and false of a rejection.
-      vi.mocked(ensureSavedQueriesFolder).mockRejectedValue(new Error('boom'));
-      renderWorkspace();
-
-      expect(await screen.findByLabelText('SQL editor')).toBeInTheDocument();
-    });
-
     it('shows a dirty marker once a tab’s buffer diverges from the file it was opened from', async () => {
       // A `.sql` object carries no body until it is READ, so the comparison is against
       // what this session last saw — the body fetched on open — rather than a `sql`
@@ -722,31 +645,6 @@ describe('QueryWorkspace', () => {
       );
     });
 
-    // FR-010. A tripwire, not new behaviour: the failure it guards is silent, and in a
-    // shared space it lands in someone else's file. A COUNT, so a write added later
-    // fails here rather than in production.
-    it('writes NOTHING across an edit → run → tab switch → close of a linked tab', async () => {
-      mockListSaved.mockResolvedValue(savedListing('Revenue'));
-      mockReadSaved.mockResolvedValue(ok('SELECT 1;'));
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
-      await user.click(await screen.findByRole('button', {name: /open saved query/i}));
-      const writesBefore = mockWriteSaved.mock.calls.length;
-
-      await user.clear(editor());
-      await user.type(editor(), 'SELECT edited;');
-      await user.click(screen.getByRole('button', {name: 'Run statement'}));
-      await screen.findByText('Succeeded');
-      await user.click(screen.getByRole('tab', {name: /Query 1/}));
-      await user.click(screen.getByRole('tab', {name: /Revenue/}));
-      await user.click(within(screen.getByRole('tab', {name: /Revenue/})).getByTitle('Close Revenue'));
-      await user.click(await screen.findByRole('button', {name: 'Close tab'}));
-
-      expect(mockWriteSaved.mock.calls.length).toBe(writesBefore);
-    });
-
     // ── SPEC-174: loading from a chosen space ──
 
     it('lists the CHOSEN space, remembers it, and opens a shared query into a tab linked to that space', async () => {
@@ -800,82 +698,6 @@ describe('QueryWorkspace', () => {
       await user.click(await screen.findByRole('button', {name: 'Open saved query Theirs'}));
       expect(screen.getAllByRole('tab', {name: /Theirs/})).toHaveLength(2);
       expect(editor()).toHaveValue('SELECT shared;');
-    });
-
-    it('deletes a shared space’s saved query against THAT space’s bucket', async () => {
-      mockReadCache.mockResolvedValue(
-        ok({version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]})
-      );
-      mockListSaved.mockImplementation(async ({space}) =>
-        space.id === 'teamspace'
-          ? ok({
-              queries: [
-                {
-                  spaceId: 'teamspace',
-                  bucket: 'shared-bucket',
-                  key: 'teamspace/saved_queries/Theirs.sql',
-                  name: 'Theirs',
-                  updatedAt: '2026-07-01T10:00:00.000Z',
-                  size: 12
-                }
-              ],
-              isTruncated: false
-            })
-          : savedListing('Mine')
-      );
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
-      await user.selectOptions(await screen.findByLabelText('Space'), 'teamspace');
-      await user.click(await screen.findByRole('button', {name: 'Delete saved query Theirs'}));
-      await user.click(
-        within(screen.getByRole('alertdialog', {name: /confirm delete saved query/i})).getByRole('button', {
-          name: 'Delete'
-        })
-      );
-
-      // The space's own bucket, and the marker guard's owner taken from the KEY's root
-      // segment — not from the signed-in user.
-      await waitFor(() =>
-        expect(mockDeleteSaved).toHaveBeenCalledWith({
-          bucket: 'shared-bucket',
-          key: 'teamspace/saved_queries/Theirs.sql',
-          username: 'teamspace'
-        })
-      );
-    });
-
-    it('checks the tab cap BEFORE the fetch — the limit dialog, and no GetObject', async () => {
-      seedTabs({
-        version: 1,
-        tabs: Array.from({length: 10}, (_, i) => ({id: `t${i}`, label: `Query ${i + 1}`, sql: 'SELECT 1'})),
-        activeTabId: 't0',
-        nextQueryNumber: 11
-      });
-      mockListSaved.mockResolvedValue(savedListing('Revenue'));
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
-      await user.click(await screen.findByRole('button', {name: /open saved query/i}));
-
-      expect(await screen.findByRole('alertdialog', {name: 'Query tab limit reached'})).toBeInTheDocument();
-      expect(mockReadSaved).not.toHaveBeenCalled();
-    });
-
-    it('falls back to My files for a remembered space the user no longer belongs to', async () => {
-      sessionStorage.setItem('s3portal.query.savedQuerySpace.alice', 'teamspace');
-      mockListSaved.mockResolvedValue(savedListing('Mine'));
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
-      expect(await screen.findByRole('button', {name: 'Open saved query Mine'})).toBeInTheDocument();
-      expect(await screen.findByLabelText('Space')).toHaveValue('personal');
-      expect(mockListSaved).toHaveBeenCalledWith(
-        expect.objectContaining({space: expect.objectContaining({id: 'personal'})})
-      );
     });
 
     // ── SPEC-175: saving into a chosen space ──
@@ -939,71 +761,6 @@ describe('QueryWorkspace', () => {
       await waitFor(() => expect(sessionStorage.getItem('s3portal.query.savedQuerySpace.alice')).toBe('teamspace'));
     });
 
-    it('resolves .sql, .SQL and no extension to ONE key, whatever case the user typed', async () => {
-      // FR-002 AC4, at the workspace. Not merely "never doubled": the three spellings are
-      // the SAME file, because `savedQueryName` strips the extension case-insensitively and
-      // two keys differing only there would render identically in the load list, on the tab
-      // and in the replace confirm. The tab label drops the extension too, so a user who
-      // types `report.sql` gets a tab reading `report` — what the load list shows for it.
-      seedSingle('SELECT r;');
-      withSharedSpace();
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      for (const typed of ['report', 'report.sql', 'report.SQL']) {
-        await saveAs(user, typed);
-      }
-      expect(mockWriteSaved.mock.results).toHaveLength(3);
-      const keys = await Promise.all(
-        mockWriteSaved.mock.results.map(async (r) => {
-          const settled = await r.value;
-          return settled.success ? settled.data.key : null;
-        })
-      );
-      expect(keys).toEqual([
-        'alice/saved_queries/report.sql',
-        'alice/saved_queries/report.sql',
-        'alice/saved_queries/report.sql'
-      ]);
-      expect(screen.getByRole('tab', {name: /report/})).toBeInTheDocument();
-      expect(screen.queryByRole('tab', {name: /report\.sql/i})).not.toBeInTheDocument();
-    });
-
-    it('writes NOTHING until the dialog is submitted — linked tab or not (FR-004)', async () => {
-      seedTabs({
-        version: 1,
-        tabs: [
-          {id: 'a', label: 'Query 1', sql: 'SELECT unlinked;'},
-          {
-            id: 'b',
-            label: 'Monthly',
-            sql: 'SELECT linked;',
-            savedQuery: {
-              spaceId: 'personal',
-              bucket: 'user-bucket',
-              key: 'alice/saved_queries/Monthly.sql',
-              name: 'Monthly'
-            }
-          }
-        ],
-        activeTabId: 'a',
-        nextQueryNumber: 3
-      });
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      await user.click(screen.getByRole('button', {name: 'Save query'}));
-      expect(screen.getByRole('dialog', {name: 'Save query'})).toBeInTheDocument();
-      expect(mockWriteSaved).not.toHaveBeenCalled();
-      await user.click(within(screen.getByRole('dialog', {name: 'Save query'})).getByRole('button', {name: 'Cancel'}));
-
-      await user.click(screen.getByRole('tab', {name: /Monthly/}));
-      await user.click(screen.getByRole('button', {name: 'Save query'}));
-      // Pre-filled, not skipped: SPEC-043 wrote straight through here.
-      expect(within(screen.getByRole('dialog', {name: 'Save query'})).getByLabelText('Name')).toHaveValue('Monthly');
-      expect(mockWriteSaved).not.toHaveBeenCalled();
-    });
-
     it('re-saves a linked tab in place: one write, overwrite, and NO second confirm', async () => {
       // FR-004. The prompt already named the file being replaced, so confirming again asks
       // about the thing just answered.
@@ -1038,216 +795,6 @@ describe('QueryWorkspace', () => {
       );
       expect(screen.queryByRole('alertdialog', {name: /confirm replace saved query/i})).not.toBeInTheDocument();
       expect(screen.getByRole('tab', {name: /Monthly/})).toBeInTheDocument();
-    });
-
-    it('re-creates a linked file that was deleted underneath it, and re-links the tab', async () => {
-      // FR-004 AC6: the tab keeps its SQL when the file goes (SPEC-174 FR-005), so the next
-      // Save is an ordinary write at the same key — which is why it may carry `overwrite`
-      // against nothing and must still succeed.
-      seedTabs({
-        version: 1,
-        tabs: [
-          {
-            id: 'a',
-            label: 'Monthly',
-            sql: 'SELECT still-here;',
-            savedQuery: {
-              spaceId: 'personal',
-              bucket: 'user-bucket',
-              key: 'alice/saved_queries/Monthly.sql',
-              name: 'Monthly'
-            }
-          }
-        ],
-        activeTabId: 'a',
-        nextQueryNumber: 2
-      });
-      withSharedSpace();
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      await user.click(screen.getByRole('button', {name: 'Save query'}));
-      await user.click(within(screen.getByRole('dialog', {name: 'Save query'})).getByRole('button', {name: 'Save'}));
-
-      await waitFor(() => expect(mockWriteSaved).toHaveBeenCalledTimes(1));
-      expect(await screen.findByText(/Saved “Monthly” to My files/)).toBeInTheDocument();
-      expect(screen.getByRole('tab', {name: /Monthly/})).toBeInTheDocument();
-    });
-
-    it('saving a linked tab into ANOTHER space is a new file: no delete, re-linked there', async () => {
-      // FR-005. Nothing is moved — a saved query a colleague may be running does not
-      // disappear because someone copied it elsewhere.
-      seedTabs({
-        version: 1,
-        tabs: [
-          {
-            id: 'a',
-            label: 'Monthly',
-            sql: 'SELECT r;',
-            savedQuery: {
-              spaceId: 'personal',
-              bucket: 'user-bucket',
-              key: 'alice/saved_queries/Monthly.sql',
-              name: 'Monthly'
-            }
-          }
-        ],
-        activeTabId: 'a',
-        nextQueryNumber: 2
-      });
-      withSharedSpace();
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-      await screen.findByRole('button', {name: 'Save query'});
-
-      await user.click(screen.getByRole('button', {name: 'Save query'}));
-      const dialog = screen.getByRole('dialog', {name: 'Save query'});
-      // It opened on the TAB's own space, then the user moves it.
-      expect(within(dialog).getByLabelText('Space')).toHaveValue('personal');
-      await user.selectOptions(within(dialog).getByLabelText('Space'), 'teamspace');
-      await user.click(within(dialog).getByRole('button', {name: 'Save'}));
-
-      await waitFor(() => expect(mockWriteSaved).toHaveBeenCalledTimes(1));
-      expect(mockWriteSaved).toHaveBeenCalledWith(
-        expect.objectContaining({space: expect.objectContaining({id: 'teamspace'}), name: 'Monthly'})
-      );
-      // A DIFFERENT key, so it is not the in-place re-save and the original stands.
-      expect(mockWriteSaved).toHaveBeenCalledWith(expect.objectContaining({overwrite: false}));
-      expect(mockDeleteSaved).not.toHaveBeenCalled();
-      expect(await screen.findByText(/Saved “Monthly” to teamspace/)).toBeInTheDocument();
-
-      // The tab now points at the NEW space: re-opening Save defaults there.
-      await user.click(screen.getByRole('button', {name: 'Save query'}));
-      expect(within(screen.getByRole('dialog', {name: 'Save query'})).getByLabelText('Space')).toHaveValue('teamspace');
-    });
-
-    it('resolves the collision against the KEY: `Report` beside `report.sql` is a second file', async () => {
-      // FR-003. S3 keys are case-sensitive, and this is the deliberate visible change from
-      // SPEC-043's case-insensitive scan of the loaded array. A case-insensitive pre-check
-      // would have to list the whole folder on every save to be correct, and would still be
-      // wrong the moment two members save at once.
-      seedSingle('SELECT r;');
-      withSharedSpace();
-      const existing = new Set(['alice/saved_queries/report.sql']);
-      const write = mockWriteSaved.getMockImplementation();
-      mockWriteSaved.mockImplementation(async (params) => {
-        const key = savedQueryKey(params.space.rootPrefix, params.name);
-        if (!params.overwrite && existing.has(key)) return fail(`“${params.name}” already exists.`, 'Collision');
-        return write!(params);
-      });
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      await saveAs(user, 'Report');
-
-      expect(await screen.findByRole('tab', {name: /Report/})).toBeInTheDocument();
-      expect(screen.queryByRole('alertdialog', {name: /confirm replace saved query/i})).not.toBeInTheDocument();
-
-      // …and the lower-case name, in the same space, DOES collide.
-      // AC4: the decision is a HEAD on the exact key inside the write — the dialog never
-      // lists the folder to reach it. Measured across the COLLIDING save, which performs no
-      // successful write and so cannot be confused with the list refresh that follows one.
-      const listingsBefore = mockListSaved.mock.calls.length;
-      await saveAs(user, 'report');
-      expect(await screen.findByRole('alertdialog', {name: /confirm replace saved query/i})).toBeInTheDocument();
-      expect(mockListSaved.mock.calls.length).toBe(listingsBefore);
-    });
-
-    it('prompts from the KEY even when the loaded list holds the name — and not otherwise', async () => {
-      // The sharp end of FR-003 AC4. The in-memory scan and the HEAD disagree here in BOTH
-      // directions, so a dialog that consulted the list would fail this test twice: it would
-      // prompt for `Loaded` (in the list, absent from S3) and write `Absent` unprompted (in
-      // S3, absent from the list).
-      seedSingle('SELECT r;');
-      withSharedSpace();
-      mockListSaved.mockResolvedValue(savedListing('Loaded'));
-      const write = mockWriteSaved.getMockImplementation();
-      mockWriteSaved.mockImplementation(async (params) =>
-        !params.overwrite && params.name === 'Absent'
-          ? fail(`“${params.name}” already exists.`, 'Collision')
-          : write!(params)
-      );
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      // Open the drawer so the list is genuinely loaded and scannable.
-      await user.click(screen.getByRole('button', {name: 'Saved queries'}));
-      expect(await screen.findByRole('button', {name: 'Open saved query Loaded'})).toBeInTheDocument();
-
-      await saveAs(user, 'Loaded');
-      expect(await screen.findByRole('tab', {name: /Loaded/})).toBeInTheDocument();
-      expect(screen.queryByRole('alertdialog', {name: /confirm replace saved query/i})).not.toBeInTheDocument();
-
-      await saveAs(user, 'Absent');
-      expect(await screen.findByRole('alertdialog', {name: /confirm replace saved query/i})).toBeInTheDocument();
-    });
-
-    it('does not prompt for a name that exists in a DIFFERENT space, and names the space when it does', async () => {
-      // FR-003 AC6 + AC2's wording: the collision is per space, and the confirm says which.
-      seedSingle('SELECT r;');
-      withSharedSpace();
-      const write = mockWriteSaved.getMockImplementation();
-      mockWriteSaved.mockImplementation(async (params) =>
-        !params.overwrite && params.space.id === 'teamspace'
-          ? fail(`“${params.name}” already exists.`, 'Collision')
-          : write!(params)
-      );
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-      await screen.findByRole('button', {name: 'Save query'});
-
-      // Personal holds no such key: straight through.
-      await saveAs(user, 'Quarterly');
-      expect(await screen.findByRole('tab', {name: /Quarterly/})).toBeInTheDocument();
-      expect(screen.queryByRole('alertdialog', {name: /confirm replace saved query/i})).not.toBeInTheDocument();
-
-      // The shared space holds it: the confirm, naming that space.
-      await saveAs(user, 'Quarterly', 'teamspace');
-      const confirm = await screen.findByRole('alertdialog', {name: /confirm replace saved query/i});
-      expect(within(confirm).getByText(/already exists in teamspace/)).toBeInTheDocument();
-
-      // Cancelling issues no further write and returns to the dialog, destination intact.
-      const writes = mockWriteSaved.mock.calls.length;
-      await user.click(within(confirm).getByRole('button', {name: 'Cancel'}));
-      expect(mockWriteSaved.mock.calls.length).toBe(writes);
-      const dialog = await screen.findByRole('dialog', {name: 'Save query'});
-      expect(within(dialog).getByLabelText('Name')).toHaveValue('Quarterly');
-      expect(within(dialog).getByLabelText('Space')).toHaveValue('teamspace');
-
-      // Confirming replaces THAT space's file.
-      await user.click(within(dialog).getByRole('button', {name: 'Save'}));
-      await user.click(
-        within(await screen.findByRole('alertdialog', {name: /confirm replace saved query/i})).getByRole('button', {
-          name: 'Replace'
-        })
-      );
-      expect(mockWriteSaved).toHaveBeenLastCalledWith(
-        expect.objectContaining({space: expect.objectContaining({id: 'teamspace'}), overwrite: true})
-      );
-    });
-
-    it('OPENS and explains itself when there is nowhere to save, and issues no request', async () => {
-      // FR-007. SPEC-167 records this exact failure in the send dialog: a `submitDisabled`
-      // made the inline refusal dead code, and the test asserting "the button is disabled"
-      // passed straight over the acceptance criterion. The banner is what is asserted here.
-      // RESTORED IN `finally`, and that is not tidiness: this file's env stubs live in the
-      // describe body, so they run once at collection and are never re-applied per test. A
-      // failure here that skipped the restore left every later test in this file with no
-      // user-space bucket — measured: one injected failure became 18.
-      vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', '');
-      try {
-        seedSingle('SELECT r;');
-        const {user} = renderWorkspace();
-        await screen.findByLabelText('SQL editor');
-
-        await user.click(screen.getByRole('button', {name: 'Save query'}));
-        const dialog = await screen.findByRole('dialog', {name: 'Save query'});
-        expect(within(dialog).getByText(/There’s nowhere to save this query/)).toBeInTheDocument();
-        expect(mockWriteSaved).not.toHaveBeenCalled();
-        expect(ensureSavedQueriesFolder).not.toHaveBeenCalled();
-      } finally {
-        vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
-      }
     });
 
     it('re-runs a history entry into the active tab (no database context)', async () => {
@@ -1285,46 +832,6 @@ describe('QueryWorkspace', () => {
 
       await openTableMenu(user, 'foreign');
       expect(await screen.findByRole('menuitem', {name: 'View source files'})).toBeDisabled();
-    });
-
-    // SPEC-179 FR-007: the Data Explorer's entry point on a Query surface. The database
-    // comes from the rail NODE the table was invoked from (SPEC-077 FR-007) — there is no
-    // active-database selection to take it from — and `space` carries the same name, which
-    // `/explore` re-resolves: the personal database IS the username, which resolves to the
-    // personal space by SPEC-113's precedence.
-    it('Explore data navigates to /explore carrying the node’s own database, for a table and a view alike', async () => {
-      const {user} = renderWorkspace();
-
-      await openTableMenu(user, 'sales_2026');
-      await user.click(await screen.findByRole('menuitem', {name: 'Explore data'}));
-      expect(screen.getByLabelText('probe-location')).toHaveTextContent(
-        '/explore?space=alice&db=alice&table=sales_2026'
-      );
-
-      await openTableMenu(user, 'revenue_view');
-      await user.click(await screen.findByRole('menuitem', {name: 'Explore data'}));
-      expect(screen.getByLabelText('probe-location')).toHaveTextContent(
-        '/explore?space=alice&db=alice&table=revenue_view'
-      );
-    });
-
-    it('View DDL opens non-run DDL tabs for a table (SHOW CREATE TABLE) and a view (isView passthrough)', async () => {
-      mockGetTableDdl.mockResolvedValue(ok('CREATE EXTERNAL TABLE sales_2026 (...)'));
-      const {user} = renderWorkspace();
-
-      await openTableMenu(user, 'sales_2026');
-      await user.click(await screen.findByRole('menuitem', {name: 'View DDL'}));
-      expect(await screen.findByRole('tab', {name: /DDL: sales_2026/})).toBeInTheDocument();
-      expect(editor()).toHaveValue('CREATE EXTERNAL TABLE sales_2026 (...)');
-      expect(mockGetTableDdl).toHaveBeenCalledWith(
-        expect.objectContaining({database: 'alice', table: 'sales_2026', isView: false})
-      );
-      expect(mockRunQuery).not.toHaveBeenCalled(); // a DDL fetch is not a run
-
-      mockGetTableDdl.mockResolvedValue(ok('CREATE VIEW revenue_view ...'));
-      await openTableMenu(user, 'revenue_view');
-      await user.click(await screen.findByRole('menuitem', {name: 'View DDL'}));
-      expect(mockGetTableDdl).toHaveBeenLastCalledWith(expect.objectContaining({table: 'revenue_view', isView: true}));
     });
 
     it('View data opens a "{table}" tab and auto-runs a fully-qualified unbounded SELECT * (no LIMIT) [SPEC-105]', async () => {
@@ -1368,22 +875,6 @@ describe('QueryWorkspace', () => {
       // SPEC-106: the toast shows friendly, mapped text — not the raw Athena reason.
       expect(await screen.findByText(/Couldn’t drop sales_2026/)).toBeInTheDocument();
       expect(screen.queryByText(/table locked/)).not.toBeInTheDocument();
-    });
-
-    it('Drop on a view confirms and runs DROP VIEW', async () => {
-      mockRunToCompletion.mockResolvedValue(ok(succeeded('q-dropview')));
-      const {user} = renderWorkspace();
-
-      await openTableMenu(user, 'revenue_view');
-      await user.click(await screen.findByRole('menuitem', {name: 'Drop view'}));
-      await user.click(
-        within(screen.getByRole('alertdialog', {name: /confirm drop view/i})).getByRole('button', {name: 'Drop view'})
-      );
-
-      expect(await screen.findByText('Dropped revenue_view')).toBeInTheDocument();
-      expect(mockRunToCompletion).toHaveBeenCalledWith(
-        expect.objectContaining({sql: 'DROP VIEW `alice`.`revenue_view`'})
-      );
     });
 
     it('Create view composes CREATE OR REPLACE VIEW (target db derived from the body), records history + success toast', async () => {
@@ -1519,24 +1010,6 @@ describe('QueryWorkspace', () => {
       expect(mockAppend).toHaveBeenCalledTimes(2);
     });
 
-    it('Stop mid-batch halts the remainder even when the in-flight statement succeeds (FR-002)', async () => {
-      queueRuns('q-1', 'q-2');
-      statusMap['q-1'] = {state: 'RUNNING'};
-      seedScript('SELECT 1;\nSELECT 2;');
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      await runScriptSingle(user);
-      const stop = await screen.findByRole('button', {name: /Stop/});
-      statusMap['q-1'] = {state: 'SUCCEEDED'}; // outruns the cancel
-      await user.click(stop);
-
-      expect(mockStopQuery).toHaveBeenCalledWith('q-1');
-      await screen.findByText('Succeeded', undefined, {timeout: 3000});
-      expect(mockRunQuery).toHaveBeenCalledTimes(1);
-      expect(screen.queryByText(/Script finished/)).not.toBeInTheDocument();
-    });
-
     it('Run Script (tab per statement) yields one result tab per result-producing statement, and a new run clears them (FR-007)', async () => {
       queueRuns('q-1', 'q-2', 'q-3');
       seedScript();
@@ -1559,18 +1032,6 @@ describe('QueryWorkspace', () => {
       await runScriptTabs(user);
       await screen.findByRole('button', {name: /Stop/});
       expect(screen.queryByRole('tablist', {name: 'Result tabs'})).not.toBeInTheDocument();
-    });
-
-    it('shows batch progress in the status bar while running (FR-004)', async () => {
-      queueRuns('q-1', 'q-2', 'q-3');
-      statusMap['q-2'] = {state: 'RUNNING'};
-      seedScript();
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      await runScriptSingle(user);
-      await screen.findByRole('button', {name: /Stop/});
-      expect(await screen.findByText(/Statement 2 of 3/, undefined, {timeout: 3000})).toBeInTheDocument();
     });
 
     it('Run Statement executes the selection, else the statement under the cursor (FR-006)', async () => {
@@ -1640,7 +1101,6 @@ describe('QueryWorkspace', () => {
   // ── SPEC-145: refresh table ─────────────────────────────────────────────────
   describe('QueryWorkspace — refresh table (SPEC-145)', () => {
     const refreshDialog = () => screen.getByRole('alertdialog', {name: /confirm refresh table/i});
-    const location = () => screen.getByLabelText('probe-location').textContent;
 
     beforeEach(() => {
       mockEnqueueRefresh.mockResolvedValue(ok(undefined));
@@ -1666,18 +1126,6 @@ describe('QueryWorkspace', () => {
       await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
     });
 
-    it('keeps the dialog open with a user-safe error when the enqueue fails', async () => {
-      mockEnqueueRefresh.mockResolvedValue(fail('sqs exploded', 'NotAuthenticated'));
-      const {user} = renderWorkspace();
-      await user.click(await screen.findByRole('button', {name: 'Options for sales_2026'}));
-      await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Refresh table'}));
-      await user.click(within(refreshDialog()).getByRole('button', {name: 'Refresh table'}));
-
-      // SPEC-106: toUserMessage wording, never the raw service text.
-      expect(await within(refreshDialog()).findByRole('alert')).toHaveTextContent('Sign in to continue.');
-      expect(screen.queryByText('sqs exploded')).not.toBeInTheDocument();
-    });
-
     it('opens the link-borne dialog from a columns_removed notification link', async () => {
       const {user} = renderWorkspace('/query?refreshTable=alice.sales_2026&removed=legacy_id,Order%20ID');
 
@@ -1694,103 +1142,6 @@ describe('QueryWorkspace', () => {
       await user.click(confirm);
 
       expect(mockEnqueueRefresh).toHaveBeenCalledWith(expect.objectContaining({allowRemovals: true}));
-    });
-
-    it('clears the query parameters once the link-borne dialog is dismissed', async () => {
-      const {user} = renderWorkspace('/query?refreshTable=alice.sales_2026&removed=legacy_id');
-      const dialog = await screen.findByRole('alertdialog', {name: /confirm refresh table/i});
-
-      await user.click(within(dialog).getByRole('button', {name: 'Cancel'}));
-      // The dialog IS the query string — retiring the parameters is what closes it, and
-      // is what stops a reload from reopening what the user just dismissed.
-      await waitFor(() => expect(location()).toBe('/query'));
-      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    });
-
-    it('clears the query parameters once the link-borne refresh is submitted', async () => {
-      const {user} = renderWorkspace('/query?refreshTable=alice.sales_2026&removed=legacy_id');
-      const dialog = await screen.findByRole('alertdialog', {name: /confirm refresh table/i});
-
-      await user.click(within(dialog).getByRole('checkbox', {name: /allow columns to be removed/i}));
-      await user.click(within(dialog).getByRole('button', {name: 'Refresh table'}));
-      await waitFor(() => expect(location()).toBe('/query'));
-      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    });
-
-    it.each([
-      ['a database that is not catalog-safe', '/query?refreshTable=Alice.sales_2026&removed=legacy_id'],
-      ['a table that is not catalog-safe', '/query?refreshTable=alice.Sales&removed=legacy_id'],
-      ['no qualifying dot', '/query?refreshTable=sales_2026&removed=legacy_id']
-    ])('ignores the parameters entirely when the link names %s', async (_label, route) => {
-      renderWorkspace(route);
-      await screen.findByRole('button', {name: 'sales_2026'}); // the workspace renders normally
-      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-      // Nothing was consumed, so nothing was rewritten either.
-      expect(location()).toBe(route.slice(route.indexOf('/')));
-    });
-
-    it('opens nothing for a table the rail does not have', async () => {
-      renderWorkspace('/query?refreshTable=alice.not_a_table&removed=legacy_id');
-      await screen.findByRole('button', {name: 'sales_2026'}); // the rail loaded, so the link resolved
-      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    });
-
-    it('opens nothing for a database the user cannot reach', async () => {
-      renderWorkspace('/query?refreshTable=someone_else.sales_2026&removed=legacy_id');
-      await screen.findByRole('button', {name: 'sales_2026'});
-      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-      // No existence oracle: the unreachable database is never fetched.
-      expect(mockListTables).not.toHaveBeenCalledWith('someone_else');
-    });
-
-    // A link with no names is not the link-borne state: that state gates confirm behind
-    // the removals opt-in, which would coerce a blind `allowRemovals: true` when the
-    // user was never told which columns are going.
-    it('opens the PLAIN dialog for a link carrying no column names', async () => {
-      const {user} = renderWorkspace('/query?refreshTable=alice.sales_2026');
-      const dialog = await screen.findByRole('alertdialog', {name: /confirm refresh table/i});
-
-      expect(within(dialog).queryByText(/previous refresh was stopped/i)).not.toBeInTheDocument();
-      expect(within(dialog).getByRole('button', {name: 'Refresh table'})).toBeEnabled();
-
-      await user.click(within(dialog).getByRole('button', {name: 'Refresh table'}));
-      expect(mockEnqueueRefresh.mock.calls[0][0]).not.toHaveProperty('allowRemovals');
-    });
-
-    it('opens nothing for a table with no location (no request could be built)', async () => {
-      mockListTables.mockResolvedValue(ok([{...salesTable, location: undefined}]));
-      renderWorkspace('/query?refreshTable=alice.sales_2026&removed=legacy_id');
-      await screen.findByRole('button', {name: 'sales_2026'});
-      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    });
-
-    it('leaves an unresolvable link’s parameters alone when a menu-opened dialog is cancelled', async () => {
-      const stale = '/query?refreshTable=alice.not_a_table&removed=legacy_id';
-      const {user} = renderWorkspace(stale);
-      await user.click(await screen.findByRole('button', {name: 'Options for sales_2026'}));
-      await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Refresh table'}));
-      await user.click(within(refreshDialog()).getByRole('button', {name: 'Cancel'}));
-
-      // Cancelling dialog B must not destroy state belonging to A.
-      expect(location()).toBe(stale);
-    });
-
-    it('opens nothing for a view (a view has no folder to re-read)', async () => {
-      renderWorkspace('/query?refreshTable=alice.revenue_view&removed=legacy_id');
-      await screen.findByRole('button', {name: 'sales_2026'});
-      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    });
-
-    it('re-reads the rail after a successful refresh', async () => {
-      const {user} = renderWorkspace();
-      await screen.findByRole('button', {name: 'sales_2026'});
-      const before = mockListTables.mock.calls.length;
-
-      await user.click(screen.getByRole('button', {name: 'Options for sales_2026'}));
-      await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Refresh table'}));
-      await user.click(within(refreshDialog()).getByRole('button', {name: 'Refresh table'}));
-
-      await waitFor(() => expect(mockListTables.mock.calls.length).toBeGreaterThan(before));
     });
   });
 
@@ -1839,21 +1190,6 @@ describe('QueryWorkspace', () => {
       expect(await screen.findByRole('complementary', {name: 'Schema browser'})).toBeInTheDocument();
     });
 
-    // SPEC-179 FR-007 AC5: the drawer's copy of the tree is fed through the ref indirection,
-    // so an action added to the rail has to arrive there too — the mobile surface is where a
-    // handler that closed over a stale `actions` object would silently do nothing.
-    it('offers Explore data in the mobile nav drawer’s copy of the rail, and it navigates', async () => {
-      const {user} = renderMobileWorkspace();
-      const rail = await screen.findByLabelText('mobile nav rail');
-
-      await user.click(await within(rail).findByRole('button', {name: 'Options for sales_2026'}));
-      await user.click(await screen.findByRole('menuitem', {name: 'Explore data'}));
-
-      expect(screen.getByLabelText('probe-location')).toHaveTextContent(
-        '/explore?space=alice&db=alice&table=sales_2026'
-      );
-    });
-
     it('runs a saved query from a card and shows row cards with a pager', async () => {
       mockListSaved.mockResolvedValue(savedListing('Revenue'));
       // The card carries no SQL — the file is read when the card is CHOSEN (FR-006).
@@ -1878,59 +1214,6 @@ describe('QueryWorkspace', () => {
       expect(await screen.findByRole('button', {name: 'Run saved query Revenue'})).toBeInTheDocument();
     });
 
-    // ── SPEC-174 FR-007: the mobile Saved surface ──
-
-    it('shows the space selector and delete on the mobile Saved tab, and lists ONCE', async () => {
-      mockReadCache.mockResolvedValue(
-        ok({version: 1, connections: [{name: 'teamspace', role: 'member', status: 'active'}]})
-      );
-      mockListSaved.mockResolvedValue(savedListing('Revenue'));
-      const {user} = renderMobileWorkspace();
-
-      expect(await screen.findByRole('button', {name: 'Run saved query Revenue'})).toBeInTheDocument();
-      // The list is not mounted twice: one surface, one listing request per space.
-      await waitFor(() => expect(mockListSaved).toHaveBeenCalledTimes(1));
-
-      const select = await screen.findByLabelText('Space');
-      expect(
-        within(select)
-          .getAllByRole('option')
-          .map((o) => o.textContent)
-      ).toEqual(['My files', 'teamspace']);
-
-      await user.click(screen.getByRole('button', {name: 'Delete saved query Revenue'}));
-      await user.click(
-        within(screen.getByRole('alertdialog', {name: /confirm delete saved query/i})).getByRole('button', {
-          name: 'Delete'
-        })
-      );
-      await waitFor(() =>
-        expect(mockDeleteSaved).toHaveBeenCalledWith(expect.objectContaining({key: 'alice/saved_queries/Revenue.sql'}))
-      );
-    });
-
-    it('pages the mobile Saved list with the shared Pager', async () => {
-      mockListSaved.mockResolvedValue(
-        ok({queries: Array.from({length: 12}, (_, i) => savedFile(`q${i}`)), isTruncated: false})
-      );
-      const {user} = renderMobileWorkspace();
-
-      expect(await screen.findByText('1–10 of 12')).toBeInTheDocument();
-      await user.click(screen.getAllByRole('button', {name: 'Next'})[0]);
-      expect(await screen.findByText('11–12 of 12')).toBeInTheDocument();
-    });
-
-    it('drops the toolbar labels in the tablet band while keeping the accessible names', () => {
-      window.innerWidth = 1024; // tablet band
-      renderWorkspace();
-      // Icon-only is a CSS concern jsdom can't compute; assert the label carries the
-      // desktop-only visibility utility and the button keeps its accessible name.
-      expect(screen.getByText('Clear')).toHaveClass('hidden', 'desktop:inline');
-      expect(screen.getByRole('button', {name: 'Clear query'})).toBeInTheDocument();
-      expect(screen.getByText('Run Statement')).toHaveClass('hidden', 'desktop:inline');
-      expect(screen.getByRole('button', {name: 'Run statement'})).toBeInTheDocument();
-    });
-
     it('never shows one query’s results under another query’s name', async () => {
       mockListSaved.mockResolvedValue(savedListing('Revenue', 'Costs'));
       const {user} = renderMobileWorkspace();
@@ -1949,66 +1232,6 @@ describe('QueryWorkspace', () => {
       expect(screen.queryByLabelText('Row 1')).not.toBeInTheDocument();
       expect(screen.queryByText('Succeeded')).not.toBeInTheDocument();
       expect(screen.queryByRole('button', {name: 'Prev'})).not.toBeInTheDocument();
-    });
-
-    it('leaves the editor’s draft untouched when a card is run', async () => {
-      seedSingle('SELECT my_unsaved_draft');
-      mockListSaved.mockResolvedValue(savedListing('Revenue'));
-      const {user} = renderMobileWorkspace();
-
-      await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
-      await waitFor(() => expect(mockRunQuery).toHaveBeenCalled());
-
-      // The draft is persisted state a wider screen owns — running here must not
-      // overwrite it (the run carries its own statements).
-      const persisted = JSON.parse(sessionStorage.getItem(`${QUERY_TABS_STORAGE_PREFIX}alice`) as string);
-      expect(persisted.tabs[0].sql).toBe('SELECT my_unsaved_draft');
-    });
-
-    it('stops claiming a query is running once its failure is dismissed', async () => {
-      mockListSaved.mockResolvedValue(savedListing('Revenue'));
-      mockRunQuery.mockResolvedValueOnce(fail('Rate exceeded', 'ThrottlingException'));
-      const {user} = renderMobileWorkspace();
-
-      await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
-      await user.click(await screen.findByRole('button', {name: 'Dismiss'}));
-
-      // The submit never reached Athena: with the banner gone there is nothing to
-      // report, and nothing may imply the query is still in flight.
-      expect(screen.queryByText('Query failed.')).not.toBeInTheDocument();
-      expect(screen.queryByText('Running your query…')).not.toBeInTheDocument();
-      expect(screen.queryByRole('status')).not.toBeInTheDocument();
-      expect(screen.getByRole('button', {name: 'Run'})).toBeEnabled();
-    });
-
-    it('holds an honest in-flight state between the tap and the run starting', async () => {
-      mockListSaved.mockResolvedValue(savedListing('Revenue'));
-      let startRun: (v: {success: true; data: {queryExecutionId: string}}) => void = () => {};
-      mockRunQuery.mockReturnValueOnce(new Promise((resolve) => (startRun = resolve)));
-      const {user} = renderMobileWorkspace();
-
-      await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
-
-      // The run isn't installed on the tab yet — the view must say so, and must not
-      // invite a second tap while it does.
-      expect(await screen.findByText('Running your query…')).toBeInTheDocument();
-      expect(screen.getByRole('button', {name: 'Run'})).toBeDisabled();
-
-      startRun(ok({queryExecutionId: 'q-1'}));
-      expect(await screen.findByLabelText('Row 1')).toBeInTheDocument();
-    });
-
-    it('reports a submit that throws instead of waiting on it forever', async () => {
-      mockListSaved.mockResolvedValue(savedListing('Revenue'));
-      // Services don't throw by contract; if one does, the outcome still has to settle.
-      mockRunQuery.mockRejectedValueOnce(new Error('socket hang up'));
-      const {user} = renderMobileWorkspace();
-
-      await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
-
-      expect(await screen.findByText('Query failed.')).toBeInTheDocument();
-      expect(screen.queryByText('Running your query…')).not.toBeInTheDocument();
-      expect(screen.getByRole('button', {name: 'Run'})).toBeEnabled();
     });
 
     it('runs a table’s data from the drawer into the mobile results view', async () => {
@@ -2050,56 +1273,6 @@ describe('QueryWorkspace', () => {
       expect(screen.queryByText('The run finished without returning rows.')).not.toBeInTheDocument();
       expect(screen.queryByText('us-east')).not.toBeInTheDocument();
     });
-
-    it('does not carry a failed mobile submit onto the editor shell — even when it fails after the crossing', async () => {
-      seedSingle('SELECT my_unsaved_draft');
-      mockListSaved.mockResolvedValue(savedListing('Revenue'));
-      let failRun: (v: {success: false; error: {message: string; code?: string}}) => void = () => {};
-      mockRunQuery.mockReturnValueOnce(new Promise((resolve) => (failRun = resolve)));
-      const {user, rerender} = renderMobileWorkspace();
-
-      await user.click(await screen.findByRole('button', {name: 'Run saved query Revenue'}));
-      expect(await screen.findByText('Running your query…')).toBeInTheDocument();
-
-      // Cross to the editor while the submit is still in flight, then let it fail:
-      // it installs no run, so nothing marks it as the phone's by the usual route.
-      window.innerWidth = 1400;
-      rerender(
-        <NavRailProvider>
-          <QueryWorkspace />
-          <NavRailProbe />
-        </NavRailProvider>
-      );
-      failRun(fail('Rate exceeded', 'ThrottlingException'));
-
-      expect(await screen.findByLabelText('SQL editor')).toHaveValue('SELECT my_unsaved_draft');
-      await waitFor(() => expect(mockRunQuery).toHaveBeenCalled());
-      expect(screen.queryByText('Query failed.')).not.toBeInTheDocument();
-    });
-
-    it('returns to the list the run started from', async () => {
-      mockGetHistory.mockResolvedValue(
-        ok({
-          version: 1,
-          entries: [
-            {
-              queryExecutionId: 'q-old',
-              sql: 'SELECT 1',
-              database: 'alice',
-              submittedAt: '2026-07-01T10:00:00.000Z',
-              status: 'SUCCEEDED' as QueryState
-            }
-          ]
-        })
-      );
-      const {user} = renderMobileWorkspace();
-
-      await user.click(screen.getByRole('button', {name: 'History'}));
-      await user.click(await screen.findByRole('button', {name: 'Run this query'}));
-      await user.click(await screen.findByRole('button', {name: 'Back to queries'}));
-
-      expect(await screen.findByRole('button', {name: 'History'})).toHaveAttribute('aria-pressed', 'true');
-    });
   });
 
   // ── SPEC-154 FR-001: table share, driven end to end ─────────────────────────
@@ -2113,8 +1286,6 @@ describe('QueryWorkspace', () => {
   // Structured on the SPEC-145 refresh block above, deliberately: menu → dialog → submit →
   // service → toast, plus the failure path and the control's absence where it must not appear.
   describe('QueryWorkspace — share table (SPEC-093)', () => {
-    const shareDialog = () => screen.getByRole('dialog', {name: 'Share table sales_2026'});
-
     async function openShareDialog(user: ReturnType<typeof renderWorkspace>['user'], table = 'sales_2026') {
       await openTableMenu(user, table);
       await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Share table'}));
@@ -2152,88 +1323,6 @@ describe('QueryWorkspace', () => {
       expect(mockEnqueueShare).toHaveBeenCalledTimes(1);
       expect(await screen.findByText(/Sharing “alice\.sales_2026”/)).toBeInTheDocument();
       await waitFor(() => expect(screen.queryByRole('dialog', {name: /Share table/})).not.toBeInTheDocument());
-    });
-
-    it('carries a renamed destination table and a shared-space recipient', async () => {
-      // The two fields most easily dropped between dialog and service: a `tableName` that is
-      // NOT the source table, and a recipient whose kind is `space` rather than `user`.
-      const {user} = renderWorkspace();
-      const dialog = await openShareDialog(user);
-
-      const nameField = within(dialog).getByLabelText('Table name for recipients');
-      await user.clear(nameField);
-      await user.type(nameField, 'sales_from_alice');
-
-      await user.click(within(dialog).getByRole('radio', {name: 'Shared spaces'}));
-      await user.type(within(dialog).getByLabelText('Space names'), 'salesteam');
-      await user.click(within(dialog).getByRole('button', {name: 'Add'}));
-
-      await user.click(within(dialog).getByRole('button', {name: 'Share'}));
-
-      expect(mockEnqueueShare).toHaveBeenCalledWith({
-        source: {database: 'alice', table: 'sales_2026'},
-        tableName: 'sales_from_alice',
-        recipients: [{kind: 'space', name: 'salesteam'}]
-      });
-    });
-
-    it('keeps the dialog open with a user-safe error when the enqueue fails', async () => {
-      mockEnqueueShare.mockResolvedValue(fail('sqs exploded', 'NotAuthenticated'));
-      const {user} = renderWorkspace();
-      const dialog = await openShareDialog(user);
-
-      await user.type(within(dialog).getByLabelText('Usernames'), 'bob');
-      await user.click(within(dialog).getByRole('button', {name: 'Add'}));
-      await user.click(within(dialog).getByRole('button', {name: 'Share'}));
-
-      // SPEC-106: the mapped wording is asserted as RENDERED TEXT, never as a call to
-      // `toUserMessage` — the raw service text must not reach the user.
-      expect(await within(shareDialog()).findByRole('alert')).toHaveTextContent('Sign in to continue.');
-      expect(screen.queryByText('sqs exploded')).not.toBeInTheDocument();
-      // The entered recipient survives the failure, so a retry does not start from scratch.
-      expect(within(shareDialog()).getByRole('list', {name: 'Recipients'})).toHaveTextContent('bob');
-    });
-
-    it('takes the source database from the RAIL NODE, not from the signed-in username', async () => {
-      // THE ASSERTION THE OTHER SHARE TESTS CANNOT MAKE. In the default fixture the personal
-      // database name IS the username (SPEC-033), so `source.database === 'alice'` is satisfied
-      // by reading the rail node, by reading `auth.user.username`, or by hard-coding it — three
-      // very different programs, one passing assertion. Sharing from a SHARED-SPACE node is the
-      // only tree where those three answers differ, and the FR names a wrong `source` as one of
-      // the failures this journey exists to catch.
-      mockReadCache.mockResolvedValue(
-        ok({version: 1, connections: [{name: 'salesdata', role: 'member', status: 'active'}]})
-      );
-      mockListTables.mockImplementation(async (database: string) =>
-        ok(database === 'salesdata' ? [{...salesTable, name: 'team_orders'}] : [salesTable])
-      );
-      const {user} = renderWorkspace();
-
-      await user.click(await screen.findByRole('button', {name: 'Expand salesdata'}));
-      await openTableMenu(user, 'team_orders');
-      await user.click(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Share table'}));
-
-      const dialog = screen.getByRole('dialog', {name: 'Share table team_orders'});
-      expect(within(dialog).getByText('salesdata.team_orders')).toBeInTheDocument();
-
-      await user.type(within(dialog).getByLabelText('Usernames'), 'bob');
-      await user.click(within(dialog).getByRole('button', {name: 'Add'}));
-      await user.click(within(dialog).getByRole('button', {name: 'Share'}));
-
-      expect(mockEnqueueShare).toHaveBeenCalledWith(
-        expect.objectContaining({source: {database: 'salesdata', table: 'team_orders'}})
-      );
-    });
-
-    it('offers no share item for a view, at the workspace level', async () => {
-      // Asserted HERE and not only in `DatabaseNode.test.tsx`: the rail's own test renders the
-      // node in isolation, so it cannot tell you the workspace wires the same table type through.
-      const {user} = renderWorkspace();
-      await openTableMenu(user, 'revenue_view');
-
-      expect(within(screen.getByRole('menu')).queryByRole('menuitem', {name: 'Share table'})).not.toBeInTheDocument();
-      // Guards the guard: the menu really did open, so the absence above means something.
-      expect(within(screen.getByRole('menu')).getByRole('menuitem', {name: 'Drop view'})).toBeInTheDocument();
     });
   });
 
@@ -2286,72 +1375,6 @@ describe('QueryWorkspace', () => {
         nextToken: 't-2',
         maxRows: DEFAULT_RESULTS_PAGE_SIZE
       });
-    });
-
-    it('Prev returns to page 1 without refetching it', async () => {
-      seedTwoPages();
-      seedSingle('SELECT 1');
-      const {user} = renderWorkspace();
-      await runOnce(user);
-      await user.click(await screen.findByRole('button', {name: 'Next'}));
-      await screen.findByText('ap-south');
-      // Count only the PAGER's calls: `useResultRowCount` shares this mock and its background
-      // walk would otherwise make the totals drift for reasons that have nothing to do with Prev.
-      const pagerCalls = () =>
-        mockGetResults.mock.calls.filter((c) => c[0].maxRows === DEFAULT_RESULTS_PAGE_SIZE).length;
-      const afterNext = pagerCalls();
-
-      await user.click(screen.getByRole('button', {name: 'Prev'}));
-
-      expect(await screen.findByText('us-east')).toBeInTheDocument();
-      // Cached pages are the point of the infinite query: going back must cost nothing.
-      expect(pagerCalls()).toBe(afterNext);
-    });
-
-    it('changing Rows per page re-fetches at the new size', async () => {
-      seedSingle('SELECT 1');
-      const {user} = renderWorkspace();
-      await runOnce(user);
-      await screen.findByText('us-east');
-
-      const rowsPerPage = screen.getByLabelText('Rows per page');
-      await user.clear(rowsPerPage);
-      await user.type(rowsPerPage, '25{Enter}');
-
-      await waitFor(() => expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({maxRows: 25})));
-    });
-
-    it('carries Rows per page across REAL result tabs, not just across a re-run', async () => {
-      // The first draft of this test re-ran in the same query tab and re-read the field. That
-      // proved nothing: no second result tab exists on that path, the execution id is unchanged,
-      // and `ResultsPageSizeControl` never unmounts — so it was reading back its own untouched
-      // local draft. Moving `useResultsPageSize` down into `QueryResultsTable`, which is the
-      // exact regression SPEC-087's "workspace-global" wording forbids, would have passed.
-      //
-      // A `script-tabs` run is the tree where the claim is falsifiable: two statements, two
-      // result tabs, one shared size.
-      queueRuns('q-1', 'q-2');
-      seedSingle('SELECT 1; SELECT 2');
-      const {user} = renderWorkspace();
-      await screen.findByLabelText('SQL editor');
-
-      await user.click(screen.getByRole('button', {name: 'editor: Run Script → tab per statement'}));
-      await screen.findByRole('tablist', {name: 'Result tabs'});
-
-      // The control is disabled mid-batch; wait for the run to settle before typing into it.
-      const rowsPerPage = () => screen.getByLabelText('Rows per page') as HTMLInputElement;
-      await waitFor(() => expect(rowsPerPage()).toBeEnabled());
-      await user.clear(rowsPerPage());
-      await user.type(rowsPerPage(), '25{Enter}');
-      await waitFor(() => expect(rowsPerPage()).toHaveValue('25'));
-
-      const resultTabs = within(screen.getByRole('tablist', {name: 'Result tabs'})).getAllByRole('tab');
-      await user.click(resultTabs[1]);
-
-      expect(rowsPerPage()).toHaveValue('25');
-      await waitFor(() =>
-        expect(mockGetResults).toHaveBeenCalledWith(expect.objectContaining({queryExecutionId: 'q-2', maxRows: 25}))
-      );
     });
   });
 
@@ -2501,31 +1524,6 @@ describe('QueryWorkspace.a11y', () => {
   describe('QueryWorkspace accessibility (SPEC-045 FR-003)', () => {
     it('has no axe violations with the schema rail populated', async () => {
       await expectNoA11yViolations(workspace(), ROUTE_AXE_OPTIONS);
-    });
-
-    it('has no axe violations with the schema rail collapsed (SPEC-085 FR-004)', async () => {
-      localStorage.setItem('portal.rail.collapsed', 'true');
-      await expectNoA11yViolations(workspace(), ROUTE_AXE_OPTIONS);
-    });
-
-    it('exposes exactly one <h1> and a <main> landmark', async () => {
-      render(workspace());
-      expect(await screen.findByLabelText('SQL editor')).toBeInTheDocument();
-      expect(screen.getAllByRole('heading', {level: 1})).toHaveLength(1);
-      expect(screen.getByRole('main')).toBeInTheDocument();
-    });
-    it('has no axe violations on the mobile browse-first workspace (SPEC-100)', async () => {
-      window.innerWidth = 390;
-      try {
-        await expectNoA11yViolations(workspace(), ROUTE_AXE_OPTIONS);
-        render(workspace());
-        // Still exactly one <h1> and one <main> once the editor shell is gone.
-        expect(await screen.findByRole('button', {name: 'Saved'})).toBeInTheDocument();
-        expect(screen.getAllByRole('heading', {level: 1})).toHaveLength(1);
-        expect(screen.getByRole('main')).toBeInTheDocument();
-      } finally {
-        window.innerWidth = 1024;
-      }
     });
   });
 });

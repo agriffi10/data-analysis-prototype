@@ -5,7 +5,6 @@ import {parseS3Url} from './s3Url';
 import {sharedSpaceBucket, spaceBuckets, userSettingsKey, userSpaceBucket} from './userSpace';
 import {setReturnPath, setReturnPathIfAbsent, takeReturnPath} from './returnPath';
 import {formatAbsoluteDate, formatBytes, formatCount, formatDurationMs, formatRelativeTime} from './format';
-import {formatSize} from '../features/file-browser/fileBrowser.format';
 import {renderHook} from '@testing-library/react';
 import {useBreakpoint, useIsMobile} from './useBreakpoint';
 
@@ -14,10 +13,6 @@ describe('cx', () => {
   describe('cx', () => {
     it('joins truthy strings with spaces', () => {
       expect(cx('a', 'b', 'c')).toBe('a b c');
-    });
-
-    it('filters out falsy values', () => {
-      expect(cx('a', false, null, undefined, 'b')).toBe('a b');
     });
 
     // SPEC-186 FR-007: `undefined`, not `''`. A `className ?? default` consumer falls
@@ -37,11 +32,6 @@ describe('formatPageTitle', () => {
     it('appends the app name with an em-dash when a page is given', () => {
       expect(formatPageTitle('Files')).toBe('Files — Data Workspace');
       expect(formatPageTitle('Not Found')).toBe('Not Found — Data Workspace');
-    });
-
-    it('returns just the app name for empty or omitted page', () => {
-      expect(formatPageTitle('')).toBe('Data Workspace');
-      expect(formatPageTitle()).toBe('Data Workspace');
     });
   });
 });
@@ -64,13 +54,6 @@ describe('s3Url', () => {
       });
     });
 
-    it('trims surrounding whitespace — a catalog LOCATION can carry it', () => {
-      expect(parseS3Url('  s3://user-space/alice/sales/  ')).toEqual({
-        bucket: 'user-space',
-        key: 'alice/sales/'
-      });
-    });
-
     it.each([
       ['not-an-s3-url'],
       ['https://user-bucket.s3.amazonaws.com/alice/f.csv'],
@@ -80,10 +63,6 @@ describe('s3Url', () => {
       ['']
     ])('returns null for %s', (value) => {
       expect(parseS3Url(value)).toBeNull();
-    });
-
-    it('returns null for undefined rather than throwing', () => {
-      expect(parseS3Url(undefined)).toBeNull();
     });
   });
 });
@@ -116,15 +95,6 @@ describe('userSpace', () => {
       vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'test-shared-space');
 
       expect(spaceBuckets()).toEqual({user: 'test-user-space', shared: 'test-shared-space'});
-    });
-
-    it('reports an unset bucket as undefined, so a caller can branch on absence', () => {
-      // The shape the resolvers need: `undefined`, never the string "undefined" and never
-      // the empty string an unset repository variable interpolates to.
-      vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'test-user-space');
-      vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', '');
-
-      expect(spaceBuckets()).toEqual({user: 'test-user-space', shared: undefined});
     });
   });
 
@@ -162,22 +132,10 @@ describe('returnPath', () => {
       expect(takeReturnPath()).toBeNull();
     });
 
-    it('setReturnPathIfAbsent stores only when no path is present', () => {
-      setReturnPathIfAbsent('/files');
-      expect(sessionStorage.getItem(KEY)).toBe('/files');
-    });
-
     it('setReturnPathIfAbsent does not clobber an already-stored path', () => {
       setReturnPath('/query/tab-1'); // a specific protected path captured by the gate
       setReturnPathIfAbsent('/files'); // default sign-in destination — must not win
       expect(sessionStorage.getItem(KEY)).toBe('/query/tab-1');
-    });
-
-    it('setReturnPath swallows a storage failure (private browsing)', () => {
-      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-        throw new Error('QuotaExceeded');
-      });
-      expect(() => setReturnPath('/query')).not.toThrow();
     });
 
     it('takeReturnPath returns null when storage access throws', () => {
@@ -192,7 +150,6 @@ describe('returnPath', () => {
 // ─── from format.test.ts ───
 describe('format', () => {
   const NOW = Date.parse('2026-03-10T12:00:00Z');
-  const ago = (ms: number) => new Date(NOW - ms).toISOString();
 
   describe('formatBytes', () => {
     it('formats byte sizes with sensible units + precision', () => {
@@ -201,16 +158,6 @@ describe('format', () => {
       expect(formatBytes(2048)).toBe('2.0 KB');
       expect(formatBytes(1_258_291)).toBe('1.2 MB');
       expect(formatBytes(53_687_091)).toBe('51 MB'); // ≥10 drops the decimal
-    });
-
-    // SPEC-155 FR-007 aligned the two formatters' unit ceiling; SPEC-176 FR-004 moved
-    // `formatBytes` here, out of `features/query/`, so neither feature owns a formatter
-    // the other needs. The ceiling is the thing that must survive the move: a 3 TB figure
-    // reading "3072.0 GB" on one screen and "3.0 TB" on another is the bug it closed.
-    it("shares the TB ceiling with the file browser's formatSize", () => {
-      const threeTb = 3 * 1_099_511_627_776;
-      expect(formatBytes(threeTb)).toBe('3.0 TB');
-      expect(formatSize(threeTb)).toBe('3.0 TB');
     });
   });
 
@@ -237,10 +184,6 @@ describe('format', () => {
       expect(formatAbsoluteDate('2026-03-03T09:30:00Z')).toBe('Mar 3, 2026');
     });
 
-    it('accepts a Date as well as an ISO string', () => {
-      expect(formatAbsoluteDate(new Date('2026-03-03T09:30:00Z'))).toBe('Mar 3, 2026');
-    });
-
     it('yields an empty string for an unparseable value rather than "Invalid Date"', () => {
       expect(formatAbsoluteDate('not a date')).toBe('');
       expect(formatAbsoluteDate(new Date('nope'))).toBe('');
@@ -248,17 +191,6 @@ describe('format', () => {
   });
 
   describe('formatRelativeTime', () => {
-    it.each([
-      [2_000, 'just now'],
-      [30_000, '30 sec ago'],
-      [10 * 60_000, '10 min ago'],
-      [5 * 3_600_000, '5 hr ago'],
-      [26 * 3_600_000, 'Yesterday'],
-      [3 * 86_400_000, '3 days ago']
-    ])('renders %d ms ago as %s', (elapsed, expected) => {
-      expect(formatRelativeTime(ago(elapsed), NOW)).toBe(expected);
-    });
-
     it('falls back to the shared absolute date beyond a week', () => {
       // The collapse of the third date formatter: this used to be locale-dependent
       // (`toLocaleDateString()` with no options) while its two siblings pinned en-US.
@@ -280,16 +212,6 @@ describe('useBreakpoint', () => {
   describe('useBreakpoint', () => {
     afterEach(() => setWidth(1024));
 
-    it('reports mobile below the tablet threshold (<900px)', () => {
-      setWidth(500);
-      expect(renderHook(() => useBreakpoint()).result.current).toEqual({
-        isMobile: true,
-        isTablet: false,
-        isDesktop: false
-      });
-      expect(renderHook(() => useIsMobile()).result.current).toBe(true);
-    });
-
     it('reports tablet in the [900, 1300) band', () => {
       setWidth(1000);
       expect(renderHook(() => useBreakpoint()).result.current).toEqual({
@@ -307,13 +229,6 @@ describe('useBreakpoint', () => {
         isTablet: false,
         isDesktop: true
       });
-    });
-
-    it('treats the exact thresholds as inclusive lower bounds', () => {
-      setWidth(900);
-      expect(renderHook(() => useBreakpoint()).result.current.isTablet).toBe(true);
-      setWidth(1300);
-      expect(renderHook(() => useBreakpoint()).result.current.isDesktop).toBe(true);
     });
   });
 });

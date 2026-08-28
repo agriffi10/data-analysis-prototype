@@ -1,37 +1,14 @@
 """The user-space bucket policy's principal allowlist is a registry, and it must not rot.
 
-SPEC-164 FR-006. ``user-space-bucket-policy.json.tftpl`` is a ``"Principal": "*"`` Deny on
-``GetObject``/``PutObject``/``DeleteObject``/``ListBucket``, conditioned ``StringNotLike
-aws:PrincipalArn`` against a hand-maintained list of every principal permitted to touch
-Bucket 1. **An explicit resource-policy Deny beats an identity-policy Allow**, so a control
-plane whose execution role is not on that list is denied by the bucket no matter how correct
-its own grants are.
-
-The failure that makes this worth a test rather than a comment is its SHAPE. Nothing about
-the omission is visible in a plan, in a render, or in any unit test of the policy that
-grants the access — it appears on the first real run, and for a send it appears
-*asymmetrically*: every ``space`` recipient succeeds, because the shared-space bucket has no
-bucket policy at all, and every ``user`` recipient fails ``AccessDenied``. A half-working
-feature reads like a code bug, and the search starts in the wrong file. #241 records that
-this has already bitten the repo three times.
-
-So the list is pinned three ways, and the three catch different mistakes:
-
-* ``test_every_allowlisted_principal_is_actually_passed_in`` catches a placeholder that
-  ``modules/data/s3.tf`` never fills — it renders as the literal string ``${foo}``, which
-  matches no principal and silently denies one.
-* ``test_every_principal_passed_in_reaches_the_allowlist`` catches the reverse and is the
-  half a new plane actually trips: the variable and the ``templatefile()`` argument added,
-  the allowlist line forgotten.
-* ``test_the_expected_principals_are_all_present`` is the registry itself. Removing a plane
-  from the bucket policy should take a deliberate edit in two places, not one.
+An explicit resource-policy Deny beats an identity-policy Allow, so a control plane whose
+execution role is not on the list is denied by the bucket however correct its own grants are.
+The failure is asymmetric and reads like a code bug — why that is, and the three times it bit:
+``infra/info/deploy-role-iam.md``.
 
 Attributes:
   BUCKET_POLICY: The rendered-at-apply bucket-policy template.
   DATA_S3: The Terraform that renders it, and the only place its arguments are supplied.
-  EXPECTED_PRINCIPALS: Every principal the allowlist must name, by placeholder. A new plane
-    that reads or writes Bucket 1 adds itself here AND to the template; a plane that does
-    neither is not listed at all.
+  EXPECTED_PRINCIPALS: Every principal the allowlist must name, by placeholder.
 """
 
 import json
@@ -39,7 +16,9 @@ import pathlib
 import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-BUCKET_POLICY = ROOT / "infra" / "modules" / "data" / "policies" / "user-space-bucket-policy.json.tftpl"
+BUCKET_POLICY = (
+    ROOT / "infra" / "modules" / "data" / "policies" / "user-space-bucket-policy.json.tftpl"
+)
 DATA_S3 = ROOT / "infra" / "modules" / "data" / "s3.tf"
 
 EXPECTED_PRINCIPALS = {
@@ -61,9 +40,8 @@ EXPECTED_PRINCIPALS = {
 def _allowlist() -> list[str]:
     """Returns the allowlist's raw entries, placeholders included.
 
-    Parses the template as JSON with ``${`` rewritten to ``@{`` — the same trick
-    ``test_feature_flags_config.py`` uses — so the assertion is against the real document
-    structure rather than a substring of the file.
+    Parses the template as JSON with ``${`` rewritten to ``@{``, so the assertion is against the
+    real document structure rather than a substring of the file.
 
     Args:
       None.
@@ -92,7 +70,11 @@ def _placeholders() -> set[str]:
     Raises:
       None.
     """
-    return {entry[2:-1] for entry in _allowlist() if entry.startswith("@{") and entry.endswith("}")}
+    return {
+        entry[2:-1]
+        for entry in _allowlist()
+        if entry.startswith("@{") and entry.endswith("}")
+    }
 
 
 def _templatefile_arguments() -> set[str]:
@@ -107,48 +89,50 @@ def _templatefile_arguments() -> set[str]:
     Raises:
       None.
     """
-    block = DATA_S3.read_text().split("user-space-bucket-policy.json.tftpl", 1)[1].split("\n}", 1)[0]
+    block = (
+        DATA_S3.read_text()
+        .split("user-space-bucket-policy.json.tftpl", 1)[1]
+        .split("\n}", 1)[0]
+    )
     return set(re.findall(r"^\s*([a-z_]+)\s*=", block, re.MULTILINE))
 
 
-def test_the_parse_is_not_trivial():
-    """Guards the guard: an allowlist that parsed to nothing would satisfy every test below."""
+def test_the_allowlist_names_every_expected_plane_and_nothing_unrendered() -> None:
+    """The registry, plus the two halves that drift apart in opposite directions.
+
+    A placeholder ``s3.tf`` never fills renders as the literal ``${foo}``, matches no principal
+    and silently denies one. The reverse — the variable and the ``templatefile()`` argument
+    added, the allowlist line forgotten — is the half a new plane actually trips.
+
+    ``bucket_arn`` and ``account_id`` are excluded because they are consumed elsewhere in the
+    document rather than being principals in their own right.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a plane is missing from the allowlist, a placeholder is never
+        rendered, or a rendered principal never reaches the allowlist.
+    """
     placeholders = _placeholders()
+    arguments = _templatefile_arguments()
 
     assert len(placeholders) >= 8, f"only parsed {sorted(placeholders)} — the parse has gone blind"
     assert "arn:aws:iam::@{account_id}:root" in _allowlist(), "the break-glass root entry vanished"
 
-
-def test_the_expected_principals_are_all_present():
-    """The registry. A plane silently dropped from the bucket policy fails here, not at runtime."""
-    missing = EXPECTED_PRINCIPALS - _placeholders()
-
-    assert not missing, (
-        f"{sorted(missing)} is not on the user-space bucket-policy allowlist — an explicit "
-        f"resource-policy Deny beats an identity-policy Allow, so that principal is denied "
-        f"by the bucket however correct its own grants are"
+    assert not EXPECTED_PRINCIPALS - placeholders, (
+        f"{sorted(EXPECTED_PRINCIPALS - placeholders)} is not on the user-space bucket-policy "
+        "allowlist — an explicit resource-policy Deny beats an identity-policy Allow, so that "
+        "principal is denied by the bucket however correct its own grants are"
     )
-
-
-def test_every_allowlisted_principal_is_actually_passed_in():
-    """A placeholder s3.tf never fills renders as the literal `${foo}` and denies that principal."""
-    unfilled = _placeholders() - _templatefile_arguments()
-
-    assert not unfilled, f"{sorted(unfilled)} is in the allowlist but never rendered by s3.tf"
-
-
-def test_every_principal_passed_in_reaches_the_allowlist():
-    """THE HALF A NEW PLANE TRIPS: the variable and the argument added, the list line forgotten.
-
-    ``bucket_arn`` and ``account_id`` are excluded because they are consumed elsewhere in the
-    document (the Resource list, and the root ARN the allowlist builds inline) rather than
-    being principals in their own right.
-    """
-    principals = _templatefile_arguments() - {"bucket_arn", "account_id"}
-    orphaned = principals - _placeholders()
-
-    assert not orphaned, (
-        f"{sorted(orphaned)} is rendered into the bucket policy but appears nowhere in the "
-        f"allowlist — the variable and the templatefile() argument landed, the Deny "
-        f"exclusion did not"
+    assert not placeholders - arguments, (
+        f"{sorted(placeholders - arguments)} is in the allowlist but never rendered by s3.tf"
+    )
+    assert not (arguments - {"bucket_arn", "account_id"}) - placeholders, (
+        f"{sorted((arguments - {'bucket_arn', 'account_id'}) - placeholders)} is rendered into "
+        "the bucket policy but appears nowhere in the allowlist — the variable and the "
+        "templatefile() argument landed, the Deny exclusion did not"
     )

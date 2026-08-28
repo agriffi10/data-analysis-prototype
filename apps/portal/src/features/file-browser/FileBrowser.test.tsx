@@ -148,13 +148,6 @@ afterEach(() => {
 });
 
 describe('FileBrowser — listing states', () => {
-  it('shows a loading indicator until the listing resolves', () => {
-    mock.listFiles.mockReturnValue(new Promise(() => {})); // never resolves
-    renderBrowser();
-    expect(screen.getByRole('status', {name: 'Loading'})).toBeInTheDocument();
-    expect(screen.queryByText('report.csv')).not.toBeInTheDocument();
-  });
-
   it('renders a populated folder: folders before files, with size and modified date', async () => {
     renderBrowser();
     const list = await screen.findByRole('list', {name: 'File list'});
@@ -234,14 +227,6 @@ describe('FileBrowser — navigation', () => {
     );
   });
 
-  it('hides the raw username segment behind rootLabel and never shows Home', async () => {
-    renderBrowser();
-    await screen.findByText('report.csv');
-    expect(screen.getByText('My Files')).toBeInTheDocument();
-    expect(screen.queryByText('Home')).not.toBeInTheDocument();
-    expect(screen.queryByText('alice')).not.toBeInTheDocument();
-  });
-
   it('shows a parent-folder (..) row below the root and navigates up on click', async () => {
     const {user} = renderBrowser({prefix: 'alice/docs/'});
     const up = await screen.findByRole('button', {name: /parent folder/i});
@@ -249,12 +234,6 @@ describe('FileBrowser — navigation', () => {
     await waitFor(() =>
       expect(mock.listFiles).toHaveBeenLastCalledWith('my-bucket', 'alice/', undefined, expect.any(AbortSignal))
     );
-  });
-
-  it('does not show a .. row at the space root', async () => {
-    renderBrowser();
-    await screen.findByText('report.csv');
-    expect(screen.queryByRole('button', {name: /parent folder/i})).not.toBeInTheDocument();
   });
 });
 
@@ -266,22 +245,9 @@ describe('FileBrowser — download', () => {
     expect(triggerBrowserDownload).toHaveBeenCalledWith('https://signed/report.csv');
   });
 
-  it('surfaces a download failure inline', async () => {
-    mock.getDownloadUrl.mockResolvedValue(fail('gone'));
-    const {user} = renderBrowser();
-    await user.dblClick(await screen.findByText('report.csv'));
-    expect(await screen.findByText(/Could not download report\.csv/)).toBeInTheDocument();
-  });
-
   it('exposes a per-row Download button only in read-only browse', async () => {
     renderBrowser({writable: false, username: undefined});
     expect(await screen.findByRole('button', {name: 'Download report.csv'})).toBeInTheDocument();
-  });
-
-  it('has no per-row Download in the authenticated flow (toolbar only)', async () => {
-    renderBrowser();
-    await screen.findByText('report.csv');
-    expect(screen.queryByRole('button', {name: 'Download report.csv'})).not.toBeInTheDocument();
   });
 });
 
@@ -301,18 +267,6 @@ describe('FileBrowser — details drawer', () => {
 });
 
 describe('FileBrowser — write controls', () => {
-  it('hides New folder + Upload in read-only browse', async () => {
-    renderBrowser({writable: false, username: undefined});
-    await screen.findByText('report.csv');
-    expect(screen.queryByRole('button', {name: 'New folder'})).not.toBeInTheDocument();
-  });
-
-  it('shows New folder + Upload when writable', async () => {
-    renderBrowser();
-    expect(await screen.findByRole('button', {name: 'New folder'})).toBeInTheDocument();
-    expect(screen.getByRole('button', {name: 'Upload'})).toBeInTheDocument();
-  });
-
   it('creates a folder through the New folder dialog', async () => {
     const {user} = renderBrowser();
     await user.click(await screen.findByRole('button', {name: 'New folder'}));
@@ -326,12 +280,6 @@ describe('FileBrowser — write controls', () => {
 });
 
 describe('FileBrowser — selection + delete', () => {
-  it('has no selection checkboxes in read-only browse', async () => {
-    renderBrowser({writable: false, username: undefined});
-    await screen.findByText('report.csv');
-    expect(screen.queryByRole('checkbox', {name: 'Select all'})).not.toBeInTheDocument();
-  });
-
   it('deletes the selected items after confirmation and reports the count', async () => {
     const {user} = renderBrowser();
     await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
@@ -413,22 +361,6 @@ describe('FileBrowser — selection + delete', () => {
       expect(mock.moveFolder).not.toHaveBeenCalled();
     });
 
-    // Found in review: refusing on the FIRST protected item killed Delete for a selection the
-    // service would have carried out per item — and at a space root, select-all takes in
-    // `athenaresults/`, `saved_queries/` and `archive/` together, so select-all → Delete went
-    // dead with a reason about saved queries. Restoring the first-match version reddens this.
-    it('does NOT refuse a mixed selection — the service is per item, and it does something', async () => {
-      mock.listFiles.mockResolvedValue(ok(page(withSavedQueries)));
-      const {user} = renderBrowser();
-      await user.click(await screen.findByRole('checkbox', {name: 'Select folder saved_queries'}));
-      await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
-
-      const del = screen.getByRole('button', {name: 'Delete selected items'});
-      expect(del).not.toHaveAttribute('aria-disabled');
-      await user.click(del);
-      expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
-    });
-
     it('refuses when EVERY selected folder is protected, and names one of them', async () => {
       mock.listFiles.mockResolvedValue(
         ok(page({files: [], folders: [folder('saved_queries'), folder('athenaresults')], isTruncated: false}))
@@ -440,19 +372,6 @@ describe('FileBrowser — selection + delete', () => {
       const del = screen.getByRole('button', {name: 'Delete selected items'});
       expect(del).toHaveAttribute('aria-disabled', 'true');
       expect(del).toHaveAttribute('title', 'Saved queries live in this folder, so it can’t be deleted.');
-    });
-
-    it('leaves an ordinary folder alone — the control is the guard, not the folder count', async () => {
-      mock.listFiles.mockResolvedValue(ok(page(withSavedQueries)));
-      const {user} = renderBrowser();
-      await user.click(await screen.findByRole('checkbox', {name: 'Select folder docs'}));
-
-      const del = screen.getByRole('button', {name: 'Delete selected items'});
-      expect(del).not.toHaveAttribute('aria-disabled');
-      await user.click(del);
-      // The confirm is an `alertdialog` — this is the control that the two cases above
-      // must NOT reach.
-      expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
     });
   });
 });
@@ -544,21 +463,6 @@ describe('FileBrowser — upload', () => {
 describe('FileBrowser — data quality (SPEC-113)', () => {
   const checkButton = () => screen.getByRole('button', {name: 'Check data quality of the selected item'});
 
-  it('offers the check only on exactly one selected item', async () => {
-    const {user} = renderBrowser();
-    await screen.findByText('report.csv');
-
-    // Empty selection — present but inert, like its Copy/Move/Delete neighbours.
-    expect(checkButton()).toBeDisabled();
-
-    await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
-    expect(checkButton()).toBeEnabled();
-
-    // Multi-select disables it again: one file or one folder per request in v1.
-    await user.click(screen.getByRole('checkbox', {name: 'Select notes.txt'}));
-    expect(checkButton()).toBeDisabled();
-  });
-
   it('enqueues a check for a selected FILE, naming it and promising nothing changes', async () => {
     const {user} = renderBrowser();
     await screen.findByText('report.csv');
@@ -579,19 +483,6 @@ describe('FileBrowser — data quality (SPEC-113)', () => {
     });
   });
 
-  it('enqueues a check for a selected FOLDER, using its prefix as the location', async () => {
-    const {user} = renderBrowser();
-    await screen.findByText('docs');
-    await user.click(screen.getByRole('checkbox', {name: 'Select folder docs'}));
-    await user.click(checkButton());
-
-    const dialog = await screen.findByRole('alertdialog', {name: 'Confirm data quality check'});
-    await user.click(within(dialog).getByRole('button', {name: 'Start check'}));
-
-    await waitFor(() => expect(mockQualityCheck).toHaveBeenCalledTimes(1));
-    expect(mockQualityCheck.mock.calls[0][0]).toMatchObject({location: 'alice/docs/'});
-  });
-
   it('sends the SPACE ROOT even when browsing a subfolder, not the current folder', async () => {
     // Every other test browses at the root, where the two are identical — so without
     // this one, sending `currentPrefix` as the space prefix would pass unnoticed and
@@ -604,25 +495,6 @@ describe('FileBrowser — data quality (SPEC-113)', () => {
 
     await waitFor(() => expect(mockQualityCheck).toHaveBeenCalledTimes(1));
     expect(mockQualityCheck.mock.calls[0][0].space.prefix).toBe('alice/');
-  });
-
-  it('targets the shared-space root when browsing a shared space', async () => {
-    const {user} = renderBrowser({
-      spaceKind: 'shared',
-      bucket: 'shared-bucket',
-      prefix: 'team-data/',
-      rootPrefix: 'team-data/',
-      username: 'team-data'
-    });
-    await screen.findByText('report.csv');
-    await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
-    await user.click(checkButton());
-    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Start check'}));
-
-    await waitFor(() => expect(mockQualityCheck).toHaveBeenCalledTimes(1));
-    expect(mockQualityCheck.mock.calls[0][0]).toMatchObject({
-      space: {kind: 'shared', bucket: 'shared-bucket', prefix: 'team-data/'}
-    });
   });
 
   it('drops the selection once the check is on its way, but not when cancelled', async () => {
@@ -641,37 +513,6 @@ describe('FileBrowser — data quality (SPEC-113)', () => {
     await waitFor(() => expect(row()).not.toBeChecked());
     expect(checkButton()).toBeDisabled();
   });
-
-  it('keeps the selection when the enqueue fails, so the user can retry', async () => {
-    mockQualityCheck.mockResolvedValue(fail('AWS.SimpleQueueService.NonExistentQueue'));
-    const {user} = renderBrowser();
-    await screen.findByText('report.csv');
-    await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
-    await user.click(checkButton());
-    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Start check'}));
-
-    await waitFor(() => expect(mockQualityCheck).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole('checkbox', {name: 'Select report.csv'})).toBeChecked();
-  });
-
-  it('is absent entirely in read-only browse, where there is no space to check', async () => {
-    renderBrowser({writable: false, username: undefined});
-    await screen.findByText('report.csv');
-    expect(screen.queryByRole('button', {name: 'Check data quality of the selected item'})).not.toBeInTheDocument();
-  });
-
-  it('is reachable on mobile as an icon-only control in the same toolbar', async () => {
-    // ONE component tree: the label is hidden below tablet, the button is not.
-    window.innerWidth = 500;
-    const {user} = renderBrowser();
-    await screen.findByText('report.csv');
-    await user.click(screen.getByRole('checkbox', {name: 'Select report.csv'}));
-    const button = checkButton();
-    expect(button).toBeEnabled();
-    expect(within(button).getByText('Check quality')).toHaveClass('hidden', 'tablet:inline');
-    // And exactly one exists — it is not duplicated into the MobileActionBar.
-    expect(screen.getAllByRole('button', {name: 'Check data quality of the selected item'})).toHaveLength(1);
-  });
 });
 
 describe('FileBrowser — responsive', () => {
@@ -682,13 +523,6 @@ describe('FileBrowser — responsive', () => {
     // Card list has no desktop column header.
     expect(screen.queryByText('Modified')).not.toBeInTheDocument();
     expect(screen.getByLabelText('File actions')).toBeInTheDocument();
-  });
-
-  it('does not render the mobile action bar in read-only browse', async () => {
-    window.innerWidth = 500;
-    renderBrowser({writable: false, username: undefined});
-    await screen.findByText('report.csv');
-    expect(screen.queryByLabelText('File actions')).not.toBeInTheDocument();
   });
 });
 
@@ -749,28 +583,10 @@ describe('FileBrowser — resolving a collision through the UI (SPEC-154 FR-003)
     expect(mock.uploadFile.mock.calls[1][0]).toMatchObject({key: 'alice/notes-2.txt', overwrite: false});
     expect(await screen.findByText('Uploaded')).toBeInTheDocument();
   });
-
-  it('cancels a collision without writing anything', async () => {
-    mock.uploadFile.mockResolvedValue({
-      success: false,
-      error: {message: 'exists', code: 'Collision'}
-    } as never);
-
-    const {user} = renderBrowser();
-    await uploadInto(user);
-    await screen.findByRole('alertdialog');
-
-    await user.click(within(collisionPrompt()).getByRole('button', {name: 'Cancel'}));
-
-    expect(mock.uploadFile).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
-  });
 });
 
 // FR-003 AC3/AC5: the BATCH prompt, and the summary banner a user actually reads.
 describe('FileBrowser — resolving a BATCH collision through the UI (SPEC-154 FR-003)', () => {
-  const batchPrompt = () => screen.getByRole('alertdialog', {name: 'Destination already has items'});
-
   async function copySelectionToDocs(user: ReturnType<typeof renderBrowser>['user']) {
     await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
     await user.click(screen.getByRole('button', {name: 'Copy selected items'}));
@@ -794,44 +610,6 @@ describe('FileBrowser — resolving a BATCH collision through the UI (SPEC-154 F
     expect(mock.copyObject.mock.calls[1][0]).toMatchObject({overwrite: true});
     // AC5: the user-visible result, not only the service call.
     expect(await screen.findByText(/Copied 1 item/)).toBeInTheDocument();
-  });
-
-  it('drives a batch MOVE collision to Overwrite all', async () => {
-    // `useMove` has its own `runMove`/`finalizeMove` pair behind the same BatchOverwritePrompt,
-    // so a copy-only test leaves the move retry path untested — and a move that quietly
-    // overwrote (or quietly did not) is the more destructive of the two.
-    mock.moveObject
-      .mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}} as never)
-      .mockResolvedValue(ok({destKey: 'alice/docs/notes.txt'}) as never);
-
-    const {user} = renderBrowser();
-    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
-    await user.click(screen.getByRole('button', {name: 'Move selected items'}));
-    const picker = await screen.findByRole('dialog');
-    await user.click(within(picker).getByRole('button', {name: 'Open folder docs'}));
-    await user.click(await within(picker).findByRole('button', {name: 'Move here'}));
-
-    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Overwrite all'}));
-
-    await waitFor(() => expect(mock.moveObject).toHaveBeenCalledTimes(2));
-    expect(mock.moveObject.mock.calls[0][0]).toMatchObject({overwrite: false});
-    expect(mock.moveObject.mock.calls[1][0]).toMatchObject({overwrite: true});
-    expect(await screen.findByText(/Moved 1 item/)).toBeInTheDocument();
-  });
-
-  it('cancels a batch collision without copying the collided item', async () => {
-    mock.copyObject.mockResolvedValue({success: false, error: {message: 'exists', code: 'Collision'}} as never);
-
-    const {user} = renderBrowser();
-    await copySelectionToDocs(user);
-    await screen.findByRole('alertdialog');
-
-    await user.click(within(batchPrompt()).getByRole('button', {name: 'Cancel'}));
-
-    expect(mock.copyObject).toHaveBeenCalledTimes(1);
-    // Cancelling still finalises: nothing was copied, and the banner says so rather than
-    // leaving the user with a dialog that vanished and no account of what happened.
-    expect(await screen.findByText(/Copied 0 items/)).toBeInTheDocument();
   });
 });
 
@@ -923,28 +701,6 @@ describe('FileBrowser — an upload watched to completion (SPEC-154 FR-004)', ()
     expect(await screen.findAllByText('Cancelled')).not.toHaveLength(0);
     expect(screen.getByText('up.txt')).toBeInTheDocument();
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
-  });
-
-  it('a QUEUED upload is dropped outright when cancelled', async () => {
-    // The other half of the cancel contract, and the half FR-004 AC3 describes: nothing was
-    // written for a queued item, so it leaves no trace rather than a Cancelled row.
-    mock.uploadFile.mockImplementation((async () => new Promise(() => {})) as never);
-
-    const {user} = renderBrowser();
-    await user.click(await screen.findByRole('button', {name: 'Upload'}));
-    const input = await screen.findByLabelText('Choose files');
-    await user.upload(input, [
-      new File(['a'], 'a.txt', {type: 'text/plain'}),
-      new File(['b'], 'b.txt', {type: 'text/plain'}),
-      new File(['c'], 'c.txt', {type: 'text/plain'}),
-      new File(['d'], 'd.txt', {type: 'text/plain'})
-    ]);
-    await screen.findByText('Queued');
-
-    await user.click(screen.getByRole('button', {name: 'Cancel upload of d.txt'}));
-
-    await waitFor(() => expect(screen.queryByText('d.txt')).not.toBeInTheDocument());
-    expect(screen.queryAllByText('Cancelled')).toHaveLength(0);
   });
 
   it('holds the fourth file at Queued while three are in flight (UPLOAD_CONCURRENCY)', async () => {

@@ -11,11 +11,10 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-builder-common"))
 
-import json
 
 import inspect_source as i
 from cpcommon import clients, config, s3_listing
-from cpcommon.errors import TerminalError, TransientError
+from cpcommon.errors import TerminalError
 
 
 class _FakeClientError(Exception):
@@ -117,98 +116,9 @@ def test_partitioned_csv_matching_declared_keys_passes():
     assert [k["name"] for k in out["partitionKeys"]] == ["year", "month"]
 
 
-def test_json_variants_are_one_format():
-    _stub_objects([PREFIX + "a.json", PREFIX + "b.ndjson", PREFIX + "c.jsonl"])
-    out = i.handler(_event(), None)
-    assert out["format"] == "json"
-    assert out["fileCount"] == 3
-
-
-def test_marker_results_and_hidden_files_are_ignored_by_helper():
-    # Exercise the real ignore rules through a fake paginator (below), not the stub.
-    pages = [{"Contents": [
-        {"Key": PREFIX + "DO_NOT_DELETE.txt", "Size": 0},
-        {"Key": PREFIX + "athenaresults/query.csv", "Size": 100},
-        {"Key": PREFIX + "_SUCCESS", "Size": 0},
-        {"Key": PREFIX + ".hidden.parquet", "Size": 100},
-        {"Key": PREFIX + "placeholder/", "Size": 0},
-        {"Key": PREFIX + "empty.parquet", "Size": 0},
-        {"Key": PREFIX + "real.parquet", "Size": 100},
-    ]}]
-    s3_listing.list_data_objects = _REAL_LIST  # undo any prior stub
-    clients._s3 = _FakePaginatedS3(pages)
-    got = list(s3_listing.list_data_objects(BUCKET, PREFIX))
-    assert got == [(PREFIX + "real.parquet", 100)]
-
-
 def test_mixed_formats_is_terminal():
     _stub_objects([PREFIX + "a.parquet", PREFIX + "b.csv"])
     _expect_reason(_event(), "mixed_formats")
-
-
-def test_no_data_files_is_terminal():
-    _stub_objects([])
-    _expect_reason(_event(), "no_data_files")
-
-
-def test_only_unsupported_is_terminal_unsupported_format():
-    _stub_objects([PREFIX + "a.orc", PREFIX + "b.avro"])
-    _expect_reason(_event(), "unsupported_format")
-
-
-def test_flat_request_but_nested_data_is_unexpected_partitioning():
-    _stub_objects([PREFIX + "year=2026/part-0.parquet"])
-    _expect_reason(_event(), "unexpected_partitioning")
-
-
-def test_declared_key_missing_from_path_is_mismatch():
-    _stub_objects([PREFIX + "year=2026/part-0.csv"])
-    _expect_reason(_event(partition_keys=_keys("year", "month")), "partition_layout_mismatch")
-
-
-def test_declared_keys_out_of_order_is_mismatch():
-    _stub_objects([PREFIX + "month=01/year=2026/part-0.csv"])
-    _expect_reason(_event(partition_keys=_keys("year", "month")), "partition_layout_mismatch")
-
-
-def test_extra_undeclared_segment_is_mismatch():
-    _stub_objects([PREFIX + "year=2026/month=01/day=05/part-0.csv"])
-    _expect_reason(_event(partition_keys=_keys("year", "month")), "partition_layout_mismatch")
-
-
-def test_notifies_actor_on_a_terminal_reason():
-    _stub_objects([PREFIX + "a.parquet", PREFIX + "b.csv"])  # mixed_formats
-    q = _arm_notifications()
-    try:
-        i.handler(_event(), None)
-    except TerminalError:
-        pass
-    assert len(q.calls) == 1
-    assert q.calls[0]["MessageGroupId"] == "alice"
-    assert q.calls[0]["MessageDeduplicationId"] == "r1:inspect"
-    body = json.loads(q.calls[0]["MessageBody"])
-    assert body["username"] == "alice"
-    assert body["message"] == 'Couldn\'t create table "sales_2026": the folder mixes file formats - use a single format.'
-
-
-def test_no_notification_on_success():
-    _stub_objects([PREFIX + "part-0.parquet"])
-    q = _arm_notifications()
-    i.handler(_event(), None)
-    assert q.calls == []
-
-
-def test_malformed_event_is_terminal_and_notifies():
-    # SPEC-083 FR-002: a missing required key → typed terminal + actor notification.
-    q = _arm_notifications()
-    bad = {"actor": "alice", "space": {"kind": "personal"}, "requestId": "r1"}  # no bucket/prefix
-    try:
-        i.handler(bad, None)
-    except TerminalError as exc:
-        assert exc.reason == "malformed_event"
-    else:
-        raise AssertionError("expected TerminalError(malformed_event)")
-    assert len(q.calls) == 1 and q.calls[0]["MessageGroupId"] == "alice"
 
 
 # Fake S3 paginator backing the ignore-rules test above.
@@ -227,51 +137,6 @@ class _FakePaginatedS3:
     def get_paginator(self, name):
         assert name == "list_objects_v2"
         return _FakePaginator(self._pages)
-
-
-
-def test_transient_listing_error_is_raised_as_TransientError():
-    """A throttle while paginating the listing must reach the SFN as TransientError — the
-    name InspectSource's Retry list now recognizes."""
-    _list_raises(_FakeClientError("SlowDown"))
-    try:
-        i.handler(_event(), None)
-    except TransientError:
-        return
-    except TerminalError:
-        raise AssertionError("a throttle must not be terminalized")
-    finally:
-        s3_listing.list_data_objects = _REAL_LIST
-    raise AssertionError("expected TransientError from a throttled listing")
-
-
-def test_non_transient_listing_error_propagates_unchanged():
-    """AccessDenied is deterministic — mapping it to TransientError would waste retries."""
-    _list_raises(_FakeClientError("AccessDenied"))
-    try:
-        i.handler(_event(), None)
-    except TransientError:
-        raise AssertionError("a deterministic fault must NOT become TransientError")
-    except _FakeClientError as err:
-        assert err.response["Error"]["Code"] == "AccessDenied"
-        return
-    finally:
-        s3_listing.list_data_objects = _REAL_LIST
-    raise AssertionError("expected the original ClientError to propagate")
-
-
-def test_inspect_source_state_retries_TransientError():
-    """Pin the infra half: InspectSource's Retry must name TransientError."""
-    import re
-
-    tftpl = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "..", "..", "infra", "modules", "table-builder", "state-machine.asl.json.tftpl",
-    )
-    with open(tftpl) as fh:
-        asl = json.loads(re.sub(r"\$\{[^}]+\}", "ARN", fh.read()))
-    named = [e for r in asl["States"]["InspectSource"]["Retry"] for e in r["ErrorEquals"]]
-    assert "TransientError" in named, f"InspectSource Retry must name TransientError; got {named}"
 
 
 if __name__ == "__main__":

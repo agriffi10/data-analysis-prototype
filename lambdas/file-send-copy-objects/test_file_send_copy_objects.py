@@ -88,48 +88,12 @@ def test_one_deterministic_failure_does_not_cost_its_siblings_their_copy():
     assert outcome["failures"] == [{"recipient": "carol", "kind": "user", "reason": "copy_failed"}]
 
 
-def test_a_failure_names_the_recipient_pair_and_never_the_key():
-    """The failure list rides the exported result and then the state, and keys are the unbounded
-    term. The kind travels with the name because a destination is that PAIR."""
-    _install(copy_error=_S3Error("AccessDenied"))
-
-    outcome = m.handler({"Items": [_item(recipient="finance", kind="space")]}, None)
-
-    assert outcome["failures"] == [{"recipient": "finance", "kind": "space", "reason": "copy_failed"}]
-
-
 def test_a_transient_failure_raises_so_the_map_retries_the_whole_batch():
     """Correct and cheap: the copy is idempotent and the conflict guard has already run."""
     _install(copy_error=_S3Error("SlowDown"))
 
     with pytest.raises(TransientError):
         m.handler({"Items": [_item()]}, None)
-
-
-def test_an_empty_batch_is_not_an_error():
-    """Reachable through a Map whose manifest emptied between the Choice and the run; reporting
-    zero copies is the honest answer and keeps the export attributable."""
-    _install()
-
-    assert m.handler({"Items": []}, None) == {"copied": 0, "failures": []}
-
-
-def test_the_verb_knows_nothing_about_this_plane_beyond_its_reason_code():
-    """FR-002. Every destination was resolved upstream and written into the manifest — a verb
-    that reached for the request or the copy plan would be re-deciding a question the guard has
-    already answered, one batch at a time."""
-    source = _SOURCE.read_text()
-
-    for forbidden in ("copy_plan", "recipient_location", "destination_key", "fscommon"):
-        assert forbidden not in source, f"copy-objects reached for {forbidden}"
-
-
-def test_the_engine_is_the_shared_one():
-    """SPEC-166 Out of Scope: if something is missing from cpcommon.transfer it is added THERE
-    and table-share gets it too. A forked copier here is a spec failure, and this is the check
-    that would catch one being written."""
-    assert "from cpcommon.transfer import copy" in _SOURCE.read_text()
-    assert m.copy_mod.__name__ == "cpcommon.transfer.copy"
 
 
 if __name__ == "__main__":

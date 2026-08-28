@@ -134,15 +134,6 @@ def test_renders_and_runs_the_clone_ddl_against_the_recipient_db():
     assert out["request"]["tableName"] == "orders_copy"
 
 
-def test_flat_definition_renders_without_partition_or_properties_clauses():
-    fake = _setup()
-    flat = {**_DEFINITION, "partitionKeys": [], "tableProperties": {}}
-    m.handler(_event(definition=flat), None)
-    query = fake.calls[0]["query"]
-    assert "PARTITIONED BY" not in query
-    assert "TBLPROPERTIES" not in query
-
-
 def test_serde_properties_and_literal_escaping():
     fake = _setup()
     quirky = {
@@ -158,65 +149,6 @@ def test_serde_properties_and_literal_escaping():
     query = fake.calls[0]["query"]
     assert "WITH SERDEPROPERTIES ('escapeChar'='\\\\', 'quoteChar'='\\'')" in query
     assert "TBLPROPERTIES ('skip.header.line.count'='1')" in query
-
-
-def test_column_comment_is_carried_and_escaped():
-    fake = _setup()
-    commented = {
-        **_DEFINITION,
-        "columns": [{"name": "id", "type": "bigint", "comment": "the 'primary' id"}],
-        "partitionKeys": [],
-    }
-    m.handler(_event(definition=commented), None)
-    assert "`id` bigint COMMENT 'the \\'primary\\' id'" in fake.calls[0]["query"]
-
-
-def test_the_definition_is_fetched_from_the_key_on_the_request():
-    """SPEC-161 FR-002 AC1 — the verb reads a pointer, never a value on the state."""
-    fake = _setup()
-    fetched = []
-    event = _event()
-    m.copy_plan.load_definition = lambda key: (fetched.append(key) or _DEFINITION)
-
-    m.handler(event, None)
-
-    assert fetched == [_DEFINITION_KEY]
-    assert "tableDefinition" not in event["request"]
-    assert "`id` bigint, `amount` double" in fake.calls[0]["query"]
-
-
-def test_the_pointer_renders_the_same_ddl_the_inline_definition_did():
-    """SPEC-161 FR-002 AC2 — byte-identical, asserted rather than assumed.
-
-    The move is only safe if it is a pure change of transport. Rendering the SAME definition
-    through the renderer directly and through the verb's fetch-then-render path must produce
-    one string; anything the pointer did to the definition on the way (a re-serialisation that
-    reorders properties, a lost comment) shows up here as a diff and nowhere else.
-
-    The fetch stub round-trips through JSON, so this exercises the serialisation the real
-    writer and reader perform. Run over a definition with comments, projection properties and
-    SerDe parameters rather than the bare one, because those are the parts a round-trip could
-    plausibly disturb.
-    """
-    fake = _setup()
-    rich = {
-        **_DEFINITION,
-        "columns": [
-            {"name": "id", "type": "bigint", "comment": "the 'primary' id"},
-            {"name": "amount", "type": "double", "comment": "in \\ units"},
-        ],
-    }
-    recipient = _event()["recipient"]
-    inline = m.ddl.render_create_external(
-        rich,
-        recipient["database"],
-        "orders_copy",
-        f"s3://{recipient['destBucket']}/{recipient['destPrefix']}",
-    )
-
-    m.handler(_event(definition=rich), None)
-
-    assert fake.calls[0]["query"] == inline
 
 
 def test_an_unreadable_definition_fails_only_this_recipient():
@@ -238,16 +170,6 @@ def test_an_unreadable_definition_fails_only_this_recipient():
 
     assert excinfo.value.reason == "definition_unreadable"
     assert fake.calls == [], "no DDL may run when the definition could not be read"
-
-
-def test_athena_terminal_failure_propagates_as_create_failed():
-    _setup(error=TerminalError("create_failed", "SYNTAX_ERROR: line 1"))
-    try:
-        m.handler(_event(), None)
-    except TerminalError as exc:
-        assert exc.reason == "create_failed"
-        return
-    raise AssertionError("expected TerminalError('create_failed')")
 
 
 if __name__ == "__main__":

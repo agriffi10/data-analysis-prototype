@@ -1,14 +1,7 @@
-"""Pins the file-operations values the BROWSER mirrors against the ones that define them.
+"""Pins the file-operations ceiling the BROWSER mirrors against the one that defines it.
 
-The browser holds a copy of the state machine's ``TimeoutSeconds`` because it is the outer bound
-on an in-flight record: past it the execution is gone, no notification is coming, and there is
-nothing left to correlate. Nothing at runtime reports that the two have drifted — an entry
-expiring early tells a user an operation is over while it is still running, and one expiring late
-holds that space's submit gate long after anything could settle it.
-
-Lives under ``lambdas/`` because that is where pytest runs, alongside ``test_feature_flags_config``
-and ``test_deploy_matrix`` — the other files here that read the repo as data rather than exercising
-a Lambda.
+Nothing at runtime reports that the two have drifted. Why the browser holds a copy at all, and
+what an early or late expiry does to a user: ``lambdas/info/planes/file-ops.md``.
 
 Attributes:
   ROOT: The repository root.

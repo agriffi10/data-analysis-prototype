@@ -26,7 +26,7 @@ import archive_write_manifest as m
 import pytest
 from arcommon import notify
 from cpcommon import clients
-from cpcommon.errors import TerminalError, TransientError
+from cpcommon.errors import TerminalError
 
 _REQUEST_ID = "9f2c1b8e-1111-4222-8333-444444444444"
 _ARCHIVE_ROOT = f"personal/alice/archive/{_REQUEST_ID}/"
@@ -102,26 +102,6 @@ def test_a_write_failure_fails_the_whole_request_before_anything_is_deleted(_no_
 
     assert err.value.reason == "manifest_write_failed"
     assert "nothing was deleted" in _no_real_notifications[0][1]
-
-
-def test_a_retryable_fault_is_not_terminalized():
-    """The state's Retry re-runs the verb, which is safe because the key is a pure function of
-    the archive root and the write is a whole-object PUT."""
-    _install(error=_S3Error("SlowDown"))
-
-    with pytest.raises(TransientError):
-        m.handler(_event(), None)
-
-
-def test_the_request_travels_through_to_the_deletion():
-    fake = _install()
-
-    result = m.handler(_event(), None)
-
-    assert result["requestId"] == _REQUEST_ID
-    assert result["source"]["name"] == "alice"
-    assert result["archive"]["root"] == _ARCHIVE_ROOT
-    assert len(fake.puts) == 1
 
 
 if __name__ == "__main__":

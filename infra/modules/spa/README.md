@@ -213,3 +213,31 @@ role holds `iam:PutRolePolicy` and neither `iam:AttachRolePolicy` nor a usable `
 - **`image_tag` carries a `validation` on the value, not on its presence** — an empty repo variable
   renders as the empty string, which satisfies a required variable *and* overrides a default.
 - **No `spa_origin`/`spa_host` output.** Both are built at root and passed down.
+
+## What the offline guards prove, and what they cannot
+
+`lambdas/test_spa_image.py` and `lambdas/test_spa_module.py` are **text assertions** over a
+Dockerfile, two nginx templates, a shell script and this module's Terraform. They hold the
+agreements no single response can observe — that the image and the task definition agree about a
+port, a health path, a uid and a writable set; that the policy the image bakes is the one root
+computes; that the document the entrypoint renders carries the version the loader accepts.
+
+Each failure they guard **applies green somewhere and fails somewhere else**:
+
+- a health path the module does not probe makes the balancer read `index.html`'s 200 and call
+  every container healthy;
+- a writable set the task does not mount produces a container that never starts, reported as a
+  generic essential-container exit — and `ResourceInitializationError` is indistinguishable from
+  the `CannotPullContainerError` the no-NAT design is tested by;
+- `appUrl` carrying the CloudFront origin fails only in a browser, only on a fresh sign-in;
+- a merged task and execution role applies green forever, because nothing the container does
+  would fail;
+- a `version` literal drifted from the loader's ships a document every browser refuses whole — a
+  white screen after a green deploy.
+
+**The writable-path set is named in three places on purpose.** The assertion is an agreement
+between an image and a configuration; a shared constant would prove nothing.
+
+What they cannot prove — that the rendered policy is what nginx emits, that the refusals happen,
+that a task reaches `healthy`, that the redirect answers — belongs to the behaviour matrix in CI,
+which runs a real container, and to the live checks in `docs/testing/`.

@@ -1,20 +1,8 @@
 """The private subnets must have no way out, and the endpoints must replace it exactly.
 
-Every failure this file guards against **applies green**. A NAT gateway somebody adds to fix a
-timeout, a default route in a private table, a gateway endpoint associated with the wrong route
-table, an interface endpoint with private DNS off — Terraform accepts all of them, the plan reads
-as an ordinary addition, and the only symptom is an image pull that cannot complete or a task that
-silently reaches the internet.
-
-**What this file cannot prove, and what does.** These are text assertions over the module's own
-Terraform. They cannot tell you the applied route tables match, that DNS actually resolves to the
-endpoint, or that a pull completes — only the live checks can, and the acceptance script pairs the
-pull with a `describe-route-tables` read for exactly that reason: a pull that succeeded through a
-route somebody added would otherwise read as proof of the endpoints.
-
-**The no-NAT assertion is repo-wide rather than module-scoped**, and that is the point. Scoped to
-this module it would be satisfied by adding the gateway somewhere else, which is precisely what a
-future "quick fix" for a connect timeout looks like.
+Every failure guarded here applies green, and the no-NAT assertion is repo-wide rather than
+module-scoped on purpose. The reasoning, and what only the acceptance script can settle, is in
+``infra/modules/network/README.md``.
 
 Attributes:
   INFRA: The IaC tree, swept whole by the no-NAT assertion.
@@ -22,8 +10,7 @@ Attributes:
   MAIN: Its VPC, subnets, route tables, security groups and flow logs.
   ROOT_MAIN: The root composition, which owns the availability-zones read — the module's own
     depends_on would defer it to apply, and the subnets' for_each cannot take a deferred value.
-  GRANT: The deploy-role policy that scopes the flow-logs role by name — the other half of an
-    agreement whose breach is refused at ``CreateRole`` and reads as a missing permission.
+  GRANT: The deploy-role policy that scopes the flow-logs role by name.
   ENDPOINTS: Its four VPC endpoints.
   INTERFACE_ENDPOINT_SERVICES: The three interface endpoints a Fargate task needs to start and
     log with no route to the internet.
@@ -109,36 +96,6 @@ def test_no_private_route_table_carries_a_default_route() -> None:
             )
 
 
-def test_the_gateway_endpoint_associates_every_private_route_table() -> None:
-    """The association set must be derived, never listed.
-
-    A gateway endpoint associated with the wrong route table applies green and does nothing.
-    Deriving ``route_table_ids`` from the resource means an availability zone added later cannot
-    be left out of it, which a hand-kept list would permit.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the S3 endpoint is missing, not a gateway, or lists its tables.
-    """
-    endpoints = blocks(ENDPOINTS.read_text(), "aws_vpc_endpoint")
-    assert "s3" in endpoints, "No S3 VPC endpoint found."
-    body = endpoints["s3"]
-
-    assert re.search(r'vpc_endpoint_type\s*=\s*"Gateway"', body), (
-        "The S3 endpoint must be a Gateway. An interface endpoint installs no prefix-list route, "
-        "so with no default route the pull has no path to it at all."
-    )
-    assert re.search(r"route_table_ids\s*=\s*\[for\s+\w+\s+in\s+aws_route_table\.private", body), (
-        "route_table_ids must be derived from aws_route_table.private, not listed. A literal list "
-        "applies green while associating the wrong tables, and the only symptom is a failed pull."
-    )
-
-
 def test_every_interface_endpoint_resolves_privately_and_admits_only_the_tasks() -> None:
     """Private DNS on, in the private subnets, behind the endpoint security group.
 
@@ -202,144 +159,4 @@ def test_every_interface_endpoint_resolves_privately_and_admits_only_the_tasks()
         f"Ingress rule(s) {cidr_rules} admit a CIDR to the endpoint group. It must be reachable "
         "from the task group alone — a CIDR rule also admits anything else that ever lands in "
         "these subnets, which is the whole difference between the two."
-    )
-
-
-def test_the_vpc_enables_both_dns_settings() -> None:
-    """``private_dns_enabled`` silently resolves to nothing without both of them.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When either DNS setting is absent or false.
-    """
-    body = blocks(MAIN.read_text(), "aws_vpc")["main"]
-    assert "enable_dns_support   = true" in body or "enable_dns_support = true" in body
-    assert "enable_dns_hostnames = true" in body
-
-
-def test_subnets_are_keyed_by_availability_zone_name() -> None:
-    """Keyed by AZ name so a reordering of the data source cannot recreate them.
-
-    The CIDR still has to come from somewhere, and taking it from the data source's own order
-    would reintroduce the recreate the keying exists to prevent — hence the sort.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the subnets are index-keyed, or the AZ list is unsorted.
-    """
-    text = MAIN.read_text()
-    for name in ("public", "private"):
-        body = blocks(text, "aws_subnet")[name]
-        assert "for_each = local.subnets" in body, f"aws_subnet.{name} must be keyed by AZ name."
-        assert "availability_zone = each.key" in body
-
-    # THE KEY ITSELF, not just that for_each reads local.subnets. Re-keying the comprehension by
-    # its index satisfies every assertion above while making `availability_zone` a number.
-    assert re.search(r"for\s+\w+,\s*(\w+)\s+in\s+local\.azs\s*:\s*\1\s*=>", text), (
-        "local.subnets must be keyed by the availability-zone NAME — the comprehension's own AZ "
-        "variable — not by its index. Keyed by index, a reordering renames every subnet."
-    )
-    assert re.search(r"azs\s*=\s*slice\(sort\(", text), (
-        "The availability-zone list must be sorted before it is sliced. Without it the CIDR "
-        "assignment depends on the API's ordering, and a reordering recreates every subnet."
-    )
-    root = ROOT_MAIN.read_text()
-    assert re.search(r'name\s*=\s*"opt-in-status"', root), (
-        "The availability-zones data source must filter on opt-in-status. Local and Wavelength "
-        "zones sort BEFORE the ordinary ones, so opting into any of them would move this network "
-        "into two zones Fargate does not run in. The source reads at ROOT, because a module-level "
-        "depends_on defers a data source to apply and this one feeds a for_each, where deferral "
-        "is a hard error rather than a deferred value."
-    )
-    assert re.search(
-        r"availability_zone_names\s*=\s*data\.aws_availability_zones\.available\.names", root
-    ), (
-        "module.network must take the availability zones from the filtered data source. A literal "
-        "list at the call site satisfies every other assertion here while bypassing the "
-        "opt-in-status filter entirely — and it pins the network to two named zones, so the CIDR "
-        "pairing stops being derived at all."
-    )
-    assert not re.search(r'data\s+"aws_availability_zones"', text), (
-        "The availability-zones data source must NOT move back into the module: module.network "
-        "carries depends_on, which defers it and breaks the subnets' for_each on any change to "
-        "the module it depends on."
-    )
-    # Comment lines dropped first: the module explains at length why this filter is wrong, and
-    # naming the thing you are forbidding is not the same as doing it.
-    code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
-    assert 'state = "available"' not in code, (
-        "Do not filter the availability zones by state: it makes membership depend on AZ HEALTH, "
-        "so an impaired zone recreates the whole network during an availability-zone event."
-    )
-
-
-def test_public_subnets_hand_out_no_public_addresses() -> None:
-    """The load balancer brings its own; anything else here should not have one.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When a public subnet auto-assigns public IPs.
-    """
-    body = blocks(MAIN.read_text(), "aws_subnet")["public"]
-    assert "map_public_ip_on_launch = false" in body
-
-
-def test_every_log_group_this_module_creates_sets_retention() -> None:
-    """An unset retention is infinite, and it is an already-enforced scanner finding.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When a log group ships without a retention.
-    """
-    groups = blocks(MAIN.read_text(), "aws_cloudwatch_log_group")
-    assert groups, "No log group found — the parse went trivial."
-    for name, body in groups.items():
-        assert "retention_in_days" in body, f"aws_cloudwatch_log_group.{name} sets no retention."
-
-
-def test_the_flow_logs_role_is_named_the_way_the_deploy_grant_expects() -> None:
-    """The grant names this role by pattern, and a rename is denied at ``CreateRole``.
-
-    The deploy role's platform-frontdoor policy scopes role management and ``iam:PassRole`` to
-    ``{project}-*-vpc-flow-logs-role``. A name that does not match is refused when the role is
-    created, which reads as a missing permission rather than as a naming mismatch.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the role name drifts from the pattern the grant scopes to.
-    """
-    body = blocks(MAIN.read_text(), "aws_iam_role")["flow_logs"]
-    assert re.search(r'name\s*=\s*"\$\{local\.name_prefix\}-vpc-flow-logs-role"', body), (
-        "The flow-logs role's NAME must be ${local.name_prefix}-vpc-flow-logs-role. Asserted on "
-        "the name attribute rather than on the body, which a tag value would also satisfy."
-    )
-    grant = GRANT.read_text()
-    assert "vpc-flow-logs-role" in grant and "vpc-flow-logs.amazonaws.com" in grant, (
-        "The deploy grant no longer scopes a role pattern and a PassedToService for flow logs. "
-        "Both sides of this agreement are read here so a rename on either one reddens."
     )

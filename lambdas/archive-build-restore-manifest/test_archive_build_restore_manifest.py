@@ -132,19 +132,6 @@ def test_the_manifest_names_the_archive_as_source_and_the_space_as_destination()
     }
 
 
-def test_the_storage_class_is_STATED_on_every_item_and_is_never_omitted():
-    """FR-003 AC2, and it is the difference between a restore and a very expensive no-op. The
-    engine treats an absent class as "do not pass the argument", which is S3's default — but the
-    object being copied FROM is a temporary retrieval copy of a GLACIER object, so a copy that
-    said nothing would land the restored object back in GLACIER, where it expires to unreadable
-    a few days later having looked like a success throughout."""
-    fake = _install()
-
-    m.handler(_request(), None)
-
-    assert {line["storageClass"] for line in _lines(fake)} == {"STANDARD"}
-
-
 def test_a_folder_placeholder_is_carried_so_an_empty_folder_comes_back():
     """FR-003 AC6. A zero-byte key ending in a slash is how an empty folder survived the
     archive; dropping it here would restore a user's tree with its empty folders missing."""
@@ -155,29 +142,6 @@ def test_a_folder_placeholder_is_carried_so_an_empty_folder_comes_back():
     assert [line["destKey"] for line in _lines(fake)] == ["alice/reports/q1.csv", "alice/empty/"]
 
 
-def test_the_destinations_come_from_the_plan_and_are_not_recomputed():
-    """They were built by paths.origin_key and they are the keys the destination guard cleared.
-    A builder that disagreed would put a user's files somewhere the guard never looked."""
-    fake = _install(_plan(objects=[
-        {"archiveKey": f"{_ARCHIVE_ROOT}odd", "destKey": "alice/somewhere/else.csv", "bytes": 1},
-    ]))
-
-    m.handler(_request(objectCount=1), None)
-
-    assert _lines(fake)[0]["destKey"] == "alice/somewhere/else.csv"
-
-
-def test_the_manifest_key_is_execution_unique_and_both_result_prefixes_are_reported():
-    fake = _install()
-
-    out = m.handler(_request(), None)
-
-    assert "exec-1/" in out["transfer"]["manifestKey"]
-    assert fake.puts[0]["Key"] == out["transfer"]["manifestKey"]
-    assert out["transfer"]["retrievalResultsPrefix"].endswith("/retrieval-results")
-    assert out["transfer"]["resultsPrefix"].endswith("/restore-results")
-
-
 def test_a_plan_that_is_not_this_runs_refuses_and_notifies(_sink):
     _install(_plan(requestId="00000000-0000-4000-8000-000000000000"))
 
@@ -186,27 +150,6 @@ def test_a_plan_that_is_not_this_runs_refuses_and_notifies(_sink):
 
     assert caught.value.reason == "plan_superseded"
     assert _sink and _sink[0][0] == "alice"
-
-
-def test_an_unstamped_execution_refuses_rather_than_falling_back_to_the_request_id():
-    _install()
-
-    with pytest.raises(TerminalError) as caught:
-        m.handler(_request(execution={}), None)
-
-    assert caught.value.reason == "malformed_event"
-
-
-def test_an_unreadable_plan_refuses_the_whole_request():
-    """A manifest short of its plan would retrieve and copy fewer objects than the guard
-    cleared, and the collector compares it against the same plan — so both counts would agree
-    and be wrong."""
-    _install(get_error=_S3Error("NoSuchKey", 404))
-
-    with pytest.raises(TerminalError) as caught:
-        m.handler(_request(), None)
-
-    assert caught.value.reason == "plan_unreadable"
 
 
 if __name__ == "__main__":

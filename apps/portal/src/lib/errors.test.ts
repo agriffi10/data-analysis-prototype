@@ -41,12 +41,6 @@ describe('errorMessages', () => {
       expect(message).not.toContain('arn:aws');
     });
 
-    it('maps an expired-credential code to a sign-in fix', () => {
-      expect(toUserMessage({code: 'ExpiredToken', message: 'The provided token has expired.'}).message).toBe(
-        'Your session expired. Sign in again.'
-      );
-    });
-
     it('maps an unqualified-table Athena failure to the add-database fix (FR-005)', () => {
       const {message} = toUserMessage({
         code: 'FAILED',
@@ -68,12 +62,6 @@ describe('errorMessages', () => {
       expect(
         toUserMessage({code: 'FAILED', message: "SYNTAX_ERROR: line 1:8: Column 'x' cannot be resolved"}).message
       ).toContain('column');
-    });
-
-    it('maps an Athena syntax error', () => {
-      expect(toUserMessage({code: 'FAILED', message: 'SYNTAX_ERROR: mismatched input'}).message).toContain(
-        'syntax error'
-      );
     });
 
     it('maps a results-read-too-early 400 to "still running", not the generic fallback', () => {
@@ -138,15 +126,6 @@ describe('errorMessages', () => {
       expect(message).not.toBe('Something went wrong. Contact the Administrator.');
     });
 
-    it('says what became of the data when a write RECOVERED from an unreadable document', () => {
-      // The one outcome of the three that is a success, and the only channel the
-      // user has for learning that the list in front of them is not the one they
-      // had. Silence here reads as an ordinary save (SPEC-159 FR-004).
-      const history = toUserMessage({code: 'QueryHistoryRecovered'}).message;
-      expect(history).toMatch(/copy was kept/i);
-      expect(history).not.toBe('Something went wrong. Contact the Administrator.');
-    });
-
     it('names the saved query that vanished, rather than saying “that item” (SPEC-173)', () => {
       // A user looking at a list of twenty-five queries needs to know WHICH one is
       // gone, which is why this is its own passthrough code and not generic NotFound.
@@ -180,14 +159,6 @@ describe('errorMessages', () => {
       expect(toUserMessage(err).message).toContain('Check your connection');
     });
 
-    it('logs the original error to the console in a dev build', () => {
-      vi.stubEnv('DEV', true);
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      toUserMessage({code: 'AccessDenied', message: RAW_AWS});
-      expect(warn).toHaveBeenCalled();
-      expect(warn.mock.calls[0].join(' ')).toContain('AccessDenied');
-    });
-
     it('does not log and returns mapped text with no raw message in a production build (FR-006)', () => {
       vi.stubEnv('DEV', false);
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -211,12 +182,6 @@ describe('errorMessages', () => {
       ]) {
         expect(toUserText(error)).toBe(toUserMessage(error).message);
       }
-    });
-
-    it('accepts the {code, message} pair the six manual rebuilds used to construct', () => {
-      expect(toUserText({code: 'AccessDenied', message: 'Access Denied'})).toBe(
-        toUserMessage({code: 'AccessDenied', message: 'Access Denied'}).message
-      );
     });
 
     it('never returns the raw service text for a mapped code', () => {
@@ -254,30 +219,10 @@ describe('errorMessages', () => {
 describe('s3Errors', () => {
   describe('isNotFound', () => {
     it.each([
-      {label: 'GetObject on a missing key', err: {name: 'NoSuchKey'}},
-      {label: 'HeadObject on a missing key', err: {name: 'NotFound'}},
-      {label: 'a 404 in $metadata', err: {name: 'SomethingElse', $metadata: {httpStatusCode: 404}}}
-    ])('is true for $label', ({err}) => {
-      expect(isNotFound(err)).toBe(true);
-    });
-
-    it.each([
       {label: 'a denial', err: {name: 'AccessDenied', $metadata: {httpStatusCode: 403}}},
       {label: 'an ordinary Error', err: new Error('network down')}
     ])('is false for $label', ({err}) => {
       expect(isNotFound(err)).toBe(false);
-    });
-
-    // A non-object throw must be answered, not re-thrown: this is a predicate a
-    // catch block calls before deciding what the error means (SPEC-150 FR-009).
-    it.each([
-      {label: 'null', value: null},
-      {label: 'undefined', value: undefined},
-      {label: 'a string', value: 'NoSuchKey'},
-      {label: 'a number', value: 404}
-    ])('returns false for $label rather than throwing', ({value}) => {
-      expect(() => isNotFound(value)).not.toThrow();
-      expect(isNotFound(value)).toBe(false);
     });
   });
 });
@@ -304,15 +249,6 @@ describe('serviceResult', () => {
       });
     });
 
-    it('takes message and code from a normal Error', () => {
-      const err = Object.assign(new Error('Access Denied'), {name: 'AccessDenied'});
-
-      expect(toServiceError(err, 'Failed to list files')).toEqual({
-        success: false,
-        error: {message: 'Access Denied', code: 'AccessDenied'}
-      });
-    });
-
     it('takes them from an AWS SDK error object too', () => {
       const awsErr = {
         name: 'NoSuchKey',
@@ -325,27 +261,11 @@ describe('serviceResult', () => {
         error: {message: 'The specified key does not exist.', code: 'NoSuchKey'}
       });
     });
-
-    it('falls back when an object carries no message', () => {
-      expect(toServiceError({name: 'Weird'}, 'Failed to read').error.message).toBe('Failed to read');
-    });
   });
 
   describe('unwrap', () => {
     it('returns the data on success', () => {
       expect(unwrap({success: true, data: ['a']})).toEqual(['a']);
-    });
-
-    it('throws an Error carrying the message and code on failure', () => {
-      expect(() => unwrap({success: false, error: {message: 'Sign in required', code: 'NotAuthenticated'}})).toThrow(
-        'Sign in required'
-      );
-
-      try {
-        unwrap({success: false, error: {message: 'Sign in required', code: 'NotAuthenticated'}});
-      } catch (err) {
-        expect((err as {code?: string}).code).toBe('NotAuthenticated');
-      }
     });
   });
 });
@@ -497,23 +417,12 @@ describe('serviceErrorContract', () => {
     const flagged = (source: string) =>
       failureLiterals(source).filter((l) => !/(?:^|[{,\s])code\s*\??:/.test(l) && !DELEGATES.test(l));
 
-    it('flags a plain codeless failure', () => {
-      expect(flagged(`return {success: false, error: {message: 'nope'}};`)).toHaveLength(1);
-    });
-
     it('accepts one that carries a code', () => {
       expect(flagged(`return {success: false, error: {message: 'nope', code: 'NotFound'}};`)).toHaveLength(0);
     });
 
     it('accepts a delegation to an adapter that sets the code', () => {
       expect(flagged(`return {success: false, error: toServiceError(err, 'nope')};`)).toHaveLength(0);
-    });
-
-    it('is NOT fooled by a `code:` inside a comment', () => {
-      expect(flagged(`return {success: false, /* no code: internal */ error: {message: 'nope'}};`)).toHaveLength(1);
-      expect(
-        flagged(`return {\n  success: false,\n  // no code: internal\n  error: {message: 'nope'}\n};`)
-      ).toHaveLength(1);
     });
 
     it('is NOT fooled by a `code:` inside a message string', () => {

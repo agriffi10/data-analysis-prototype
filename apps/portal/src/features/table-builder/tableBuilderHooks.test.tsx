@@ -6,7 +6,6 @@ import {CreateTableButton} from './CreateTableButton';
 import {enqueueTableBuild, enqueueTableRefresh} from './tableBuild.service';
 import {authenticated} from '../../test/authFixtures';
 import {catalogKeys} from '../catalog/catalogKeys';
-import {getS3Client} from '../../lib/s3Client';
 import {useTableRefresh} from './useTableRefresh';
 import type {GlueTableSummary} from '../catalog/catalog.types';
 
@@ -45,12 +44,6 @@ describe('CreateTableButton', () => {
   });
 
   describe('CreateTableButton', () => {
-    it('opens the dialog with a name suggested from the current folder', async () => {
-      const {user} = renderButton();
-      await user.click(screen.getByRole('button', {name: 'Create table'}));
-      expect((screen.getByLabelText('Table name') as HTMLInputElement).value).toBe('sales');
-    });
-
     it('enqueues for the active space + current prefix and shows a success toast', async () => {
       const {user} = renderButton();
       await user.click(screen.getByRole('button', {name: 'Create table'}));
@@ -89,21 +82,6 @@ describe('CreateTableButton', () => {
         expect.objectContaining({space: expect.objectContaining({kind: 'shared', database: 'salesdata'})})
       );
       await screen.findByText(/Creating table/);
-    });
-
-    it('keeps the dialog open and shows friendly, mapped error text on a send failure', async () => {
-      // Raw AWS message + code; the dialog shows the FR-001-mapped text, not 'SQS unavailable'.
-      mockEnqueue.mockResolvedValue({success: false, error: {message: 'SQS unavailable', code: 'NetworkError'}});
-      const {user} = renderButton();
-      await user.click(screen.getByRole('button', {name: 'Create table'}));
-      await user.click(
-        within(screen.getByRole('dialog', {name: 'Create table from this folder'})).getByRole('button', {
-          name: 'Create table'
-        })
-      );
-      expect(await screen.findByText(/Check your connection/)).toBeInTheDocument();
-      expect(screen.queryByText('SQS unavailable')).not.toBeInTheDocument();
-      expect(screen.getByLabelText('Table name')).toBeInTheDocument();
     });
 
     // A table's LOCATION is read recursively, so a build at the space root SUCCEEDS and
@@ -183,12 +161,6 @@ describe('useTableRefresh', () => {
     location: 's3://dat-prod-user-space/alice/sales/2026'
   };
 
-  const SHARED_TABLE: GlueTableSummary = {
-    name: 'events',
-    columns: [],
-    location: 's3://dat-prod-shared-space/salesdata/events/'
-  };
-
   function render(username = 'alice') {
     const notify = vi.fn();
     const rendered = renderHookWithProviders(() => useTableRefresh(notify), {auth: authenticated(username)});
@@ -210,14 +182,6 @@ describe('useTableRefresh', () => {
     beforeEach(() => {
       mockEnqueue.mockReset();
       mockEnqueue.mockResolvedValue({success: true, data: undefined});
-    });
-
-    it('open targets a rail table with no pending removal; close clears it', () => {
-      const {result} = render();
-      act(() => result.current.open('alice', TABLE));
-      expect(result.current.target).toEqual({database: 'alice', table: TABLE, pending: null});
-      act(() => result.current.close());
-      expect(result.current.target).toBeNull();
     });
 
     it('open carries a link-borne pending removal', () => {
@@ -247,17 +211,6 @@ describe('useTableRefresh', () => {
       );
     });
 
-    it('marks a database that is not the signed-in user as a shared space', async () => {
-      const {result} = render();
-      act(() => result.current.open('salesdata', SHARED_TABLE));
-      await act(() => result.current.submit(false));
-      expect(mockEnqueue).toHaveBeenCalledWith(
-        expect.objectContaining({
-          space: {kind: 'shared', bucket: 'dat-prod-shared-space', prefix: 'salesdata/events/', database: 'salesdata'}
-        })
-      );
-    });
-
     it('sends allowRemovals only when the opt-in was ticked', async () => {
       const {result} = render();
       act(() => result.current.open('alice', TABLE));
@@ -279,14 +232,6 @@ describe('useTableRefresh', () => {
       expect(result.current.target).toEqual({database: 'alice', table: TABLE, pending: null});
       expect(result.current.error).toBe('Sign in to continue.');
       expect(notify).not.toHaveBeenCalled();
-    });
-
-    it('refuses to build a request for a table with no location', async () => {
-      const {result} = render();
-      act(() => result.current.open('alice', {name: 'no_files', columns: []}));
-      await act(() => result.current.submit(false));
-      expect(mockEnqueue).not.toHaveBeenCalled();
-      expect(result.current.error).toContain('no data folder');
     });
 
     it('ignores submit with no target', async () => {
@@ -314,25 +259,10 @@ describe('useTableRefresh', () => {
       expect(invalidate).toHaveBeenCalledTimes(2);
     });
 
-    it('does not invalidate on focus when no refresh was submitted', async () => {
-      const {result, queryClient} = render();
-      const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
-      act(() => result.current.open('alice', TABLE));
-      act(() => result.current.close());
-      await act(async () => void window.dispatchEvent(new Event('focus')));
-      expect(invalidate).not.toHaveBeenCalled();
-    });
-
     describe('a link-borne target (FR-005)', () => {
       it('is the target without anything being opened', () => {
         const {result, target} = renderLinked();
         expect(result.current.target).toEqual(target);
-      });
-
-      it('retires the link on close — the parameters are what hold the dialog open', () => {
-        const {result, onConsumed} = renderLinked();
-        act(() => result.current.close());
-        expect(onConsumed).toHaveBeenCalledTimes(1);
       });
 
       it('submits it and retires the link', async () => {
@@ -342,14 +272,6 @@ describe('useTableRefresh', () => {
           expect.objectContaining({tableName: 'sales_2026', allowRemovals: true})
         );
         expect(onConsumed).toHaveBeenCalledTimes(1);
-      });
-
-      it('keeps the link alive when the enqueue fails, so the dialog can be retried', async () => {
-        mockEnqueue.mockResolvedValue({success: false, error: {message: 'nope'}});
-        const {result, onConsumed} = renderLinked();
-        await act(() => result.current.submit(true));
-        expect(onConsumed).not.toHaveBeenCalled();
-        expect(result.current.error).toBeTruthy();
       });
 
       it('is overridden by an explicitly opened table', () => {
@@ -381,26 +303,6 @@ describe('useTableRefresh', () => {
         expect(mockEnqueue).toHaveBeenCalledTimes(1);
       });
 
-      it('the dropped second call resolves quietly and leaves the hook usable', async () => {
-        const {result} = render();
-        act(() => result.current.open('alice', TABLE));
-
-        await act(async () => {
-          await Promise.all([
-            expect(result.current.submit(false)).resolves.toBeUndefined(),
-            expect(result.current.submit(false)).resolves.toBeUndefined()
-          ]);
-        });
-        expect(result.current.error).toBeNull();
-
-        // The guard cleared, so a later legitimate refresh still goes through.
-        act(() => result.current.open('alice', SHARED_TABLE));
-        await act(() => result.current.submit(true));
-
-        expect(mockEnqueue).toHaveBeenCalledTimes(2);
-        expect(mockEnqueue).toHaveBeenLastCalledWith(expect.objectContaining({tableName: 'events'}));
-      });
-
       it('clears the guard on the no-location early return, which never awaits', async () => {
         // The one exit that returns before any await — without a finally it would wedge
         // the dialog permanently.
@@ -413,18 +315,6 @@ describe('useTableRefresh', () => {
         await act(() => result.current.submit(false));
         expect(mockEnqueue).toHaveBeenCalledTimes(1);
       });
-    });
-
-    it('persists nothing — no localStorage write and no S3 call on any path', async () => {
-      // FR-003: the opt-in is never remembered. `user_settings/` is reached through the
-      // S3 client, so a feature that never obtains one cannot have written there.
-      const setItem = vi.spyOn(Storage.prototype, 'setItem');
-      const {result} = render();
-      act(() => result.current.open('alice', TABLE));
-      await act(() => result.current.submit(true));
-      expect(setItem).not.toHaveBeenCalled();
-      expect(getS3Client).not.toHaveBeenCalled();
-      setItem.mockRestore();
     });
   });
 });

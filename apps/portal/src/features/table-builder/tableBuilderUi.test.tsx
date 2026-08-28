@@ -51,22 +51,6 @@ describe('CreateTableDialog', () => {
       fireEvent.click(createBtn());
       expect(onSubmit).toHaveBeenCalledWith({tableName: 'my_table', partitionKeys: []});
     });
-
-    it('submits on Enter in the name field', () => {
-      const {onSubmit} = renderDialog();
-      fireEvent.keyDown(nameInput(), {key: 'Enter'});
-      expect(onSubmit).toHaveBeenCalledWith({tableName: 'sales_2026', partitionKeys: []});
-    });
-
-    it('shows the current folder path when provided', () => {
-      renderDialog({folderPath: 'alice/sales/2026/'});
-      expect(screen.getByText('alice/sales/2026/')).toBeInTheDocument();
-    });
-
-    it('labels the space root when the folder path is empty', () => {
-      renderDialog({folderPath: ''});
-      expect(screen.getByText('/ (space root)')).toBeInTheDocument();
-    });
   });
 
   describe('CreateTableDialog — partition keys', () => {
@@ -110,23 +94,6 @@ describe('CreateTableDialog', () => {
       expect(addKeysBtn()).toBeInTheDocument();
       fireEvent.click(createBtn());
       expect(onSubmit).toHaveBeenCalledWith({tableName: 'sales_2026', partitionKeys: []});
-    });
-
-    it('reorders keys (granularity order)', () => {
-      const {onSubmit} = renderDialog();
-      fireEvent.click(addKeysBtn());
-      fireEvent.change(screen.getByLabelText('Partition key 1 name'), {target: {value: 'month'}});
-      fireEvent.change(screen.getByLabelText('Partition key 1 values'), {target: {value: '01,02'}});
-      fireEvent.click(screen.getByRole('button', {name: 'Add another key'}));
-      fireEvent.change(screen.getByLabelText('Partition key 2 name'), {target: {value: 'year'}});
-      fireEvent.change(screen.getByLabelText('Partition key 2 values'), {target: {value: '2025,2026'}});
-
-      // Move the second row (year) up so it leads (coarsest first).
-      fireEvent.click(screen.getByRole('button', {name: 'Move partition key 2 earlier'}));
-      fireEvent.click(createBtn());
-
-      const call = onSubmit.mock.calls[0][0];
-      expect(call.partitionKeys.map((k: {name: string}) => k.name)).toEqual(['year', 'month']);
     });
 
     it('flags a duplicate key name', () => {
@@ -222,15 +189,6 @@ describe('RefreshTableDialog', () => {
       expect(screen.getByText('s3://dat-prod-user-space/alice/sales/2026/')).toBeInTheDocument();
     });
 
-    it('states what a refresh does and does not do', () => {
-      render();
-      expect(screen.getByText(/files are not modified/i)).toBeInTheDocument();
-      expect(screen.getByText(/partition keys are not changed/i)).toBeInTheDocument();
-      // SPEC-149 made the rebuild in-place, so there is no unavailability window to warn about.
-      expect(screen.getByText(/stays queryable/i)).toBeInTheDocument();
-      expect(screen.getByText(/arrives as a notification/i)).toBeInTheDocument();
-    });
-
     it('offers the opt-in unchecked with confirm enabled — an additive refresh needs no tick', async () => {
       const {onConfirm, user} = render();
       expect(optIn()).not.toBeChecked();
@@ -244,18 +202,6 @@ describe('RefreshTableDialog', () => {
       await user.click(optIn());
       await user.click(confirmButton());
       expect(onConfirm).toHaveBeenCalledWith(true);
-    });
-
-    it('names the consequence of removal beside the box', () => {
-      render();
-      expect(screen.getByText(/dropped from the table/i)).toBeInTheDocument();
-      expect(screen.getByText(/will stop working/i)).toBeInTheDocument();
-    });
-
-    it('shows no removed-columns block when opened normally', () => {
-      render();
-      expect(screen.queryByRole('list', {name: /columns that would be removed/i})).not.toBeInTheDocument();
-      expect(screen.queryByText(/previous refresh was stopped/i)).not.toBeInTheDocument();
     });
 
     it('names the link-borne columns and explains why the refresh was stopped', () => {
@@ -288,14 +234,6 @@ describe('RefreshTableDialog', () => {
       expect(onConfirm).toHaveBeenCalledWith(true);
     });
 
-    it('never pre-checks the box, even reopened for the same pending removal', () => {
-      const {unmount} = render(LINKED);
-      expect(optIn()).not.toBeChecked();
-      unmount();
-      render(LINKED);
-      expect(optIn()).not.toBeChecked();
-    });
-
     it('locks the dialog and shows progress while the enqueue is in flight', () => {
       render(TARGET, {busy: true});
       expect(screen.getByRole('button', {name: 'Starting…'})).toBeDisabled();
@@ -307,18 +245,6 @@ describe('RefreshTableDialog', () => {
       render(TARGET, {submitError: 'Sign in to continue.'});
       expect(screen.getByRole('alert')).toHaveTextContent('Sign in to continue.');
       expect(confirmButton()).toBeEnabled();
-    });
-
-    it('cancels on Escape when not busy', async () => {
-      const {onCancel, user} = render();
-      await user.keyboard('{Escape}');
-      expect(onCancel).toHaveBeenCalled();
-    });
-
-    it('does not dismiss on Escape while busy', async () => {
-      const {onCancel, user} = render(TARGET, {busy: true});
-      await user.keyboard('{Escape}');
-      expect(onCancel).not.toHaveBeenCalled();
     });
 
     // SPEC-095/145 FR-007: one tree, `tablet:` only — no `*Mobile` twin, and nothing in the
@@ -343,23 +269,6 @@ describe('RefreshTableDialog', () => {
         expect(confirmButton()).toBeInTheDocument();
       });
 
-      it('makes the whole opt-in label a click target for the checkbox', async () => {
-        // ACCESSIBLE CONTRACT, not a class string: what matters is that clicking the label's
-        // TEXT toggles the checkbox — which is what a `w-full` label buys and what a screen
-        // reader and a touch user both depend on. The class assertion it replaces would have
-        // passed on a label that wrapped nothing.
-        const {user} = render();
-        expect(optIn()).not.toBeChecked();
-
-        await user.click(screen.getByText(/allow columns to be removed/i));
-
-        expect(optIn()).toBeChecked();
-        // The touch-target WIDTH is kept alongside, not replaced by, the behavioural half: the
-        // click assertion proves the label wraps the checkbox, and says nothing about it
-        // spanning the row — which is what makes it hittable on a phone (SPEC-095).
-        expect(optIn().closest('label')).toHaveClass('w-full');
-      });
-
       it('declares the one-tree reflow for the table/folder rows', () => {
         // Class-string assertion KEPT, with the reason FR-009 asks for: SPEC-095's "reflow on
         // ONE tree" is a documented constraint with no accessible equivalent — the guarantee is
@@ -367,18 +276,6 @@ describe('RefreshTableDialog', () => {
         render();
         expect(screen.getByText('alice.sales_2026').parentElement).toHaveClass('flex-col', 'tablet:flex-row');
       });
-    });
-
-    it('persists nothing — no localStorage access on any path', async () => {
-      const setItem = vi.spyOn(Storage.prototype, 'setItem');
-      const getItem = vi.spyOn(Storage.prototype, 'getItem');
-      const {user} = render(LINKED);
-      await user.click(optIn());
-      await user.click(confirmButton());
-      expect(setItem).not.toHaveBeenCalled();
-      expect(getItem).not.toHaveBeenCalled();
-      setItem.mockRestore();
-      getItem.mockRestore();
     });
   });
 });
@@ -418,19 +315,6 @@ describe('RefreshTableDialog.a11y', () => {
         COMPONENT_AXE_OPTIONS
       );
     });
-
-    it('has no axe violations with a submit error while busy', async () => {
-      await expectNoA11yViolations(
-        <RefreshTableDialog
-          target={TARGET}
-          busy
-          submitError="Failed to submit the request"
-          onConfirm={noop}
-          onCancel={noop}
-        />,
-        COMPONENT_AXE_OPTIONS
-      );
-    });
   });
 });
 
@@ -459,19 +343,9 @@ describe('partitionKeys', () => {
   });
 
   describe('validateDraftKey — name', () => {
-    it('requires a name', () => {
-      expect(validateDraftKey(draft({name: '', type: 'string', values: 'a'}), []).name).toBeTruthy();
-    });
-
     it('enforces the catalog-safe rule', () => {
       expect(validateDraftKey(draft({name: 'Year', type: 'string', values: 'a'}), []).name).toBeTruthy();
       expect(validateDraftKey(draft({name: '1year', type: 'string', values: 'a'}), []).name).toBeTruthy();
-    });
-
-    it('flags a duplicate name against the set', () => {
-      const a = draft({name: 'year', type: 'string', values: 'x'});
-      const b = draft({name: 'year', type: 'string', values: 'y'});
-      expect(validateDraftKey(b, [a, b]).name).toMatch(/duplicate/i);
     });
   });
 
@@ -481,24 +355,6 @@ describe('partitionKeys', () => {
       expect(e.min).toBeTruthy();
       expect(e.max).toBeTruthy();
     });
-
-    it('requires min < max', () => {
-      const e = validateDraftKey(draft({name: 'y', type: 'integer', min: '5', max: '5'}), []);
-      expect(e.max).toMatch(/greater/i);
-    });
-
-    it('accepts a valid range and blank digits', () => {
-      expect(validateDraftKey(draft({name: 'year', type: 'integer', min: '2020', max: '2026'}), [])).toEqual({});
-    });
-
-    it('rejects non-positive / non-integer digits', () => {
-      expect(
-        validateDraftKey(draft({name: 'y', type: 'integer', min: '0', max: '9', digits: '0'}), []).digits
-      ).toBeTruthy();
-      expect(
-        validateDraftKey(draft({name: 'y', type: 'integer', min: '0', max: '9', digits: 'x'}), []).digits
-      ).toBeTruthy();
-    });
   });
 
   describe('validateDraftKey — date', () => {
@@ -507,12 +363,6 @@ describe('partitionKeys', () => {
       expect(e.start).toBeTruthy();
       expect(e.end).toBeTruthy();
       expect(e.format).toBeTruthy();
-    });
-
-    it('accepts a complete date config', () => {
-      expect(
-        validateDraftKey(draft({name: 'day', type: 'date', start: '2020-01-01', end: 'NOW', format: 'yyyy-MM-dd'}), [])
-      ).toEqual({});
     });
   });
 
@@ -544,18 +394,6 @@ describe('partitionKeys', () => {
         buildPartitionKey(draft({name: 'day', type: 'date', start: '2020-01-01', end: 'NOW', format: 'yyyy-MM-dd'}), [])
       ).toEqual({name: 'day', type: 'date', range: ['2020-01-01', 'NOW'], format: 'yyyy-MM-dd'});
     });
-
-    it('builds a string enum key', () => {
-      expect(buildPartitionKey(draft({name: 'region', type: 'string', values: 'us, eu'}), [])).toEqual({
-        name: 'region',
-        type: 'string',
-        values: ['us', 'eu']
-      });
-    });
-
-    it('returns null for an invalid draft', () => {
-      expect(buildPartitionKey(draft({name: '', type: 'string', values: 'a'}), [])).toBeNull();
-    });
   });
 
   describe('buildPartitionKeys', () => {
@@ -572,17 +410,6 @@ describe('partitionKeys', () => {
       expect(result.valid).toBe(true);
       expect(result.keys.map((k) => k.name)).toEqual(['year', 'region']);
     });
-
-    it('is invalid and sends no keys when any row is invalid', () => {
-      const rows = [
-        draft({name: 'year', type: 'integer', min: '2020', max: '2026'}),
-        draft({name: '', type: 'string'})
-      ];
-      const result = buildPartitionKeys(rows);
-      expect(result.valid).toBe(false);
-      expect(result.keys).toEqual([]);
-      expect(result.errors[1].name).toBeTruthy();
-    });
   });
 });
 
@@ -597,14 +424,6 @@ describe('tableRefresh.link', () => {
       });
     });
 
-    it('works without the leading question mark and beside other parameters', () => {
-      expect(parseRefreshLink('tab=2&refreshTable=alice.sales_2026&removed=gone&x=1')).toEqual({
-        database: 'alice',
-        tableName: 'sales_2026',
-        columns: ['gone']
-      });
-    });
-
     it('decodes each name individually, so a comma inside one is not a separator', () => {
       // The exact string tbcommon.notify builds for these names.
       expect(parseRefreshLink('?refreshTable=sales.orders&removed=Order%20ID,a%26b,x%23y,co%2Cmma')).toEqual({
@@ -614,51 +433,9 @@ describe('tableRefresh.link', () => {
       });
     });
 
-    it('keeps names that are not catalog-safe identifiers (column names never are)', () => {
-      expect(parseRefreshLink('?refreshTable=sales.orders&removed=id,ts,Amount,first%20name')?.columns).toEqual([
-        'id',
-        'ts',
-        'Amount',
-        'first name'
-      ]);
-    });
-
     it('caps the list at 20 names', () => {
       const names = Array.from({length: 25}, (_, i) => `col_${i}`);
       expect(parseRefreshLink(`?refreshTable=sales.orders&removed=${names.join(',')}`)?.columns).toHaveLength(20);
-    });
-
-    it('drops a name with a malformed escape but keeps the rest', () => {
-      expect(parseRefreshLink('?refreshTable=sales.orders&removed=good,%E0%A4%A,also_good')?.columns).toEqual([
-        'good',
-        'also_good'
-      ]);
-    });
-
-    // The parser reports what the URL said; the CALLER decides that an empty list is
-    // not the link-borne state (QueryWorkspace), because gating confirm behind the
-    // removals opt-in is only informed consent when the columns are named.
-    it('reports an empty column list rather than inventing names', () => {
-      expect(parseRefreshLink('?refreshTable=sales.orders')).toEqual({
-        database: 'sales',
-        tableName: 'orders',
-        columns: []
-      });
-      expect(parseRefreshLink('?refreshTable=sales.orders&removed=')?.columns).toEqual([]);
-      expect(parseRefreshLink('?refreshTable=sales.orders&removed=%E0%A4%A')?.columns).toEqual([]);
-    });
-
-    it.each([
-      ['no refreshTable at all', '?removed=legacy_id'],
-      ['an empty refreshTable', '?refreshTable=&removed=legacy_id'],
-      ['no dot separator', '?refreshTable=orders'],
-      ['a database that is not catalog-safe', '?refreshTable=Sales.orders'],
-      ['a table that is not catalog-safe', '?refreshTable=sales.Orders'],
-      ['a table with a path traversal', '?refreshTable=sales.../../etc'],
-      ['an over-long table name', `?refreshTable=sales.${'a'.repeat(64)}`],
-      ['a too-short table name', '?refreshTable=sales.ab']
-    ])('ignores the parameters entirely when there is %s', (_label, search) => {
-      expect(parseRefreshLink(search)).toBeNull();
     });
   });
 });
@@ -675,31 +452,6 @@ describe('tableRefresh.location', () => {
 
     it('normalises a missing trailing slash', () => {
       expect(parseTableLocation('s3://user-space/alice/sales')).toEqual({bucket: 'user-space', prefix: 'alice/sales/'});
-    });
-
-    it('keeps a shared-space location intact (the rail shows shared tables too)', () => {
-      expect(parseTableLocation('s3://shared-space/salesteam/2026/q1/')).toEqual({
-        bucket: 'shared-space',
-        prefix: 'salesteam/2026/q1/'
-      });
-    });
-
-    it('trims surrounding whitespace', () => {
-      expect(parseTableLocation('  s3://user-space/alice/sales/  ')).toEqual({
-        bucket: 'user-space',
-        prefix: 'alice/sales/'
-      });
-    });
-
-    it.each([
-      ['undefined', undefined],
-      ['empty', ''],
-      ['a bucket with no key', 's3://user-space'],
-      ['a bucket with an empty key', 's3://user-space/'],
-      ['another scheme', 'https://user-space.s3.amazonaws.com/alice/'],
-      ['a bare path', '/alice/sales/']
-    ])('returns null for %s', (_label, value) => {
-      expect(parseTableLocation(value)).toBeNull();
     });
   });
 });

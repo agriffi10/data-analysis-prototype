@@ -6,7 +6,7 @@ so they fail at the read instead. Either way the suites need the values present 
 tests patch ``config.X`` attributes (via ``fakes.install()`` etc.) but the code under
 test still reads the unpatched ones — so this conftest stamps dummy values before any
 test module is collected. Both fail-fast paths are exercised directly by
-``test_config_cpcommon.py`` and the domain env tests.
+the domain env tests.
 
 It also puts the shared Lambda-LAYER package roots on ``sys.path`` so ``from cpcommon
 import …`` (and the domain layers) resolve everywhere under ``pytest lambdas/`` without

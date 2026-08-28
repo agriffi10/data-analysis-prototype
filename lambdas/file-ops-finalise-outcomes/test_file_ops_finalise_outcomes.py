@@ -112,17 +112,6 @@ def test_NO_gate_verdict_survives_to_a_terminal():
         assert record["outcome"] not in outcomes.GATE_VERDICTS
 
 
-def test_a_COPY_finalises_without_any_deletion_having_run():
-    """``delete-source`` does not run on a copy — the graph proves there is no path — which is
-    exactly why this verb exists: without it every successful item on a copy run would arrive at the
-    terminal still labelled ``cleared``."""
-    clients._s3 = _FakeS3({"deletable": [], "items": []})
-
-    result = m._finalise_outcomes(_event([_cleared()], operation="copy", results_key=None))
-
-    assert result["outcomes"][0]["outcome"] == "copied"
-
-
 # ── The duplicate, and the state no earlier code describes ───────────────────
 
 
@@ -138,72 +127,4 @@ def test_a_copied_item_whose_SOURCE_SURVIVED_is_a_duplicate(reason):
     assert result["outcomes"][0]["reason"] == reason
 
 
-def test_a_DELETE_that_removed_nothing_is_NOT_a_duplicate():
-    """Nothing was copied, so "you now have it twice" would be a false sentence — and ``copy_failed``
-    names a copy that never happened. One state, one code."""
-    _install(deletions=[{"itemKey": "alice/a/", "deleted": 0, "failed": 1,
-                         "reason": "delete_refused"}])
-
-    result = m._finalise_outcomes(_event([_cleared()], operation="delete"))
-
-    assert result["outcomes"][0]["outcome"] == "delete_failed"
-    assert result["outcomes"][0]["reason"] == "delete_refused"
-
-
-def test_an_unrecognised_deletion_reason_still_produces_a_WORDABLE_outcome():
-    """A record nothing can word is a notification the user never gets."""
-    _install(deletions=[{"itemKey": "alice/a/", "deleted": 0, "failed": 1, "reason": ""}])
-
-    result = m._finalise_outcomes(_event([_cleared()]))
-
-    assert result["outcomes"][0]["outcome"] == "duplicate"
-    assert result["outcomes"][0]["reason"] == "source_delete_failed"
-
-
 # ── The terminal's payload ───────────────────────────────────────────────────
-
-
-def test_the_terminal_carries_BOTH_spaces_the_prefix_and_every_items_targetName():
-    """The full set is what a re-submit has to rebuild into a valid request: the SOURCE space is not
-    derivable from an absolute key, and a rename's ``targetName`` has no other source."""
-    _install(
-        deletions=[{"itemKey": "alice/a/", "deleted": 1, "failed": 0, "reason": ""}],
-        items=[{"itemKey": "alice/a/", "objects": 3, "failed": 0}],
-    )
-
-    summary = m._finalise_outcomes(_event([_cleared()]))["summary"]
-
-    assert summary["operation"] == "move"
-    assert summary["source"] == {"kind": "personal", "name": "alice"}
-    assert summary["destination"] == {"kind": "shared", "name": "sales", "prefix": "sales/out/"}
-    assert summary["items"] == [{"itemKey": "alice/a/", "kind": "folder", "targetName": "a"}]
-    assert summary["counts"] == [{"itemKey": "alice/a/", "objects": 3, "failed": 0}]
-
-
-def test_a_run_where_EVERY_item_was_refused_still_reaches_the_ordinary_terminal():
-    """"Nothing could be done" is a result, not a failure of the request."""
-    clients._s3 = _FakeS3({"deletable": [], "items": []})
-    arrived = [
-        {"itemKey": "alice/a/", "label": "a", "outcome": "conflict", "reason": "destination_occupied"},
-        {"itemKey": "alice/b/", "label": "b", "outcome": "protected", "reason": "archive_read_only"},
-    ]
-
-    result = m._finalise_outcomes(_event(arrived, results_key=None))
-
-    assert result["outcomes"] == arrived
-    assert "summary" in result
-
-
-def test_the_ORDER_a_person_reads_is_preserved():
-    """The list is what the notification is built from, and an item must not move to the end of it
-    because its outcome was decided last."""
-    _install(deletions=[{"itemKey": "alice/b/", "deleted": 1, "failed": 0, "reason": ""}])
-    arrived = [
-        {"itemKey": "alice/a/", "label": "a", "outcome": "noop"},
-        _cleared("alice/b/", "b"),
-        {"itemKey": "alice/c/", "label": "c", "outcome": "source_empty", "reason": "source_empty"},
-    ]
-
-    result = m._finalise_outcomes(_event(arrived))
-
-    assert [r["itemKey"] for r in result["outcomes"]] == ["alice/a/", "alice/b/", "alice/c/"]

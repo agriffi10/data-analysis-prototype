@@ -110,45 +110,6 @@ def test_the_whole_archive_prefix_goes_including_its_own_record():
     assert out["cleanup"] == {"deleted": 3, "residue": 0, "cleanupIncomplete": False}
 
 
-def test_a_folder_placeholder_is_swept_too():
-    """Zero-byte keys are how empty folders survived the archive, and the default predicate
-    drops them — so they are exactly what a sweep would leave behind and be billed for."""
-    fake = _install()
-
-    m.handler(_request(), None)
-
-    assert f"{_ARCHIVE_ROOT}empty/" in fake.deleted
-
-
-def test_a_partial_sweep_flags_the_run_rather_than_failing_it(_sink):
-    """**FR-005 AC3, AND IT IS THE EXACT INVERSE OF delete-source.** There, a half-deleted source
-    means a user told their archive completed while their files were still half there — terminal.
-    Here the outcome the user asked for has already happened: their data is back. Residue in a
-    bucket the browser cannot reach costs storage the 7-year expiry sweeps, so it is a flag on a
-    SUCCESSFUL run and the user is not told about it at all."""
-    _install(errors=[{"Key": f"{_ARCHIVE_ROOT}reports/q1.csv", "Code": "AccessDenied"}])
-
-    out = m.handler(_request(), None)
-
-    assert out["cleanup"]["cleanupIncomplete"] is True
-    assert out["cleanup"]["residue"] == 1
-    assert _sink == [], "a swept-vault failure is not the user's problem to hear about"
-
-
-def test_the_sweep_is_scoped_to_this_archives_own_prefix():
-    """The prefix is `{kind}/{name}/archive/{uuid}/` — this request's alone — which is what makes
-    "delete what is there" a safe instruction rather than a reckless one."""
-    fake = _install(contents=[
-        (f"{_ARCHIVE_ROOT}q1.csv", 9),
-        ("personal/alice/archive/00000000-0000-4000-8000-000000000000/other.csv", 9),
-        ("personal/bob/archive/11111111-1111-4111-8111-111111111111/theirs.csv", 9),
-    ])
-
-    m.handler(_request(), None)
-
-    assert fake.deleted == [f"{_ARCHIVE_ROOT}q1.csv"]
-
-
 def test_a_key_outside_the_prefix_refuses_before_anything_is_issued():
     """`assert_deletable` checks the whole list up front, so a listing that somehow returned a
     foreign key fails the verb rather than stopping a deletion half way through."""

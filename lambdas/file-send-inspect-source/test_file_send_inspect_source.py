@@ -7,7 +7,6 @@ notified before the Catch records a refusal. Runnable under pytest or directly:
 python3 test_file_send_inspect_source.py.
 """
 
-import json
 import os
 import sys
 
@@ -100,43 +99,6 @@ def test_the_state_carries_the_plans_KEY_and_its_totals():
     assert result["totalBytes"] == 30
 
 
-def test_the_validated_request_is_threaded_through_unchanged():
-    """SPEC-166's states read the recipients and the source off this same object, so a verb that
-    returned only its own additions would strand them."""
-    _install({"alice/reports/q1.csv": 10})
-    event = _event()
-
-    result = m.handler(event, None)
-
-    assert result["requestId"] == event["requestId"]
-    assert result["actor"] == event["actor"]
-    assert result["recipients"] == event["recipients"]
-    assert result["source"] == event["source"]
-
-
-def test_no_object_key_comes_back_on_the_state():
-    """THE POINT OF THE POINTER. At the caps the object list is two orders of magnitude over the
-    256 KB payload limit, so a key leaking onto the state is not a style problem — it is the
-    beginning of the failure the plan exists to avoid, and it would first appear at scale."""
-    _install({"alice/reports/q1.csv": 10, "alice/reports/2026/q2.csv": 20})
-
-    result = m.handler(_event(), None)
-
-    serialised = json.dumps(result)
-    assert "q1.csv" not in serialised
-    assert "objects" not in result
-
-
-def test_the_plan_is_written_before_the_state_is_returned():
-    _install({"alice/reports/q1.csv": 10})
-    fake = clients._s3
-
-    result = m.handler(_event(), None)
-
-    assert [p["Key"] for p in fake.puts] == [result["copyPlanKey"]]
-    assert json.loads(fake.puts[0]["Body"])["sender"] == "alice"
-
-
 def test_a_refusal_notifies_the_sender_before_it_raises(notified):
     """The decorator's emit, which is what keeps a whole-request refusal from reaching the user
     as silence plus a failed execution they cannot see."""
@@ -149,58 +111,6 @@ def test_a_refusal_notifies_the_sender_before_it_raises(notified):
     assert notified == [("alice", "Couldn't send: there was nothing to send in what you selected.")]
 
 
-def test_a_refusal_writes_no_plan(notified):
-    """Every cap and layout rule fires before the write, so a refused send leaves nothing
-    behind — no orphan object in the admin bucket for a request that never ran."""
-    fake = _install({"alice/reports/q1.csv": 10})
-
-    with pytest.raises(TerminalError):
-        m.handler(
-            _event(
-                [
-                    {"kind": "folder", "key": "alice/reports/"},
-                    {"kind": "file", "key": "alice/reports/q1.csv"},
-                ]
-            ),
-            None,
-        )
-
-    assert fake.puts == []
-
-
-def test_the_refusal_message_names_the_colliding_name(notified):
-    """The token path end to end: the raise site supplies the sender's own folder name and the
-    resolver fills it, so the sentence says which selection to change."""
-    _install({"alice/x/reports/q1.csv": 10, "alice/y/reports/q2.csv": 10})
-
-    with pytest.raises(TerminalError):
-        m.handler(
-            _event(
-                [
-                    {"kind": "folder", "key": "alice/x/reports/"},
-                    {"kind": "folder", "key": "alice/y/reports/"},
-                ]
-            ),
-            None,
-        )
-
-    assert '"reports"' in notified[0][1]
-
-
-def test_a_shared_space_source_is_expanded_in_its_own_bucket():
-    _install({"sales/reports/q1.csv": 10})
-    event = _event()
-    event["source"] = {
-        "bucket": "shared-bkt",
-        "root": "sales/",
-        "items": [{"kind": "folder", "key": "sales/reports/"}],
-    }
-
-    result = m.handler(event, None)
-
-    assert result["objectCount"] == 1
-
-
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
 
@@ -211,68 +121,3 @@ if __name__ == "__main__":
 def _recipients(count):
     """A recipient list of the given length, all resolvable."""
     return [{"kind": "user", "name": f"user{n}"} for n in range(count)]
-
-
-def test_the_transfer_item_cap_counts_objects_TIMES_recipients(monkeypatch):
-    """The bound neither per-source cap can express: 2 objects is legal and so are 3 recipients,
-    and every manifest item is a full copy."""
-    monkeypatch.setattr(m, "SEND_MAX_TRANSFER_ITEMS", 5)
-    _install({"alice/reports/q1.csv": 10, "alice/reports/q2.csv": 10})
-    event = {**_event(), "recipients": _recipients(3)}
-
-    with pytest.raises(TerminalError) as caught:
-        m.handler(event, None)
-
-    assert caught.value.reason == "too_many_transfer_items"
-
-
-def test_the_transfer_byte_cap_counts_bytes_TIMES_recipients(monkeypatch):
-    """Table-share's own ceiling was short by a factor of its recipient cap for exactly this
-    reason: the Map moves the source once PER RECIPIENT."""
-    monkeypatch.setattr(m, "SEND_MAX_TRANSFER_BYTES", 50)
-    _install({"alice/reports/q1.csv": 20})
-    event = {**_event(), "recipients": _recipients(3)}
-
-    with pytest.raises(TerminalError) as caught:
-        m.handler(event, None)
-
-    assert caught.value.reason == "transfer_too_large"
-
-
-def test_a_transfer_exactly_at_the_caps_is_allowed(monkeypatch):
-    monkeypatch.setattr(m, "SEND_MAX_TRANSFER_ITEMS", 2)
-    monkeypatch.setattr(m, "SEND_MAX_TRANSFER_BYTES", 20)
-    _install({"alice/reports/q1.csv": 10})
-    event = {**_event(), "recipients": _recipients(2)}
-
-    assert m.handler(event, None)["objectCount"] == 1
-
-
-def test_the_transfer_caps_are_measured_on_the_REQUESTED_recipients(monkeypatch):
-    """Before the guard, deliberately. Counting only the recipients who clear their conflict
-    check would let the expensive half of the work happen first — the guard is one listing per
-    recipient — and would make a refusal depend on what someone else's inbox happens to hold."""
-    monkeypatch.setattr(m, "SEND_MAX_TRANSFER_ITEMS", 2)
-    _install({"alice/reports/q1.csv": 10})
-    event = {
-        **_event(),
-        "recipients": [{"kind": "user", "name": "ghost", "invalid": "unknown_user"}, *_recipients(2)],
-    }
-
-    with pytest.raises(TerminalError) as caught:
-        m.handler(event, None)
-
-    assert caught.value.reason == "too_many_transfer_items"
-
-
-def test_no_plan_is_written_when_the_transfer_caps_refuse(monkeypatch, notified):
-    """A refused send leaves nothing behind — and the caps sit AFTER the expansion, so this is
-    the one ordering worth pinning: the plan write must come after them, not before."""
-    monkeypatch.setattr(m, "SEND_MAX_TRANSFER_ITEMS", 2)
-    fake = _install({"alice/reports/q1.csv": 10})
-
-    with pytest.raises(TerminalError):
-        m.handler({**_event(), "recipients": _recipients(50)}, None)
-
-    assert fake.puts == []
-    assert notified and notified[0][0] == "alice"

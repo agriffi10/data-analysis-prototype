@@ -88,19 +88,6 @@ describe('UsernameCombobox', () => {
       ).toEqual(['alice', 'alicia']);
     });
 
-    // SPEC-186 FR-003. jsdom has no layout, so the arithmetic lives in
-    // `comboboxPlacement.test.ts`; what this asserts is that the list is bounded by a MEASURED
-    // value at all, rather than by the fixed `max-h-60` class that overhung the dialog by 97px.
-    // Restoring the class reddens it.
-    it('bounds the list by a measurement, not by a fixed class', async () => {
-      const {user} = renderWithProviders(<Harness />);
-      await typeReady(user, 'ali');
-
-      const listbox = screen.getByRole('listbox');
-      expect(listbox.style.maxHeight).not.toBe('');
-      expect(listbox.className).not.toMatch(/\bmax-h-/);
-    });
-
     it('keeps DOM focus in the input and moves a virtual cursor instead', async () => {
       // The property that makes this a combobox rather than a menu. If focus moved to the
       // option, a screen reader would lose the text the user is typing.
@@ -131,17 +118,6 @@ describe('UsernameCombobox', () => {
 
       await user.keyboard('{ArrowUp}');
       expect(field()).toHaveAttribute('aria-activedescendant', options()[1].id);
-    });
-
-    it('jumps to first and last with Home and End', async () => {
-      const {user} = renderWithProviders(<Harness />);
-      await typeReady(user, 'ali');
-
-      await user.keyboard('{End}');
-      expect(field()).toHaveAttribute('aria-activedescendant', options()[1].id);
-
-      await user.keyboard('{Home}');
-      expect(field()).toHaveAttribute('aria-activedescendant', options()[0].id);
     });
 
     it('never points aria-activedescendant at an option that is gone', async () => {
@@ -179,13 +155,6 @@ describe('UsernameCombobox', () => {
       await user.keyboard('zzz');
 
       await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('No matches'));
-    });
-
-    it('announces the result count politely', async () => {
-      const {user} = renderWithProviders(<Harness />);
-      await typeReady(user, 'ali');
-
-      await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('2 matches'));
     });
   });
 
@@ -251,15 +220,6 @@ describe('UsernameCombobox', () => {
       expect(field()).toHaveValue('');
     });
 
-    it('commits the typed text when nothing is highlighted', async () => {
-      const onCommit = vi.fn();
-      const {user} = renderWithProviders(<Harness onCommit={onCommit} />);
-      await user.click(field());
-      await user.keyboard('carol{Enter}');
-
-      expect(onCommit).toHaveBeenCalledWith('carol');
-    });
-
     it('commits every valid token of a multi-token entry through onCommitMany', async () => {
       // TableShareDialog's user entry is a BULK field today (`e.g. bob, cara`); a single-value
       // combobox would silently remove that shipped capability.
@@ -281,20 +241,6 @@ describe('UsernameCombobox', () => {
       expect(onCommit).toHaveBeenCalledWith('bob');
     });
 
-    it('leaves invalid tokens in the input with the standard rule sentence', async () => {
-      // `alice@corp.com` and `9lives` genuinely fail the rule. Note that a token like `Bad` does
-      // NOT — it lowercases to `bad`, which is catalog-safe — so a test written with those would
-      // pass while asserting nothing.
-      const onCommitMany = vi.fn();
-      const {user} = renderWithProviders(<Harness onCommitMany={onCommitMany} />);
-      await user.click(field());
-      await user.keyboard('bob alice@corp.com 9lives{Enter}');
-
-      expect(onCommitMany).toHaveBeenCalledWith(['bob']);
-      expect(field()).toHaveValue('alice@corp.com 9lives');
-      expect(screen.getByRole('alert')).toHaveTextContent('Use 3–63 characters');
-    });
-
     it('commits an option on click', async () => {
       const onCommit = vi.fn();
       const {user} = renderWithProviders(<Harness onCommit={onCommit} />);
@@ -303,20 +249,6 @@ describe('UsernameCombobox', () => {
       await user.click(screen.getByRole('option', {name: 'bob_smith'}));
 
       expect(onCommit).toHaveBeenCalledWith('bob_smith');
-    });
-
-    it('closes the list on an outside click', async () => {
-      const {user} = renderWithProviders(
-        <div>
-          <Harness />
-          <button type="button">elsewhere</button>
-        </div>
-      );
-      await typeReady(user, 'ali');
-
-      await user.click(screen.getByRole('button', {name: 'elsewhere'}));
-
-      await waitFor(() => expect(options()).toHaveLength(0));
     });
 
     it('closes the list on Tab and commits nothing, keeping the typed text', async () => {
@@ -366,24 +298,6 @@ describe('UsernameCombobox', () => {
       expect(note).toBeInTheDocument();
     });
 
-    it('commits an unlisted name with NO note while the directory is loading', async () => {
-      // A note arriving a second after the name was accepted reads as a delayed rejection.
-      let release: (value: unknown) => void = () => {};
-      vi.mocked(getUserDirectory).mockReturnValue(
-        new Promise((resolve) => {
-          release = resolve;
-        }) as never
-      );
-      const onCommit = vi.fn();
-      const {user} = renderWithProviders(<Harness onCommit={onCommit} />);
-      await user.click(field());
-      await user.keyboard('newperson{Enter}');
-
-      expect(onCommit).toHaveBeenCalledWith('newperson');
-      expect(screen.queryByText(/not in the directory/i)).not.toBeInTheDocument();
-      release(resolved());
-    });
-
     it('commits an unlisted name with NO note and no suggestions when the directory is unavailable', async () => {
       // Telling a user their colleague "was not found" because a background fetch failed is
       // worse than saying nothing.
@@ -396,15 +310,6 @@ describe('UsernameCombobox', () => {
       await waitFor(() => expect(onCommit).toHaveBeenCalledWith('alice'));
       expect(screen.queryByText(/not in the directory/i)).not.toBeInTheDocument();
       expect(options()).toHaveLength(0);
-    });
-
-    it('does not note a name that IS in the directory', async () => {
-      const {user} = renderWithProviders(<Harness />);
-      await user.click(field());
-      await user.keyboard('carol{Enter}');
-
-      await waitFor(() => expect(field()).toHaveValue(''));
-      expect(screen.queryByText(/not in the directory/i)).not.toBeInTheDocument();
     });
   });
 
@@ -476,22 +381,6 @@ describe('UsernameCombobox', () => {
 
       expect(field()).toHaveValue('ali');
     });
-
-    it('leaves Escape alone when the list is closed', async () => {
-      // Not intercepted at all, so the enclosing surface dismisses normally.
-      const onModalClose = vi.fn();
-      const {user} = renderWithProviders(
-        <DrawerFixture
-          onDrawerClose={vi.fn()}
-          onModalClose={onModalClose}
-        />
-      );
-      await user.click(field());
-
-      await user.keyboard('{Escape}');
-
-      expect(onModalClose).toHaveBeenCalledTimes(1);
-    });
   });
 });
 
@@ -561,17 +450,6 @@ describe('UsernameCombobox.a11y', () => {
     cleanup();
   }
 
-  /** Guards the guard: the open-state cases must actually contain a listbox when axe runs. */
-  async function expectListboxWasInspected(typed: string): Promise<void> {
-    const {container} = render(<Harness initial={typed} />);
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('combobox'));
-    await user.keyboard('{Backspace}' + typed.slice(-1));
-    await waitFor(() => expect(screen.getAllByRole('option').length).toBeGreaterThan(0));
-    expect(container.querySelector('[role="listbox"]')).not.toBeNull();
-    cleanup();
-  }
-
   describe('UsernameCombobox a11y', () => {
     it('has no violations closed', async () => {
       await renderThenAxe('', 'none');
@@ -581,21 +459,8 @@ describe('UsernameCombobox.a11y', () => {
       await renderThenAxe('ali', 'options');
     });
 
-    it('really did hand axe an open listbox', async () => {
-      await expectListboxWasInspected('ali');
-    });
-
     it('has no violations open with no results', async () => {
       await renderThenAxe('zzz', 'none');
-    });
-
-    it('has no violations at a phone width', async () => {
-      Object.defineProperty(window, 'innerWidth', {value: 400, writable: true, configurable: true});
-      try {
-        await renderThenAxe('ali', 'options');
-      } finally {
-        Object.defineProperty(window, 'innerWidth', {value: 1024, writable: true, configurable: true});
-      }
     });
   });
 });

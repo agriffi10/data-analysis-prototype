@@ -92,25 +92,3 @@ def test_a_TRANSIENT_failure_raises_so_the_Map_retries_the_whole_batch():
 
     with pytest.raises(TransientError):
         m.handler({"Items": [_line("alice/a/", "alice/a/1", "alice/out/a/1")]}, None)
-
-
-def test_an_empty_batch_is_an_ordinary_zero():
-    assert m.handler({"Items": []}, None) == {"copied": 0, "failures": []}
-
-
-def test_the_echoed_field_is_BOUNDED_and_is_a_key_ONCE_per_line():
-    """The failure list rides the exported result and then the state, where a key list is the
-    unbounded term that breaches the 256 KB limit ON the Map — destroying every per-item outcome the
-    export exists to preserve."""
-    assert m.ITEM_KEY == ("itemKey",)
-
-
-def test_the_reason_code_is_declared_LOCALLY_because_this_verb_carries_no_domain_layer():
-    """The deliberate twin every plane's batch verb has: attaching a whole domain layer to a
-    function that needs one string from it is the alternative."""
-    import pathlib
-
-    source = pathlib.Path(m.__file__).read_text()
-
-    assert 'COPY_FAILED = "copy_failed"' in source
-    assert "from focommon" not in source

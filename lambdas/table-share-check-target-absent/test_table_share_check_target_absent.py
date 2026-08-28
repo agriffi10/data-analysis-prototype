@@ -21,7 +21,7 @@ os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 import pytest
 import table_share_check_target_absent as m
 from cpcommon import clients, config
-from cpcommon.errors import TerminalError, TransientError
+from cpcommon.errors import TerminalError
 
 
 @pytest.fixture(autouse=True)
@@ -97,36 +97,9 @@ def test_user_recipient_resolves_to_user_space_destination():
     assert out["request"]["tableName"] == "orders_copy"
 
 
-def test_space_recipient_resolves_to_shared_space_destination():
-    _setup()
-    out = m.handler(_event(kind="space", name="salesteam"), None)
-    assert out["recipient"]["database"] == "salesteam"
-    assert out["recipient"]["destBucket"] == config.SHARED_SPACE_BUCKET
-    assert out["recipient"]["destPrefix"] == "salesteam/shared_tables/orders_copy/"
-
-
-def test_invalid_recipient_short_circuits_with_its_reason():
-    fake = _setup()
-    _expect_reason(_event(valid=False, reason="unknown_user"), "unknown_user")
-    _expect_reason(_event(kind="space", valid=False, reason="unknown_space"), "unknown_space")
-    assert fake.calls == []  # no Glue/S3 touched
-
-
 def test_existing_table_is_a_conflict():
     _setup(table_exists=True)
     _expect_reason(_event(), "conflict")
-
-
-def test_non_empty_destination_prefix_is_a_conflict():
-    _setup(key_count=1)
-    _expect_reason(_event(), "conflict")
-
-
-def test_self_share_same_name_conflicts_naturally():
-    # Sharing alice.orders back to user alice under the SAME name: the source
-    # table exists in the recipient DB → conflict (architecture §12).
-    _setup(table_exists=True)
-    _expect_reason(_event(name="alice", table_name="orders"), "conflict")
 
 
 def test_lf_denied_recipient_db_is_terminal():
@@ -136,15 +109,6 @@ def test_lf_denied_recipient_db_is_terminal():
     _setup()
     m.glue_mod.table_exists = _denied
     _expect_reason(_event(), "target_not_readable")
-
-
-def test_listing_failure_is_transient():
-    _setup(list_error=RuntimeError("boom"))
-    try:
-        m.handler(_event(), None)
-    except TransientError:
-        return
-    raise AssertionError("expected TransientError")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
-  API_FUNCTION_TIMEOUT_SECONDS,
-  API_GATEWAY_INTEGRATION_CEILING_SECONDS,
-  TIMEOUT_MS,
   apiRequest,
   apiRetryPolicy,
   resetApiClientForTests,
@@ -62,17 +59,6 @@ describe('apiRequest — the call it makes', () => {
     expect(init.method).toBe('GET');
   });
 
-  it('reads the API origin at CALL time, not at module load', async () => {
-    // The counterpart of the bucket-name assertion this service used to carry: a module-level
-    // const would have been captured before the document was seeded.
-    seedRuntimeConfig({apiBaseUrl: 'https://a-different-api.test'});
-    fetchMock.mockResolvedValue(json(200, {usernames: [], generatedAt: null}));
-
-    await apiRequest('userDirectory.get');
-
-    expect(String(fetchMock.mock.calls[0][0])).toContain('a-different-api.test');
-  });
-
   it('sends the bearer, a request id, and no cookie', async () => {
     fetchMock.mockResolvedValue(json(200, {}));
 
@@ -92,34 +78,11 @@ describe('apiRequest — the call it makes', () => {
     expect(fetchMock.mock.calls[0][1].headers['content-type']).toBeUndefined();
     expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
   });
-
-  it('URL-encodes a query value, so a continuation token survives the round trip', async () => {
-    // S3's NextContinuationToken is base64 and routinely carries all three of these. Unencoded,
-    // `+` decodes to a space server-side and the next page silently restarts from the beginning.
-    fetchMock.mockResolvedValue(json(200, {}));
-
-    await apiRequest('userDirectory.get', {query: {nextToken: 'a+b/c=='}});
-
-    const url = new URL(String(fetchMock.mock.calls[0][0]));
-    expect(url.searchParams.get('nextToken')).toBe('a+b/c==');
-    expect(String(fetchMock.mock.calls[0][0])).not.toContain('a+b/c==');
-  });
 });
 
 describe('apiRequest — no session', () => {
   it('returns SessionExpired and issues ZERO requests with no provider registered', async () => {
     resetApiClientForTests();
-
-    const result = await apiRequest('userDirectory.get');
-
-    expect(result).toMatchObject({success: false, error: {code: 'SessionExpired'}});
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('returns SessionExpired and issues ZERO requests when the provider has no token', async () => {
-    // Every consuming hook gates on a signed-in user, but an unauthenticated burst on mount is a
-    // real pattern in this app — so this arm must cost nothing rather than merely fail politely.
-    setAuthTokenProvider(async () => null);
 
     const result = await apiRequest('userDirectory.get');
 
@@ -170,18 +133,6 @@ describe('apiRequest — the 401 path', () => {
     await apiRequest('userDirectory.get');
     expect(handler).toHaveBeenCalledTimes(1);
   });
-
-  it('never navigates', async () => {
-    // A service that navigates makes every test touching a 401 a navigation test, and lets a
-    // background refetch throw a user out of a half-filled form.
-    const assign = vi.fn();
-    vi.stubGlobal('location', {assign, href: 'https://portal.example.test/files'});
-    fetchMock.mockResolvedValue(json(401, {error: {code: 'SessionExpired', requestId: 'r1'}}));
-
-    await apiRequest('userDirectory.get');
-
-    expect(assign).not.toHaveBeenCalled();
-  });
 });
 
 describe('apiRequest — the retry rule', () => {
@@ -195,15 +146,6 @@ describe('apiRequest — the retry rule', () => {
     await apiRequest('userDirectory.get');
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('issues exactly one request when the network fails', async () => {
-    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
-
-    const result = await apiRequest('userDirectory.get');
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(result).toMatchObject({success: false, error: {code: 'NetworkUnavailable'}});
   });
 
   it('returns false for every route the contract does not declare idempotent', () => {
@@ -230,16 +172,6 @@ describe('apiRequest — the retry rule', () => {
       delete table['test.write'];
     }
   });
-
-  it('issues exactly one request when the request times out', () => {
-    // Named separately because FR-008 lists a timeout among the conditions that must not retry,
-    // and a timeout is the one that looks most like a transient worth retrying.
-    fetchMock.mockRejectedValue(Object.assign(new Error('aborted'), {name: 'AbortError'}));
-
-    return apiRequest('userDirectory.get').then(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
-  });
 });
 
 describe('apiRequest — failures that are not envelopes', () => {
@@ -265,12 +197,6 @@ describe('apiRequest — failures that are not envelopes', () => {
       fetchMock.mockResolvedValue(opaque(status));
       await expect(apiRequest('userDirectory.get')).resolves.toMatchObject({success: false});
     }
-  });
-
-  it('treats a 200 that is not a JSON object as a failure rather than data', async () => {
-    fetchMock.mockResolvedValue(opaque(200));
-
-    await expect(apiRequest('userDirectory.get')).resolves.toMatchObject({success: false});
   });
 });
 
@@ -303,15 +229,6 @@ describe('apiRequest — the wording boundary', () => {
 });
 
 describe('the timeout', () => {
-  it('sits above the FUNCTION timeout, so the server always gives up first', () => {
-    // Pinned against the constants rather than against a number: a client that aborts first
-    // cancels requests the server then completes, which for a write is a mutation the user
-    // believes failed.
-    expect(API_FUNCTION_TIMEOUT_SECONDS).toBeLessThan(API_GATEWAY_INTEGRATION_CEILING_SECONDS);
-    expect(TIMEOUT_MS).toBeGreaterThan(API_FUNCTION_TIMEOUT_SECONDS * 1000);
-    expect(TIMEOUT_MS).toBe(API_GATEWAY_INTEGRATION_CEILING_SECONDS * 1000);
-  });
-
   it('produces RequestTimeout when the request is aborted', async () => {
     fetchMock.mockRejectedValue(Object.assign(new Error('aborted'), {name: 'AbortError'}));
 

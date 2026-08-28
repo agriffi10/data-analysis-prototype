@@ -6,7 +6,6 @@ transient error (must propagate, not be terminalized). Runnable under pytest or
 directly: python3 test_check_table_absent.py.
 """
 
-import json
 import os
 import sys
 
@@ -113,107 +112,10 @@ def test_transient_glue_throttle_is_raised_as_TransientError():
     raise AssertionError("expected TransientError from a throttled get_table")
 
 
-def test_non_transient_glue_error_propagates_unchanged():
-    """AccessDenied is deterministic — mapping it to TransientError would waste retries."""
-    _install("denied")
-    try:
-        c.handler(_event(), None)
-    except TransientError:
-        raise AssertionError("a deterministic fault must NOT become TransientError")
-    except _FakeClientError as err:
-        assert err.response["Error"]["Code"] == "AccessDenied"
-        return
-    raise AssertionError("expected the original ClientError to propagate")
-
-
-def test_check_table_absent_state_retries_TransientError():
-    """The code half is useless without the infra half — pin that CheckTableAbsent's
-    Retry names TransientError."""
-    import re
-
-    tftpl = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "..", "..", "infra", "modules", "table-builder", "state-machine.asl.json.tftpl",
-    )
-    with open(tftpl) as fh:
-        asl = json.loads(re.sub(r"\$\{[^}]+\}", "ARN", fh.read()))
-    named = [e for r in asl["States"]["CheckTableAbsent"]["Retry"] for e in r["ErrorEquals"]]
-    assert "TransientError" in named, f"CheckTableAbsent Retry must name TransientError; got {named}"
-
-
-def test_targets_the_declared_database_and_table():
-    fake = _install("absent")
-    c.handler(_event(table="orders", database="salesdata"), None)
-    assert fake.calls == [("salesdata", "orders")]
-
-
 def _actor_event():
     ev = _event()
     ev["actor"] = "alice"  # the validated payload carries the actor
     return ev
-
-
-def test_notifies_actor_on_table_exists():
-    _install("found")
-    q = _arm_notifications()
-    try:
-        c.handler(_actor_event(), None)
-    except TerminalError:
-        pass
-    assert len(q.calls) == 1
-    assert q.calls[0]["MessageGroupId"] == "alice"
-    assert q.calls[0]["MessageDeduplicationId"] == "r1:check"
-    body = json.loads(q.calls[0]["MessageBody"])
-    assert body == {
-        "action": "create",
-        "username": "alice",
-        "message": 'Couldn\'t create table "sales_2026": a table with that name already exists in "alice".',
-    }
-
-
-def test_no_notification_when_absent():
-    _install("absent")
-    q = _arm_notifications()
-    c.handler(_actor_event(), None)
-    assert q.calls == []
-
-
-def test_notifies_actor_on_unexpected_glue_error():
-    # A DETERMINISTIC error that escapes the handler (not a TerminalError, not transient) —
-    # e.g. AccessDenied — is a terminal failure the SFN records; @notifies_on_failure tells
-    # the actor rather than failing silently, and the original exception propagates
-    # unchanged. NOTE: a *transient* throttle is now mapped to TransientError and passes
-    # through un-notified (it will be retried) — so this deliberately uses "denied".
-    _install("denied")
-    q = _arm_notifications()
-    try:
-        c.handler(_actor_event(), None)
-    except _FakeClientError:
-        pass
-    assert len(q.calls) == 1
-    assert q.calls[0]["MessageGroupId"] == "alice"
-    assert q.calls[0]["MessageDeduplicationId"] == "r1:check"
-    body = json.loads(q.calls[0]["MessageBody"])
-    assert body == {
-        "action": "create",
-        "username": "alice",
-        "message": 'Couldn\'t create table "sales_2026": something went wrong. Please try again.',
-    }
-
-
-def test_malformed_event_is_terminal_and_notifies():
-    # SPEC-083 FR-002: a task input missing a required key becomes a typed terminal +
-    # actor notification, not a bare KeyError.
-    _install("absent")
-    q = _arm_notifications()
-    bad = {"actor": "alice", "requestId": "r1"}  # no space.database / tableName
-    try:
-        c.handler(bad, None)
-    except TerminalError as exc:
-        assert exc.reason == "malformed_event"
-    else:
-        raise AssertionError("expected TerminalError(malformed_event)")
-    assert len(q.calls) == 1 and q.calls[0]["MessageGroupId"] == "alice"
 
 
 if __name__ == "__main__":

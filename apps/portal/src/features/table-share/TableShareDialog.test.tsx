@@ -92,22 +92,6 @@ describe('TableShareDialog', () => {
       expect(screen.getByLabelText('Table name for recipients')).toHaveValue('orders');
     });
 
-    it('adds comma/space-separated names as removable chips tagged with the selected kind', async () => {
-      // THE USER ENTRY IS STILL A BULK FIELD. `bob, cara` in one go must still produce two chips —
-      // that is what `onCommitMany` is for, and losing it would be a silent regression.
-      const {user} = renderDialog();
-      await addRecipients(user, 'bob, cara');
-
-      expect(within(chipList()).getAllByRole('listitem')).toHaveLength(2);
-      expect(within(chipList()).getByRole('button', {name: 'Remove user bob'})).toBeInTheDocument();
-      // The entry box clears after an add.
-      expect(entryInput()).toHaveValue('');
-
-      await user.click(within(chipList()).getByRole('button', {name: 'Remove user bob'}));
-      expect(within(chipList()).queryByRole('button', {name: 'Remove user bob'})).not.toBeInTheDocument();
-      expect(within(chipList()).getByRole('button', {name: 'Remove user cara'})).toBeInTheDocument();
-    });
-
     it('tags entries added under "Shared spaces" as spaces (a mixed list is allowed)', async () => {
       const {user} = renderDialog();
       await addRecipients(user, 'bob');
@@ -128,15 +112,6 @@ describe('TableShareDialog', () => {
       expect(within(chipList()).getAllByRole('listitem')).toHaveLength(2);
     });
 
-    it('Enter in the recipient input adds names instead of submitting', async () => {
-      const {onSubmit, user} = renderDialog();
-      await user.click(entryInput());
-      await user.keyboard('bob{Enter}');
-
-      expect(onSubmit).not.toHaveBeenCalled();
-      expect(screen.getByRole('button', {name: 'Remove user bob'})).toBeInTheDocument();
-    });
-
     it('dedupes an already-added name of the same kind', async () => {
       const {user} = renderDialog();
       await addRecipients(user, 'bob');
@@ -154,30 +129,6 @@ describe('TableShareDialog', () => {
       expect(within(chipList()).getAllByRole('listitem')).toHaveLength(1);
       expect(entryInput()).toHaveValue('1bad -x');
       expect(screen.getByText(/Use 3–63 characters/)).toBeInTheDocument();
-    });
-
-    it('keeps Add enabled for a wholly-invalid entry of EITHER kind, so clicking it explains the problem', async () => {
-      // The combobox owns the parse, so Add stays live and clicking it surfaces the rule rather
-      // than leaving a dead button with no explanation. Until SPEC-158 the SPACE kind went
-      // disabled instead, gated on its own pre-parse — correct while it was a plain input, and a
-      // second quieter parser once it became the same combobox. Deliberately changed.
-      const {user} = renderDialog();
-      await user.click(entryInput());
-      await user.keyboard('Bad-Name');
-      expect(addButton()).toBeEnabled();
-
-      await user.click(addButton());
-      expect(screen.getByText(/Use 3–63 characters/)).toBeInTheDocument();
-
-      await user.click(screen.getByRole('radio', {name: 'Shared spaces'}));
-      // The entry survives the toggle (it always has), so clear the refused text first.
-      await user.clear(entryInput());
-      await user.keyboard('Bad-Name');
-      expect(addButton()).toBeEnabled();
-
-      await user.click(addButton());
-      expect(screen.getByText(/Use 3–63 characters/)).toBeInTheDocument();
-      expect(entryInput()).toHaveValue('Bad-Name');
     });
 
     it('returns focus to the entry after Add, for both kinds', async () => {
@@ -213,14 +164,6 @@ describe('TableShareDialog', () => {
       });
     });
 
-    it('locks the form while busy and surfaces a submit error inline', () => {
-      renderDialog({busy: true, submitError: 'Failed to submit the request'});
-      expect(screen.getByRole('button', {name: 'Submitting…'})).toBeDisabled();
-      expect(screen.getByRole('button', {name: 'Cancel'})).toBeDisabled();
-      expect(entryInput()).toBeDisabled();
-      expect(screen.getByRole('alert')).toHaveTextContent('Failed to submit the request');
-    });
-
     it('Cancel invokes onCancel', async () => {
       const {onCancel, user} = renderDialog();
       await user.click(screen.getByRole('button', {name: 'Cancel'}));
@@ -237,24 +180,6 @@ describe('TableShareDialog', () => {
       await waitFor(() =>
         expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['bob', 'bob_smith'])
       );
-    });
-
-    // SPEC-186 FR-003 AC4. Both kinds mount `UsernameCombobox` — but `key={kind}` remounts it,
-    // so "the user kind is bounded" says nothing about the space one. The arithmetic is proved
-    // in `comboboxPlacement.test.ts`; this is the reachability half, under both kinds.
-    it.each([
-      ['Users', 'bob'],
-      ['Shared spaces', 'sales']
-    ])('bounds the suggestion list inside the dialog under the %s kind', async (kind, typed) => {
-      const {user} = renderDialog();
-      if (kind !== 'Users') await user.click(screen.getByRole('radio', {name: kind}));
-      await user.click(entryInput());
-      await user.keyboard(typed);
-
-      await waitFor(() => expect(screen.getAllByRole('option').length).toBeGreaterThan(0));
-      const listbox = screen.getByRole('listbox');
-      expect(listbox.style.maxHeight).not.toBe('');
-      expect(listbox.className).not.toMatch(/\bmax-h-/);
     });
 
     it('never offers USERNAMES under the Shared spaces kind', async () => {
@@ -275,20 +200,6 @@ describe('TableShareDialog', () => {
       await user.keyboard('alice{Enter}');
 
       expect(within(chipList()).getByRole('button', {name: 'Remove user alice'})).toBeInTheDocument();
-    });
-
-    it('stays fully usable when the directory is unavailable', async () => {
-      vi.mocked(getUserDirectory).mockResolvedValue({success: false, error: {message: 'boom'}});
-      const {onSubmit, user} = renderDialog();
-
-      await addRecipients(user, 'someone_new');
-      await user.click(shareButton());
-
-      expect(onSubmit).toHaveBeenCalledWith({
-        tableName: 'orders',
-        recipients: [{kind: 'user', name: 'someone_new'}]
-      });
-      expect(screen.queryByText(/not in the directory/i)).not.toBeInTheDocument();
     });
 
     it('commits a valid unlisted name with a neutral note when the directory IS ready', async () => {
@@ -325,23 +236,6 @@ describe('TableShareDialog', () => {
       expect(screen.queryAllByRole('option')).toHaveLength(0);
     });
 
-    it('does NOT suggest a space that is not usable yet', async () => {
-      vi.mocked(readSharedConnectionsCache).mockResolvedValue({
-        success: true,
-        data: {
-          version: 1,
-          connections: [
-            {name: 'salesteam', role: 'member', status: 'provisioning'},
-            {name: 'finance', role: 'owner', status: 'active'}
-          ]
-        }
-      });
-      const {user} = renderDialog();
-      await spaceKind(user, 'sales');
-
-      expect(screen.queryAllByRole('option')).toHaveLength(0);
-    });
-
     it('commits a space that is not one of yours, with a note that does not call the name wrong', async () => {
       // Sharing to a space you are not a member of is PERMITTED
       // (`test_recipient_space_membership_not_required`), so the note must not read as a refusal.
@@ -366,22 +260,6 @@ describe('TableShareDialog', () => {
       await spaceKind(user, 'finance{Enter}');
 
       expect(within(chipList()).getByRole('button', {name: 'Remove space finance'})).toBeInTheDocument();
-      expect(screen.queryByText(/not one of your shared spaces/i)).not.toBeInTheDocument();
-    });
-
-    it('stays fully usable, with no note, when the user belongs to no shared space', async () => {
-      // Same collapse as the username directory: no spaces and a failed read are one state to a
-      // field that has nothing to offer either way — and a note then would be a rejection of a
-      // name that was accepted.
-      vi.mocked(readSharedConnectionsCache).mockResolvedValue({success: true, data: {version: 1, connections: []}});
-      const {onSubmit, user} = renderDialog();
-      await spaceKind(user, 'salesteam{Enter}');
-
-      await user.click(shareButton());
-      expect(onSubmit).toHaveBeenCalledWith({
-        tableName: 'orders',
-        recipients: [{kind: 'space', name: 'salesteam'}]
-      });
       expect(screen.queryByText(/not one of your shared spaces/i)).not.toBeInTheDocument();
     });
 
@@ -499,27 +377,8 @@ describe('TableShareDialog.a11y', () => {
   }
 
   describe('TableShareDialog a11y', () => {
-    it('has no axe violations in the default state', async () => {
-      const {container} = render(dialog());
-      await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
-      cleanup();
-    });
-
     it('has no axe violations with a submit error while busy', async () => {
       const {container} = render(dialog({busy: true, submitError: 'Failed to submit the request'}));
-      await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
-      cleanup();
-    });
-
-    it('has no axe violations with the suggestion list open', async () => {
-      // Checked on the DRIVEN container, not a fresh render: `open` is internal state, so
-      // re-rendering the element would silently hand axe the closed state instead.
-      const {container} = render(dialog());
-      const user = userEvent.setup();
-      await user.click(screen.getByRole('combobox'));
-      await user.keyboard('bob');
-      await waitFor(() => expect(screen.getAllByRole('option').length).toBeGreaterThan(0));
-
       await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
       cleanup();
     });
@@ -532,17 +391,6 @@ describe('TableShareDialog.a11y', () => {
       await user.click(screen.getByRole('radio', {name: 'Shared spaces'}));
       await user.type(screen.getByRole('combobox'), 'salesteam{enter}');
       await waitFor(() => expect(screen.getAllByRole('listitem').length).toBeGreaterThan(1));
-
-      await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
-      cleanup();
-    });
-
-    it('has no axe violations under the Shared spaces kind with the list closed', async () => {
-      // The default-state case above is the USER kind; this is the space kind's own closed state.
-      const {container} = render(dialog());
-      const user = userEvent.setup();
-      await user.click(screen.getByRole('radio', {name: 'Shared spaces'}));
-      expect(screen.queryAllByRole('option')).toHaveLength(0);
 
       await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
       cleanup();

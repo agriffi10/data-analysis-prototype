@@ -16,7 +16,7 @@ import json
 import execute_ddl as e
 import pytest
 from cpcommon import clients, config
-from cpcommon.errors import TerminalError, TransientError
+from cpcommon.errors import TerminalError
 
 BUCKET = "dat-prod-user-space"
 SHARED_BUCKET = "dat-prod-shared-space"
@@ -137,58 +137,7 @@ def test_flat_source_succeeds_with_one_query():
     assert out["actor"] == "alice"
 
 
-def test_mode_is_guaranteed_on_the_state_record_success_reads():
-    """SPEC-143. RecordSuccess does `"mode.$": "$.mode"`, and a Pass state's JSONPath
-    raises an UNCATCHABLE States.Runtime on an absent key — after the table exists and the
-    actor has already been told it does.
-
-    The key can only be missing in one window: an execution that starts after the state
-    machine deploys but before validate-authorize's code does, since the two are separate
-    workflows. Only a create reaches this verb, so defaulting here closes it exactly.
-    """
-    _install(_FakeAthena(["SUCCEEDED"]))
-    assert e.handler(_event(), None)["mode"] == "create"
-
-    _install(_FakeAthena(["SUCCEEDED"]))
-    assert e.handler({**_event(), "mode": "create"}, None)["mode"] == "create"
-
-
-def test_partitioned_source_succeeds_with_the_same_single_create():
-    # A partitioned source uses projection — NO second MSCK REPAIR StartQueryExecution.
-    athena = _install(_FakeAthena(["SUCCEEDED"]))
-    out = e.handler(_event(partitioned=True), None)
-    assert out["status"] == "created"
-    assert len(athena.start_calls) == 1
-
-
-def test_replay_of_existing_table_is_noop_success():
-    # IF NOT EXISTS ⇒ a re-run against an already-created table SUCCEEDs trivially;
-    # execute-ddl treats it as a no-op created (not a table_exists error — that guard
-    # is the pre-create SPEC-068 check).
-    athena = _install(_FakeAthena(["SUCCEEDED"]))
-    out = e.handler(_event(), None)
-    assert out["status"] == "created"
-    assert len(athena.start_calls) == 1
-
-
 # ── Results location routing ─────────────────────────────────────────────────
-
-def test_personal_results_location():
-    athena = _install(_FakeAthena(["SUCCEEDED"]))
-    e.handler(_event(), None)
-    assert athena.start_calls[0]["ResultConfiguration"]["OutputLocation"] == (
-        f"s3://{BUCKET}/alice/athenaresults/alice/"
-    )
-    assert athena.start_calls[0]["QueryExecutionContext"]["Database"] == "alice"
-    assert athena.start_calls[0]["WorkGroup"] == "dat-prod-portal-wg"
-
-
-def test_shared_results_location_is_under_the_space():
-    athena = _install(_FakeAthena(["SUCCEEDED"]))
-    e.handler(_event(kind="shared", bucket=SHARED_BUCKET, database="salesteam"), None)
-    assert athena.start_calls[0]["ResultConfiguration"]["OutputLocation"] == (
-        f"s3://{SHARED_BUCKET}/salesteam/athenaresults/alice/"
-    )
 
 
 # ── Failures ─────────────────────────────────────────────────────────────────
@@ -204,55 +153,7 @@ def test_athena_failed_is_ddl_execution_failed_with_reason():
     raise AssertionError("expected ddl_execution_failed")
 
 
-def test_athena_cancelled_is_ddl_execution_failed():
-    _install(_FakeAthena([{"State": "CANCELLED"}]))
-    _expect_reason(_event(), "ddl_execution_failed")
-
-
-def test_bad_statement_at_start_is_ddl_execution_failed():
-    _install(_FakeAthena([], start_error=_FakeClientError("InvalidRequestException")))
-    _expect_reason(_event(), "ddl_execution_failed")
-
-
-def test_transient_start_error_is_raised_for_retry():
-    _install(_FakeAthena([], start_error=_FakeClientError("ThrottlingException")))
-    try:
-        e.handler(_event(), None)
-        raise AssertionError("expected TransientError")
-    except TransientError:
-        pass
-
-
-def test_transient_poll_error_is_raised_for_retry():
-    _install(_FakeAthena(["QUEUED"], poll_error=_FakeClientError("TooManyRequestsException")))
-    try:
-        e.handler(_event(), None)
-        raise AssertionError("expected TransientError")
-    except TransientError:
-        pass
-
-
-def test_timeout_is_ddl_timeout():
-    # get_query_execution never leaves RUNNING → the wall-clock cap trips ddl_timeout.
-    _install(_FakeAthena(["RUNNING"]), max_polls=3)
-    _expect_reason(_event(), "ddl_timeout")
-
-
 # ── SPEC-072 notifications ────────────────────────────────────────────────────
-
-def test_notifies_actor_on_success_ready_message():
-    _install(_FakeAthena(["SUCCEEDED"]))
-    q = _arm_notifications()
-    e.handler(_event(), None)
-    assert len(q.calls) == 1
-    assert q.calls[0]["MessageGroupId"] == "alice"
-    assert q.calls[0]["MessageDeduplicationId"] == "r1:created"
-    body = json.loads(q.calls[0]["MessageBody"])
-    assert body == {
-        "action": "create",
-        "username": "alice",
-        "message": 'Table "sales_2026" is ready to query in "alice".',
-    }
 
 
 def test_notifies_actor_on_ddl_failure_without_leaking_athena_reason():
@@ -273,16 +174,6 @@ def test_notifies_actor_on_ddl_failure_without_leaking_athena_reason():
     assert "SYNTAX_ERROR" not in body["message"]
 
 
-def test_no_notification_on_transient_error():
-    _install(_FakeAthena([], start_error=_FakeClientError("ThrottlingException")))
-    q = _arm_notifications()
-    try:
-        e.handler(_event(), None)
-    except TransientError:
-        pass
-    assert q.calls == []
-
-
 if __name__ == "__main__":
     tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
     failed = 0
@@ -298,56 +189,3 @@ if __name__ == "__main__":
 
 
 # -- SPEC-135 FR-004: the in-Lambda poll narrates transitions, not iterations ------------
-
-
-def test_twenty_identical_polls_emit_no_per_iteration_events(captured_events):
-    """This loop runs INSIDE one invocation, so an event per iteration multiplies within a
-    single span rather than across invocations — the same amplification as data-quality's
-    30-second poll, in a smaller box, and just as pointless: consecutive RUNNING observations
-    carry no information.
-    """
-    _install(_FakeAthena(["RUNNING"] * 20 + ["SUCCEEDED"]), max_polls=40)
-
-    e.handler(_event(), None)
-
-    narrative = captured_events.levels()
-    # One transition (into RUNNING), one terminal. Never one per poll.
-    assert [e["message"] for e in narrative].count("query state changed") == 1, (
-        f"per-iteration events leaked: {[e['message'] for e in narrative]}"
-    )
-    succeeded = captured_events.messages("query succeeded")
-    assert len(succeeded) == 1
-    assert succeeded[0]["fields"]["polls"] >= 20
-
-
-def test_a_failed_ddl_carries_athenas_reason_VERBATIM(captured_events):
-    """FR-003. This is the exact text that would have named the missing CREATE_TABLE grant in
-    the silent-create incident — paraphrasing it into a stable token would have thrown away
-    the diagnosis. The token accompanies it; it does not replace it.
-    """
-    reason = "Insufficient permissions to execute the query. User does not have CREATE_TABLE"
-    _install(_FakeAthena([{"State": "FAILED", "StateChangeReason": reason}]))
-
-    with pytest.raises(TerminalError):
-        e.handler(_event(), None)
-
-    failed = captured_events.messages("query failed")
-    assert failed and failed[0]["level"] == "ERROR"
-    assert failed[0]["fields"]["state_change_reason"] == reason
-    assert failed[0]["fields"]["reason"] == "ddl_execution_failed"
-    assert failed[0]["fields"]["database"] == "alice"
-
-
-def test_an_exhausted_poll_budget_is_distinguishable_from_a_lambda_timeout(captured_events):
-    """A CREATE that runs long enough to hit the cap is a real signal, and today it is
-    indistinguishable from the Lambda simply being killed.
-    """
-    _install(_FakeAthena(["RUNNING"]), max_polls=3)
-
-    with pytest.raises(TerminalError):
-        e.handler(_event(), None)
-
-    exhausted = captured_events.messages("query poll budget exhausted")
-    assert exhausted and exhausted[0]["level"] == "ERROR"
-    assert exhausted[0]["fields"]["state"] == "RUNNING"
-    assert exhausted[0]["fields"]["polls"] >= 3

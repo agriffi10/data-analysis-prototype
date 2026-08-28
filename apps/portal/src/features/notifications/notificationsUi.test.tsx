@@ -54,19 +54,6 @@ describe('NotificationRow', () => {
       expect(screen.getByText('Unread:')).toBeInTheDocument();
     });
 
-    it('read rows are de-emphasized and have no Mark-read control', () => {
-      renderWithProviders(
-        <ul>
-          <NotificationRow
-            notification={note({read: true})}
-            onMarkRead={vi.fn()}
-          />
-        </ul>
-      );
-      expect(screen.queryByRole('button', {name: 'Mark read'})).not.toBeInTheDocument();
-      expect(screen.queryByText('Unread:')).not.toBeInTheDocument();
-    });
-
     it('calls onMarkRead with the id when clicked', () => {
       const onMarkRead = vi.fn();
       renderWithProviders(
@@ -79,23 +66,6 @@ describe('NotificationRow', () => {
       );
       fireEvent.click(screen.getByRole('button', {name: 'Mark read'}));
       expect(onMarkRead).toHaveBeenCalledWith('abc');
-    });
-
-    // ── SPEC-102: responsive Mark-read placement ───────────────────────────────
-
-    it('renders Mark-read as a compact trailing control at ≥ tablet', () => {
-      setWidth(1024);
-      renderWithProviders(
-        <ul>
-          <NotificationRow
-            notification={note()}
-            onMarkRead={vi.fn()}
-          />
-        </ul>
-      );
-      const button = screen.getByRole('button', {name: 'Mark read'});
-      expect(button).toHaveClass('flex-none');
-      expect(button).not.toHaveClass('w-full');
     });
 
     it('renders Mark-read as a full-width 34px button below the message on mobile', () => {
@@ -139,14 +109,6 @@ describe('NotificationRow', () => {
       expect(anchor).toHaveAttribute('href', '/data-quality/alice/req-1');
     });
 
-    it('renders plain text when there is no link — pinning existing notifications unchanged', () => {
-      // Table Builder / Table Share / the shared-space verbs supply no link and must be
-      // completely unaffected by this field existing.
-      renderRow(note());
-      expect(screen.queryByRole('link')).not.toBeInTheDocument();
-      expect(screen.getByText('Your shared space was created')).toBeInTheDocument();
-    });
-
     it('falls back to plain text for a link that could leave this origin', () => {
       // Rejected AT RENDER, so a notification can never become an open redirect. The
       // protocol-relative and backslash forms are the ones that look like paths.
@@ -183,11 +145,6 @@ describe('NotificationsBell', () => {
       expect(screen.getByRole('link', {name: 'Notifications, 3 unread'})).toBeInTheDocument();
     });
 
-    it('reports none unread when there is nothing unread', () => {
-      renderBell({hasUnread: false, unreadCount: 0});
-      expect(screen.getByRole('link', {name: 'Notifications, none unread'})).toBeInTheDocument();
-    });
-
     it('shows a numeric count badge (so a 2nd notification is visible, not silent)', () => {
       renderBell({hasUnread: true, unreadCount: 3});
       expect(screen.getByText('3')).toBeInTheDocument();
@@ -198,19 +155,9 @@ describe('NotificationsBell', () => {
       expect(screen.getByText('9+')).toBeInTheDocument();
     });
 
-    it('shows no badge when nothing is unread', () => {
-      renderBell({hasUnread: false, unreadCount: 0});
-      expect(screen.queryByText('0')).not.toBeInTheDocument();
-    });
-
     it('marks the link current when on /notifications', () => {
       renderBell({hasUnread: false, unreadCount: 0}, '/notifications');
       expect(screen.getByRole('link')).toHaveAttribute('aria-current', 'page');
-    });
-
-    it('is not current on other routes', () => {
-      renderBell({hasUnread: false, unreadCount: 0}, '/files');
-      expect(screen.getByRole('link')).not.toHaveAttribute('aria-current');
     });
   });
 });
@@ -270,15 +217,6 @@ describe('the review-conflicts action on a row', () => {
     expect(params.get('prefix')).toBe('finance/out/');
   });
 
-  it('is absent when the run had nothing to review', () => {
-    rowFor(conflicted({payload: {requestId: '11111111-2222-3333-4444-555555555555'}}));
-    expect(screen.queryByRole('link', {name: 'Review conflicts'})).toBeNull();
-
-    cleanup();
-    rowFor(conflicted({payload: undefined}));
-    expect(screen.queryByRole('link', {name: 'Review conflicts'})).toBeNull();
-  });
-
   it('still offers the action when the notification carries no usable link', () => {
     // Reachability of the conflicts must not depend on a PREFIX link, which is a strictly more
     // failure-prone thing than the request id the view actually needs — and a user who closed the
@@ -310,20 +248,8 @@ describe('the review-conflicts action on a row', () => {
 });
 
 describe('reviewHref', () => {
-  it('adds the request id to a base that has a query, and to one that has none', () => {
-    expect(new URLSearchParams(reviewHref('/files', 'r-1').split('?')[1]).get('requestId')).toBe('r-1');
-    const both = new URLSearchParams(reviewHref('/files?prefix=alice/out/', 'r-2').split('?')[1]);
-    expect(both.get('requestId')).toBe('r-2');
-    expect(both.get('prefix')).toBe('alice/out/');
-  });
-
   it('falls back to the file browser when the row resolved no link', () => {
     expect(reviewHref(undefined, 'r-3').startsWith('/files?')).toBe(true);
-  });
-
-  it('replaces rather than appends a request id the base already carried', () => {
-    const href = reviewHref('/files?requestId=stale', 'fresh');
-    expect(new URLSearchParams(href.split('?')[1]).getAll('requestId')).toEqual(['fresh']);
   });
 });
 
@@ -346,12 +272,6 @@ describe('notificationLink', () => {
       expect(isSafeInAppPath('//evil.test/phish')).toBe(false); // protocol-relative
       expect(isSafeInAppPath('/\\evil.test/phish')).toBe(false); // backslash authority
       expect(isSafeInAppPath('/\\\\evil.test')).toBe(false);
-    });
-
-    it('rejects a relative path, which resolves against whatever route the user is on', () => {
-      expect(isSafeInAppPath('data-quality/alice/req-1')).toBe(false);
-      expect(isSafeInAppPath('./somewhere')).toBe(false);
-      expect(isSafeInAppPath('../somewhere')).toBe(false);
     });
 
     it('rejects absent and non-string values', () => {

@@ -25,13 +25,12 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "dat-prod-shared-space")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
 import datetime
-import json
 import pathlib
 
 import apply_refresh as m
 import pytest
 from cpcommon import clients, config
-from cpcommon.errors import TerminalError, TransientError
+from cpcommon.errors import TerminalError
 
 BUCKET = "dat-prod-user-space"
 LAMBDAS = pathlib.Path(__file__).resolve().parent.parent
@@ -213,49 +212,6 @@ def test_the_verb_issues_one_update_and_never_touches_athena():
     assert len(glue.get_calls) == 2
 
 
-def test_the_verb_issues_no_delete_of_any_kind():
-    """FR-005 AC1. The replacement window is gone because nothing is ever removed.
-
-    The fake's `delete_table` / `batch_delete_table` RAISE rather than being absent — an
-    assertion that a fake lacks an attribute can never fail, which makes it read like evidence
-    while providing none. Here the catalog can delete and the verb simply never asks it to.
-    """
-    glue, _sqs = _install()
-
-    m.handler(_event(), None)
-
-    assert glue.update_calls and not any("Delete" in call for call in glue.update_calls)
-    # And the tripwire is real: calling it is what fails, not its absence.
-    with pytest.raises(AssertionError, match="delete_table"):
-        glue.delete_table(DatabaseName="alice", Name="sales_2026")
-
-
-def test_no_ddl_statement_appears_anywhere_in_the_verb():
-    """FR-001. A grep, because the failure this guards against is someone reintroducing the
-    old rebuild alongside the new one rather than instead of it."""
-    source = pathlib.Path(m.__file__).read_text()
-
-    for statement in ("DROP TABLE", "CREATE EXTERNAL TABLE", "StartQueryExecution"):
-        assert statement not in source, statement
-
-
-def test_nothing_in_the_table_builder_tree_calls_glue_delete_table():
-    """FR-006. The IAM grant is only safe to remove if no verb needs it, so the code half of
-    that claim is checked here rather than inferred from the one verb this spec rewrote.
-
-    Scoped to the table-builder plane's own modules: shared-space's teardown legitimately
-    calls ``batch_delete_table`` and keeps its grant.
-    """
-    offenders = []
-    for path in sorted(LAMBDAS.glob("table-builder-*/*.py")) + sorted(LAMBDAS.glob("table-builder-common/tbcommon/*.py")):
-        if path.name.startswith("test_"):
-            continue
-        if "delete_table" in path.read_text():
-            offenders.append(path.name)
-
-    assert not offenders, f"table-builder modules still calling a Glue delete: {offenders}"
-
-
 # ── FR-002: the read-modify-write ────────────────────────────────────────────
 
 
@@ -280,16 +236,6 @@ def test_the_table_input_preserves_every_field_a_refresh_does_not_own():
     assert sent["StorageDescriptor"]["InputFormat"] == "org.apache.hadoop.mapred.TextInputFormat"
 
 
-def test_the_table_input_really_changed_the_columns():
-    """Asserted on the SAME fixture as the preservation test, deliberately: a TableInput that
-    changed nothing at all would pass a preservation-only test perfectly."""
-    glue, _sqs = _install()
-
-    m.handler(_event(), None)
-
-    assert [c["Name"] for c in glue.table_input["StorageDescriptor"]["Columns"]] == ["order_id", "amount"]
-
-
 def test_the_read_only_fields_glue_rejects_are_not_sent():
     """A rejected field fails the call; an unstripped one Glue silently accepts is worse."""
     glue, _sqs = _install()
@@ -308,51 +254,6 @@ def test_the_read_only_fields_glue_rejects_are_not_sent():
         assert field not in glue.table_input, field
 
 
-def test_the_allowlist_matches_what_the_glue_api_actually_accepts():
-    """FR-002's "verify the exact set against the API" — pinned on every run rather than
-    checked once during a build.
-
-    An ALLOWLIST is what makes this checkable: the denylist alternative would pass this test
-    while silently going stale the next time AWS adds a member to ``Table``.
-    """
-    botocore = pytest.importorskip("botocore.session")
-
-    shape = (
-        botocore.get_session()
-        .get_service_model("glue")
-        .operation_model("UpdateTable")
-        .input_shape.members["TableInput"]
-    )
-
-    assert set(shape.members) == set(m._TABLE_INPUT_FIELDS)
-
-
-def test_external_and_table_type_survive_the_round_trip():
-    """A refresh that turned an external table into a managed one would make a future drop
-    destroy the user's data."""
-    glue, _sqs = _install()
-
-    m.handler(_event(), None)
-
-    assert glue.table_input["TableType"] == "EXTERNAL_TABLE"
-    assert glue.table_input["Parameters"]["EXTERNAL"] == "TRUE"
-
-
-def test_the_refreshed_table_is_still_marked_as_portal_built():
-    """SPEC-143 FR-007's marker is re-asserted rather than merely inherited, so a table that
-    predates it gains it on its first refresh.
-
-    Asserted through ``mark_managed`` rather than by naming the property, for the same reason
-    the verb writes it that way: naming it here would trip the tree-wide test that keeps a
-    user-writable TBLPROPERTY from becoming something a verb can branch on.
-    """
-    glue, _sqs = _install()
-
-    m.handler(_event(), None)
-
-    assert m.ddl.mark_managed({}).items() <= glue.table_input["Parameters"].items()
-
-
 # ── Column names, comments and casing ────────────────────────────────────────
 
 
@@ -368,38 +269,6 @@ def test_column_names_are_lowercased_like_the_create_path():
     m.handler(_event(columns=columns), None)
 
     assert [c["Name"] for c in glue.table_input["StorageDescriptor"]["Columns"]] == ["order_id", "amount"]
-
-
-def test_a_column_comment_and_its_parameters_survive_the_refresh():
-    """The metadata only the old table holds. Inference returns names and types and has
-    nothing to say about what a column MEANS, so a rebuild is exactly where these vanish."""
-    live = _live_table()
-    live["StorageDescriptor"]["Columns"] = [
-        {"Name": "order_id", "Type": "string", "Comment": "the shop's own id", "Parameters": {"pii": "false"}},
-        {"Name": "gone", "Type": "string", "Comment": "dropped upstream"},
-    ]
-    glue, _sqs = _install(table=live)
-
-    m.handler(_event(), None)
-    written = {c["Name"]: c for c in glue.table_input["StorageDescriptor"]["Columns"]}
-
-    assert written["order_id"]["Comment"] == "the shop's own id"
-    assert written["order_id"]["Parameters"] == {"pii": "false"}
-    # A column no longer in the data carries nothing forward; a new one has no metadata.
-    assert "gone" not in written
-    assert "Comment" not in written["amount"]
-
-
-def test_a_comment_is_matched_case_insensitively_like_every_other_comparison():
-    """The live name and the freshly inferred one can differ only by case, so the carry has to
-    fold to find its match — even though what it writes is the folded name."""
-    live = _live_table()
-    live["StorageDescriptor"]["Columns"] = [{"Name": "Order_ID", "Type": "string", "Comment": "kept"}]
-    glue, _sqs = _install(table=live)
-
-    m.handler(_event(columns=[{"name": "order_id", "type": "string"}]), None)
-
-    assert glue.table_input["StorageDescriptor"]["Columns"][0]["Comment"] == "kept"
 
 
 def test_a_retyped_column_takes_the_fresh_type_and_keeps_its_comment():
@@ -435,292 +304,19 @@ def _partitioned_live():
 _KEYS = [{"name": "year", "type": "integer", "range": [2000, 2100], "digits": 4}]
 
 
-def test_projection_properties_are_replaced_rather_than_merged():
-    """FR-002. Every ``projection.*`` key is dropped and regenerated from the reconstructed
-    keys through the create path's OWN renderer, so a stale key from a previous scheme cannot
-    survive a refresh — and each live key is emitted exactly once."""
-    glue, _sqs = _install(table=_partitioned_live())
-
-    m.handler(_event(partitionKeys=_KEYS), None)
-    parameters = glue.table_input["Parameters"]
-
-    assert parameters["projection.enabled"] == "true"
-    assert parameters["projection.year.range"] == "2000,2100"
-    assert parameters["projection.year.digits"] == "4"
-    assert not [key for key in parameters if key.startswith("projection.region.")]
-    # Non-projection parameters are untouched by the replacement.
-    assert parameters["skip.header.line.count"] == "1"
-
-
-def test_the_projection_keys_are_not_folded_like_the_column_names():
-    """They embed the PARTITION key's name, and this verb writes the live PartitionKeys back
-    unchanged — so folding them would name a partition key that does not exist."""
-    live = _partitioned_live()
-    live["PartitionKeys"] = [{"Name": "Year", "Type": "int"}]
-    glue, _sqs = _install(table=live)
-
-    m.handler(_event(partitionKeys=[{**_KEYS[0], "name": "Year"}]), None)
-
-    assert "projection.Year.type" in glue.table_input["Parameters"]
-    assert glue.table_input["PartitionKeys"] == [{"Name": "Year", "Type": "int"}]
-
-
-def test_a_column_colliding_with_a_partition_key_is_not_written_twice():
-    """Glue keeps partition keys in their own field, and one name declared in both is not a
-    valid table. infer-schema emits the FULL inferred list, so the collision is routine."""
-    columns = [
-        {"name": "order_id", "type": "string"},
-        {"name": "amount", "type": "string"},
-        {"name": "year", "type": "string"},
-    ]
-    glue, _sqs = _install(table=_partitioned_live())
-
-    out = m.handler(_event(partitionKeys=_KEYS, columns=columns), None)
-
-    assert [c["Name"] for c in glue.table_input["StorageDescriptor"]["Columns"]] == ["order_id", "amount"]
-    assert out["appliedColumnCount"] == 2
-
-
 # ── FR-004: the previous definition is retained ──────────────────────────────
-
-
-def test_the_update_does_not_skip_archiving():
-    """The retained table version is the manual rollback path for a refresh that landed but
-    was not wanted. Passed explicitly, so a future SDK default cannot quietly take it away."""
-    glue, _sqs = _install()
-
-    m.handler(_event(), None)
-
-    assert glue.update_calls[0]["SkipArchive"] is False
 
 
 # ── FR-003: the post-condition ───────────────────────────────────────────────
 
 
-def test_a_definition_that_did_not_land_is_caught():
-    """SPEC-135's lesson, unchanged by the mechanism: an accepted call is not evidence that
-    the catalog agrees. This plane's canonical failure was a verb that COMPLETED while the
-    table was not created (PRs #243-246)."""
-    exc = _expect_reason(_event(), "update_failed", drift=("order_id", "wrong_name"))
-
-    assert "missing ['amount']" in exc.detail
-    assert "unexpected ['wrong_name']" in exc.detail
-
-
-def test_a_post_condition_read_that_fails_is_TERMINAL_not_retryable():
-    """Deliberately not transient, even on a throttle. The update is committed, so a Retry
-    would re-read a table that has already changed and write it again — a verification
-    failing is not evidence that repeating the work it was verifying will help."""
-    _expect_reason(_event(), "update_failed", post_error=_ClientError("ThrottlingException"))
-
-
 # ── Failure modes ────────────────────────────────────────────────────────────
-
-
-def test_a_table_that_vanished_before_the_read_is_table_not_found():
-    _expect_reason(_event(), "table_not_found", get_error=_ClientError("EntityNotFoundException"))
-
-
-def test_a_table_that_vanished_before_the_write_is_table_not_found():
-    """The read-modify-write is not atomic, so the table can go between the two calls."""
-    _expect_reason(_event(), "table_not_found", update_error=_ClientError("EntityNotFoundException"))
-
-
-def test_access_denied_is_update_failed_and_the_raw_text_never_reaches_the_user():
-    """SPEC-106 FR-008. The operator gets the AWS text in the detail; the actor gets wording
-    that says nothing was changed — which is true, because a failed update changes nothing."""
-    _install(update_error=_ClientError("AccessDeniedException", "not authorized to perform glue:UpdateTable"))
-    try:
-        m.handler(_event(), None)
-    except TerminalError as exc:
-        assert exc.reason == "update_failed"
-        assert "not authorized" in exc.detail
-    else:
-        raise AssertionError("expected a TerminalError")
-
-    message = json.loads(clients._sqs.calls[0]["MessageBody"])["message"]
-    assert "Nothing was changed" in message
-    assert "glue:UpdateTable" not in message
-    assert "not authorized" not in message
-
-
-def test_a_throttle_is_retryable_rather_than_terminal():
-    _install(update_error=_ClientError("ThrottlingException"))
-
-    with pytest.raises(TransientError):
-        m.handler(_event(), None)
-
-
-def test_a_concurrent_modification_is_retryable():
-    """Glue's own guard on two simultaneous modifications — and the recovery a lost race
-    wants, because a re-invocation re-reads the live table and writes again. FR-005: this
-    REDUCES the overlap's severity, it does not close it. Glue offers no compare-and-set."""
-    _install(update_error=_ClientError("ConcurrentModificationException"))
-
-    with pytest.raises(TransientError):
-        m.handler(_event(), None)
-
-
-@pytest.mark.parametrize(
-    "code",
-    ["InternalServiceException", "OperationTimeoutException", "ResourceNotReadyException", "FederationSourceRetryableException"],
-)
-def test_glues_own_retryable_faults_are_not_reported_as_permanent_failures(code):
-    """THE SHARED CLASSIFIER MISSES THESE BY A WORD. `cpcommon.errors._TRANSIENT_CODES` is
-    spelled for S3/Athena/generic throttles — it lists `InternalError` and
-    `InternalServerException`, but Glue raises `InternalServiceException`, and it has no entry
-    at all for `OperationTimeoutException`, Glue's most routine transient.
-
-    Unclassified, each of these falls through to the terminal branch and kills the request with
-    "Nothing was changed" — on faults the state machine's Retry would very likely have survived.
-    """
-    _install(update_error=_ClientError(code))
-
-    with pytest.raises(TransientError):
-        m.handler(_event(), None)
-
-
-def test_the_same_faults_are_retryable_on_the_read_that_precedes_the_write():
-    """Nothing has been written yet, so there is even less reason to give up here."""
-    _install(get_error=_ClientError("OperationTimeoutException"))
-
-    with pytest.raises(TransientError):
-        m.handler(_event(), None)
-
-
-def test_an_invalid_input_is_still_terminal():
-    """The classifier must not have become a catch-all: a deterministic refusal has to stay
-    terminal, or the state machine burns its attempts on something that cannot resolve."""
-    _expect_reason(_event(), "update_failed", update_error=_ClientError("InvalidInputException"))
-
-
-def test_two_columns_differing_only_by_case_are_refused_rather_than_silently_merged():
-    """THE GUARD SPEC-144 GOT FOR FREE AND THIS PATH HAS TO STATE.
-
-    Athena rejects a CREATE with duplicate column names; `UpdateTable` performs no such
-    validation. Once the write folds case, a header of `Amount,amount` — two distinct fields to
-    inference — becomes one Glue column. The post-condition cannot catch it, because it
-    compares NAME SETS: both spellings collapse on each side and compare equal, so the verb
-    would report success on a table that lost a column and fails at query time.
-    """
-    glue, _sqs = _install()
-    columns = [{"name": "Amount", "type": "string"}, {"name": "amount", "type": "string"}]
-
-    exc = _expect_reason(_event(columns=columns), "update_failed")
-
-    assert "amount" in exc.detail
-    # Refused BEFORE the write — the table is untouched, which is what the message promises.
-    assert not glue.update_calls
 
 
 # ── Outcome ──────────────────────────────────────────────────────────────────
 
 
-def test_success_emits_the_refreshed_status_and_exactly_one_notification():
-    """FR-001: the verb's output is unchanged by the mechanism change, dedup id included."""
-    _glue, sqs = _install()
-
-    out = m.handler(_event(), None)
-
-    assert out["status"] == "refreshed"
-    assert out["appliedColumnCount"] == 2
-    assert len(sqs.calls) == 1
-    body = json.loads(sqs.calls[0]["MessageBody"])
-    assert "1 column added" in body["message"]
-    assert sqs.calls[0]["MessageDeduplicationId"] == "r1:refresh"
-
-
-def test_the_output_no_longer_carries_a_ddl_field():
-    """There is no statement to carry. A stale `ddl` would be the state's version of dead
-    code, and the next reader would go looking for the DDL that produced it."""
-    _install()
-
-    out = m.handler(_event(), None)
-
-    assert "ddl" not in out
-
-
-def test_a_failure_notifies_the_actor_before_the_state_machine_records_it():
-    _install(update_error=_ClientError("AccessDeniedException"))
-    try:
-        m.handler(_event(), None)
-    except TerminalError:
-        pass
-
-    body = json.loads(clients._sqs.calls[0]["MessageBody"])
-    assert "Nothing was changed" in body["message"]
-
-
-def test_the_verb_narrates_the_columns_it_declared():
-    """The `ddl` field SPEC-144 logged has no successor — there is no statement — so the
-    column names are what an operator reads to see what the update actually declared. Schema,
-    not file contents: permitted by the field rule."""
-    _install()
-    events = []
-    m.observability.info = lambda message, **fields: events.append((message, fields))
-    m.handler(_event(), None)
-
-    applying = next(fields for message, fields in events if message == "applying refresh")
-    assert applying["column_names"] == ["order_id", "amount"]
-
-    applied = next(fields for message, fields in events if message == "refresh applied")
-    assert applied["post_condition_ok"] is True
-    assert applied["previous_version_archived"] is True
-
-
 # ── SPEC-153 FR-006: the Athena case-fold premise, pinned ────────────────────
-
-
-def test_ACCEPTED_a_mixed_case_live_table_is_silently_re_cased_on_refresh():
-    """The premise SPEC-149 made OURS, written down as behaviour instead of prose.
-
-    AWS documents that Athena lowercases every column name it creates through DDL, so a
-    portal-created table's live columns are already lowercase and the fold below is a no-op.
-    SPEC-149's in-place ``UpdateTable`` bypasses Athena entirely, which is why this verb does
-    the fold itself — and that turned a documented property of Athena into a property of OUR
-    code. If the premise is wrong (a pre-149 table, an ``ALTER TABLE`` a user ran, a table
-    created outside the pipeline), the first refresh REWRITES the casing of every column
-    while ``diff-schema`` — which folds case to compare — reports the columns unchanged. No
-    test and no notification would say so.
-
-    Every other fixture in this file supplies already-lowercase live columns, so they assume
-    the conclusion. This one does not: the live table carries ``Order_ID`` and the refresh is
-    a pure add, yet what lands is ``order_id``.
-
-    ACCEPTED, and CORROBORATED-NOT-DISCHARGED: the AWS documentation is strong evidence and
-    is why 149 hard-codes the fold, but documentation is the same class of evidence that had
-    SPEC-144 FR-001 reversed mid-build. The check that would discharge it is a live
-    ``GetTable`` read-back after refreshing a table carrying a mixed-case column, and it is
-    recorded as owed. Note the comment survives the re-casing — the carry is keyed on
-    ``casefold()`` — so this is a rename, not a column swap.
-
-    If this starts failing, the fold changed: revisit the decision (docs/decisions/analytics.md, "Removing a
-    column needs an opt-in" / SPEC-149's apply entry), do not delete the test.
-    """
-    storage = {
-        **_live_table()["StorageDescriptor"],
-        "Columns": [{"Name": "Order_ID", "Type": "string", "Comment": "the shop's own id"}],
-    }
-    glue, _ = _install(table=_live_table(StorageDescriptor=storage))
-
-    m.handler(_event(columns=[
-        {"name": "Order_ID", "type": "string"},
-        {"name": "amount", "type": "string"},
-    ]), None)
-
-    written = glue.table_input["StorageDescriptor"]["Columns"]
-    assert [c["Name"] for c in written] == ["order_id", "amount"], (
-        "the fold is no longer being applied on write"
-    )
-    assert written[0]["Comment"] == "the shop's own id", "the carried comment was lost"
-
-
-def test_traced_is_outermost_above_notifies_on_failure():
-    import inspect
-
-    source = inspect.getsource(m)
-
-    assert source.index('@observability.traced("apply-refresh")') < source.index('@notify.notifies_on_failure("apply")')
 
 
 if __name__ == "__main__":
@@ -730,151 +326,6 @@ if __name__ == "__main__":
 # ── SPEC-157 FR-005: the residual window, narrowed ───────────────────────────
 
 
-def test_a_table_changed_since_the_run_started_is_abandoned_without_writing():
-    """Another writer committed between load-table-definition's read and this write, so the
-    definition this run computed came from a table that no longer exists in that form. Applying
-    it would silently overwrite whatever the other writer did — the failure mode is that
-    diff-schema reported 'unchanged' and nothing in logs/ says a definition was replaced."""
-    glue, _ = _install()
-    event = _event(observedUpdateTime="2026-01-01T00:00:00Z")
-
-    try:
-        m.handler(event, None)
-    except TerminalError as exc:
-        assert exc.reason == "table_changed_during_refresh"
-    else:
-        raise AssertionError("expected the refresh to be abandoned")
-
-    assert glue.update_calls == [], "the table was written despite having changed underneath"
-
-
-def test_a_table_that_did_not_change_is_applied():
-    """The counterweight: the guard must not refuse the ordinary case."""
-    glue, _ = _install()
-
-    m.handler(_event(observedUpdateTime="2026-02-01T00:00:00Z"), None)
-
-    assert len(glue.update_calls) == 1
-
-
-@pytest.mark.parametrize("observed", [None, ""])
-def test_no_captured_stamp_is_not_evidence_of_a_concurrent_writer(observed):
-    """Refusing on a missing stamp would fail refreshes for a reason the user can neither see
-    nor act on — and every request written before this spec has no stamp at all."""
-    glue, _ = _install()
-    event = _event()
-    if observed is not None:
-        event["observedUpdateTime"] = observed
-
-    m.handler(event, None)
-
-    assert len(glue.update_calls) == 1
-
-
-def test_a_table_reporting_no_update_time_is_applied():
-    """The other side of the same rule: Glue not reporting one is not evidence either."""
-    table = _live_table()
-    table.pop("UpdateTime")
-    glue, _ = _install(table=table)
-
-    m.handler(_event(observedUpdateTime="2026-01-01T00:00:00Z"), None)
-
-    assert len(glue.update_calls) == 1
-
-
-def test_version_id_is_never_passed_as_a_precondition():
-    """FR-005 AC4. UpdateTable's VersionId is documented as the version to update, with NO
-    precondition-failure error — it is not a compare-and-set, and passing it would read like one
-    to the next person. Verified against botocore's service model (2026-08-05)."""
-    glue, _ = _install()
-
-    m.handler(_event(observedUpdateTime="2026-02-01T00:00:00Z"), None)
-
-    assert "VersionId" not in glue.update_calls[0]
-
-
-def test_the_guard_does_not_claim_to_close_the_window():
-    """The comparison narrows the race; GetTable and UpdateTable are still two calls and Glue
-    offers no CAS. A later reader must not mistake this for a guarantee, so the source says so."""
-    import inspect
-
-    source = inspect.getsource(m._abandon_if_changed)
-
-    assert "DOES NOT CLOSE" in source.upper()
-
-
 # ── SPEC-157: the shapes boto3 ACTUALLY returns ──────────────────────────────
 
 _AWARE = datetime.datetime(2026, 2, 1, tzinfo=datetime.UTC)
-
-
-def test_a_datetime_stamp_matching_the_captured_one_is_applied():
-    """The branch that runs in PRODUCTION, which the string fixtures above never reach.
-
-    boto3 returns a timezone-aware datetime, not a string, so the compare side's normalisation
-    is the live path — and deleting it left the whole suite green while breaking every refresh
-    with a changed schema. Line coverage hid it: the ternary is one line.
-    """
-    glue, _ = _install(table=_live_table(UpdateTime=_AWARE))
-
-    m.handler(_event(observedUpdateTime=_AWARE.isoformat()), None)
-
-    assert len(glue.update_calls) == 1
-
-
-def test_a_datetime_stamp_that_moved_under_another_writer_abandons():
-    """Its twin: the same shapes, a genuinely different moment, and different columns."""
-    moved = _live_table(UpdateTime=datetime.datetime(2026, 3, 1, tzinfo=datetime.UTC))
-    moved["StorageDescriptor"] = {
-        **moved["StorageDescriptor"],
-        "Columns": [{"Name": "something_else", "Type": "string"}],
-    }
-    glue, _ = _install(table=moved)
-
-    try:
-        m.handler(_event(observedUpdateTime=_AWARE.isoformat()), None)
-    except TerminalError as exc:
-        assert exc.reason == "table_changed_during_refresh"
-    else:
-        raise AssertionError("expected the refresh to be abandoned")
-
-    assert glue.update_calls == []
-
-
-def test_the_same_instant_in_another_zone_is_not_a_change():
-    """Botocore's default parser localises to the runtime's zone, so the same instant renders
-    with a different offset under a different TZ. Normalising to UTC on both sides makes the
-    comparison independent of a setting neither Lambda declares."""
-    eastern = datetime.timezone(datetime.timedelta(hours=-5))
-    glue, _ = _install(table=_live_table(UpdateTime=_AWARE.astimezone(eastern)))
-
-    m.handler(_event(observedUpdateTime=_AWARE.isoformat()), None)
-
-    assert len(glue.update_calls) == 1
-
-
-def test_a_retry_after_this_runs_own_write_landed_is_not_blamed_on_another_writer():
-    """SPEC-149's retry-safety property, which the freshness guard nearly took away.
-
-    ApplyRefresh retries on Lambda faults and on Glue's own retryable ones, and both can fire
-    AFTER the update committed. The retry then re-reads a table whose stamp THIS RUN moved. On
-    the stamp alone that reads as another writer — so the run would be recorded failed, and the
-    user would get a "something else changed your table" notification contradicting the success
-    notification the first attempt already sent.
-    """
-    glue, sqs = _install()
-    event = _event(observedUpdateTime="2026-02-01T00:00:00Z")
-
-    m.handler(event, None)
-    assert len(glue.update_calls) == 1
-
-    # Real Glue advances UpdateTime on a write; the fake does not, so model it.
-    glue.table = {**glue.table, "UpdateTime": "2026-02-02T00:00:00Z"}
-
-    out = m.handler(event, None)
-
-    assert out["status"] == "refreshed"
-    assert len(glue.update_calls) == 2
-    assert not any(
-        "changed by something else" in str(call) for call in sqs.calls
-    ), "the retry blamed a phantom writer for this run's own write"

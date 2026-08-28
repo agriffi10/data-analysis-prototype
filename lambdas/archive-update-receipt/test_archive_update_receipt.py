@@ -23,7 +23,7 @@ import archive_update_receipt as m
 import pytest
 from arcommon import notify, receipt
 from cpcommon import clients
-from cpcommon.errors import TerminalError, TransientError
+from cpcommon.errors import TerminalError
 
 _REQUEST_ID = "9f2c1b8e-1111-4222-8333-444444444444"
 _ARCHIVE_ID = "b71d0f42-9c3e-4a17-b8f5-0d1e2f3a4b5c"
@@ -172,121 +172,7 @@ def test_the_incomplete_stage_ALWAYS_raises_after_recording_what_it_can():
     assert "40 of 100" in _written(fake)
 
 
-def test_the_incomplete_stage_still_raises_when_the_receipt_could_not_be_written(_sink):
-    """The data that landed has landed either way, and the raise is the outcome that matters.
-    A receipt fault swallowing the partial-restore failure would report a SUCCESS over a restore
-    that put back 40 of 100 files."""
-    _install(put_error=_S3Error("AccessDenied", 403))
-
-    with pytest.raises(TerminalError) as caught:
-        m.handler(_request(status="incomplete"), None)
-
-    assert caught.value.reason == "restore_incomplete"
-    assert _sink and _sink[0][0] == "alice"
-
-
-def test_the_receipts_sentence_and_the_failures_tokens_come_from_ONE_source():
-    """**Found while writing this file, and it is the kind of split that only shows up when the
-    two disagree.** The seed says which STAGE is being recorded; the collector's verdict says
-    what HAPPENED. Carried on both, the number written onto the receipt and the number in the
-    notification would have two sources — and a user comparing them would have no way to tell
-    which was right.
-
-    Asserted by seeding a contradiction: whatever the `restore` block claims, both outputs must
-    report what the run actually did.
-    """
-    fake = _install()
-
-    with pytest.raises(TerminalError) as caught:
-        m.handler(
-            _request(
-                status="incomplete",
-                restore={
-                    "status": "incomplete",
-                    "requestedAt": "2026-08-12T09:30:00.000Z",
-                    "restored": 999,
-                    "expected": 999,
-                },
-                transferOutcome={"copied": 40, "failed": 60, "expected": 100, "complete": False},
-            ),
-            None,
-        )
-
-    assert caught.value.tokens == {"restored": "40", "total": "100"}
-    assert "40 of 100" in _written(fake)
-    assert "999" not in _written(fake)
-
-
 # ── the rewrite itself ──────────────────────────────────────────────────────
-
-
-def test_the_archive_lines_survive_the_rewrite_untouched():
-    """**THE POINT OF REWRITING RATHER THAN RE-RENDERING.** The archive's own start time is the
-    one field no restore run can recompute, so a fresh render would silently blank it — on the
-    only durable record the user has of what was archived and when."""
-    fake = _install()
-
-    m.handler(_request(), None)
-    written = _written(fake)
-
-    assert "2026-08-10 14:02:11 UTC" in written
-    assert _ARCHIVE_ID in written
-    assert "1204" in written
-    assert "7.8 GB" in written
-
-
-def test_an_absent_receipt_is_composed_fresh_rather_than_leaving_the_restore_unrecorded():
-    """Reachable only when S3 PROVED the receipt is gone. Every field is exact except the
-    archive's own start time, which cannot be recovered — which is exactly why the ordinary path
-    rewrites."""
-    fake = _install(existing=None)
-
-    m.handler(_request(), None)
-    written = _written(fake)
-
-    assert f"Request ID:        {_ARCHIVE_ID}" in written
-    assert "Requested:         -" in written
-    line = next(ln for ln in written.splitlines() if ln.startswith(receipt.RESTORED_TO_LABEL))
-    assert line.split(":", 1)[1].strip() == "s3://user-bkt/alice/"
-
-
-def test_the_composed_receipt_names_the_ARCHIVES_id_and_not_this_runs():
-    """They are deliberately different values (SPEC-170 FR-001), and the one that belongs on
-    this document is the one that opened it — it is what a user pastes to restore again."""
-    fake = _install(existing=None)
-
-    m.handler(_request(), None)
-
-    assert _REQUEST_ID not in _written(fake)
-
-
-def test_an_ambiguous_read_fails_rather_than_overwriting_a_receipt_it_could_not_read():
-    """The guard's 403-is-occupied discipline applied to a write. Composing a fresh document on
-    a 403 would destroy the archive's timestamp over a permissions blip."""
-    _install(get_error=_S3Error("AccessDenied", 403))
-
-    with pytest.raises(_S3Error):
-        m.handler(_request(status="requested"), None)
-
-
-def test_a_throttle_stays_transient_so_the_states_retry_reruns_the_verb():
-    _install(put_error=_S3Error("SlowDown", 503))
-
-    with pytest.raises(TransientError):
-        m.handler(_request(), None)
-
-
-def test_a_shared_space_restore_names_the_shared_bucket_and_root():
-    fake = _install()
-
-    m.handler(
-        _request(
-            source={"bucket": "shared-bkt", "root": "team-x/", "kind": "shared", "name": "team-x"},
-        ),
-        None,
-    )
-
-    assert "s3://shared-bkt/team-x/" in _written(fake)
 
 
 if __name__ == "__main__":

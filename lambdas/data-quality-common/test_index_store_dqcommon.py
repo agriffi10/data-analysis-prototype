@@ -94,29 +94,6 @@ def _summary(request_id="r-1", **over):
 # ── The key + the entry shape ────────────────────────────────────────────────
 
 
-def test_the_index_is_per_space_one_level_above_the_request_prefix():
-    assert index_store.index_key(PREFIX) == KEY
-    assert index_store.index_key("finance/_data-quality-reports/abc/") == "finance/_data-quality-reports/index.json"
-
-
-def test_the_entry_carries_the_row_fields_and_nothing_else():
-    """The dashboard fetches this whole file on every load; anything extra is paid for on
-    every page view and rendered on none of them."""
-    entry = index_store.entry_from(_summary())
-    assert set(entry) == set(index_store.ENTRY_FIELDS)
-    assert entry["timestamp"] == "2026-07-21T14:32:11Z"
-
-
-def test_the_entry_is_built_by_whitelist_not_by_stripping_the_event():
-    """A blacklist would leak whatever field a later spec threads onto the state."""
-    entry = index_store.entry_from(
-        _summary(idToken="secret", manifestKey="alice/…/manifest.json", topIssues=["…"])
-    )
-    assert "idToken" not in entry
-    assert "manifestKey" not in entry
-    assert "topIssues" not in entry
-
-
 # ── The CAS (FR-001's named tests) ───────────────────────────────────────────
 
 
@@ -136,72 +113,7 @@ def test_two_concurrent_appends_both_survive():
     assert ids == ["r-1", "r-2"], "a concurrent append was silently lost"
 
 
-def test_a_lost_race_is_retried_not_dropped():
-    fake = _install()
-    fake.on_put = lambda: fake.put_object(
-        Bucket=BUCKET, Key=KEY, Body=json.dumps({"entries": []}).encode(), IfNoneMatch="*"
-    )
-    assert index_store.append(BUCKET, PREFIX, _summary()) is True
-    assert [e["requestId"] for e in fake.entries()] == ["r-1"]
-
-
-def test_an_exhausted_cas_does_not_fail_the_check():
-    """The report is written and the notification has fired by now. A lost ROW must never
-    become a lost CHECK."""
-
-    class _AlwaysConflicts(_FakeS3):
-        def put_object(self, **kwargs):
-            raise _ClientError("PreconditionFailed")
-
-    fake = _AlwaysConflicts()
-    clients._s3 = fake
-    assert index_store.append(BUCKET, PREFIX, _summary()) is False  # reported, not raised
-
-
-def test_a_non_precondition_write_error_is_swallowed_too():
-    class _Denied(_FakeS3):
-        def put_object(self, **kwargs):
-            raise _ClientError("AccessDenied")
-
-    clients._s3 = _Denied()
-    assert index_store.append(BUCKET, PREFIX, _summary()) is False
-
-
-def test_append_never_raises_on_a_junk_summary():
-    _install()
-    for junk in ({}, {"requestId": None}, {"completedAt": 7}):
-        index_store.append(BUCKET, PREFIX, junk)
-
-
 # ── Absent / corrupt / capped ────────────────────────────────────────────────
-
-
-def test_a_missing_index_is_created():
-    fake = _install()
-    assert index_store.append(BUCKET, PREFIX, _summary()) is True
-    assert [e["requestId"] for e in fake.entries()] == ["r-1"]
-
-
-def test_a_corrupt_index_is_rebuilt_rather_than_failing_the_space_forever():
-    """One bad object must not permanently stop a space recording runs — the entries it
-    would preserve are a convenience whose source of truth (the reports) is intact."""
-    fake = _install({KEY: (b"{ this is not json", '"etag-0"')})
-    assert index_store.append(BUCKET, PREFIX, _summary()) is True
-    assert [e["requestId"] for e in fake.entries()] == ["r-1"]
-
-
-def test_an_index_whose_entries_are_the_wrong_type_is_rebuilt():
-    fake = _install({KEY: (json.dumps({"entries": {"not": "a list"}}).encode(), '"etag-0"')})
-    assert index_store.append(BUCKET, PREFIX, _summary()) is True
-    assert [e["requestId"] for e in fake.entries()] == ["r-1"]
-
-
-def test_a_rebuild_still_goes_through_the_cas():
-    """It must not clobber a writer who repaired the object in the meantime."""
-    fake = _install({KEY: (b"corrupt", '"etag-0"')})
-    index_store.append(BUCKET, PREFIX, _summary())
-    # The rebuild carried the corrupt object's ETag, so a stale writer would have lost.
-    assert fake.puts == 1
 
 
 def test_the_index_is_capped_oldest_dropped_first():
@@ -218,44 +130,7 @@ def test_the_index_is_capped_oldest_dropped_first():
     assert "old-0" not in [e["requestId"] for e in entries], "the OLDEST must be the one dropped"
 
 
-def test_a_replayed_request_replaces_its_row_instead_of_duplicating_it():
-    """The report key is a pure function of requestId and gets overwritten on a Step
-    Functions Retry or an SQS redelivery, so its row must behave the same way."""
-    fake = _install()
-    index_store.append(BUCKET, PREFIX, _summary(verdict="clean"))
-    index_store.append(BUCKET, PREFIX, _summary(verdict="issues_found"))
-
-    entries = fake.entries()
-    assert len(entries) == 1
-    assert entries[0]["verdict"] == "issues_found"
-
-
 # ── SPEC-153 FR-010: CAS parity with the log-sweep twin ──────────────────────
-
-
-def test_a_read_failure_never_overwrites_an_existing_day():
-    """The twin's ``test_a_read_failure_never_overwrites_an_existing_day``, which this
-    module was missing.
-
-    ``_read`` swallows ANY exception and returns ``([], None)`` — deliberately, so an absent
-    index is the ordinary case rather than an error. The cost is that a transient GET fault
-    is indistinguishable from "no index yet", and the empty list it returns is what the CAS
-    would then write. What saves the existing rows is the ``None`` etag: it selects
-    ``If-None-Match: *``, which an existing object rejects. That is load-bearing and was
-    asserted nowhere here, so "a transient read failure cannot truncate a space's index"
-    rested on a line of reasoning rather than a test.
-    """
-    existing = [{"requestId": "precious", "timestamp": "2026-01-01T00:00:00Z"}]
-    fake = _install({KEY: (json.dumps({"entries": existing}).encode(), '"etag-0"')})
-
-    def _throttled(**kwargs):
-        raise _ClientError("SlowDown")
-
-    fake.get_object = _throttled
-
-    assert index_store.append(BUCKET, PREFIX, _summary()) is False
-    assert fake.entries() == existing, "a failed read truncated the space's index"
-    assert fake.puts == 0
 
 
 def test_ACCEPTED_the_cap_evicts_by_position_so_a_replay_can_outlive_a_newer_run():

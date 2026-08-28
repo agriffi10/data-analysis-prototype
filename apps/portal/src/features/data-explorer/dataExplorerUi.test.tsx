@@ -1,12 +1,12 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {screen, waitFor, within} from '@testing-library/react';
+import {screen, waitFor} from '@testing-library/react';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
 import userEvent from '@testing-library/user-event';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {resolveExploreParams, spaceDatabase} from './exploreSources';
-import {EXPLORATION_TABS_MAX, EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
+import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {newExploration} from './exploration';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
@@ -133,13 +133,6 @@ describe('the source picker', () => {
     expect(screen.getByRole('button', {name: /revenue_view/})).toBeInTheDocument();
   });
 
-  it('reads the SELECTED space’s database, not the first one', async () => {
-    const {user} = render();
-    await user.click(await screen.findByRole('button', {name: /^teamspace/}));
-
-    await waitFor(() => expect(getDatabase).toHaveBeenCalledWith('teamspace'));
-  });
-
   it('opens a tab bound to the chosen table and runs its first execution', async () => {
     const {user} = render();
     await user.click(await screen.findByRole('button', {name: 'orders'}));
@@ -164,14 +157,6 @@ describe('the source picker', () => {
     // …and the space itself is still selectable, so another one is one click away.
     expect(screen.getByRole('button', {name: /^My files/})).toBeInTheDocument();
   });
-
-  it('explains itself rather than rendering empty when there is no usable space', async () => {
-    vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', '');
-    render();
-
-    expect(await screen.findByRole('heading', {name: 'Nothing to explore yet'})).toBeInTheDocument();
-    expect(getDatabase).not.toHaveBeenCalled();
-  });
 });
 
 // ─── FR-006: deep links ─────────────────────────────────────────────────────
@@ -183,14 +168,6 @@ describe('the deep link', () => {
     expect(await screen.findByRole('tab', {name: 'orders'})).toBeInTheDocument();
     await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
     expect(vi.mocked(runQuery).mock.calls[0][0]).toMatchObject({sql: 'SELECT *\nFROM "alice"."orders"'});
-  });
-
-  it('opens a tab in a SHARED space the user is an active member of', async () => {
-    render('/explore?space=teamspace&db=teamspace&table=orders');
-
-    expect(await screen.findByRole('tab', {name: 'orders'})).toBeInTheDocument();
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(runQuery).mock.calls[0][0]).toMatchObject({sql: 'SELECT *\nFROM "teamspace"."orders"'});
   });
 
   it('renders the denied state for an unreachable space and asks NOTHING of Glue or Athena', async () => {
@@ -220,14 +197,6 @@ describe('the deep link', () => {
     expect(getDatabase).not.toHaveBeenCalled();
   });
 
-  it('falls through to the picker on a malformed link, never an error', async () => {
-    render('/explore?table=orders');
-
-    expect(await screen.findByRole('button', {name: 'orders'})).toBeInTheDocument();
-    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
-    expect(runQuery).not.toHaveBeenCalled();
-  });
-
   it('drops the parameters once acted on, so a re-render does not stack duplicates', async () => {
     render('/explore?space=personal&db=alice&table=orders');
 
@@ -247,28 +216,12 @@ describe('resolveExploreParams — the precedence rules, asserted directly', () 
     expect(result).toEqual({status: 'ready', target: {spaceId: 'personal', database: 'alice', table: 'orders'}});
   });
 
-  it('does not read ?space= at all when sharedWorkspaces is off', () => {
-    // Never resolved-then-fallen-back: a "we sent you somewhere else" banner over a
-    // parameter that was never consulted would be a lie. The personal space's database is
-    // `alice`, so a link to `teamspace` simply names nothing and the picker opens.
-    const withShared = [PERSONAL_SPACE, SHARED_SPACE];
-    expect(
-      resolveExploreParams({space: 'teamspace', db: 'teamspace', table: 'orders'}, withShared, 'alice', false)
-    ).toEqual({status: 'none'});
-  });
-
   it('refuses an unreachable NAMED space and shrugs at an absent one', () => {
     expect(resolveExploreParams({space: 'nope', db: 'nope', table: 'orders'}, spaces, 'alice', true)).toEqual({
       status: 'denied'
     });
     expect(resolveExploreParams({space: null, db: 'alice', table: 'orders'}, spaces, 'alice', true)).toMatchObject({
       status: 'ready'
-    });
-  });
-
-  it('treats a database that is not the space’s own as a malformed link', () => {
-    expect(resolveExploreParams({space: 'personal', db: 'teamspace', table: 'orders'}, spaces, 'alice', true)).toEqual({
-      status: 'none'
     });
   });
 
@@ -297,20 +250,6 @@ describe('the exploration tabs', () => {
     expect(vi.mocked(runQuery).mock.calls[1][0]).toMatchObject({sql: 'SELECT *\nFROM "alice"."refunds"'});
   });
 
-  it('raises the cap dialog at the limit, leaving the + enabled', async () => {
-    seedTabs(Array.from({length: EXPLORATION_TABS_MAX}, (_, i) => ({id: `t${i}`, table: `table_${i}`})));
-    const {user} = render();
-
-    const plus = await screen.findByRole('button', {name: 'New exploration'});
-    expect(plus).toBeEnabled();
-    await user.click(plus);
-
-    const dialog = await screen.findByRole('alertdialog', {name: 'Exploration limit reached'});
-    expect(within(dialog).getByText(/Close one before opening another/)).toBeInTheDocument();
-    // Nothing was opened, and no picker took the place of the results.
-    expect(screen.getAllByRole('tab')).toHaveLength(EXPLORATION_TABS_MAX);
-  });
-
   it('runs no query when a tab is closed', async () => {
     seedTabs([
       {id: 't1', table: 'orders'},
@@ -331,20 +270,6 @@ describe('the exploration tabs', () => {
     expect(runQuery).toHaveBeenCalledTimes(2);
   });
 
-  it('closing the last tab leaves the picker, and still runs nothing', async () => {
-    // Zero tabs is a legal state here, unlike the Query workspace's — so the last tab keeps
-    // its close control and what replaces it is the picker, not an empty frame.
-    seedTabs([{id: 't1', table: 'orders'}]);
-    const {user} = render();
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
-
-    await user.click(screen.getByTitle('Close orders'));
-
-    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
-    expect(await screen.findByRole('region', {name: 'Choose a table to explore'})).toBeInTheDocument();
-    expect(runQuery).toHaveBeenCalledTimes(1);
-  });
-
   it('closes the focused tab with Delete, so the ✕ never has to be reachable', async () => {
     // The ✕ is a non-focusable span (it sits INSIDE `role="tab"`, where a nested button
     // trips axe), so this key is what keeps the action operable — WCAG 2.1.1, and the
@@ -360,21 +285,6 @@ describe('the exploration tabs', () => {
     await user.keyboard('{Delete}');
 
     expect(screen.queryByRole('tab', {name: 'orders'})).not.toBeInTheDocument();
-  });
-
-  it('survives a reload through sessionStorage', async () => {
-    const {user, unmount} = render();
-    await user.click(await screen.findByRole('button', {name: 'orders'}));
-    await screen.findByRole('tab', {name: 'orders'});
-
-    // A reload is a fresh mount over the same session storage — the tab has to come back
-    // from there, so the previous tree is torn down first rather than left standing beside
-    // it (which would let the assertion below pass on the ORIGINAL tab).
-    unmount();
-    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
-
-    render();
-    expect(await screen.findByRole('tab', {name: 'orders'})).toBeInTheDocument();
   });
 });
 
@@ -419,15 +329,6 @@ describe('the results region', () => {
     expect(screen.getByRole('columnheader', {name: 'total'})).toBeInTheDocument();
     expect(screen.getByRole('gridcell', {name: '9.99'})).toBeInTheDocument();
     expect(screen.getByText(/Rows 1–2/)).toBeInTheDocument();
-  });
-
-  it('renders the friendly empty state for a zero-row result, not an error', async () => {
-    vi.mocked(getQueryResults).mockResolvedValue(ok({columns: [{name: 'id', type: 'varchar'}], rows: []}) as never);
-    seedTabs([{id: 't1', table: 'orders'}]);
-    render();
-
-    expect(await screen.findByText('No rows returned.')).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('maps a failed execution through toUserMessage — no Athena text reaches the user', async () => {

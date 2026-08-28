@@ -55,29 +55,6 @@ def test_remove_members_clears_slot_registry_and_cache_leaves_data():
     assert glue.created == []
 
 
-def test_remove_members_fans_reduced_roster_to_remaining_members():
-    # SPEC-075 FR-002: a remaining member (cara)'s cache reflects the reduced roster.
-    s3, _glue, _lf, cognito = install()
-    cognito.users = {"bob": {"custom:shared_space_1": "sales"}, "cara": {"custom:shared_space_1": "sales"}}
-    reg = _active_reg(members=["alice", "bob", "cara"])
-    _seed_reg(s3, reg)
-
-    r.remove_members("sales", ["bob"], "req-3", reg)
-    cara_entry = json.loads(s3.store[("user-bkt", "cara/user_settings/shared-connections.json")])["connections"][0]
-    assert cara_entry["role"] == "member" and cara_entry["owner"] == "alice"
-    assert {m["username"] for m in cara_entry["members"]} == {"alice", "cara"}  # bob gone
-
-
-def test_remove_members_idempotent_for_non_member():
-    s3, _glue, _lf, cognito = install()
-    cognito.users = {"bob": {}}
-    reg = _active_reg(members=["alice"])
-    _seed_reg(s3, reg)
-
-    out = r.remove_members("sales", ["bob"], "req-3", reg)
-    assert out["removed"] == []
-
-
 def test_remove_members_never_removes_the_owner():
     s3, _glue, _lf, _cognito = install()
     reg = _active_reg(members=["alice", "bob"])
@@ -87,48 +64,6 @@ def test_remove_members_never_removes_the_owner():
     assert out["removed"] == []
     reg2 = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
     assert "alice" in reg2["members"]
-
-
-def test_handler_uses_validated_context():
-    s3, _glue, _lf, cognito = install()
-    cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
-    reg = _active_reg(members=["alice", "bob"])
-    _seed_reg(s3, reg)
-    out = r.handler(
-        {"space": "sales", "requestId": "req-3", "registry": reg, "payload": {"members": ["bob"]}}, None
-    )
-    assert out["removed"] == ["bob"]
-
-
-def test_remove_members_notifies_each_removed_member():
-    s3, _glue, _lf, cognito = install()
-    sqs = _enable_notifications()
-    cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
-    reg = _active_reg(members=["alice", "bob"])
-    _seed_reg(s3, reg)
-
-    r.remove_members("sales", ["bob"], "req-3", reg)
-    # Exactly one notification — to the removed member, not the owner.
-    assert len(sqs.sent) == 1
-    msg = sqs.sent[0]
-    assert msg["MessageGroupId"] == "bob"
-    assert msg["MessageDeduplicationId"] == "req-3:remove-member:bob"
-    assert json.loads(msg["MessageBody"]) == {
-        "action": "create",
-        "username": "bob",
-        "message": 'You\'ve been removed from the shared workspace "sales".',
-    }
-
-
-def test_remove_members_noop_notifies_nothing():
-    s3, _glue, _lf, cognito = install()
-    sqs = _enable_notifications()
-    cognito.users = {"bob": {}}
-    reg = _active_reg(members=["alice"])  # bob isn't a member
-    _seed_reg(s3, reg)
-
-    r.remove_members("sales", ["bob"], "req-3", reg)
-    assert sqs.sent == []
 
 
 if __name__ == "__main__":

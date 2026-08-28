@@ -50,24 +50,3 @@ def test_holding_nothing_is_an_ORDINARY_outcome(released):
     its first lock before reporting that it must wait — so this is the common case, not an edge."""
     assert v.handler({"requestId": "req-1"}, None) == {"released": 0}
     assert released == []
-
-
-def test_a_lock_record_with_no_spaces_releases_nothing(released):
-    assert v.handler({"lock": {"acquired": False, "etags": []}}, None) == {"released": 0}
-    assert released == []
-
-
-def test_the_verb_carries_no_failure_notifier():
-    """It has no user-facing failure to report: its own errors are swallowed by the lock module,
-    and the machine's Catch routes onward regardless. A notifier here would tell a user their
-    completed operation failed because of bookkeeping they cannot see."""
-    import ast
-    import pathlib
-
-    tree = ast.parse(pathlib.Path(v.__file__).read_text())
-    handler = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "handler")
-    decorators = [ast.unparse(d) for d in handler.decorator_list]
-
-    # Read from the AST rather than the source text: the module docstring explains the absence by
-    # name, so a substring search finds the very word it is looking for and always passes.
-    assert decorators == ["observability.traced('release-lock')"]

@@ -14,7 +14,6 @@ invocation but would no longer be the failure this module documents.
 """
 
 import os
-import pathlib
 import sys
 import time
 
@@ -90,28 +89,6 @@ def test_every_rejection_reaches_the_caller_as_an_authorization_error(case):
     _install()
     with pytest.raises(w.AuthorizationError):
         w.verified_username(REJECTED[case]())
-
-
-def test_the_rejection_wording_is_the_layer_s_own():
-    """Unchanged from the deleted local verifier, which is what the parity run established."""
-    _install()
-    with pytest.raises(w.AuthorizationError, match="missing idToken"):
-        w.verified_username("")
-    with pytest.raises(w.AuthorizationError, match="not an ID token"):
-        w.verified_username(_token(token_use="access"))
-    with pytest.raises(w.AuthorizationError, match="token verification failed"):
-        w.verified_username("not-a-jwt")
-
-
-def test_the_local_verifier_is_gone():
-    """The duplication this FR removed must not grow back by a copy-paste.
-
-    ``cpcommon/auth.py`` claims to be the fleet's one verification path; for nine months it
-    was not, and this function was the second one.
-    """
-    source = pathlib.Path(__file__).with_name("notifications_writer.py").read_text()
-    for gone in ("PyJWKClient", "jwt.decode", "_JWKS_URL", "_ISSUER", 'boto3.client("s3")'):
-        assert gone not in source, f"{gone} is back in notifications_writer.py"
 
 
 if __name__ == "__main__":

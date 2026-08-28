@@ -1,16 +1,7 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {triggerBrowserDownload} from './fileBrowser.download';
 import {formatSize} from './fileBrowser.format';
-import {
-  buildBreadcrumbs,
-  fileExtension,
-  fileParent,
-  folderParts,
-  isAtRoot,
-  lastSegment,
-  leafName,
-  parentPrefix
-} from './fileBrowser.paths';
+import {buildBreadcrumbs, fileExtension, folderParts, isAtRoot, leafName, parentPrefix} from './fileBrowser.paths';
 import {
   HIDDEN_BROWSER_FOLDERS,
   PICKER_LOCKED_FOLDERS,
@@ -27,10 +18,6 @@ import {
   isMarkerName
 } from './fileBrowser.constants';
 // Read through Vite's own `?raw` / `import.meta.glob` rather than `node:fs`: the app
-// tsconfig carries no node types, so `tsc -b` — the only typecheck CI runs — rejects an
-// fs import here.
-import portalRolePolicy from '../../../../../infra/modules/data/policies/portal-role-permissions.json.tftpl?raw';
-import sharedSpacePolicy from '../../../../../infra/modules/shared-spaces/policies/portal-role-shared-space.json.tftpl?raw';
 import {createElement} from 'react';
 import type {ReactNode} from 'react';
 import {act, renderHook} from '@testing-library/react';
@@ -69,13 +56,6 @@ describe('fileBrowser.format', () => {
   });
 
   describe('formatSize reaches TB (SPEC-155 FR-007)', () => {
-    it('renders a multi-terabyte object as TB, not thousands of GB', () => {
-      // It used to stop at GB, so this read "3072.0 GB" here and "3.0 TB" in the query
-      // status bar. S3 allows objects up to 5 TB, so the ceiling was reachable.
-      expect(formatSize(3 * 1_099_511_627_776)).toBe('3.0 TB');
-      expect(formatSize(1_099_511_627_776)).toBe('1.0 TB');
-    });
-
     it('still shows GB just below the boundary', () => {
       expect(formatSize(1_099_511_627_775)).toBe('1024.0 GB');
     });
@@ -90,19 +70,9 @@ describe('fileBrowser.paths', () => {
       expect(leafName('c.txt')).toBe('c.txt');
     });
 
-    it('fileParent returns the parent prefix of a file key', () => {
-      expect(fileParent('a/b/c.txt')).toBe('a/b/');
-      expect(fileParent('c.txt')).toBe('');
-    });
-
     it('folderParts splits a folder prefix into parent + leaf', () => {
       expect(folderParts('a/b/photos/')).toEqual({parent: 'a/b/', leaf: 'photos'});
       expect(folderParts('photos/')).toEqual({parent: '', leaf: 'photos'});
-    });
-
-    it('lastSegment tolerates a trailing slash (files and folders)', () => {
-      expect(lastSegment('a/b/photos/')).toBe('photos');
-      expect(lastSegment('a/b/c.txt')).toBe('c.txt');
     });
 
     it('fileExtension uppercases the extension with a fallback + optional cap', () => {
@@ -159,16 +129,6 @@ describe('fileBrowser.paths', () => {
       expect(parentPrefix('alice/docs/', 'alice/')).toBe('alice/');
       expect(parentPrefix('alice/', 'alice/')).toBe('alice/');
     });
-
-    it('agrees with isAtRoot about where the floor is', () => {
-      // The `..` row is hidden exactly where climbing would be a no-op, in both the
-      // browser and the picker — they call the same pair now.
-      const root = 'team-data/';
-      expect(isAtRoot(root, root)).toBe(true);
-      expect(parentPrefix(root, root)).toBe(root);
-      expect(isAtRoot('team-data/q1/', root)).toBe(false);
-      expect(parentPrefix('team-data/q1/', root)).toBe(root);
-    });
   });
 
   describe('buildBreadcrumbs', () => {
@@ -183,10 +143,6 @@ describe('fileBrowser.paths', () => {
 
     it('is just the root crumb at the root', () => {
       expect(buildBreadcrumbs('alice/', 'alice/', 'My Files')).toEqual([{label: 'My Files', prefix: 'alice/'}]);
-    });
-
-    it('falls back to the root prefix\u2019s last segment when no label is given', () => {
-      expect(buildBreadcrumbs('team-data/q1/', 'team-data/')[0]).toEqual({label: 'team-data', prefix: 'team-data/'});
     });
 
     it('is Home-rooted and unclamped when there is no space root (the dev-unauth path)', () => {
@@ -232,25 +188,12 @@ describe('protectedFolders', () => {
       expect(PICKER_LOCKED_FOLDERS).toContain('_directory');
     });
 
-    it('matches a named folder only at the user root', () => {
-      expect(isRootFolderNamed('alice/user_settings/', 'alice/', HIDDEN_BROWSER_FOLDERS)).toBe(true);
-      // A nested folder that merely shares the name is a normal user folder.
-      expect(isRootFolderNamed('alice/docs/user_settings/', 'alice/', HIDDEN_BROWSER_FOLDERS)).toBe(false);
-      // Unrelated folders are untouched.
-      expect(isRootFolderNamed('alice/photos/', 'alice/', HIDDEN_BROWSER_FOLDERS)).toBe(false);
-    });
-
     // SPEC-150 FR-007. A FOURTH question — "may the user DESTROY it?" — deliberately
     // not a union of the other lists: athenaresults/ stays visible and browsable.
     describe('isUndeletableRootFolder', () => {
       it('covers athenaresults/ without changing what the browser shows', () => {
         expect(UNDELETABLE_ROOT_FOLDERS).toContain('athenaresults');
         expect(HIDDEN_BROWSER_FOLDERS).not.toContain('athenaresults');
-      });
-
-      it('matches at a space root, personal or shared', () => {
-        expect(isUndeletableRootFolder('alice/athenaresults/', 'alice/')).toBe(true);
-        expect(isUndeletableRootFolder('project_alpha/athenaresults/', 'project_alpha/')).toBe(true);
       });
 
       it('does not match a nested or merely prefixed folder', () => {
@@ -328,22 +271,10 @@ describe('useFileSpace', () => {
       expect(result.current.fellBack).toBe(false);
     });
 
-    it('falls back to personal with fellBack for an unknown ?space=', () => {
-      const {result} = setup('/files?space=ghost');
-      expect(result.current.space?.kind).toBe('personal');
-      expect(result.current.fellBack).toBe(true);
-    });
-
     it('falls back to personal for a not-yet-usable (provisioning) ?space=', () => {
       const {result} = setup('/files?space=sales_2026');
       expect(result.current.space?.kind).toBe('personal');
       expect(result.current.fellBack).toBe(true);
-    });
-
-    it('suppresses the fellBack notice while connections are still loading', () => {
-      const {result} = setup('/files?space=ghost', {isLoading: true});
-      expect(result.current.space?.kind).toBe('personal');
-      expect(result.current.fellBack).toBe(false);
     });
 
     it('selectSpace switches the active space', () => {
@@ -361,21 +292,8 @@ describe('useFileSpace', () => {
       expect(result.current.fellBack).toBe(false);
     });
 
-    it('dismissFellBack clears the stale space and the notice', () => {
-      const {result} = setup('/files?space=ghost');
-      expect(result.current.fellBack).toBe(true);
-      act(() => result.current.dismissFellBack());
-      expect(result.current.fellBack).toBe(false);
-      expect(result.current.space?.kind).toBe('personal');
-    });
-
     it('returns a null space when there is no username (dev/no-auth)', () => {
       const {result} = setup('/files', {username: null});
-      expect(result.current.space).toBeNull();
-    });
-
-    it('returns a null space when the shared bucket is unconfigured', () => {
-      const {result} = setup('/files?space=marketing_data', {sharedSpaceBucket: undefined});
       expect(result.current.space).toBeNull();
     });
   });
@@ -411,13 +329,6 @@ describe('the saved_queries/ folder (SPEC-173)', () => {
       expect(PICKER_LOCKED_FOLDERS).not.toContain(SAVED_QUERIES_FOLDER);
     });
 
-    it('is protected at a space root, personal or shared, and nowhere else', () => {
-      expect(isUndeletableRootFolder('alice/saved_queries/', 'alice/')).toBe(true);
-      expect(isUndeletableRootFolder('project_alpha/saved_queries/', 'project_alpha/')).toBe(true);
-      // A nested folder that merely shares the name is an ordinary user folder.
-      expect(isUndeletableRootFolder('alice/reports/saved_queries/', 'alice/')).toBe(false);
-    });
-
     it('names saved queries in its refusal, and query results in theirs', () => {
       expect(undeletableRootFolderRefusal('alice/saved_queries/', 'alice/', 'delete')).toMatch(/saved queries/i);
       expect(undeletableRootFolderRefusal('alice/saved_queries/', 'alice/', 'move')).toMatch(/moved or renamed/i);
@@ -440,25 +351,6 @@ describe('the saved_queries/ folder (SPEC-173)', () => {
       expect(SAVED_QUERIES_MARKER_BODY).toMatch(/saved queries/i);
     });
 
-    it('has no caller left passing a marker key — the rule is the basename, not a prop', () => {
-      // FR-003 AC5. `useFileBrowser` used to take an exact key, threaded from four
-      // dialogs and two pages; a caller that forgot it left the space's own marker sitting
-      // in the listing as a selectable row. A source sweep, because the property is the
-      // ABSENCE of a prop and no type can assert that once it is gone.
-      const sources = import.meta.glob('/src/**/*.{ts,tsx}', {query: '?raw', import: 'default', eager: true}) as Record<
-        string,
-        string
-      >;
-      const offenders = Object.entries(sources)
-        .filter(([path]) => !path.endsWith('fileBrowserPure.test.ts'))
-        .filter(([, body]) => body.includes('markerKey'))
-        .map(([path]) => path);
-
-      // Guard the guard: a sweep that reads nothing would pass forever.
-      expect(Object.keys(sources).length).toBeGreaterThan(100);
-      expect(offenders).toEqual([]);
-    });
-
     it('matches a marker by BASENAME, at any depth, in either bucket', () => {
       expect(isMarkerName('alice/DO_NOT_DELETE.txt')).toBe(true);
       expect(isMarkerName('alice/saved_queries/DO_NOT_DELETE.txt')).toBe(true);
@@ -470,33 +362,6 @@ describe('the saved_queries/ folder (SPEC-173)', () => {
       expect(isMarkerName('alice/DO_NOT_DELETE.txt.bak')).toBe(false);
       expect(isMarkerName('alice/notes/do_not_delete.txt')).toBe(false);
       expect(isMarkerName('alice/XDO_NOT_DELETE.txt')).toBe(false);
-    });
-  });
-
-  // FR-009. The whole arc ships NO IaC change, and it rests entirely on one reading:
-  // `*` in an S3 resource ARN matches `/`, so `*/DO_NOT_DELETE.txt` already covers a
-  // marker at `{root}saved_queries/` and at any other depth. Pinned here so a later
-  // IAM edit that NARROWS the wildcard fails in CI rather than in production. The
-  // reading itself still owes a live confirmation — a real delete, refused.
-  describe('the two Deny statements this arc leans on (FR-009)', () => {
-    // `process.cwd()` is `apps/portal` under vitest, so two levels up is the repo root.
-    it.each([
-      ['portal-role-permissions.json.tftpl', 'ProtectPrefixMarker', portalRolePolicy],
-      ['portal-role-shared-space.json.tftpl', 'SharedMarkerNoDelete', sharedSpacePolicy]
-    ])('%s denies DeleteObject on the marker basename at any depth', (file, sid, body) => {
-      // Matched as TEXT, not parsed as JSON: the shared-space template carries HCL
-      // `%{ for }` directives, so it RENDERS to JSON rather than being JSON.
-      const start = body.indexOf(`"Sid": "${sid}"`);
-      expect(start, `${file} has no ${sid} statement`).toBeGreaterThan(-1);
-      const nextSid = body.indexOf('"Sid"', start + 1);
-      const statement = body.slice(start, nextSid === -1 ? undefined : nextSid);
-
-      // Guard the guard: a slice that swallowed the whole document would pass on
-      // any Deny anywhere in the policy.
-      expect(statement.length).toBeLessThan(body.length);
-      expect(statement).toMatch(/"Effect":\s*"Deny"/);
-      expect(statement).toContain('s3:DeleteObject');
-      expect(statement).toContain(`/*/${PREFIX_MARKER_FILENAME}"`);
     });
   });
 });

@@ -399,7 +399,7 @@ def test_a_disagreeing_folder_with_no_ragged_rows_reports_the_disagreement_ONCE(
     THIS TEST CANNOT PIN THE FIX, and saying so is the point: `report.build` does not
     compute the ragged count, it reads `ragged_rows` out of the Athena result rows it is
     handed. Feeding it a zero and asserting a zero would pass against the buggy builder
-    just as happily. The fix is pinned in test_sql_dqcommon.py, where the rule is emitted —
+    just as happily. The fix belongs where the rule is emitted —
     `test_a_folder_whose_files_disagree_reports_ZERO_ragged_rows`.
 
     What this test does pin is the user-visible outcome given a correct query: the

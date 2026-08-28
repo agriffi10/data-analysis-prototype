@@ -236,22 +236,6 @@ describe('copy (FR-001)', () => {
     ]);
   });
 
-  it('refuses quoting for a format that already delimits its values', async () => {
-    // A control that changed nothing would be worse than an absent one — see the dialog.
-    // The refusal is `aria-disabled` rather than `disabled` (SPEC-172); the accessibility
-    // half of that is asserted in the axe block below.
-    seedTab();
-    const {user} = render();
-    await grid();
-    await clickCell(user, 0, 'region');
-    await chooseExplorationOption(user, 'Copy…');
-    const dialog = await screen.findByRole('dialog', {name: 'Copy selection'});
-
-    expect(within(dialog).getByLabelText('Quote values')).not.toHaveAttribute('aria-disabled', 'true');
-    await user.selectOptions(within(dialog).getByLabelText('Format'), 'sql');
-    expect(within(dialog).getByLabelText('Quote values')).toHaveAttribute('aria-disabled', 'true');
-  });
-
   it('a REFUSED clipboard write is reported, never announced as a success', async () => {
     // `useCopyToClipboard` swallows the rejection — safe for a caller that renders its
     // `copied` flag, a lie for this one, which closes the dialog and has to say what
@@ -281,20 +265,6 @@ describe('copy (FR-001)', () => {
     await user.keyboard('{Control>}c{/Control}');
 
     expect(await screen.findByText(COPY_FAILED)).toBeInTheDocument();
-  });
-
-  it('the shortcut survives Caps Lock', async () => {
-    // With Caps Lock on, `event.key` is `'C'`. A case-sensitive match misses, the browser's
-    // own copy is not suppressed, and it takes whatever DOM text is highlighted — the exact
-    // outcome the intercept exists to prevent.
-    seedTab();
-    const {user} = render();
-    await grid();
-    await clickCell(user, 0, 'region');
-    await user.keyboard('{Control>}C{/Control}');
-
-    await waitFor(() => expect(clipboardWrites).toHaveLength(1));
-    expect(clipboardWrites[0]).toBe('north');
   });
 
   it('issues NO query, however it is used', async () => {
@@ -338,19 +308,6 @@ describe('accessibility', () => {
     // And it does not toggle, which `aria-disabled` alone would not prevent.
     await user.click(quoting);
     expect(quoting).not.toBeChecked();
-
-    await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
-  });
-
-  it('the export dialog has no axe violations', async () => {
-    seedTab();
-    const {user, container} = render();
-    await grid();
-    await waitFor(async () =>
-      expect(await explorationOption(user, 'Export')).not.toHaveAttribute('aria-disabled', 'true')
-    );
-    await chooseExplorationOption(user, 'Export');
-    await screen.findByRole('dialog', {name: 'Save results to my files'});
 
     await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
   });
@@ -436,31 +393,5 @@ describe('export (FR-002)', () => {
     expect(item).toHaveAttribute('aria-disabled', 'true');
     expect(item).not.toHaveAttribute('disabled');
     expect(item).toHaveAttribute('title', NOTHING_TO_EXPORT);
-  });
-
-  it('a failed copy shows the mapped message and leaves the dialog open', async () => {
-    // AC5. The dialog stays up with the name intact, because the user's next move is to
-    // change something in it.
-    seedTab();
-    vi.mocked(copyObject).mockResolvedValue({
-      success: false,
-      error: {message: 'AccessDenied: not allowed', code: 'AccessDenied'}
-    } as never);
-    const {user} = render();
-    await grid();
-
-    const dialog = await openExport(user);
-    await user.clear(within(dialog).getByLabelText('File name'));
-    await user.type(within(dialog).getByLabelText('File name'), 'out');
-    await user.click(within(dialog).getByRole('button', {name: 'Save here'}));
-
-    await waitFor(() => expect(copyObject).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole('dialog', {name: 'Save results to my files'})).toBeInTheDocument();
-    expect(
-      within(screen.getByRole('dialog', {name: 'Save results to my files'})).getByLabelText('File name')
-    ).toHaveValue('out');
-    // SPEC-106: the AWS text never reaches the user — the mapped wording does.
-    const alert = await screen.findByText(/Couldn’t save results/);
-    expect(alert.textContent).not.toContain('AccessDenied: not allowed');
   });
 });

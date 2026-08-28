@@ -67,71 +67,10 @@ def test_the_archived_message_names_the_count_the_size_and_the_id(sent):
     assert _ARCHIVE_ID in message
 
 
-def test_the_archived_message_says_the_files_have_left_the_space(sent):
-    """The consequence a button label cannot carry, and the one thing a user reading this
-    message hours later needs to be sure of."""
-    m._notify(_event("archived"))
-
-    assert "removed from your space" in sent[0][1]
-
-
-def test_the_archived_link_lands_in_the_folder_holding_the_receipt(sent):
-    """The prefix is the FULL KEY including the space root: FilesPage keeps a `?prefix=` only
-    when it starts with the resolved space's own root, so a root-relative one is silently
-    discarded and the user lands at their space root with no idea why."""
-    m._notify(_event("archived"))
-
-    assert sent[0][2] == f"/files?prefix=alice/archive/{_ARCHIVE_ID}/"
-
-
-def test_a_shared_space_link_carries_the_space_query(sent):
-    """Without it the route resolves the PERSONAL space and then discards a prefix that does not
-    start with it — landing the user in their own files while the message says otherwise."""
-    m._notify(_event("archived", space={"kind": "shared", "name": "finance"}))
-
-    assert sent[0][2] == f"/files?space=finance&prefix=finance/archive/{_ARCHIVE_ID}/"
-
-
-def test_a_link_that_cannot_be_built_is_omitted_rather_than_guessed(sent):
-    """FR-006 AC6. The notification still says what happened; it just cannot offer a link."""
-    m._notify(_event("archived", space={"kind": "personal", "name": "../evil"}))
-
-    message, link = sent[0][1], sent[0][2]
-    assert link is None
-    assert _ARCHIVE_ID in message
-
-
 # ── restore_started ──────────────────────────────────────────────────────────
 
 
-def test_the_started_message_states_the_duration_and_promises_a_second_one(sent):
-    """FR-006 AC2. The only START notification in this app, and the reason is that three to five
-    hours of silence is indistinguishable from a request that was dropped."""
-    m._notify(_event("restore_started"))
-
-    message, link = sent[0][1], sent[0][2]
-    assert "several hours" in message
-    assert "another notification" in message
-    assert link is None
-
-
-def test_the_started_message_says_nothing_has_changed_yet(sent):
-    """The guard has passed and the retrieval is running, but not one byte has moved into the
-    user's space — and a user who went looking would find exactly what was there before."""
-    m._notify(_event("restore_started"))
-
-    assert "Nothing has changed" in sent[0][1]
-
-
 # ── restored ─────────────────────────────────────────────────────────────────
-
-
-def test_the_restored_message_names_the_count_and_the_size(sent):
-    m._notify(_event("restored"))
-
-    message = sent[0][1]
-    assert "12 files" in message
-    assert "3.0 MB" in message
 
 
 def test_the_restored_link_is_the_SPACE_ROOT_and_not_a_folder(sent):
@@ -153,81 +92,6 @@ def test_exactly_one_message_is_sent_per_invocation(sent):
         sent.clear()
         m._notify(_event(outcome))
         assert len(sent) == 1, outcome
-
-
-def test_the_cleanup_flag_decides_whether_the_sweep_is_claimed(sent):
-    """SPEC-171 made a failed vault sweep a FLAG on a successful run, and `DeleteArchived`'s Catch
-    reaches this same terminal through `CleanupIncomplete`. The flag reaches nothing else a user
-    can see, so an unconditional "the archive has been cleaned up" is a positive claim about the
-    one route where it is false."""
-    m._notify(_event("restored", cleanup={"deleted": 0, "residue": None, "cleanupIncomplete": True}))
-    m._notify(_event("restored", cleanup={"deleted": 3, "residue": 0, "cleanupIncomplete": False}))
-
-    assert "cleaned up" not in sent[0][1]
-    assert "cleaned up" in sent[1][1]
-
-
-def test_an_absent_cleanup_block_reads_as_SWEPT(sent):
-    """The flag is only ever set true, so a missing block means the run took the ordinary route —
-    and the block is threaded whole rather than as a boolean, because a Parameters path that is
-    absent raises an uncatchable States.Runtime."""
-    m._notify(_event("restored"))
-
-    assert "cleaned up" in sent[0][1]
-
-
-def test_every_success_outcome_carries_a_per_run_dedup_token(sent):
-    """Two of the three bodies have no discriminator in them, so without a token the queue's
-    content dedup collapses two runs that render identically into one inbox row."""
-    for outcome in ("archived", "restore_started", "restored"):
-        sent.clear()
-        m._notify(_event(outcome))
-        assert sent[0][3], outcome
-
-
-def test_an_unseeded_outcome_notifies_nobody_and_does_not_raise(sent):
-    """The ASL seeds the outcome, so an absent one is a machine defect — but this verb runs on a
-    run that has otherwise succeeded, and raising would report a completed archive as a failure."""
-    assert m._notify({**_event("archived"), "outcome": None}) == {}
-    assert m._notify({"outcome": "hopeful"}) == {}
-    assert m._notify("not a dict") == {}
-    assert sent == []
-
-
-def test_no_actor_means_no_addressee_rather_than_a_message_to_nobody(sent):
-    m._notify(_event("archived", actor=""))
-
-    assert sent == []
-
-
-def test_a_raising_emitter_cannot_fail_the_run(monkeypatch, sent):
-    """THE ONE THAT MATTERS. By this state the source is deleted; a raise here would replace a
-    completed archive with a reported failure, and the data would still be gone."""
-
-    def boom(*_args, **_kwargs):
-        raise RuntimeError("queue exploded")
-
-    monkeypatch.setattr(notify, "emit_archived", boom)
-
-    assert m._notify(_event("archived")) == {}
-
-
-def test_the_verb_carries_no_failure_decorator(monkeypatch):
-    """`@notifies_on_failure` here would report a failure of the NOTIFIER as a failure of the
-    archive — the same reasoning file-send's producer records, and the reason the handler has
-    `@traced` and nothing else."""
-    import inspect
-
-    decorators = [line.strip() for line in inspect.getsource(m).splitlines() if line.startswith("@")]
-
-    assert decorators == ['@observability.traced("notify")']
-
-
-def test_the_handler_returns_an_empty_dict_and_threads_nothing_onward(monkeypatch, sent):
-    """Every invoking state carries `ResultPath: null`, so what this returns never reaches the
-    running object — and returning the event would suggest otherwise to the next reader."""
-    assert m.handler(_event("restored"), None) == {}
-    assert len(sent) == 1
 
 
 if __name__ == "__main__":

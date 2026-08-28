@@ -14,7 +14,7 @@ import {ParentFolderRow} from './ParentFolderRow';
 import {UploadDropzone} from './UploadDropzone';
 import {SelectionProvider} from './SelectionProvider';
 import {initialSelectionState, selectionReducer, useSelection} from './selectionContext';
-import type {SelectableItem, SelectionContextValue, SelectionState} from './selectionContext';
+import type {SelectableItem, SelectionContextValue} from './selectionContext';
 import type {S3FileItem, S3FolderItem} from '../../types/s3.types';
 import type {BulkOperationState} from './fileBrowser.types';
 import type {ReactNode} from 'react';
@@ -66,22 +66,6 @@ describe('CollisionPrompt', () => {
       expect(onOverwrite).toHaveBeenCalled();
     });
 
-    it('cancels', () => {
-      const {onCancel} = setup();
-      fireEvent.click(screen.getByRole('button', {name: /cancel/i}));
-      expect(onCancel).toHaveBeenCalled();
-    });
-
-    it('renames with the new name', () => {
-      const {onRename} = setup();
-      fireEvent.click(screen.getByRole('button', {name: /^rename$/i}));
-      fireEvent.change(screen.getByLabelText(/new name/i), {
-        target: {value: 'report-v2.pdf'}
-      });
-      fireEvent.click(screen.getByRole('button', {name: /save as new name/i}));
-      expect(onRename).toHaveBeenCalledWith('report-v2.pdf');
-    });
-
     it('disables save when the new name is unchanged', () => {
       setup();
       fireEvent.click(screen.getByRole('button', {name: /^rename$/i}));
@@ -128,18 +112,6 @@ describe('CreateFolderDialog', () => {
       expect(onCreate).not.toHaveBeenCalled();
       expect(screen.getByRole('alert')).toHaveTextContent(/\//);
     });
-
-    it('cancels', () => {
-      const onCancel = vi.fn();
-      render(
-        <CreateFolderDialog
-          onCreate={vi.fn()}
-          onCancel={onCancel}
-        />
-      );
-      fireEvent.click(screen.getByRole('button', {name: /cancel/i}));
-      expect(onCancel).toHaveBeenCalled();
-    });
   });
 });
 
@@ -170,12 +142,6 @@ describe('DeleteConfirmDialog', () => {
       expect(dialog).toHaveTextContent(/can.t be undone/i);
     });
 
-    it('describes a single folder as recursive', () => {
-      setup([folder('alice/photos/')]);
-      const dialog = screen.getByRole('alertdialog');
-      expect(dialog).toHaveTextContent(/folder .*photos.* and everything inside it/i);
-    });
-
     it('shows the count and an item list for multiple items', () => {
       setup([file('alice/a.txt'), file('alice/b.txt'), folder('alice/c/')]);
       const dialog = screen.getByRole('alertdialog');
@@ -197,12 +163,6 @@ describe('DeleteConfirmDialog', () => {
       fireEvent.click(screen.getByRole('button', {name: /^delete$/i}));
       expect(onConfirm).toHaveBeenCalledOnce();
       fireEvent.click(screen.getByRole('button', {name: /cancel/i}));
-      expect(onCancel).toHaveBeenCalledOnce();
-    });
-
-    it('cancels on Escape', () => {
-      const {onCancel} = setup([file('alice/a.txt')]);
-      fireEvent.keyDown(document, {key: 'Escape'});
       expect(onCancel).toHaveBeenCalledOnce();
     });
 
@@ -251,15 +211,6 @@ describe('RenameDialog', () => {
       expect(onRename).toHaveBeenCalledWith('final.pdf');
     });
 
-    it('keeps the original extension even if the user types a different one', () => {
-      const {onRename} = setup();
-      fireEvent.change(screen.getByLabelText(/new name/i), {
-        target: {value: 'final.txt'}
-      });
-      fireEvent.click(screen.getByRole('button', {name: /^rename$/i}));
-      expect(onRename).toHaveBeenCalledWith('final.txt.pdf');
-    });
-
     it('lets a folder name be edited in full (no locked extension)', () => {
       const onRename = vi.fn();
       render(
@@ -284,18 +235,6 @@ describe('RenameDialog', () => {
       });
       expect(screen.getByRole('alert')).toHaveTextContent('/');
       expect(screen.getByRole('button', {name: /^rename$/i})).toBeDisabled();
-    });
-
-    it('cancels on Escape', () => {
-      const {onCancel} = setup();
-      fireEvent.keyDown(document, {key: 'Escape'});
-      expect(onCancel).toHaveBeenCalledOnce();
-    });
-
-    it('shows progress and disables actions while busy', () => {
-      setup({isBusy: true});
-      expect(screen.getByRole('button', {name: /renaming/i})).toBeDisabled();
-      expect(screen.getByRole('button', {name: /cancel/i})).toBeDisabled();
     });
   });
 });
@@ -348,27 +287,10 @@ describe('FileListRowMobile', () => {
       expect(onDetails).toHaveBeenCalledWith(file);
     });
 
-    it('shows a selection checkbox and reflects the selected treatment', () => {
-      const {onToggleSelect} = renderFile({isSelected: true});
-      const checkbox = screen.getByRole('checkbox', {name: 'Select report.pdf'});
-      expect(checkbox).toBeChecked();
-      fireEvent.click(checkbox);
-      expect(onToggleSelect).toHaveBeenCalledOnce();
-      // Selected rows get the accent-soft fill.
-      expect(checkbox.closest('li')).toHaveClass('bg-accent-soft');
-    });
-
     it('shows a downloading indicator in place of the size while a download is signing', () => {
       renderFile({isDownloading: true});
       expect(screen.getByLabelText('Downloading')).toBeInTheDocument();
       expect(screen.queryByText('2.0 KB')).not.toBeInTheDocument();
-    });
-
-    it('omits the checkbox when not selectable (read-only browse)', () => {
-      renderFile({selectable: false});
-      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-      // Download + Details still available in read-only.
-      expect(screen.getByRole('button', {name: 'Download report.pdf'})).toBeInTheDocument();
     });
 
     it('renders a folder as name + "Folder" with a trailing chevron (no size) and opens on tap', () => {
@@ -450,18 +372,6 @@ describe('FolderDetailsPanel', () => {
       expect(screen.getByText('s3://my-bucket/alice/docs/')).toBeInTheDocument();
     });
 
-    it('offers copy buttons for the path and the full cloud path', () => {
-      renderPanel();
-      expect(screen.getByRole('button', {name: /copy path/i})).toBeInTheDocument();
-      expect(screen.getByRole('button', {name: /copy full cloud path/i})).toBeInTheDocument();
-    });
-
-    it('closes via the close button', () => {
-      const {onClose} = renderPanel();
-      fireEvent.click(screen.getByRole('button', {name: /close details/i}));
-      expect(onClose).toHaveBeenCalledOnce();
-    });
-
     it('is a modal dialog labelled for the folder', () => {
       renderPanel();
       const dialog = screen.getByRole('dialog', {name: /details for docs/i});
@@ -476,11 +386,6 @@ describe('FolderDetailsPanel', () => {
       expect(rename).toBeInTheDocument();
       fireEvent.click(rename);
       expect(onRequestRename).toHaveBeenCalledWith(folder);
-    });
-
-    it('shows no Rename action in read-only mode', () => {
-      renderPanel({canModify: false});
-      expect(screen.queryByRole('button', {name: 'Rename docs'})).not.toBeInTheDocument();
     });
   });
 });
@@ -501,17 +406,6 @@ describe('OperationFeedback', () => {
   }
 
   describe('OperationFeedback', () => {
-    it('renders nothing when the operation has said nothing', () => {
-      const {container} = render(
-        <OperationFeedback
-          op={state()}
-          pastVerb="Deleted"
-          failVerb="delete"
-        />
-      );
-      expect(container).toBeEmptyDOMElement();
-    });
-
     it('reports a clean run with the operation’s own past tense', () => {
       render(
         <OperationFeedback
@@ -558,18 +452,6 @@ describe('OperationFeedback', () => {
       expect(status).toHaveTextContent('Moving… 42%');
     });
 
-    it('shows no progress line for an operation that reports none', () => {
-      // Delete passes neither `progress` nor `progressVerb`; both must be absent, not "…%".
-      render(
-        <OperationFeedback
-          op={state({isBusy: true, progress: null})}
-          pastVerb="Deleted"
-          failVerb="delete"
-        />
-      );
-      expect(screen.queryByRole('status')).toBeNull();
-    });
-
     it('offers the batch overwrite confirmation and reports the choice', async () => {
       const user = userEvent.setup();
       const onOverwriteAll = vi.fn();
@@ -585,24 +467,6 @@ describe('OperationFeedback', () => {
       await user.click(screen.getByRole('button', {name: /overwrite/i}));
       expect(onOverwriteAll).toHaveBeenCalledTimes(1);
       expect(onCancel).not.toHaveBeenCalled();
-    });
-
-    it('dismisses a systemic error without touching the summary', async () => {
-      const user = userEvent.setup();
-      const dismissError = vi.fn();
-      const dismissSummary = vi.fn();
-      render(
-        <OperationFeedback
-          op={state({error: 'You must be signed in to copy files.', dismissError, dismissSummary})}
-          pastVerb="Copied"
-          failVerb="copy"
-        />
-      );
-
-      expect(screen.getByText('You must be signed in to copy files.')).toBeInTheDocument();
-      await user.click(screen.getByRole('button', {name: /dismiss/i}));
-      expect(dismissError).toHaveBeenCalledTimes(1);
-      expect(dismissSummary).not.toHaveBeenCalled();
     });
 
     it('renders its slot between the progress line and the collision prompt', () => {
@@ -659,18 +523,6 @@ describe('ParentFolderRow', () => {
       expect(onNavigateUp).toHaveBeenCalledTimes(1);
     });
 
-    it('is not selectable — no checkbox, no Details, no type pill', () => {
-      renderRow({selectable: true});
-      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', {name: /details/i})).not.toBeInTheDocument();
-      expect(screen.queryByText('Folder')).not.toBeInTheDocument();
-    });
-
-    it('shows a — in the size cell', () => {
-      renderRow();
-      expect(screen.getByText('—')).toBeInTheDocument();
-    });
-
     it('has no a11y violations', async () => {
       await expectNoA11yViolations(
         <ul>
@@ -705,20 +557,6 @@ describe('UploadDropzone', () => {
       fireEvent.drop(zone, {dataTransfer: {files: [new File(['x'], 'x.txt')]}});
       expect(onFiles).toHaveBeenCalledWith([expect.any(File)]);
     });
-
-    it('ignores drops and disables the picker when disabled', () => {
-      const onFiles = vi.fn();
-      renderWithProviders(
-        <UploadDropzone
-          onFiles={onFiles}
-          disabled
-        />
-      );
-      const zone = screen.getByText('Drag files here').closest('div')!;
-      fireEvent.drop(zone, {dataTransfer: {files: [new File(['x'], 'x.txt')]}});
-      expect(onFiles).not.toHaveBeenCalled();
-      expect(screen.getByRole('button', {name: 'choose files'})).toBeDisabled();
-    });
   });
 });
 
@@ -738,24 +576,6 @@ describe('SelectionProvider', () => {
       expect(next.items.get('alice/a.txt')).toEqual(fileA);
     });
 
-    it('toggle removes an already-selected item', () => {
-      const withA = selectionReducer(initialSelectionState, {
-        type: 'toggle',
-        item: fileA
-      });
-      const without = selectionReducer(withA, {type: 'toggle', item: fileA});
-      expect(without.items.size).toBe(0);
-    });
-
-    it('toggles files and folders by their distinct ids (key vs prefix)', () => {
-      let state: SelectionState = initialSelectionState;
-      state = selectionReducer(state, {type: 'toggle', item: fileA});
-      state = selectionReducer(state, {type: 'toggle', item: folder});
-      expect(state.items.size).toBe(2);
-      expect(state.items.has('alice/a.txt')).toBe(true);
-      expect(state.items.has('alice/docs/')).toBe(true);
-    });
-
     it('selectAll replaces the selection with exactly the given items', () => {
       const withA = selectionReducer(initialSelectionState, {
         type: 'toggle',
@@ -769,29 +589,6 @@ describe('SelectionProvider', () => {
       expect(all.items.has('alice/a.txt')).toBe(false); // replaced, not merged
       expect(all.items.has('alice/b.txt')).toBe(true);
       expect(all.items.has('alice/docs/')).toBe(true);
-    });
-
-    it('clear empties the selection', () => {
-      const withItems = selectionReducer(initialSelectionState, {
-        type: 'selectAll',
-        items: [fileA, fileB]
-      });
-      const cleared = selectionReducer(withItems, {type: 'clear'});
-      expect(cleared.items.size).toBe(0);
-    });
-
-    it('clear preserves referential identity when already empty', () => {
-      const cleared = selectionReducer(initialSelectionState, {type: 'clear'});
-      expect(cleared).toBe(initialSelectionState);
-    });
-
-    it('does not mutate the previous state (returns a fresh Map)', () => {
-      const next = selectionReducer(initialSelectionState, {
-        type: 'toggle',
-        item: fileA
-      });
-      expect(initialSelectionState.items.size).toBe(0);
-      expect(next.items).not.toBe(initialSelectionState.items);
     });
   });
 

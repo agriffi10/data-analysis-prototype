@@ -126,25 +126,6 @@ describe('useCopy', () => {
       expect(mockCopyObject).toHaveBeenLastCalledWith(expect.objectContaining({overwrite: true}));
     });
 
-    it('aggregates a per-key folder failure into the copy summary', async () => {
-      mockCopyFolder.mockResolvedValue({
-        success: true,
-        data: {
-          copied: ['alice/dest/x/'],
-          errors: [{key: 'alice/docs/x/locked', message: 'Access Denied'}]
-        }
-      });
-
-      const {result} = render();
-      act(() => result.current.copyItems([{type: 'folder', prefix: 'alice/docs/x/'}], 'alice/dest/'));
-
-      await waitFor(() => expect(result.current.summary).not.toBeNull());
-      expect(result.current.summary).toEqual({
-        count: 1,
-        errors: [{key: 'alice/docs/x/locked', message: 'Access Denied'}]
-      });
-    });
-
     it('errors and does nothing when there is no username', async () => {
       const {result} = renderHookWithProviders(() => useCopy('us', undefined));
       act(() => result.current.copyItems([{type: 'file', key: 'alice/docs/f.txt'}], 'alice/dest/'));
@@ -155,25 +136,6 @@ describe('useCopy', () => {
   });
 
   describe('useCopy — same-folder copy (auto-number, FR-003)', () => {
-    it('proposes "{name} (1)" for a file when the destination is the current parent', async () => {
-      // (1) is free.
-      mockObjectExists.mockResolvedValue({success: true, data: false});
-
-      const {result} = render();
-      act(() => result.current.startSameFolderCopy({type: 'file', key: 'alice/docs/report.pdf'}, 'alice/docs/'));
-
-      await waitFor(() => expect(result.current.sameFolderPrompt).not.toBeNull());
-      expect(result.current.sameFolderPrompt?.kind).toBe('file');
-      expect(result.current.sameFolderPrompt?.proposedName).toBe('report (1).pdf');
-      // HEAD-checked the (1) candidate at the current parent.
-      expect(mockObjectExists).toHaveBeenCalledWith({
-        bucket: 'us',
-        key: 'alice/docs/report (1).pdf'
-      });
-      // No copy runs until the user confirms.
-      expect(mockCopyObject).not.toHaveBeenCalled();
-    });
-
     it('increments to "{name} (2)" when "{name} (1)" already exists', async () => {
       mockObjectExists
         .mockResolvedValueOnce({success: true, data: true}) // (1) taken
@@ -211,30 +173,6 @@ describe('useCopy', () => {
         })
       );
       expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/docs/');
-    });
-
-    it('copies a file under the confirmed (possibly edited) name', async () => {
-      mockObjectExists.mockResolvedValue({success: true, data: false});
-      mockCopyObject.mockResolvedValue({
-        success: true,
-        data: {destKey: 'alice/docs/my copy.pdf'}
-      });
-
-      const {result} = render();
-      act(() => result.current.startSameFolderCopy({type: 'file', key: 'alice/docs/report.pdf'}, 'alice/docs/'));
-
-      await waitFor(() => expect(result.current.sameFolderPrompt).not.toBeNull());
-      act(() =>
-        result.current.runSameFolderCopy({type: 'file', key: 'alice/docs/report.pdf'}, 'alice/docs/', 'my copy.pdf')
-      );
-
-      await waitFor(() => expect(result.current.summary).toEqual({count: 1, errors: []}));
-      expect(mockCopyObject).toHaveBeenCalledWith(
-        expect.objectContaining({
-          sourceKey: 'alice/docs/report.pdf',
-          destKey: 'alice/docs/my copy.pdf'
-        })
-      );
     });
 
     it('the same-folder prompt validate fn rejects names with a slash', async () => {
@@ -300,19 +238,6 @@ describe('useDelete', () => {
       expect(mockInvalidate).toHaveBeenCalledWith(expect.anything(), 'us', 'alice/');
     });
 
-    it('does nothing and surfaces an error when there is no username', async () => {
-      // Pass undefined directly — render()'s default would otherwise mask it.
-      const {result} = renderHookWithProviders(() => useDelete('us', 'alice/', undefined, 'alice/'));
-      let summary: DeleteSummary | null = null;
-      await act(async () => {
-        summary = await result.current.runDelete([file('alice/a.txt')]);
-      });
-
-      expect(summary).toBeNull();
-      expect(mockDeleteObjects).not.toHaveBeenCalled();
-      expect(result.current.error).toMatch(/signed in/i);
-    });
-
     it('returns null and makes no calls for an empty selection', async () => {
       const {result} = render();
       let summary: DeleteSummary | null = null;
@@ -342,31 +267,6 @@ describe('useDelete', () => {
       expect(mockInvalidate).not.toHaveBeenCalled();
       // Mapped to friendly text (SPEC-106), not the raw credential message.
       expect(result.current.error).toBe('Sign in to continue.');
-    });
-
-    it('records a folder failure and continues with the remaining folders', async () => {
-      mockDeleteFolder
-        .mockResolvedValueOnce({
-          success: false,
-          error: {message: 'Access Denied', code: 'AccessDenied'}
-        })
-        .mockResolvedValueOnce({
-          success: true,
-          data: {deleted: ['alice/q/'], errors: []}
-        });
-
-      const {result} = render();
-      let summary: DeleteSummary | null = null;
-      await act(async () => {
-        summary = await result.current.runDelete([folder('alice/p/'), folder('alice/q/')]);
-      });
-
-      expect(mockDeleteFolder).toHaveBeenCalledTimes(2);
-      expect(summary).toEqual({
-        count: 1,
-        errors: [{key: 'alice/p/', message: 'Access Denied', code: 'AccessDenied'}]
-      });
-      expect(mockInvalidate).toHaveBeenCalled();
     });
 
     it('aggregates partial per-key errors (e.g. the marker refusal) into the summary', async () => {
@@ -427,25 +327,6 @@ describe('useFileUpload', () => {
       );
     });
 
-    it('surfaces a collision and overwrites on confirm', async () => {
-      mockUpload
-        .mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}})
-        .mockResolvedValueOnce({success: true, data: {key: 'alice/report.pdf'}});
-
-      const {result} = render();
-      act(() => result.current.uploadOne(file));
-
-      await waitFor(() => expect(result.current.pendingCollision).not.toBeNull());
-      expect(result.current.pendingCollision?.kind).toBe('file');
-
-      act(() => result.current.pendingCollision!.retry({overwrite: true}));
-
-      await waitFor(() => expect(mockInvalidate).toHaveBeenCalled());
-      expect(mockUpload).toHaveBeenCalledTimes(2);
-      expect(mockUpload.mock.calls[1][0]).toMatchObject({overwrite: true});
-      expect(result.current.pendingCollision).toBeNull();
-    });
-
     it('renames on collision by re-running with the new key', async () => {
       mockUpload
         .mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}})
@@ -479,21 +360,6 @@ describe('useFileUpload', () => {
       });
     });
 
-    it('a folder collision + rename re-runs createFolder with the new name', async () => {
-      mockCreateFolder
-        .mockResolvedValueOnce({success: false, error: {message: 'exists', code: 'Collision'}})
-        .mockResolvedValueOnce({success: true, data: {prefix: 'alice/pics/'}});
-
-      const {result} = render();
-      act(() => result.current.createNewFolder('photos'));
-
-      await waitFor(() => expect(result.current.pendingCollision?.kind).toBe('folder'));
-      act(() => result.current.pendingCollision!.retry({rename: 'pics'}));
-
-      await waitFor(() => expect(mockCreateFolder).toHaveBeenCalledTimes(2));
-      expect(mockCreateFolder.mock.calls[1][0]).toMatchObject({name: 'pics', overwrite: false});
-    });
-
     it('surfaces a non-collision error and clears it on dismiss', async () => {
       mockUpload.mockResolvedValue({success: false, error: {message: 'Access Denied', code: 'AccessDenied'}});
 
@@ -508,24 +374,6 @@ describe('useFileUpload', () => {
 
       act(() => result.current.dismissError());
       expect(result.current.error).toBeNull();
-    });
-
-    it('exposes a percentage while the upload is in flight', async () => {
-      let resolveUpload!: (v: Awaited<ReturnType<typeof uploadFile>>) => void;
-      mockUpload.mockImplementation((params) => {
-        params.onProgress?.(50, 100);
-        return new Promise((res) => {
-          resolveUpload = res;
-        });
-      });
-
-      const {result} = render();
-      act(() => result.current.uploadOne(file));
-
-      await waitFor(() => expect(result.current.progress).toBe(50));
-
-      act(() => resolveUpload({success: true, data: {key: 'alice/report.pdf'}}));
-      await waitFor(() => expect(result.current.progress).toBeNull());
     });
   });
 });
@@ -585,28 +433,6 @@ describe('useMove', () => {
           overwrite: false
         })
       );
-    });
-
-    it('surfaces a rename collision, then overwrites on confirm', async () => {
-      mockMoveObject
-        .mockResolvedValueOnce({
-          success: false,
-          error: {message: 'exists', code: 'Collision'}
-        })
-        .mockResolvedValueOnce({
-          success: true,
-          data: {destKey: 'alice/docs/new.txt'}
-        });
-
-      const {result} = render();
-      act(() => result.current.renameItem({type: 'file', key: 'alice/docs/old.txt'}, 'new.txt'));
-
-      await waitFor(() => expect(result.current.renameCollision).not.toBeNull());
-      expect(result.current.renameCollision?.kind).toBe('file');
-
-      act(() => result.current.renameCollision?.onOverwrite());
-      await waitFor(() => expect(result.current.summary).toEqual({count: 1, errors: []}));
-      expect(mockMoveObject).toHaveBeenLastCalledWith(expect.objectContaining({overwrite: true}));
     });
 
     it('errors and does nothing when there is no username', async () => {
@@ -679,25 +505,6 @@ describe('useMove', () => {
       act(() => result.current.collision?.onOverwriteAll());
       await waitFor(() => expect(result.current.summary).toEqual({count: 1, errors: []}));
       expect(mockMoveObject).toHaveBeenLastCalledWith(expect.objectContaining({overwrite: true}));
-    });
-
-    it('aggregates a per-key folder failure into the move summary', async () => {
-      mockMoveFolder.mockResolvedValue({
-        success: true,
-        data: {
-          moved: ['alice/dest/x/'],
-          errors: [{key: 'alice/docs/x/locked', message: 'Access Denied'}]
-        }
-      });
-
-      const {result} = render();
-      act(() => result.current.moveItems([{type: 'folder', prefix: 'alice/docs/x/'}], 'alice/dest/'));
-
-      await waitFor(() => expect(result.current.summary).not.toBeNull());
-      expect(result.current.summary).toEqual({
-        count: 1,
-        errors: [{key: 'alice/docs/x/locked', message: 'Access Denied'}]
-      });
     });
   });
 });

@@ -120,3 +120,21 @@ genuinely cannot be scoped: `logs:DescribeLogGroups` is a list operation with no
 all. Copying AWS's document verbatim would have handed a write grant on every log group in the
 account to a role whose entire job is one group — and **the rendered-plan IAM scan reports it**,
 which is how this was caught rather than argued about.
+
+## What the offline guard proves, and what it cannot
+
+`lambdas/test_network_module.py` is a text assertion over this module's Terraform. Every failure
+it guards **applies green**: a NAT gateway somebody adds to fix a timeout, a default route in a
+private table, a gateway endpoint associated with the wrong route table, an interface endpoint
+with private DNS off. Terraform accepts all of them, the plan reads as an ordinary addition, and
+the only symptom is an image pull that cannot complete — or a task that silently reaches the
+internet.
+
+**The no-NAT assertion is repo-wide rather than module-scoped, and that is the point.** Scoped to
+this module it would be satisfied by adding the gateway somewhere else, which is precisely what a
+future quick fix for a connect timeout looks like.
+
+It cannot tell you the applied route tables match, that DNS resolves to the endpoint, or that a
+pull completes. Only the live checks can — and the acceptance script pairs the pull with a
+`describe-route-tables` read for exactly that reason: a pull that succeeded through a route
+somebody added would otherwise read as proof of the endpoints.

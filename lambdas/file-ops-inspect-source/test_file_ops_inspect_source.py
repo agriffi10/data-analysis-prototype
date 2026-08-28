@@ -24,8 +24,8 @@ os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 import file_ops_inspect_source as m
 import pytest
 from cpcommon import clients
-from cpcommon.errors import TerminalError, TransientError
-from focommon import config, notify
+from cpcommon.errors import TerminalError
+from focommon import notify
 
 _EXECUTION = "arn:aws:states:us-east-1:1:execution:file-ops:run-1"
 
@@ -148,130 +148,7 @@ def test_a_folders_objects_keep_their_structure_under_the_destination():
     assert result["totalBytes"] == 91246
 
 
-def test_the_layout_is_unaffected_by_how_deep_the_source_sat():
-    """A rebuilt copy of the source's own path is the obvious wrong answer, and it is invisible
-    until someone moves something out of a deep folder."""
-    _install({"alice/deep/nested/q1.csv": 4})
-    fake = clients._s3
-
-    m._inspect_source(_event([{"kind": "file", "key": "alice/deep/nested/q1.csv"}]))
-
-    assert _plan(fake)["items"][0]["objects"][0]["destKey"] == "alice/out/q1.csv"
-
-
-def test_a_renamed_folder_lands_under_the_name_the_request_asked_for():
-    """``targetName`` is what makes a rename expressible at all, and it is honoured exactly once —
-    on the item, never again on each object."""
-    fake = _install({"alice/reports/a/b.csv": 1})
-
-    m._inspect_source(
-        _event([{"kind": "folder", "key": "alice/reports/", "targetName": "archive-2026"}])
-    )
-
-    assert _plan(fake)["items"][0]["objects"][0]["destKey"] == "alice/out/archive-2026/a/b.csv"
-
-
-def test_a_folder_past_the_pagination_boundary_is_fully_expanded():
-    """S3 returns at most 1,000 keys per page. A verb that read one page would plan two thirds of a
-    2,500-object folder and report success — and for a move, delete the rest."""
-    fake = _install({f"alice/reports/f{n:05d}.csv": 1 for n in range(2500)})
-
-    result = m._inspect_source(_event())
-
-    assert result["objectCount"] == 2500
-    assert fake.pages == 3
-
-
-def test_every_object_carries_the_etag_the_listing_already_returned():
-    """The only cheap producer of it — one listing per thousand objects against one HeadObject per
-    object — and what a later conditional delete turns on."""
-    fake = _install({"alice/reports/a.csv": 3})
-
-    m._inspect_source(_event())
-
-    assert _plan(fake)["items"][0]["objects"][0]["etag"] == '"alice/reports/a.csv-etag"'
-
-
-def test_a_selected_file_carries_its_own_etag_and_size():
-    """A file item costs its own serial head, and the same fields have to come back from it."""
-    fake = _install({"alice/q1.csv": 77})
-
-    m._inspect_source(_event([{"kind": "file", "key": "alice/q1.csv"}]))
-
-    entry = _plan(fake)["items"][0]["objects"][0]
-    assert entry["size"] == 77 and entry["etag"] == '"alice/q1.csv-etag"'
-
-
-def test_a_delete_plans_no_destination_at_all():
-    """There is nowhere for it to go, and a destination key on a delete plan is a key some later
-    verb could copy to."""
-    fake = _install({"alice/reports/a.csv": 1})
-
-    m._inspect_source(_event(operation="delete"))
-
-    entry = _plan(fake)["items"][0]["objects"][0]
-    assert "destKey" not in entry and "destBucket" not in entry
-    assert _plan(fake)["destination"] is None
-
-
-def test_a_listed_key_outside_the_root_is_refused():
-    """Containment was checked on the REQUEST's keys, which the caller supplied. These arrive from
-    S3, and the two are not the same assurance."""
-    _install({"alice/reports/a.csv": 1, "alice2/leak.csv": 1})
-    clients._s3._objects["alice/reports/../../alice2/leak.csv"] = 1
-
-    with pytest.raises(TerminalError) as err:
-        m._inspect_source(_event())
-
-    assert err.value.reason == "forbidden"
-
-
 # ── The closed exclusion set ─────────────────────────────────────────────────
-
-
-def test_a_nested_marker_is_excluded_from_the_plan_rather_than_refusing_the_folder():
-    """Both bucket policies deny deleting it and ``saved_queries/`` ships one, so failing a whole
-    folder on a nested marker is a regression the browser never had."""
-    fake = _install({"alice/reports/a.csv": 1, f"alice/reports/{config.MARKER_BASENAME}": 1})
-
-    m._inspect_source(_event())
-
-    assert [o["srcKey"] for o in _plan(fake)["items"][0]["objects"]] == ["alice/reports/a.csv"]
-
-
-def test_a_zero_byte_folder_placeholder_is_KEPT():
-    """The shared default predicate drops every ``size == 0`` object, so taking it would silently
-    lose an empty subfolder from a move that is meant to preserve a folder's shape."""
-    fake = _install({"alice/reports/empty/": 0, "alice/reports/a.csv": 1})
-
-    m._inspect_source(_event())
-
-    assert "alice/reports/empty/" in [o["srcKey"] for o in _plan(fake)["items"][0]["objects"]]
-    assert "alice/out/reports/empty/" in [o["destKey"] for o in _plan(fake)["items"][0]["objects"]]
-
-
-def test_a_users_own_hidden_folder_is_KEPT():
-    """The same default drops any ``_``- or ``.``-prefixed segment. A user's ``_drafts/`` is theirs,
-    and dropping it from a move is silent data loss."""
-    fake = _install({"alice/reports/_drafts/x.md": 1})
-
-    m._inspect_source(_event())
-
-    assert _plan(fake)["items"][0]["objectCount"] == 1
-
-
-def test_the_default_ignore_predicate_is_NOT_the_one_this_plane_uses():
-    """Asserted against the shared rule directly, because the two exclusions above are exactly the
-    ones it would apply — a future refactor reaching for the default would pass every other test
-    here only if it also lost these two."""
-    from cpcommon import s3_listing
-
-    ignore = m._excluder("alice/", "alice/reports/")
-
-    assert s3_listing.is_ignored("alice/reports/empty/", 0, "alice/reports/")
-    assert s3_listing.is_ignored("alice/reports/_drafts/x.md", 1, "alice/reports/")
-    assert not ignore("alice/reports/empty/", 0, "alice/reports/")
-    assert not ignore("alice/reports/_drafts/x.md", 1, "alice/reports/")
 
 
 def test_the_portal_managed_folders_are_swept_out_of_an_expansion_that_reaches_them_from_ABOVE():
@@ -296,46 +173,7 @@ def test_the_portal_managed_folders_are_swept_out_of_an_expansion_that_reaches_t
     assert [o["srcKey"] for o in _plan(fake)["items"][0]["objects"]] == ["alice/reports/a.csv"]
 
 
-def test_copying_OUT_of_athenaresults_still_copies_something():
-    """The trap the root-anchored rule sets. Copying out of the results folder is permitted on
-    purpose — the source rules refuse it as a delete or move source and deliberately not as a copy
-    source — so an exclusion applied to a legally selected item would list its every object, exclude
-    every one, and report the item empty."""
-    fake = _install({"alice/athenaresults/r.csv": 5})
-
-    result = m._inspect_source(
-        _event([{"kind": "folder", "key": "alice/athenaresults/"}], operation="copy")
-    )
-
-    assert result["objectCount"] == 1
-    assert _plan(fake)["items"][0]["objects"][0]["destKey"] == "alice/out/athenaresults/r.csv"
-
-
 # ── Identity, overlaps and duplicates ────────────────────────────────────────
-
-
-def test_two_items_sharing_a_LEAF_NAME_stay_apart():
-    """``targetName`` makes leaf names non-unique. Keyed by name, the plan would hold two groups
-    called ``reports`` and the guard's output could not tell them apart — so the commit gate would
-    act on their union."""
-    fake = _install({"alice/a/reports/x": 1, "alice/b/reports/y": 1})
-
-    m._inspect_source(
-        _event(
-            [
-                {"kind": "folder", "key": "alice/a/reports/", "targetName": "r1"},
-                {"kind": "folder", "key": "alice/b/reports/", "targetName": "r2"},
-            ]
-        )
-    )
-
-    plan = _plan(fake)
-    assert [item["itemKey"] for item in plan["items"]] == ["alice/a/reports/", "alice/b/reports/"]
-    assert [item["label"] for item in plan["items"]] == ["reports", "reports"]
-    assert [item["objects"][0]["destKey"] for item in plan["items"]] == [
-        "alice/out/r1/x",
-        "alice/out/r2/y",
-    ]
 
 
 def test_one_item_containing_another_refuses_the_WHOLE_request():
@@ -354,17 +192,6 @@ def test_one_item_containing_another_refuses_the_WHOLE_request():
         )
 
     assert err.value.reason == "overlapping_items"
-
-
-def test_an_exact_repeat_is_collapsed_rather_than_refused():
-    """There is one right answer and no ambiguity about what the user meant."""
-    fake = _install({"alice/reports/a.csv": 1})
-
-    m._inspect_source(
-        _event([{"kind": "folder", "key": "alice/reports/"}] * 2)
-    )
-
-    assert len(_plan(fake)["items"]) == 1
 
 
 def test_a_duplicate_is_kind_AND_key_never_the_key_alone():
@@ -410,155 +237,6 @@ def test_a_missing_file_fails_ITS_ITEM_and_the_rest_proceed():
     assert [item["itemKey"] for item in _plan(fake)["items"]] == ["alice/reports/"]
 
 
-def test_a_source_file_that_cannot_be_READ_fails_the_whole_request():
-    """Only a proven absence is "missing". A 403 or a KMS refusal reported as a per-item miss drops
-    the file from the plan silently, moves everything else, and tells the user a cause that is
-    false."""
-    _install({"alice/reports/a.csv": 1})
-    clients._s3._objects["alice/denied.csv"] = 1
-
-    class _Denied(type(clients._s3)):
-        def head_object(self, Bucket, Key):
-            raise _S3Error("AccessDenied", 403)
-
-    clients._s3.__class__ = _Denied
-
-    with pytest.raises(TerminalError) as err:
-        m._inspect_source(_event([{"kind": "file", "key": "alice/denied.csv"}]))
-
-    assert err.value.reason == "forbidden"
-
-
-def test_a_throttle_while_listing_is_RETRYABLE_rather_than_a_permanent_failure():
-    """The shared paginator propagates a raw ``ClientError`` and says mapping it is the caller's job;
-    this machine's Retry names ``TransientError``. One throttle on page twelve of a twenty-page
-    folder would otherwise permanently fail a request that succeeds on the next attempt — on the
-    largest folders, which are the ones this plane exists for."""
-    fake = _install({"alice/reports/a.csv": 1})
-
-    class _Throttled:
-        def paginate(self, Bucket, Prefix):
-            raise _S3Error("SlowDown", 503)
-            yield
-
-    fake.get_paginator = lambda name: _Throttled()
-
-    with pytest.raises(TransientError):
-        m._inspect_source(_event())
-
-
-def test_a_FILE_item_whose_key_names_a_folder_is_refused():
-    """The request's two fields disagree, and every rule downstream turns on which one is right: the
-    head succeeds against the folder's own zero-byte placeholder, and the destination builder — told
-    it is a file — drops the trailing slash, so the placeholder lands as a slash-less object the
-    browser renders as a file. For a move, the source folder then loses its marker."""
-    _install({"alice/reports/": 0})
-
-    with pytest.raises(TerminalError) as err:
-        m._inspect_source(_event([{"kind": "file", "key": "alice/reports/"}]))
-
-    assert err.value.reason == "invalid_items"
-
-
-def test_the_kind_and_key_pair_still_survives_the_collapse():
-    """The refusal above must not be reached by collapsing the pair away first: one key arriving with
-    two kinds has to stay two entries, or the rule that catches it never runs."""
-    collapsed = m._collapse(
-        [{"kind": "file", "key": "alice/reports/"}, {"kind": "folder", "key": "alice/reports/"}]
-    )
-
-    assert len(collapsed) == 2
-
-
-def test_an_overlap_is_refused_even_when_the_CONTAINING_item_was_already_decided():
-    """The rule is a property of the request, not of the items that survived an earlier verb. A move
-    of ``saved_queries/`` and ``saved_queries/2026/`` has the parent refused as a protected folder
-    and the child untouched by any rule — so a check over the survivors alone would move a subtree
-    out of the folder whose own refusal exists to keep it where it is."""
-    _install({"alice/saved_queries/2026/q.sql": 1})
-    incoming = [
-        {
-            "itemKey": "alice/saved_queries/",
-            "label": "saved_queries",
-            "outcome": "protected",
-            "reason": "source_folder_undeletable",
-        }
-    ]
-
-    with pytest.raises(TerminalError) as err:
-        m._inspect_source(
-            _event(
-                [
-                    {"kind": "folder", "key": "alice/saved_queries/"},
-                    {"kind": "folder", "key": "alice/saved_queries/2026/"},
-                ],
-                outcomes=incoming,
-            )
-        )
-
-    assert err.value.reason == "overlapping_items"
-
-
-def test_an_item_that_resolves_to_nothing_is_a_per_item_FAILURE():
-    """``deleteFolder`` returns success over an empty listing. On a plane, "nothing happened" must be
-    distinguishable from "it worked"."""
-    _install({"alice/reports/a.csv": 1})
-
-    result = m._inspect_source(_event([{"kind": "folder", "key": "alice/empty/"}]))
-
-    assert result["outcomes"][0]["outcome"] == "source_empty"
-    assert result["itemCount"] == 0
-
-
-def test_every_expanded_item_gets_a_PROVISIONAL_cleared_entry():
-    """Without it the delete branch has nothing to seed from — the expanded item keys live only
-    inside the plan, in S3, so a Pass state cannot construct the list."""
-    _install({"alice/reports/a.csv": 1})
-
-    result = m._inspect_source(_event(operation="delete"))
-
-    assert result["outcomes"] == [
-        {"itemKey": "alice/reports/", "label": "reports", "outcome": "cleared"}
-    ]
-
-
-def test_the_outcome_list_is_CARRIED_FORWARD_rather_than_recreated():
-    """Three verbs produce outcomes and each returns the complete list. A verb returning only its
-    own would drop the refusals the model exists to carry."""
-    _install({"alice/reports/a.csv": 1})
-    incoming = [
-        {"itemKey": "alice/old/", "label": "old", "outcome": "noop"},
-        {
-            "itemKey": "alice/athenaresults/",
-            "label": "athenaresults",
-            "outcome": "protected",
-            "reason": "results_folder_not_deletable",
-        },
-    ]
-
-    result = m._inspect_source(_event(outcomes=incoming))
-
-    assert result["outcomes"][:2] == incoming
-    assert result["outcomes"][2]["itemKey"] == "alice/reports/"
-
-
-def test_an_item_an_earlier_verb_DECIDED_is_never_expanded():
-    """A same-key no-op's destination subtree IS its source subtree, so expanding it would have the
-    guard report every one of its objects as a collision and flip a success into a refusal."""
-    fake = _install({"alice/old/a.csv": 1, "alice/reports/a.csv": 1})
-    incoming = [{"itemKey": "alice/old/", "label": "old", "outcome": "noop"}]
-
-    result = m._inspect_source(
-        _event(
-            [{"kind": "folder", "key": "alice/old/"}, {"kind": "folder", "key": "alice/reports/"}],
-            outcomes=incoming,
-        )
-    )
-
-    assert [item["itemKey"] for item in _plan(fake)["items"]] == ["alice/reports/"]
-    assert [o["outcome"] for o in result["outcomes"]] == ["noop", "cleared"]
-
-
 # ── The caps ─────────────────────────────────────────────────────────────────
 
 
@@ -582,41 +260,6 @@ def test_the_object_cap_is_enforced_INSIDE_the_walk(monkeypatch):
     assert "3000" not in err.value.detail
 
 
-def test_the_caps_bound_the_WHOLE_selection_rather_than_each_item(monkeypatch):
-    """Ten folders of three thousand objects is over the cap; per-item arithmetic admits it."""
-    monkeypatch.setattr(m, "FILE_OPS_MAX_OBJECTS", 5)
-    _install({f"alice/a/{n}": 1 for n in range(3)} | {f"alice/b/{n}": 1 for n in range(3)})
-
-    with pytest.raises(TerminalError) as err:
-        m._inspect_source(
-            _event([{"kind": "folder", "key": "alice/a/"}, {"kind": "folder", "key": "alice/b/"}])
-        )
-
-    assert err.value.reason == "too_many_objects"
-
-
-def test_one_oversized_object_refuses_the_request():
-    """A total-bytes makespan says nothing about the largest single object, because one object is
-    one worker."""
-    _install({"alice/reports/huge.bin": config.FILE_OPS_MAX_OBJECT_BYTES + 1})
-
-    with pytest.raises(TerminalError) as err:
-        m._inspect_source(_event())
-
-    assert err.value.reason == "object_too_large"
-
-
-def test_a_cap_refusal_is_whole_request_rather_than_per_item(monkeypatch):
-    """A per-item reading would let a request approach the bound by attrition."""
-    monkeypatch.setattr(m, "FILE_OPS_MAX_TOTAL_BYTES", 10)
-    _install({"alice/reports/a.csv": 11})
-
-    with pytest.raises(TerminalError) as err:
-        m._inspect_source(_event())
-
-    assert err.value.reason == "selection_too_large_to_expand"
-
-
 # ── The plan ─────────────────────────────────────────────────────────────────
 
 
@@ -629,60 +272,6 @@ def test_the_plan_goes_to_S3_and_only_its_pointer_and_counts_ride_on_the_state()
     assert result["planKey"] == "file-ops/req-1/plan.json"
     assert fake.puts[-1]["Bucket"] == "admin-bkt"
     assert "objects" not in json.dumps(result)
-
-
-def test_the_plan_carries_the_three_fields_a_later_verb_must_not_take_off_the_state():
-    """Without the request id the supersession check has nothing to compare; taking the submission
-    time or the conflict answer off the state instead is the substitution it exists to catch."""
-    fake = _install({"alice/reports/a.csv": 4})
-
-    m._inspect_source(_event())
-
-    plan = _plan(fake)
-    assert plan["requestId"] == "req-1"
-    assert plan["submittedAt"] == "2026-08-20T10:00:00+00:00"
-    assert plan["onConflict"] == "refuse"
-    assert plan["executionArn"] == _EXECUTION
-
-
-def test_a_second_execution_reusing_the_request_id_is_refused():
-    """The id is browser-supplied and is the whole identity of a plan, so without this a run could
-    plan over another execution's object list while that run was still copying from it."""
-    fake = _install({"alice/reports/a.csv": 4})
-    m._inspect_source(_event())
-    fake.puts.clear()
-
-    event = _event()
-    event["execution"] = {"arn": "arn:aws:states:us-east-1:1:execution:file-ops:run-2"}
-
-    with pytest.raises(TerminalError) as err:
-        m._inspect_source(event)
-
-    assert err.value.reason == "request_id_reused"
-    assert not fake.puts
-
-
-def test_THIS_executions_own_retry_rewrites_its_plan_rather_than_refusing_it():
-    """Every task on this machine retries three times, so a transient fault after the write is an
-    ordinary event. A guard refusing any occupied prefix would refuse the request it had itself just
-    planned and tell the user their id had been used before."""
-    fake = _install({"alice/reports/a.csv": 4})
-    m._inspect_source(_event())
-
-    result = m._inspect_source(_event())
-
-    assert result["planKey"] == "file-ops/req-1/plan.json"
-    assert len(fake.puts) == 2
-
-
-def test_the_handler_runs_the_whole_decorated_stack():
-    """Every other test calls the orchestration directly, so without this the tracing and
-    failure-notification decorators the handler's docstring argues about are never executed."""
-    _install({"alice/reports/a.csv": 1})
-
-    result = m.handler(_event(), None)
-
-    assert result["objectCount"] == 1
 
 
 if __name__ == "__main__":

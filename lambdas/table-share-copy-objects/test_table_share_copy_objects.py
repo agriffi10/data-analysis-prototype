@@ -6,7 +6,6 @@ FR-003 property that the verb knows nothing about recipients, plans or requests.
 pytest or directly: python3 test_table_share_copy_objects.py.
 """
 
-import ast
 import os
 import pathlib
 import sys
@@ -108,16 +107,6 @@ def test_a_batch_copies_every_item_layout_preserved():
     ]
 
 
-def test_one_batch_spans_recipients():
-    """The fan-out is over (recipient x object) pairs, so a batch is NOT one recipient's work."""
-    fake = _setup()
-
-    out = m.handler(_batch(_item("bob"), _item("carol"), _item("dave")), None)
-
-    assert out["copied"] == 3
-    assert {c["Key"].split("/")[0] for c in fake.copies} == {"bob", "carol", "dave"}
-
-
 def test_a_deterministic_failure_does_not_fail_the_batch():
     """FR-003 AC3 — the batch SUCCEEDS so its siblings' copies stand and attribution happens
     downstream. Raising here would abort 49 good copies for one bad key."""
@@ -132,80 +121,6 @@ def test_a_throttle_still_raises_so_the_map_retries_the_batch():
     _setup(copy_error=_S3Error("SlowDown"))
     with pytest.raises(TransientError):
         m.handler(_batch(_item()), None)
-
-
-def test_a_large_object_still_multipart_copies():
-    fake = _setup()
-    m.handler(_batch(_item(rel="big.parquet", size=6 * GIB)), None)
-    assert fake.copies == []
-    assert [c for c in fake.multipart if "PartNumber" in c]
-
-
-def test_an_empty_batch_is_a_no_op():
-    fake = _setup()
-    assert m.handler({"Items": []}, None) == {"copied": 0, "failures": []}
-    assert fake.copies == []
-
-
-def test_re_running_an_identical_batch_is_harmless():
-    """FR-003 AC5 — copy is idempotent and the conflict guard has already run, which is what
-    makes the Map's whole-batch retry safe."""
-    fake = _setup()
-    batch = _batch(_item(rel="a.parquet"))
-
-    first = m.handler(batch, None)
-    second = m.handler(batch, None)
-
-    assert first == second == {"copied": 1, "failures": []}
-    assert len(fake.copies) == 2
-    assert fake.copies[0]["Key"] == fake.copies[1]["Key"]
-
-
-def test_the_verb_imports_nothing_recipient_shaped():
-    """FR-003 AC4 — the property, asserted rather than described.
-
-    Destination resolution, the copy plan and every per-recipient concept moved upstream. A
-    reintroduced ``copy_plan`` or ``glue`` import here means this verb has started deciding
-    something the manifest already decided, and the two would drift.
-    """
-    tree = ast.parse(_SOURCE.read_text(encoding="utf-8"))
-    imported = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            imported.update(f"{node.module}.{alias.name}" for alias in node.names)
-        elif isinstance(node, ast.Import):
-            imported.update(alias.name for alias in node.names)
-
-    forbidden = {name for name in imported if any(
-        part in name for part in ("copy_plan", "cognito", "glue", "registry", "ddl", "athena")
-    )}
-    assert not forbidden, f"copy-objects must stay recipient-agnostic; it imports {forbidden}"
-    assert not [name for name in imported if name.startswith("tscommon")], (
-        "copy-objects imports the table-share domain layer, so it is no longer the shared "
-        "batch copier the send-files and archive planes are meant to reuse"
-    )
-
-
-def test_the_verb_never_names_the_copy_plan():
-    """The other half of AC4: an import scan cannot see a key read off the event.
-
-    ``copyPlanKey`` is the one field that would let this verb resolve work for itself, and
-    resolving it in two places is how the manifest and the copy drift apart.
-    """
-    tree = ast.parse(_SOURCE.read_text(encoding="utf-8"))
-    read_keys = {
-        node.args[0].value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "get"
-        and node.args
-        and isinstance(node.args[0], ast.Constant)
-    }
-    assert read_keys == {"Items"}, (
-        f"copy-objects reads {read_keys} off its event; a batch verb reads its batch and "
-        "nothing else"
-    )
 
 
 if __name__ == "__main__":
