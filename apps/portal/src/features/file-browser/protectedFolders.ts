@@ -197,13 +197,3 @@ export function undeletableSelectionRefusal(
 export function isRootFolderNamed(folderPrefix: string, rootPrefix: string, names: readonly string[]): boolean {
   return names.some((name) => folderPrefix === `${rootPrefix}${name}/`);
 }
-
-/**
- * Is this folder one the portal refuses to destroy? True only at the SPACE root,
- * which is `rootPrefix` — so it holds identically in a shared space (the space
- * own framing) and leaves `alice/reports/athenaresults/` an ordinary folder the
- * user may delete.
- */
-export function isUndeletableRootFolder(folderPrefix: string, rootPrefix: string): boolean {
-  return isRootFolderNamed(folderPrefix, rootPrefix, UNDELETABLE_ROOT_FOLDERS);
-}

@@ -7,8 +7,7 @@ import {
   PICKER_LOCKED_FOLDERS,
   UNDELETABLE_ROOT_FOLDERS,
   undeletableRootFolderRefusal,
-  isRootFolderNamed,
-  isUndeletableRootFolder
+  isRootFolderNamed
 } from './protectedFolders';
 import {
   PREFIX_MARKER_BODY,
@@ -190,16 +189,10 @@ describe('protectedFolders', () => {
 
     // SPEC-150 FR-007. A FOURTH question — "may the user DESTROY it?" — deliberately
     // not a union of the other lists: athenaresults/ stays visible and browsable.
-    describe('isUndeletableRootFolder', () => {
+    describe('the undeletable-root list', () => {
       it('covers athenaresults/ without changing what the browser shows', () => {
         expect(UNDELETABLE_ROOT_FOLDERS).toContain('athenaresults');
         expect(HIDDEN_BROWSER_FOLDERS).not.toContain('athenaresults');
-      });
-
-      it('does not match a nested or merely prefixed folder', () => {
-        expect(isUndeletableRootFolder('alice/reports/athenaresults/', 'alice/')).toBe(false);
-        expect(isUndeletableRootFolder('alice/athenaresults_old/', 'alice/')).toBe(false);
-        expect(isUndeletableRootFolder('alice/photos/', 'alice/')).toBe(false);
       });
     });
   });
