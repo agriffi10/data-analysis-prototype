@@ -1,7 +1,3 @@
-# ── shared-spaces module outputs ──────────────────────────────────
-# Exported for app wiring (VITE_*) and ops. The browser learns
-# the queue URL to enqueue requests (sqs:SendMessage granted); the
-# bucket name maps to a VITE_* once shared-space file ops land.
 
 output "shared_space_bucket_name" {
   description = "Name of the shared-space bucket (Bucket 2). Maps to a VITE_* variable."

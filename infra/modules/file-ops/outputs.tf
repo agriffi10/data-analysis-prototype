@@ -1,9 +1,7 @@
 # ── file-ops module outputs ──────────────────────────────────────
-# The browser learns the queue URL to enqueue file operations (sqs:SendMessage granted to
-# the portal role → VITE_FILE_OPS_QUEUE_URL); the queue ARN scopes that grant; the
-# state-machine ARN is for ops/observability. The execution-role ARN is exported for
-# reference only — root threads a CONSTRUCTED twin into the user-space bucket policy's
-# allowlist, because an unknown-at-plan ARN inside a list silently drops the change.
+# The execution-role ARN is exported FOR REFERENCE ONLY — root threads a CONSTRUCTED twin into
+# the user-space bucket policy's allowlist, because an unknown-at-plan ARN inside a list
+# silently drops the change.
 
 output "file_ops_queue_url" {
   description = "URL of the FIFO request queue (ends in .fifo). The browser enqueues copy/move/delete requests here. Maps to VITE_FILE_OPS_QUEUE_URL."

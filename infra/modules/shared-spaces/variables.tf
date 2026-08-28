@@ -1,14 +1,7 @@
 # ── shared-spaces module variables ────────────────────────────────
-# Bounded-context module for Bucket 2 (the shared-space bucket) and the async
-# provisioning control plane (SQS → EventBridge Pipe → Step Function → Lambda).
-# Resource names are computed in the root module (like the user-space / admin
-# buckets) and passed in, so naming lives in one place and base's deploy policy
-# can be scoped to the same ARNs without a dependency cycle.
-#
-# FOUNDATION ONLY — the plumbing, no access model and no action
-# semantics. Cross-module ARNs are CONSTRUCTED STRINGS (passed from root locals),
-# never another module's output, so they are known at plan time (architecture.md
-# "unknown ARN in list" trap) and this module plans standalone.
+# Resource names are computed in the ROOT module and passed in, so naming lives in one place
+# and base's deploy policy can scope to the same ARNs without a cycle. Cross-module ARNs are
+# CONSTRUCTED STRINGS, so they are known at plan time. README.md.
 
 variable "project_name" {
   description = "Short name used as a prefix for AWS resource names (e.g. dat)."

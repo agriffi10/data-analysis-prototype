@@ -1,17 +1,8 @@
 # ── EventBridge Pipe: request queue → Step Function ─────────
-# Drains the FIFO request queue into the orchestrator. Batch size 1 so each message
-# starts its own execution and the FIFO per-MessageGroupId (= the hashed target
-# location, sqs.tf) ordering is preserved.
-#
-# FIRE_AND_FORGET: the Pipe calls StartExecution on the Standard state machine and
-# returns immediately. This matters more here than anywhere else in the codebase — a
-# data-quality execution polls an Athena query that can run for tens of minutes, far
-# beyond any synchronous invocation.
-#
-# Role boundary: this PIPE role only needs states:StartExecution (+ SQS consume) — it
-# starts the execution but does NOT run it. The state machine runs under the SFN role
-# (stepfunction.tf role_arn), and every verb Lambda runs under the ONE shared execution
-# role (iam.tf).
+# Batch size 1, so each message starts its own execution and the per-MessageGroupId ordering is
+# preserved. FIRE_AND_FORGET matters more here than anywhere else in the codebase — a
+# data-quality execution polls an Athena query that can run for TENS OF MINUTES.
+# ../../info/control-plane-shape.md.
 
 resource "aws_pipes_pipe" "requests" {
   name     = local.pipe_name

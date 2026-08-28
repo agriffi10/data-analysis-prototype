@@ -1,24 +1,16 @@
 # ── Shared-Space Bucket (Bucket 2) ──────────────────────────
-# Backs every shared connection: objects live under {name}/... and are seen by all
-# members of that space (a single shared copy, not per-user copies). Hygiene mirrors
-# the user-space bucket (data/s3.tf): all public access blocked, SSE-S3,
-# BucketOwnerEnforced, versioning off (MVP), abort-incomplete-multipart lifecycle.
+# Objects live under {name}/... and are seen by ALL members of that space — a single shared
+# copy, not per-user copies. Hygiene mirrors the user-space bucket.
 #
-# Is plumbing only — this bucket is created with NO access grants and NO
-# bucket policy. The membership-tag portal-role statements, the shared-results
-# delete-denies, and the Lake Formation hybrid registration arrive with the access model;
-# the per-space provisioning (prefix marker, Glue DB) with the verbs.
+# THIS BUCKET HAS NO BUCKET POLICY, which is why a control-plane role missing from the
+# USER-SPACE bucket's allowlist half-works: every shared-space path succeeds and every personal
+# one fails. See modules/data. README.md.
 
-# IAM propagation guard — same rationale as data/s3.tf and auth/lambda.tf. The
-# module-level depends_on = [module.base] orders the deploy-role policy (which now
-# grants s3 / sqs / pipes / states / lambda / iam / logs for this module) before
-# this module runs, but IAM is eventually consistent; this pause absorbs the
-# propagation window so the deploy role's first create call in the same apply
-# doesn't race the grant and hit AccessDenied. 60s (not 30s) because the
-# lambda/iam-role creates this module makes still race at 30s (auth/lambda.tf).
-# EVERY resource that needs a freshly-granted permission depends on it — the bucket,
-# the queues, the IAM roles, the log groups, the function, the state machine, the
-# pipe — not just the bucket, or those calls race the propagation.
+# IAM propagation guard. 60s, not 30s — the Lambda and IAM role creates this module makes
+# still race at 30s.
+#
+# ⚠ EVERY resource needing a freshly-granted permission depends on it — the bucket, the queues,
+# the roles, the log groups, the functions, the machine, the pipe — NOT JUST THE BUCKET.
 resource "time_sleep" "wait_for_deploy_policy" {
   create_duration = "60s"
 }
@@ -59,7 +51,7 @@ resource "aws_s3_bucket_ownership_controls" "shared_space" {
   }
 }
 
-# Versioning OFF for the MVP (matches the user-space and admin buckets).
+# Versioning OFF, matching the other buckets. Overwrites and deletes are irreversible.
 resource "aws_s3_bucket_versioning" "shared_space" {
   bucket = aws_s3_bucket.shared_space.id
 
@@ -68,9 +60,7 @@ resource "aws_s3_bucket_versioning" "shared_space" {
   }
 }
 
-# Lifecycle — abort incomplete multipart uploads after 7 days.
-# Shared-space uploads use the same managed lib-storage multipart path as the
-# user-space bucket; a browser killed mid-upload leaves billable, invisible parts.
+# A browser killed mid-upload leaves billable, invisible parts.
 resource "aws_s3_bucket_lifecycle_configuration" "shared_space" {
   bucket = aws_s3_bucket.shared_space.id
 
@@ -86,8 +76,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "shared_space" {
   }
 }
 
-# CORS — without this, browser SDK calls fail (matches data/s3.tf). Origins always
-# include local dev; the deployed app URL is added once known.
+# Without this every browser SDK call fails preflight. Origins are ADDITIVE.
 resource "aws_s3_bucket_cors_configuration" "shared_space" {
   bucket = aws_s3_bucket.shared_space.id
 

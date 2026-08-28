@@ -1,14 +1,6 @@
 # ── data-quality module variables ─────────────────────────────────
-# Bounded-context module for the "check data quality on a file or folder" control
-# plane: a DEDICATED FIFO SQS → EventBridge Pipe → Standard Step Function pipeline
-# orchestrating nine single-task verb Lambdas around ONE Athena profile query.
-# Mirrors the table-builder/table-share control-plane PATTERN (not their resources).
-#
-# FOUNDATION ONLY — plumbing + Lambda stubs; no request contract, no
-# authorization, no DDL/query logic. Cross-module ARNs are CONSTRUCTED
-# STRINGS (passed from root locals), never another module's output, so they are known
-# at plan time (architecture.md "unknown ARN in list" trap) and this module plans
-# standalone.
+# Cross-module ARNs are CONSTRUCTED STRINGS from root locals, so they are known at plan time
+# and this module plans standalone. README.md.
 
 variable "project_name" {
   description = "Short name used as a prefix for AWS resource names (e.g. dat)."
@@ -30,13 +22,10 @@ variable "account_id" {
   type        = string
 }
 
-# ── Buckets (env for every verb) ───────────────────────────────────────────
-# NOTE: these are wired into the COMMON Lambda env now, not because the stubs
-# use them, but because every verb attaches the cpcommon layer and cpcommon/config.py
-# requires them. That requirement moved from import to
-# FIRST READ, so a verb missing one no longer crashes at cold start — it fails on
-# whichever branch reads it. The union is still
-# what must be set; do not prune one as "unused". No bucket is created here.
+# ── Buckets (env for every verb) ─────────────────────────────────────────────
+# Wired into the COMMON Lambda env because every verb attaches cpcommon, whose config requires
+# them. THE UNION IS WHAT MUST BE SET — do not prune one as "unused". No bucket is created
+# here.
 
 variable "user_space_bucket_name" {
   description = "Name of the user-space bucket (Bucket 1). Personal-space sources + the report destination; env USER_SPACE_BUCKET (required by cpcommon.config). "

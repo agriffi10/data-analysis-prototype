@@ -1,8 +1,3 @@
-# ── data-quality module outputs ───────────────────────────────────
-# Exported for later wiring: the browser learns the queue URL to enqueue checks
-# (sqs:SendMessage granted to the portal role → VITE_DATA_QUALITY_QUEUE_URL);
-# the queue ARN scopes that grant; the state-machine ARN is for ops/observability; the
-# execution role ARN is what goes on the analytics Lake Formation admins list.
 
 output "data_quality_queue_url" {
   description = "URL of the FIFO request queue (ends in .fifo). The browser enqueues check-data-quality requests here (sqs:SendMessage, granted to the portal role). Maps to VITE_DATA_QUALITY_QUEUE_URL."

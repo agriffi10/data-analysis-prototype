@@ -1,23 +1,12 @@
 # ── EventBridge Pipe: request queue → Step Function ────────
-# Drains the FIFO request queue into the orchestrator. Batch size 1 so each message
-# starts its own execution and the FIFO per-MessageGroupId ordering is preserved.
+# Batch size 1. FIRE_AND_FORGET, and REQUEST_RESPONSE is IMPOSSIBLE for a Standard machine.
 #
-# FIRE_AND_FORGET, and REQUEST_RESPONSE is not merely unused — it is IMPOSSIBLE for a
-# Standard state machine. The Pipe calls StartExecution and returns immediately; the
-# outcome reaches the user as a notification, never as a response.
+# ⚠ THIS IS THE RESOURCE THAT MAKES THE LOCK NECESSARY. Because the Pipe returns without
+# waiting, ORDERED DELIVERY DOES NOT SERIALIZE EXECUTION and two operations in one space can
+# run at once. Reading this as "FIFO handles it" is the mistake the per-space lock corrects.
 #
-# THIS IS THE RESOURCE THAT MAKES THE LOCK NECESSARY. Because the Pipe returns without
-# waiting, ordered delivery does not serialize execution, and two operations in one space
-# can run at once. Reading this file as "FIFO handles it" is the mistake the per-space
-# lock exists to correct.
-#
-# Role boundary: this PIPE role only needs states:StartExecution (+ SQS consume) — it
-# starts the execution but does NOT run it. The state machine runs under the SFN role
-# (stepfunction.tf role_arn); the verb Lambdas run under the ONE shared execution role.
-#
-# At-least-once delivery does NOT give this plane a re-run: the Pipe cannot name the
-# executions it starts, and a redelivered message either returns the original ARN or
-# fails with ExecutionAlreadyExists. Recovery is the DLQ drain, never redelivery.
+# At-least-once delivery gives no re-run: a redelivered message returns the original ARN or
+# fails with ExecutionAlreadyExists. RECOVERY IS THE DLQ DRAIN. README.md.
 
 resource "aws_pipes_pipe" "requests" {
   name     = local.pipe_name

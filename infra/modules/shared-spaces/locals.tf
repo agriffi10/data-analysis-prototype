@@ -1,8 +1,6 @@
-# ── Constructed names + ARNs ───────────────────────────────────────────────
-# All resource names are derived from {project_name}-{environment} so the deploy
-# policy can scope to the same patterns (modules/base) and so cross-resource ARNs
-# referenced inside IAM policy templates are KNOWN AT PLAN TIME (constructed
-# strings, not resource attributes) — the architecture.md "unknown ARN" discipline.
+# ── Constructed names + ARNs ──────────────────────────────────────────────────
+# Names are what the deploy policy scopes to, and every ARN here is KNOWN AT PLAN TIME.
+# ../../info/control-plane-shape.md.
 
 locals {
   requests_queue_name    = "${var.project_name}-${var.environment}-shared-space-requests.fifo"
@@ -12,12 +10,8 @@ locals {
   state_machine_name     = "${var.project_name}-${var.environment}-shared-space-orchestrator"
   pipe_name              = "${var.project_name}-${var.environment}-shared-space-pipe"
 
-  # The single provisioner monolith is decomposed into a validate-authorize
-  # Lambda + the single-task verb Lambdas. Keyed by the function suffix (= the
-  # lambdas/ subdir suffix + the deploy-lambdas.yml matrix name); value = the Python
-  # handler. The Step Function orchestrates them (validate -> Choice(action) -> verb);
-  # all run under the single shared orchestrator role (no per-verb roles — user
-  # decision). `forget` = durable "clear from my list".
+  # The verb Lambdas, keyed by the function suffix, which is also the lambdas/ subdirectory
+  # suffix and the deploy-lambdas.yml matrix name. `forget` is a durable "clear from my list".
   shared_space_functions = {
     "validate"               = "validate.handler"
     "create"                 = "create_space.handler"
@@ -35,22 +29,18 @@ locals {
     suffix => "${var.project_name}-${var.environment}-shared-space-${suffix}"
   }
 
-  # Constructed function ARNs (known at plan time) — fed to the orchestrator policy's
-  # InvokeFunction list and the Step Function tasks.
+  # Known at plan time — fed to the orchestrator policy's InvokeFunction list.
   shared_space_function_arns = [
     for suffix, name in local.shared_space_function_names :
     "arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${name}"
   ]
 
-  # Shared-code Lambda layer (CI builds + publishes; functions attach via
-  # update-function-configuration, so TF ignores the `layers` attribute). Named to
-  # match the deploy-role `*-shared-space-*` layer wildcard (modules/base).
+  # CI builds, publishes and attaches this. Named to match the deploy-role wildcard.
   common_layer_name = "${var.project_name}-${var.environment}-shared-space-common"
 
   sfn_log_group_name = "/aws/vendedlogs/states/${local.state_machine_name}"
 
-  # Wildcard log-group ARN covering every verb/validator function's group — the
-  # orchestrator role is the exec role for all of them.
+  # One wildcard covers every function's group — the orchestrator is the exec role for all.
   lambda_log_groups_arn = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.project_name}-${var.environment}-shared-space-*:*"
 
   state_machine_arn = "arn:aws:states:${var.aws_region}:${var.account_id}:stateMachine:${local.state_machine_name}"
@@ -60,8 +50,6 @@ locals {
   admin_bucket_arn        = "arn:aws:s3:::${var.athena_admin_bucket_name}"
   user_space_bucket_arn   = "arn:aws:s3:::${var.user_space_bucket_name}"
 
-  # The shared portal role (created in module.data) — the LF grant target
-  # the create/delete verbs target per shared DB, and the env var passed to the verbs.
-  # Constructed from the role name (known at plan; no cross-module resource dependency).
+  # Constructed from the role name, so there is no cross-module resource dependency.
   portal_role_arn = "arn:aws:iam::${var.account_id}:role/${var.portal_role_name}"
 }
