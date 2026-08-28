@@ -1,16 +1,6 @@
 # ── table-builder module variables ────────────────────────────────
-# Bounded-context module for the "create table from a folder" control plane: a
-# DEDICATED FIFO SQS → EventBridge Pipe → Step Function pipeline that orchestrates
-# single-task verb Lambdas (validate-authorize → {check-table-absent |
-# load-table-definition} → inspect-source → infer-schema → execute-ddl, the two
-# branches over one shared spine). Mirrors the shared-spaces control
-# plane PATTERN (not its resources), but with PER-VERB least-privilege roles.
-#
-# FOUNDATION ONLY — plumbing + Lambda stubs, no request contract and no
-# action semantics (those land with the verbs). Cross-module ARNs are CONSTRUCTED
-# STRINGS (passed from root locals), never another module's output, so they are known
-# at plan time (architecture.md "unknown ARN in list" trap) and this module plans
-# standalone.
+# Cross-module ARNs are CONSTRUCTED STRINGS from root locals, never another module's output,
+# so they are known at plan time and this module plans standalone. README.md.
 
 variable "project_name" {
   description = "Short name used as a prefix for AWS resource names (e.g. dat)."

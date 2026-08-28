@@ -1,22 +1,10 @@
 # ── Request Queue + DLQ ────────────────────────────────────
-# The control-plane entry point. The browser enqueues a share-table
-# request; an EventBridge Pipe (pipe.tf) drains it into the Step Function.
+# MessageGroupId is the SOURCE database.table, so repeated shares of one source serialize and
+# a heavy copy never overlaps itself.
 #
-# FIFO with MessageGroupId = the SOURCE `database.table`, set by the producer,
-# so repeated shares of the SAME source serialize strictly one-at-a-time
-# (a heavy copy never overlaps itself), while shares of different sources run in
-# parallel. The Pipe reads a batch of 1 (pipe.tf).
-#
-# content_based_deduplication is OFF (unlike the table-builder
-# queue): the producer sends an explicit MessageDeduplicationId = requestId
-# as the double-submit guard, and two byte-identical share requests a
-# user genuinely repeats (e.g. re-share after deleting the copy) must NOT be
-# silently absorbed by a 5-minute content-dedup window.
-#
-# No time_sleep guard here: the deploy-role grants these resource types need were
-# applied in modules/base (deploy-table-share policy) BEFORE this
-# module's resources land (the deploy-perms-before-resources rule), so there is no
-# self-grant propagation race to wait out — same as the table-builder module.
+# content_based_deduplication is OFF here, unlike the table-builder queue: two byte-identical
+# share requests a user GENUINELY repeats (a re-share after deleting the copy) must not be
+# silently absorbed by a 5-minute window. The explicit MessageDeduplicationId is the guard.
 
 resource "aws_sqs_queue" "requests_dlq" {
   name                        = local.dlq_name

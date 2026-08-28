@@ -1,9 +1,6 @@
-# ── Constructed names + ARNs ──────────────────────────────────────────────────────────────────────
-# All resource names derive from {project_name}-{environment} so the deploy policy
-# (the modules/base grant) scopes to the same {project}-*-table-share-*
-# patterns, and so cross-resource ARNs referenced inside IAM policy templates are
-# KNOWN AT PLAN TIME (constructed strings, not resource attributes) — the
-# architecture.md "unknown ARN in list" discipline. This module plans standalone.
+# ── Constructed names + ARNs ──────────────────────────────────────────────────
+# Names are what the deploy policy scopes to, and every ARN here is KNOWN AT PLAN TIME.
+# This module plans standalone. ../../info/control-plane-shape.md.
 
 locals {
   requests_queue_name = "${var.project_name}-${var.environment}-table-share-requests.fifo"
@@ -13,68 +10,38 @@ locals {
   state_machine_name  = "${var.project_name}-${var.environment}-table-share-orchestrator"
   sfn_role_name       = "${var.project_name}-${var.environment}-table-share-sfn-role"
 
-  # ONE shared execution role for every verb Lambda (user decision, recorded in
-  # docs/architecture.md (Control Planes -> Table Share) — mirrors the table-builder's
-  # consolidated model; per-verb roles are NOT used). Its permission policy
-  # (execution.json.tftpl) covers logs, the registry/Cognito/Glue reads and the
-  # source-bucket listing; the copy/create and LF-admin grants
-  # land with the verbs. The ARN is a constructed string (known at plan time) for
-  # the later cycle-free LF-admin wiring from root.
+  # The ARN is a constructed string so the LF-admin wiring from root is cycle-free.
   execution_role_name = "${var.project_name}-${var.environment}-table-share-execution-role"
   execution_role_arn  = "arn:aws:iam::${var.account_id}:role/${var.project_name}-${var.environment}-table-share-execution-role"
 
-  # The single-task verb Lambdas. Keyed by the function SUFFIX (= the
-  # lambdas/table-share-<suffix>/ subdir AND the deploy-lambdas.yml matrix name
-  # "table-share-<suffix>"); value = the handler + the task's real timeout/memory
-  # need (a small validator ≠ a long parallel S3 copy — lambdas.md §4).
-  # validate-authorize / inspect-source / build-transfer-manifest /
-  # collect-transfer-results run once per request; check-target-absent and
-  # create-table run per recipient in the guard and finish Maps; copy-objects runs
-  # once per BATCH inside the Distributed Map (stepfunction.tf).
-  # Module names carry the table_share_ prefix so they can't collide with the
-  # table-builder's identically-named verbs on sys.modules under one
-  # `pytest lambdas/` process (the tbcommon-package lesson, applied to verb modules).
+  # The verb Lambdas, keyed by the function SUFFIX, which is also the
+  # lambdas/table-share-<suffix>/ directory and the deploy-lambdas.yml matrix name.
+  #
+  # Module names carry the table_share_ prefix so they cannot collide with the table-builder's
+  # identically-named verbs on sys.modules under one `pytest lambdas/` process.
+  #
+  # A NEW ENTRY still needs a key added in stepfunction.tf, whose map is explicit.
   table_share_functions = {
     "validate-authorize" = { handler = "table_share_validate_authorize.handler", timeout = 15, memory = 256 }
-    # inspect-source is sized above 60s/512MB. SHARE_MAX_OBJECTS went 1,000 -> 20,000, and
-    # this is the verb that lists them and holds the whole copy plan in memory before writing it.
-    # At S3's worst-case 1024-byte keys that plan is ~21 MB serialised (~3.4 MB at ordinary Hive
-    # keys), and the in-memory list of dicts is several times either. It fit at 512 MB, but every
-    # other cap on this plane reasons from the worst case rather than the typical one, and the two
-    # verbs either side of the Map were raised for exactly this volume.
+    # Sized above 60s/512MB: this verb holds the whole copy plan in memory before writing it,
+    # and at worst-case 1024-byte keys that plan is ~21 MB serialised. README.md.
     "inspect-source"      = { handler = "table_share_inspect_source.handler", timeout = 120, memory = 1024 }
     "check-target-absent" = { handler = "table_share_check_target_absent.handler", timeout = 15, memory = 256 }
     "copy-objects"        = { handler = "table_share_copy_objects.handler", timeout = 900, memory = 1024 }
     "create-table"        = { handler = "table_share_create_table.handler", timeout = 300, memory = 512 }
-    # The two verbs either side of the Distributed Map. build-transfer-manifest reads
-    # the copy plan and writes one JSONL line per (recipient x object) — S3-bound work whose
-    # memory is about holding the expanded list, not about parallelism.
-    # collect-transfer-results reads the Map Run's export.
-    #
-    # Both are sized above 60s/512MB, because these two ARE the binding constraint on
-    # SHARE_MAX_TRANSFER_ITEMS and the cap moved 1,000 -> 20,000. They handle the same volume in
-    # opposite directions: at S3's worst-case 1024-byte keys a transfer item is ~2.3 KB, so
-    # 20,000 items is a ~46 MB manifest to build and serialise, and the Map Run export carries
-    # every batch's input back again. Parsing that at 512 MB is where it would have died first.
-    # The memory is also the CPU dial — a 2048 MB function gets ~4x the CPU of a 512 MB one, and
-    # this is JSON work, so it buys the timeout as much as the headroom.
+    # THESE TWO ARE THE BINDING CONSTRAINT ON SHARE_MAX_TRANSFER_ITEMS, handling the same
+    # volume in opposite directions — a ~46 MB manifest out, and the Map Run export back.
+    # Parsing that at 512 MB is where it would have died first, and the memory is also the
+    # CPU dial. README.md.
     "build-transfer-manifest"  = { handler = "table_share_build_transfer_manifest.handler", timeout = 300, memory = 2048 }
     "collect-transfer-results" = { handler = "table_share_collect_transfer_results.handler", timeout = 300, memory = 2048 }
-    # The notification of last resort: one decode + one SQS send, reached only
-    # on a whole-request failure path.
-    #
-    # 60s rather than 15s, because of the SECOND door (the EventBridge TIMED_OUT rule
-    # in stepfunction.tf), and that path does strictly more work than the ASL one: a cold-start
-    # JWKS fetch over the network plus a JWT verify before the send, because the sender has to
-    # come from the token in the timed-out execution's own input. 15s was sized for a decode
-    # and a send. The DLQ drain, which does the same verify, is at 60s for the same reason.
+    # 60s rather than 15s, because the EventBridge TIMED_OUT door does strictly more work
+    # than the ASL one: a cold-start JWKS fetch and a JWT verify before the send. README.md.
     "notify-failure" = { handler = "ts_notify_failure.handler", timeout = 60, memory = 256 }
   }
 
-  # Per-verb extra env, merged over the common env (lambda.tf). RESERVED FOR
-  # OPTIONAL action env only: everything tscommon/config.py _require()s must live
-  # in the COMMON env instead — the shared layer's import-time fail-fast runs for
-  # every verb, so a verb missing any required var crashes at cold start.
+  # RESERVED FOR OPTIONAL action env ONLY — anything tscommon/config.py requires belongs in
+  # the COMMON env in lambda.tf.
   table_share_verb_env = {}
 
   # ARNs for the execution role's grants (constructed, known at plan).
@@ -104,69 +71,34 @@ locals {
     suffix => "/aws/lambda/${name}"
   }
 
-  # The shared execution role writes to EVERY verb's log group, so its policy scopes
-  # logs to the /aws/lambda/{project}-{env}-table-share-* wildcard (one statement
-  # covering every function log group) rather than a per-verb ARN.
+  # The shared role writes to EVERY verb's log group, so one wildcard statement covers them.
   table_share_log_group_wildcard_arn = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.project_name}-${var.environment}-table-share-*"
 
-  # table-share-common (tscommon) Lambda layer — CI builds + publishes it
-  # (deploy-lambdas.yml), exactly like table-builder-common: the layer artifact is
-  # CI-owned, and every verb attaches it via update-function-configuration (TF
-  # ignores the `layers` attribute). Named to match the deploy-role *-table-share-*
-  # layer wildcard (modules/base). Referenced here for documentation/parity only.
+  # CI builds, publishes and attaches this. Named here for the deploy-role wildcard's
+  # benefit, and referenced for parity only.
   tscommon_layer_name = "${var.project_name}-${var.environment}-table-share-common"
 
-  # The Distributed Map's two sizing numbers. Terraform cannot import Python,
-  # so these are literals fed into the ASL — and cpcommon/transfer/config.py holds the same two
-  # for the batch verb. A test asserts the pair still match, because two homes for one number is
-  # how a batch quietly grows past the limit it was sized against.
-  #
-  # The batch equals COPY_CONCURRENCY (8) on purpose. copy_batch gives one WHOLE object
-  # to each worker and copy_one part-copies serially, so a batch costs ceil(items/workers) rounds
-  # of its slowest object — a makespan, not bytes over a bandwidth. At 8 that ceiling is one
-  # round, so a batch costs one object's time. At 10 it was two rounds and 859s against a 900s
-  # Lambda timeout.
+  # THE BATCH EQUALS COPY_CONCURRENCY (8) ON PURPOSE. copy_batch gives one WHOLE object to
+  # each worker, so a batch costs ceil(items/workers) rounds of its SLOWEST object — a
+  # MAKESPAN, not bytes over a bandwidth. At 10 it was two rounds and 859s against a 900s
+  # timeout. cpcommon/transfer/config.py holds the same pair and a test matches them.
   transfer_max_items_per_batch = 8
   transfer_map_max_concurrency = 20
 
-  # A TOP-LEVEL ASL field, not a resource argument and not a task field —
-  # the same distinction the table-builder's lock settled. Without it a Standard
-  # workflow's ceiling is Step Functions' own default of ONE YEAR, so a wedged run simply
-  # never ends.
+  # A TOP-LEVEL ASL field, not a resource argument. Without it a Standard workflow's ceiling
+  # is ONE YEAR, so a wedged run never ends.
   #
-  # It does NOT on its own reach NotifyFailure, and that trap is worth stating here because
-  # the state sits right there in the machine looking like it would. AWS is explicit that
-  # catchers cover Task, Parallel and Map states but NOT top-level execution failures: this
-  # timeout terminates the run outright, so no state runs and no Catch fires. The sender is
-  # told by the EventBridge TIMED_OUT rule in stepfunction.tf, which is the documented remedy
-  # and is what actually discharges "it just never came back" guarantee here.
+  # IT DOES NOT ON ITS OWN REACH NotifyFailure — catchers do not cover top-level execution
+  # failures, so the sender is told by the EventBridge TIMED_OUT rule in stepfunction.tf.
   #
-  # 3 hours, and the arithmetic is SHARE_MAX_TRANSFER_BYTES (3 TiB) — NOT SHARE_MAX_TOTAL_BYTES.
-  # That distinction is the whole of it and two review rounds missed it: the manifest carries one
-  # item per (recipient, object) pair and every item is a full copy, so the Map moves the source
-  # once PER RECIPIENT. Sized against the 1 TiB source cap alone, this number was short by a
-  # factor of SHARE_MAX_RECIPIENTS — 50 TiB needs 3.8 hours even at the conservative rate.
-  #
-  # The denominator is a MAKESPAN, not an aggregate bandwidth, and that correction cost a fourth
-  # review round. 160 concurrent copies (transfer_map_max_concurrency x COPY_CONCURRENCY) is the
-  # rate only when every batch holds eight comparable objects; copy_batch gives one whole object
-  # to one worker and copy_one part-copies serially, so a batch dominated by one large object
-  # runs at ONE stream while seven idle. That is an ordinary mixed-size Parquet table, not a
-  # corner. The pessimistic rate is therefore transfer_map_max_concurrency x
-  # CONSERVATIVE_STREAM_BYTES_PER_SECOND = 500 MB/s, under which SHARE_MAX_TRANSFER_BYTES (3 TiB)
-  # is ~6,600s. Add the finish Map's ceil(SHARE_MAX_RECIPIENTS / MaxConcurrency 5) x create-table
-  # 300s = 3,000s and ~720s of serial verbs and the worst run is ~10,300s, inside this ceiling.
-  # A test computes all of it: the hard-coded floor that stood here first, and then the aggregate
-  # reading that replaced it, each hid a mismatch for a full round.
-  #
-  # It is deliberately not longer. The timeout is how fast a wedged share becomes a
-  # notification, so the margin is bought against the sender's silence, not for free.
+  # The arithmetic is SHARE_MAX_TRANSFER_BYTES, NOT SHARE_MAX_TOTAL_BYTES (the Map moves the
+  # source once PER RECIPIENT), and the denominator is a MAKESPAN, not an aggregate
+  # bandwidth. Each reading cost a review round. A TEST COMPUTES ALL OF IT. README.md.
   state_machine_timeout_seconds = 10800
 
-  # The Distributed Map's OWN permissions belong to the STATE MACHINE role: it
-  # is the state machine that calls StartExecution for each child and that reads the ItemReader
-  # object and writes the ResultWriter export. Granting these to the Lambda execution role
-  # renders, applies and unit-tests green, then fails on the first real share with AccessDenied.
+  # ⚠ The Distributed Map's OWN permissions belong to the STATE MACHINE role. Granting them
+  # to the Lambda execution role renders, applies and unit-tests green, then fails on the
+  # first real share with AccessDenied. README.md.
   child_execution_arn_wildcard = "arn:aws:states:${var.aws_region}:${var.account_id}:execution:${local.state_machine_name}:*"
 
   sfn_log_group_name = "/aws/vendedlogs/states/${local.state_machine_name}"

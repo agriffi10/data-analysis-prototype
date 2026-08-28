@@ -1,21 +1,9 @@
 # ── file-send module variables ────────────────────────────────────
-# Bounded-context module for the "send files to another person or space" control
-# plane: a DEDICATED FIFO SQS → EventBridge Pipe → Step Function pipeline running
-# single-task verb Lambdas on ONE shared execution role. Mirrors the table-share
-# control-plane PATTERN (not its resources); decision record: docs/architecture.md
-# (Control Planes -> Send Files).
+# ITS OWN PLANE, NOT A MODE OF TABLE SHARE: the two share an ALGORITHM (cpcommon.transfer) and
+# nothing else, and folding them would put one queue and one DLQ under two unrelated features.
 #
-# ITS OWN PLANE, NOT A MODE OF TABLE SHARE. The two features share an ALGORITHM
-# (cpcommon.transfer) and nothing else — different request contract,
-# different authorization question, different failure vocabulary. Folding them
-# together would put one queue and one DLQ under two unrelated user features, and a
-# malformed send would dead-letter someone's table share.
-#
-# Is FOUNDATION + THE FRONT DOOR: plumbing, the request contract and
-# validate-authorize. Nothing is listed, planned or copied. Cross-module
-# ARNs are CONSTRUCTED STRINGS (passed from root locals), never another module's
-# output, so they are known at plan time (architecture.md "unknown ARN in list" trap)
-# and this module plans standalone.
+# Cross-module ARNs are CONSTRUCTED STRINGS from root locals, so they are known at plan time
+# and this module plans standalone. README.md.
 
 variable "project_name" {
   description = "Short name used as a prefix for AWS resource names (e.g. dat)."

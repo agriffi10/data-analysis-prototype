@@ -1,22 +1,8 @@
-# ── Control-plane Lambdas (skeleton) ────────────────────────────────
-# Single-task verb Lambdas — validate-authorize / check-table-absent /
-# load-table-definition / inspect-source / infer-schema / diff-schema / execute-ddl —
-# orchestrated by
-# the Step Function (stepfunction.tf) as two branches over one shared spine. All share
-# ONE execution role (iam.tf;
-# user decision, mirroring shared-spaces) and each gets its task's real timeout/memory
-# (locals.tf; a small validator ≠ the polars infer step, lambdas.md §4).
-#
-# Code-ownership split (architecture.md): Terraform owns the function
-# INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python code
-# (lambdas/table-builder-<suffix>/) AND publishes + attaches the layers: the shared
-# cpcommon layer + the tbcommon domain layer on all of them, plus the polars layer on
-# infer-schema. `ignore_changes` keeps `tofu apply` from reverting CI's code
-# OR layers.
+# ── The verb Lambdas ─────────────────────────────────────────────────────────
+# Entirely for_each over local.table_builder_functions. CI owns the code and every layer:
+# cpcommon + tbcommon on all of them, plus polars on infer-schema. README.md.
 
-# One placeholder package per function so each is valid at create time. CI replaces
-# the code (and attaches the polars layer to infer-schema); these stubs only ever run
-# pre-deploy.
+# One placeholder per function so each is valid at create time.
 data "archive_file" "placeholder" {
   for_each = local.table_builder_functions
 
@@ -29,8 +15,7 @@ data "archive_file" "placeholder" {
   }
 }
 
-# Explicit log group per function so retention is managed (14 days; matches the other
-# singleton Lambdas). Lambda would otherwise create one with infinite retention on first invoke.
+# Explicit so retention is managed (Lambda would otherwise default to infinite).
 resource "aws_cloudwatch_log_group" "functions" {
   for_each = local.table_builder_functions
 
@@ -48,13 +33,10 @@ resource "aws_lambda_function" "functions" {
   timeout       = each.value.timeout
   memory_size   = each.value.memory
 
-  # EVERY variable tbcommon/config.py _require()s at import must be COMMON to all
-  # verbs: the shared layer's config runs its fail-fast on
-  # any `from tbcommon import …` chain (every verb imports notify → config), so a
-  # verb missing ANY required var crashes at cold start — the 2026-07-05 production
-  # break (check-table-absent: RuntimeError COGNITO_USER_POOL_ID unset). Per-verb
-  # env (local.table_builder_verb_env) is reserved for OPTIONAL action env only.
-  # NOTIFICATIONS_QUEUE_URL stays optional (emit is a no-op when unset).
+  # ⚠ EVERY variable tbcommon/config.py requires must be COMMON to all verbs — the layer's
+  # config runs on any import chain, so a verb missing one fails. This caused the 2026-07-05
+  # production break (check-table-absent: COGNITO_USER_POOL_ID unset at cold start).
+  # local.table_builder_verb_env is for OPTIONAL action env only.
   environment {
     variables = merge(
       {
@@ -64,8 +46,7 @@ resource "aws_lambda_function" "functions" {
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
         # Deliberately NOT mirrored by a config._require — see variables.tf.
         LOGS_QUEUE_URL = var.logs_queue_url
-        # `env` shipped empty on every record. Same source of truth as the
-        # feature-flag document's `environments` keys (`var.environment`, default "prod").
+        # Same source of truth as the feature-flag document's `environments` keys.
         ENV_NAME              = var.environment
         COGNITO_USER_POOL_ID  = var.user_pool_id
         COGNITO_APP_CLIENT_ID = var.app_client_id
@@ -75,13 +56,12 @@ resource "aws_lambda_function" "functions" {
     )
   }
 
-  # Bootstrap with the placeholder; CI replaces code + (infer-schema) attaches the
-  # polars layer.
+  # Bootstrap with the placeholder; CI replaces the code and attaches the layers.
   filename         = data.archive_file.placeholder[each.key].output_path
   source_code_hash = data.archive_file.placeholder[each.key].output_base64sha256
 
   lifecycle {
-    # CI owns the code AND the layer attachment — never revert them on apply.
+    # CI owns the code AND the layer attachment — never revert either on apply.
     ignore_changes = [filename, source_code_hash, layers]
   }
 

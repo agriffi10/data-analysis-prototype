@@ -1,17 +1,8 @@
-# ── Control-plane Lambdas (skeleton) ────────────────────────────────
-# Single-task verb Lambdas — validate-authorize / inspect-source /
-# check-target-absent / build-transfer-manifest / copy-objects /
-# collect-transfer-results / create-table / notify-failure — orchestrated by the
-# Step Function (stepfunction.tf). All share ONE execution role (iam.tf; user
-# decision, docs/architecture.md Control Planes -> Table Share) and each gets its task's real
-# timeout/memory (locals.tf; a small validator ≠ a long parallel S3 copy,
-# lambdas.md §4).
-#
-# Code-ownership split (architecture.md): Terraform owns the function
-# INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python
-# code (lambdas/table-share-<suffix>/) AND publishes + attaches the layers to all
-# five: the tscommon domain layer PLUS the shared cpcommon layer.
-# `ignore_changes` keeps `tofu apply` from reverting CI's code OR layers.
+# ── The verb Lambdas ─────────────────────────────────────────────────────────
+# Entirely for_each over local.table_share_functions. CI owns the code and both layers
+# (cpcommon + tscommon). ../../info/control-plane-shape.md.
+
+# One placeholder per function so each is valid at create time.
 
 # One placeholder package per function so each is valid at create time. CI replaces
 # the code (and attaches the tscommon layer); these stubs only ever run pre-deploy.
@@ -27,9 +18,7 @@ data "archive_file" "placeholder" {
   }
 }
 
-# Explicit log group per function so retention is managed (14 days; matches the
-# other control planes). Lambda would otherwise create one with infinite retention
-# on first invoke.
+# Explicit so retention is managed (Lambda would otherwise default to infinite).
 resource "aws_cloudwatch_log_group" "functions" {
   for_each = local.table_share_functions
 
@@ -47,10 +36,9 @@ resource "aws_lambda_function" "functions" {
   timeout       = each.value.timeout
   memory_size   = each.value.memory
 
-  # EVERY variable tscommon/config.py _require()s at import must be COMMON to all
-  # verbs: the shared layer's fail-fast runs on any `from tscommon import …`
-  # chain, so a verb missing ANY required var crashes at cold start. The per-verb
-  # map (locals.tf) is reserved for OPTIONAL action env only.
+  # ⚠ EVERY variable tscommon/config.py requires must be COMMON to all verbs — the layer's
+  # config runs on any import chain, so a verb missing one fails at cold start. The per-verb
+  # map is for OPTIONAL action env only.
   environment {
     variables = merge(
       {
@@ -64,15 +52,14 @@ resource "aws_lambda_function" "functions" {
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
         # Deliberately NOT mirrored by a config._require — see variables.tf.
         LOGS_QUEUE_URL = var.logs_queue_url
-        # `env` shipped empty on every record. Same source of truth as the
-        # feature-flag document's `environments` keys (`var.environment`, default "prod").
+        # Same source of truth as the feature-flag document's `environments` keys.
         ENV_NAME = var.environment
       },
       lookup(local.table_share_verb_env, each.key, {}),
     )
   }
 
-  # Bootstrap with the placeholder; CI replaces code + attaches the tscommon layer.
+  # Bootstrap with the placeholder; CI replaces the code and attaches the layers.
   filename         = data.archive_file.placeholder[each.key].output_path
   source_code_hash = data.archive_file.placeholder[each.key].output_base64sha256
 

@@ -1,16 +1,6 @@
 # ── table-share module variables ──────────────────────────────────
-# Bounded-context module for the "share a table across databases" control plane: a
-# DEDICATED FIFO SQS → EventBridge Pipe → Step Function pipeline that orchestrates
-# five single-task verb Lambdas (validate-authorize → inspect-source → Map(recipients):
-# check-target-absent → copy-objects → create-table) on ONE shared execution role.
-# Mirrors the table-builder control plane PATTERN (not its resources); decision
-# record: docs/architecture.md (Control Planes -> Table Share).
-#
-# FOUNDATION ONLY — plumbing + Lambda stubs, no request contract and no
-# action semantics (those land with the verbs). Cross-module ARNs are CONSTRUCTED
-# STRINGS (passed from root locals), never another module's output, so they are known
-# at plan time (architecture.md "unknown ARN in list" trap) and this module plans
-# standalone.
+# Cross-module ARNs are CONSTRUCTED STRINGS from root locals, never another module's output,
+# so they are known at plan time and this module plans standalone. README.md.
 
 variable "project_name" {
   description = "Short name used as a prefix for AWS resource names (e.g. dat)."
