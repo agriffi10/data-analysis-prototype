@@ -1,15 +1,9 @@
 # ── Cognito User Pool ─────────────────────────────────────────────────────────
-# Standalone User Pool for native username/password users (no external IdP).
-# Sign-in is by username; email is a required, verified standard attribute.
+# Standalone, native username/password, no external IdP.
 #
-# Username constraint: the username becomes the user's S3 prefix, the value of the
-# `username` IAM principal tag stamped by the Identity Pool, AND the
-# user's Glue database name. An IAM RoleSessionName / tag value allows at
-# most 64 chars from the set `a-z A-Z 0-9 = , . @ - _` (see docs/architecture.md).
-# Signup additionally enforces `^[a-z][a-z0-9_]{2,62}$` via the pre-signup
-# Lambda (a catalog-safe identifier, so the Glue DB name is
-# legal). Case-insensitivity (below) is immutable after pool creation, so `Alice` and
-# `alice` must never become two distinct users / S3 prefixes.
+# ONE STRING IS FOUR THINGS: the username is the S3 prefix, the `username` principal tag and
+# the Glue database name. Case-insensitivity below is IMMUTABLE after pool creation, so
+# `Alice` and `alice` must never become two users. README.md.
 
 resource "aws_cognito_user_pool" "portal" {
   name = "${var.project_name}-${var.environment}-user-pool"
@@ -47,15 +41,11 @@ resource "aws_cognito_user_pool" "portal" {
     mutable             = true
   }
 
-  # Shared-space membership slots: custom:shared_space_1..N (mutable
-  # strings, not required). Each holds the name of a shared space the user belongs
-  # to, or is unset. The Identity Pool maps each to a principal tag shared_space_k
-  # (identity-pool.tf) and the portal-role policy scopes S3/Glue to
-  # ${aws:PrincipalTag/shared_space_k}; an unset slot stamps no tag → implicit deny.
-  # Only the privileged orchestrator role writes these (AdminUpdateUserAttributes).
-  # ADDING custom attributes to an existing pool is an in-place AddCustomAttributes
-  # (NOT a pool replacement); they cannot later be modified/removed, so the slot
-  # count is effectively permanent — raise max_shared_memberships, never lower it.
+  # Shared-space membership slots. An unset slot stamps no tag, so that slot's statement
+  # matches nothing — implicit deny. Only the orchestrator role writes these.
+  #
+  # CUSTOM ATTRIBUTES CAN NEVER BE MODIFIED OR REMOVED once added, so the slot count is
+  # effectively permanent: RAISE max_shared_memberships, NEVER LOWER IT.
   dynamic "schema" {
     for_each = range(1, var.max_shared_memberships + 1)
     content {
@@ -71,8 +61,7 @@ resource "aws_cognito_user_pool" "portal" {
     }
   }
 
-  # Tightened for bot/credential-stuffing resistance. All flags
-  # were already on; temporary_password_validity_days is added to complete the block.
+  # Tightened for bot/credential-stuffing resistance.
   password_policy {
     minimum_length                   = 12
     require_lowercase                = true
@@ -95,8 +84,7 @@ resource "aws_cognito_user_pool" "portal" {
     }
   }
 
-  # Default Cognito email sender (50/day) is sufficient for MVP acceptance testing;
-  # SES integration is deferred until real user volume exists.
+  # Cognito's default sender is 50/day. SES is deferred until real user volume exists.
   email_configuration {
     email_sending_account = "COGNITO_DEFAULT"
   }
@@ -105,23 +93,16 @@ resource "aws_cognito_user_pool" "portal" {
   deletion_protection = "ACTIVE"
 }
 
-# `data "aws_region" "current"` used to live here and was REMOVED deliberately — see the
-# comment on `aws_cognito_identity_pool_provider_principal_tag.username` in identity-pool.tf.
-# Short version: this module carries a module-level `depends_on = [module.base]`, which defers
-# EVERY data source in it to apply time whenever base has a pending change, so the region came
-# back "(known after apply)" and forced a replace on the principal-tag mapping. `var.aws_region`
-# is the same value (providers.tf configures the provider from it) and is known at plan time.
+# ⚠ `data "aws_region" "current"` was REMOVED from this module and MUST NOT COME BACK. A
+# module-level depends_on defers every data source to apply time, which forced a replace on the
+# principal-tag mapping on every infra merge. README.md.
 
 locals {
-  # Callback/logout URLs always include local dev; each deployed origin is added only
-  # when provided. BOTH deployed origins are listed, and that is the point: the container
-  # is where ported features get proved and CloudFront is the rollback, so an app client
-  # naming one of them makes the other an origin that cannot complete a sign-in. Removing
-  # either is the cutover spec's work — doing it here deletes the rollback.
+  # BOTH deployed origins, deliberately — naming one makes the other unable to complete a
+  # sign-in, and removing either here deletes the rollback.
   #
-  # distinct(), because the cutover re-points app_url AT the container origin before it
-  # removes the entry: between those two steps the same URL appears twice, which Cognito
-  # rejects outright rather than deduplicating.
+  # distinct() is load-bearing: the cutover re-points app_url AT the container origin before
+  # removing the entry, and Cognito REJECTS a duplicate rather than deduplicating.
   callback_urls = distinct(compact(["http://localhost:5173", var.app_url, var.spa_origin]))
 
   # Hosted UI domain prefix must be globally unique across all AWS accounts.
@@ -129,9 +110,7 @@ locals {
 }
 
 # ── User Pool Client (SPA) ────────────────────────────────────────────────────
-# Public client for the SPA via the Hosted UI authorization-code flow. SPAs cannot
-# keep a secret, so none is generated. Token validity is left at Cognito defaults
-# (1h access/id, 30d refresh).
+# Public client, authorization-code flow. SPAs cannot keep a secret, so none is generated.
 
 resource "aws_cognito_user_pool_client" "spa" {
   name         = "${var.project_name}-${var.environment}-spa-client"
@@ -148,9 +127,8 @@ resource "aws_cognito_user_pool_client" "spa" {
 
   supported_identity_providers = ["COGNITO"]
 
-  # Return an identical generic error for "user not found" and "wrong password"
-  # so sign-in attempts can't enumerate registered accounts.
-  # This is a free Cognito feature and does NOT require Advanced Security Features.
+  # Identical generic error for "user not found" and "wrong password", so sign-in cannot
+  # enumerate accounts. Free — it does NOT require Advanced Security Features.
   prevent_user_existence_errors = "ENABLED"
 
   explicit_auth_flows = [
@@ -160,29 +138,15 @@ resource "aws_cognito_user_pool_client" "spa" {
 }
 
 # ── Hosted UI Domain (Managed Login v2) ───────────────────────────────────────
-# Cognito-managed domain hosting the login/signup pages. Full URL is
-# <prefix>.auth.<region>.amazoncognito.com (exported from outputs.tf).
-#
-# managed_login_version = 2 serves the modern **Managed Login** UI instead of the
-# classic Hosted UI. The classic UI did not reliably complete the OAuth redirect
-# after a *self-service signup* email-code confirmation — the user landed
-# confirmed-but-not-signed-in with no redirect back to the app. Managed Login
-# carries the signup → confirm → auto-sign-in → redirect leg through to the
-# callback, so account creation finishes signed-in (Amplify exchanges the
-# returning code; the SPA then routes to /files). Requires a managed-login
-# branding for the client (below).
+# Version 2, NOT the classic Hosted UI: the classic one did not reliably complete the OAuth
+# redirect after a self-service signup confirmation, leaving the user confirmed-but-not-
+# signed-in. README.md.
 resource "aws_cognito_user_pool_domain" "portal" {
   domain                = local.domain_prefix
   user_pool_id          = aws_cognito_user_pool.portal.id
   managed_login_version = 2
 }
 
-# Managed Login also requires a branding style per app client, or the v2 pages
-# fail to render. The native `aws_cognito_managed_login_branding` resource only
-# exists in the AWS provider's 6.x line; this repo is pinned to `~> 5.0` (which
-# DOES support `managed_login_version` above but NOT the branding resource).
-# Rather than take a risky provider major-version bump for one resource, the
-# Cognito-provided default branding is ensured imperatively in CI after apply
-# (deploy-infra.yml) — the same "Terraform owns infra, CI owns imperative
-# deploy steps" split used for Lambda code. Revisit (move to the native
-# resource) if/when the provider is upgraded to 6.x.
+# Managed Login ALSO requires a per-client branding style or the v2 pages fail to render.
+# The native resource is provider 6.x only and this repo is pinned to ~> 5.0, so CI ensures
+# the default branding after apply (deploy-infra.yml). README.md.

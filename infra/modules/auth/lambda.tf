@@ -1,22 +1,14 @@
 # ── Pre-Signup Validation Lambda ──────────────────────────────────
-# A Cognito pre-signup trigger that enforces the username rule server-side at
-# registration (^[a-z][a-z0-9_]{2,62}$ — catalog-safe). The username
-# becomes the user's S3 prefix, `username` principal tag, and Glue database name, so
-# an unsafe username must never be created.
+# Enforces ^[a-z][a-z0-9_]{2,62}$ server-side. The username becomes an S3 prefix, a principal
+# tag and a Glue database name, so an unsafe one must never be created.
 #
-# Code ownership split: Terraform owns the function INFRASTRUCTURE (role, runtime
-# config, log group, pool trigger) and bootstraps it with a placeholder zip.
-# GitHub Actions (.github/workflows/deploy-lambdas.yml) owns the actual CODE —
-# it builds the Python package from /lambdas/pre-signup, uploads it to the lambda
-# artifacts bucket, and calls update-function-code. `ignore_changes` on the code
-# attributes keeps `tofu apply` from reverting CI's deployed code.
+# Terraform owns the INFRASTRUCTURE + a placeholder zip; CI owns the code. README.md.
 
 locals {
   pre_signup_function_name = "${var.project_name}-${var.environment}-pre-signup"
 }
 
-# Placeholder package so the function is valid at create time. The real code is
-# deployed by CI; this stub only ever runs if a deploy has not happened yet.
+# Placeholder so the function is valid at create time; CI deploys the real code.
 data "archive_file" "pre_signup_placeholder" {
   type        = "zip"
   output_path = "${path.module}/build/pre-signup-placeholder.zip"
@@ -27,22 +19,15 @@ data "archive_file" "pre_signup_placeholder" {
   }
 }
 
-# IAM propagation guard: this spec grants the deploy role lambda/iam/logs perms
-# (modules/base) in the same apply that then creates these resources. The
-# module-level depends_on (auth -> base) orders the calls so the deploy policy is
-# written first, but IAM is eventually consistent; this fresh time_sleep (created
-# this apply) absorbs the propagation window — same rationale as the identity-pool
-# guard. EVERY resource that needs a freshly-granted permission must depend on it
-# (the exec role -> iam:CreateRole, the log group -> logs:CreateLogGroup) — not
-# just the function — or those calls race the propagation and hit AccessDenied.
+# IAM propagation guard. EVERY resource needing a freshly-granted permission must depend on
+# it — the exec role for iam:CreateRole, the log group for logs:CreateLogGroup — NOT JUST THE
+# FUNCTION, or those calls race the propagation and hit AccessDenied.
 resource "time_sleep" "wait_for_lambda_perms" {
   create_duration = "60s"
 }
 
 # ── Execution role ────────────────────────────────────────────────────────────
-# Logs only — the function makes no AWS API calls. Trust + permissions are JSON
-# template files under policies/, rendered with templatefile() (same convention
-# as the base and data modules).
+# Logs only — the function makes no AWS API call.
 resource "aws_iam_role" "pre_signup" {
   name               = "${local.pre_signup_function_name}-role"
   assume_role_policy = templatefile("${path.module}/policies/pre-signup-trust.json.tftpl", {})
@@ -60,8 +45,7 @@ resource "aws_iam_role_policy" "pre_signup_logs" {
   })
 }
 
-# Explicit log group so retention is managed (Lambda would otherwise create one
-# with infinite retention on first invoke). 14-day retention.
+# Explicit so retention is managed (Lambda would otherwise default to infinite).
 resource "aws_cloudwatch_log_group" "pre_signup" {
   name              = "/aws/lambda/${local.pre_signup_function_name}"
   retention_in_days = 14
@@ -79,30 +63,21 @@ resource "aws_lambda_function" "pre_signup" {
   filename         = data.archive_file.pre_signup_placeholder.output_path
   source_code_hash = data.archive_file.pre_signup_placeholder.output_base64sha256
 
-  # Optional BY CONSTRUCTION on the Lambda side — cpcommon.observability
-  # reads it with os.environ.get and never config._require — so a trigger deployed without
-  # it logs to stdout instead of failing at cold start. Set here so it is set in practice,
-  # and the trigger's narrative lands in logs/service=auth/ with post-confirmation's.
-  #
-  # NONE of the six variables cpcommon/config.py requires is set here, deliberately: this
-  # function imports only `observability`, which never reaches `config`. That
-  # config resolves on first ACCESS rather than at import, so the guard is no longer "does the
-  # import crash" but "does any branch read one" — test_layer_import_safety.py scans
-  # this function's whole source for a cpcommon import as well as running it.
+  # NONE of cpcommon.config's six required variables is set here, DELIBERATELY: this
+  # function imports only `observability`, which never reaches `config`. The guard is a
+  # source scan plus an import probe (test_layer_import_safety.py), not a crash. README.md.
   environment {
     variables = {
       LOGS_QUEUE_URL = var.logs_queue_url
-      # `env` shipped empty on every record. Same source of truth as the
-      # feature-flag document's `environments` keys (`var.environment`, default "prod").
+      # Same source of truth as the feature-flag document's `environments` keys.
       ENV_NAME = var.environment
     }
   }
 
   lifecycle {
-    # CI owns the code AND the cpcommon layer attachment — never revert either on apply.
-    # `layers` was missing here while the code already imported cpcommon, so an apply
-    # landing after a deploy would have stripped the layer straight back off and
-    # re-broken signup.
+    # CI owns the code AND the layer attachment. `layers` was once missing here while the
+    # code already imported cpcommon — an apply after a deploy stripped it off and re-broke
+    # signup.
     ignore_changes = [filename, source_code_hash, layers]
   }
 
@@ -113,8 +88,7 @@ resource "aws_lambda_function" "pre_signup" {
   ]
 }
 
-# Allow the User Pool to invoke the trigger. Cognito uses a resource-based
-# permission (not a passed role), scoped to this pool's ARN.
+# Cognito invokes through a resource-based permission, not a passed role.
 resource "aws_lambda_permission" "cognito_invoke" {
   statement_id  = "AllowCognitoInvoke"
   action        = "lambda:InvokeFunction"
@@ -124,14 +98,8 @@ resource "aws_lambda_permission" "cognito_invoke" {
 }
 
 # ── Post-Confirmation Provisioning Lambda ─────────────────────────
-# A Cognito post-confirmation trigger that, on sign-up confirmation, creates the
-# user's Glue database (named exactly as the username) and Lake Formation-grants the
-# shared portal role on it. Same code-ownership split as pre-signup: Terraform owns
-# the infrastructure + a placeholder; deploy-lambdas.yml owns the Python code.
-#
-# Unlike pre-signup (logs only), this function calls Glue + Lake Formation, so its
-# exec role carries those permissions (policies/post-confirmation-permissions.tftpl).
-# It also targets the shared portal role in the LF grant — passed in via env var.
+# Creates the user's Glue database (named exactly as the username) and LF-grants the portal
+# role on it. Unlike pre-signup, this one calls Glue and Lake Formation.
 
 locals {
   post_confirmation_function_name = "${var.project_name}-${var.environment}-post-confirmation"
@@ -147,9 +115,7 @@ data "archive_file" "post_confirmation_placeholder" {
   }
 }
 
-# Execution role. Trust is identical to pre-signup; the permission policy adds Glue
-# (create the user's database) + Lake Formation (grant the portal role) on top of
-# logs. Gated on the same propagation guard as everything else this apply creates.
+# Trust is identical to pre-signup; the permissions add Glue and Lake Formation.
 resource "aws_iam_role" "post_confirmation" {
   name               = "${local.post_confirmation_function_name}-role"
   assume_role_policy = templatefile("${path.module}/policies/post-confirmation-trust.json.tftpl", {})
@@ -186,22 +152,19 @@ resource "aws_lambda_function" "post_confirmation" {
   filename         = data.archive_file.post_confirmation_placeholder.output_path
   source_code_hash = data.archive_file.post_confirmation_placeholder.output_base64sha256
 
-  # The shared portal role the LF grant targets, plus the logs
-  # queue (see the pre-signup function for why no config variable
-  # joins them).
+  # The portal role the LF grant targets, plus the logs queue. No cpcommon.config variable
+  # joins them — see pre-signup.
   environment {
     variables = {
       PORTAL_ROLE_ARN = var.portal_role_arn
       LOGS_QUEUE_URL  = var.logs_queue_url
-      # `env` shipped empty on every record. Same source of truth as the
-      # feature-flag document's `environments` keys (`var.environment`, default "prod").
+      # Same source of truth as the feature-flag document's `environments` keys.
       ENV_NAME = var.environment
     }
   }
 
   lifecycle {
-    # CI owns the code AND the cpcommon layer attachment — never revert either on apply
-    # (see pre-signup).
+    # CI owns the code AND the layer attachment — see pre-signup.
     ignore_changes = [filename, source_code_hash, layers]
   }
 

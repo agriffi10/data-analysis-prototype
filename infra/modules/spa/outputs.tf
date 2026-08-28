@@ -1,7 +1,4 @@
-# No spa_origin or spa_host output. Both are built at ROOT from the domain variables and
-# passed DOWN into this module — re-exporting them here would make a module output the source
-# of a value other modules consume, which is the unknown-at-plan shape the root-locals rule
-# exists to avoid.
+# No spa_origin or spa_host output — both are built at ROOT and passed DOWN. README.md.
 
 output "ecr_repository_url" {
   description = "Registry the image is pushed to. The push is a later spec's; verification pushes the placeholder by hand."
