@@ -80,6 +80,8 @@ Don't add dependencies without noting them here first.
 npm run dev|build|test|lint -w apps/portal   # from repo root (or omit -w inside apps/portal/)
 npm run format|format:check -w apps/portal   # Prettier (prettier.config.js); format:check gates CI before tests
 tofu -chdir=infra validate|plan|apply        # init: tofu -chdir=infra init -backend-config=backend.conf
+python3 scripts/watch_ci.py --pr <n>         # watch CI for ONE sha; exit 0 only if settled AND green
+python3 scripts/watch_ci.py --branch main    # after a merge; --once for a single poll
 ```
 
 ## Specs
@@ -445,7 +447,7 @@ personal prefixes).
 
 **PRs & main:** before pushing, get the diff through the review gate above, and get the formatter, linter, unit tests **and `npm run build`**
 green locally — `build` (`tsc -b`) is the only one that typechecks, and `tsc -p tsconfig.json`
-silently checks nothing. CI now runs it too (#363). Watch every PR to completion and merge it as soon as CI is green — never open-and-abandon. `main` is always watched: after any merge confirm it went green, and if `main` fails, diagnose immediately and fix it with a new PR before anything else.
+silently checks nothing. CI now runs it too (#363). Watch every PR to completion and merge it as soon as CI is green — never open-and-abandon. `main` is always watched: after any merge confirm it went green, and if `main` fails, diagnose immediately and fix it with a new PR before anything else. **Watch with `scripts/watch_ci.py`, never a hand-rolled loop** — it keys on one sha and its exit condition is tested, which two hand-written watches were not.
 
 **Infra rule:** any spec that provisions new infra must expand the deploy role's IAM (`.tftpl` under `infra/modules/base/policies/`) as in-scope work — not an afterthought, and it lands in its own PR before the resources that need it. Adding a *new resource type* trips recurring IAM/propagation traps (self-grant timing, non-scopable actions, refresh deadlocks, unknown-ARN-in-list) — read `@infra/info/deploy-role-iam.md` first, and `@lambdas/info/deployment.md` before adding or rewiring a Lambda.
 

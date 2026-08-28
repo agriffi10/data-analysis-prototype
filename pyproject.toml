@@ -155,6 +155,9 @@ files = [
     # the precedent above. It is the one module whose failure mode is a silent fallback
     # type, so it is the last place that should be invisible to the type checker.
     "scripts/generate_api_contract.py",
+    # Joins on the same precedent, entering at zero. It decides whether a green is real, so
+    # a wrong Optional or a widened dict here reports a pass nobody checked.
+    "scripts/watch_ci.py",
 ]
 # The suites and the test doubles are not shipped and are not the contract.
 exclude = '(/test_[^/]*\.py|/conftest\.py|/fakes\.py)$'
