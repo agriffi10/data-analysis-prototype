@@ -682,11 +682,22 @@ one and leaving seven is worse than reversing it in none, because the seven read
 
 #### Acceptance Criteria:
 
-- [ ] `docs/architecture.md` is rewritten where it asserts the old premise: **§System Overview**
-      (line ~32, "no backend server. All AWS calls come from the browser"), the "deliberate, scoped
-      exceptions to *no backend*" framing at ~42 and ~128 (the control planes are no longer
-      exceptions — they sit beside an API), and **§Known Constraints** (~679, "No backend / API
-      proxy"). New sections describe the API, the container origin and the two credential planes.
+- [ ] `docs/architecture.md` is rewritten where it asserts the old premise. **Find each site by
+      grepping the quoted phrase, not by line number** — this file has already been restructured once
+      since this spec was written, and every line number it used to carry was wrong by between 7 and
+      369 lines. The four sites are **§System Overview** (`no backend server`, and `All AWS calls
+      come from the browser`), the framing that calls the control planes
+      `exceptions to "no backend"` in §System Overview, the one opening §Control Planes that calls
+      each plane `a deliberate, recorded reversal`, and **§Known Constraints**
+      (`No backend / API proxy`). Each backticked phrase is unique in the file and greps to exactly
+      one site. The control planes are no longer exceptions;
+      they sit beside an API. New sections describe the API, the container origin and the two
+      credential planes.
+      > **Note.** §The Browser Application already carries a *two network paths* subsection stating
+      > today's interim position — one route served by the API, the rest still browser-direct. That
+      > was written as an accurate description of a migration in flight, NOT as this reversal. It is
+      > the fifth site to rewrite here, and it is the one most likely to be missed, because unlike the
+      > other four it does not read as false today.
 - [ ] `docs/decisions.md`'s **No backend** entry gets an in-place superseded marker naming SPEC-202 —
       **not a deletion**. The reasoning is why the codebase looks the way it does and a later reader
       needs it. Same treatment for the SPEC-140 entry (its CloudFront distribution, its
@@ -702,8 +713,8 @@ one and leaving seven is worse than reversing it in none, because the seven read
       event with `effectiveDirective: "connect-src"` and `disposition: "enforce"`, plus a
       same-origin negative control. Left as it stands, the arc's one enforcement check has no
       runnable method and its failure reads as a broken snippet rather than as a finding.
-- [ ] `docs/process.md` (~302, "No backend (browser → AWS direct) except where a decision record
-      explicitly reverses it") is corrected.
+- [ ] `docs/process.md`'s ground rule is corrected — grep `**No backend** (browser → AWS direct)`,
+      which sits in §7; the line number this spec used to give is off by more than 160.
 - [ ] **CLAUDE.md sweep**, four places: the **Project Overview** paragraph ("**No backend** — the SPA
       calls AWS directly with scoped credentials"), the **No backend** Key Decision line, the **Out of
       Scope** line ("No backend/API layer"), and the Tech Stack table's `@aws-sdk/*` row (FR-006).
