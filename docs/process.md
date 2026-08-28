@@ -113,8 +113,15 @@ session you notice it (two hand-synced copies of one procedure is how numbering 
 **During the build — one spec, in phases**
 - Every file-changing task is done on its **own branch** and opened as a **PR** — automatically, without
   waiting to be asked. Never commit to `main` directly.
-- Before opening a PR, run the project's **formatter, linter, unit tests and `npm run build`** locally
-  and get them green. These quality gates are a pre-PR step — don't push red and leave CI to discover
+- **The diff review runs BEFORE the push, not before the merge.** Commit locally, run the gates, send
+  the diff to a fresh-context reviewer, fix or explicitly reject every finding — *then* push and open
+  the PR. Pushing first and reviewing after inverts the gate: the branch is already public, the fixes
+  arrive as follow-up commits, and the review reads as commentary on something that has already
+  happened rather than as the thing that decides whether it should. Rotating the frame (below) happens
+  in the same window. A push is the point of no return for the review, the same way the merge is the
+  point of no return for CI.
+- Before pushing, run the project's **formatter, linter, unit tests and `npm run build`** locally
+  and get them green. These quality gates are a pre-push step — don't push red and leave CI to discover
   it. **`build` (`tsc -b`) is the only one that typechecks** — the test run does not, and
   `tsc -p tsconfig.json` silently checks nothing (see §6).
 - Work the **reviewed** plan's phases in order. After each phase, **stop and summarize** what was
@@ -272,6 +279,11 @@ demanding a **computed** bound while supplying none of its inputs. Both were cau
 who had to pick, and neither by a reader.
 
 **Landing the spec — watch PRs and watch `main`**
+- **A branch reaches the remote already reviewed.** The gate above is the precondition for the push,
+  so a PR opens carrying work whose findings are already fixed or rejected in writing. If a review
+  round happens after a push anyway — a late finding, a rotated frame, a reviewer that ran long — its
+  fixes are committed and reviewed locally before the next push, rather than each one going up as it
+  lands.
 - **Every PR is watched to completion and merged as soon as CI is green** — don't open a PR and walk
   away. A spec's PR merges only on green.
 - **`main` is always watched.** After any merge, confirm `main`'s build went green. If `main` fails,
