@@ -1,9 +1,13 @@
-# Spec: Contextual Help — the Guide Panel, Deep Links & Per-Page Help Buttons
+# Spec: Contextual Help — the Guide Panel and Per-Feature Deep Links
 
 **ID:** SPEC-207
 **Status:** Draft
 **Last Updated:** 2026-08-28
-**Depends On:** SPEC-074 (Help & guides — the sections, the guide cards, the header link), SPEC-103 (Help responsive), SPEC-155 (`Drawer`, `IconButton`, and the Escape-by-depth registry), SPEC-162/163 (the feature-flag registry and the guide rows in `gatedSurfaces.ts`), SPEC-045 (the axe assertions)
+**Depends On:** SPEC-074 (Help & guides — the sections, the guide cards, the header link, the hash-addressed section), SPEC-103 (Help responsive), SPEC-155 (`Drawer`, `IconButton`, and the Escape-by-depth registry), SPEC-162/163 (`hiddenHelpIds` and the guide→flag registry in `gatedSurfaces.ts`), SPEC-045 (the axe assertions)
+
+**Interacts with:** SPEC-210 and SPEC-211 both add a header control. This spec adds **none** — it
+changes what the existing help control does — so the header's mobile width budget is unchanged by it.
+SPEC-211 FR-007 owns the measurement.
 
 ## Overview
 
@@ -12,10 +16,15 @@ created has to leave whatever they were doing, open `/help`, pick the section, f
 it, and navigate back — and whatever was half-filled-in on the page they left is a separate worry.
 The guides themselves are good; their distance from the work is the problem.
 
-This spec brings the guide to the page. Each primary page's header gains a help button that opens a
-panel over the current route, already showing that page's guides — the user never leaves. The same
-content also becomes addressable by URL, so `/help#query` and `/help#upload-files` open the full
-page at a named section or a named guide, which is what makes a guide linkable from anywhere.
+This spec brings the guide to the page. The help control already in the top bar stops being a
+navigation and becomes contextual: it opens a panel over the current route, already showing that
+page's guides. The user never leaves. From inside the panel one link goes on to the full Help page at
+the same section, so nothing becomes unreachable.
+
+`/help` already addresses a **section** by URL hash — `HelpPage.tsx` resolves `#query`, falls back to
+the first visible section on an unrecognised hash, and writes the hash when the sidebar selection
+changes. What it cannot address is a **guide**. This spec adds that half, so a single guide is
+linkable and the panel's link can land on the one the user was reading.
 
 **No new guide content is authored here.** `helpContent.ts` is the source of truth for what the
 portal can do and it is deliberately code-grounded; this spec changes where its existing sections
@@ -25,11 +34,10 @@ can be read, and nothing about what they say.
 
 ### In Scope
 
-- A `HelpPanel` drawer that renders one existing help section's guides over the current route.
-- A help button in the page header of each of the six primary pages, opening the panel at that
-  page's section.
+- A `HelpPanel` drawer rendering one help section's guides over the current route.
+- Repointing the existing header help control at the panel, resolved from the current route.
 - A registry mapping a route path to a help section id, with a test that walks every row.
-- URL deep links on the full Help page: `/help#<sectionId>` and `/help#<guideId>`.
+- Guide-level URL deep links on the full Help page: `/help#<guideId>`.
 - A link out of the panel into the full Help page at the same section.
 - Escape handling at the panel's own tree depth, focus trapping and restoration, and axe coverage.
 
@@ -40,9 +48,15 @@ can be read, and nothing about what they say.
   favour of the in-app panel; if a detachable window is ever wanted it is its own spec.
 - **New or rewritten guide content.** Every section, guide, step and callout is used exactly as
   `helpContent.ts` already carries it.
-- **Help buttons on dialogs, drawers, menus or toolbars.** Six page headers is the whole first pass.
-  A per-dialog pass is a separate spec, and this one must not quietly become it.
-- **Search across guides.** The Help page's existing navigation is unchanged.
+- **A second help affordance per page.** An earlier draft put a button in each of six page headers.
+  Three of those routes — `/files`, `/query`, `/explore` — have no page header at all (`PageLayout`
+  is used by Connections, Data quality, Notifications and Help only; `QueryPage` and `ExplorePage`
+  are eight-line wrappers and `FilesPage` renders a screen-reader-only `h1`), so that shape would
+  have required three new product-visible placements to be invented mid-build. One control that
+  already exists, in a bar that is on every route, is both smaller and better.
+- **Section-level hash routing.** It ships. This spec does not rebuild it.
+- **Help affordances on dialogs, drawers, menus or toolbars.**
+- **Search across guides.**
 - **Panel state in the URL.** The panel is component state; only the *full page* is addressable.
   Putting the panel in a search param would make every page's URL carry help state, and no producer
   in the app needs to link to an open panel. Reconsider when one does.
@@ -52,99 +66,109 @@ can be read, and nothing about what they say.
 
 ## Functional Requirements
 
-### FR-001: The guide panel renders an existing section over the current route
+### FR-001: The guide panel renders the section the user can actually see
 
 #### Description:
 
-A `HelpPanel` component renders a section from `HELP_SECTIONS` inside the shared `Drawer`, over
-whatever route is mounted. It renders the section's guides with the same `HelpGuideCard` the Help
-page uses — one component, so a card cannot look or behave differently in the two places.
+A `HelpPanel` component renders a section inside the shared `Drawer`, over whatever route is mounted.
+It renders the section's guides with the same `HelpGuideCard` the Help page uses.
+
+**It renders the flag-filtered content, not the raw content.** `gatedSurfaces.ts` declares itself the
+only home of the guide→flag mapping, and `HelpPage.tsx` already filters both sections and guides
+through `hiddenHelpIds` before rendering. A panel that read `HELP_SECTIONS` directly would show, with
+`asyncFileOperations` off, a guide that `/help` hides — which is exactly the fork that registry
+exists to prevent.
 
 #### Acceptance Criteria:
 
-- [ ] Opening the panel for section id `query` renders every guide in that section's `guides` array,
-      by title, and renders no guide belonging to another section.
+- [ ] The panel resolves its section through the same `hiddenHelpIds` filter `HelpPage` uses, from
+      the same registry, and the filtering is applied in **one** shared helper the two call — not
+      duplicated.
+- [ ] With `asyncFileOperations` off, the Files panel renders no guide whose id that flag hides, and
+      a test asserts the specific guide's absence by title.
+- [ ] With every flag on, the panel for section `query` renders every guide in that section and no
+      guide belonging to another section.
 - [ ] The panel renders `HelpGuideCard`; a test asserts the panel and the Help page produce the same
       card markup for the same guide.
 - [ ] The panel's accessible name is the section's `label`.
 - [ ] The route beneath the panel stays mounted: a test that types into a form field on the page,
       opens the panel and closes it finds the typed value still present.
-- [ ] The panel renders no network request of any kind — the content is bundled.
+- [ ] The panel issues no network request — the content is bundled.
 
-### FR-002: A help button in each primary page header
+### FR-002: The existing header control becomes contextual
 
 #### Description:
 
-Each of the six primary pages gains a help button in its header, opening the panel at that page's
-section.
+`HelpLink` in `components/Header.tsx` navigates to `/help` today. It becomes the control that opens
+the panel for the current route. No control is added to the header.
 
 #### Acceptance Criteria:
 
-- [ ] `/files`, `/query`, `/connections`, `/data-quality`, `/explore` and `/notifications` each
-      render exactly one control whose accessible name is `Help with this page`.
-- [ ] Clicking it opens the panel at the section the registry (FR-003) names for that path.
-- [ ] The button is an `IconButton` and carries a visible-on-focus ring, like every other header
-      control.
-- [ ] The button appears at every breakpoint — mobile included — since the mobile user is the one
-      least able to afford a navigation away.
-- [ ] The existing header `HelpLink` to `/help` is unchanged and still present.
+- [ ] On a route with a registry row, activating the control opens the panel at that row's section
+      and performs no navigation.
+- [ ] On a route with **no** registry row — `/help` itself, the landing page, an unmatched path — the
+      control navigates to `/help`, exactly as today. A test asserts both behaviours.
+- [ ] The control's accessible name changes with its behaviour, so a screen-reader user is not told
+      it is a link to a page when it opens a panel.
+- [ ] `AppNavDrawer`'s `/help` nav row is unchanged, so the full page keeps a direct route on mobile.
+- [ ] The control behaves identically at every breakpoint; the panel's presentation differs (FR-008),
+      the affordance does not.
+- [ ] The header gains no element. A test asserts the header's control count is unchanged from before
+      this spec — the one measurement that keeps this from quietly becoming the six-button design.
 
 ### FR-003: One registry maps a route to its help section
 
 #### Description:
 
-A single `HELP_SURFACES` registry maps a route path to a `HelpSectionId`. It is the only home of
-that mapping, for the same reason `gatedSurfaces.ts` is the only home of the guide→flag mapping: two
-copies fork, and the one nobody regenerates is the one that ships.
+A single `HELP_SURFACES` registry maps a route path to a `HelpSectionId`. This is a route→section
+mapping and is **not** the guide→flag mapping — that stays in `gatedSurfaces.ts`, which FR-001
+consumes rather than reproduces.
 
 #### Acceptance Criteria:
 
 - [ ] Every `sectionId` in the registry exists in `HELP_SECTIONS`; a test fails on one that does not.
-- [ ] A test renders every registered path, finds the help button, opens it, and asserts the panel's
+- [ ] A test renders every registered path, activates the help control, and asserts the panel's
       heading is that row's section label — so a row whose surface it cannot drive fails.
-- [ ] Adding a row for a path that renders no help button fails that test rather than passing
-      silently.
-- [ ] A path with no registry row renders no help button, and that is not an error.
+- [ ] A path with no registry row renders the fall-back navigation of FR-002, and that is not an
+      error.
+- [ ] The registry contains no flag information of any kind; a test asserts it imports nothing from
+      `features/feature-flags`.
 
 ### FR-004: The panel closes correctly and returns focus
 
-#### Description:
-
-The panel participates in the existing Escape-by-depth registry and the `Drawer`'s focus trap.
-
 #### Acceptance Criteria:
 
-- [ ] Escape closes the panel and returns focus to the help button that opened it.
+- [ ] Escape closes the panel and returns focus to the help control that opened it.
 - [ ] With a dialog open above the panel, Escape closes the dialog and leaves the panel open.
 - [ ] Tab from the last focusable element inside the panel returns to the first — focus does not
       escape to the page beneath.
 - [ ] `expectNoA11yViolations` runs against the **driven container** with the panel open, not a
       re-render of the closed state.
 
-### FR-005: `/help` deep-links to a section or a guide
+### FR-005: `/help` gains guide-level deep links
 
 #### Description:
 
-The Help page reads the URL hash on mount and on change. A hash matching a section id selects that
-section; a hash matching a guide id selects that guide's section, expands the guide and scrolls it
-into view. An unrecognised hash is ignored.
+Section hashes already work. `HelpPage.tsx`'s `sectionFromHash` resolves `#query` and falls back to
+the first visible section; the sidebar writes the hash on selection. This FR adds the guide half and
+nothing else.
 
 #### Acceptance Criteria:
 
-- [ ] `/help#query` mounts with the Query section selected.
 - [ ] `/help#upload-files` mounts with the Files section selected, the "Upload files" card expanded
       and scrolled into view.
-- [ ] `/help#nonsense` mounts on the default section with no error rendered and no console error.
-- [ ] Changing the hash while the page is mounted moves the selection without a remount.
-- [ ] Selecting a section by clicking the sidebar updates the hash, so the URL is copyable.
-- [ ] Guide ids are unique across all sections; a test asserts it, because the lookup is by id
-      alone and a duplicate would resolve to whichever section is walked first.
+- [ ] A hash matching a guide id resolves to that guide's section; a hash matching a **section** id
+      keeps behaving exactly as it does today, and a test pins the existing behaviour so this change
+      cannot regress it.
+- [ ] A hash matching a guide the current flags hide falls back to the section-level behaviour rather
+      than expanding a card that is not rendered.
+- [ ] Guide ids are unique across all sections; a test asserts it, because the lookup is by id alone
+      and a duplicate would resolve to whichever section is walked first.
+- [ ] A hash matching neither a section nor a guide continues to fall back to the first visible
+      section, unchanged.
+- [ ] Expanding a guide by hash does not write a new history entry.
 
 ### FR-006: The panel links out to the full page
-
-#### Description:
-
-The panel carries one link into the full Help page at the section it is showing.
 
 #### Acceptance Criteria:
 
@@ -152,30 +176,27 @@ The panel carries one link into the full Help page at the section it is showing.
 - [ ] Following it navigates to `/help` with that section selected, and the panel is closed on
       arrival.
 
-### FR-007: A gated page's help button is gated with the page, by construction
+### FR-007: A gated page's help is gated with the page, by construction
 
 #### Description:
 
-The help button lives inside the page it documents, so a page hidden by a feature flag takes its
-help button with it. Nothing declares that a second time.
+The control is contextual, so on a route the user cannot reach there is nothing to open. Nothing
+declares that a second time.
 
 #### Acceptance Criteria:
 
-- [ ] With the `dataExplorer` flag off, `/explore` renders its gated element and no control named
-      `Help with this page`.
-- [ ] No new row is added to `GATED_SURFACES` for a help button; a test asserts the registry gained
-      no `Help with this page` row, so the gating stays derived rather than declared.
+- [ ] With the `dataExplorer` flag off, `/explore` renders its gated element, and the help control on
+      that route falls back to navigating to `/help` rather than opening a panel for a feature the
+      user does not have.
+- [ ] No new row is added to `GATED_SURFACES`; a test asserts the registry gained no help-panel row,
+      so the gating stays derived rather than declared.
 
 ### FR-008: The panel is a full-height sheet on mobile
 
-#### Description:
-
-Below `tablet` the panel occupies the full viewport height and width rather than a side sheet.
-
 #### Acceptance Criteria:
 
-- [ ] At mobile width the panel's container carries the full-width classes and the page beneath does
-      not scroll horizontally.
+- [ ] At mobile width the panel occupies the full viewport height and width, and the page beneath
+      does not scroll horizontally.
 - [ ] At `tablet` and above the panel is a right-side sheet with the page still visible beside it.
 - [ ] The close control is reachable without scrolling at both widths.
 
@@ -189,8 +210,9 @@ Below `tablet` the panel occupies the full viewport height and width rather than
 import type {HelpSectionId} from './help.types';
 
 /**
- * One page that offers contextual help. `path` is the route the button renders on;
- * `sectionId` is the section the panel opens at.
+ * One route that offers contextual help. `path` is the route the header control resolves
+ * against; `sectionId` is the section the panel opens at. Route → section only: the
+ * guide→flag mapping stays in `gatedSurfaces.ts`.
  */
 export type HelpSurface = {
   path: string;
@@ -207,20 +229,25 @@ export const HELP_SURFACES: readonly HelpSurface[] = [
 ];
 ```
 
-> `/data-quality` maps to `files` because that is where its guides were authored — the data-quality
-> guides live in the Files section, and inventing a seventh section to hold them would be content
-> work this spec has excluded. If the guides are ever regrouped, this row moves with them.
+> `/data-quality` maps to `files` because that is where its guides were authored —
+> `check-data-quality` and `past-data-quality-checks` are in the Files section — and inventing a
+> seventh section to hold them would be content work this spec has excluded. If the guides are ever
+> regrouped, this row moves with them.
 
 ## API / Interface Contract
 
 ```ts
+// apps/portal/src/features/help/visibleSections.ts
+// EXTRACTED from HelpPage.tsx so the page and the panel filter identically (FR-001).
+export function visibleHelpSections(isEnabled: (key: FeatureFlagKey) => boolean): HelpSection[];
+
 // apps/portal/src/features/help/HelpPanel.tsx
 export function HelpPanel(props: {sectionId: HelpSectionId; open: boolean; onClose: () => void}): JSX.Element;
 
-// apps/portal/src/features/help/useHelpPanel.ts
-// Resolves the current route's section from HELP_SURFACES and owns open/closed state.
-export function useHelpPanel(): {
-  sectionId: HelpSectionId | null; // null on a route with no row — render no button
+// apps/portal/src/features/help/useContextualHelp.ts
+export function useContextualHelp(): {
+  /** null on a route with no row — the control navigates to /help instead. */
+  sectionId: HelpSectionId | null;
   open: boolean;
   openPanel: () => void;
   closePanel: () => void;
@@ -232,33 +259,35 @@ export function useHelpPanel(): {
 ```
 apps/portal/src/features/help/
 ├── HelpPanel.tsx
-├── HelpPanelButton.tsx
 ├── helpSurfaces.ts
-├── useHelpPanel.ts
-├── helpDeepLink.ts            # hash → {sectionId, guideId} resolution (pure)
+├── visibleSections.ts          # extracted from HelpPage, consumed by both
+├── useContextualHelp.ts
+├── helpDeepLink.ts             # hash → {sectionId, guideId} resolution (pure)
+├── HelpLink.tsx                # repointed at the panel
+├── HelpPage.tsx                # guide-level hash handling; filtering moved to visibleSections
 ├── helpPanel.test.tsx
-├── helpSurfaces.test.tsx      # the registry walk
+├── helpSurfaces.test.tsx
 ├── helpDeepLink.test.ts
-└── index.ts                   # gains the panel, the button and the registry
+└── index.ts
 ```
 
 ## Implementation Phases
 
-### Phase 1: The panel and the registry
+### Phase 1: Extract the filter, add the registry and the panel
 
-- Add `helpSurfaces.ts` and its walking test.
-- Build `HelpPanel` on the existing `Drawer`, rendering `HelpGuideCard`.
-- Add `useHelpPanel` and `HelpPanelButton`.
+- Extract `visibleHelpSections` out of `HelpPage.tsx` with its existing behaviour pinned first.
+- `helpSurfaces.ts` and its walking test, including the no-flag-import assertion.
+- `HelpPanel` on the existing `Drawer`, rendering the filtered section through `HelpGuideCard`.
 - Escape-depth registration, focus restoration, axe against the driven container.
 
-### Phase 2: The six page headers
+### Phase 2: Repoint the header control
 
-- Wire the button into each primary page's header.
-- Assert the gated case for `/explore` and the no-new-`GATED_SURFACES`-row guard.
+- `useContextualHelp` and the two behaviours of `HelpLink`; the accessible-name change.
+- The gated-route fall-back and the unchanged-control-count assertion.
 - Mobile sheet behaviour and the responsive assertions.
 
-### Phase 3: Deep links on the full Help page
+### Phase 3: Guide-level deep links
 
-- `helpDeepLink.ts` resolution and the guide-id uniqueness test.
-- Hash read on mount and on change; sidebar selection writes the hash.
+- Pin today's section-hash behaviour, then add `helpDeepLink.ts` and the guide-id uniqueness test.
+- Guide expansion and scroll on mount and on hash change; the hidden-guide fall-back.
 - The panel's `Open the full guide` link.

@@ -30,8 +30,9 @@ derives its trusted actor from a verified ID token, and an operator has no token
 ### In Scope
 
 - A `transfer_ownership` action on the existing shared-space queue and state machine.
-- Registry semantics: the `owner` field is rewritten under ETag compare-and-swap; membership,
-  status, `createdAt` and every other field are preserved.
+- Registry semantics: the `owner` field is rewritten under ETag compare-and-swap, and the
+  `acknowledged` list is corrected to match the new roles; membership, status, `createdAt` and every
+  other field are preserved.
 - The roster fan-out, so every member's cached `role` and `owner` are correct afterwards.
 - Notifications to the outgoing and incoming owner.
 - The browser surface: a "Transfer ownership" action in the owner's Manage members drawer, and its
@@ -41,6 +42,10 @@ derives its trusted actor from a verified ID token, and an operator has no token
 - The operator-origin boundary: a message with no ID token is accepted only when its SQS `SenderId`
   matches the reader's role.
 - Help content for the new capability.
+
+**On Arc B:** FR-006 adds a new *action* to `sharedSpaces.service.ts`'s existing enqueue path, not a
+new browser→AWS call site. SPEC-200 ports that path once and this action goes with it; nothing here
+adds a sixteenth direct call for it to find.
 
 ### Out of Scope
 
@@ -74,7 +79,11 @@ compare-and-swap on a freshly read record, in the manner `set_status` already us
 
 - [ ] After a successful transfer the registry record's `owner` is the new owner's username.
 - [ ] `members`, `status`, `createdAt`, `version` and `name` are byte-identical to their pre-transfer
-      values; a test compares the whole record minus `owner` and `lastRequestId`.
+      values; a test compares the whole record minus `owner`, `acknowledged`, `lastRequestId` and
+      `updatedAt`. The last two are excluded because `set_status` and `save_members` both stamp
+      `updatedAt`, and a `set_owner` written in their manner does too — a criterion forbidding it
+      would be unsatisfiable by the implementation it prescribes. `acknowledged` is excluded because
+      FR-003 requires it to change.
 - [ ] `lastRequestId` is the transferring request's id.
 - [ ] A concurrent write that changes the record between the read and the write causes a retry
       against the fresh record, not a lost update; a test drives a precondition failure and asserts
@@ -100,6 +109,10 @@ The authorization runs in `shared-space-validate`, from the verified actor, neve
       add time — and refusing would make a space untransferable for a reason the owner cannot fix.
 - [ ] A request against a space whose `status` is not `active` is refused; a space mid-provision or
       mid-delete does not change hands.
+- [ ] An **emptied** space — SPEC-205 leaves one `active` with an empty roster — is refused with a
+      refusal saying the space has been deleted, not "that person is not a member". Both are correct
+      outcomes; only one is a true sentence, and the empty-roster case is distinguishable before the
+      membership check runs.
 - [ ] Every refusal above is a **return value**, not a raised `TerminalError`, so the notification
       can name the space and the target.
 
@@ -107,7 +120,9 @@ The authorization runs in `shared-space-validate`, from the verified actor, neve
 
 #### Description:
 
-Transfer changes exactly one thing: who is the owner. The former owner keeps their membership.
+Transfer changes who the owner is, and the bookkeeping that is derived from it. The former owner
+keeps their membership; what has to move with the role is spelled out below rather than assumed,
+because the obvious "change one field" implementation ships a visible defect.
 
 #### Acceptance Criteria:
 
@@ -116,6 +131,20 @@ Transfer changes exactly one thing: who is the owner. The former owner keeps the
 - [ ] The new owner's cached entry has `role: 'owner'`.
 - [ ] The former owner's own AWS access is unchanged by the transfer; a test asserts no membership
       slot or tag was written or cleared.
+- [ ] **The former owner is added to the registry's `acknowledged` list**, and the incoming owner is
+      removed from it. This is the one place "transfer changes exactly one thing" is false, and it is
+      not optional: `effective_acknowledged` excludes the owner on the stated grounds that "the owner
+      is always active and is never listed here", and the cache's roster projection is
+      `"active" if (m == owner or m in ack) else "pending"`. So on any space where an explicit
+      `acknowledged` list exists — every space `add_members` has ever run on — a transfer touching
+      only `owner` would leave the outgoing owner in `members`, absent from `acknowledged`, and
+      rendering as **pending** in every member's roster: someone who has used the space for months
+      shown as not having picked it up yet.
+- [ ] A test drives a space that has had `add_members` run, transfers it, and asserts both parties
+      render `active` in the roster afterwards.
+- [ ] A test drives a space with **no** `acknowledged` field — created before the field existed and
+      never added to — and asserts the transfer still leaves both parties `active`, preserving the
+      legacy path where absence means everyone is acknowledged.
 - [ ] Leaving is still a separate action — a test asserts the transfer verb never enqueues or
       performs a `leave`.
 
@@ -203,8 +232,8 @@ request per data row, then moves the object aside.
       against the `ownership-transfers/` prefix.
 - [ ] `ownership-transfers/` gains its **own** admin-bucket lifecycle rule expiring
       `ownership-transfers/processed/` and `ownership-transfers/rejected/` — a rule per prefix, since
-      S3 lifecycle takes one prefix per rule and a prefix broad enough for both would also match
-      `logs/`. The `inbox/` prefix gets **no** expiring rule: a file the reader has not managed to
+      S3 lifecycle takes one prefix per rule and the prefix covering both, `ownership-transfers/`,
+      would also match `inbox/`. The `inbox/` prefix gets **no** expiring rule: a file the reader has not managed to
       process must not be deleted out from under it.
 
 ### FR-008: The operator-origin boundary

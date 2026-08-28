@@ -93,6 +93,11 @@ to say which functions exist, and Terraform already knows.
       module calls.
 - [ ] `deploy-lambdas.yml` reads that output and shards over it; `.github/lambda-functions.json` is
       deleted.
+- [ ] If SPEC-215 has landed, this workflow reads the output through **its** resolver rather than
+      writing a second `tofu init` + `tofu output -json` step, and it joins the derived workflow set
+      SPEC-215 FR-001 asserts a single OpenTofu version across. If 215 has not landed, this spec adds
+      the read directly and 215 folds it in — stated so the ordering is a choice rather than a
+      collision.
 - [ ] The shard computation covers the whole list — a test asserts the union of the shards equals
       the function list, so a sharding bug cannot silently skip a function.
 - [ ] A function added to Terraform is deployed with no further edit anywhere; a test asserts no
@@ -121,6 +126,10 @@ to say which functions exist, and Terraform already knows.
       attach order.
 - [ ] `infra/info/control-plane-shape.md` and every module README that describes zip packaging or
       layers is corrected.
+- [ ] **`docs/process.md` §6 is corrected too.** It states the fact being retired — "Terraform owns
+      the function, CI owns the code and every layer attachment" — and it is an always-referenced
+      tier. The claim below about markdown sweeps is about *source-file* pointers being the ones that
+      rot unseen; it is not a licence to skip the markdown that states the retired rule.
 - [ ] Every `.py` docstring, `.tf` comment and `.yml` step that points at a deleted file is fixed.
       A markdown-only sweep reports the tree clean and would be wrong: the pointers that rot unseen
       are in source files.

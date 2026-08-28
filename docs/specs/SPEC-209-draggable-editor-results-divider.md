@@ -139,8 +139,11 @@ enumerated, not sampled.
 #### Acceptance Criteria:
 
 - [ ] `EditorLayoutControl.tsx` no longer exists.
-- [ ] `EditorLayoutPreset`, `DEFAULT_LAYOUT_PRESET` and `LAYOUT_PRESET_EDITOR_FRACTION` no longer
-      exist in `query.constants.ts`, and `index.ts` exports none of them.
+- [ ] `EditorLayoutPreset`, `DEFAULT_LAYOUT_PRESET`, `LAYOUT_PRESET_EDITOR_FRACTION` and
+      `QUERY_EDITOR_LAYOUT_STORAGE_PREFIX` no longer exist in `query.constants.ts`, and `index.ts`
+      exports none of them. The storage prefix belongs in this list: its only consumers are
+      `useEditorLayout.ts` and `queryPure.test.ts`, both of which this spec deletes, so leaving it
+      behind would strand the one constant that still names the old key.
 - [ ] A test renders the query workspace and asserts no control named `Editor`, `Even` or `Results`
       is present in the toolbar.
 - [ ] `npm run build` passes — every call site of the removed exports is gone, which `tsc -b` is the

@@ -12,8 +12,8 @@ says how.
 
 ## Overview
 
-Roughly forty values reach the deploy workflows as GitHub repository variables, and most of them are
-not inputs to anything. They are Terraform **outputs** — bucket names, queue URLs, Cognito
+Thirty distinct repository variables reach the deploy workflows, plus one resolved dynamically, and
+most of them are not inputs to anything. They are Terraform **outputs** — bucket names, queue URLs, Cognito
 identifiers, the Athena workgroup, the API base URL — that a person read out of `tofu output` once
 and typed into a settings page. Terraform computes them, and then a human is the transport.
 
@@ -51,8 +51,11 @@ resource can tell you.
 - **Changing the ECS task definition's configuration.** It is already Terraform-native, already
   reads the same values as resource attributes, and is not touched.
 - **The genuine inputs.** `AWS_REGION`, the domain and subdomain variables, `github_repo`, the
-  environment name, the upload cap, the desired count, the image tags and the verification principal
-  ARNs stay repository variables — an input cannot be read from the thing it configures.
+  environment name, the upload cap, the desired count, `TF_VAR_spa_image_tag` and the verification
+  principal ARNs stay repository variables — an input cannot be read from the thing it configures.
+  **Named singly, not as "the image tags":** SPEC-213 introduces `TF_VAR_lambda_image_tag` supplied
+  from `${{ github.sha }}` precisely so it is *not* a repository variable, and a plural bullet here
+  would instruct a later implementer to reintroduce the empty-`TF_VAR_` hazard that spec guards.
 - **Secrets.** `AWS_DEPLOY_ROLE_ARN` is a secret and stays one. No output is read in its place.
 - **Retiring CloudFront.** SPEC-202 does that.
 
@@ -70,8 +73,11 @@ resource can tell you.
 #### Acceptance Criteria:
 
 - [ ] Each workflow runs `tofu init -backend-config=…` with the same backend configuration and the
-      same pinned OpenTofu version as `deploy-infra.yml`; a test asserts the three versions are one
-      value and not three literals.
+      same pinned OpenTofu version as `deploy-infra.yml`. A test **derives** the set of workflows
+      that init the backend and asserts they agree on one version — it does not count to three.
+      SPEC-214 makes `deploy-lambdas.yml` a fourth consumer of `tofu output`, and an assertion
+      hard-coded to three would keep passing while the fourth drifted, which is the failure it exists
+      to prevent.
 - [ ] The outputs are read **once** per job into a single JSON document, not by repeated
       `tofu output <name>` calls.
 - [ ] The deploy role is the identity used, unchanged; no new AWS grant is required, and a test
@@ -92,8 +98,13 @@ hand-maintained copy in place of the old one.
 #### Acceptance Criteria:
 
 - [ ] The mapping is a single committed file, read by both workflows.
-- [ ] A test asserts the mapping's config-key set equals the required-key set the browser declares in
-      `types/runtimeConfig.types.ts`. A key in one and not the other fails.
+- [ ] A test asserts the mapping's config-key set equals `REQUIRED_CONFIG ∪ OPTIONAL_CONFIG` **minus
+      the genuine inputs** (`environment`, `maxUploadBytes`) — eighteen keys, exactly the Data Model
+      below. A key in one and not the other fails. It is deliberately **not** `REQUIRED_CONFIG`
+      alone: that set is eight keys, and trimming the mapping to satisfy such a criterion would stop
+      rendering every queue URL into `/config.json`, silently disabling every enqueue path through
+      `enqueueFifo`'s `notConfiguredMessage` — a portal that boots, reports ready, and cannot send
+      anything.
 - [ ] A test asserts every Terraform output name in the mapping exists in `infra/outputs.tf`. A
       renamed output fails at test time, not at deploy time.
 - [ ] A test asserts the mapping references no output declared `sensitive`.
@@ -166,9 +177,14 @@ Both orders are workable and they produce different work, so the spec picks one.
       task definition is the other, and it is unaffected by 202's timing.
 - [ ] While CloudFront is still the front door, both consumers — the `VITE_*` build env and the
       `/config.json` render step — read the same resolved outputs, so they cannot disagree.
-- [ ] When SPEC-202 removes the CloudFront path, it deletes both of those consumers and the mapping
-      keeps serving the container path with no further change. A note in this spec's delivery doc
-      says so, so 202 does not rediscover it.
+- [ ] When SPEC-202 removes the CloudFront path it deletes both of those consumers, and **the
+      `appUrl` row repoints from `cloudfront_domain` to `spa_origin`** in the same change. This is
+      not optional and is not "no further change": `appUrl` is in `REQUIRED_CONFIG` and the container
+      path needs it too, `cloudfront_domain` is deleted with the distribution, and FR-002's
+      output-existence criterion goes red the moment it is. `spa_origin` already exists in
+      `infra/outputs.tf` and is the value it becomes.
+- [ ] This spec's delivery doc carries that instruction explicitly, so SPEC-202 inherits it rather
+      than rediscovering it as a red gate.
 
 ---
 
@@ -178,7 +194,7 @@ Both orders are workable and they produce different work, so the spec picks one.
 // .github/config-outputs.json — the one declared mapping.
 // Left: the Terraform output name. Right: the runtime configuration key.
 {
-  "api_base_url":                   "apiBaseUrl",
+  "api_origin":                     "apiBaseUrl",
   "cloudfront_domain":              "appUrl",
   "aws_region":                     "awsRegion",
   "cognito_user_pool_id":           "cognitoUserPoolId",
@@ -186,9 +202,9 @@ Both orders are workable and they produce different work, so the spec picks one.
   "cognito_domain":                 "cognitoDomain",
   "cognito_identity_pool_id":       "cognitoIdentityPoolId",
   "s3_user_space_bucket_name":      "userSpaceBucket",
-  "s3_shared_space_bucket_name":    "sharedSpaceBucket",
+  "shared_space_bucket_name":       "sharedSpaceBucket",
   "athena_workgroup_name":          "athenaWorkgroup",
-  "shared_space_queue_url":         "sharedSpaceQueueUrl",
+  "shared_space_request_queue_url": "sharedSpaceQueueUrl",
   "notifications_queue_url":        "notificationsQueueUrl",
   "table_build_queue_url":          "tableBuildQueueUrl",
   "table_share_queue_url":          "tableShareQueueUrl",
@@ -199,10 +215,16 @@ Both orders are workable and they produce different work, so the spec picks one.
 }
 ```
 
-> The output names above are the ones `infra/outputs.tf` declares today where one exists; where a
-> value is currently only a repository variable, FR-002's existence test is what forces the output
-> to be added rather than the mapping to be fudged. `environment` and `maxUploadBytes` are **not**
-> here: they are inputs, and they stay repository variables.
+> **The left column is checked, not guessed.** Nine of these outputs exist today under exactly these
+> names; `cloudfront_domain` exists and is repointed to `spa_origin` by SPEC-202 (FR-007); and the
+> remaining eight — the per-plane queue URLs other than `notifications_queue_url` and
+> `shared_space_request_queue_url` — genuinely do not exist yet and are **added** in Phase 1. Three
+> names that a first draft got wrong are worth recording, because FR-002's existence test would have
+> been satisfied by adding duplicates under the wrong names rather than by correcting the mapping:
+> it is `shared_space_bucket_name` not `s3_shared_space_bucket_name`,
+> `shared_space_request_queue_url` not `shared_space_queue_url`, and `api_origin` not
+> `api_base_url`. `environment` and `maxUploadBytes` are **not** here: they are inputs, and they
+> stay repository variables.
 
 ## File & Folder Structure
 
@@ -225,7 +247,9 @@ docs/process.md                             # §6's copy of the same fact
 
 - `config-outputs.json`, and the three assertions binding it to `runtimeConfig.types.ts`,
   `infra/outputs.tf` and the container entrypoint's key lists.
-- Add any missing Terraform output the mapping needs.
+- Add the eight missing per-plane queue-URL outputs. Adding an output whose name merely duplicates
+  an existing one under a different spelling fails FR-002's existence test by design — the fix is
+  always the mapping, never a second output.
 
 ### Phase 2: The resolver
 

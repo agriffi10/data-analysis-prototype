@@ -3,6 +3,10 @@
 **ID:** SPEC-210
 **Status:** Draft
 **Last Updated:** 2026-08-28
+**Interacts with:** SPEC-211 also adds a header control, and SPEC-207 adds none. SPEC-211 FR-007
+owns the mobile header-width measurement all three depend on; this spec's FR-005 mobile placement
+follows whatever that measurement establishes.
+
 **Depends On:** SPEC-021 (the design-token baseline in `index.css`), SPEC-023/024/026/027/029 (the surfaces the tokens paint), SPEC-035 (the Monaco editor and its existing custom theme), SPEC-045 (the axe suite), SPEC-095 (the breakpoints), SPEC-155 (`Menu`, `IconButton`), SPEC-184 (the Data Explorer's `FORMATTING_TOKEN_HEX` mirror of the palette), SPEC-192/194 (the runtime config document and the container that serves the shell)
 
 ## Overview
@@ -68,18 +72,29 @@ axe's rule cannot.
 - [ ] The harness reads the token values from **one** declaration, so a token changed in `index.css`
       and not in the harness cannot pass. The declaration is the source both the stylesheet and the
       test consume.
-- [ ] A declared list of pairings — each a (foreground token, background token, minimum ratio) —
-      covers: each of `text`, `text-2`, `text-3` on each of `bg`, `surface`, `surface-2`; each of
-      `success`, `warning`, `danger`, `accent-text` on `surface` and on its own `-soft` background;
-      white on `accent` and white on `danger`; and `accent` as a focus ring against `bg`, `surface`
-      and `surface-2`.
-- [ ] Text pairings assert ≥ 4.5:1. The focus-ring and border pairings assert ≥ 3:1 (WCAG 1.4.11).
+- [ ] A declared list of pairings — each a (foreground, background, minimum ratio) — covers: each of
+      `text`, `text-2`, `text-3` on each of `bg`, `surface`, `surface-2`; each of `success`,
+      `warning`, `danger`, `accent-text`, `accent-hover` on `surface` and on its own `-soft`
+      background where it has one; white on `accent` and white on `danger`; and `accent` as a focus
+      ring against `bg`, `surface` and `surface-2`.
+- [ ] Text pairings assert ≥ 4.5:1; the focus-ring pairing asserts ≥ 3:1 (WCAG 1.4.11).
+- [ ] **`border`, `border-2` and `accent-border` are declared DECORATIVE and are exempt from a ratio
+      floor**, in a named exemption list carrying the reason. This is not a convenience: measured
+      against the light palette they are 1.16–1.23, 1.06–1.13 and 1.20–1.27 respectively, so any
+      floor at all — 3:1 included — fails the shipped palette that Out of Scope says must pass. WCAG
+      1.4.11 governs the boundary of a user-interface *component* whose shape carries meaning, not a
+      hairline separator, and `index.css` already records `accent-border` as "decorative
+      reinforcement, never the sole state signal". A component boundary that IS the only thing
+      identifying a control is a pairing, not an exemption, and belongs in the list above.
+- [ ] Every colour token is **either** in a pairing **or** in the exemption list; a token in neither
+      fails the test. That is the completeness guard — adding a token without deciding whether it
+      carries meaning is what must be impossible, not measuring a hairline.
 - [ ] The harness runs over **both** themes and fails naming the failing pair and its measured ratio.
 - [ ] A test proves the harness can fail: a deliberately failing pair is asserted to be reported.
       This is the one guard mutated on purpose, because a contrast harness that silently passes
       everything is indistinguishable from one that works.
-- [ ] The pairing list is asserted to mention **every** colour token: a token in the palette that
-      appears in no pairing fails the test, so adding a token without measuring it is not possible.
+- [ ] The exemption list is asserted non-growable without a reason string, so "decorative" cannot
+      become the place a failing colour is put.
 
 ### FR-002: The dark palette
 
@@ -147,7 +162,8 @@ same-origin script file loaded synchronously in `<head>`.
       `Menu` with three items: Light, Dark and System.
 - [ ] The menu marks the current selection to assistive technology, not by colour alone.
 - [ ] Below `tablet` the same three options appear as a group in `AppNavDrawer`, and the header
-      renders no theme button — the header is already at its width budget on mobile.
+      renders no theme button — the header is over its width budget at 375px before anything is
+      added, measured in SPEC-211 FR-007.
 - [ ] The control is present when signed out as well as signed in; the landing page is themed too.
 - [ ] Selecting an option applies it immediately and persists it.
 - [ ] `expectNoA11yViolations` runs against the driven container with the menu open.
@@ -175,7 +191,9 @@ sibling, and the editor switches between them.
 
 #### Description:
 
-Twenty colour literals in the source bypass the tokens. Each is either themed or justified.
+Nineteen colour literals in non-test source bypass the tokens. Each is either themed or justified.
+(A twentieth hex occurrence is prose inside a comment in `features/data-explorer/explorationTabs.ts`
+discussing `#ff0000`; it is not a literal, and the lint rule below must not fire on it.)
 
 #### Acceptance Criteria:
 
@@ -183,6 +201,19 @@ Twenty colour literals in the source bypass the tokens. Each is either themed or
       map resolve per theme rather than holding one theme's hexes. These are applied as **inline
       styles** on grid cells, so they cannot inherit a CSS variable through a class — the resolution
       has to happen where the style is built.
+- [ ] **`formatting.test.ts`'s cross-product contrast test is re-derived per theme, not left
+      measuring the light palette.** It is a stronger check than FR-001's pairing list on exactly the
+      axis that matters here: it walks every foreground against every surface *including the sampled
+      gradient between two tints of different hues*, which the pairing list does not, and it pins the
+      settled decision that `warning` was **measured out** of the Data Explorer's foreground set
+      (4.49 on `accent-soft`, 4.39 on `danger-soft`) with an assertion that those pairs stay below
+      4.5 so a token that moves reddens CI. Left as-is, the dark palette ships with that whole
+      criterion unasserted while FR-001's "runs over both themes" reads as though it were covered.
+- [ ] The exclusion set is **recomputed** for the dark palette rather than copied: a dark palette may
+      readmit `warning` or expel a foreground the light palette includes, and the test must assert
+      whichever is true of the palette it is measuring.
+- [ ] The hard-coded `#b45309` in that test's exclusion assertions resolves from the palette
+      declaration for the theme under test, so it cannot go stale against a token that moved.
 - [ ] User-chosen row colours are unchanged in meaning: a rule the user set still paints the cell it
       painted, and the spec states plainly whether a user-picked colour is adjusted for the dark
       surface or left exactly as picked, with the reasoning. (It is left exactly as picked — the
@@ -219,8 +250,9 @@ suite for a rule that is disabled anyway.
 - [ ] The suite's own documentation states that the remaining axe assertions run in light mode only,
       and that dark-mode contrast is covered by FR-001's harness rather than by axe — so the
       coverage boundary is written down rather than inferred from what is absent.
-- [ ] `color-contrast` stays disabled in `axe.ts`, and its comment is updated to point at the
-      harness instead of describing contrast as a manual concern.
+- [ ] `color-contrast` stays disabled at **both** sites in `axe.ts` — the base config and
+      `ROUTE_AXE_OPTIONS` — and the comment at each is updated to point at the harness instead of
+      describing contrast as a manual concern.
 
 ### FR-010: Help content
 
@@ -253,15 +285,26 @@ export type ColorToken = 'bg' | 'surface' | 'surface-2' | 'border' | 'border-2'
 
 export const PALETTE: Record<EffectiveTheme, Record<ColorToken, string>>;
 
-/** A pairing the design uses, and the ratio it must clear. */
-export type ContrastPair = {fg: ColorToken | '#ffffff'; bg: ColorToken; min: 4.5 | 3};
+/**
+ * A pairing the design uses, and the ratio it must clear. Either side may be a raw hex —
+ * FR-006 measures Monaco's own token colours and FR-007 measures the landing hero's fixed
+ * gradient, and neither is a `ColorToken`.
+ */
+export type ContrastPair = {fg: ColorToken | string; bg: ColorToken | string; min: 4.5 | 3; why?: string};
 export const CONTRAST_PAIRS: readonly ContrastPair[];
+
+/** Tokens that carry no meaning and are measured against no floor. Reason required. */
+export const DECORATIVE_TOKENS: Readonly<Record<'border' | 'border-2' | 'accent-border', string>>;
 ```
 
-> **`index.css` is generated from `PALETTE`, or `PALETTE` is generated from `index.css` — one of the
-> two, and the build asserts they agree.** Two hand-maintained copies of a palette is the shape this
-> project has been bitten by before (the API contract, the deploy matrix), and the failure here is
-> silent: the app paints one set of colours and the harness measures another, and every test is green.
+> **`index.css` is the source; `palette.ts` is asserted against it by reading the file at test
+> time.** Not the other way round and not a generator — the mechanism already exists in this repo:
+> `features/data-explorer/formatting.test.ts` pins `FORMATTING_TOKEN_HEX` by reading `src/index.css`
+> through a one-function ambient declaration, and `docs/decisions/browser.md` records why it reads
+> the file rather than importing it (`?raw` resolves to the empty string under Vitest, which would
+> have made the guard pass by finding nothing). Two hand-maintained copies of a palette is a shape
+> this project has been bitten by before, and the failure is silent: the app paints one set of
+> colours while the harness measures another, and every test is green.
 
 ## API / Interface Contract
 
@@ -273,7 +316,9 @@ export function useTheme(): {
   setPreference: (next: ThemePreference) => void;
 };
 
-// apps/portal/src/lib/contrast.ts  — pure, no DOM
+// apps/portal/src/lib/contrast.ts  — pure, no DOM.
+// EXTRACTED from features/data-explorer/formatting.test.ts, which already implements it;
+// that test then imports it here rather than keeping a second copy.
 export function contrastRatio(foreground: string, background: string): number;
 ```
 

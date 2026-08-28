@@ -66,9 +66,14 @@ One Dockerfile at `lambdas/Dockerfile`, built from `public.ecr.aws/lambda/python
 
 #### Acceptance Criteria:
 
-- [ ] It installs the union of every layer's `requirements.txt` — `cpcommon`'s PyJWT, the
-      table-builder polars pin and the data-quality polars pin — plus `lambdas/requirements.txt`.
-- [ ] Every dependency is version-pinned; the build fails on an unpinned one.
+- [ ] It installs the union of every layer's `requirements.txt` — `cpcommon`'s `PyJWT[crypto]` and
+      `log-foundry`, the table-builder polars pin and the data-quality polars pin — plus
+      `lambdas/requirements.txt`.
+- [ ] Every dependency carries an **explicit version constraint**, and the build fails on one that
+      carries none. Not "is pinned to an exact version": `cpcommon` declares `PyJWT[crypto]>=2.8,<3`
+      deliberately while `log-foundry==0.6.0` is exact, and a criterion demanding exactness would
+      fail against this spec's own declared inputs and would drag a dependency-policy change into a
+      packaging spec.
 - [ ] It builds `--platform linux/amd64`, stated explicitly rather than inherited from the runner.
 - [ ] The build is reproducible from a clean checkout with no network access beyond the package
       index and the base image.

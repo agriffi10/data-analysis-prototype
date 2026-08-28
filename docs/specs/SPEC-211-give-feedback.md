@@ -3,6 +3,9 @@
 **ID:** SPEC-211
 **Status:** Draft
 **Last Updated:** 2026-08-28
+**Interacts with:** SPEC-207 repoints the existing help control and adds none; SPEC-210 adds a theme
+control. **This spec owns the mobile header decision all three depend on** — FR-007.
+
 **Depends On:** SPEC-195 (the API's auth boundary), SPEC-196 (the identity layer and the two credential planes), SPEC-197 (the transport contract, `apiRequest`, the generated TypeScript), SPEC-058 (the single-writer FIFO pattern), SPEC-206 (the `SenderId` boundary), SPEC-129 (one object per day, appended under ETag CAS), SPEC-127→137 (`cpcommon.observability`), SPEC-155 (`Modal`, `FormDialog`, the Escape registry), SPEC-106 (`toUserMessage`), SPEC-032 (the admin bucket and its prefix-scoped lifecycle)
 
 ## Overview
@@ -167,8 +170,17 @@ compare-and-swap. An absent object is created with `If-None-Match: *`.
 
 #### Acceptance Criteria:
 
-- [ ] The header renders one control named `Give feedback` immediately beside the help control, at
-      every breakpoint, for authenticated users only.
+- [ ] At `tablet` and above, the header renders one control named `Give feedback` immediately beside
+      the help control, for authenticated users only.
+- [ ] **Below `tablet` the control lives in `AppNavDrawer`, not the header**, and the header gains no
+      element at mobile width. The measurement, made once here because three specs depend on it: at
+      375px the header already carries a 44px hamburger, the `BrandMark` (a 32px square plus the
+      wordmark), a 32px help control, a 32px bell, a 32px avatar and an `h-8 px-3` Sign out button,
+      inside `px-4` padding with `gap-4` outer and `gap-3` inner spacing. It is over budget before
+      anything is added. SPEC-210's theme control takes the same route into the drawer for the same
+      reason, and SPEC-207 adds nothing — so the mobile header is unchanged by all three.
+- [ ] A test at mobile width asserts the header's control count is unchanged and the drawer offers
+      `Give feedback`.
 - [ ] It opens a dialog with a required category and a required multi-line message. **No category
       is preselected** — a default would be the modal answer to every submission, and the field
       exists to record a choice the user made.
