@@ -3,9 +3,6 @@
 # ORCHESTRATOR role. CI owns the code and the layer. ../../info/control-plane-shape.md.
 
 # One placeholder per function so each is valid at create time.
-
-# One placeholder package per function so each is valid at create time. CI replaces
-# the code (and attaches the common layer); these stubs only ever run pre-deploy.
 data "archive_file" "placeholder" {
   for_each = local.shared_space_functions
 

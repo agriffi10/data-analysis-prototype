@@ -28,24 +28,14 @@
 # The two Denies are different VERBS on overlapping prefixes, and the difference is the
 # receipt: this plane may WRITE under archive/ and may never DELETE there.
 #
-# ⚠ IAM REJECTS A "//" COMMENT KEY INSIDE A STATEMENT, so rationale goes HERE, never in the
-# .tftpl. states:DescribeExecution is on THIS role because it is the notify-failure LAMBDA that
-# calls it, invoked by EventBridge outside any execution. README.md.
-
-# NOTE: the Deny above and NeverDeletePortalManagedObjects are two different verbs on two
-# overlapping prefix sets, and the difference is the receipt: this plane may WRITE under
-# `archive/` and may never DELETE there.
+# ⚠ IAM REJECTS A "//" COMMENT KEY INSIDE A STATEMENT ("Policy input list item 1 has invalid
+# content", verified with simulate_custom_policy), so rationale goes HERE, never in the .tftpl.
 #
-# NOTE FOR ANYONE ADDING A STATEMENT: IAM rejects a "//" comment key inside a statement
-# ("Policy input list item 1 has invalid content" — verified with simulate_custom_policy),
-# so rationale goes HERE, not in the .tftpl.
-# states:DescribeExecution is the ONE grant the timeout door needs, and
-# it is on THIS role rather than the state machine's because it is the notify-failure
-# LAMBDA that makes the call — invoked by EventBridge, outside any execution. It reads back
-# the input of a run whose event omitted it, which on this plane is the ordinary case for a
-# large archive: EventBridge caps an event at 256 KB and the Pipe record is allowed to
-# approach 200 KB, so the archives most likely to time out are the ones nobody could
-# otherwise be told about.
+# states:DescribeExecution is on THIS role because it is the notify-failure LAMBDA that calls it,
+# invoked by EventBridge outside any execution. It reads back the input of a run whose event
+# omitted it, which on this plane is the ordinary case for a large archive: EventBridge caps an
+# event at 256 KB and the Pipe record may approach 200 KB, so the archives most likely to time out
+# are the ones nobody could otherwise be told about. README.md.
 
 # ── Shared Lambda execution role (uniform lambda trust) ──────────────────────
 resource "aws_iam_role" "execution" {

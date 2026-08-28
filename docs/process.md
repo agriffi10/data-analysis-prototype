@@ -404,10 +404,16 @@ When a spec is done, in the same pass:
 - **A doc's own statement of when to read it must agree with CLAUDE.md's.** This file told readers it
   was read once and on demand while CLAUDE.md told them to read it first, every session. Both are
   cheap to write and neither is checked, so they drift silently and the reader follows the wrong one.
-- **Status and spec numbers stay out of headings** — in every doc, not just `ARCS.md`, where it is
-  gated. A heading reading "complete" rots the day the next spec lands, and a heading naming a spec
-  makes a reader hunt for history instead of a subject. Write what the section is about; the register
-  is findable by what it says.
+- **Status never appears in a heading**, anywhere. It rots the day the next spec lands, which is why
+  `ARCS.md`'s headings are gated for it.
+- **A heading in a doc read by SUBJECT names the subject, not the spec that produced it** — this is
+  `architecture.md` and the tree `info/` pages, where a reader arrives asking "how does the archive
+  plane work", never "what did SPEC-168 decide". The scope is deliberate and stops there: an entry in
+  `decisions.md` IS a record of what one spec settled, and its number is part of its identity when
+  you are coming from a delivery doc or a superseded marker, so those headings keep theirs. A rule
+  stated more broadly than that would be violated by 121 of that register's 195 headings on the day
+  it was written, and a rule practice contradicts at scale trains readers to ignore the ones that
+  hold.
 - If a memory or doc disagrees with the code, fix or delete it — don't let stale state accumulate.
   Don't add prose to the always-loaded tier.
 - **Standing rules never cite volatile numbers** (line counts, row counts, section ranges) — state the

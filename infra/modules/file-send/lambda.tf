@@ -3,9 +3,6 @@
 # (cpcommon + fscommon). ../../info/control-plane-shape.md.
 
 # One placeholder per function so each is valid at create time.
-
-# One placeholder package per function so each is valid at create time. CI replaces
-# the code (and attaches the layers); these stubs only ever run pre-deploy.
 data "archive_file" "placeholder" {
   for_each = local.file_send_functions
 

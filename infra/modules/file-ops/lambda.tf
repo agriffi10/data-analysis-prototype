@@ -4,9 +4,6 @@
 # what CI attached and the next cold start fails on an import nobody changed.
 
 # One placeholder per function so each is valid at create time.
-
-# One placeholder package per function so each is valid at create time. CI replaces the
-# code (and attaches the layers); these stubs only ever run pre-deploy.
 data "archive_file" "placeholder" {
   for_each = local.file_ops_functions
 

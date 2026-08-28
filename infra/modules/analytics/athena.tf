@@ -3,9 +3,6 @@
 # database/table ARN scoped by the `username` principal tag, plus the per-user results prefix.
 # README.md.
 
-# IAM propagation guard: the deploy role's first CreateWorkGroup / CreateBucket call in the
-# same apply can race its own grant.
-
 # IAM propagation guard: the module-level depends_on = [module.base] orders the
 # deploy-role policy (which now grants Athena/S3-admin-bucket perms) before
 # this module runs, but IAM is eventually consistent — this fresh pause absorbs the
