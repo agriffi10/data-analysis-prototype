@@ -30,7 +30,7 @@ delete would have died before the notifier. Read that rule before adding a `Pass
 
 `infra/modules/file-ops/state-machine.asl.json.tftpl`
 
-`ValidateAuthorize → AcquireLock ⇄ WaitForLock → ChooseOperation → InspectSource →
+`ValidateAuthorize → StampExecution → AcquireLock ⇄ WaitForLock → ChooseOperation → InspectSource →
 NeedsDestinationGuard → CheckDestinations → CheckDestinationsAgain → BuildTransferManifest →
 TransferObjects (Map) → CollectTransferResults → NeedsSourceDeletion → DeleteSource →
 FinaliseOutcomes → ReleaseLock → NotifyOutcomes`

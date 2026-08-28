@@ -82,18 +82,29 @@ FIXTURES_MAX_SCRIPTS = 1
 CLAUDE_MAX_BYTES = 50_000
 DIGEST_MAX_CHARS = 1_400
 DELIVERY_MAX_LINES = 260
-#: The areas ``decisions.md`` groups by, which are the areas ``CLAUDE.md``'s Key Decisions digest
-#: groups by. A closed set on purpose: the two files are meant to be findable the same way.
-DECISION_AREAS = frozenset({
-    "Identity, access and the name that ties them together",
-    "Storage, and the fact S3 is not a filesystem",
-    "Control planes — one pattern, and the traps are shared",
-    "Analytics, the catalog, and two SQL dialects",
-    "Archive and restore — the only place a mistake is unrecoverable",
-    "The browser",
-    "Infrastructure, IAM and delivery",
-    "Gates, scanners and tests",
-})
+def decision_areas() -> list[str]:
+    """Read the areas ``CLAUDE.md``'s Key Decisions digest groups by, in order.
+
+    DERIVED, never transcribed. A hard-coded copy of these eight strings is what this function
+    replaced, and it had already drifted: one area's wording differed from the heading it claimed to
+    mirror, while the docstring beside it asserted the two agreed. That is the failure mode a second
+    copy always has — the copy is not checked against the original, so the claim of agreement is the
+    only thing holding, and a claim is not a check.
+
+    Args:
+      None.
+
+    Returns:
+      The area labels, in the order the digest declares them.
+
+    Raises:
+      None.
+    """
+    lines = (ROOT / "CLAUDE.md").read_text().split("\n")
+    start = next(i for i, line in enumerate(lines) if line.startswith("## Key Decisions"))
+    end = next(i for i, line in enumerate(lines[start + 1 :], start + 1) if line.startswith("## "))
+    return [line[4:].strip() for line in lines[start:end] if line.startswith("### ")]
+
 
 STATUS_WORDS = ("shipped", "complete", "active", "draft", "in progress", "filed", "scoped")
 SOURCE_TREES = (("apps/portal/src", (".ts", ".tsx")), ("lambdas", (".py",)), ("infra", (".tf", ".tftpl")))
@@ -280,14 +291,17 @@ def check_decisions_register() -> list[str]:
     lines = (ROOT / "docs" / "decisions.md").read_text().split("\n")
     errors = []
 
+    expected_areas = decision_areas()
+    if not expected_areas:
+        errors.append("CLAUDE.md: no '### ' area headings under Key Decisions — the digest lost its grouping")
     areas = [line[3:].strip() for line in lines if line.startswith("## ")]
     for area in areas:
-        if area != "Contents" and area not in DECISION_AREAS:
+        if area != "Contents" and area not in expected_areas:
             errors.append(
                 f"decisions.md: '{area}' is not one of the areas CLAUDE.md's digest groups by. "
-                f"Add it there first, or file the entry under an existing one: {sorted(DECISION_AREAS)}"
+                f"Add it there first, or file the entry under an existing one: {expected_areas}"
             )
-    for expected in DECISION_AREAS:
+    for expected in expected_areas:
         if expected not in areas:
             errors.append(f"decisions.md: the '{expected}' area heading is missing")
 

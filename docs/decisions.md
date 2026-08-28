@@ -77,7 +77,7 @@ entries are the `###` headings under it.
 - [The commit gate is per ITEM, so the graph proves less than SPEC-169's did (SPEC-189)](#the-commit-gate-is-per-item-so-the-graph-proves-less-than-spec-169s-did-spec-189)
 - [The source deletion: what it removes, and what it is conditional on (SPEC-189)](#the-source-deletion-what-it-removes-and-what-it-is-conditional-on-spec-189)
 
-**Control planes — one pattern, and the traps are shared**
+**Control planes — one pattern, six planes, and the traps are shared**
 
 - [Everything unbounded on the state travels by pointer — including the definition (SPEC-161, extending SPEC-090/160)](#everything-unbounded-on-the-state-travels-by-pointer--including-the-definition-spec-161-extending-spec-090160)
 - [Every control-plane machine that can run for hours declares a TimeoutSeconds (SPEC-161)](#every-control-plane-machine-that-can-run-for-hours-declares-a-timeoutseconds-spec-161)
@@ -1705,7 +1705,7 @@ cannot resolve through this plane at all.
 the portal role's `${aws:PrincipalTag/username}` does. The strict side is taken — any-depth on both
 buckets — and the divergence is handled per item rather than hidden.
 
-## Control planes — one pattern, and the traps are shared
+## Control planes — one pattern, six planes, and the traps are shared
 
 ### Everything unbounded on the state travels by pointer — including the definition (SPEC-161, extending SPEC-090/160)
 

@@ -28,7 +28,6 @@ resource "aws_iam_role_policy" "orchestrator" {
     # Trusted notifications producer — sqs:SendMessage scoped to this ARN only.
     notifications_queue_arn = var.notifications_queue_arn
     logs_queue_arn          = var.logs_queue_arn
-    logs_queue_arn          = var.logs_queue_arn
   })
 }
 

@@ -13,10 +13,15 @@ Table creation is **TBAC**: the Lake Formation admin does *not* grant `CREATE_TA
 `infra/modules/table-builder/state-machine.asl.json.tftpl`
 
 **Create:** `ValidateAuthorize → RouteByMode → CheckTableAbsent → InspectSource → InferSchema →
-ExecuteDdl → ReleaseRefreshLock`
+RouteTailByMode → ExecuteDdl → ReleaseRefreshLock`
 
 **Refresh:** `ValidateAuthorize → RouteByMode → AcquireRefreshLock → LoadTableDefinition →
-InspectSource → InferSchema → DiffSchema → RouteByChange → ApplyRefresh → ReleaseRefreshLock`
+InspectSource → InferSchema → RouteTailByMode → DiffSchema → RouteByChange → ApplyRefresh →
+ReleaseRefreshLock`
+
+**There are TWO routers, not one.** `RouteByMode` picks the head — which verb establishes the state —
+and `RouteTailByMode` picks the tail, where the create and refresh paths split again after the shared
+`InspectSource → InferSchema` spine.
 
 `ReleaseRefreshLockOnFailure` is the other arm — **the release runs on every terminal path, create
 included**.

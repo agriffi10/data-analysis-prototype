@@ -58,12 +58,14 @@ Most of the code in this repo is the SPA, and it is the part with the least AWS 
 is a React 18 + Vite + TypeScript (strict) app; `infra/` is the OpenTofu that stands everything else
 up; `lambdas/` is the privileged server-side work. `packages/` is reserved and empty.
 
-**One tree, three layers, and the dependency runs one way.** `src/lib/` holds the clients and the
-primitives; `src/components/` holds shared UI; `src/features/<name>/` holds a feature's own
-components, hooks, services and types. **`components/` may not import from `features/`** — a lint
-rule enforces it — and a leaf feature that becomes a shared layer is *extracted before its second
-consumer*, not after. `src/routes/` holds the page-level components the router mounts, and it is the
-only place a default export is allowed.
+**One tree, and the dependency runs one way.** `src/lib/` holds the clients and the primitives,
+`src/components/` shared UI, `src/hooks/` shared hooks; `src/features/<name>/` holds a feature's own
+components, hooks, services and types. **The first three are the shared layers and none of them may
+import from `features/`** — `eslint.config.js` enforces it, with two named exemptions, `Header` and
+`ProtectedLayout`, which are app chrome and compose features by definition. A third file joining them
+takes an explicit edit to that list. A leaf feature that becomes a shared layer is *extracted before
+its second consumer*, not after. `src/routes/` holds the page-level components the router mounts,
+and named exports are the rule everywhere except those — `App.tsx` is the one other default.
 
 **A feature is a fixed shape:** an `index.ts` barrel, `Component.tsx` with its test beside it,
 `useFeature.ts`, `feature.types.ts` and `feature.service.ts`. The catalogue of what already exists is
@@ -229,7 +231,8 @@ mutations only — the rest of the app stays browser-direct.
   `messages`, `cas`, `results`, `athena.bound_runner`, `events`, `ddl`, `glue`, `s3_listing`,
   **`transfer` — the bulk-copy engine: JSONL manifest writer, batch copier, Map Run result reader
   (SPEC-160; table-share is the first caller, file-send and archive are the next two)**) + a
-  domain layer (`shared-space-common` / `tbcommon` / `tscommon` / `dqcommon`). polars is its own
+  domain layer — one per plane: `shared-space-common`, `tbcommon`, `tscommon`, `dqcommon`,
+  `fscommon`, `focommon`, `arcommon`. polars is its own
   layer, attached only to verbs that read file bytes (table-builder `infer-schema`, data-quality
   `inspect-source`). **SPEC-156 folded the deliberate twins onto `cpcommon`** — the CAS loop, the
   failure-message resolver, the results-location builder, the JWKS path, the SQS parser, the Athena
