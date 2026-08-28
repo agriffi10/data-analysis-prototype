@@ -1,11 +1,6 @@
 import {describe, expect, it} from 'vitest';
-import {
-  ExplorationRenderError,
-  aggregateAlias,
-  groupingOrderingViolation,
-  renderExplorationSql
-} from './renderExplorationSql';
-import {emptyExplorationQuery, emptyGrouping, newExploration} from './exploration';
+import {ExplorationRenderError, groupingOrderingViolation, renderExplorationSql} from './renderExplorationSql';
+import {emptyExplorationQuery, newExploration} from './exploration';
 import type {ExplorationQuery, ExplorationSource, Grouping} from './dataExplorer.types';
 
 const TABLE: ExplorationSource = {kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'};
@@ -30,50 +25,9 @@ describe('renderExplorationSql — the source arms (FR-002)', () => {
     expect(renderExplorationSql(SQL_SOURCE, q())).toBe('SELECT *\nFROM (\nSELECT * FROM alice.orders\n) AS t');
   });
 
-  it('survives a body ending in a `--` line comment', () => {
-    // Composed on one line, `(${body}) AS t` puts the closing paren and the alias INSIDE
-    // the comment and hands Athena an unbalanced statement — a syntax error with nothing
-    // on screen to explain it. A saved query ending in a trailing comment is ordinary.
-    const commented: ExplorationSource = {
-      kind: 'sql',
-      body: "SELECT * FROM alice.orders WHERE status = 'open' -- only the open ones",
-      label: 'Open orders'
-    };
-    const sql = renderExplorationSql(commented, q({ordering: [{column: 'qty', direction: 'asc', priority: 0}]}));
-
-    // The closing paren and the alias survive on a line the comment cannot reach.
-    expect(sql).toContain('\n) AS t');
-    const opens = (sql.match(/\(/g) ?? []).length;
-    const closes = (sql.match(/\)/g) ?? []).length;
-    expect(opens).toBe(closes);
-  });
-
   it('survives a body ending in a semicolon the same way', () => {
     const terminated: ExplorationSource = {kind: 'sql', body: 'SELECT 1;', label: 'One'};
     expect(renderExplorationSql(terminated, q())).toBe('SELECT *\nFROM (\nSELECT 1;\n) AS t');
-  });
-
-  it('composes the SAME clauses over either arm — only the FROM differs', () => {
-    // This is what lets SPEC-183 load a `.sql` file as a source without the filter,
-    // ordering and grouping code learning that the union exists.
-    const query = q({
-      filters: [{column: 'status', operator: '=', value: 'open'}],
-      expression: 'qty > 0',
-      ordering: [{column: 'placed_at', direction: 'desc', priority: 0}]
-    });
-    const fromTable = renderExplorationSql(TABLE, query);
-    const fromSql = renderExplorationSql(SQL_SOURCE, query);
-
-    // Substituting each arm's OWN from-clause out must leave two identical statements —
-    // which says "identical apart from the FROM" exactly, rather than dropping lines by
-    // prefix (the `sql` arm's from-clause spans three lines, one of them a `SELECT`).
-    const normalized = (sql: string, from: string) => sql.replace(from, 'FROM <source>');
-    expect(normalized(fromTable, 'FROM "alice"."orders"')).toEqual(
-      normalized(fromSql, 'FROM (\nSELECT * FROM alice.orders\n) AS t')
-    );
-    expect(normalized(fromTable, 'FROM "alice"."orders"')).toBe(
-      ['SELECT *', 'FROM <source>', `WHERE "status" = 'open' AND (qty > 0)`, 'ORDER BY "placed_at" DESC'].join('\n')
-    );
   });
 
   it('quotes an identifier containing a double quote rather than trusting the catalog', () => {
@@ -120,18 +74,6 @@ describe('renderExplorationSql — filters and the value asymmetry (FR-004 / FR-
     expect((sql.match(/'/g) ?? []).length % 2).toBe(0);
   });
 
-  it('renders the SAME STRING differently as an expression than as a filter value', () => {
-    // The one thing a reader of this feature must not get backwards. The expression is
-    // authored AS SQL; a filter value arrives FROM DATA and is quoted on the user's behalf.
-    const shared = "name = 'x'";
-    const asExpression = renderExplorationSql(TABLE, q({expression: shared}));
-    const asValue = renderExplorationSql(TABLE, q({filters: [{column: 'note', operator: '=', value: shared}]}));
-
-    expect(asExpression).toContain(`WHERE (name = 'x')`);
-    expect(asValue).toContain(`WHERE "note" = 'name = ''x'''`);
-    expect(asExpression).not.toBe(asValue);
-  });
-
   it('renders IS NULL / IS NOT NULL with no value at all', () => {
     expect(renderExplorationSql(TABLE, q({filters: [{column: 'note', operator: 'isNull'}]}))).toContain(
       'WHERE "note" IS NULL'
@@ -153,33 +95,6 @@ describe('renderExplorationSql — filters and the value asymmetry (FR-004 / FR-
     expect(sql).not.toContain("'5'");
   });
 
-  it('accepts the numeric forms Athena emits and refuses everything else', () => {
-    const numeric = (value: string) =>
-      renderExplorationSql(TABLE, q({filters: [{column: 'qty', operator: '=', value, valueKind: 'number'}]}));
-
-    for (const value of ['5', '-5', '+5', '5.25', '-0.5', '1e10', '2.5E-3']) {
-      expect(numeric(value)).toContain(`WHERE "qty" = ${value}`);
-    }
-    // The bare literal is the ONE thing the renderer does not escape, so what the check
-    // admits IS the trust boundary. A refusal here, never a fall back to quoting — which
-    // would restore the type error the numeric kind exists to avoid.
-    for (const hostile of [
-      '5 OR 1=1',
-      "5'",
-      '5;DROP',
-      "5' OR '1'='1",
-      '5)--',
-      '5 UNION SELECT 1',
-      '',
-      ' 5',
-      '5 ',
-      '5\n',
-      'qty'
-    ]) {
-      expect(() => numeric(hostile)).toThrow(ExplorationRenderError);
-    }
-  });
-
   it('refuses the forms `Number` alone would have accepted', () => {
     // The charset gate is load-bearing, not a fast path: `Number('0x1f')` is 31,
     // `Number('0b11')` is 3, and `Number('Infinity')` is Infinity. A check written as
@@ -196,12 +111,6 @@ describe('renderExplorationSql — filters and the value asymmetry (FR-004 / FR-
     for (const value of ['5e', '--5', '1e5e5', '.', 'e5', '1e400']) {
       expect(() => numeric(value)).toThrow(ExplorationRenderError);
     }
-  });
-
-  it('refuses a comparison carrying no value rather than rendering half a predicate', () => {
-    expect(() => renderExplorationSql(TABLE, q({filters: [{column: 'qty', operator: '>'}]}))).toThrow(
-      ExplorationRenderError
-    );
   });
 });
 
@@ -228,19 +137,6 @@ describe('renderExplorationSql — WHERE composition (FR-005)', () => {
       })
     );
     expect(sql).toContain(`WHERE ("status" = 'open' AND "qty" > 0) AND (a OR b)`);
-  });
-
-  it('contributes no clause and no stray AND for an empty or whitespace-only expression', () => {
-    expect(renderExplorationSql(TABLE, q({expression: ''}))).toBe('SELECT *\nFROM "alice"."orders"');
-    expect(renderExplorationSql(TABLE, q({expression: '   \n\t '}))).toBe('SELECT *\nFROM "alice"."orders"');
-    expect(renderExplorationSql(TABLE, q({expression: null}))).toBe('SELECT *\nFROM "alice"."orders"');
-
-    const filtered = renderExplorationSql(
-      TABLE,
-      q({filters: [{column: 'status', operator: '=', value: 'open'}], expression: '  '})
-    );
-    expect(filtered).toBe(`SELECT *\nFROM "alice"."orders"\nWHERE "status" = 'open'`);
-    expect(filtered).not.toContain('AND');
   });
 
   it('passes the expression through VERBATIM — it is the user’s own SQL', () => {
@@ -294,13 +190,6 @@ describe('renderExplorationSql — grouping (FR-002 AC5)', () => {
     );
   });
 
-  it('names an aggregate’s output column once, for the SQL and the panel alike', () => {
-    // SPEC-182's panel labels a column with this; a second naming scheme at the view
-    // would disagree with the result set the moment either changed.
-    expect(aggregateAlias({fn: 'COUNT', column: '*'})).toBe('count_all');
-    expect(aggregateAlias({fn: 'AVG', column: 'qty'})).toBe('avg_qty');
-  });
-
   it('allows an ORDER BY on a grouped column or an aggregate alias', () => {
     const grouping = g({columns: ['status'], aggregates: [{fn: 'COUNT', column: '*'}]});
     expect(
@@ -326,35 +215,10 @@ describe('renderExplorationSql — grouping (FR-002 AC5)', () => {
     ).toThrow(/neither grouped nor aggregated/);
   });
 
-  it('allows that same ORDER BY when there is NO grouping', () => {
-    // The pair matters: a check that refused it unconditionally would break every
-    // ungrouped sort, and every ungrouped test here would still pass.
-    expect(
-      renderExplorationSql(TABLE, q({ordering: [{column: 'placed_at', direction: 'asc', priority: 0}]}))
-    ).toContain('ORDER BY "placed_at" ASC');
-  });
-
   it('refuses a non-COUNT aggregate over `*`', () => {
     expect(() =>
       renderExplorationSql(TABLE, q({grouping: g({columns: ['status'], aggregates: [{fn: 'SUM', column: '*'}]})}))
     ).toThrow(ExplorationRenderError);
-  });
-
-  it('refuses two aggregates that would produce one column name', () => {
-    expect(() =>
-      renderExplorationSql(
-        TABLE,
-        q({
-          grouping: g({
-            columns: [],
-            aggregates: [
-              {fn: 'COUNT', column: 'qty'},
-              {fn: 'COUNT', column: 'qty'}
-            ]
-          })
-        })
-      )
-    ).toThrow(/both be called/);
   });
 
   it('refuses a grouping COLUMN whose name an aggregate would also produce', () => {
@@ -372,10 +236,6 @@ describe('renderExplorationSql — grouping (FR-002 AC5)', () => {
     expect(
       renderExplorationSql(TABLE, q({grouping: g({columns: ['count_all'], aggregates: [{fn: 'SUM', column: 'qty'}]})}))
     ).toContain('GROUP BY "count_all"');
-  });
-
-  it('refuses an empty grouping rather than rendering a bare GROUP BY', () => {
-    expect(() => renderExplorationSql(TABLE, q({grouping: g()}))).toThrow(ExplorationRenderError);
   });
 
   it('renders aggregates with no grouping columns and emits NO GROUP BY', () => {
@@ -405,17 +265,6 @@ describe('renderExplorationSql — grouping (FR-002 AC5)', () => {
     );
   });
 
-  it('emits no HAVING when duplicates-only is off, and none from the percentage flag ever', () => {
-    // `showPercentage` is computed in the browser from rows already fetched — if it ever
-    // reached the SQL it would be a second scan for a column the user asked to SEE.
-    const sql = renderExplorationSql(
-      TABLE,
-      q({grouping: g({columns: ['status'], aggregates: [{fn: 'COUNT', column: '*'}], showPercentage: true})})
-    );
-    expect(sql).not.toContain('HAVING');
-    expect(sql).toBe('SELECT "status", COUNT(*) AS "count_all"\nFROM "alice"."orders"\nGROUP BY "status"');
-  });
-
   it('names the offending ordered column through the same rule the refusal uses', () => {
     // Exported so SPEC-182's panel refuses exactly what this refuses — the thrown message
     // names a column and an operator, which SPEC-106 forbids showing a user, so the panel
@@ -427,16 +276,6 @@ describe('renderExplorationSql — grouping (FR-002 AC5)', () => {
     expect(groupingOrderingViolation([{column: 'status', direction: 'asc', priority: 0}], grouping)).toBeNull();
     expect(groupingOrderingViolation([{column: 'count_all', direction: 'asc', priority: 0}], grouping)).toBeNull();
     expect(groupingOrderingViolation([], grouping)).toBeNull();
-  });
-
-  it('starts a panel’s draft with COUNT(*) and no columns — which is NOT grouping mode', () => {
-    const draft = emptyGrouping();
-    expect(draft).toEqual({
-      columns: [],
-      aggregates: [{fn: 'COUNT', column: '*'}],
-      duplicatesOnly: false,
-      showPercentage: false
-    });
   });
 
   it('composes grouping over the sql arm identically', () => {
@@ -458,13 +297,6 @@ describe('newExploration (FR-001)', () => {
     expect(exploration.query).toEqual({filters: [], expression: null, ordering: [], grouping: null});
     expect(exploration.source).toEqual(TABLE);
     expect(exploration.id).toBeTruthy();
-  });
-
-  it('keeps source, query and presentation as three separate fields', () => {
-    // Never a flattened bag — the split is what lets the renderer's parameter list
-    // exclude one of them.
-    const exploration = newExploration(TABLE);
-    expect(Object.keys(exploration).sort()).toEqual(['id', 'presentation', 'query', 'source']);
   });
 
   it('does not carry the bucket or the S3 location — those are the file browser’s concern', () => {

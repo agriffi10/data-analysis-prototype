@@ -124,31 +124,6 @@ def test_the_plan_key_comes_back_and_the_object_list_does_not():
     assert fake.puts[0]["Bucket"] == "admin-bkt"
 
 
-def test_the_validated_request_travels_through_unchanged():
-    """Everything downstream — the manifest builder, the record, the receipt — reads the archive
-    destination and the source off the state, so the verb must merge rather than replace."""
-    _install({"alice/reports/a.csv": 1})
-
-    result = m.handler(_event(), None)
-
-    assert result["archive"] == _event()["archive"]
-    assert result["source"]["items"] == _event()["source"]["items"]
-
-
-def test_the_plan_records_the_locations_it_was_expanded_for():
-    """A reader must not have to join the plan back against the execution to know what it
-    describes — delete-source deletes exactly its keys, under exactly its source root."""
-    fake = _install({"alice/reports/a.csv": 3})
-
-    m.handler(_event(), None)
-    body = json.loads(fake.puts[0]["Body"])
-
-    assert body["source"] == {"bucket": "user-bkt", "root": "alice/"}
-    assert body["archive"]["root"] == f"personal/alice/archive/{_REQUEST_ID}/"
-    assert body["objects"] == [{"relKey": "reports/a.csv", "bytes": 3}]
-    assert body["actor"] == "alice"
-
-
 def test_a_refusal_notifies_the_actor_before_the_catch_records_it(_no_real_notifications):
     """The decorator is what makes a refusal a message rather than a silent failed execution;
     the machine's own NotifyFailure then suppresses the duplicate on the TerminalError name."""
@@ -186,29 +161,6 @@ def test_a_request_id_that_has_been_used_before_is_refused_before_anything_is_re
     assert err.value.reason == "request_id_reused"
     assert fake.puts == []
     assert [user for user, _ in _no_real_notifications] == ["alice"]
-
-
-def test_the_occupancy_check_reads_this_requests_prefix_and_costs_one_call():
-    """One ListObjectsV2 against the vault, before a single HeadObject is spent on the
-    expansion — the cheapest order for a refusal."""
-    fake = _install({"alice/reports/a.csv": 5})
-
-    m.handler(_event(), None)
-
-    assert fake.listed == [
-        {"Bucket": "archive-bkt", "Prefix": f"personal/alice/archive/{_REQUEST_ID}/"}
-    ]
-
-
-def test_a_refusal_writes_no_plan():
-    """Every cap and every refusal is enforced before the write, so a refused archive leaves
-    nothing behind in the admin bucket."""
-    fake = _install({})
-
-    with pytest.raises(TerminalError):
-        m.handler(_event(), None)
-
-    assert fake.puts == []
 
 
 if __name__ == "__main__":

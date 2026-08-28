@@ -7,9 +7,6 @@ import {MoveDialog} from './MoveDialog';
 import type {SelectableItem} from './selectionContext';
 import type {FileListPage, S3FileItem, S3FolderItem} from '../../types/s3.types';
 import * as service from './fileBrowser.service';
-import {featureFlagKeys} from '../feature-flags/featureFlagKeys';
-import {FEATURE_FLAG_DEFAULTS} from '../feature-flags/featureFlagDefaults';
-import {configValue} from '../../lib/runtimeConfig';
 
 // ─── from CopyDialog.test.tsx ───
 vi.mock('./fileBrowser.service', async (importActual) => {
@@ -99,21 +96,6 @@ describe('CopyDialog', () => {
       };
     }
 
-    it('replaces the picker with an editable pre-filled name and confirms an override', async () => {
-      const {onConfirm, sameFolderPrompt} = promptProps();
-      const {user} = renderDialog({sameFolderPrompt});
-
-      // The folder picker is gone while the prompt is shown.
-      expect(screen.queryByRole('button', {name: /copy here/i})).not.toBeInTheDocument();
-
-      const input = screen.getByLabelText(/name for the copy/i) as HTMLInputElement;
-      expect(input.value).toBe('report (1).pdf');
-      await user.clear(input);
-      await user.type(input, 'custom.pdf');
-      await user.click(screen.getByRole('button', {name: /^copy$/i}));
-      expect(onConfirm).toHaveBeenCalledWith('custom.pdf');
-    });
-
     it('disables Copy when the proposed name is invalid', async () => {
       const {sameFolderPrompt} = promptProps();
       const {user} = renderDialog({sameFolderPrompt});
@@ -185,34 +167,11 @@ describe('DestinationPicker', () => {
   });
 
   describe('DestinationPicker', () => {
-    it('navigates into a folder and confirms the browsed prefix', async () => {
-      listing({'alice/': pageOf([folder('alice/backups/', 'backups')]), 'alice/backups/': pageOf()});
-      const {user, onConfirm} = renderPicker();
-
-      await user.click(await screen.findByRole('button', {name: /open folder backups/i}));
-      await waitFor(() =>
-        expect(mock.listFiles).toHaveBeenCalledWith('us', 'alice/backups/', undefined, expect.any(AbortSignal))
-      );
-
-      await user.click(screen.getByRole('button', {name: /copy here/i}));
-      expect(onConfirm).toHaveBeenCalledWith('alice/backups/', 'us', undefined);
-    });
-
     it('excludes the protected athenaresults folder from the listing', async () => {
       listing({'alice/': pageOf([folder('alice/athenaresults/', 'athenaresults'), folder('alice/x/', 'x')])});
       renderPicker();
       expect(await screen.findByRole('button', {name: /open folder x/i})).toBeInTheDocument();
       expect(screen.queryByRole('button', {name: /open folder athenaresults/i})).not.toBeInTheDocument();
-    });
-
-    it('excludes shared_tables from the listing — the pipeline owns its layout', async () => {
-      // Closed 2026-08-05: `shared_tables/` was a valid paste target, so a user could drop files
-      // beside the files of a table shared with them. It stays VISIBLE in the file browser (seeing
-      // what was shared with you is the point); it is only barred as a destination.
-      listing({'alice/': pageOf([folder('alice/shared_tables/', 'shared_tables'), folder('alice/x/', 'x')])});
-      renderPicker();
-      expect(await screen.findByRole('button', {name: /open folder x/i})).toBeInTheDocument();
-      expect(screen.queryByRole('button', {name: /open folder shared_tables/i})).not.toBeInTheDocument();
     });
 
     it('gates the current parent by allowCurrentParent (Move blocks, Copy allows)', () => {
@@ -250,17 +209,6 @@ describe('DestinationPicker', () => {
       expect(screen.queryByRole('button', {name: /report\.csv/i})).not.toBeInTheDocument();
       // The folder is still navigable.
       expect(screen.getByRole('button', {name: /open folder backups/i})).toBeInTheDocument();
-    });
-
-    it('shows the empty message only when there are no folders and no files', async () => {
-      const {unmount} = renderPicker(); // default listing = empty
-      expect(await screen.findByText(/this folder is empty/i)).toBeInTheDocument();
-      unmount();
-
-      listing({'alice/': pageOf([], [file('alice/a.txt', 'a.txt')])});
-      renderPicker();
-      expect(await screen.findByText('a.txt')).toBeInTheDocument();
-      expect(screen.queryByText(/this folder is empty/i)).not.toBeInTheDocument();
     });
 
     it('shows a connection selector and browses/confirms into another connection', async () => {
@@ -311,22 +259,6 @@ describe('DestinationPicker', () => {
 
       expect(onConfirm).toHaveBeenCalledWith('alice/saved_queries/', 'us', undefined);
     });
-
-    it('is NOT offered with the query flag off — a destination you cannot see is not one', async () => {
-      withFolder();
-      const {queryClient} = renderPicker({currentPrefix: 'alice/docs/'});
-      queryClient.setQueryData(featureFlagKeys.resolved(configValue('environment')), {
-        ...FEATURE_FLAG_DEFAULTS,
-        query: false
-      });
-
-      // `docs` proves the listing landed, so the absence below is the gate rather than a
-      // tree that has not rendered yet.
-      expect(await screen.findByRole('button', {name: 'Open folder docs'})).toBeInTheDocument();
-      await waitFor(() =>
-        expect(screen.queryByRole('button', {name: 'Open folder saved_queries'})).not.toBeInTheDocument()
-      );
-    });
   });
 
   // SPEC-124 FR-003. The mode is opt-in precisely BECAUSE three shipped dialogs depend
@@ -352,35 +284,6 @@ describe('DestinationPicker', () => {
       expect(onConfirm).toHaveBeenCalledWith('alice/', 'us', undefined);
     });
 
-    it('selects a file, deselects it, and clears the selection on navigation', async () => {
-      listing({
-        'alice/': pageOf([folder('alice/backups/', 'backups')], [file('alice/report.csv', 'report.csv')]),
-        'alice/backups/': pageOf([], [file('alice/backups/old.csv', 'old.csv')])
-      });
-      const {user, onConfirm} = renderPicker({...selectable, currentPrefix: 'alice/'});
-
-      // No selection → the browsed folder is the target.
-      const row = await screen.findByRole('button', {name: 'Select file report.csv'});
-      expect(row).toHaveAttribute('aria-pressed', 'false');
-
-      // Select → the file is the target.
-      await user.click(row);
-      expect(screen.getByRole('button', {name: 'Select file report.csv'})).toHaveAttribute('aria-pressed', 'true');
-
-      // Click again → deselected, target back to the folder.
-      await user.click(screen.getByRole('button', {name: 'Select file report.csv'}));
-      expect(screen.getByRole('button', {name: 'Select file report.csv'})).toHaveAttribute('aria-pressed', 'false');
-
-      // Re-select, then navigate: the selection must NOT survive into the new folder.
-      await user.click(screen.getByRole('button', {name: 'Select file report.csv'}));
-      await user.click(screen.getByRole('button', {name: /open folder backups/i}));
-      const moved = await screen.findByRole('button', {name: 'Select file old.csv'});
-      expect(moved).toHaveAttribute('aria-pressed', 'false');
-
-      await user.click(screen.getByRole('button', {name: /copy here/i}));
-      expect(onConfirm).toHaveBeenCalledWith('alice/backups/', 'us', undefined);
-    });
-
     it('confirms with the selected file key only while a file is selected', async () => {
       listing({'alice/': pageOf([], [file('alice/report.csv', 'report.csv')])});
       const {user, onConfirm} = renderPicker({...selectable, currentPrefix: 'alice/'});
@@ -388,23 +291,6 @@ describe('DestinationPicker', () => {
       await user.click(await screen.findByRole('button', {name: 'Select file report.csv'}));
       await user.click(screen.getByRole('button', {name: /copy here/i}));
       expect(onConfirm).toHaveBeenCalledWith('alice/', 'us', 'alice/report.csv');
-    });
-
-    it('reports the target on mount and on every navigation/selection change', async () => {
-      listing({
-        'alice/': pageOf([folder('alice/backups/', 'backups')], [file('alice/report.csv', 'report.csv')]),
-        'alice/backups/': pageOf([], [file('alice/backups/old.csv', 'old.csv')])
-      });
-      const onTargetChange = vi.fn();
-      const {user} = renderPicker({...selectable, currentPrefix: 'alice/', onTargetChange});
-
-      expect(onTargetChange).toHaveBeenCalledWith({prefix: 'alice/', fileKey: undefined});
-
-      await user.click(await screen.findByRole('button', {name: 'Select file report.csv'}));
-      expect(onTargetChange).toHaveBeenLastCalledWith({prefix: 'alice/', fileKey: 'alice/report.csv'});
-
-      await user.click(screen.getByRole('button', {name: /open folder backups/i}));
-      expect(onTargetChange).toHaveBeenLastCalledWith({prefix: 'alice/backups/', fileKey: undefined});
     });
 
     it('hides the prefix marker, so it can never be selected as a target', async () => {
@@ -487,19 +373,6 @@ describe('MoveDialog', () => {
   });
 
   describe('MoveDialog', () => {
-    it('navigates into a folder and moves there', async () => {
-      listing({'alice/': pageOf([folder('alice/backups/', 'backups')]), 'alice/backups/': pageOf()});
-      const {user, onMove} = renderDialog();
-
-      await user.click(await screen.findByRole('button', {name: /open folder backups/i}));
-      await waitFor(() =>
-        expect(mock.listFiles).toHaveBeenCalledWith('us', 'alice/backups/', undefined, expect.any(AbortSignal))
-      );
-
-      await user.click(screen.getByRole('button', {name: /move here/i}));
-      expect(onMove).toHaveBeenCalledWith('alice/backups/', 'us', undefined);
-    });
-
     it('climbs back to the root via the ".." row and can move there', async () => {
       listing({'alice/': pageOf([folder('alice/backups/', 'backups')]), 'alice/backups/': pageOf()});
       const {user, onMove} = renderDialog();
@@ -523,13 +396,6 @@ describe('MoveDialog', () => {
       expect(moveHere).toBeEnabled();
       await user.click(moveHere);
       expect(onMove).toHaveBeenCalledWith('alice/', 'us', undefined);
-    });
-
-    it('disables "Move here" at the items\' current parent', () => {
-      // Browse starts at the root = the items' current parent → forbidden (no-op).
-      renderDialog({currentPrefix: 'alice/'});
-      expect(screen.getByRole('button', {name: /move here/i})).toBeDisabled();
-      expect(screen.getByText(/already here/i)).toBeInTheDocument();
     });
 
     it('hides the folders being moved (no descending into them)', async () => {

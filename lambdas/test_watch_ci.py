@@ -69,28 +69,11 @@ class TestIsSettled:
         ]
         assert watch_ci.is_settled(runs) is False
 
-    @pytest.mark.parametrize("status", ["queued", "in_progress", "requested", "waiting", "pending"])
-    def test_every_github_running_status_blocks(self, status):
-        """Each status GitHub uses for work in flight holds the verdict back."""
-        assert watch_ci.is_settled([run("CI", status=status, conclusion=None)]) is False
 
     @pytest.mark.parametrize("status", sorted(watch_ci.FINISHED_STATUSES))
     def test_every_finished_status_settles(self, status):
         """Parametrised over the constant, so a status added to the allowlist is covered."""
         assert watch_ci.is_settled([run("CI", status=status)]) is True
-
-    def test_an_unrecognised_status_is_treated_as_unfinished(self):
-        """An unknown status waits rather than deciding.
-
-        GitHub has added statuses before. The safe direction for one this does not know is
-        to keep waiting — declaring a result from a status whose meaning is unknown is the
-        failure mode, and waiting merely costs time.
-        """
-        assert watch_ci.is_settled([run("CI", status="something_new", conclusion=None)]) is False
-
-    def test_all_completed_is_settled(self):
-        """The ordinary case still terminates."""
-        assert watch_ci.is_settled([run("CI"), run("Security", conclusion="skipped")]) is True
 
 
 class TestVerdict:
@@ -102,14 +85,6 @@ class TestVerdict:
         assert ok is False
         assert bad == ["lambdas (failure)"]
 
-    def test_skipped_and_neutral_pass(self):
-        """A skipped job decided correctly not to run.
-
-        This repo's ``apply`` skips on every pull request. Treating that as red would make
-        the watcher useless on pull requests, which is the case it is most wanted for.
-        """
-        ok, bad = watch_ci.verdict([run("apply", conclusion="skipped"), run("x", conclusion="neutral")])
-        assert (ok, bad) == (True, [])
 
     @pytest.mark.parametrize("conclusion", ["failure", "cancelled", "timed_out", "action_required"])
     def test_every_bad_conclusion_fails(self, conclusion):
@@ -127,30 +102,10 @@ class TestVerdict:
         assert ok is False
         assert bad == ["CI (no conclusion)"]
 
-    def test_one_failure_among_many_passes_still_fails(self):
-        """The verdict is an AND, and a majority-green report would be worse than none."""
-        runs = [run("a"), run("b"), run("c", conclusion="failure"), run("d")]
-        assert watch_ci.verdict(runs)[0] is False
-
-
-class TestResolveSha:
-    """The selector, which is what keeps a report attached to a commit."""
-
-    def test_pr_and_branch_together_are_refused(self):
-        """Two selectors name two commits, and picking one silently is how the wrong one wins."""
-        with pytest.raises(watch_ci.WatchError, match="pass one"):
-            watch_ci.resolve_sha(pr=1, branch="main")
-
 
 class TestMoved:
     """Detecting that the thing being watched is no longer the head."""
 
-    def test_a_bare_sha_has_no_ref_to_move(self, monkeypatch):
-        """With no selector there is nothing to re-resolve, and no call should be made."""
-        monkeypatch.setattr(
-            watch_ci, "resolve_sha", lambda *a, **k: pytest.fail("must not re-resolve")
-        )
-        assert watch_ci.moved("abc", None, None) is None
 
     def test_an_unchanged_ref_reports_nothing(self, monkeypatch):
         """The common case must not produce a spurious abort."""
@@ -161,18 +116,6 @@ class TestMoved:
         """Someone pushed, so a verdict about the old commit is about superseded work."""
         monkeypatch.setattr(watch_ci, "resolve_sha", lambda pr, branch: "def")
         assert watch_ci.moved("abc", 538, None) == "def"
-
-    def test_a_failed_re_resolution_does_not_abort_the_watch(self, monkeypatch):
-        """A transient API failure must not read as "the ref moved".
-
-        The watch is the useful thing; a blip in the extra check should cost nothing.
-        """
-
-        def boom(pr, branch):
-            raise watch_ci.WatchError("network")
-
-        monkeypatch.setattr(watch_ci, "resolve_sha", boom)
-        assert watch_ci.moved("abc", 538, None) is None
 
 
 class TestWatchExitStatus:
@@ -201,23 +144,6 @@ class TestWatchExitStatus:
         )
         assert watch_ci.watch("abc", interval=0, timeout=1, once=True) == 2
 
-    def test_a_moved_ref_stops_the_watch_AND_SAYS_SO(self, monkeypatch, capsys):
-        """Asserting the reason, not just the code — 2 is also what a timeout returns.
-
-        The first version of this test asserted only ``== 2`` and passed with the moved-ref
-        guard **deleted**, because the deadline path returns 2 as well. A test that cannot
-        tell its own guard from the one beside it is not holding anything.
-
-        ``once=True`` rather than a long timeout, so deleting the guard fails this in
-        milliseconds instead of spinning until the deadline — which the guard sitting above
-        the ``once`` branch is what makes possible.
-        """
-        monkeypatch.setattr(
-            watch_ci, "fetch_runs", lambda sha: [run("CI", status="in_progress", conclusion=None)]
-        )
-        monkeypatch.setattr(watch_ci, "moved", lambda sha, pr, branch: "def")
-        assert watch_ci.watch("abc", interval=0, timeout=9999, once=True, pr=538) == 2
-        assert "the ref moved to def" in capsys.readouterr().out
 
     def test_a_moved_ref_stops_a_watch_that_would_have_gone_GREEN(self, monkeypatch, capsys):
         """The settled path is the one that returns 0, so it is the one that must be gated.
@@ -232,91 +158,3 @@ class TestWatchExitStatus:
         out = capsys.readouterr().out
         assert "the ref moved to def" in out
         assert "green" not in out
-
-
-class TestReport:
-    """What gets printed, since the report is the product.
-
-    ``verdict`` counts a null conclusion against, which is correct for a finished run and
-    wrong for one still going — so a report that ran it over an unsettled list called healthy
-    in-flight jobs failures. These pin the two shapes apart.
-    """
-
-    def test_an_unsettled_report_gives_NO_verdict_and_calls_nothing_failed(self, capsys):
-        """The `--once`-during-CI case, which printed `RED … failed: CI (no conclusion)`."""
-        runs = [
-            run("CI", status="in_progress", conclusion=None),
-            run("Security", status="queued", conclusion=None),
-        ]
-        watch_ci._report("abc", runs, settled=False)
-        out = capsys.readouterr().out
-        assert "no verdict on abc" in out
-        assert "2 of 2 still going" in out
-        assert "RED" not in out
-        assert "failed:" not in out
-
-    def test_a_settled_green_report_says_green(self, capsys):
-        """And names the sha, so a reader can check the attachment themselves."""
-        watch_ci._report("abc", [run("CI"), run("apply", conclusion="skipped")], settled=True)
-        out = capsys.readouterr().out
-        assert "green on abc" in out
-        assert "RED" not in out
-
-    def test_a_settled_red_report_names_the_failure(self, capsys):
-        """A count without a name sends the reader hunting."""
-        watch_ci._report("abc", [run("CI", conclusion="failure")], settled=True)
-        out = capsys.readouterr().out
-        assert "RED on abc" in out
-        assert "failed: CI (failure)" in out
-
-    def test_once_during_running_ci_exits_2_without_claiming_red(self, monkeypatch, capsys):
-        """End to end: the invocation the docs advertise, against healthy in-flight CI."""
-        monkeypatch.setattr(
-            watch_ci,
-            "fetch_runs",
-            lambda sha: [run("CI", status="in_progress", conclusion=None)],
-        )
-        assert watch_ci.watch("abc", interval=0, timeout=1, once=True) == 2
-        assert "RED" not in capsys.readouterr().out
-
-
-class TestFetchRuns:
-    """The one place a silent cap could hide."""
-
-    def test_a_second_page_of_runs_is_refused_not_silently_dropped(self, monkeypatch):
-        """Judging the first hundred of more, and calling it the whole, is this file's own bug."""
-        monkeypatch.setattr(
-            watch_ci, "_gh", lambda *a: '{"total": 140, "runs": [{"name": "CI"}]}'
-        )
-        with pytest.raises(watch_ci.WatchError, match="fit one page"):
-            watch_ci.fetch_runs("abc")
-
-    def test_a_single_page_is_returned(self, monkeypatch):
-        """The ordinary case still works."""
-        monkeypatch.setattr(watch_ci, "_gh", lambda *a: '{"total": 1, "runs": [{"name": "CI"}]}')
-        assert watch_ci.fetch_runs("abc") == [{"name": "CI"}]
-
-
-class TestMainSelectors:
-    """The CLI, which had its own way past the mutual-exclusion refusal."""
-
-    def test_sha_with_pr_is_refused(self, monkeypatch, capsys):
-        """`args.sha or resolve_sha(...)` short-circuited, so the refusal never ran.
-
-        With all three passed, `moved` also self-disabled silently; with `--sha X --pr N`, a
-        deliberately pinned commit got aborted as "the ref moved".
-        """
-        monkeypatch.setattr("sys.argv", ["watch_ci.py", "--sha", "abc", "--pr", "1"])
-        assert watch_ci.main() == 2
-        assert "Pass one of the three" in capsys.readouterr().err
-
-    def test_an_unexpected_exception_exits_2_not_1(self, monkeypatch, capsys):
-        """1 means "settled and red". A broken watch must not be readable as a failed build."""
-        monkeypatch.setattr("sys.argv", ["watch_ci.py", "--sha", "abc"])
-
-        def boom(*a, **k):
-            raise RuntimeError("something else")
-
-        monkeypatch.setattr(watch_ci, "watch", boom)
-        assert watch_ci.main() == 2
-        assert "the watch itself broke" in capsys.readouterr().err

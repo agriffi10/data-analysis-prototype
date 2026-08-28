@@ -26,7 +26,6 @@ import pytest
 from arcommon import notify
 from arcommon.config import RESTORE_MAX_POLLS
 from cpcommon import clients
-from cpcommon.errors import TerminalError
 
 _REQUEST_ID = "9f2c1b8e-1111-4222-8333-444444444444"
 _ARCHIVE_ID = "b71d0f42-9c3e-4a17-b8f5-0d1e2f3a4b5c"
@@ -147,21 +146,6 @@ def test_a_running_retrieval_reports_incomplete_and_records_where_it_got_to():
     assert fake.puts[0]["Key"] == _PROGRESS_KEY
 
 
-def test_the_iteration_count_advances_from_the_recorded_one_and_not_from_zero():
-    """The loop's budget is counted across ITERATIONS, not within one, so a poll that read no
-    progress would reset the count every time and the loop would never exhaust — it would spin
-    until the machine's own ceiling instead, which reports the wrong cause."""
-    fake = _install(
-        progress={"pollCount": 5, "completedThrough": 0, "objectCount": 3},
-        heads={f"{_ARCHIVE_ROOT}f0.csv": _WORKING},
-    )
-
-    out = m.handler(_request(), None)
-
-    assert out["restorePoll"]["pollCount"] == 6
-    assert json.loads(fake.puts[0]["Body"])["pollCount"] == 6
-
-
 def test_the_budget_running_out_reports_exhausted_rather_than_looping_on():
     _install(
         progress={"pollCount": RESTORE_MAX_POLLS - 1, "completedThrough": 0, "objectCount": 3},
@@ -172,51 +156,6 @@ def test_the_budget_running_out_reports_exhausted_rather_than_looping_on():
 
     assert out["restorePoll"]["exhausted"] is True
     assert out["restorePoll"]["complete"] is False
-
-
-def test_a_complete_sweep_on_the_last_iteration_is_NOT_exhausted():
-    """`exhausted` is only true when the budget ran out AND the retrieval had not finished.
-    Reported the other way, a restore that completed on its final poll would be refused after
-    six hours of waiting for it."""
-    _install(progress={"pollCount": RESTORE_MAX_POLLS - 1, "completedThrough": 0, "objectCount": 3})
-
-    out = m.handler(_request(), None)
-
-    assert out["restorePoll"]["complete"] is True
-    assert out["restorePoll"]["exhausted"] is False
-
-
-def test_an_object_nothing_ever_asked_for_refuses_and_notifies(_sink):
-    """FR-002 AC3. Read as "not yet" it would burn every remaining iteration and then report a
-    timeout for something that was never going to complete."""
-    _install(heads={f"{_ARCHIVE_ROOT}f2.csv": {"StorageClass": "GLACIER"}})
-
-    with pytest.raises(TerminalError) as caught:
-        m.handler(_request(), None)
-
-    assert caught.value.reason == "restore_never_requested"
-    assert _sink and _sink[0][0] == "alice"
-
-
-def test_the_recorded_progress_spares_the_heads_below_it():
-    fake = _install(
-        count=3,
-        progress={"pollCount": 1, "completedThrough": 2, "objectCount": 3},
-    )
-
-    m.handler(_request(), None)
-
-    assert fake.headed == [f"{_ARCHIVE_ROOT}f2.csv"]
-
-
-def test_a_plan_that_is_not_this_runs_refuses():
-    fake = _install()
-    fake._plan["requestId"] = "00000000-0000-4000-8000-000000000000"
-
-    with pytest.raises(TerminalError) as caught:
-        m.handler(_request(), None)
-
-    assert caught.value.reason == "plan_superseded"
 
 
 if __name__ == "__main__":

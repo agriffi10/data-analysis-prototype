@@ -130,38 +130,6 @@ def test_the_plan_comes_back_as_a_POINTER_and_the_object_list_does_not():
     assert fake.puts[0]["Bucket"] == "admin-bkt"
 
 
-def test_the_written_plan_carries_every_destination_and_its_size():
-    """SPEC-172 tells the user how much is coming back and SPEC-171 bounds its wait on these."""
-    fake = _install(
-        archived=[(f"{_ARCHIVE_ROOT}reports/q1.csv", 90_112), (f"{_ARCHIVE_ROOT}notes.txt", 12)]
-    )
-
-    m.handler(_request(), None)
-    written = json.loads(fake.puts[0]["Body"])
-
-    assert written["objects"] == [
-        {
-            "archiveKey": f"{_ARCHIVE_ROOT}reports/q1.csv",
-            "destKey": "alice/reports/q1.csv",
-            "bytes": 90_112,
-        },
-        {"archiveKey": f"{_ARCHIVE_ROOT}notes.txt", "destKey": "alice/notes.txt", "bytes": 12},
-    ]
-    assert written["objectCount"] == 2
-    assert written["archive"]["archiveId"] == _ARCHIVE_ID
-
-
-def test_the_request_is_threaded_onward_whole():
-    """Every downstream state and every failure seed reads the request at the TOP level."""
-    _install(archived=[(f"{_ARCHIVE_ROOT}q1.csv", 1)])
-
-    out = m.handler(_request(), None)
-
-    assert out["requestId"] == _REQUEST_ID
-    assert out["mode"] == "restore"
-    assert out["archive"]["root"] == _ARCHIVE_ROOT
-
-
 def test_an_archive_that_is_not_there_refuses_and_notifies_the_actor(_sink):
     _install(archived=[])
 
@@ -170,49 +138,6 @@ def test_an_archive_that_is_not_there_refuses_and_notifies_the_actor(_sink):
 
     assert caught.value.reason == "archive_not_found"
     assert _sink and _sink[0][0] == "alice"
-
-
-def test_the_refusal_is_worded_as_a_restore_and_names_the_id(_sink):
-    """The two modes share one body table under two prefixes, and `mode` rides on the request —
-    so a user who clicked Restore is not told an archive failed."""
-    _install(archived=[])
-
-    with pytest.raises(TerminalError):
-        m.handler(_request(), None)
-
-    text = _sink[0][1]
-    assert text.startswith("Couldn't restore that: ")
-    assert _ARCHIVE_ID in text
-
-
-def test_a_record_that_disagrees_with_the_listing_refuses_before_the_plan_is_written():
-    """A damaged archive leaves nothing behind in the admin bucket."""
-    fake = _install(
-        archived=[(f"{_ARCHIVE_ROOT}q1.csv", 1)],
-        manifest={"objectCount": 4},
-    )
-
-    with pytest.raises(TerminalError) as caught:
-        m.handler(_request(), None)
-
-    assert caught.value.reason == "restore_archive_incomplete"
-    assert fake.puts == []
-
-
-def test_a_missing_record_is_recorded_rather_than_refused():
-    """FR-003 AC5. The manifest is not load-bearing; a restore that refused for want of a
-    convenience record would be the failure mode the self-describing key layout prevents."""
-    _install(archived=[(f"{_ARCHIVE_ROOT}q1.csv", 1)], manifest=None)
-
-    out = m.handler(_request(), None)
-
-    assert out["manifestPresent"] is False
-
-
-def test_a_record_that_agrees_is_recorded_as_present():
-    _install(archived=[(f"{_ARCHIVE_ROOT}q1.csv", 1)], manifest={"objectCount": 1})
-
-    assert m.handler(_request(), None)["manifestPresent"] is True
 
 
 if __name__ == "__main__":

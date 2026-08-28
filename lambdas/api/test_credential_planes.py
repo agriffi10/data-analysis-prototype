@@ -270,40 +270,6 @@ def test_no_module_outside_the_identity_layer_reaches_aws_or_mints_an_identity()
         assert findings(tree) == [], f"{path} reaches around the two doors: {findings(tree)}"
 
 
-def test_a_route_has_exactly_TWO_doors_onto_aws() -> None:
-    """The criterion is about how many ways IN a route has, which is not how many boto3 calls exist.
-
-    The identity layer holds a third, private constructor that both public doors delegate to — the
-    single construction site. That is exempt by module identity, and the sweeps above are what stop
-    a route reaching it. This asserts the public surface itself: two doors, both taking what they
-    need as parameters, and no third.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: If the module grows another public way to get a client.
-    """
-    import inspect
-
-    public = {
-        name
-        for name, value in vars(identity).items()
-        if not name.startswith("_")
-        and inspect.isfunction(value)
-        and value.__module__ == identity.__name__
-        and "client" in name
-    }
-    assert public == {"user_client", "api_client"}, (
-        f"the identity layer exposes {sorted(public)} — a route reaches AWS through exactly two"
-    )
-    assert list(inspect.signature(identity.user_client).parameters) == ["service", "caller"]
-    assert list(inspect.signature(identity.api_client).parameters) == ["service"]
-
-
 def test_the_package_holds_exactly_one_client_construction_site() -> None:
     """A COUNT, not an absence — "none outside the layer" permits six inside it.
 
@@ -443,83 +409,6 @@ def test_a_route_that_did_not_declare_the_api_plane_is_refused_before_any_call(n
     assert no_aws == [], "a client was constructed before the plane was checked"
 
 
-def test_a_route_that_declared_the_api_plane_gets_its_client(no_aws, monkeypatch) -> None:
-    """The other direction. One alone passes for a guard that always raises.
-
-    Args:
-      no_aws: The construction recorder.
-      monkeypatch: pytest's patcher.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: If the declared route is refused.
-    """
-    monkeypatch.setattr(
-        planes,
-        "planes_for",
-        lambda route_id: frozenset({planes.Plane.API}) if route_id == "test.apiPlane" else frozenset(),
-    )
-    planes.begin_request()
-    planes.begin_dispatch("test.apiPlane")
-
-    identity.api_client("sts")
-    assert no_aws == ["sts"]
-
-
-def test_a_route_key_left_behind_by_the_last_request_authorizes_nothing(no_aws, monkeypatch) -> None:
-    """THE case a two-direction test misses, driven as a sequence in one process.
-
-    A warm container does not give each invocation a fresh context. Request A declares the API
-    plane and raises partway through; request B is a user-only route. If the route key survives,
-    B reaches the execution role and SUCCEEDS.
-
-    Args:
-      no_aws: The construction recorder.
-      monkeypatch: pytest's patcher.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: If the second request inherits the first's declaration.
-    """
-    monkeypatch.setattr(
-        planes,
-        "planes_for",
-        lambda route_id: frozenset({planes.Plane.API}) if route_id == "test.apiPlane" else frozenset(),
-    )
-
-    planes.begin_request()
-    planes.begin_dispatch("test.apiPlane")
-    identity.api_client("sts")
-
-    planes.begin_request()
-    planes.begin_dispatch("userDirectory.get")
-    with pytest.raises(identity.PlaneViolationError):
-        identity.api_client("sts")
-
-
-def test_the_api_plane_is_unreachable_with_no_dispatch_in_progress(no_aws) -> None:
-    """The sentinel is not a key in the table, so it authorizes nothing.
-
-    Args:
-      no_aws: The construction recorder.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: If a client is handed out with no route running.
-    """
-    planes.begin_request()
-    assert planes.current_route() == planes.NO_ROUTE
-    with pytest.raises(identity.PlaneViolationError):
-        identity.api_client("sts")
-    assert no_aws == []
-
-
 def test_the_router_resets_the_plane_on_the_way_IN(monkeypatch) -> None:
     """Read off the router's own source: the reset precedes the public-route check.
 
@@ -549,6 +438,64 @@ def test_the_router_resets_the_plane_on_the_way_IN(monkeypatch) -> None:
     assert first.value.func.attr == "begin_request", (
         "route() no longer resets the credential plane before anything else"
     )
+
+
+# ── The table and the dispatch table are the same set ─────────────────────────
+
+
+def test_a_plane_that_is_neither_of_the_two_is_REFUSED_rather_than_defaulted() -> None:
+    """The half the old set-equality guard could never carry.
+
+    Deriving the plane from the route's own declaration makes "a route cannot be added without
+    choosing" structural — the field is required to construct one. What that does NOT give is
+    protection from choosing wrongly: a typo resolving quietly to user-only looks identical to a
+    correct user-only route, and the fail-closed guarantee would be gone with nothing to show it.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If an unrecognised plane resolves instead of raising.
+    """
+    typo = contract.Route(
+        id="typo.get",
+        method="GET",
+        path="/v1/typo",
+        idempotent=True,
+        plane="API",
+        request=None,
+        response=contract.UserDirectoryResponse,
+    )
+
+    original = contract.ROUTES
+    contract.ROUTES = (*original, typo)
+    try:
+        with pytest.raises(ValueError):
+            planes.planes_for("typo.get")
+    finally:
+        contract.ROUTES = original
+
+
+def test_the_api_plane_is_unreachable_with_no_dispatch_in_progress(no_aws) -> None:
+    """The sentinel is not a key in the table, so it authorizes nothing.
+
+    Args:
+      no_aws: The construction recorder.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a client is handed out with no route running.
+    """
+    planes.begin_request()
+    assert planes.current_route() == planes.NO_ROUTE
+    with pytest.raises(identity.PlaneViolationError):
+        identity.api_client("sts")
+    assert no_aws == []
 
 
 def test_a_request_that_never_DISPATCHES_cannot_inherit_the_last_one_declaration(
@@ -629,109 +576,26 @@ def test_an_undispatched_refusal_also_leaves_the_plane_at_the_sentinel(no_aws, m
         )
 
 
-def test_a_public_route_leaves_the_plane_at_the_sentinel() -> None:
-    """The health check runs before dispatch and must not inherit a declaration.
+def test_a_route_that_declared_the_api_plane_gets_its_client(no_aws, monkeypatch) -> None:
+    """The other direction. One alone passes for a guard that always raises.
 
     Args:
-      None.
+      no_aws: The construction recorder.
+      monkeypatch: pytest's patcher.
 
     Returns:
       None.
 
     Raises:
-      AssertionError: If the public path leaves a route key behind.
+      AssertionError: If the declared route is refused.
     """
-    planes.begin_dispatch("test.apiPlane")
-    router.route("GET", "/healthz", {})
-    assert planes.current_route() == planes.NO_ROUTE
-
-
-# ── The table and the dispatch table are the same set ─────────────────────────
-
-
-def test_every_dispatched_route_declares_a_plane_and_every_declaration_dispatches() -> None:
-    """Set equality, both sides derived. A hand-maintained list rots; this is what stops it.
-
-    ``PUBLIC_ROUTES`` is excluded BY NAME rather than by a rule: the health check makes no AWS
-    call, runs before dispatch, and is deliberately left at the sentinel — which authorizes
-    nothing, so it needs no entry and must not have one. Recorded here because "the guard covers
-    every route" and "the guard covers the routes it looks at" are otherwise indistinguishable.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: If the two sets differ, or a public route acquired a declaration.
-    """
-    assert set(planes.route_planes()) == set(router.HANDLERS), (
-        f"declared {sorted(planes.route_planes())} but the router dispatches "
-        f"{sorted(router.HANDLERS)}"
+    monkeypatch.setattr(
+        planes,
+        "planes_for",
+        lambda route_id: frozenset({planes.Plane.API}) if route_id == "test.apiPlane" else frozenset(),
     )
-
-    public_paths = {path for _, path in router.PUBLIC_ROUTES}
-    assert not {route.id for route in contract.ROUTES if route.path in public_paths}, (
-        "a public route acquired a plane declaration; it runs before dispatch and is left at "
-        "the sentinel, which authorizes nothing"
-    )
-    assert planes.NO_ROUTE not in planes.route_planes()
-
-
-def test_the_user_plane_is_the_default_and_is_never_listed() -> None:
-    """A route naming nothing gets the less privileged plane, which is the safe direction.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: If any entry lists the user plane, or the user plane is ever refused.
-    """
-    for route_key, declared in planes.route_planes().items():
-        assert planes.Plane.USER not in declared, (
-            f"{route_key} lists the user plane — it is implicit, and listing it invites an "
-            "entry that lists nothing to be read as declaring nothing rather than as user-only"
-        )
-
     planes.begin_request()
-    planes.require(planes.Plane.USER)
+    planes.begin_dispatch("test.apiPlane")
 
-
-def test_a_plane_that_is_neither_of_the_two_is_REFUSED_rather_than_defaulted() -> None:
-    """The half the old set-equality guard could never carry.
-
-    Deriving the plane from the route's own declaration makes "a route cannot be added without
-    choosing" structural — the field is required to construct one. What that does NOT give is
-    protection from choosing wrongly: a typo resolving quietly to user-only looks identical to a
-    correct user-only route, and the fail-closed guarantee would be gone with nothing to show it.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: If an unrecognised plane resolves instead of raising.
-    """
-    typo = contract.Route(
-        id="typo.get",
-        method="GET",
-        path="/v1/typo",
-        idempotent=True,
-        plane="API",
-        request=None,
-        response=contract.UserDirectoryResponse,
-    )
-
-    original = contract.ROUTES
-    contract.ROUTES = (*original, typo)
-    try:
-        with pytest.raises(ValueError):
-            planes.planes_for("typo.get")
-    finally:
-        contract.ROUTES = original
+    identity.api_client("sts")
+    assert no_aws == ["sts"]

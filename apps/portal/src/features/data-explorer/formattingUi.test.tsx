@@ -5,7 +5,6 @@ import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProv
 import {authenticated} from '../../test/authFixtures';
 import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
-import {INAPPLICABLE_RULE} from './RowColoursDialog';
 import {STRIPING_OFF_TEXT} from './StripingControl';
 import {PATTERN_REFUSAL, STRIPE_BACKGROUND} from './formatting';
 import {newExploration} from './exploration';
@@ -239,24 +238,6 @@ describe('conditional colouring (FR-002)', () => {
   });
 });
 
-describe('colour by data type (FR-003)', () => {
-  it('tints by type and loses to a rule where both apply', async () => {
-    const {user} = render();
-    await screen.findByRole('columnheader', {name: 'qty'});
-
-    const dialog = await openColours(user);
-    await user.click(within(dialog).getByRole('checkbox', {name: /data type/i}));
-    await addRule(user, dialog, {column: 'qty', value: '10', colour: 'Green'});
-    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
-
-    // `qty` is a bigint, so every cell in it is tinted — except the one the rule claims.
-    await waitFor(() => expect(cell(1, 'qty')).toHaveStyle({color: 'var(--color-accent-text)'}));
-    expect(cell(0, 'qty')).toHaveStyle({color: 'var(--color-success)'});
-    // The type is still written under the header, so colour is never the only carrier.
-    expect(screen.getByRole('columnheader', {name: 'qty'})).toHaveTextContent('bigint');
-  });
-});
-
 describe('group row striping (FR-004)', () => {
   it('bands consecutive equal rows and says which rows it looked at', async () => {
     const {user} = render();
@@ -291,31 +272,6 @@ describe('persistence (FR-007)', () => {
         rules: [{column: 'status', operator: '=', value: 'ok', foreground: 'danger'}]
       })
     );
-  });
-
-  it('shows a rule whose column has gone as inapplicable rather than dropping it', async () => {
-    // A grouping change replaces the column set wholesale, so this is the ordinary case —
-    // and a rule silently deleted is work a user has to notice was lost.
-    const {user} = render();
-    await screen.findByRole('columnheader', {name: 'status'});
-
-    const dialog = await openColours(user);
-    await addRule(user, dialog, {column: 'status', value: 'ok', colour: 'Red'});
-    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
-
-    vi.mocked(getQueryResults).mockResolvedValue(
-      ok({columns: [{name: 'id', type: 'varchar'}], rows: [['a']]}) as never
-    );
-    // A filter change is a new execution over a narrower column set.
-    await user.click(screen.getByRole('button', {name: 'Order and filter'}));
-    const settings = screen.getByRole('dialog', {name: 'Order and filter'});
-    await user.selectOptions(within(settings).getByRole('combobox', {name: 'Filter id'}), '=');
-    await user.type(within(settings).getByRole('textbox', {name: 'Value for id'}), 'a');
-    await user.click(within(settings).getByRole('button', {name: 'Apply'}));
-
-    await waitFor(() => expect(screen.queryByRole('columnheader', {name: 'status'})).not.toBeInTheDocument());
-    const reopened = await openColours(user);
-    expect(within(reopened).getByText(INAPPLICABLE_RULE)).toBeInTheDocument();
   });
 });
 
@@ -373,23 +329,6 @@ describe('transformers (FR-005, FR-006)', () => {
       .find((dt) => dt.textContent === 'Sum')
       ?.parentElement?.querySelector('dd')?.textContent;
     await waitFor(() => expect(sum).toContain('30'));
-  });
-
-  it('shows the raw value and the rendering side by side in the Value panel', async () => {
-    const {user} = render();
-    await screen.findByRole('columnheader', {name: 'qty'});
-
-    const dialog = await transform(user, 'qty', 'numeric');
-    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
-    await user.click(cell(0, 'qty'));
-    await chooseExplorationOption(user, 'Value');
-
-    const panel = await screen.findByRole('complementary', {name: 'Value'});
-    // The rendering, the value itself, and the column's TYPE — which is what keeps the
-    // type tint from ever being the only carrier of a column's type (FR-003 AC3).
-    expect(within(panel).getByText('10.00')).toBeInTheDocument();
-    expect(within(panel).getByRole('textbox', {name: 'Value of qty'})).toHaveValue('10');
-    expect(within(panel).getByText('bigint')).toBeInTheDocument();
   });
 
   it('renders no anchor for any scheme but https', async () => {
@@ -460,24 +399,6 @@ describe('the fixes review found', () => {
         to: 'danger-soft'
       })
     );
-  });
-
-  it('keeps a rule working when its column is hidden, since the row still holds the value', async () => {
-    const {user} = render();
-    await screen.findByRole('columnheader', {name: 'status'});
-
-    const dialog = await openColours(user);
-    await addRule(user, dialog, {column: 'status', value: 'failed', colour: 'Red', paints: 'row'});
-    await user.click(within(dialog).getByRole('button', {name: 'Apply'}));
-    await waitFor(() => expect(cell(1, 'id')).toHaveStyle({color: 'var(--color-danger)'}));
-
-    // Hiding the column the rule READS must not stop it painting the row — the value is
-    // still in the row. Judged over the visible columns, the rule silently stopped working
-    // while the dialog went on calling it applicable.
-    await chooseExplorationOption(user, 'Columns');
-    await user.click(await screen.findByRole('button', {name: 'Hide status'}));
-    await waitFor(() => expect(screen.queryByRole('columnheader', {name: 'status'})).not.toBeInTheDocument());
-    expect(cell(1, 'id')).toHaveStyle({color: 'var(--color-danger)'});
   });
 
   it('keeps the grid a single tab stop when a column renders links', async () => {

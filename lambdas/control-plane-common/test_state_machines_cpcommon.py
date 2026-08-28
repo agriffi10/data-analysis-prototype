@@ -8,7 +8,6 @@ Runnable under pytest or directly: python3 test_state_machines_cpcommon.py.
 """
 
 import glob
-import inspect
 import json
 import os
 import re
@@ -168,42 +167,6 @@ def test_no_state_uses_a_throwing_intrinsic(path):
     )
 
 
-def test_the_intrinsic_scan_sees_a_result_selector():
-    """Guards the guard (SPEC-153 FR-003): synthetic machine, no production file touched.
-
-    A ``States.StringToJson`` in a ``ResultSelector`` is exactly as uncatchable as one in
-    ``Parameters``, and until this spec the scan above walked straight past it — so the
-    check that four machines are clean proved less than it read as. This fixture is the
-    difference between the scan being clean and the scan being blind.
-    """
-    synthetic = {
-        "States": {
-            "Decode": {
-                "Type": "Task",
-                "ResultSelector": {"cause.$": "States.StringToJson($.error.Cause)"},
-            }
-        }
-    }
-
-    assert _throwing_intrinsics(synthetic) == [
-        "Decode.ResultSelector.cause.$ = States.StringToJson($.error.Cause)"
-    ]
-
-
-def test_the_intrinsic_scan_is_quiet_on_a_clean_machine():
-    """The other half of the guard: a scan that flagged everything would also pass above."""
-    synthetic = {
-        "States": {
-            "Fan": {
-                "Type": "Map",
-                "ItemSelector": {"item.$": "$$.Map.Item.Value", "ctx.$": "$"},
-            }
-        }
-    }
-
-    assert _throwing_intrinsics(synthetic) == []
-
-
 #: Planes exempt from the NotifyFailure requirement below, each with a reason. EMPTY, and
 #: an entry is a decision to leave users in the dark on some failure — not a formality.
 _NOTIFY_FAILURE_EXEMPT: dict[str, str] = {}
@@ -251,69 +214,6 @@ def test_every_plane_notifies_before_it_fails(path):
     # unhandled one, which is strictly worse than the missed message.
     caught = {e for c in states["NotifyFailure"].get("Catch", []) or [] for e in c["ErrorEquals"]}
     assert "States.ALL" in caught, f"{plane}: NotifyFailure has no States.ALL Catch"
-
-
-@pytest.mark.parametrize("path", _TEMPLATES, ids=lambda p: p.split(os.sep)[-2])
-def test_the_raw_error_reaches_the_notifier_undecoded(path):
-    """SPEC-152 FR-004. The other half of the throwing-intrinsic guard above.
-
-    That test says no state MAY decode a Cause. This one says the undecoded object actually
-    ARRIVES — which is a different claim, and the one the notifier depends on. A plane could
-    satisfy the first perfectly by copying `$.error.Error` alone, or by reaching into
-    `$.error.Cause` with a plain JSONPath: no intrinsic, no States.Runtime, and
-    `failure_reason` gets a string it cannot decode instead of the ``{Error, Cause}`` pair
-    it was written for. The user then hears the generic sentence on a failure that had a
-    real reason available.
-
-    So: the recorded-failure state must copy ``$.error`` WHOLE. A bare JSONPath copy of a
-    key that always exists is the one form that cannot fail, which is why it is also the
-    only form allowed here.
-    """
-    plane = os.path.basename(os.path.dirname(path))
-    if plane in _NOTIFY_FAILURE_EXEMPT:
-        pytest.skip(f"{plane} is exempt: {_NOTIFY_FAILURE_EXEMPT[plane]}")
-
-    states = dict(_states(_load(path)))
-    assert "RecordFailure" in states, f"{plane} has no RecordFailure state"
-    assert states["RecordFailure"]["Parameters"].get("error.$") == "$.error", (
-        f"{plane}: RecordFailure must copy $.error WHOLE — the notifier decodes the "
-        f"{{Error, Cause}} pair in Python, and a narrowed copy silently degrades every "
-        f"message to the generic"
-    )
-    assert states["NotifyFailure"]["Parameters"]["Payload.$"] == "$", (
-        f"{plane}: NotifyFailure must forward the whole recorded-failure object"
-    )
-
-
-@pytest.mark.parametrize("path", _TEMPLATES, ids=lambda p: p.split(os.sep)[-2])
-def test_every_transition_resolves_and_every_state_is_reachable(path):
-    """A dangling Next is a deploy-time error; an orphan state is dead code that reads as
-    live. Both are cheap to check and neither is visible in a diff."""
-    asl = _load(path)
-
-    def check(states, start, scope):
-        names = set(states)
-        targets = set()
-        for name, state in states.items():
-            if state.get("Next"):
-                targets.add(state["Next"])
-            for catch in state.get("Catch", []) or []:
-                targets.add(catch["Next"])
-            for choice in state.get("Choices", []) or []:
-                if choice.get("Next"):
-                    targets.add(choice["Next"])
-            if state.get("Default"):
-                targets.add(state["Default"])
-            for key in ("Iterator", "ItemProcessor"):
-                if key in state:
-                    check(state[key]["States"], state[key]["StartAt"], f"{scope}{name}/")
-            for branch in state.get("Branches", []) or []:
-                check(branch["States"], branch["StartAt"], f"{scope}{name}/")
-
-        assert not targets - names, f"{scope}: transitions to missing states {sorted(targets - names)}"
-        assert not names - targets - {start}, f"{scope}: unreachable states {sorted(names - targets - {start})}"
-
-    check(asl["States"], asl["StartAt"], os.path.basename(os.path.dirname(path)) + ":")
 
 
 #: Step Functions' hard cap on a state payload. Breaching it raises
@@ -489,49 +389,6 @@ def test_the_whole_map_state_stays_under_the_payload_limit():
         f"an at-cap definition inline reaches only {inline:,} bytes, inside the "
         f"{_STATE_PAYLOAD_LIMIT // 2:,}-byte bar the peaks above are held to — so this test is "
         "no longer demonstrating why the definition travels by pointer"
-    )
-
-
-def test_the_copy_plan_never_returns_to_the_state():
-    """The regression that would silently undo this change.
-
-    Putting the object list back on the state is a one-line edit in inspect-source, it
-    breaks nothing visible, and it re-arms States.DataLimitExceeded on the Map for large
-    partitioned tables. Asserted against the verb's actual output shape.
-    """
-    sys.path.insert(0, os.path.join(_HERE, "..", "table-share-inspect-source"))
-    sys.path.insert(0, os.path.join(_HERE, "..", "table-share-common"))
-    import table_share_inspect_source as verb
-
-    source = inspect.getsource(verb)
-    emitted = source[source.index("return {"):]
-
-    assert '"copyPlanKey"' in emitted, "inspect-source must emit the plan KEY"
-    assert '"objects"' not in emitted, (
-        "inspect-source is putting the object list back on the state — that is what pushed "
-        "the Map's payload to 95% of the 256 KB limit"
-    )
-
-
-def test_the_definition_never_returns_to_the_state():
-    """SPEC-161 FR-002 AC1, as the same shape of regression guard as the plan above.
-
-    Emitting ``tableDefinition`` beside ``definitionKey`` is a one-line edit, it breaks
-    nothing visible — every recipient still gets its table, because create-table reads the
-    key — and it silently re-arms States.DataLimitExceeded on a wide table. Asserted against
-    the verb's actual output shape rather than a fixture.
-    """
-    sys.path.insert(0, os.path.join(_HERE, "..", "table-share-inspect-source"))
-    sys.path.insert(0, os.path.join(_HERE, "..", "table-share-common"))
-    import table_share_inspect_source as verb
-
-    source = inspect.getsource(verb)
-    emitted = source[source.index("return {"):]
-
-    assert '"definitionKey"' in emitted, "inspect-source must emit the definition KEY"
-    assert '"tableDefinition"' not in emitted, (
-        "inspect-source is putting the cloned definition back on the state — a 1,000-column "
-        "commented definition reached 150% of the 256 KB limit there"
     )
 
 

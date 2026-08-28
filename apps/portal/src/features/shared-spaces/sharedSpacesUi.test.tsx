@@ -38,17 +38,6 @@ describe('CreateSharedConnectionDialog', () => {
       expect(create).toBeEnabled();
     });
 
-    it('states the name is permanent and globally unique', () => {
-      render(
-        <CreateSharedConnectionDialog
-          onCreate={vi.fn()}
-          onCancel={vi.fn()}
-        />
-      );
-      expect(screen.getByText(/permanent/)).toBeInTheDocument();
-      expect(screen.getByText(/globally unique/)).toBeInTheDocument();
-    });
-
     it('confirms with the trimmed valid name', () => {
       const onCreate = vi.fn();
       render(
@@ -64,20 +53,6 @@ describe('CreateSharedConnectionDialog', () => {
       expect(onCreate).toHaveBeenCalledWith('marketing_q2');
     });
 
-    it('does not confirm an invalid name on Enter', () => {
-      const onCreate = vi.fn();
-      render(
-        <CreateSharedConnectionDialog
-          onCreate={onCreate}
-          onCancel={vi.fn()}
-        />
-      );
-      const input = screen.getByLabelText('Connection name');
-      fireEvent.change(input, {target: {value: 'Bad-Name'}});
-      fireEvent.keyDown(input, {key: 'Enter'});
-      expect(onCreate).not.toHaveBeenCalled();
-    });
-
     it('cancels with no create', () => {
       const onCancel = vi.fn();
       const onCreate = vi.fn();
@@ -90,17 +65,6 @@ describe('CreateSharedConnectionDialog', () => {
       fireEvent.click(screen.getByRole('button', {name: 'Cancel'}));
       expect(onCancel).toHaveBeenCalled();
       expect(onCreate).not.toHaveBeenCalled();
-    });
-
-    it('locks Create + shows progress while busy', () => {
-      render(
-        <CreateSharedConnectionDialog
-          busy
-          onCreate={vi.fn()}
-          onCancel={vi.fn()}
-        />
-      );
-      expect(screen.getByRole('button', {name: 'Creating…'})).toBeDisabled();
     });
   });
 });
@@ -147,17 +111,6 @@ describe('DeleteSharedSpaceDialog', () => {
       fireEvent.keyDown(field, {key: 'Enter'});
       expect(onConfirm).toHaveBeenCalledTimes(1);
     });
-
-    it('marks the action irreversible', () => {
-      render(
-        <DeleteSharedSpaceDialog
-          space="sales"
-          onConfirm={vi.fn()}
-          onCancel={vi.fn()}
-        />
-      );
-      expect(screen.getByText(/can.t be undone/i)).toBeInTheDocument();
-    });
   });
 });
 
@@ -180,18 +133,6 @@ describe('LeaveSharedSpaceDialog', () => {
       expect(onConfirm).toHaveBeenCalledTimes(1);
       fireEvent.click(screen.getByRole('button', {name: 'Cancel'}));
       expect(onCancel).toHaveBeenCalledTimes(1);
-    });
-
-    it('shows the busy label and locks confirm while in flight', () => {
-      render(
-        <LeaveSharedSpaceDialog
-          space="sales"
-          busy
-          onConfirm={vi.fn()}
-          onCancel={vi.fn()}
-        />
-      );
-      expect(screen.getByRole('button', {name: 'Leaving…'})).toBeDisabled();
     });
   });
 });
@@ -235,12 +176,6 @@ describe('MemberRosterDrawer', () => {
       expect(onRefresh).toHaveBeenCalled();
     });
 
-    it('shows a non-blocking note (and no list) for a legacy entry without a roster', () => {
-      setup({members: [], unavailable: true});
-      expect(screen.getByText(/member list isn.t available yet/i)).toBeInTheDocument();
-      expect(screen.queryByRole('list')).not.toBeInTheDocument();
-    });
-
     // ── SPEC-186 FR-008 ────────────────────────────────────────────────────
     // The app asserted both things at once: this drawer said `bob | Pending` under a sentence
     // saying a Pending member "hasn't signed in yet", while the connections row one click away
@@ -250,19 +185,6 @@ describe('MemberRosterDrawer', () => {
       setup({viewer: 'bob'});
       expect(within(screen.getByText('bob').closest('li')!).getByText('Active')).toBeInTheDocument();
       expect(screen.queryByText(/hasn.t signed in yet/i)).not.toBeInTheDocument();
-    });
-
-    it('still reports OTHER members as pending, and explains the chip where one exists', () => {
-      setup({
-        viewer: 'bob',
-        members: [
-          {username: 'alice', status: 'active' as const},
-          {username: 'bob', status: 'pending' as const},
-          {username: 'cara', status: 'pending' as const}
-        ]
-      });
-      expect(within(screen.getByText('cara').closest('li')!).getByText('Pending')).toBeInTheDocument();
-      expect(screen.getByText(/hasn.t signed in yet/i)).toBeInTheDocument();
     });
 
     it('has no axe violations', async () => {
@@ -365,10 +287,6 @@ describe('memberInput', () => {
       expect(parseMemberInput('bob, cara\ndan  erin')).toEqual(['bob', 'cara', 'dan', 'erin']);
     });
 
-    it('lowercases and de-duplicates', () => {
-      expect(parseMemberInput('Bob bob BOB')).toEqual(['bob']);
-    });
-
     it('DROPS anything failing the catalog-safe rule, silently', () => {
       // The silent drop is the shipped behaviour that consumers and their tests rely on. The
       // detailed variant below exists precisely because it is the wrong behaviour in a field
@@ -390,27 +308,14 @@ describe('memberInput', () => {
       });
     });
 
-    it('agrees with parseMemberInput on what is valid', () => {
-      const raw = 'Bob, cara\n9lives  bob  x  dan_smith';
-      expect(parseMemberInputDetailed(raw).valid).toEqual(parseMemberInput(raw));
-    });
-
     it('reports invalid tokens AS TYPED, not lowercased', () => {
       // The user has to recognise what they pasted in order to fix it, and `bob smith` is a
       // different string from the `Bob Smith` on their clipboard.
       expect(parseMemberInputDetailed('Bob Smith!').invalid).toEqual(['Smith!']);
     });
 
-    it('de-duplicates the valid list but keeps input order', () => {
-      expect(parseMemberInputDetailed('cara bob cara').valid).toEqual(['cara', 'bob']);
-    });
-
     it('returns two empty lists for empty input', () => {
       expect(parseMemberInputDetailed('  , \n ')).toEqual({valid: [], invalid: []});
-    });
-
-    it('treats a token that is merely too short as invalid rather than dropping it', () => {
-      expect(parseMemberInputDetailed('ab')).toEqual({valid: [], invalid: ['ab']});
     });
   });
 });

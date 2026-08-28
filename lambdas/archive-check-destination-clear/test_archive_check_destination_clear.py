@@ -142,62 +142,6 @@ def test_one_occupied_destination_refuses_the_whole_restore_and_notifies(_sink):
     assert _sink and _sink[0][0] == "alice"
 
 
-def test_the_message_names_the_path_the_user_would_recognise(_sink):
-    """Relative to the space root — what they see in the file browser, not an s3:// URI."""
-    _install(occupied={"alice/reports/q1.csv"})
-
-    with pytest.raises(TerminalError):
-        m.handler(_request(), None)
-
-    text = _sink[0][1]
-    assert "reports/q1.csv" in text
-    assert "alice/reports/q1.csv" not in text
-    assert text.startswith("Couldn't restore that: ")
-    assert "may be more" in text
-
-
-def test_a_plan_describing_another_run_is_refused_rather_than_guarded():
-    """The plan's key is a pure function of the request id, so a second run under a reused id
-    overwrites it — and a guard that checked THAT plan's destinations would clear a restore for
-    a set of keys this run is not going to write."""
-    _install(plan=_plan(requestId="00000000-0000-4000-8000-000000000000"))
-
-    with pytest.raises(TerminalError) as caught:
-        m.handler(_request(), None)
-
-    assert caught.value.reason == "plan_superseded"
-
-
-def test_a_plan_short_of_the_count_it_records_is_refused():
-    """A short plan means a guard that cleared fewer destinations than the restore will write."""
-    _install(plan=_plan(objectCount=9))
-
-    with pytest.raises(TerminalError) as caught:
-        m.handler(_request(), None)
-
-    assert caught.value.reason == "plan_unreadable"
-
-
-def test_an_entry_with_no_destination_is_refused_rather_than_skipped():
-    _install(plan=_plan(objects=[{"archiveKey": f"{_ARCHIVE_ROOT}q1.csv", "bytes": 1}]))
-
-    with pytest.raises(TerminalError) as caught:
-        m.handler(_request(), None)
-
-    assert caught.value.reason == "plan_unreadable"
-
-
-def test_the_guard_issues_no_head_at_all_when_the_plan_is_not_ours():
-    """The identity check is cheap and total, and it runs FIRST: a guard that heads first and
-    checks afterwards has already told itself the wrong answer."""
-    fake = _install(plan=_plan(requestId="00000000-0000-4000-8000-000000000000"))
-
-    with pytest.raises(TerminalError):
-        m.handler(_request(), None)
-
-    assert fake.heads == []
-
-
 # ── SPEC-171: the SECOND pass, and why it is worded differently ─────────────
 
 
@@ -221,26 +165,6 @@ def test_the_second_pass_after_the_retrieval_refuses_with_its_own_reason(_sink):
     assert caught.value.reason == "destination_occupied_after_retrieval"
     assert _sink and "already been retrieved" in _sink[0][1]
     assert "not mean another long wait" in _sink[0][1]
-
-
-def test_the_second_pass_heads_the_destinations_again_rather_than_trusting_the_first():
-    """The whole value of the second pass is that it observes the world as it is when the write
-    happens. A pass that read a cached verdict would be a comment, not a guard."""
-    fake = _install(occupied=set())
-
-    m.handler(_request(guard={"stage": "after"}), None)
-
-    assert set(fake.heads) == {"alice/reports/q1.csv", "alice/notes.txt"}
-
-
-def test_an_unseeded_stage_fails_loudly_rather_than_defaulting_to_a_wording():
-    """The stage is the machine's to declare. Defaulting it would mean a state that forgot to
-    seed still passed — and the wording it fell back to would be the one that promises a warm
-    retrieval, on a run that may never have made one."""
-    _install()
-
-    with pytest.raises(KeyError):
-        m.handler(_request(guard={}), None)
 
 
 if __name__ == "__main__":

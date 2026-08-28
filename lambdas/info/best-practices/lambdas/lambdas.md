@@ -20,7 +20,7 @@
 - **§8 Observability** — structured logs; log request/correlation ids; never log secrets/PII; emit metrics.
 - **§9 Security & input trust** — validate every event field; verify JWTs fully; derive identity server-side; least trust on payloads.
 - **§10 Step Function orchestration** — workflow lives in the state machine (Choice/Map/Retry/Catch), one Task = one single-task Lambda.
-- **§11 Testing** — unit-test pure logic; stub AWS; cover idempotency + error paths; keep the handler thin enough to test logic directly.
+- **§11 Testing** — drive the **handler**, not the functions under it; stub AWS; 1–3 scenarios per verb; every refusal reason asserted by name.
 - **§12 Code/infra split & packaging** — `lambdas/` code vs Terraform infra; shared code in a common module/layer; pin + minimize deps.
 - **§13 Language conventions** — a Lambda is also code; Python Lambdas follow Python best practices on top of §1–§12.
 
@@ -119,11 +119,13 @@ Put the **workflow** in the state machine; keep each **Task** a single-task Lamb
 - ✅ Shared concerns that must run on **every** branch (e.g. emit a notification, record terminal status) are either a **common helper** each verb calls or a dedicated terminal state — decide per project (this repo: verb Lambdas emit inline via a shared helper, SPEC-061).
 
 ## §11 Testing
-Thin handlers + pure functions make logic testable without a Lambda runtime.
+A verb is tested the way the state machine drives it: through `handler(event, context)`.
 
-- ✅ Unit-test the **pure logic** functions directly (no Lambda context); the handler is thin enough (§2) that most coverage is on the functions it calls.
+- ✅ **Drive the handler.** A test that imports the inner function bypasses the decorator stack — `@traced`, `@notifies_on_failure` — so a verb can lose its instrumentation, or its failure notifier, with the suite green. It also couples the test to a private name, which is what makes a refactor look like a regression.
+- ✅ **1–3 scenarios per verb**, chosen for how a caller actually reaches it, not one per branch. A larger verb may need more; a dozen is a sign the verb is doing too much (§1).
 - ✅ **Stub/mock AWS** (e.g. `moto`, botocore stubbers, or injected client fakes) — never hit real AWS in unit tests.
 - ✅ Cover the **happy path, each terminal failure, and idempotency** (run the op twice → same end state; §3) and **authorization** rejections (§9).
+- 🔴 **Never assert only that something raised.** Assert the `TerminalError` **reason code** by name. The neighbouring path usually raises too, which is what makes the weaker assertion pass while the guard is gone — and a refusal is the half of a verb no user exercises, so nothing else will tell you.
 - ✅ Co-locate tests with the function (`test_<name>.py`) and keep them green **before pushing** (CLAUDE.md PR rule — the gates and the diff review both precede the push, not the merge).
 - ✅ When you split a monolith (§1), split its tests too — each new function gets a focused test file, not one giant suite.
 
@@ -131,7 +133,7 @@ Thin handlers + pure functions make logic testable without a Lambda runtime.
 Code and infrastructure live apart; share code deliberately; ship small.
 
 - ✅ This repo: function **source** under `lambdas/<name>/` (snake_case filename); **Terraform** owns the function resource with a **placeholder zip + `ignore_changes`**, and `deploy-lambdas.yml` deploys real code, reading the function table in `.github/lambda-functions.json` — its own `strategy.matrix` is over **shards**, not functions. Adding a function adds a code dir **and** a row in that table **and** its infra: [`../../deployment.md`](../../deployment.md).
-- 🔴 **Never name a verb's module `handler.py`.** `pytest lambdas/` flattens EVERY verb directory into ONE module namespace, so the first `import handler` wins for the whole session and other verbs' tests silently import and assert against the wrong module — green CI, wrong code. "Each function is its own zip, so the directory disambiguates" is true of Lambda and false of pytest (SPEC-108 shipped that; SPEC-110 reversed it across nine verbs). ✅ Name the module for the VERB, **arc-prefixed** where the bare name is taken: `dq_inspect_source.py`, `table_share_inspect_source.py` — table-builder owns the unprefixed `inspect_source` / `validate_authorize`. Same rule for test files: basenames are globally unique (`test_messages_cpcommon.py`, `test_dq_inspect_source.py`).
+- 🔴 **Never name a verb's module `handler.py`.** `pytest lambdas/` flattens EVERY verb directory into ONE module namespace, so the first `import handler` wins for the whole session and other verbs' tests silently import and assert against the wrong module — green CI, wrong code. "Each function is its own zip, so the directory disambiguates" is true of Lambda and false of pytest (SPEC-108 shipped that; SPEC-110 reversed it across nine verbs). ✅ Name the module for the VERB, **arc-prefixed** where the bare name is taken: `dq_inspect_source.py`, `table_share_inspect_source.py` — table-builder owns the unprefixed `inspect_source` / `validate_authorize`. Same rule for test files: basenames are globally unique (`test_dq_inspect_source.py`, `test_table_share_inspect_source.py`).
 - ✅ The TF `handler` string and the module filename **move together** — in this repo the handler also derives the placeholder's filename. A mismatch deploys a function whose entrypoint does not exist, and **nothing but a live invoke catches it**: `tofu validate`, the test suite and the deploy all pass. Assert the parity when you rename.
 - ✅ A shared-layer module that imports a **conditional dependency** (e.g. `cpcommon/type_mapping.py` → polars) is safe only while the package `__init__` imports no submodules, so it loads iff explicitly imported. Say so loudly in its docstring, and check that every importer's row in `.github/lambda-functions.json` carries the layer it needs (§6's env-union trap in another guise).
 - ✅ Put **shared code** (auth/JWT verify, registry I/O, client factories, the notification emit helper) in a **common module or Lambda layer** imported by each single-task function — don't copy-paste across verb functions (§1).

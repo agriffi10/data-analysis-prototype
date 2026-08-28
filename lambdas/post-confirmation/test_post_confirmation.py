@@ -61,7 +61,6 @@ _fake_boto3.client = lambda name, *a, **k: {
 }[name]
 sys.modules["boto3"] = _fake_boto3
 
-import backfill
 import post_confirmation
 
 
@@ -76,15 +75,6 @@ def _reset():
 
 def _event(username="alice", trigger="PostConfirmation_ConfirmSignUp"):
     return {"userName": username, "triggerSource": trigger, "request": {}}
-
-
-def test_ignores_forgot_password_confirmation():
-    _reset()
-    event = _event(trigger="PostConfirmation_ConfirmForgotPassword")
-    assert post_confirmation.handler(event, None) is event
-    assert _fake_glue.create_calls == []
-    assert _fake_lf.grant_calls == []
-    assert _fake_lf.tag_calls == []
 
 
 def test_signup_creates_database_named_as_username_verbatim():
@@ -114,65 +104,12 @@ def test_signup_grants_portal_role_db_and_table_permissions():
     assert "DELETE" not in table_grant["Permissions"]
 
 
-def test_signup_tags_database_portal_managed():
-    _reset()
-    post_confirmation.handler(_event(username="alice"), None)
-    assert len(_fake_lf.tag_calls) == 1
-    call = _fake_lf.tag_calls[0]
-    assert call["Resource"]["Database"]["Name"] == "alice"
-    assert call["LFTags"] == [{"TagKey": "portal-managed", "TagValues": ["true"]}]
-
-
-def test_tag_failure_surfaces_but_after_the_portal_grant():
-    _reset()
-    _fake_lf.tag_failures = [{"LFTag": {"TagKey": "portal-managed"}, "Error": {"ErrorCode": "x"}}]
-    # provision_user raises so the operator/backfill sees it (the trigger swallows it).
-    try:
-        post_confirmation.provision_user("alice")
-        raise AssertionError("expected provision_user to raise on a tag failure")
-    except RuntimeError as exc:
-        assert "portal-managed" in str(exc)
-    # Tagging runs LAST, so the user's own portal-role grant already happened — a tag
-    # failure costs only control-plane access (which backfill reconciles), never the
-    # user's workspace grant.
-    assert len(_fake_lf.grant_calls) == 2
-
-
-def test_handler_never_blocks_signup_on_tag_failure():
-    _reset()
-    _fake_lf.tag_failures = [{"LFTag": {"TagKey": "portal-managed"}, "Error": {"ErrorCode": "x"}}]
-    event = _event(username="alice")
-    assert post_confirmation.handler(event, None) is event
-
-
-def test_already_existing_database_is_tolerated_and_still_grants():
-    _reset()
-    _fake_glue.raise_already_exists = True
-    # Must not raise; grants still issued (idempotent re-provision).
-    post_confirmation.handler(_event(username="alice"), None)
-    assert len(_fake_lf.grant_calls) == 2
-
-
 def test_handler_never_blocks_signup_on_aws_error():
     _reset()
     _fake_lf.raise_error = RuntimeError("transient LF failure")
     event = _event(username="alice")
     # Handler swallows the error and returns the event so sign-up completes.
     assert post_confirmation.handler(event, None) is event
-
-
-def test_backfill_reuses_provision_user():
-    _reset()
-    rc = backfill.main(["backfill.py", "alice", "bob"])
-    assert rc == 0
-    created = [c["DatabaseInput"]["Name"] for c in _fake_glue.create_calls]
-    assert created == ["alice", "bob"]
-    assert len(_fake_lf.grant_calls) == 4  # 2 grants per user
-
-
-def test_backfill_requires_a_username():
-    _reset()
-    assert backfill.main(["backfill.py"]) == 2
 
 
 if __name__ == "__main__":

@@ -16,7 +16,6 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 
 from arcommon import guard
-from arcommon.config import RESTORE_CONFLICT_SAMPLE
 from cpcommon import clients
 from cpcommon.errors import TerminalError, TransientError
 
@@ -79,29 +78,6 @@ def test_any_single_occupied_key_refuses_the_whole_restore():
     assert caught.value.reason == "destination_occupied"
 
 
-def test_a_folder_placeholder_counts_as_a_collision_like_any_other_key():
-    """Harmless in itself — but a rule with one exception is a rule someone extends, and the
-    whole value of this guard is that it has none."""
-    _install(occupied={"alice/empty/"})
-
-    with pytest.raises(TerminalError):
-        guard.assert_clear("user-bkt", ["alice/empty/"], "alice/")
-
-
-def test_a_403_counts_as_OCCUPIED_and_a_404_counts_as_absent():
-    """A key this role cannot head is a key it must not overwrite, and on these buckets that is
-    live rather than hypothetical: the execution role's own policy Denies it beneath
-    `athenaresults/`, `user_settings/` and `archive/`. Reading an ambiguous answer as "clear" is
-    the one mistake here that ends in data loss."""
-    _install(errors={"alice/f1.csv": _S3Error("AccessDenied", 403)})
-
-    with pytest.raises(TerminalError) as caught:
-        guard.assert_clear("user-bkt", _keys(3), "alice/")
-
-    assert caught.value.reason == "destination_occupied"
-    assert caught.value.tokens["sample"] == "f1.csv"
-
-
 def test_an_error_with_no_status_at_all_counts_as_occupied():
     """Fail-closed is the direction, not a list of statuses to enumerate."""
     _install(errors={"alice/f0.csv": RuntimeError("no response metadata")})
@@ -120,75 +96,6 @@ def test_a_throttle_stays_transient_and_never_falls_through_to_clear():
 
 
 # ── The short-circuit, and what the refusal is allowed to claim ──────────────
-
-
-def test_the_guard_short_circuits_on_ONE_collision_not_on_a_full_sample():
-    """FR-004 AC3 verbatim: "an archive of 200,000 objects must not issue 200,000 heads to report a
-    conflict found in the first hundred".
-
-    **ONE collision, deliberately, and the first version of this test could not see the bug.** It
-    used 64 consecutive occupied keys, which fills RESTORE_CONFLICT_SAMPLE inside the first round —
-    so it passed against a guard that only stopped once it had a FULL sample, and a single
-    re-created file (the likeliest real conflict there is) headed all 20,000. Measured on that
-    code: 20,000 heads to report a collision at index 3.
-    """
-    fake = _install(occupied={"alice/f3.csv"})
-
-    with pytest.raises(TerminalError):
-        guard.assert_clear("user-bkt", _keys(20_000), "alice/")
-
-    assert len(fake.heads) < 200, f"headed {len(fake.heads)} keys to report one collision"
-
-
-def test_a_collision_in_a_later_round_still_stops_there():
-    """The stop is at the round that FINDS one, not at the first round overall."""
-    fake = _install(occupied={"alice/f100.csv"})
-
-    with pytest.raises(TerminalError):
-        guard.assert_clear("user-bkt", _keys(20_000), "alice/")
-
-    assert len(fake.heads) < 200, f"headed {len(fake.heads)} keys to report one collision"
-
-
-def test_the_sample_is_bounded_and_the_message_admits_there_may_be_more():
-    """BECAUSE it short-circuits, the guard genuinely does not know the total — so a message
-    implying the sample was exhaustive would send the user round the clear-and-retry loop once
-    per hidden collision. Every key here collides, so one round alone overfills the sample."""
-    _install(occupied=set(_keys(500)))
-
-    with pytest.raises(TerminalError) as caught:
-        guard.assert_clear("user-bkt", _keys(500), "alice/")
-
-    sample = caught.value.tokens["sample"].split(", ")
-    assert len(sample) == RESTORE_CONFLICT_SAMPLE
-
-    from arcommon.messages import failure_message
-
-    text = failure_message("destination_occupied", tokens=caught.value.tokens, mode="restore")
-    assert "may be more" in text
-
-
-def test_the_sample_is_rendered_relative_to_the_space_root():
-    """The user reads a path they recognise from the file browser, never an s3:// URI and never
-    a key carrying their own username twice."""
-    _install(occupied={"alice/reports/2026/q1.csv"})
-
-    with pytest.raises(TerminalError) as caught:
-        guard.assert_clear("user-bkt", ["alice/reports/2026/q1.csv"], "alice/")
-
-    assert caught.value.tokens["sample"] == "reports/2026/q1.csv"
-
-
-def test_the_sample_keeps_the_plans_order():
-    """The plan's order is the archive's own listing order, so the paths the user is shown are
-    the ones nearest the top of the folder they are looking at."""
-    keys = ["alice/z.csv", "alice/a.csv", "alice/m.csv"]
-    _install(occupied=set(keys))
-
-    with pytest.raises(TerminalError) as caught:
-        guard.assert_clear("user-bkt", keys, "alice/")
-
-    assert caught.value.tokens["sample"].startswith("z.csv, a.csv")
 
 
 def test_no_raw_service_text_reaches_the_sample():

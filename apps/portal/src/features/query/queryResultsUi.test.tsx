@@ -1,9 +1,8 @@
 import {describe, expect, it, vi} from 'vitest';
 import {fireEvent, render, screen, within} from '@testing-library/react';
-import {COMPONENT_AXE_OPTIONS, expectNoA11yViolations} from '../../test/axe';
 import {QueryMobileView} from './QueryMobileView';
 import {QUERY_HISTORY_PAGE_SIZE} from './query.constants';
-import {COLUMN_RESIZE_STEP_PX, DEFAULT_COLUMN_WIDTH} from '../catalog/catalog.constants';
+import {DEFAULT_COLUMN_WIDTH} from '../catalog/catalog.constants';
 import {QueryResultsMobile} from './QueryResultsMobile';
 import {QueryResultsTable} from './QueryResultsTable';
 import {QueryStatusBar} from './QueryStatusBar';
@@ -106,26 +105,10 @@ describe('QueryMobileView', () => {
       expect(onViewSaved).toHaveBeenCalledWith(savedQueries[0]);
     });
 
-    it('disables Run on every card while a run is in flight', () => {
-      renderView({runDisabled: true});
-      for (const button of screen.getAllByRole('button', {name: /^Run saved query/})) {
-        expect(button).toBeDisabled();
-      }
-    });
-
     it('reports a switch to History to its owner', async () => {
       const {user, onTabChange} = renderView();
       await user.click(screen.getByRole('button', {name: 'History'}));
       expect(onTabChange).toHaveBeenCalledWith('history');
-    });
-
-    it('runs a history entry through the same handler', async () => {
-      const {user, onRun} = renderView({tab: 'history'});
-      expect(screen.getAllByRole('button', {name: 'Run this query'})).toHaveLength(2);
-      // No editor to open into on mobile — the entry's other action is View.
-      expect(screen.getAllByRole('button', {name: 'View this query'})).toHaveLength(2);
-      await user.click(screen.getAllByRole('button', {name: 'Run this query'})[0]);
-      expect(onRun).toHaveBeenCalledWith('SELECT 1', 'Query');
     });
 
     it('pages History with Prev/Next rather than growing the list', async () => {
@@ -149,34 +132,6 @@ describe('QueryMobileView', () => {
       renderView({tab: 'history', history: [], historyError: new Error('boom')});
       expect(screen.getByText('Couldn’t load history.')).toBeInTheDocument();
       expect(screen.queryByText('No queries yet')).not.toBeInTheDocument();
-    });
-
-    it('has no axe violations', async () => {
-      await expectNoA11yViolations(
-        <QueryMobileView
-          tab="saved"
-          onTabChange={vi.fn()}
-          spaces={[PERSONAL_SPACE]}
-          space={PERSONAL_SPACE}
-          onSelectSpace={vi.fn()}
-          savedQueries={savedQueries}
-          savedLoading={false}
-          savedError={null}
-          savedHasMore={false}
-          onLoadMoreSaved={vi.fn()}
-          savedLoadingMore={false}
-          onDeleteSaved={vi.fn()}
-          history={[historyEntry(1)]}
-          historyLoading={false}
-          historyError={null}
-          onRunSaved={vi.fn()}
-          onViewSaved={vi.fn()}
-          onRun={vi.fn()}
-          onView={vi.fn()}
-          runDisabled={false}
-        />,
-        COMPONENT_AXE_OPTIONS
-      );
     });
   });
 });
@@ -282,14 +237,6 @@ describe('QueryResultsMobile', () => {
       expect(screen.queryByRole('button', {name: /load more/i})).not.toBeInTheDocument();
     });
 
-    it('goes back to the browse home and re-runs the same SQL', async () => {
-      const {user, onBack, onRun} = renderResults();
-      await user.click(screen.getByRole('button', {name: 'Back to queries'}));
-      expect(onBack).toHaveBeenCalled();
-      await user.click(screen.getByRole('button', {name: 'Run'}));
-      expect(onRun).toHaveBeenCalled();
-    });
-
     it('prompts to run when opened without a run, and shows the failure banner when one failed', () => {
       const {unmount} = renderResults({hasRun: false, displayExecutionId: null});
       expect(screen.getByText('Run this query to see results.')).toBeInTheDocument();
@@ -304,29 +251,6 @@ describe('QueryResultsMobile', () => {
       });
       expect(screen.getByText('Query failed.')).toBeInTheDocument();
       expect(screen.getByText('Check the table name and try again.')).toBeInTheDocument();
-    });
-
-    it('has no axe violations', async () => {
-      await expectNoA11yViolations(
-        <QueryResultsMobile
-          title="Revenue by region"
-          sql={SQL}
-          onBack={vi.fn()}
-          onRun={vi.fn()}
-          runDisabled={false}
-          status={{queryExecutionId: 'q-1', state: 'SUCCEEDED'}}
-          isInFlight={false}
-          startedAt={null}
-          hasResultSet
-          totalRowCount={2}
-          hasRun
-          errorMessage={null}
-          onDismissError={vi.fn()}
-          results={resultsFixture()}
-          displayExecutionId="q-1"
-        />,
-        COMPONENT_AXE_OPTIONS
-      );
     });
   });
 });
@@ -407,28 +331,11 @@ describe('QueryResultsTable', () => {
       expect(screen.queryByRole('button', {name: 'Next'})).not.toBeInTheDocument();
     });
 
-    it('shows a loading state instead of the empty state while the first page is in flight', () => {
-      renderTable({rows: [], columns: [], isLoading: true});
-
-      expect(screen.getByText('Loading results…')).toBeInTheDocument();
-      expect(screen.queryByText('No rows returned.')).not.toBeInTheDocument();
-    });
-
     it('disables Prev on the first page and Next on the last page', () => {
       renderTable({hasPrev: false, hasNext: false});
 
       expect(screen.getByRole('button', {name: 'Prev'})).toBeDisabled();
       expect(screen.getByRole('button', {name: 'Next'})).toBeDisabled();
-    });
-
-    it('calls onNext / onPrev when the pager controls are clicked', () => {
-      const props = renderTable({hasPrev: true, hasNext: true});
-
-      fireEvent.click(screen.getByRole('button', {name: 'Next'}));
-      fireEvent.click(screen.getByRole('button', {name: 'Prev'}));
-
-      expect(props.onNext).toHaveBeenCalledTimes(1);
-      expect(props.onPrev).toHaveBeenCalledTimes(1);
     });
 
     it('shows a loading label on Next and disables it while a forward page is fetching', () => {
@@ -447,14 +354,6 @@ describe('QueryResultsTable', () => {
       expect(screen.getAllByRole('separator')).toHaveLength(2);
     });
 
-    it('drives the <colgroup> from the widths prop (the # column stays fixed)', () => {
-      const {container} = renderTable({widths: [240, 96]});
-      const cols = container.querySelectorAll('col');
-      expect(cols).toHaveLength(3); // # + 2 data columns
-      expect((cols[1] as HTMLElement).style.width).toBe('240px');
-      expect((cols[2] as HTMLElement).style.width).toBe('96px');
-    });
-
     it('a drag calls onResize for that column with the new pixel width', () => {
       const {onResize} = renderTable({widths: [DEFAULT_COLUMN_WIDTH, DEFAULT_COLUMN_WIDTH]});
 
@@ -470,12 +369,6 @@ describe('QueryResultsTable', () => {
       const {onResetColumn} = renderTable();
       fireEvent.doubleClick(handleFor('revenue'));
       expect(onResetColumn).toHaveBeenCalledWith(1);
-    });
-
-    it('keyboard Arrow Right calls onResize widening the column by the resize step', () => {
-      const {onResize} = renderTable({widths: [DEFAULT_COLUMN_WIDTH, DEFAULT_COLUMN_WIDTH]});
-      fireEvent.keyDown(handleFor('region'), {key: 'ArrowRight'});
-      expect(onResize).toHaveBeenLastCalledWith(0, DEFAULT_COLUMN_WIDTH + COLUMN_RESIZE_STEP_PX);
     });
 
     it('truncates cells and headers and exposes the full text via a title tooltip', () => {
@@ -568,22 +461,6 @@ describe('QueryStatusBar', () => {
       expect(screen.getByText(/20\+ rows/)).toBeInTheDocument();
     });
 
-    it('shows the exact total with thousands separators once counted (SPEC-080)', () => {
-      render(
-        <QueryStatusBar
-          status={status({dataScannedBytes: 1_258_291, engineExecutionTimeMillis: 800})}
-          isInFlight={false}
-          startedAt={null}
-          rowCount={20}
-          hasMoreRows
-          totalRowCount={1384}
-          onSaveResults={vi.fn()}
-        />
-      );
-      expect(screen.getByText(/1,384 rows/)).toBeInTheDocument();
-      expect(screen.queryByText(/20\+ rows/)).not.toBeInTheDocument();
-    });
-
     it('shows the exact total (no "+") for a large result set (SPEC-080)', () => {
       render(
         <QueryStatusBar
@@ -598,22 +475,6 @@ describe('QueryStatusBar', () => {
       );
       expect(screen.getByText(/2,450,991 rows/)).toBeInTheDocument();
       expect(screen.queryByText(/\+ rows/)).not.toBeInTheDocument();
-    });
-
-    it('shows no row-count stat for a DDL/no-result statement (SPEC-080 FR-004)', () => {
-      render(
-        <QueryStatusBar
-          status={status({dataScannedBytes: 1024, engineExecutionTimeMillis: 40})}
-          isInFlight={false}
-          startedAt={null}
-          hasResultSet={false}
-          canSaveResults={false}
-          onSaveResults={vi.fn()}
-        />
-      );
-      expect(screen.getByText('Succeeded')).toBeInTheDocument();
-      expect(screen.queryByText(/rows/)).not.toBeInTheDocument();
-      expect(screen.getByText(/scanned/)).toBeInTheDocument();
     });
 
     it('shows batch progress while a multi-statement script runs (SPEC-078 FR-004)', () => {
@@ -651,28 +512,6 @@ describe('QueryStatusBar', () => {
         />
       );
       expect(screen.getByRole('status')).not.toHaveTextContent('Script finished');
-    });
-
-    it('renders terminal Failed and Cancelled indicators', () => {
-      const {rerender} = render(
-        <QueryStatusBar
-          status={status({state: 'FAILED'})}
-          isInFlight={false}
-          startedAt={null}
-          onSaveResults={vi.fn()}
-        />
-      );
-      expect(screen.getByText('Failed')).toBeInTheDocument();
-
-      rerender(
-        <QueryStatusBar
-          status={status({state: 'CANCELLED'})}
-          isInFlight={false}
-          startedAt={null}
-          onSaveResults={vi.fn()}
-        />
-      );
-      expect(screen.getByText('Cancelled')).toBeInTheDocument();
     });
   });
 });

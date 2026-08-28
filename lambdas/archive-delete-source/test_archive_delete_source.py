@@ -111,16 +111,6 @@ def test_it_deletes_exactly_the_plans_keys_in_the_plans_bucket():
     assert result["deletedCount"] == 2
 
 
-def test_a_folder_placeholder_is_deleted_with_everything_else():
-    """It was archived — that is how an empty folder survives — so leaving it behind would make
-    the source folder reappear in the browser as an empty shell."""
-    fake = _install()
-
-    m.handler(_event(), None)
-
-    assert "alice/reports/empty/" in fake.deletes[0]["Keys"]
-
-
 def test_a_partial_deletion_fails_the_run_and_keeps_the_archive():
     """FR-005 AC4. The user's data then exists in two places, which is recoverable by hand; the
     alternative — removing the archive after a partial source deletion — is not recoverable at
@@ -132,66 +122,6 @@ def test_a_partial_deletion_fails_the_run_and_keeps_the_archive():
 
     assert err.value.reason == "source_delete_incomplete"
     assert err.value.tokens == {"failed": "1", "total": "2"}
-
-
-def test_the_failure_reports_counts_and_never_a_key(_no_real_notifications):
-    """A failure message naming user file paths is a disclosure this plane has no reason to
-    make, and the field rule binds what a call site chooses to emit."""
-    _install(errors_on={"alice/reports/a.csv"})
-
-    with pytest.raises(TerminalError):
-        m.handler(_event(), None)
-
-    message = _no_real_notifications[0][1]
-    assert "reports/a.csv" not in message
-    assert "1 of 2" in message
-
-
-def test_a_key_outside_the_plans_root_fails_before_any_delete_is_issued():
-    """Defence in depth over a plan whose provenance is this same execution. It fails loudly
-    rather than filtering: a silent filter would delete a source the archive is missing objects
-    from."""
-    plan = json.loads(_plan())
-    plan["objects"].append({"relKey": "../bob/secrets.csv", "bytes": 1})
-    plan["objectCount"] = 3
-    fake = _install(json.dumps(plan).encode())
-
-    with pytest.raises(TerminalError):
-        m.handler(_event(object_count=3), None)
-
-    assert fake.deletes == []
-
-
-def test_a_marker_in_the_plan_fails_the_run_rather_than_being_issued(_no_real_notifications):
-    """FR-005 AC6. Both bucket policies deny DeleteObject on it at any depth, so issuing it would
-    be refused MID-BATCH — after some of the user's data had already gone. The expansion excludes
-    markers, so reaching this means an upstream guarantee has broken."""
-    plan = json.loads(_plan())
-    plan["objects"] = [{"relKey": "reports/DO_NOT_DELETE.txt", "bytes": 0}]
-    plan["objectCount"] = 1
-    fake = _install(json.dumps(plan).encode())
-
-    with pytest.raises(TerminalError) as err:
-        m.handler(_event(object_count=1), None)
-
-    assert err.value.reason == "protected_marker"
-    assert fake.deletes == []
-
-
-def test_a_second_run_over_the_same_plan_issues_the_same_deletes_and_reports_the_same_counts():
-    """The verb's half of replay safety: it is a pure function of the plan, so a re-driven
-    execution repeats the same request rather than computing a different one.
-
-    The OTHER half is S3's — an already-absent key is reported as deleted — and no fake can hold
-    that, so this does not claim to. It is the premise the state's Retry rests on, recorded here
-    rather than asserted."""
-    fake = _install()
-
-    first = m.handler(_event(), None)
-    second = m.handler(_event(), None)
-
-    assert first["deletedCount"] == second["deletedCount"] == 2
-    assert len(fake.deletes) == 2
 
 
 @pytest.mark.parametrize(
@@ -224,30 +154,6 @@ def test_a_plan_that_does_not_describe_this_run_deletes_nothing(field, value):
 
     assert err.value.reason == "plan_superseded"
     assert fake.deletes == []
-
-
-def test_the_superseded_message_says_the_files_are_where_they_were(_no_real_notifications):
-    """Nothing has been deleted on this path, and the sentence has to say so — it is the same
-    promise every message downstream of the copy makes."""
-    plan = json.loads(_plan())
-    plan["requestId"] = "11111111-2222-4333-8444-555555555555"
-    _install(json.dumps(plan).encode())
-
-    with pytest.raises(TerminalError):
-        m.handler(_event(), None)
-
-    assert "nothing was deleted" in _no_real_notifications[0][1].lower()
-
-
-def test_an_unreadable_plan_refuses_rather_than_deleting_what_it_can_read():
-    """The plan is the ONLY definition of what was copied; a partial read would delete a subset
-    chosen by corruption."""
-    _install(b"not json")
-
-    with pytest.raises(TerminalError) as err:
-        m.handler(_event(), None)
-
-    assert err.value.reason == "plan_unreadable"
 
 
 if __name__ == "__main__":

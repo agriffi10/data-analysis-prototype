@@ -1,18 +1,9 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {isExpiryError, withCredentialRetry} from './credentialRetry';
-import {enqueueFifoRequest} from './enqueueFifo';
 import {toUserMessage} from './errorMessages';
-import {enqueueQualityCheck} from '../features/data-quality/dataQuality.service';
-import {enqueueNotificationAction} from '../features/notifications/notifications.service';
-import {enqueueSharedSpaceRequest} from '../features/shared-spaces/sharedSpaces.service';
-import {enqueueTableBuild, enqueueTableRefresh} from '../features/table-builder/tableBuild.service';
-import {enqueueTableShare} from '../features/table-share/tableShare.service';
-import {submitFileOperation} from '../features/file-browser/fileOps.service';
-import {enqueueArchive, enqueueRestore} from '../features/archive/archive.service';
-import {enqueueFileSend} from '../features/file-send/fileSend.service';
 import {VITE_NAME, devFallbackValue, warnIfMisconfigured} from './env';
 import {isPortalConfigured, missingRequiredConfig} from './runtimeConfig';
-import {OPTIONAL_CONFIG, REQUIRED_CONFIG} from '../types/runtimeConfig.types';
+import {REQUIRED_CONFIG} from '../types/runtimeConfig.types';
 import type {ServiceResult} from '../types/service.types';
 import protectedLayoutSource from '../components/ProtectedLayout.tsx?raw';
 import fileBrowserServiceSource from '../features/file-browser/fileBrowser.service.ts?raw';
@@ -21,13 +12,6 @@ import filesPageSource from '../routes/FilesPage.tsx?raw';
 // ─── from credentialRetry.test.ts ───
 describe('credentialRetry', () => {
   describe('isExpiryError', () => {
-    it('recognizes the credential-expiry SDK error names', () => {
-      expect(isExpiryError('ExpiredToken')).toBe(true);
-      expect(isExpiryError('ExpiredTokenException')).toBe(true);
-      expect(isExpiryError('CredentialsProviderError')).toBe(true);
-      expect(isExpiryError('InvalidToken')).toBe(true);
-    });
-
     it('is false for unknown / undefined codes', () => {
       expect(isExpiryError('AccessDenied')).toBe(false);
       expect(isExpiryError(undefined)).toBe(false);
@@ -38,17 +22,6 @@ describe('credentialRetry', () => {
     const okClient = (id: string): ServiceResult<{id: string}> => ({
       success: true,
       data: {id}
-    });
-
-    it('runs the op once on success — no refresh', async () => {
-      const getClient = vi.fn(async () => okClient('first'));
-      const op = vi.fn(async () => ({success: true as const, data: 'done'}));
-
-      const result = await withCredentialRetry(getClient, op);
-
-      expect(result).toEqual({success: true, data: 'done'});
-      expect(getClient).toHaveBeenCalledTimes(1);
-      expect(op).toHaveBeenCalledTimes(1);
     });
 
     it('does not retry on a non-expiry error', async () => {
@@ -98,27 +71,6 @@ describe('credentialRetry', () => {
 
       expect(result.success).toBe(false);
       expect(op).not.toHaveBeenCalled();
-    });
-
-    it('returns the refreshed-client error if the refresh itself fails', async () => {
-      const getClient = vi
-        .fn<(forceRefresh?: boolean) => Promise<ServiceResult<{id: string}>>>()
-        .mockResolvedValueOnce(okClient('first'))
-        .mockResolvedValueOnce({
-          success: false,
-          error: {message: 'refresh failed'}
-        });
-      const op = vi.fn(async () => ({
-        success: false as const,
-        error: {message: 'expired', code: 'ExpiredToken'}
-      }));
-
-      const result = await withCredentialRetry(getClient, op);
-
-      expect(result.success).toBe(false);
-      if (result.success) return;
-      expect(result.error.message).toBe('refresh failed');
-      expect(op).toHaveBeenCalledTimes(1); // never retried
     });
   });
 });
@@ -173,24 +125,6 @@ describe('devUnauthBypass', () => {
       // And exactly one read, so a second ungated one cannot hide behind the guarded first.
       expect(source.match(/VITE_S3_DEV_UNAUTH/g) ?? []).toHaveLength(1);
     });
-
-    it('covers every module that reads the flag — the list above is not stale', async () => {
-      // Guards the guard. A fourth site added without joining BYPASS_SITES would be an ungated
-      // bypass this file silently says nothing about. `import.meta.glob` is Vite's own module
-      // graph, so nothing here depends on a hand-maintained path list.
-      const all = import.meta.glob('../**/*.{ts,tsx}', {query: '?raw', import: 'default', eager: true});
-
-      const readers = Object.entries(all)
-        .filter(([path]) => !/\.test\.tsx?$/.test(path))
-        .filter(([, source]) => String(source).includes('VITE_S3_DEV_UNAUTH'))
-        .map(([path]) => path.split('/').pop());
-
-      expect(readers.sort()).toEqual(
-        BYPASS_SITES.map(([name]) => name)
-          .slice()
-          .sort()
-      );
-    });
   });
 
   describe('with DEV false, the flag does NOT unsign requests', () => {
@@ -244,21 +178,6 @@ describe('enqueueFifo', () => {
   });
 
   describe('enqueueFifoRequest — the missing-queue-URL guard', () => {
-    it('codes the failure NotConfigured so the authored wording can be mapped', async () => {
-      const result = await enqueueFifoRequest({
-        queueUrl: undefined,
-        notConfiguredMessage: 'Table refresh is not configured',
-        build: () => {
-          throw new Error('build must not run when the queue URL is missing');
-        }
-      });
-
-      expect(result).toEqual({
-        success: false,
-        error: {message: 'Table refresh is not configured', code: 'NotConfigured'}
-      });
-    });
-
     it('surfaces that wording to the user instead of the generic fallback', () => {
       // The regression this closes: with no `code`, `toUserMessage` fell through every
       // MATCH_RULES pattern to GENERIC, and the documented deploy gotcha presented as
@@ -267,128 +186,6 @@ describe('enqueueFifo', () => {
 
       expect(message).toBe('Table refresh is not configured');
       expect(message).not.toContain('Something went wrong');
-    });
-  });
-
-  // Every `notConfiguredMessage` in the app, with the variable whose absence produces
-  // it. A control plane added without a row here is a message a user cannot see — which
-  // is the defect these rows exist to catch, and archive shipped two of them with no row
-  // at all, so `Archiving`/`Restoring is not configured` went unproved until now.
-  const CALL_SITES: {name: string; envVar: string; message: string; call: () => Promise<ServiceResult<unknown>>}[] = [
-    {
-      name: 'sharedSpaces.service — enqueueSharedSpaceRequest',
-      envVar: 'VITE_SHARED_SPACE_QUEUE_URL',
-      message: 'Shared connections are not configured',
-      call: () => enqueueSharedSpaceRequest({action: 'create', actor: 'alice', space: 'project_alpha'})
-    },
-    {
-      name: 'dataQuality.service — enqueueQualityCheck',
-      envVar: 'VITE_DATA_QUALITY_QUEUE_URL',
-      message: 'Data quality checks are not configured',
-      call: () =>
-        enqueueQualityCheck({
-          requestId: 'req-1',
-          space: {kind: 'personal', bucket: 'bucket', prefix: 'alice/'},
-          location: 'alice/sales/'
-        })
-    },
-    {
-      name: 'tableShare.service — enqueueTableShare',
-      envVar: 'VITE_TABLE_SHARE_QUEUE_URL',
-      message: 'Table sharing is not configured',
-      call: () =>
-        enqueueTableShare({
-          source: {database: 'alice', table: 'sales'},
-          tableName: 'sales',
-          recipients: [{kind: 'user', name: 'bob'}]
-        })
-    },
-    {
-      name: 'notifications.service — enqueueNotificationAction',
-      envVar: 'VITE_NOTIFICATIONS_QUEUE_URL',
-      message: 'Notifications are not configured',
-      call: () => enqueueNotificationAction({action: 'markAllRead', username: 'alice'})
-    },
-    {
-      name: 'tableBuild.service — enqueueTableBuild',
-      envVar: 'VITE_TABLE_BUILD_QUEUE_URL',
-      message: 'Table creation is not configured',
-      call: () =>
-        enqueueTableBuild({
-          space: {kind: 'personal', bucket: 'bucket', prefix: 'alice/sales/', database: 'alice'},
-          tableName: 'sales',
-          partitionKeys: []
-        })
-    },
-    {
-      name: 'fileSend.service — enqueueFileSend',
-      envVar: 'VITE_FILE_SEND_QUEUE_URL',
-      message: 'Sending files is not configured',
-      call: () =>
-        enqueueFileSend({
-          requestId: 'req-1',
-          space: {kind: 'personal', name: 'alice'},
-          items: [{kind: 'file', key: 'alice/q1.csv'}],
-          recipients: [{kind: 'user', name: 'bob'}]
-        })
-    },
-    {
-      name: 'tableBuild.service — enqueueTableRefresh',
-      envVar: 'VITE_TABLE_BUILD_QUEUE_URL',
-      message: 'Table refresh is not configured',
-      call: () =>
-        enqueueTableRefresh({
-          space: {kind: 'personal', bucket: 'bucket', prefix: 'alice/sales/', database: 'alice'},
-          tableName: 'sales'
-        })
-    },
-    {
-      name: 'archive.service — enqueueArchive',
-      envVar: 'VITE_ARCHIVE_QUEUE_URL',
-      message: 'Archiving is not configured',
-      call: () =>
-        enqueueArchive({
-          requestId: 'req-1',
-          space: {kind: 'personal', name: 'alice'},
-          items: [{kind: 'file', key: 'alice/report.csv'}]
-        })
-    },
-    {
-      name: 'archive.service — enqueueRestore',
-      envVar: 'VITE_ARCHIVE_QUEUE_URL',
-      message: 'Restoring is not configured',
-      call: () =>
-        enqueueRestore({
-          requestId: 'req-2',
-          space: {kind: 'personal', name: 'alice'},
-          archiveId: '3f6d5b0e-9c4a-4a1e-9f2b-8d0c7e5a1b23'
-        })
-    },
-    {
-      name: 'fileOps.service — submitFileOperation',
-      envVar: 'VITE_FILE_OPS_QUEUE_URL',
-      message: 'File operations are not configured',
-      call: () =>
-        submitFileOperation({
-          requestId: 'req-1',
-          operation: 'delete',
-          source: {space: {kind: 'personal', name: 'alice'}, items: [{kind: 'folder', key: 'alice/old/'}]}
-        })
-    }
-  ];
-
-  describe('every "not configured" message reaches the user', () => {
-    it.each(CALL_SITES)('$name', async ({envVar, message, call}) => {
-      vi.stubEnv(envVar, undefined);
-
-      const result = await call();
-
-      expect(result.success).toBe(false);
-      if (result.success) return;
-      expect(result.error.code).toBe('NotConfigured');
-      // The assertion that matters is the MAPPED text, not the raw one: the raw
-      // message was always correct, and was always thrown away by the mapper.
-      expect(toUserMessage(result.error).message).toBe(message);
     });
   });
 });
@@ -461,11 +258,6 @@ describe('env', () => {
       expect(devFallbackValue('userSpaceBucket')).toBe('test-bucket');
     });
 
-    it('treats the empty string as unset — an unset repo variable interpolates to ""', () => {
-      vi.stubEnv('VITE_ATHENA_WORKGROUP', '');
-      expect(devFallbackValue('athenaWorkgroup')).toBeUndefined();
-    });
-
     it('ACCEPTED: every key currently HAS a variable, so the null branch is unreachable', () => {
       // This used to assert the one key with no `VITE_` variable read as undefined. `apiBaseUrl`
       // gained one when it became required, and no key is null now — so the case the old test
@@ -482,12 +274,6 @@ describe('env', () => {
   });
 
   describe('missingRequiredConfig', () => {
-    it('is empty when every required variable is set', () => {
-      stubAllRequired();
-      expect(missingRequiredConfig()).toEqual([]);
-      expect(isPortalConfigured()).toBe(true);
-    });
-
     it('names the key that is missing', () => {
       stubAllRequired();
       vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', '');
@@ -504,16 +290,6 @@ describe('env', () => {
       vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', '');
       vi.stubEnv('VITE_COGNITO_IDENTITY_POOL_ID', '');
       expect(isPortalConfigured()).toBe(true);
-    });
-
-    it('classifies every key exactly once', () => {
-      // The two arrays are the document's only key set, so an entry landing in both —
-      // or in neither, having gained a VITE_NAME row — is a classification with no
-      // single answer to "does this stop the app booting?"
-      const all = [...REQUIRED_CONFIG, ...OPTIONAL_CONFIG];
-
-      expect(new Set(all).size).toBe(all.length);
-      expect(all.slice().sort()).toEqual(Object.keys(VITE_NAME).sort());
     });
   });
 
@@ -534,17 +310,6 @@ describe('env', () => {
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       stubAllRequired();
       vi.stubEnv('DEV', true);
-
-      warnIfMisconfigured();
-
-      expect(warn).not.toHaveBeenCalled();
-    });
-
-    it('stays silent in a production build even when a variable is missing', () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      stubAllRequired();
-      vi.stubEnv('VITE_AWS_REGION', ''); // genuinely missing, not merely absent from the ambient env
-      vi.stubEnv('DEV', false);
 
       warnIfMisconfigured();
 

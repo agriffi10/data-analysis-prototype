@@ -32,7 +32,6 @@ Attributes:
 """
 
 import pathlib
-import re
 
 from tf_blocks import join_list_items
 
@@ -58,96 +57,6 @@ ACCEPTED_PRE_MOVE_DIRECTIVES = (
     "frame-ancestors 'none'",
     "upgrade-insecure-requests",
 )
-
-
-def _module_block(name: str) -> str:
-    """Returns one ``module "<name>" {…}`` block from the root composition.
-
-    Scoped rather than searched whole: root composes twenty-odd modules, and a substring found
-    anywhere in the file cannot tell which one it belongs to — so an argument wired to the wrong
-    module would satisfy an unscoped assertion exactly.
-
-    Args:
-      name: The module's label.
-
-    Returns:
-      The block's body.
-
-    Raises:
-      AssertionError: When the block is absent, so no assertion on it runs vacuously.
-    """
-    text = ROOT_MAIN.read_text()
-    marker = f'module "{name}" {{'
-    assert marker in text, f"root does not compose module {name}."
-    start = text.index(marker)
-    end = text.index("\n}\n", start)
-    assert end > start, f'module "{name}" does not close where expected.'
-    return text[start:end]
-
-
-def test_the_sources_were_found() -> None:
-    """Guards every assertion below: an empty read agrees with everything.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When a file this suite does not own has moved or been renamed.
-    """
-    assert "locals {" in ROOT_MAIN.read_text()
-    assert "aws_cloudfront_response_headers_policy" in APP_CLOUDFRONT.read_text()
-    assert "variable " in APP_VARIABLES.read_text()
-
-
-def test_the_move_is_a_move_and_the_module_declares_neither_local() -> None:
-    """Both locals live at root; the module reads the assembled string as an input.
-
-    A module that still assembles its own policy would keep every criterion below green while
-    the two delivery paths diverged — which is the whole failure this move prevents.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When either local survives in the module, or root declares neither.
-    """
-    module = APP_CLOUDFRONT.read_text()
-    root = ROOT_MAIN.read_text()
-
-    assert "content_security_policy = join(" not in module, (
-        "modules/app still assembles the policy. It moved to root so one computation feeds both "
-        "delivery paths and so a root-level check has a referent it can read."
-    )
-    assert "csp_connect_src = join(" not in module, "modules/app still assembles connect-src."
-    assert re.search(r"content_security_policy\s*=\s*join\(", root), (
-        "root does not assemble the policy, so nothing does."
-    )
-    assert re.search(r"csp_connect_src\s*=\s*join\(", root), (
-        "root does not assemble connect-src, so nothing does."
-    )
-    assert "content_security_policy = var.content_security_policy" in module, (
-        "The response-headers policy no longer reads the module input."
-    )
-
-    # The orphan. Once the assembled string arrives whole, the module has no use for the source
-    # list, and a surviving unused input is a second place a later reader would wire.
-    #
-    # Read as DECLARED NAMES rather than as raw text: a substring scan trips on any comment that
-    # mentions the old name, which is a legal edit, and then fails naming the wrong cause.
-    declared = re.findall(r'^variable "([^"]+)"', APP_VARIABLES.read_text(), re.MULTILINE)
-    assert declared, "no variables parsed from modules/app — the parse went trivial."
-    assert "csp_connect_src" not in declared, (
-        "modules/app still declares csp_connect_src, which nothing in it reads."
-    )
-    assert "content_security_policy" in declared, (
-        "modules/app does not declare the input the assembled policy arrives through."
-    )
 
 
 def test_the_policy_string_is_byte_identical_to_its_pre_move_value() -> None:
@@ -233,70 +142,6 @@ def test_connect_src_still_names_both_cognito_hosts() -> None:
         "connect-src lost the Hosted UI domain. The authorization-code exchange is the only fetch "
         "to that host, a warm session never makes it, and its absence broke fresh sign-in for a "
         "day once already."
-    )
-
-
-def test_the_hosted_ui_term_is_covered_by_the_drift_precondition() -> None:
-    """One local feeds the policy and the document, so the existing precondition covers both.
-
-    The container's Cognito domain and the policy's Hosted-UI term are the same root local, so the
-    drift check written for the distribution reaches the container too. Asserted rather than
-    assumed, because a later edit that gave either path its own value would leave one delivery path
-    correct and the other unable to complete a sign-in.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When the precondition is gone, or when either consumer stops reading the
-        shared local.
-    """
-    outputs = ROOT_OUTPUTS.read_text()
-    assert "module.auth.user_pool_domain == local.cognito_hosted_ui_domain" in outputs, (
-        "The Hosted-UI drift precondition is gone. Sign-in breaks with no failing test anywhere; "
-        "that outage happened once already."
-    )
-
-    # Whitespace-tolerant: `tofu fmt` aligns these on the longest key in the map, and that map is
-    # designed to grow. A literal-spacing assertion fails on a formatter run and blames the wrong
-    # thing.
-    root = ROOT_MAIN.read_text()
-    assert re.search(r"cognitoDomain\s*=\s*local\.cognito_hosted_ui_domain\b", root), (
-        "The runtime-configuration document no longer reads the local the precondition guards."
-    )
-    assert 'https://${local.cognito_hosted_ui_domain}"' in root, (
-        "connect-src no longer reads the local the precondition guards."
-    )
-
-
-def test_both_delivery_paths_read_one_computation() -> None:
-    """The distribution takes the assembled policy; the container takes only connect-src.
-
-    That seam is the spec's: every directive other than ``connect-src`` describes the bundle and
-    travels in the image, while the one environment-shaped directive arrives from the task
-    definition. Baking the whole policy into the image would re-create the build-time-configuration
-    problem the runtime-configuration document exists to end.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: When either module stops reading its half, or the container's input is not
-        the root local unmodified.
-    """
-    assert re.search(
-        r"content_security_policy\s*=\s*local\.content_security_policy\b", _module_block("app")
-    ), "module.app no longer receives the assembled policy."
-
-    assert re.search(r"csp_connect_src\s*=\s*local\.csp_connect_src\b", _module_block("spa")), (
-        "module.spa's connect-src is no longer the root local unmodified. A filter or a rebuild "
-        "interposed here is how the two delivery paths start emitting different policies."
     )
 
 

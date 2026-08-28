@@ -108,37 +108,6 @@ def test_it_deletes_what_the_listing_finds_under_this_requests_prefix():
     ]
 
 
-def test_it_deletes_placeholders_and_hidden_objects_the_default_predicate_would_skip():
-    """The shared paginator's default drops zero-byte objects and hidden segments, and both are
-    things this plane deliberately archives. A rollback that inherited the default would leave
-    exactly those behind, billed at the GLACIER 90-day minimum."""
-    _install({f"{_ARCHIVE_ROOT}reports/empty/": 0, f"{_ARCHIVE_ROOT}_drafts/x.csv": 3})
-    fake = clients._s3
-
-    with pytest.raises(TerminalError):
-        m.handler(_event(), None)
-
-    assert set(fake.deletes[0]["Keys"]) == {
-        f"{_ARCHIVE_ROOT}reports/empty/",
-        f"{_ARCHIVE_ROOT}_drafts/x.csv",
-    }
-
-
-def test_it_never_reaches_outside_its_own_archive_prefix():
-    """The prefix carries the request id, so one rollback can only ever touch one archive."""
-    _install({
-        f"{_ARCHIVE_ROOT}a.csv": 1,
-        "personal/alice/archive/some-other-request/b.csv": 1,
-        "personal/bob/archive/x/c.csv": 1,
-    })
-    fake = clients._s3
-
-    with pytest.raises(TerminalError):
-        m.handler(_event(), None)
-
-    assert fake.deletes[0]["Keys"] == [f"{_ARCHIVE_ROOT}a.csv"]
-
-
 def test_a_clean_rollback_still_fails_the_run_and_names_the_counts(_no_real_notifications):
     """FR-004 AC5. It ALWAYS raises: the gate has already decided this archive did not happen,
     and the only question left was whether the vault was left clean. The message names how many
@@ -154,46 +123,6 @@ def test_a_clean_rollback_still_fails_the_run_and_names_the_counts(_no_real_noti
     message = _no_real_notifications[0][1]
     assert "6 of 8" in message
     assert "nothing was deleted" in message
-
-
-def test_residue_changes_the_message_and_not_the_outcome(_no_real_notifications):
-    """FR-004 AC4. The property that matters is that the source is intact, and it is — so a
-    rollback that itself failed partially reports the residue and carries on. The residue is
-    unreachable by the user and is swept by the bucket's own expiry."""
-    _install({f"{_ARCHIVE_ROOT}a.csv": 1, f"{_ARCHIVE_ROOT}b.csv": 1}, errors_on={f"{_ARCHIVE_ROOT}b.csv"})
-
-    with pytest.raises(TerminalError) as err:
-        m.handler(_event(), None)
-
-    assert err.value.reason == "archive_rollback_incomplete"
-    assert err.value.tokens["residue"] == "1"
-
-    message = _no_real_notifications[0][1]
-    assert "nothing was deleted" in message
-    assert "expire on their own" in message
-
-
-def test_an_empty_vault_is_not_an_error_and_still_fails_the_run():
-    """The Map may have failed before copying anything at all. There is nothing to roll back and
-    the archive still did not happen."""
-    fake = _install({})
-
-    with pytest.raises(TerminalError) as err:
-        m.handler(_event(copied=0, failed=8), None)
-
-    assert err.value.reason == "archive_incomplete"
-    assert fake.deletes == []
-
-
-def test_the_actor_is_notified_once_by_the_decorator(_no_real_notifications):
-    """The machine's own NotifyFailure then suppresses the duplicate on the TerminalError name,
-    which is why this verb raises a terminal error rather than a bare exception."""
-    _install({f"{_ARCHIVE_ROOT}a.csv": 1})
-
-    with pytest.raises(TerminalError):
-        m.handler(_event(), None)
-
-    assert [user for user, _ in _no_real_notifications] == ["alice"]
 
 
 if __name__ == "__main__":

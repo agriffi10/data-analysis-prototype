@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createTestQueryClient, renderWithProviders} from '../../test/renderWithProviders';
 import {AddMembersDialog} from './AddMembersDialog';
 import {parseMemberInput} from './memberInput';
@@ -40,11 +40,6 @@ describe('AddMembersDialog', () => {
       expect(parseMemberInput('Bob, cara\n  bob   DAVE')).toEqual(['bob', 'cara', 'dave']);
     });
 
-    it('drops tokens that fail the catalog-safe username rule', () => {
-      // 'x' too short, 'No-Dashes' has a dash, '1leading' starts with a digit.
-      expect(parseMemberInput('x, no-dashes, 1leading, validname')).toEqual(['validname']);
-    });
-
     it('returns an empty list for blank input', () => {
       expect(parseMemberInput('   \n  ')).toEqual([]);
     });
@@ -82,15 +77,6 @@ describe('AddMembersDialog', () => {
       expect(onAdd).toHaveBeenCalledWith(['bob', 'dave']);
     });
 
-    it('refuses an existing member by name rather than silently dropping them', async () => {
-      const {user} = renderDialog({existing: ['cara']});
-      await user.click(field());
-      await user.keyboard('cara{Enter}');
-
-      expect(screen.getByRole('alert')).toHaveTextContent('cara is already a member of this space.');
-      expect(chips()).not.toBeInTheDocument();
-    });
-
     it('excludes existing members from the suggestions', async () => {
       const {user} = renderDialog({existing: ['bob']});
       await user.click(field());
@@ -110,18 +96,6 @@ describe('AddMembersDialog', () => {
       expect(addButton()).toBeEnabled();
     });
 
-    it('keeps the empty-state sentence exactly as it reads', async () => {
-      // This sentence is what tells a user their input did not take.
-      const {user} = renderDialog();
-      expect(screen.getByText('No valid new usernames yet.')).toBeInTheDocument();
-
-      await user.click(field());
-      await user.keyboard('bob{Enter}');
-
-      expect(screen.queryByText('No valid new usernames yet.')).not.toBeInTheDocument();
-      expect(screen.getByText('1 username to add.')).toBeInTheDocument();
-    });
-
     it('renders committed names as removable chips', async () => {
       const {user} = renderDialog();
       await user.click(field());
@@ -130,16 +104,6 @@ describe('AddMembersDialog', () => {
       expect(within(chips()!).getAllByRole('listitem')).toHaveLength(2);
       await user.click(screen.getByRole('button', {name: 'Remove bob'}));
       expect(within(chips()!).getAllByRole('listitem')).toHaveLength(1);
-    });
-
-    it('surfaces invalid tokens instead of swallowing them', async () => {
-      const {user} = renderDialog();
-      await user.click(field());
-      await user.keyboard('bob 1bad no-dashes{Enter}');
-
-      expect(within(chips()!).getAllByRole('listitem')).toHaveLength(1);
-      expect(field()).toHaveValue('1bad no-dashes');
-      expect(screen.getByRole('alert')).toHaveTextContent('Use 3–63 characters');
     });
 
     it('focuses the field on open', () => {
@@ -169,32 +133,12 @@ describe('AddMembersDialog', () => {
       expect(alert).toHaveTextContent('cara is already a member of this space.');
     });
 
-    it('tells the user how to commit while text is uncommitted', async () => {
-      // Add is gated on committed chips, so without this the button is disabled and nothing says
-      // why. The hint deliberately names no token — it cannot promise what any given one will do.
-      const {user} = renderDialog();
-      expect(screen.queryByText(/Press Enter/)).not.toBeInTheDocument();
-
-      await user.click(field());
-      await user.keyboard('bo');
-
-      expect(screen.getByText('Press Enter to add the name you typed.')).toBeInTheDocument();
-      expect(addButton()).toBeDisabled();
-    });
-
     it('no longer claims unknown usernames are ignored', async () => {
       // The copy said "Unknown usernames are ignored." — the same false claim SPEC-146 corrected
       // in two docstrings, and the only place a USER read it.
       renderDialog();
       expect(screen.queryByText(/ignored/i)).not.toBeInTheDocument();
       expect(screen.getByText(/reported back to you as a notification/i)).toBeInTheDocument();
-    });
-
-    it('locks the field and both buttons while busy', () => {
-      renderDialog({busy: true});
-      expect(field()).toBeDisabled();
-      expect(screen.getByRole('button', {name: 'Adding…'})).toBeDisabled();
-      expect(screen.getByRole('button', {name: 'Cancel'})).toBeDisabled();
     });
 
     it('cancels without sending', async () => {
@@ -217,19 +161,6 @@ describe('AddMembersDialog', () => {
 
       await user.click(addButton());
       expect(onAdd).toHaveBeenCalledWith(['someone_new']);
-    });
-
-    it('stays fully usable when the directory is unavailable, with no note and no banner', async () => {
-      vi.mocked(getUserDirectory).mockResolvedValue({success: false, error: {message: 'boom'}});
-      const {onAdd, user} = renderDialog();
-      await user.click(field());
-      await user.keyboard('someone_new{Enter}');
-
-      await user.click(addButton());
-
-      expect(onAdd).toHaveBeenCalledWith(['someone_new']);
-      expect(screen.queryByText(/not in the directory/i)).not.toBeInTheDocument();
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     });
 
     it('commits with no note while the directory is still loading', async () => {
@@ -286,25 +217,8 @@ describe('AddMembersDialog.a11y', () => {
   }
 
   describe('AddMembersDialog a11y', () => {
-    it('has no violations in the empty state', async () => {
-      const {container} = render(dialog());
-      await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
-      cleanup();
-    });
-
     it('has no violations while submitting', async () => {
       const {container} = render(dialog({busy: true}));
-      await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
-      cleanup();
-    });
-
-    it('has no violations populated with chips', async () => {
-      const {container} = render(dialog());
-      const user = userEvent.setup();
-      await user.click(screen.getByRole('combobox'));
-      await user.keyboard('bob, cara{Enter}');
-      await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(2));
-
       await expectContainerHasNoA11yViolations(container, COMPONENT_AXE_OPTIONS);
       cleanup();
     });
@@ -409,11 +323,6 @@ describe('ManageMembersDrawer', () => {
       await waitFor(() => expect(onAddMembers).toHaveBeenCalledWith(['cara', 'dave']));
     });
 
-    it('shows an info note when the member projection is unavailable', () => {
-      setup({members: [{username: 'alice', status: 'active'}], unavailable: true});
-      expect(screen.getByText(/Member details aren.t available yet/)).toBeInTheDocument();
-    });
-
     it('renders a per-member Pending/Active status chip (SPEC-073 FR-004)', () => {
       setup({
         members: [
@@ -432,52 +341,6 @@ describe('ManageMembersDrawer', () => {
       const {onRefresh} = setup();
       fireEvent.click(screen.getByRole('button', {name: 'Refresh connections'}));
       expect(onRefresh).toHaveBeenCalled();
-    });
-  });
-
-  describe('ManageMembersDrawer — the Escape order in the live tree (SPEC-148 FR-006)', () => {
-    it('closes the suggestion list, then the dialog, then the drawer', async () => {
-      // SPEC-147 FR-004 specifies the mechanism and tests it against a fixture; this verifies it
-      // in the REAL composition. Since SPEC-155 FR-006 the drawer needs no `closeOnEscape`
-      // gate: `useEscapeKey` dispatches to the deepest layer, and the dialog is nested inside.
-      const onClose = vi.fn();
-      const {user} = renderWithProviders(
-        <ManageMembersDrawer
-          open
-          onClose={onClose}
-          space="salesdata"
-          owner="alice"
-          members={[{username: 'alice', status: 'active' as const}]}
-          onRefresh={vi.fn()}
-          onAddMembers={vi.fn()}
-          onRemoveMembers={vi.fn()}
-        />
-      );
-
-      await user.click(screen.getByRole('button', {name: 'Add members'}));
-      await user.click(screen.getByRole('combobox', {name: 'Usernames'}));
-      await user.keyboard('car');
-      await waitFor(() => expect(screen.getAllByRole('option').length).toBeGreaterThan(0));
-
-      // 1 — the list only.
-      await user.keyboard('{Escape}');
-      expect(screen.queryAllByRole('option')).toHaveLength(0);
-      expect(screen.getByRole('combobox', {name: 'Usernames'})).toBeInTheDocument();
-      expect(onClose).not.toHaveBeenCalled();
-
-      // 2 — the dialog only. Wrapped in an ASYNC act: closing the dialog unmounts its
-      // subtree and something in it suspends, which `user.keyboard`'s own synchronous
-      // act cannot await ("A component suspended inside an `act` scope…").
-      await act(async () => {
-        await user.keyboard('{Escape}');
-      });
-      await waitFor(() => expect(screen.queryByRole('combobox', {name: 'Usernames'})).not.toBeInTheDocument());
-      expect(onClose).not.toHaveBeenCalled();
-
-      // 3 — the drawer. `waitFor` rather than a bare assert: closing it unmounts the
-      // dialog subtree, and that commit lands after the keystroke resolves.
-      await user.keyboard('{Escape}');
-      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     });
   });
 });

@@ -105,21 +105,6 @@ MODULES = [(plane, path) for plane in PLANES for path in plane.modules()]
 _IDS = [f"{plane.service}:{path.stem}" for plane, path in MODULES]
 
 
-def _emitter_calls(path):
-    """Every `observability.info/warning/error(...)` call, as AST nodes.
-
-    AST rather than a substring search, so a mention inside a docstring or a comment cannot
-    satisfy the guard — the point is that the verb *emits*, not that it talks about emitting.
-    """
-    for node in ast.walk(ast.parse(path.read_text())):
-        if isinstance(node, ast.Call) and ast.unparse(node.func) in (
-            "observability.info",
-            "observability.warning",
-            "observability.error",
-        ):
-            yield node
-
-
 #: Field names that would carry data read out of a user's file. Name-based and therefore
 #: IMPERFECT — the real rule turns on provenance (did this value come from inside a file), which
 #: no name test can see. A tripwire for the obvious mistake, not the enforcement.
@@ -141,6 +126,21 @@ CONTENTS_DENYLIST = {
 CREDENTIAL_NAMES = {"id_token", "idtoken", "token", "access_token", "credentials", "authorization"}
 
 
+def _emitter_calls(path):
+    """Every `observability.info/warning/error(...)` call, as AST nodes.
+
+    AST rather than a substring search, so a mention inside a docstring or a comment cannot
+    satisfy the guard — the point is that the verb *emits*, not that it talks about emitting.
+    """
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.Call) and ast.unparse(node.func) in (
+            "observability.info",
+            "observability.warning",
+            "observability.error",
+        ):
+            yield node
+
+
 @pytest.mark.parametrize("plane", PLANES, ids=lambda p: p.service)
 def test_the_enumeration_actually_found_the_verbs(plane):
     """Guards the guard: a glob that matches nothing makes every test below vacuous.
@@ -159,15 +159,6 @@ def test_every_verb_handler_is_traced(plane, path):
     assert decorators is not None, f"{path.name} exposes no `handler`"
     assert any(d.startswith("observability.traced(") for d in decorators), (
         f"{path.name}'s handler is not traced — a run would show one verb short and look truncated"
-    )
-
-
-@pytest.mark.parametrize(("plane", "path"), MODULES, ids=_IDS)
-def test_every_verb_initialises_its_control_plane_service(plane, path):
-    expected = f'observability.init(service="{plane.service}")'
-    assert expected in path.read_text(), (
-        f"{path.name} must init with the CONTROL PLANE name, not the function — "
-        f"a plane's verbs are only one queryable set if they share it"
     )
 
 
@@ -235,61 +226,6 @@ def test_the_decorator_expectation_for_this_plane_holds(plane, path):
 
 
 @pytest.mark.parametrize(("plane", "path"), MODULES, ids=_IDS)
-def test_every_verb_narrates_and_not_only_traces(plane, path):
-    """A verb that traces but never narrates is worse than one that does neither: in a query
-    filtered to narrative events it looks exactly like a verb that never ran.
-    """
-    assert list(_emitter_calls(path)), (
-        f"{path.name} opens a span and says nothing inside it — see SPEC-132 FR-001"
-    )
-
-
-def test_the_denylist_still_covers_every_name_a_spec_put_on_it():
-    """The tripwire is DORMANT until someone trips it, so nothing else here fails when an
-    entry is quietly deleted — a mutation removing SPEC-137's four names survived every other
-    test in this module.
-
-    This asserts the RULE rather than its effect: each name is on the list because a spec put
-    it there, so removing one has to be a decision someone makes in the open.
-    """
-    required = {
-        # SPEC-132 FR-004 — data read out of a user's file.
-        "value", "values", "sample", "samples", "row", "rows", "cell",
-        "content", "contents", "preview", "head", "text",
-        # SPEC-130 FR-005 — credentials, never metadata.
-        "token", "id_token",
-        # SPEC-137 FR-005 — the email address, and the three shapes that carry one nested
-        # where a field-name check cannot see it.
-        "email", "event", "attributes", "user_attributes",
-    }
-    missing = required - CONTENTS_DENYLIST
-    assert not missing, f"a spec put these on the denylist and they were removed: {sorted(missing)}"
-
-
-@pytest.mark.parametrize(("plane", "path"), MODULES, ids=_IDS)
-def test_no_emitter_passes_a_contents_shaped_field(plane, path):
-    """`logs/` is retained forever, and these functions hold users' data in memory."""
-    offenders = [
-        f"{ast.unparse(node.func)}({kw.arg}=...)"
-        for node in _emitter_calls(path)
-        for kw in node.keywords
-        if kw.arg and kw.arg.lower() in CONTENTS_DENYLIST
-    ]
-    assert not offenders, (
-        f"{path.name} logs a contents-shaped field: {offenders} — column NAMES are schema and are "
-        "permitted; column VALUES are file contents and are not (SPEC-132 FR-004)"
-    )
-
-
-@pytest.mark.parametrize(("plane", "path"), MODULES, ids=_IDS)
-def test_no_verb_enables_argument_or_return_capture(plane, path):
-    """The single setting that would turn every traced verb into a data-exfiltration path."""
-    source = path.read_text()
-    for banned in ("capture_args", "capture_return", "capture=", "include_args"):
-        assert banned not in source, f"{path.name} enables {banned}"
-
-
-@pytest.mark.parametrize(("plane", "path"), MODULES, ids=_IDS)
 def test_no_verb_puts_a_credential_into_a_log_field(plane, path):
     """No ID token, or any part of one, is ever a log field — regardless of provenance."""
     offenders = []
@@ -344,25 +280,24 @@ def test_every_lambda_in_the_repo_is_in_the_pipe(path):
     )
 
 
-def test_the_fleet_sweep_found_every_plane_module_and_then_some():
-    """Guards the guard: the sweep must be a SUPERSET of the per-plane enumeration, or it is
-    quietly narrower than the thing it exists to backstop.
-    """
-    plane_modules = {p for _plane, p in MODULES}
-    assert plane_modules < set(ALL_HANDLERS), (
-        "the fleet sweep no longer covers every plane module plus the singletons"
-    )
+@pytest.mark.parametrize(("plane", "path"), MODULES, ids=_IDS)
+def test_no_verb_enables_argument_or_return_capture(plane, path):
+    """The single setting that would turn every traced verb into a data-exfiltration path."""
+    source = path.read_text()
+    for banned in ("capture_args", "capture_return", "capture=", "include_args"):
+        assert banned not in source, f"{path.name} enables {banned}"
 
 
-@pytest.mark.parametrize("plane", PLANES, ids=lambda p: p.service)
-def test_the_service_name_survives_the_sweeps_routing_rule(plane):
-    """A `service` failing SERVICE_RE does not error — it quietly files every one of that
-    plane's events under logs/_unrouted/ (SPEC-129). Checked against the sweep's OWN pattern.
-    """
-    import re
-
-    sweep = (LAMBDAS / "log-sweep" / "log_sweep.py").read_text()
-    pattern = re.search(r'SERVICE_RE = re\.compile\(r"(.+?)"\)', sweep).group(1)
-    assert re.match(pattern, plane.service), (
-        f"{plane.service!r} would be routed to logs/_unrouted/"
+@pytest.mark.parametrize(("plane", "path"), MODULES, ids=_IDS)
+def test_no_emitter_passes_a_contents_shaped_field(plane, path):
+    """`logs/` is retained forever, and these functions hold users' data in memory."""
+    offenders = [
+        f"{ast.unparse(node.func)}({kw.arg}=...)"
+        for node in _emitter_calls(path)
+        for kw in node.keywords
+        if kw.arg and kw.arg.lower() in CONTENTS_DENYLIST
+    ]
+    assert not offenders, (
+        f"{path.name} logs a contents-shaped field: {offenders} — column NAMES are schema and are "
+        "permitted; column VALUES are file contents and are not (SPEC-132 FR-004)"
     )

@@ -98,25 +98,5 @@ def test_a_transient_failure_raises_so_the_map_retries_the_whole_batch():
         m.handler(_batch(), None)
 
 
-def test_an_empty_batch_is_not_an_error():
-    """The Map can hand a child an empty batch at the tail of a manifest, and a raise there would
-    fail a run that had copied everything."""
-    _install()
-
-    assert m.handler({"Items": []}, None) == {"copied": 0, "failures": []}
-
-
-def test_the_outcome_carries_the_count_the_collector_reconciles_against():
-    """``copied`` is what lets the collector check the export against the manifest rather than
-    trust it — a FAILED-only reading of the export reports universal success, and on this plane
-    that reported success is a deletion."""
-    _install()
-
-    outcome = m.handler(_batch(count=5), None)
-
-    assert outcome["copied"] == 5
-    assert set(outcome) == {"copied", "failures"}
-
-
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

@@ -108,6 +108,63 @@ ABAC keystone — until `data.aws_region.current.name` became `var.aws_region`.
 but are harmless (`ignore_changes = [filename, source_code_hash]`). Full narrative: the comment above
 the resource in [`../modules/auth/identity-pool.tf`](../modules/auth/identity-pool.tf).
 
+## The role's own budgets, and the forced wildcard
+
+Neither failure here is visible in a plan; `lambdas/test_deploy_platform_policies.py` holds both.
+
+**The budgets.** IAM's 10,240-character limit is the **aggregate** of a role's inline policies,
+not a per-policy allowance, and `github-actions-deploy.json.tftpl` already renders to 9,289. A
+customer-managed policy has its own separate 6,144-character budget, and a role may carry at most
+twenty of them. All three ceilings are enforced at `CreatePolicy` / `PutRolePolicy` /
+`AttachRolePolicy` — an apply-time `LimitExceeded` on a document that rendered, validated and
+planned green. The container platform's grants are two managed policies rather than one for
+exactly this reason.
+
+**The wildcard.** `Resource: "*"` on a deploy grant is sometimes forced and sometimes laziness,
+and the two read identically in a diff. IAM defines no resource type at all for the actions in
+that suite's `NON_SCOPABLE` set, so a narrower ARN on one of them is an implicit deny that
+presents as a missing grant; every other action accepts an ARN and must carry one. The set was
+**measured**, not assembled by eye — each entry read back from `aws iam simulate-custom-policy`
+as `implicitDeny` under a scoped ARN of its own service and `allowed` under `"*"`. The
+`implicitDeny` leg alone proves nothing, because a wrong ARN reads exactly the same; the
+`allowed` control is what makes the pair evidence. It is a recorded measurement rather than a
+live read of the AWS Service Reference: a test that reaches the network fails on a runner with no
+egress and passes by finding nothing when the endpoint changes shape.
+
+## Preserving an authorization artefact across a move
+
+`lambdas/test_portal_role_preservation.py` checks the "this rewrites no existing artefact" claim
+**artefact by artefact**, because a claim asserted once is a claim nobody checked.
+
+**The no-change guard is a named-absence assertion plus a git baseline, never a snapshot.** A test
+that captures the rendered templates during the build and diffs them against themselves compares a
+copy of the answer with itself and passes whatever happens. So the byte comparison is against the
+**pre-change blob in git**, and the file set is enumerated from that same commit — a glob of the
+working tree with a length check passes a deletion, because the deleted file is simply not in the
+glob.
+
+**A template the change edits needs its own baseline, and that is the easy one to miss.** The blob
+comparison excludes the trust template, so "the existing statement is untouched" has nothing to
+compare against. Asserting that `sts:AssumeRoleWithWebIdentity` still appears would survive someone
+changing that statement's principal, its conditions, or dropping `sts:TagSession` from it — so it is
+asserted whole, against a literal second copy, for the same reason the CSP terms are.
+
+## Domain variables: an empty one is not an unset one
+
+The domain variables carry no default on purpose, but a missing default only fails when the
+variable is genuinely absent — and an unset GitHub repo variable does not arrive absent. `${{
+vars.X }}` renders as the **empty string**, which satisfies a required variable and overrides a
+defaulted one alike. Measured on OpenTofu: with `TF_VAR_spa_subdomain=""` the origin plans as
+`https://.example.com`, plausible enough to be requested and refused only at apply, by ACM, in a
+message that does not name the repo variable behind it. Guard with `validation`, never with the
+absence of a default.
+
+**The zone id's shape is the same guard in the other direction.** It is rendered into the deploy
+role's Route 53 statement as well as into the records, and IAM matches ARNs literally. The
+`/hostedzone/`-prefixed form the API returns names the right zone, reads correct to a human, and
+yields a grant that matches nothing — so every record write is denied for a reason the value does
+not look like it could cause.
+
 ## Related
 
 - [`INDEX.md`](INDEX.md) — the module index, and the five-point version of this page

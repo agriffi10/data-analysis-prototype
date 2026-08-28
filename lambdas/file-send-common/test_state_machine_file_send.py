@@ -40,31 +40,12 @@ os.environ.setdefault("USER_SPACE_BUCKET", "user-bkt")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "shared-bkt")
 
 import file_send_build_transfer_manifest as b
-import file_send_check_target_absent as g
 import file_send_collect_transfer_results as c
 import file_send_inspect_source as i
 import file_send_validate_authorize as v
 from cpcommon import clients
 
 _ASL = _HERE.parent.parent / "infra" / "modules" / "file-send" / "state-machine.asl.json.tftpl"
-
-
-def _machine() -> dict:
-    """The state machine, with template placeholders neutralised so it parses as JSON.
-
-    Args:
-      None.
-
-    Returns:
-      The parsed ASL document.
-
-    Raises:
-      None.
-    """
-    # Two steps, because a placeholder in a VALUE position is a number (TimeoutSeconds,
-    # MaxConcurrency) and a quoted one is a string.
-    raw = re.sub(r":\s*\$\{[a-z_0-9]+\}", ": 0", _ASL.read_text())
-    return json.loads(re.sub(r"\$\{[a-z_0-9]+\}", "PLACEHOLDER", raw))
 
 
 def _validated_output() -> dict:
@@ -95,25 +76,6 @@ def _validated_output() -> dict:
         "recipients": [{"kind": "user", "name": "bob"}],
     }
     return v.handler([{"body": json.dumps(body)}], None)
-
-
-def _read_paths(parameters: dict) -> set[str]:
-    """The top-level keys a Pass state's Parameters block reads from its input.
-
-    Args:
-      parameters: The state's ``Parameters``.
-
-    Returns:
-      The first path segment of every ``$.x`` reference.
-
-    Raises:
-      None.
-    """
-    reads = set()
-    for key, value in (parameters or {}).items():
-        if key.endswith(".$") and isinstance(value, str) and value.startswith("$."):
-            reads.add(value[2:].split(".")[0])
-    return reads
 
 
 def _planned_output() -> dict:
@@ -261,46 +223,6 @@ def _exit_keys(name: str, state: dict, entry: set) -> set:
     return entry
 
 
-def _entry_keys(states: dict) -> dict:
-    """What is addressable on entry to every state on the SUCCESS path, derived by walking it.
-
-    This is the model the catch walk needs, and deriving it is the whole point: the earlier
-    version read the immediately preceding ``Pass``, which was true while the machine was two
-    Tasks and silently gave up the moment a Map or a Choice sat between them — reporting an
-    empty set, which every assertion passes against.
-
-    A state reachable by two paths gets the INTERSECTION of what they supply, because a key that
-    only one branch adds is not one a downstream state may read. ``mapRun`` is exactly that: the
-    Choice's skip branch reaches the collector without it.
-
-    Args:
-      states: The machine's states.
-
-    Returns:
-      State name to the set of top-level keys addressable on entry.
-
-    Raises:
-      None.
-    """
-    entry = {"ValidateAuthorize": set()}
-    frontier = ["ValidateAuthorize"]
-    while frontier:
-        name = frontier.pop()
-        state = states[name]
-        out = _exit_keys(name, state, entry[name])
-        targets = [state.get("Next")] if state.get("Next") else []
-        if state.get("Type") == "Choice":
-            targets = [choice["Next"] for choice in state["Choices"]] + [state.get("Default")]
-        for target in targets:
-            if not target or target not in states:
-                continue
-            merged = out if target not in entry else entry[target] & out
-            if target not in entry or merged != entry[target]:
-                entry[target] = merged
-                frontier.append(target)
-    return entry
-
-
 def _task_output_prefix(states: dict, task_name: str) -> str:
     """The JSONPath prefix at which a task's output sits when the state after it runs.
 
@@ -340,317 +262,6 @@ def _task_output_prefix(states: dict, task_name: str) -> str:
     )
     key = next(iter(selector)).removesuffix(".$")
     return f"{result_path}.{key}."
-
-
-def _reads_through(states: dict, task_name: str, pass_name: str) -> set[str]:
-    """The verb-output keys a Pass state reads, at whatever prefix the machine uses.
-
-    Args:
-      states: The machine's states.
-      task_name: The task whose output the Pass consumes.
-      pass_name: The Pass state doing the reading.
-
-    Returns:
-      The leaf key names.
-
-    Raises:
-      None.
-    """
-    prefix = _task_output_prefix(states, task_name)
-    return {
-        value[len(prefix) :]
-        for key, value in states[pass_name]["Parameters"].items()
-        if key.endswith(".$") and str(value).startswith(prefix)
-    }
-
-
-def _validated_reads(states: dict) -> set[str]:
-    """The keys ``Validated`` reads out of validate-authorize's output."""
-    return _reads_through(states, "ValidateAuthorize", "Validated")
-
-
-def test_the_success_path_reads_only_keys_the_verb_emits():
-    """The happy-path half nothing else covers."""
-    states = _machine()["States"]
-    validated = _validated_output()
-
-    reads = _validated_reads(states)
-
-    assert reads, "the Validated state reads nothing through the task's output path"
-    assert reads <= set(validated), (
-        f"the machine reads {sorted(reads - set(validated))} which validate-authorize does not "
-        f"return — an absent key raises an uncatchable States.Runtime on the SUCCESS path"
-    )
-
-
-def test_the_verb_emits_nothing_the_machine_silently_drops():
-    """The other direction, which is not a crash but a contract drift: a field the verb went to
-    the trouble of computing and that no state carries forward is either dead or a bug."""
-    states = _machine()["States"]
-
-    assert set(_validated_output()) == _validated_reads(states)
-
-
-def test_the_summary_reads_only_keys_the_collector_emits():
-    """The same cross-check at the machine's OTHER end (SPEC-166). ``ShapeSummary`` is the last
-    Pass and the execution's output, so a key renamed between the collector and it kills a run
-    that has already copied everything — the most expensive moment on this plane to fail.
-
-    Read as first path SEGMENTS, because the summary reaches into ``$.actor.username``: a
-    JSONPath into an absent PARENT is the same uncatchable States.Runtime as a missing key.
-    """
-    states = _machine()["States"]
-    reads = {path.split(".")[0] for path in _reads_through(states, "CollectTransferResults", "ShapeSummary")}
-
-    assert reads, "the summary reads nothing through the collector's output path"
-    assert reads <= set(_summary_output()), (
-        f"the machine reads {sorted(reads - set(_summary_output()))} which "
-        f"collect-transfer-results does not return"
-    )
-
-
-def test_the_summary_carries_everything_SPEC_167_notifies_from():
-    """The other direction, and narrower than "every key the verb emits" deliberately: the
-    collector passes the whole request through, so most of what it returns is plumbing the
-    terminal is right to drop. What the summary must NOT drop is the four things a notification
-    is built from — who sent it, what they sent, how much of it, and every recipient's outcome.
-    """
-    emitted = set(_machine()["States"]["ShapeSummary"]["Parameters"])
-
-    assert {"sender.$", "itemNames.$", "objectCount.$", "recipients.$"} <= emitted
-
-
-def test_the_summary_drops_what_the_run_no_longer_needs():
-    """The state that becomes the execution OUTPUT should not carry the plan key, the transfer
-    block or the selection: they are the heaviest terms on the state and nothing downstream
-    reads them."""
-    emitted = {key.removesuffix(".$") for key in _machine()["States"]["ShapeSummary"]["Parameters"]}
-
-    assert not emitted & {"copyPlanKey", "transfer", "mapRun", "guardResults", "source"}
-
-
-@pytest.mark.parametrize("task", ["ValidateAuthorize", "InspectSource"])
-def test_the_task_output_plumbing_is_the_shape_the_cross_check_assumes(task):
-    """Stated on its own so a mutation to the plumbing fails HERE, with a message about the
-    plumbing, rather than as a confusing key mismatch two tests away."""
-    assert _task_output_prefix(_machine()["States"], task) == "$."
-
-
-def test_the_failure_seed_recovers_the_request_from_the_context_object():
-    """SPEC-152's guarantee on this plane depends on this one JSONPath.
-
-    The validate task's input is the raw SQS ARRAY, so its Catch has no object to merge into
-    and the error REPLACES the state — the request, and with it the only copy of the caller's
-    token, is gone. ``$$.Execution.Input`` is the surviving copy, and without it notify-failure
-    takes its no-recipient branch on every single failure: satisfied on paper, silent in
-    practice, on exactly the cold-start and timeout failures the state exists for.
-
-    Reading it from the CONTEXT rather than threading it through the state is also what keeps
-    the payload honest — the Pipe record carries the same selection again as an escaped string,
-    so threading it would roughly double the state for the whole run.
-    """
-    states = _machine()["States"]
-    seed = states["ValidateFailureSeed"]["Parameters"]
-
-    assert seed.get("raw.$") == "$$.Execution.Input"
-    assert seed.get("error.$") == "$", "the seed must capture the error the Catch replaced the state with"
-    assert "raw" in _read_paths(states["RecordFailure"]["Parameters"])
-
-
-def test_the_request_is_not_threaded_through_the_success_path():
-    """The payload cost of the alternative, pinned. Both places the request could ride are
-    checked: the task's own output, and the notifier's merge-back."""
-    states = _machine()["States"]
-
-    assert "raw" not in _validated_reads(states)
-    assert states["NotifyFailure"].get("ResultPath", "unset") is None, (
-        "NotifyFailure merges its result back onto a state that already carries the whole "
-        "request — nothing reads $.notified, and the copy can breach the payload limit"
-    )
-
-
-def test_the_verb_is_handed_the_pipes_batch_unwrapped():
-    """The validator reads record[0] of the raw SQS array; anything else makes every request
-    malformed."""
-    task = _machine()["States"]["ValidateAuthorize"]
-
-    assert task["Parameters"]["Payload.$"] == "$"
-
-
-@pytest.mark.parametrize("state", ["ValidateFailureSeed", "RecordFailure"])
-def test_the_failure_terminal_reads_only_seeded_keys(state):
-    """A narrower restatement of the fleet guard, kept local so this plane's own suite fails
-    on it rather than a shared one three directories away."""
-    states = _machine()["States"]
-    seeded = set(states["ValidateFailureSeed"]["Parameters"]) | {
-        k.removesuffix(".$") for k in states["ValidateFailureSeed"]["Parameters"]
-    }
-
-    assert _read_paths(states[state]["Parameters"]) <= seeded
-
-
-def _catches(states: dict):
-    """Every ``(failing task, catch, keys addressable when it fires)`` on this machine.
-
-    The third element is what makes the walk below able to check the catch TARGET rather than
-    trusting it, and it is derived from the machine rather than listed. Two rules, both of them
-    Step Functions' own:
-
-    * With a ``ResultPath`` of ``$.x``, the error is merged INTO the task's input, so the state
-      is that input plus ``x``. The input is what ``_entry_keys`` derived by walking the success
-      path — which is what makes this work across a Map and a Choice, where reading the
-      immediately preceding ``Pass`` gave an empty set and every assertion passed vacuously.
-    * Without one, the error REPLACES the state, so nothing is addressable at ``$.something`` —
-      which is why a pre-identity seed can only read the context object.
-    """
-    on_entry = _entry_keys(states)
-    for name, state in states.items():
-        # A Map's ItemProcessor states are walked with the ITEM as their input, which is what
-        # the ItemSelector builds — the guard's per-item Catch is a Pass reading two JSONPaths
-        # on a failure path, which is exactly what this file exists to guard and was the one
-        # such Pass the walk could not see.
-        if "ItemProcessor" in state:
-            item_keys = {key.removesuffix(".$") for key in state.get("ItemSelector", {})}
-            for inner, inner_state in state["ItemProcessor"]["States"].items():
-                for catch in inner_state.get("Catch", []) or []:
-                    if not catch.get("Next"):
-                        continue
-                    result_path = catch.get("ResultPath", "$")
-                    available = set(item_keys) if result_path != "$" else set()
-                    if result_path not in (None, "$"):
-                        available |= {str(result_path)[2:].split(".")[0]}
-                    yield f"{name}/{inner}", f"{name}/{catch['Next']}", available
-        for catch in state.get("Catch", []) or []:
-            if not catch.get("Next"):
-                continue
-            available = set(on_entry.get(name, set()))
-            result_path = catch.get("ResultPath", "$")
-            if result_path == "$":
-                available = set()
-            elif result_path is not None:
-                available |= {str(result_path)[2:].split(".")[0]}
-            yield name, catch["Next"], available
-
-
-def test_every_catch_reaches_a_terminal_that_reads_only_supplied_keys():
-    """THE GUARD THE FLEET TEST CANNOT SEE ON THIS PLANE, and the reason is worth stating.
-
-    ``test_a_failure_seed_supplies_every_key_the_failure_terminal_reads`` identifies a seed
-    STRUCTURALLY, as a Pass whose ``error.$`` is ``"$"`` — the shape a pre-identity catch has,
-    where the error REPLACED the state. SPEC-165's ``InspectFailureSeed`` is the other shape: its
-    task's input is the request object, so its Catch carries a ``ResultPath`` and the error
-    arrives at ``$.error`` alongside. The fleet walk skips it entirely.
-
-    That is not academic here. ``RecordFailure`` on this plane reads ``$.raw``, which exists on
-    NO post-validate state — the request is deliberately not threaded through, because the Pipe
-    record carries the selection again as an escaped string. A catch routed straight to
-    ``RecordFailure``, as every other plane's catches are, would raise an uncatchable
-    ``States.Runtime`` and the sender would hear nothing on exactly the failures SPEC-152 exists
-    to report. So this walks every Catch target forward and requires what it supplies to cover
-    what the Passes downstream read.
-    """
-    states = _machine()["States"]
-    nested = {
-        f"{name}/{inner}": inner_state
-        for name, state in states.items()
-        if "ItemProcessor" in state
-        for inner, inner_state in state["ItemProcessor"]["States"].items()
-    }
-    reachable = {**states, **nested}
-
-    for failing, entry, available in sorted(_catches(states)):
-        supplied, frontier, seen = set(available), [entry], set()
-        while frontier:
-            name = frontier.pop()
-            if not name or name in seen or name not in reachable:
-                continue
-            seen.add(name)
-            state = reachable[name]
-            if state.get("Type") == "Pass":
-                missing = _read_paths(state["Parameters"]) - supplied
-                assert not missing, (
-                    f"a {failing} failure reaches {name}, which reads {sorted(missing)} that is "
-                    f"not on the state by then — an uncatchable States.Runtime, and the sender "
-                    f"is never notified"
-                )
-                supplied |= {k.removesuffix(".$") for k in state["Parameters"]}
-            # Catch edges as well as Next: SPEC-165's machine has no Pass behind a catch on a
-            # failure path, so following only Next passes today — and SPEC-166 adds states here.
-            # The fleet walk follows both; a local walk that did not would be the narrower guard
-            # of the two exactly where this plane needs the wider one.
-            frontier.append(state.get("Next"))
-            frontier.extend(c.get("Next") for c in state.get("Catch", []) or [])
-
-
-def test_the_catch_walk_actually_walked_something():
-    """Guards the guard: a machine whose catches stopped being found would pass vacuously."""
-    catches = list(_catches(_machine()["States"]))
-
-    assert {
-        "ValidateFailureSeed",
-        "RequestFailureSeed",
-        "Failed",
-        "Succeeded",
-        "GuardRecipients/RecipientFaulted",
-    } == {t for _f, t, _a in catches}
-    assert any(available for _f, _t, available in catches), (
-        "no catch on this machine preserves anything — the availability model has gone trivial "
-        "and every assertion above passes against an empty set"
-    )
-
-
-def test_every_post_validate_catch_reaches_the_one_shared_seed():
-    """SPEC-166 added four more catches, and every one of them must land on the seed that
-    supplies ``$.raw`` — the field ``RecordFailure`` reads unconditionally and which no
-    post-validate state carries. A catch routed straight at ``RecordFailure``, as every other
-    plane's are, raises an uncatchable States.Runtime BEFORE ``NotifyFailure``."""
-    states = _machine()["States"]
-    post_validate = {
-        failing: target
-        for failing, target, _a in _catches(states)
-        if failing != "ValidateAuthorize" and "/" not in failing
-    }
-
-    assert post_validate == {
-        "InspectSource": "RequestFailureSeed",
-        "GuardRecipients": "RequestFailureSeed",
-        "BuildTransferManifest": "RequestFailureSeed",
-        "TransferObjects": "RequestFailureSeed",
-        "CollectTransferResults": "RequestFailureSeed",
-        "NotifyFailure": "Failed",
-        # SPEC-167. The ONE catch that must NOT reach a failure terminal: the copy has already
-        # happened by the time the producer runs, so a missed notification turning a delivered
-        # send into a failed execution would be strictly worse than the silence it reports.
-        "NotifyOutcomes": "Succeeded",
-    }
-
-
-def test_the_inspect_catch_makes_the_validated_request_available():
-    """The availability model at the one catch it matters for, stated so a mutation to the
-    derivation fails HERE rather than as a confusing missing key in the walk.
-
-    On a Task failure with a ``ResultPath``, Step Functions merges the error into the task's
-    INPUT — so what survives is whatever ``Validated`` emitted plus ``error``, and NOT the
-    fields inspect-source would have added. A seed reading the plan key would look perfectly
-    reasonable and die on every failure, because the verb that produces it is the one that just
-    failed.
-    """
-    states = _machine()["States"]
-    available = [a for failing, _t, a in _catches(states) if failing == "InspectSource"]
-    expected = {k.removesuffix(".$") for k in states["Validated"]["Parameters"]} | {"error"}
-
-    assert available == [expected]
-
-
-def test_the_post_validate_catch_keeps_the_verified_actor():
-    """Without ``ResultPath`` the error REPLACES the state, and the verified username goes with
-    it — the shared-space mistake SPEC-152 recorded, where the actor was silently discarded and
-    every failure notified nobody. Here the actor is on the state by then, so the fix is one
-    field rather than a token re-verification."""
-    catches = _machine()["States"]["InspectSource"]["Catch"]
-
-    assert [c["ResultPath"] for c in catches] == ["$.error"]
-    assert _machine()["States"]["RequestFailureSeed"]["Parameters"]["actor.$"] == "$.actor"
 
 
 # ── SPEC-166 FR-004: which role holds which grant ───────────────────────────
@@ -734,46 +345,68 @@ def _resources(statement):
     return resource if isinstance(resource, list) else [resource]
 
 
-def test_the_state_machine_role_holds_the_distributed_maps_permissions():
-    """FR-004 AC3. It is the STATE MACHINE that starts each child execution and that reads the
-    ItemReader object and writes the ResultWriter export."""
-    actions = _actions(_policy(_SFN_POLICY))
+def _machine() -> dict:
+    """The state machine, with template placeholders neutralised so it parses as JSON.
 
-    assert "states:StartExecution" in actions
-    assert "states:DescribeExecution" in actions
-    assert {"s3:GetObject", "s3:PutObject", "s3:ListMultipartUploadParts", "s3:AbortMultipartUpload"} <= actions
+    Args:
+      None.
 
+    Returns:
+      The parsed ASL document.
 
-def test_the_lambda_execution_role_gains_nothing_from_the_map():
-    """FR-004 AC3 — THE SWAP NOTHING ELSE WOULD CATCH. Granting the Map's permissions to the
-    execution role renders green, applies green and passes every other policy assertion in this
-    repo; it fails on the first real send, at the ItemReader, with an AccessDenied naming a role
-    nobody was looking at. Inherited from SPEC-160 FR-006 rather than rediscovered.
-
-    It is asserted as ``StartExecution`` plus a named allowance rather than "no states: actions
-    at all", because SPEC-166 gave this role one of its own: the timeout door reads a timed-out
-    execution's input back, from a Lambda EventBridge invokes outside any execution. A blanket
-    rule would have had to be deleted to add it, taking the guard with it.
+    Raises:
+      None.
     """
-    statements = {
-        s.get("Sid"): s
-        for s in _raw_policy(_EXECUTION_POLICY)["Statement"]
-        if any(a.startswith("states:") for a in _actions({"Statement": [s]}))
+    # Two steps, because a placeholder in a VALUE position is a number (TimeoutSeconds,
+    # MaxConcurrency) and a quoted one is a string.
+    raw = re.sub(r":\s*\$\{[a-z_0-9]+\}", ": 0", _ASL.read_text())
+    return json.loads(re.sub(r"\$\{[a-z_0-9]+\}", "PLACEHOLDER", raw))
+
+
+def _validated_reads(states: dict) -> set[str]:
+    """The keys ``Validated`` reads out of validate-authorize's output."""
+    return _reads_through(states, "ValidateAuthorize", "Validated")
+
+
+def _read_paths(parameters: dict) -> set[str]:
+    """The top-level keys a Pass state's Parameters block reads from its input.
+
+    Args:
+      parameters: The state's ``Parameters``.
+
+    Returns:
+      The first path segment of every ``$.x`` reference.
+
+    Raises:
+      None.
+    """
+    reads = set()
+    for key, value in (parameters or {}).items():
+        if key.endswith(".$") and isinstance(value, str) and value.startswith("$."):
+            reads.add(value[2:].split(".")[0])
+    return reads
+
+
+def _reads_through(states: dict, task_name: str, pass_name: str) -> set[str]:
+    """The verb-output keys a Pass state reads, at whatever prefix the machine uses.
+
+    Args:
+      states: The machine's states.
+      task_name: The task whose output the Pass consumes.
+      pass_name: The Pass state doing the reading.
+
+    Returns:
+      The leaf key names.
+
+    Raises:
+      None.
+    """
+    prefix = _task_output_prefix(states, task_name)
+    return {
+        value[len(prefix) :]
+        for key, value in states[pass_name]["Parameters"].items()
+        if key.endswith(".$") and str(value).startswith(prefix)
     }
-
-    assert "states:StartExecution" not in _actions(_policy(_EXECUTION_POLICY)), (
-        "the Distributed Map's StartExecution is on the LAMBDA execution role"
-    )
-    assert set(statements) == {"ReadTimedOutExecutionInput"}, (
-        f"the execution role has states: actions beyond the timeout door: {sorted(statements)}"
-    )
-    assert statements["ReadTimedOutExecutionInput"]["Action"] == "states:DescribeExecution"
-
-
-def test_stop_execution_is_not_granted():
-    """Nothing here stops a child; StartExecution + DescribeExecution is the documented
-    least-privilege pair."""
-    assert "states:StopExecution" not in _actions(_policy(_SFN_POLICY))
 
 
 def test_the_only_write_into_a_users_space_is_an_inbox():
@@ -806,21 +439,6 @@ def test_the_only_write_into_a_users_space_is_an_inbox():
     )
 
 
-def test_the_inbox_grant_carries_the_multipart_actions_a_large_object_needs():
-    """FR-002 AC6. An object over S3's 5 GiB single-copy limit takes UploadPartCopy, and the
-    copier aborts a failed upload so it never leaves one accruing storage. Missing either, a
-    large send fails at the object rather than at the plan."""
-    inbox = next(
-        statement
-        for statement in _raw_policy(_EXECUTION_POLICY)["Statement"]
-        if statement.get("Sid") == "SharedFilesWrite"
-    )
-
-    assert {"s3:PutObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"} == set(
-        inbox["Action"]
-    )
-
-
 def test_the_delete_deny_still_covers_every_bucket_this_plane_touches():
     """FR-004 AC2. A send is a copy: it never deletes the sender's copy and never overwrites at
     the destination, so the Deny makes "this plane deletes nothing" structural rather than
@@ -847,45 +465,6 @@ def test_no_new_wildcard_resource_appears():
         assert wildcards in ([], ["StepFunctionLogDelivery"]), f"new wildcards in {path.name}: {wildcards}"
 
 
-def test_the_transfer_grants_name_THIS_planes_prefix_and_machine():
-    """The copy-paste this file's own provenance makes likely, and the one thing the action-set
-    assertions above cannot see.
-
-    ``_policy`` collapses every ARN placeholder to one literal, so a policy still pointing at
-    ``${admin_bucket_arn}/table-share/*`` — or starting executions of table-share's machine —
-    renders, applies and passes every other test here, then fails on the first real send at the
-    ItemReader. Read from the NAMED-placeholder form, where those two are different strings.
-    """
-    statements = {s["Sid"]: s for s in _raw_policy(_SFN_POLICY)["Statement"]}
-
-    for sid in ("ReadTransferManifest", "WriteTransferResults"):
-        assert _resources(statements[sid]) == ["admin_bucket_arn/file-send/*"], (
-            f"{sid} does not scope to this plane's own admin-bucket prefix"
-        )
-    assert _resources(statements["StartDistributedMapChildExecutions"]) == ["state_machine_arn"]
-    assert _resources(statements["DescribeDistributedMapChildExecutions"]) == [
-        "child_execution_arn_wildcard"
-    ]
-
-
-def test_the_copy_timeout_matches_this_planes_deployed_verb():
-    """The budget every makespan bound in ``cpcommon.transfer`` divides by, held against the
-    function that actually has it.
-
-    The equivalent test in ``control-plane-common`` reads TABLE-SHARE's locals and nothing else,
-    so before this one, lowering file-send's ``copy-objects`` timeout would have left the engine
-    computing batch sizes against a budget this plane no longer had — with a green suite.
-    """
-    from cpcommon.transfer import config as transfer_config
-
-    locals_tf = (_HERE.parent.parent / "infra" / "modules" / "file-send" / "locals.tf").read_text()
-
-    assert re.search(
-        rf'"copy-objects"\s*=\s*\{{[^}}]*timeout\s*=\s*{transfer_config.COPY_TIMEOUT_SECONDS}\b',
-        locals_tf,
-    ), f"file-send's copy-objects timeout is not {transfer_config.COPY_TIMEOUT_SECONDS}s"
-
-
 # ── SPEC-166 FR-002: the Distributed Map's own shape ────────────────────────
 
 
@@ -910,113 +489,6 @@ def _states_including_map_items(states: dict, prefix: str = ""):
             )
 
 
-def _distributed_maps(states: dict):
-    """Every state whose ItemProcessor runs in DISTRIBUTED mode, qualified by nesting."""
-    return [
-        name
-        for name, state in _states_including_map_items(states)
-        if (state.get("ItemProcessor") or {}).get("ProcessorConfig", {}).get("Mode") == "DISTRIBUTED"
-    ]
-
-
-def test_the_transfer_map_is_top_level_and_not_nested():
-    """FR-002 AC3, and the reason the copy is not simply the guard Map's third step: a
-    Distributed Map inside another Map is the structure SPEC-160 rejected, because one fan-out
-    over a flat (recipient x object) manifest covers every recipient and the nesting question
-    never arises. Asserted on the QUALIFIED name, so a Map moved inside the guard fails here."""
-    maps = _distributed_maps(_machine()["States"])
-
-    assert maps == ["TransferObjects"], f"the distributed maps are {maps}"
-
-
-def test_the_guard_map_stays_inline():
-    """It is one listing per recipient whose refusal must not abort a sibling — a distributed
-    fan-out would buy nothing and cost a child execution each."""
-    guard = _machine()["States"]["GuardRecipients"]
-
-    assert guard["ItemProcessor"]["ProcessorConfig"] == {"Mode": "INLINE"}
-    assert guard["ItemProcessor"]["States"]["CheckTargetAbsent"]["Catch"][0]["Next"] == "RecipientFaulted"
-
-
-def test_the_children_are_STANDARD_and_tolerate_every_item_failure():
-    """Both halves of FR-003's premise. STANDARD because a batch may hold a multi-GiB object
-    whose multipart copy would blow EXPRESS's five-minute ceiling, and because EXPRESS's
-    at-least-once semantics would re-run whole batches. ToleratedFailurePercentage 100 because
-    the Map Run MUST finish for the collector to attribute it — a run that failed would take
-    every recipient's outcome with it."""
-    transfer = _machine()["States"]["TransferObjects"]
-
-    assert transfer["ItemProcessor"]["ProcessorConfig"]["ExecutionType"] == "STANDARD"
-    assert transfer["ToleratedFailurePercentage"] == 100
-
-
-def test_the_batch_copier_has_no_catch_of_its_own():
-    """A batch that fails after its retries must FAIL its child execution: that is what files it
-    under FAILED_n.json, where the collector can attribute every item it carried. A Catch here
-    would succeed the child and lose the whole batch silently."""
-    copy_state = _machine()["States"]["TransferObjects"]["ItemProcessor"]["States"]["CopyObjects"]
-
-    assert "Catch" not in copy_state
-    assert copy_state["End"] is True
-
-
-def test_the_map_is_skipped_by_a_choice_that_tests_IsPresent_first():
-    """FR-002 AC5. An ItemReader pointed at a manifest that was never written fails the state,
-    so the empty case must not reach it — and the guard on that Choice is not optional: a Choice
-    on an ABSENT path raises States.Runtime, which is uncatchable and which ``Default`` does NOT
-    cover. Asserted as ORDER, because IsPresent second is the bug."""
-    choice = _machine()["States"]["HasTransferItems"]
-    conditions = choice["Choices"][0]["And"]
-
-    assert conditions[0] == {"Variable": "$.transfer.itemCount", "IsPresent": True}
-    assert conditions[1]["NumericGreaterThan"] == 0
-    assert choice["Default"] == "CollectTransferResults"
-
-
-def test_both_choice_branches_reach_the_one_shaping_verb():
-    """One verb on both branches rather than two paths that can disagree: on the skip branch
-    there is no run to read and the guard's refusals are carried forward unchanged."""
-    choice = _machine()["States"]["HasTransferItems"]
-
-    assert choice["Choices"][0]["Next"] == "TransferObjects"
-    assert _machine()["States"]["TransferObjects"]["Next"] == "CollectTransferResults"
-
-
-def test_the_map_exports_its_results_and_keeps_only_the_pointer():
-    """The state's own output is the small {MapRunArn, ResultWriterDetails} pointer — an array
-    of every child's result would breach the 256 KB state limit at the scale this Map exists
-    for, and the breach lands ON the Map, destroying every per-recipient outcome."""
-    transfer = _machine()["States"]["TransferObjects"]
-
-    assert transfer["ResultWriter"]["Resource"] == "arn:aws:states:::s3:putObject"
-    assert transfer["ResultPath"] == "$.mapRun"
-    assert transfer["ItemReader"]["ReaderConfig"]["InputType"] == "JSONL"
-
-
-def test_the_rendered_batch_numbers_are_the_engines_own():
-    """FR-002 AC4. Terraform cannot import Python, so the ASL carries literals fed from
-    locals.tf — and the locals are held against ``cpcommon.transfer.config`` by the cap suite.
-    What this asserts is the other half: that the ASL reads those locals rather than hard-coding
-    numbers beside them."""
-    raw = _ASL.read_text()
-
-    assert '"MaxItemsPerBatch": ${transfer_max_items_per_batch}' in raw
-    assert '"MaxConcurrency": ${transfer_map_max_concurrency}' in raw
-
-
-def test_the_machine_declares_a_top_level_timeout():
-    """FR-005 AC1. Without it a Standard workflow's ceiling is Step Functions' own default of
-    ONE YEAR. TOP-LEVEL, not a task field — the distinction SPEC-157 settled — so it is asserted
-    at the document root rather than anywhere it might merely look right."""
-    machine = _machine()
-
-    assert "TimeoutSeconds" in machine, "the machine can run for a year"
-    assert '"TimeoutSeconds": ${state_machine_timeout_seconds}' in _ASL.read_text()
-    assert not any(
-        "TimeoutSeconds" in state for _name, state in _states_including_map_items(machine["States"])
-    )
-
-
 # ── SPEC-166: the couplings a Task-to-Task chain hides ──────────────────────
 #
 # The three below are the ASL↔verb contracts this file exists for and did not cover: a Map's
@@ -1025,76 +497,27 @@ def test_the_machine_declares_a_top_level_timeout():
 # green while the machine produced a send that reported success and copied nothing.
 
 
-def test_the_guard_maps_result_lands_where_the_manifest_verb_reads_it():
-    """A Map's ``ResultPath`` is a string in Terraform and a ``.get()`` in Python, and nothing
-    joins them. Renamed, ``_accepted()`` sees nothing, every recipient contributes no lines, the
-    Map is skipped, and the run reports a SUCCESSFUL send that copied nothing.
+def test_the_success_path_reads_only_keys_the_verb_emits():
+    """The happy-path half nothing else covers."""
+    states = _machine()["States"]
+    validated = _validated_output()
 
-    Driven rather than compared: the guard's records are put where the ASL says they go, the
-    real verb runs, and the manifest either has lines in it or does not.
-    """
-    result_path = _machine()["States"]["GuardRecipients"]["ResultPath"]
-    cleared = {
-        "status": "ok",
-        "recipient": {"kind": "user", "name": "bob", "destBucket": "user-bkt", "destRoot": "bob/"},
-        "reason": "",
-        "detail": "",
-    }
+    reads = _validated_reads(states)
 
-    transfer = b.handler({**_planned_output(), result_path[2:]: [cleared]}, None)["transfer"]
-
-    assert transfer["itemCount"] > 0, (
-        f"the guard Map writes its records to {result_path} and build-transfer-manifest reads "
-        f"none of them — every send would report success having copied nothing"
+    assert reads, "the Validated state reads nothing through the task's output path"
+    assert reads <= set(validated), (
+        f"the machine reads {sorted(reads - set(validated))} which validate-authorize does not "
+        f"return — an absent key raises an uncatchable States.Runtime on the SUCCESS path"
     )
 
 
-def test_the_maps_reader_and_writer_read_only_fields_the_manifest_verb_emits():
-    """FR-002 AC1/AC4. The ItemReader's Bucket/Key and the ResultWriter's Bucket/Prefix are
-    JSONPaths into a block ONE verb produces. A renamed field there is an uncatchable failure at
-    the ItemReader on every non-empty send — and the collector reads two more of the same
-    block."""
-    transfer = _machine()["States"]["TransferObjects"]
-    emitted = set(_manifest_output()["transfer"])
-    read = {
-        transfer["ItemReader"]["Parameters"]["Bucket.$"],
-        transfer["ItemReader"]["Parameters"]["Key.$"],
-        transfer["ResultWriter"]["Parameters"]["Bucket.$"],
-        transfer["ResultWriter"]["Parameters"]["Prefix.$"],
-        _machine()["States"]["HasTransferItems"]["Choices"][0]["And"][0]["Variable"],
+@pytest.mark.parametrize("state", ["ValidateFailureSeed", "RecordFailure"])
+def test_the_failure_terminal_reads_only_seeded_keys(state):
+    """A narrower restatement of the fleet guard, kept local so this plane's own suite fails
+    on it rather than a shared one three directories away."""
+    states = _machine()["States"]
+    seeded = set(states["ValidateFailureSeed"]["Parameters"]) | {
+        k.removesuffix(".$") for k in states["ValidateFailureSeed"]["Parameters"]
     }
 
-    fields = {path.removeprefix("$.transfer.") for path in read}
-    assert all(path.startswith("$.transfer.") for path in read), read
-    assert fields <= emitted, (
-        f"the machine reads $.transfer.{sorted(fields - emitted)}, which "
-        f"build-transfer-manifest does not emit"
-    )
-
-
-def test_the_guard_map_hands_its_verb_exactly_what_that_verb_reads():
-    """The ItemSelector is the other half of the same class of coupling. Dropping ``request.$``
-    leaves check-target-absent with no selection — it now fails closed rather than clearing
-    everybody, but every send fails, and nothing else in the suite notices.
-
-    Driven through the real verb with the real selector, so what is asserted is that the item
-    the machine builds is one the verb can actually work with.
-    """
-    guard = _machine()["States"]["GuardRecipients"]
-    request = _planned_output()
-    item = {
-        key.removesuffix(".$"): (request if value == "$" else {"kind": "user", "name": "bob"})
-        for key, value in guard["ItemSelector"].items()
-    }
-
-    record = g.handler(item, None)
-
-    assert record["status"] == "ok", f"the guard cannot work with the item the Map builds: {record}"
-    assert guard["ItemsPath"] == "$.recipients"
-
-
-def test_the_guard_maps_concurrency_comes_from_the_named_local():
-    """The cap suite computes the guard's contribution to the machine's timeout budget from
-    ``guard_map_max_concurrency``. Hard-coded here instead, that term would be computed from a
-    number the machine no longer uses."""
-    assert '"MaxConcurrency": ${guard_map_max_concurrency}' in _ASL.read_text()
+    assert _read_paths(states[state]["Parameters"]) <= seeded

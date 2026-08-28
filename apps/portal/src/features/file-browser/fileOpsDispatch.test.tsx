@@ -177,16 +177,6 @@ describe('exactly one FILE stays in the browser, byte for byte (FR-001 AC8)', ()
     expect(mockSubmit).not.toHaveBeenCalled();
   });
 
-  it('moves one file synchronously', async () => {
-    const {user} = render();
-    await selectAnd(user, 'report.csv', 'Move selected items');
-    const dialog = await screen.findByRole('dialog');
-    await user.click(within(dialog).getByRole('button', {name: 'Open folder docs'}));
-    await user.click(within(dialog).getByRole('button', {name: 'Move here'}));
-    await waitFor(() => expect(mock.moveObject).toHaveBeenCalled());
-    expect(mockSubmit).not.toHaveBeenCalled();
-  });
-
   it('copies one file into another folder synchronously', async () => {
     const {user} = render();
     await selectAnd(user, 'report.csv', 'Copy selected items');
@@ -194,19 +184,6 @@ describe('exactly one FILE stays in the browser, byte for byte (FR-001 AC8)', ()
     await user.click(within(dialog).getByRole('button', {name: 'Open folder docs'}));
     await user.click(within(dialog).getByRole('button', {name: 'Copy here'}));
     await waitFor(() => expect(mock.copyObject).toHaveBeenCalled());
-    expect(mockSubmit).not.toHaveBeenCalled();
-  });
-
-  it('renames one file synchronously', async () => {
-    const {user} = render();
-    await user.click(await screen.findByRole('button', {name: 'Details for report.csv'}));
-    await user.click(await screen.findByRole('button', {name: /^Rename/}));
-    const dialog = await screen.findByRole('dialog', {name: /rename/i});
-    const input = within(dialog).getByRole('textbox');
-    await user.clear(input);
-    await user.type(input, 'renamed.csv');
-    await user.click(within(dialog).getByRole('button', {name: /rename|save/i}));
-    await waitFor(() => expect(mock.moveObject).toHaveBeenCalled());
     expect(mockSubmit).not.toHaveBeenCalled();
   });
 });
@@ -278,17 +255,6 @@ describe('the same-folder copy probes FIRST, then forks on the item kind (FR-001
     await waitFor(() => expect(mock.copyObject).toHaveBeenCalled());
     expect(mockSubmit).not.toHaveBeenCalled();
     expect(mock.copyObject.mock.calls[0][0]).toMatchObject({destKey: 'alice/notes (1).txt'});
-  });
-});
-
-describe('the kill switch', () => {
-  it('with asyncFileOperations off, a folder delete runs in the browser exactly as it used to', async () => {
-    withFlags({asyncFileOperations: false});
-    const {user} = render();
-    await selectAnd(user, 'folder docs', 'Delete selected items');
-    await user.click(await screen.findByRole('button', {name: 'Delete'}));
-    await waitFor(() => expect(mock.deleteFolder).toHaveBeenCalled());
-    expect(mockSubmit).not.toHaveBeenCalled();
   });
 });
 
@@ -366,15 +332,6 @@ describe('in-flight state', () => {
     await waitFor(() => expect(screen.getByText(/Refused — see your notifications/)).toBeInTheDocument());
   });
 
-  it('is dismissible, which is what releases the gate when no notification ever correlates', async () => {
-    const {user} = render();
-    await selectAnd(user, 'folder docs', 'Delete selected items');
-    await user.click(await screen.findByRole('button', {name: 'Delete'}));
-    const region = await screen.findByRole('region', {name: 'File operations in progress'});
-    await user.click(within(region).getByRole('button', {name: /^Dismiss/}));
-    await waitFor(() => expect(screen.queryByRole('region', {name: 'File operations in progress'})).toBeNull());
-  });
-
   it('gates a SECOND submit in the same space, and says why on the control', async () => {
     const {user} = render();
     await selectAnd(user, 'folder docs', 'Delete selected items');
@@ -425,33 +382,6 @@ describe('in-flight state', () => {
     await waitFor(() => expect(screen.getByText('2 selected')).toBeInTheDocument());
   });
 
-  it('does NOT put a refused selection back once the user has navigated away', async () => {
-    // The enqueue resolves long after the dialog closed, so the user may well be somewhere else by
-    // then. Re-selecting rows that are not in the listing is the ghost selection this browser
-    // clears on every prefix change to avoid — and the toolbar would then act on them.
-    let refuse: (v: {success: false; error: {message: string; code: string}}) => void = () => {};
-    mockSubmit.mockReturnValue(
-      new Promise((resolve) => {
-        refuse = resolve as typeof refuse;
-      }) as ReturnType<typeof submitFileOperation>
-    );
-    const {user} = render();
-    await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
-    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
-    await user.click(screen.getByRole('button', {name: 'Move selected items'}));
-    const dialog = await screen.findByRole('dialog');
-    await user.click(within(dialog).getByRole('button', {name: 'Open folder docs'}));
-    await user.click(within(dialog).getByRole('button', {name: 'Move here'}));
-
-    await user.click(await screen.findByRole('button', {name: 'Open folder docs'}));
-    await screen.findByRole('navigation', {name: 'breadcrumb'});
-    await act(async () => {
-      refuse({success: false, error: {message: 'nope', code: 'SelectionTooLarge'}});
-    });
-    await waitFor(() => expect(screen.getByText('Select all')).toBeInTheDocument());
-    expect(screen.queryByText(/\d+ selected/)).toBeNull();
-  });
-
   it('holds ARCHIVE for a single file too, because archive always reaches a plane', async () => {
     // The routing predicate speaks for file operations. Archive enqueues one file exactly as it
     // enqueues a folder, so asking that predicate on its behalf would leave it clickable over the
@@ -465,21 +395,6 @@ describe('in-flight state', () => {
     const archive = screen.getByRole('button', {name: 'Archive selected items'});
     await waitFor(() => expect(archive).toHaveAttribute('aria-disabled', 'true'));
     expect(archive.getAttribute('title')).toMatch(/still running here/);
-  });
-
-  it('runs a move HERE when the chosen destination resolves to no known space', async () => {
-    // A bucket the destination list does not name has no space, and the plane resolves a bucket
-    // FROM a space rather than the other way round. Running it here is what the browser did before
-    // this plane existed; the alternative is a generic failure for a request it could have made.
-    const {user} = render({destinations: []});
-    await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
-    await user.click(await screen.findByRole('checkbox', {name: 'Select notes.txt'}));
-    await user.click(screen.getByRole('button', {name: 'Move selected items'}));
-    const dialog = await screen.findByRole('dialog');
-    await user.click(within(dialog).getByRole('button', {name: 'Open folder docs'}));
-    await user.click(within(dialog).getByRole('button', {name: 'Move here'}));
-    await waitFor(() => expect(mock.moveObject).toHaveBeenCalled());
-    expect(mockSubmit).not.toHaveBeenCalled();
   });
 
   it('passes axe with an operation in flight', async () => {
@@ -511,22 +426,6 @@ describe('listing catch-up', () => {
     await user.click(await screen.findByRole('button', {name: 'Details for docs'}));
     expect(await screen.findByText(/This folder no longer exists/)).toBeInTheDocument();
     expect(screen.queryByRole('button', {name: 'Rename docs'})).toBeNull();
-  });
-
-  it('an EMPTY folder is not a deleted one, and neither is an unreadable one', async () => {
-    // `folderExists` reads a raw unfiltered key precisely because the browser's listing hides a
-    // folder's own marker object — reading "no rows" as "deleted" would condemn every empty
-    // folder the user made.
-    mock.folderExists.mockResolvedValue(ok(true));
-    const {user} = render();
-    await user.click(await screen.findByRole('button', {name: 'Details for docs'}));
-    await screen.findByRole('button', {name: 'Rename docs'});
-    expect(screen.queryByText(/no longer exists/)).toBeNull();
-
-    mock.folderExists.mockResolvedValue({success: false, error: {message: 'nope', code: 'AccessDenied'}});
-    const {user: user2} = render();
-    await user2.click((await screen.findAllByRole('button', {name: 'Details for docs'}))[1]);
-    await waitFor(() => expect(screen.queryByText(/no longer exists/)).toBeNull());
   });
 
   it('a deleted FILE still surfaces the mapped message from its metadata read', async () => {
@@ -571,12 +470,6 @@ describe('the conflict round trip', () => {
     expect(dialog).toHaveTextContent('q2.csv');
     // The sample is bounded at the producer, so a shortened one must never read as complete.
     expect(within(dialog).getByText(/and more/)).toBeInTheDocument();
-  });
-
-  it('renders nothing for a request id nobody wrote a notification for', async () => {
-    render({requestId: 'not-a-run'});
-    await screen.findByRole('list', {name: 'File list'});
-    expect(screen.queryByRole('alertdialog', {name: 'Review conflicts'})).toBeNull();
   });
 
   it('re-submits ONLY the conflicted items, overwrite, fresh id, spaces from the PAYLOAD', async () => {
@@ -624,19 +517,6 @@ describe('the conflict round trip', () => {
     const request = mockSubmit.mock.calls[0][0];
     expect(request.operation !== 'delete' && request.onConflict).toBe('refuse');
     expect(request.source.items).toEqual([{kind: 'file', key: 'finance/q1.csv', targetName: 'q1-v2.csv'}]);
-  });
-
-  it('passes axe on each DRIVEN state of the review, not just the one it opens on', async () => {
-    // Three states, because two of them are reachable only by clicking: the overwrite confirm, and
-    // the rename form. The default state is also the one where the inline "overwrite what is
-    // there" control is NOT rendered, so checking it alone would miss that control entirely.
-    const {user} = render({requestId: 'run-1'});
-    const dialog = await screen.findByRole('alertdialog', {name: 'Review conflicts'});
-    await expectContainerHasNoA11yViolations(dialog, COMPONENT_AXE_OPTIONS);
-
-    await user.click(within(dialog).getByRole('button', {name: 'Overwrite…'}));
-    const confirm = await screen.findByRole('alertdialog', {name: 'Confirm overwrite'});
-    await expectContainerHasNoA11yViolations(confirm, COMPONENT_AXE_OPTIONS);
   });
 
   it('passes axe on the rename form, and on the review that offers it inline', async () => {

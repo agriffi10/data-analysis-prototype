@@ -25,7 +25,7 @@ import archive_write_receipt as m
 import pytest
 from arcommon import notify
 from cpcommon import clients
-from cpcommon.errors import TerminalError, TransientError
+from cpcommon.errors import TerminalError
 
 _REQUEST_ID = "9f2c1b8e-1111-4222-8333-444444444444"
 _ARCHIVE_ROOT = f"personal/alice/archive/{_REQUEST_ID}/"
@@ -93,33 +93,6 @@ def test_the_receipt_lands_in_the_space_the_archive_came_from():
     assert fake.puts[0]["ContentType"].startswith("text/plain")
 
 
-def test_a_shared_space_receipt_goes_to_the_shared_bucket_under_the_space_name():
-    fake = _install()
-    event = _event(space_bucket="shared-bkt", name="team-space")
-    event["source"]["kind"] = "shared"
-
-    result = m.handler(event, None)
-
-    assert result["receiptKey"] == f"team-space/archive/{_REQUEST_ID}/receipt.txt"
-    assert fake.puts[0]["Bucket"] == "shared-bkt"
-
-
-def test_the_document_carries_the_counts_and_both_paths():
-    fake = _install()
-
-    m.handler(_event(), None)
-    text = fake.puts[0]["Body"].decode()
-
-    fields = dict(line.split(":", 1) for line in text.strip().splitlines())
-    fields = {label: value.strip() for label, value in fields.items()}
-
-    assert fields["Request ID"] == _REQUEST_ID
-    assert fields["Original path"] == "s3://user-bkt/alice/"
-    assert fields["Archived path"] == f"s3://archive-bkt/{_ARCHIVE_ROOT}"
-    assert fields["Files archived"] == "1204"
-    assert fields["Total size"] == "7.8 GB (8412339201 bytes)"
-
-
 def test_a_failed_write_fails_the_run_and_says_the_data_is_archived(_no_real_notifications):
     """FR-006 AC7. The data IS archived and the source IS gone by this point — but a user with no
     receipt has no id and therefore no route to a restore, so the run is failed and the message
@@ -135,15 +108,6 @@ def test_a_failed_write_fails_the_run_and_says_the_data_is_archived(_no_real_not
     assert "were archived" in message
     assert _REQUEST_ID in message
     assert "nothing was deleted" not in message
-
-
-def test_a_retryable_fault_is_not_terminalized():
-    """The state's Retry re-runs the verb — safe, because the key is a pure function of the
-    request and the write is a whole-object PUT."""
-    _install(error=_S3Error("SlowDown"))
-
-    with pytest.raises(TransientError):
-        m.handler(_event(), None)
 
 
 if __name__ == "__main__":

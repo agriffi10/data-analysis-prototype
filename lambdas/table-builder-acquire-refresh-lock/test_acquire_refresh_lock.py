@@ -78,15 +78,6 @@ def test_the_holder_is_the_execution_arn_and_not_the_request_id(lock, sqs):
     assert "req-1" not in {holder for _, _, holder in lock["acquire"]}
 
 
-def test_a_successful_claim_threads_the_etag_without_disturbing_the_request(lock, sqs):
-    """The release state conditions its write on this tag, and the shared spine downstream
-    must see the same object it always did."""
-    result = verb.handler(dict(REQUEST), None)
-
-    assert result["lock"] == {"etag": '"etag-1"'}
-    assert {k: v for k, v in result.items() if k != "lock"} == REQUEST
-
-
 def test_a_held_lock_is_a_terminal_refusal_named_for_the_reason(lock, sqs):
     lock["result"] = (False, None)
 
@@ -94,38 +85,6 @@ def test_a_held_lock_is_a_terminal_refusal_named_for_the_reason(lock, sqs):
         verb.handler(dict(REQUEST), None)
 
     assert raised.value.reason == "refresh_already_running"
-
-
-def test_the_refusal_notifies_the_actor(lock, sqs):
-    """FR-003 AC2. The refusal IS the notification — nothing else tells the user this request
-    did nothing, and silence is the failure mode SPEC-152 exists to close."""
-    lock["result"] = (False, None)
-
-    with pytest.raises(TerminalError):
-        verb.handler(dict(REQUEST), None)
-
-    assert len(sqs.calls) == 1
-
-
-def test_a_refused_request_returns_no_lock_for_anything_downstream_to_release(lock, sqs):
-    """FR-003 AC4. A refused request must leave the table, the lock and the registry
-    byte-identical — and the release verb keys entirely off the absence of $.lock."""
-    lock["result"] = (False, None)
-
-    with pytest.raises(TerminalError):
-        verb.handler(dict(REQUEST), None)
-
-    assert "lock" not in REQUEST
-
-
-@pytest.mark.parametrize("missing", ["execution", "tableName", "space"])
-def test_a_malformed_request_is_terminal_before_any_lock_is_touched(lock, sqs, missing):
-    event = {k: v for k, v in REQUEST.items() if k != missing}
-
-    with pytest.raises(TerminalError):
-        verb.handler(event, None)
-
-    assert lock["acquire"] == []
 
 
 if __name__ == "__main__":

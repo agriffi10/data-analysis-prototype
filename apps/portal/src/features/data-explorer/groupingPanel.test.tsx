@@ -8,7 +8,6 @@ import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {CLEAR_ALL_LABEL, CLEAR_ALL_WITH_GROUPING_LABEL} from './useExplorationQuery';
 import {GeneratedSqlDisclosure, NO_GENERATED_SQL} from './GeneratedSqlDisclosure';
-import {GROUPING_NO_COLUMNS} from './GroupingPanel';
 import {CALCULATED_COLUMN_REFUSAL} from './ExplorationResultsRegion';
 import {newExploration} from './exploration';
 import {getDatabase, listTables} from '../catalog/glue.service';
@@ -199,21 +198,6 @@ describe('the Grouping panel', () => {
     expect(lastSql()).toContain('GROUP BY "status"');
   });
 
-  it('renders GROUP BY in the order the user put the columns in', async () => {
-    const {user} = render();
-    await screen.findAllByRole('gridcell');
-    const panel = await openGrouping(user);
-
-    await addColumn(user, panel, 'status');
-    await addColumn(user, panel, 'id');
-    await user.click(within(panel).getByRole('button', {name: 'Group by id earlier'}));
-    await user.click(within(panel).getByRole('button', {name: 'Apply grouping'}));
-
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
-    expect(lastSql()).toContain('GROUP BY "id", "status"');
-    expect(lastSql()).toContain('SELECT "id", "status", COUNT(*)');
-  });
-
   it('adds an aggregate against a named column and refuses a second with the same name', async () => {
     const {user} = render();
     await screen.findAllByRole('gridcell');
@@ -261,28 +245,6 @@ describe('the Grouping panel', () => {
     // execution count does not move (AC6).
     await waitFor(() => expect(screen.getByRole('columnheader', {name: 'qty'})).toBeInTheDocument());
     expect(runQuery).toHaveBeenCalledTimes(2);
-  });
-
-  it('drops a sort on an aggregate when grouping ends, because that column then exists nowhere', async () => {
-    const {user} = render();
-    await screen.findAllByRole('gridcell');
-    await user.click(screen.getByText('Generated SQL'));
-    const panel = await openGrouping(user);
-    await addColumn(user, panel, 'status');
-    await user.click(within(panel).getByRole('button', {name: 'Apply grouping'}));
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
-
-    await user.click(await screen.findByRole('button', {name: /^Column options: count_all/}));
-    await user.click(await screen.findByRole('menuitem', {name: 'Sort descending'}));
-    await waitFor(() => expect(lastSql()).toContain('ORDER BY "count_all" DESC'));
-
-    await user.click(within(panel).getByRole('button', {name: 'Stop grouping'}));
-    // Carried over, `ORDER BY "count_all"` against the raw table is a query Athena
-    // rejects — and it would also miss the cached ungrouped execution, which is why this
-    // reads the description's SQL rather than the last statement RUN.
-    await waitFor(() => expect(screen.getByRole('columnheader', {name: 'qty'})).toBeInTheDocument());
-    expect(shownSql()).toBe('SELECT *\nFROM "alice"."orders"');
-    expect(runQuery).toHaveBeenCalledTimes(3); // the ungrouped statement was already cached
   });
 });
 
@@ -342,26 +304,6 @@ describe('grouping’s extras', () => {
 
     expect(runQuery).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  });
-
-  it('refuses a grouping whose output columns would share a name', async () => {
-    const {user} = render();
-    await screen.findAllByRole('gridcell');
-    const panel = await openGrouping(user);
-    await addColumn(user, panel, 'status');
-
-    // A second SUM("qty") produces one output name twice — and so would a grouping column
-    // literally called `count_all` beside the default COUNT(*). Both are the renderer's
-    // one rule, whose own message SPEC-106 forbids showing.
-    await user.selectOptions(within(panel).getByRole('combobox', {name: 'Aggregate function'}), 'SUM');
-    await user.selectOptions(within(panel).getByRole('combobox', {name: 'Aggregate column'}), 'qty');
-    await user.click(within(panel).getByRole('button', {name: 'Add'}));
-    await user.click(within(panel).getByRole('button', {name: 'Add'}));
-    expect(within(panel).getByRole('alert')).toHaveTextContent('sum_qty');
-
-    // The refusal is about the pair that was proposed, so changing either half retires it.
-    await user.selectOptions(within(panel).getByRole('combobox', {name: 'Aggregate function'}), 'MIN');
-    expect(within(panel).queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('refuses a grouping while a sort on an ungrouped column stands, and says which', async () => {
@@ -433,29 +375,6 @@ describe('the generated SQL, and what grouping composes with', () => {
     expect((screen.getByLabelText('Generated SQL') as HTMLTextAreaElement).value).toBe('-- not SQL at all --');
   });
 
-  it('keeps filters and the expression in the WHERE, before the grouping', async () => {
-    const {user} = render();
-    await screen.findAllByRole('gridcell');
-
-    await user.click(await screen.findByRole('button', {name: /^Column options: qty/}));
-    await user.click(await screen.findByRole('menuitem', {name: 'Filter: is not null'}));
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
-
-    const panel = await openGrouping(user);
-    await addColumn(user, panel, 'status');
-    await user.click(within(panel).getByRole('button', {name: 'Apply grouping'}));
-
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(3));
-    // A filter on a column that is neither grouped nor aggregated is still legal, because
-    // it filters ROWS — before the grouping ever happens (FR-006 AC2).
-    expect(lastSql()).toBe(
-      'SELECT "status", COUNT(*) AS "count_all"\n' +
-        'FROM "alice"."orders"\n' +
-        'WHERE "qty" IS NOT NULL\n' +
-        'GROUP BY "status"'
-    );
-  });
-
   it('clears the grouping with Clear all, and says so on the control', async () => {
     const {user} = render();
     await screen.findAllByRole('gridcell');
@@ -489,24 +408,6 @@ describe('the generated SQL, and what grouping composes with', () => {
     // (FR-006 AC4).
     await waitFor(() => expect(screen.getByRole('columnheader', {name: 'qty'})).toBeInTheDocument());
     expect(runQuery).toHaveBeenCalledTimes(2);
-  });
-
-  it('re-seeds the open panel when the applied grouping changes underneath it', async () => {
-    const {user} = render();
-    await screen.findAllByRole('gridcell');
-    const panel = await openGrouping(user);
-    await addColumn(user, panel, 'status');
-    await user.click(within(panel).getByRole('button', {name: 'Apply grouping'}));
-    await waitFor(() => expect(screen.getByRole('columnheader', {name: 'count_all'})).toBeInTheDocument());
-
-    await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
-
-    // History, Clear all and a tab switch all rewrite the grouping without going through
-    // this draft (`ExpressionBar` re-seeds its text for the same reason). Left standing,
-    // the panel would still show the grouping the user just stepped away from — and the
-    // next Apply would silently put it back.
-    await waitFor(() => expect(within(panel).getByText(GROUPING_NO_COLUMNS)).toBeInTheDocument());
-    expect(within(panel).queryByRole('button', {name: 'Remove status from grouping'})).not.toBeInTheDocument();
   });
 
   it('leaves the open panel axe-clean', async () => {

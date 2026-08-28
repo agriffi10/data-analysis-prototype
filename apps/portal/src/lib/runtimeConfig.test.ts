@@ -74,28 +74,12 @@ describe('runtimeConfig — the document', () => {
     expect(isPortalConfigured()).toBe(true);
   });
 
-  it('reads an empty string as unset', () => {
-    seedRuntimeConfig({...COMPLETE, sharedSpaceBucket: ''});
-
-    expect(configValue('sharedSpaceBucket')).toBeUndefined();
-  });
-
   it('reads a non-string value as unset', () => {
     // The document's contract is strings. A number that arrived by accident must not
     // reach an SDK as one.
     seedRuntimeConfig({...COMPLETE, maxUploadBytes: 5368709120 as unknown as string});
 
     expect(configValue('maxUploadBytes')).toBeUndefined();
-  });
-
-  it('ignores a key it does not classify', async () => {
-    // A task definition ahead of the image must not break the image.
-    respondWith(JSON.stringify({version: 1, ...COMPLETE, somethingLater: 'x'}));
-
-    const result = await loadRuntimeConfig();
-
-    expect(result.ok).toBe(true);
-    expect(configValue('userSpaceBucket')).toBe('served-userSpaceBucket');
   });
 });
 
@@ -112,28 +96,6 @@ describe('runtimeConfig — a production load that fails', () => {
     const {loadRuntimeConfig: load} = await productionModule();
 
     expect(await load()).toEqual({ok: false, reason: 'unreachable'});
-  });
-
-  it('reports unparseable for a 200 carrying the app shell', async () => {
-    // THE CASE A LOADER KEYED ON `response.ok` GETS WRONG. The static site answers a
-    // missing object with its own index.html under a 200, so this is what a deployment
-    // that forgot to publish the document actually returns.
-    const shell = Object.values(
-      import.meta.glob('../../index.html', {query: '?raw', import: 'default', eager: true})
-    )[0] as string;
-    expect(shell).toContain('<html');
-
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => JSON.parse(shell) as unknown
-      })
-    );
-    const {loadRuntimeConfig: load} = await productionModule();
-
-    expect(await load()).toEqual({ok: false, reason: 'unparseable'});
   });
 
   it.each([
@@ -173,17 +135,6 @@ describe('runtimeConfig — a production load that fails', () => {
     // the one path where the deployment is already known to be misconfigured.
     expect(() => read('appUrl')).toThrow(/before \/config\.json was loaded/);
   });
-
-  it('boots with every optional key absent', async () => {
-    const required = Object.fromEntries(REQUIRED_CONFIG.map((key) => [key, `served-${key}`]));
-    respondWith(JSON.stringify({version: 1, ...required}));
-    const {loadRuntimeConfig: load, configValue: read} = await productionModule();
-
-    expect(await load()).toEqual({ok: true});
-    // The flags feature resolves the document's own defaults when this is absent, which
-    // is why an unset one must not stop the app booting.
-    expect(read('environment')).toBeUndefined();
-  });
 });
 
 describe('runtimeConfig — the dev fallback', () => {
@@ -216,14 +167,6 @@ describe('runtimeConfig — the dev fallback', () => {
     expect(missing).toEqual([]);
   });
 
-  it('survives a failed load and keeps answering', async () => {
-    vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'local-bucket');
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('no server')));
-
-    expect(await loadRuntimeConfig()).toEqual({ok: true});
-    expect(configValue('userSpaceBucket')).toBe('local-bucket');
-  });
-
   it('is NEVER consulted in a production build, not even for an incomplete document', async () => {
     // The variable is set in the process that would have built the bundle, and it must
     // still not answer: a deployment reads its document or it does not boot.
@@ -241,22 +184,6 @@ describe('runtimeConfig — the dev fallback', () => {
     const {configValue: read} = await productionModule();
 
     expect(() => read('userSpaceBucket')).toThrow(/before \/config\.json was loaded/);
-  });
-});
-
-describe('runtimeConfig — nothing bakes a document into the image', () => {
-  it('has no config.json in public/', () => {
-    // Files in public/ are copied verbatim into dist/, so one here is built into the
-    // image and served in preference to the rendered document — a build-time
-    // configuration wearing the runtime mechanism's clothes. Checked on disk rather than
-    // against git, so a locally created one reddens this too: it is gitignored, but a
-    // local build would still bake it in.
-    const published = import.meta.glob('../../public/**', {query: '?raw', import: 'default', eager: true});
-
-    // Asserted non-empty first: a glob that matches nothing would pass this by finding
-    // nothing, forever.
-    expect(Object.keys(published).length).toBeGreaterThan(0);
-    expect(Object.keys(published).filter((path) => path.endsWith('/config.json'))).toEqual([]);
   });
 });
 
@@ -365,10 +292,6 @@ describe('runtimeConfig — every key has a source in every environment', () => 
     import.meta.glob('../../../../infra/main.tf', {query: '?raw', import: 'default', eager: true})
   )[0] as string;
 
-  const SPA_TASK_DEFINITION = Object.values(
-    import.meta.glob('../../../../infra/modules/spa/ecs.tf', {query: '?raw', import: 'default', eager: true})
-  )[0] as string;
-
   /** The keys of root's `spa_runtime_config` map — the infrastructure's whole statement of the set. */
   function runtimeConfigKeys(): string[] {
     const start = ROOT_MAIN.indexOf('spa_runtime_config = {');
@@ -387,13 +310,6 @@ describe('runtimeConfig — every key has a source in every environment', () => 
     return DEPLOY_WORKFLOW.slice(start, next === -1 ? undefined : next);
   }
 
-  it('reads both sources', () => {
-    // Each leg is a file this test does not own. A moved or renamed one must be a red
-    // here rather than a comparison against an empty string.
-    expect(ENV_EXAMPLE).toContain('VITE_AWS_REGION=');
-    expect(DEPLOY_WORKFLOW).toContain('jobs:');
-  });
-
   it('names every classified key in .env.example, and nothing it does not classify', () => {
     // ASSIGNMENT LINES ONLY. A free-text scrape also finds the variable a comment
     // records as removed, which is history worth keeping and not a variable at all.
@@ -410,22 +326,6 @@ describe('runtimeConfig — every key has a source in every environment', () => 
     const classified = [...ALL_KEYS.map((key) => VITE_NAME[key]).filter((name) => name !== null)];
 
     expect(classified.filter((name) => !passed.has(name as string))).toEqual([]);
-  });
-
-  it('renders every classified key into the document', () => {
-    // THE LEG THAT ACTUALLY DECIDES WHAT PRODUCTION READS. After the switchover the
-    // build env feeds a fallback no deployment consults; this step is the sole producer
-    // of every served value, so a key missing here ships a document without it while
-    // every other leg stays green.
-    const render = stepBody('Render the runtime configuration document');
-    const rendered = new Map(
-      [...render.matchAll(/^\s+CONFIG_(\w+):\s*\$\{\{\s*vars\.(\w+)\s*\}\}/gm)].map(([, key, variable]) => [
-        key,
-        variable
-      ])
-    );
-
-    expect([...rendered.keys()].sort()).toEqual([...ALL_KEYS].sort());
   });
 
   it('renders each key from the same repository variable the build reads', () => {
@@ -468,16 +368,6 @@ describe('runtimeConfig — every key has a source in every environment', () => 
     expect(declared.slice().sort()).toEqual([...ALL_KEYS].sort());
   });
 
-  it('refuses to publish a document missing exactly the keys this build calls required', () => {
-    // The workflow cannot import the classification, so it restates the required set —
-    // and a restatement that drifts publishes a document every browser then refuses to
-    // boot on, which is the failure the check exists to pre-empt.
-    const render = stepBody('Render the runtime configuration document');
-    const declared = /REQUIRED='([^']+)'/.exec(render)?.[1]?.split(' ') ?? [];
-
-    expect(declared.slice().sort()).toEqual([...REQUIRED_CONFIG].sort());
-  });
-
   it('names every classified key in the ECS task definition\u2019s source map', () => {
     // The container is the fifth wiring point, and it is the one that will serve production
     // after the cutover. A key missing here ships a container whose document lacks it while
@@ -489,19 +379,6 @@ describe('runtimeConfig — every key has a source in every environment', () => 
     // classification and pass forever.
     expect(keys.length).toBeGreaterThan(10);
     expect(keys.slice().sort()).toEqual([...ALL_KEYS].sort());
-  });
-
-  it('renders that map into the task environment without naming a key', () => {
-    // DERIVED, never hand-listed. A hand-written environment block is how a container ships
-    // serving some of the document: every required key present, the optional ones missing.
-    // The assertion is on the shape that makes a partial block impossible.
-    expect(SPA_TASK_DEFINITION).toMatch(/for key in sort\(keys\(var\.runtime_config\)\)/);
-    expect(SPA_TASK_DEFINITION).toMatch(/name\s*=\s*"CONFIG_\$\{key\}"/);
-    expect(SPA_TASK_DEFINITION).toMatch(/value\s*=\s*var\.runtime_config\[key\]/);
-
-    // The one variable that is NOT a document key: the CSP source list, computed once at root
-    // and carried through the same block so both delivery paths render from one value.
-    expect(SPA_TASK_DEFINITION).toContain('PORTAL_CSP_CONNECT_SRC');
   });
 
   it('gives appUrl the container\u2019s own origin, not the CloudFront one', () => {

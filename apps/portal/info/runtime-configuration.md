@@ -62,3 +62,23 @@ legitimately browser-side, and a rule written to forbid "anything that smells of
 delete them and break sign-in — `cognitoUserPoolClientId` survives an exact-match rule and dies under
 a substring one. `cognitoDomain` is not a verifier field either: Amplify POSTs the code exchange to
 it. The forbidden set is about *the API's trust anchors*, not about the word Cognito.
+
+## The feature-flag document, and why its guards are worth their weight
+
+A feature flag is presentation-only and its browser read falls back to all-on when anything goes
+wrong, so **a document nobody can fetch and a healthy environment with every feature enabled look
+identical from the app**. Nothing in the SPA can tell them apart, and no user would report it.
+
+`lambdas/test_feature_flags_config.py` therefore holds three things at once: the validator's own
+behaviour, including a document it must reject and a workflow parse that must not go trivial; the
+reachability of infra the flag spec does **not** change — CORS, the CSP `connect-src` entry and
+the bucket-policy allowlist were already in place, but "it already works" is a claim about three
+files, and a claim nothing checks is how a silent-fallback feature ships permanently broken; and
+the deploy-role grant the publish workflow relies on rather than adding.
+
+If one of the reachability assertions fails it is a finding to raise, **not** a licence to widen
+infra.
+
+The flag key set is re-stated in that suite rather than imported from the validator, so a test
+cannot pass by agreeing with a mistake it imported. A key is added in six places, and that
+restatement is the one that fails if the validator was not among them.

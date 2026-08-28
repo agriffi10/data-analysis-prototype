@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {sqlLiteral, sqlIdentifier} from './sql';
+import {sqlLiteral, sqlIdentifier, sqlDdlIdentifier} from './sql';
 import {CATALOG_IDENTIFIER_RE} from './catalogIdentifier';
 
 describe('sqlLiteral (SPEC-178 FR-004)', () => {
@@ -24,6 +24,17 @@ describe('sqlLiteral (SPEC-178 FR-004)', () => {
   it('leaves a backslash alone — it is not an escape character in Trino', () => {
     // A Hive-escaped value would read `'a\\b'` and match a path that does not exist.
     expect(sqlLiteral('a\\b')).toBe("'a\\b'");
+  });
+
+  it('doubles an embedded backtick, so a crafted database name cannot close the quote', () => {
+    // A `DROP` interpolates a shared-space database name the control plane format-checks
+    // nowhere, so this escaper is the only thing between a crafted space name and a
+    // statement running under a member's own Athena credentials. The failure mode is the
+    // one the register names for this pair: the wrong rule is a predicate that never
+    // matches, and nothing goes red.
+    expect(sqlDdlIdentifier('a`b')).toBe('`a``b`');
+    expect(sqlDdlIdentifier('ok')).toBe('`ok`');
+    expect(sqlDdlIdentifier('a`; DROP TABLE x; --')).toBe('`a``; DROP TABLE x; --`');
   });
 
   it('is NOT the Hive/DDL escaper — the two diverge on a backslash', () => {

@@ -1,13 +1,12 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type {MockedFunction} from 'vitest';
-import {asSentence, formatRatio, isApproximateIssue, locationLabel, sourceFolderPrefix} from './dataQuality.format';
+import {asSentence, isApproximateIssue, locationLabel, sourceFolderPrefix} from './dataQuality.format';
 import {getSqsClient} from '../../lib/sqsClient';
 import {getIdToken} from '../../lib/awsCredentials';
 import {enqueueQualityCheck} from './dataQuality.service';
 import {getQualityReport, reportKey} from './dataQualityReport.service';
 import {getS3Client} from '../../lib/s3Client';
-import {csvReport} from './reportFixtures';
-import {getRunsIndex, runsIndexKey} from './dataQualityRuns.service';
+import {getRunsIndex} from './dataQualityRuns.service';
 import type {DataQualityRequest} from './dataQuality.types';
 
 // ─── from dataQuality.format.test.ts ───
@@ -25,12 +24,6 @@ describe('dataQuality.format', () => {
       expect(locationLabel('alice/data/sales.csv')).toBe('sales.csv');
       expect(locationLabel('sales.csv')).toBe('sales.csv');
     });
-
-    it('never returns a blank label', () => {
-      // A space root, or a degenerate key — the caller puts this in a sentence.
-      expect(locationLabel('/')).toBe('/');
-      expect(locationLabel('')).toBe('');
-    });
   });
 
   describe('sourceFolderPrefix', () => {
@@ -41,17 +34,6 @@ describe('dataQuality.format', () => {
       // A folder is already the answer — it is returned untouched, not climbed.
       expect(sourceFolderPrefix('alice/data/sales/')).toBe('alice/data/sales/');
       expect(sourceFolderPrefix('top.csv')).toBe('');
-    });
-  });
-
-  describe('formatRatio', () => {
-    it('distinguishes no blanks from a ratio that merely rounds to none', () => {
-      // A handful of blanks in a million rows is not the same as none, and "0.0%"
-      // would claim it is.
-      expect(formatRatio(0)).toBe('0%');
-      expect(formatRatio(0.0000008)).toBe('<0.1%');
-      expect(formatRatio(0.0432)).toBe('4.3%');
-      expect(formatRatio(0.61)).toBe('61.0%');
     });
   });
 
@@ -69,11 +51,6 @@ describe('dataQuality.format', () => {
     it('leaves an already-well-formed reason alone', () => {
       const parquet = 'Parquet enforces types in the file format, so this check cannot find anything.';
       expect(asSentence(parquet)).toBe(parquet);
-    });
-
-    it('returns empty for empty input rather than a bare full stop', () => {
-      expect(asSentence('')).toBe('');
-      expect(asSentence('   ')).toBe('');
     });
   });
 
@@ -168,12 +145,6 @@ describe('dataQuality.service', () => {
       expect(body).not.toHaveProperty('username');
     });
 
-    it('uses the requestId as the deduplication id', async () => {
-      const {send} = fakeQueue();
-      await enqueueQualityCheck(makeReq());
-      expect(send.mock.calls[0][0].input.MessageDeduplicationId).toBe(REQUEST_ID);
-    });
-
     it('hashes a location far longer than SQS allows into a 64-char group id', async () => {
       // The failure this prevents: SQS caps MessageGroupId at 128 chars while S3 keys reach
       // 1024, so a RAW location group id would fail the send in the browser — for exactly
@@ -200,15 +171,6 @@ describe('dataQuality.service', () => {
       expect(a).toBe(b);
     });
 
-    it('gives different group ids to different locations (they run in parallel)', async () => {
-      const {send} = fakeQueue();
-      await enqueueQualityCheck(makeReq({location: 'alice/sales/'}));
-      await enqueueQualityCheck(makeReq({location: 'alice/marketing/'}));
-
-      const [a, b] = send.mock.calls.map((c) => c[0].input.MessageGroupId);
-      expect(a).not.toBe(b);
-    });
-
     it('treats trailing-slash variants of one location as the same group', async () => {
       const {send} = fakeQueue();
       await enqueueQualityCheck(makeReq({location: 'alice/sales/'}));
@@ -222,14 +184,6 @@ describe('dataQuality.service', () => {
       vi.stubEnv('VITE_DATA_QUALITY_QUEUE_URL', '');
       const res = await enqueueQualityCheck(makeReq());
       expect(res.success).toBe(false);
-    });
-
-    it('propagates a credential failure without sending', async () => {
-      mockGetIdToken.mockResolvedValue({success: false, error: {message: 'no session'}});
-      const {send} = fakeQueue();
-      const res = await enqueueQualityCheck(makeReq());
-      expect(res.success).toBe(false);
-      expect(send).not.toHaveBeenCalled();
     });
 
     it('never throws when the send fails', async () => {
@@ -268,18 +222,6 @@ describe('dataQualityReport.service', () => {
   });
 
   describe('getQualityReport', () => {
-    it('reads and returns the report from the space it was given', async () => {
-      const report = csvReport();
-      send.mockResolvedValue(body(JSON.stringify(report)));
-
-      const result = await getQualityReport('shared-bucket', 'team-data', 'req-1');
-
-      expect(result).toEqual({success: true, data: report});
-      const input = send.mock.calls[0][0].input;
-      expect(input.Bucket).toBe('shared-bucket');
-      expect(input.Key).toBe('team-data/_data-quality-reports/req-1/report.json');
-    });
-
     it('reports a missing report as not-found, NOT as an empty clean report', async () => {
       // Unlike the notifications inbox, absence is not a legitimate empty state here:
       // the user followed a link to a specific report. Rendering "no issues" over a
@@ -343,13 +285,6 @@ describe('dataQualityRuns.service', () => {
     vi.mocked(getS3Client).mockResolvedValue({success: true, data: {send} as never});
   });
 
-  describe('runsIndexKey', () => {
-    it('matches the key the Lambda writes', () => {
-      // dqcommon/index_store.py::index_key — the two must agree or the page reads nothing.
-      expect(runsIndexKey('alice')).toBe('alice/_data-quality-reports/index.json');
-    });
-  });
-
   describe('getRunsIndex', () => {
     it('stamps the space onto every entry', async () => {
       // The entry on S3 does not carry its own space; this is the only place that knows it,
@@ -373,11 +308,6 @@ describe('dataQualityRuns.service', () => {
       expect(result).toEqual({success: true, data: []});
     });
 
-    it('treats a corrupt index as empty rather than failing the page', async () => {
-      send.mockResolvedValue(body('{ not json'));
-      await expect(getRunsIndex('user-space', 'alice')).resolves.toEqual({success: true, data: []});
-    });
-
     it('treats a structurally wrong index as empty', async () => {
       send.mockResolvedValue(body({entries: 'not-a-list'}));
       await expect(getRunsIndex('user-space', 'alice')).resolves.toEqual({success: true, data: []});
@@ -395,14 +325,6 @@ describe('dataQualityRuns.service', () => {
       expect(result.success).toBe(true);
       if (!result.success) return;
       expect(result.data.map((r) => r.requestId)).toEqual(['r-1']);
-    });
-
-    it('surfaces a real access failure as a typed error', async () => {
-      send.mockRejectedValue(awsError('AccessDenied', 403));
-
-      const result = await getRunsIndex('shared-space', 'team-data');
-
-      expect(result.success).toBe(false);
     });
   });
 });

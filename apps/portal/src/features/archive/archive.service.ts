@@ -13,7 +13,7 @@ import {spaceBuckets} from '../../lib/userSpace';
  * execution at all, the message dead-letters, and the user learns about it from the drain
  * minutes later rather than from a refusal now. Below the caps the verb is still the authority.
  *
- * `test_config_arcommon.py` reads these two names back out of this file, because a restatement
+ * The Lambda side reads these two names back out of this file, because a restatement
  * nobody checks is worse than no guard at all — the wrong number reads as deliberate.
  */
 const ARCHIVE_MAX_ITEMS = 200;

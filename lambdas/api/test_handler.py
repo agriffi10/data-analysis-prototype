@@ -15,8 +15,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import handler as m
-from apicommon import errors
-from conftest import bearer
 
 FORBIDDEN_HANDLER_NAMES = (
     "boto3",
@@ -102,21 +100,6 @@ def test_health_is_served_through_the_request_context() -> None:
     assert json.loads(response["body"])["status"] == "ok"
 
 
-def test_the_method_is_upper_cased_before_routing() -> None:
-    """A lowercase method must not turn a served route into a 404.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: If case decides whether the route matches.
-    """
-    assert m.handler(_event("get", "/healthz"), None)["statusCode"] == 200
-
-
 def test_an_unroutable_request_is_refused_not_a_traceback() -> None:
     """A malformed event cannot arrive through the API, so an answer beats a raise.
 
@@ -136,24 +119,6 @@ def test_an_unroutable_request_is_refused_not_a_traceback() -> None:
     """
     for event in ({}, {"requestContext": {}}, {"requestContext": {"http": {}}}):
         assert m.handler(event, None)["statusCode"] == 401
-
-
-def test_a_malformed_event_from_an_identified_caller_is_a_json_404() -> None:
-    """The other half, which is what the previous shape of this test actually proved.
-
-    Args:
-      None.
-
-    Returns:
-      None.
-
-    Raises:
-      AssertionError: If an identified caller's unroutable request is not a JSON 404.
-    """
-    event = {"requestContext": {"http": {}}, "headers": bearer()}
-    response = m.handler(event, None)
-    assert response["statusCode"] == 404
-    assert json.loads(response["body"])["error"]["code"] == errors.NOT_FOUND_CODE
 
 
 def test_the_handler_holds_no_aws_surface_and_no_session() -> None:

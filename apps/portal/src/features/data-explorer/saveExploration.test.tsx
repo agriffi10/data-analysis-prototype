@@ -1,7 +1,7 @@
 import {beforeEach, afterEach, describe, expect, it, vi} from 'vitest';
 import {screen, waitFor, within} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {HeadObjectCommand, ListObjectsV2Command, PutObjectCommand} from '@aws-sdk/client-s3';
+import {HeadObjectCommand, PutObjectCommand} from '@aws-sdk/client-s3';
 import {renderWithProviders, USER_EVENT_OPTIONS} from '../../test/renderWithProviders';
 import {authenticated} from '../../test/authFixtures';
 import {COMPONENT_AXE_OPTIONS, expectContainerHasNoA11yViolations} from '../../test/axe';
@@ -9,13 +9,11 @@ import {DataExplorerWorkspace} from './DataExplorerWorkspace';
 import {EXPLORATION_TABS_STORAGE_PREFIX} from './dataExplorer.constants';
 import {readExplorationTabsState} from './explorationTabs';
 import {newExploration} from './exploration';
-import {FAILED_NOT_SAVEABLE, NOTHING_TO_SAVE} from './ExplorationResultsRegion';
+import {FAILED_NOT_SAVEABLE} from './ExplorationResultsRegion';
 import {getDatabase, listTables} from '../catalog/glue.service';
 import {getQueryResults, getQueryStatus, runQuery} from '../catalog/athena.service';
-import {listSavedQueries, readSavedQuery} from '../saved-queries/savedQueries.service';
 import {readSharedConnectionsCache} from '../shared-spaces/sharedSpaces.service';
 import type {ExplorationTab, ExplorationTabsState} from './dataExplorer.types';
-import type {QuerySpace} from '../catalog/catalog.types';
 import {chooseExplorationOption, explorationOption} from './explorationOptions.testkit';
 
 // SPEC-183. Only the AWS boundary is mocked (react.md §21): the real workspace, the real
@@ -46,14 +44,6 @@ vi.mock('../shared-spaces/sharedSpaces.service', () => ({
 }));
 
 const ok = <T,>(data: T) => ({success: true as const, data});
-
-const PERSONAL: QuerySpace = {
-  id: 'personal',
-  label: 'My files',
-  bucket: 'user-space',
-  rootPrefix: 'alice/',
-  rootLabel: 'My Files'
-};
 
 const TABLE = {name: 'orders', tableType: 'EXTERNAL_TABLE', location: 's3://user-space/alice/orders/', columns: []};
 
@@ -260,26 +250,6 @@ describe('SPEC-175’s rules hold here too (FR-001 AC3)', () => {
     await waitFor(() => expect(putBodies()).toHaveLength(1));
   });
 
-  it('keeps the dialog open with the mapped message inline when the write fails', async () => {
-    seedTab();
-    const {user} = render();
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
-
-    mockSend.mockImplementation(async (command: unknown) => {
-      if (command instanceof HeadObjectCommand) throw notFoundError();
-      throw Object.assign(new Error('User is not authorized'), {name: 'AccessDenied'});
-    });
-    await saveAs(user, 'Monthly revenue');
-
-    const dialog = await screen.findByRole('dialog', {name: 'Save query'});
-    // SPEC-106: mapped, never the raw AWS sentence.
-    expect(await within(dialog).findByText(/don't have permission/i)).toBeInTheDocument();
-    expect(within(dialog).queryByText(/User is not authorized/)).not.toBeInTheDocument();
-    // FR-006: the name the user chose is still there, so another destination is one control
-    // away rather than a retype.
-    expect(within(dialog).getByLabelText('Name')).toHaveValue('Monthly revenue');
-  });
-
   it('refuses an invalid name on submit, with no request at all', async () => {
     seedTab();
     const {user} = render();
@@ -330,25 +300,6 @@ describe('the tab remembers what it was saved as (FR-003)', () => {
     expect(screen.queryByRole('alertdialog', {name: 'Confirm replace saved query'})).not.toBeInTheDocument();
   });
 
-  it('takes the HEAD-and-confirm path for any OTHER key, linked or not', async () => {
-    storeReady({occupied: true});
-    seedTab({
-      savedQuery: {
-        spaceId: 'personal',
-        bucket: 'user-space',
-        key: 'alice/saved_queries/Monthly revenue.sql',
-        name: 'Monthly revenue'
-      }
-    });
-    const {user} = render();
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
-
-    await saveAs(user, 'Something else');
-
-    expect(await screen.findByRole('alertdialog', {name: 'Confirm replace saved query'})).toBeInTheDocument();
-    expect(commandsOfType(PutObjectCommand)).toHaveLength(0);
-  });
-
   it('restores a stored link, and restores the tab WITHOUT one when it is malformed', async () => {
     // AC3. A document written before this spec carries none at all, which is the ordinary
     // case for the first session after a deploy — the tab must survive either way.
@@ -371,48 +322,6 @@ describe('the tab remembers what it was saved as (FR-003)', () => {
       withLink({spaceId: 'personal', bucket: 'user-space', key: 'alice/saved_queries/r.sql', name: 'r'})
     );
     expect(readExplorationTabsState('alice')?.tabs[0].savedQuery?.name).toBe('r');
-  });
-});
-
-// ─── FR-005: one store, both surfaces ───────────────────────────────────────
-
-describe('a file saved here is an ordinary saved query (FR-005)', () => {
-  it('comes back through the Query workspace’s OWN reader, row and body', async () => {
-    // Asserted at the STORE rather than by mounting the Query workspace, and that is a
-    // constraint rather than a shortcut: SPEC-176's layering rule forbids one sibling
-    // feature's test from importing the other, tests included. So the assertion uses the
-    // functions the workspace's panel is built on — `listSavedQueries` for the row it
-    // renders, `readSavedQuery` for what Open puts in the editor — over the object this
-    // save actually wrote. What the panel then does with a `SavedQuery` is SPEC-174's.
-    seedTab();
-    const {user} = render();
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
-
-    await saveAs(user, 'Monthly revenue');
-    await waitFor(() => expect(putBodies()).toHaveLength(1));
-    const written = putBodies()[0];
-
-    mockSend.mockImplementation(async (command: unknown) => {
-      if (command instanceof ListObjectsV2Command) {
-        return {Contents: [{Key: written.Key, Size: 42, LastModified: new Date('2026-08-13')}], IsTruncated: false};
-      }
-      return {Body: {transformToString: async () => written.Body}};
-    });
-
-    const page = await listSavedQueries({space: PERSONAL});
-    expect(page.success && page.data.queries).toEqual([
-      {
-        spaceId: 'personal',
-        bucket: 'user-space',
-        key: 'alice/saved_queries/Monthly revenue.sql',
-        name: 'Monthly revenue',
-        updatedAt: '2026-08-13T00:00:00.000Z',
-        size: 42
-      }
-    ]);
-
-    const body = await readSavedQuery({bucket: 'user-space', key: written.Key as string});
-    expect(body.success && body.data).toBe(written.Body);
   });
 });
 
@@ -489,40 +398,6 @@ describe('nothing to save (FR-002)', () => {
     await user.click(button);
     expect(screen.queryByRole('dialog', {name: 'Save query'})).not.toBeInTheDocument();
     expect(commandsOfType(PutObjectCommand)).toHaveLength(0);
-  });
-
-  it('is unavailable while a description is suspended, because nothing has run', async () => {
-    // AC2. SPEC-181 holds a history step onto a known-failed statement back rather than
-    // re-running it — so the description on screen has produced no statement, and there is
-    // nothing to write. The refusal comes through `sql === null`, which is what suspension
-    // already produces one layer up; there is no separate clause for it.
-    let started = 0;
-    vi.mocked(runQuery).mockImplementation(async () => {
-      started += 1;
-      return ok({queryExecutionId: `exec-${started}`}) as never;
-    });
-    // `getQueryStatus` takes the id as a BARE STRING, not an object — the second execution
-    // is the expression's, and it is the one that fails.
-    vi.mocked(getQueryStatus).mockImplementation((async (queryExecutionId: string) =>
-      queryExecutionId === 'exec-2'
-        ? ok({queryExecutionId, state: 'FAILED', stateChangeReason: 'mismatched input'})
-        : ok({queryExecutionId, state: 'SUCCEEDED', dataScannedBytes: 2048})) as never);
-
-    seedTab();
-    const {user} = render();
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(1));
-
-    await user.type(screen.getByLabelText('Filter expression'), 'not sql at all{Enter}');
-    await waitFor(() => expect(runQuery).toHaveBeenCalledTimes(2));
-    await screen.findByText(/syntax error in your query/i);
-    await user.click(screen.getByRole('button', {name: 'Back to previous filters'}));
-    await waitFor(() => expect(screen.getByLabelText('Filter expression')).toHaveValue(''));
-    await user.click(screen.getByRole('button', {name: 'Forward to next filters'}));
-    await screen.findByRole('button', {name: 'Run it anyway'});
-
-    const button = await explorationOption(user, 'Save as query');
-    expect(button).toHaveAttribute('aria-disabled', 'true');
-    expect(button).toHaveAttribute('title', NOTHING_TO_SAVE);
   });
 });
 

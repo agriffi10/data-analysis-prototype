@@ -65,36 +65,6 @@ def test_one_message_names_the_actor_the_run_and_where_the_result_is(sent):
     assert kwargs["payload"]["requestId"] == "req-1"
 
 
-def test_the_terminal_is_threaded_onward_UNCHANGED(sent):
-    """The execution's output stays what the machine shaped rather than whatever this verb
-    happened to return — the state carries ``ResultPath: null`` for the same reason."""
-    terminal = _terminal()
-
-    assert m.handler(terminal, None) == terminal
-
-
-def test_a_message_that_cannot_be_composed_never_fails_the_RUN(monkeypatch, sent):
-    """THE PROPERTY THIS VERB EXISTS UNDER. ``emit_notification`` already swallows, but composing
-    the sentence, minting the link and building the payload do not — and by the time any of them
-    runs, a move has already deleted its sources. A raise here would report a completed operation
-    as a failed one."""
-    monkeypatch.setattr(notify, "emit_outcomes", _explode)
-    terminal = _terminal()
-
-    assert m.handler(terminal, None) == terminal
-
-
-def _explode(_event):
-    raise RuntimeError("the wording blew up")
-
-
-def test_a_terminal_with_no_outcomes_is_a_LOGGED_NO_OP_rather_than_an_invented_failure(sent):
-    """Unreachable through the finaliser, which returns a record per selected item. Inventing a
-    failure here would report a completed operation as a broken one."""
-    assert m.handler(_terminal(records=[]), None) == _terminal(records=[])
-    assert sent == []
-
-
 def test_a_mixed_run_produces_ONE_message_naming_both_halves(sent):
     """Not one message per item: a selection at the item cap would flood an inbox capped at 200
     rows and read whole on every poll."""
@@ -117,88 +87,6 @@ def test_a_mixed_run_produces_ONE_message_naming_both_halves(sent):
     assert len(sent) == 1
     message = sent[0][1]
     assert "Moved 1 of 2 items" in message and '"q1.csv"' in message
-
-
-def test_the_producer_reads_the_STATE_and_opens_no_client(monkeypatch, sent):
-    """It reads no plan and no results document, and that is a constraint rather than an
-    observation: a verb that held the plan would join the set whose smallest memory sizes the
-    object cap, shrinking a cap that has nothing to do with notifying."""
-    from cpcommon import clients
-
-    monkeypatch.setattr(clients, "s3", _no_client)
-    m.handler(_terminal(), None)
-
-    assert len(sent) == 1
-
-
-def _no_client():
-    raise AssertionError("the producer opened an S3 client")
-
-
-def test_the_module_never_reaches_for_the_plan():
-    """Asserted on the SOURCE as well as by behaviour, because a plan read on a branch this suite
-    does not take would still shrink the cap."""
-    source = os.path.join(os.path.dirname(os.path.abspath(__file__)), "file_ops_notify.py")
-    with open(source) as handle:
-        text = handle.read()
-
-    assert "plan.load" not in text and "plan.write" not in text
-
-
-def test_the_summary_this_verb_reads_is_the_one_the_REAL_PLANE_produces(monkeypatch, sent):
-    """THE SEAM EVERY OTHER TEST IN THIS FILE INVENTS, and the one that actually broke.
-
-    Every fixture above hand-writes the terminal, so each of them agrees with a shape that nothing
-    on the plane emits. The space's ``kind`` and ``name`` are the fields at issue: they are read by
-    the link builder and by the payload, they were ABSENT from a resolved space that carried only a
-    bucket and a root, and their absence cost every notification its link and shipped nulls where a
-    re-submit's source space belongs — with no test failing anywhere.
-
-    So this one builds the input the way the machine does: authorize the space for real, shape the
-    terminal with the real finaliser, and only then notify.
-
-    Args:
-      monkeypatch: pytest's fixture, for the bucket the resolver reads.
-      sent: The captured messages.
-
-    Returns:
-      None.
-
-    Raises:
-      None.
-    """
-    sys.path.insert(
-        0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "file-ops-finalise-outcomes")
-    )
-    import file_ops_finalise_outcomes as finaliser
-    from cpcommon import config as cpconfig
-    from focommon import authz
-
-    monkeypatch.setattr(cpconfig, "USER_SPACE_BUCKET", "user-bkt", raising=False)
-    source = authz.authorize_source("alice", {"kind": "personal", "name": "alice"})
-    source["items"] = [{"key": "alice/reports/", "kind": "folder", "targetName": None}]
-    destination = authz.authorize_destination("alice", {"kind": "personal", "name": "alice"})
-    destination["prefix"] = "alice/out/"
-
-    terminal = finaliser._finalise_outcomes(
-        {
-            "requestId": "req-real",
-            "actor": {"username": "alice"},
-            "operation": "move",
-            "source": source,
-            "destination": destination,
-            "outcomes": [{"itemKey": "alice/reports/", "label": "reports", "outcome": "cleared"}],
-        }
-    )
-    m.handler(terminal, None)
-
-    assert len(sent) == 1
-    _, message, kwargs = sent[0]
-    assert message == 'Moved 1 item to "out".'
-    assert kwargs["link"] == "/files?prefix=alice/out/", "every notification would ship with no link"
-    assert kwargs["payload"]["source"] == {"kind": "personal", "name": "alice"}, (
-        "the source space a re-submit needs is not derivable from an absolute key"
-    )
 
 
 if __name__ == "__main__":

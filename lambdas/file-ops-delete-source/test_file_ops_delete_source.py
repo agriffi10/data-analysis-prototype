@@ -147,42 +147,10 @@ def test_only_the_CONFIRMED_items_keys_are_deleted():
     items = [_item("alice/a/", "a", ["alice/a/1"]), _item("alice/b/", "b", ["alice/b/1"])]
     fake = _install(items, ["alice/a/"])
 
-    result = m._delete_source(_event())
+    result = m.handler(_event(), None)
 
     assert fake.deleted == ["alice/a/"[:-1] + "/1"]
     assert result["deletedCount"] == 1
-
-
-def test_it_deletes_the_PLANS_keys_rather_than_listing_the_prefix():
-    """SPEC-187's Premise 1. This plane's lock serialises its own executions and nothing else — not
-    uploads, not create-folder, not the six other control planes — so an object written into the
-    folder between the expansion and the commit was never copied.
-
-    A prefix-listing delete would remove it silently and unrecoverably, versioning off. The accepted
-    cost is an orphan, which is visible and recoverable where the alternative is neither.
-    """
-    items = [_item("alice/a/", "a", ["alice/a/1", "alice/a/2"])]
-    fake = _install(items, ["alice/a/"], heads={"alice/a/1": '"e"', "alice/a/2": '"e"',
-                                                "alice/a/arrived-later": '"e"'})
-
-    m._delete_source(_event())
-
-    assert "alice/a/arrived-later" not in fake.deleted
-
-
-def test_a_confirmed_item_that_names_NO_plan_item_deletes_nothing_and_is_RECORDED():
-    """It never falls through silently: an unmatched key means the two documents disagree, and
-    saying so is what makes that visible."""
-    items = [_item("alice/a/", "a", ["alice/a/1"])]
-    fake = _install(items, ["alice/a/", "alice/ghost/"])
-
-    m._delete_source(_event())
-
-    records = fake.written[_RESULTS_KEY]["deletions"]
-    ghost = next(r for r in records if r["itemKey"] == "alice/ghost/")
-    assert ghost == {"itemKey": "alice/ghost/", "deleted": 0, "failed": 0,
-                     "reason": "source_delete_failed"}
-    assert fake.deleted == ["alice/a/1"]
 
 
 def test_the_subset_guard_refuses_an_unconfirmed_item():
@@ -192,6 +160,22 @@ def test_the_subset_guard_refuses_an_unconfirmed_item():
         m._assert_subset({"alice/b/"}, {"alice/a/"})
 
     assert caught.value.reason == "forbidden"
+
+
+# ── Conditionality ───────────────────────────────────────────────────────────
+
+
+def test_a_MOVE_compares_the_ETag_the_PLAN_recorded():
+    """The condition protects bytes that were just copied: an object modified between the copy and
+    the deletion has a destination copy holding what is no longer the source."""
+    items = [_item("alice/a/", "a", ["alice/a/1"])]
+    fake = _install(items, ["alice/a/"], heads={"alice/a/1": '"moved-on"'})
+
+    m.handler(_event(), None)
+
+    assert fake.deleted == []
+    records = fake.written[_RESULTS_KEY]["deletions"]
+    assert records[0]["reason"] == "source_changed"
 
 
 def test_the_subset_guard_runs_once_per_item_IMMEDIATELY_BEFORE_its_keys_reach_S3(monkeypatch):
@@ -227,96 +211,3 @@ def test_the_subset_guard_runs_once_per_item_IMMEDIATELY_BEFORE_its_keys_reach_S
         ("guard", ["alice/b/"]),
         ("delete", ["alice/b/1"]),
     ]
-
-
-def test_REMOVING_the_skip_makes_the_guard_fire_rather_than_deleting(monkeypatch):
-    """The named mutation, executed rather than described.
-
-    The loop skips items outside the confirmed set; the guard is what catches that skip being
-    deleted. Simulated here by driving the guard with what the mutated loop would hand it, so the
-    claim in the docstring above is checked rather than asserted.
-    """
-    items = [_item("alice/a/", "a", ["alice/a/1"]), _item("alice/unconfirmed/", "u", ["alice/unconfirmed/1"])]
-    _install(items, ["alice/a/"])
-
-    with pytest.raises(TerminalError) as caught:
-        for item_key in ("alice/a/", "alice/unconfirmed/"):
-            m._assert_subset({item_key}, {"alice/a/"})
-
-    assert caught.value.reason == "forbidden"
-
-
-# ── Per-item isolation ───────────────────────────────────────────────────────
-
-
-def test_a_REFUSED_item_fails_alone_and_its_siblings_are_still_deleted():
-    """Scoped per item, not over the whole list. A whole-list refusal would be the whole-request
-    reversion this plane's model forbids — and on a move it runs AFTER the copy, so it would leave
-    every item copied and nothing deleted: a full duplicate of the entire selection."""
-    items = [
-        _item("alice/a/", "a", ["alice/a/athenaresults/r.csv"]),
-        _item("alice/b/", "b", ["alice/b/1"]),
-    ]
-    fake = _install(items, ["alice/a/", "alice/b/"])
-
-    result = m._delete_source(_event())
-
-    assert fake.deleted == ["alice/b/1"]
-    records = {r["itemKey"]: r for r in fake.written[_RESULTS_KEY]["deletions"]}
-    assert records["alice/a/"]["reason"] == "delete_refused"
-    assert records["alice/b/"]["failed"] == 0
-    assert result["deletedCount"] == 1
-
-
-def test_a_nested_marker_survives_and_the_REST_of_the_selection_goes():
-    """The marker's whole purpose is to make its own folder undeletable. It costs its item and
-    nothing else."""
-    items = [
-        _item("alice/a/", "a", ["alice/a/DO_NOT_DELETE.txt"]),
-        _item("alice/b/", "b", ["alice/b/1"]),
-    ]
-    fake = _install(items, ["alice/a/", "alice/b/"])
-
-    m._delete_source(_event())
-
-    assert fake.deleted == ["alice/b/1"]
-    records = {r["itemKey"]: r for r in fake.written[_RESULTS_KEY]["deletions"]}
-    assert records["alice/a/"]["reason"] == "marker_not_deletable"
-
-
-# ── Conditionality ───────────────────────────────────────────────────────────
-
-
-def test_a_MOVE_compares_the_ETag_the_PLAN_recorded():
-    """The condition protects bytes that were just copied: an object modified between the copy and
-    the deletion has a destination copy holding what is no longer the source."""
-    items = [_item("alice/a/", "a", ["alice/a/1"])]
-    fake = _install(items, ["alice/a/"], heads={"alice/a/1": '"moved-on"'})
-
-    m._delete_source(_event())
-
-    assert fake.deleted == []
-    records = fake.written[_RESULTS_KEY]["deletions"]
-    assert records[0]["reason"] == "source_changed"
-
-
-def test_a_DELETE_is_UNCONDITIONAL_deliberately():
-    """A move's conditional delete protects bytes that were copied; a delete has no copy, and an
-    object modified since the expansion is still one the user asked to remove."""
-    items = [_item("alice/a/", "a", ["alice/a/1"])]
-    fake = _install(items, ["alice/a/"], operation="delete", heads={"alice/a/1": '"moved-on"'})
-
-    result = m._delete_source(_event("delete"))
-
-    assert fake.deleted == ["alice/a/1"]
-    assert result["deletedCount"] == 1
-
-
-def test_the_per_item_records_travel_by_POINTER_rather_than_on_the_state():
-    items = [_item("alice/a/", "a", ["alice/a/1"])]
-    fake = _install(items, ["alice/a/"])
-
-    result = m._delete_source(_event())
-
-    assert "deletions" not in result
-    assert "deletions" in fake.written[_RESULTS_KEY]

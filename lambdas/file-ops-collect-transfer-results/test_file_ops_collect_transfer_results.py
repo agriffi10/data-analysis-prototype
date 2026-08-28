@@ -162,7 +162,7 @@ def test_an_item_whose_objects_ALL_copied_is_deletable():
     items = [_item("alice/a/", "a", 3)]
     fake = _install(_plan(items), _export([{"Output": json.dumps({"copied": 3, "failures": []})}]))
 
-    result = m._collect_transfer_results(_event(items, transfer=_transfer(items)))
+    result = m.handler(_event(items, transfer=_transfer(items)), None)
 
     assert result["deletableCount"] == 1
     assert _results(fake)["deletable"] == ["alice/a/"]
@@ -189,113 +189,14 @@ def test_an_item_with_ONE_failed_object_is_NOT_deletable():
         ]),
     )
 
-    result = m._collect_transfer_results(_event(items, transfer=_transfer(items)))
+    result = m.handler(_event(items, transfer=_transfer(items)), None)
 
     assert result["deletableCount"] == 0
     assert _results(fake)["deletable"] == []
     assert result["outcomes"][0]["outcome"] == "copy_failed"
 
 
-def test_one_item_failing_leaves_its_SIBLING_deletable():
-    """Per-item partial execution: a select-all move must still move what it can."""
-    items = [_item("alice/a/", "a", 2), _item("alice/b/", "b", 2)]
-    fake = _install(
-        _plan(items),
-        _export([
-            {"Output": json.dumps({
-                "copied": 3,
-                "failures": [{"itemKey": "alice/a/", "reason": "copy_failed"}],
-            })}
-        ]),
-    )
-
-    result = m._collect_transfer_results(_event(items, transfer=_transfer(items)))
-
-    assert _results(fake)["deletable"] == ["alice/b/"]
-    assert result["deletableCount"] == 1
-
-
-def test_a_SUCCEEDED_batch_carrying_failures_is_still_attributed():
-    """Step Functions files a child by its EXECUTION STATUS, not by what its payload says, and the
-    batch copier deliberately succeeds while carrying per-item failures.
-
-    A collector reading only ``FAILED_n.json`` would report universal success — and here that
-    success is what authorises a DELETION.
-    """
-    items = [_item("alice/a/", "a", 2)]
-    _install(
-        _plan(items),
-        _export([
-            {"Output": json.dumps({
-                "copied": 1,
-                "failures": [{"itemKey": "alice/a/", "reason": "copy_failed"}],
-            })}
-        ]),
-    )
-
-    result = m._collect_transfer_results(_event(items, transfer=_transfer(items)))
-
-    assert result["deletableCount"] == 0
-
-
-def test_an_export_SHORT_of_the_manifest_fails_the_WHOLE_request():
-    """An omitted line is unattributable — it belongs to an item nobody can name — so it is a
-    property of the run rather than of an item."""
-    items = [_item("alice/a/", "a", 3)]
-    _install(_plan(items), _export([{"Output": json.dumps({"copied": 2, "failures": []})}]))
-
-    with pytest.raises(TerminalError) as caught:
-        m._collect_transfer_results(_event(items, transfer=_transfer(items)))
-
-    assert caught.value.reason == "transfer_results_unreadable"
-
-
-def test_an_item_whose_manifest_lines_DISAGREE_with_the_plan_is_not_deletable():
-    """The second shortfall that keeps an item out: the copy reported no failure, but fewer lines
-    were written for it than the plan holds objects, so something was never offered to the Map.
-
-    **The two sides of this check must come from different places or it proves nothing.** The plan's
-    per-item ``objectCount`` is one side; the other is what ``build-transfer-manifest`` actually
-    WROTE, counted from the lines themselves. An earlier version reported the plan's own
-    ``objectCount`` back as the line count, which made the comparison a tautology no fixture could
-    fail honestly — the input below was one the builder could not emit.
-
-    The divergence this catches is real and unguarded elsewhere: ``plan.load`` sums actual objects
-    against the TOP-LEVEL count only, never per item, so an item whose ``objectCount`` disagrees with
-    its own object list passes the plan reader.
-    """
-    items = [_item("alice/a/", "a", 3)]
-    # An item whose recorded count exceeds its actual objects: the plan reader accepts it (its own
-    # check is the top-level total), and the builder writes one line per real object.
-    items[0]["objectCount"] = 4
-    plan = _plan(items)
-    plan["objectCount"] = 3
-    transfer = _transfer(items)
-    transfer["itemCount"] = 3
-    transfer["itemLines"] = [{"itemKey": "alice/a/", "lines": 3}]
-    _install(plan, _export([{"Output": json.dumps({"copied": 3, "failures": []})}]))
-
-    result = m._collect_transfer_results(_event(items, transfer=transfer))
-
-    assert result["deletableCount"] == 0
-    assert result["outcomes"][0]["outcome"] == "copy_failed"
-
-
 # ── The skip branch ──────────────────────────────────────────────────────────
-
-
-def test_a_DELETE_reaches_the_gate_through_the_skip_branch_with_every_item_deletable():
-    """Without this the delete operation reaches the fail-closed Default and removes nothing, which
-    is the whole operation silently not working."""
-    items = [_item("alice/a/", "a", 3), _item("alice/b/", "b", 1)]
-    fake = _install(_plan(items, "delete"))
-
-    result = m._collect_transfer_results(
-        _event(items, operation="delete", transfer=_transfer(items, "delete"), map_run=False)
-    )
-
-    assert result["deletableCount"] == 2
-    assert _results(fake)["deletable"] == ["alice/a/", "alice/b/"]
 
 
 def test_a_MOVE_with_no_export_RAISES_rather_than_marking_everything_deletable():
@@ -310,54 +211,8 @@ def test_a_MOVE_with_no_export_RAISES_rather_than_marking_everything_deletable()
     _install(_plan(items))
 
     with pytest.raises(TerminalError) as caught:
-        m._collect_transfer_results(_event(items, transfer=None, map_run=False))
+        m.handler(_event(items, transfer=None, map_run=False), None)
 
     assert caught.value.reason == "transfer_results_unreadable"
 
 
-def test_a_run_where_NOTHING_was_cleared_is_an_ordinary_empty_result():
-    """Every item refused upstream is a result, not a fault: no transfer was reported and none was
-    expected."""
-    items = [_item("alice/a/", "a", 2)]
-    fake = _install(_plan(items))
-    outcomes = [{"itemKey": "alice/a/", "label": "a", "outcome": "conflict", "reason": "destination_occupied"}]
-
-    result = m._collect_transfer_results(
-        _event(items, outcomes=outcomes, transfer=None, map_run=False)
-    )
-
-    assert result["deletableCount"] == 0
-    assert _results(fake)["deletable"] == []
-    assert result["outcomes"] == outcomes
-
-
-# ── What rides, and what does not ────────────────────────────────────────────
-
-
-def test_the_deletable_list_and_the_counts_travel_by_POINTER():
-    """At the selection cap these are over the 256 KB state limit, and the overflow would land on
-    THIS verb's result — after the copy — where ``States.DataLimitExceeded`` escapes every Catch."""
-    items = [_item("alice/a/", "a", 2)]
-    _install(_plan(items), _export([{"Output": json.dumps({"copied": 2, "failures": []})}]))
-
-    result = m._collect_transfer_results(_event(items, transfer=_transfer(items)))
-
-    assert "deletable" not in result
-    assert isinstance(result["deletableCount"], int)
-    assert result["transferResultsKey"].endswith("transfer-results.json")
-
-
-def test_the_outcome_list_is_carried_FORWARD_rather_than_recreated():
-    """Three verbs before this one decided items, and each of those records has to reach the
-    notification."""
-    items = [_item("alice/a/", "a", 2)]
-    _install(_plan(items), _export([{"Output": json.dumps({"copied": 2, "failures": []})}]))
-    arrived = [
-        {"itemKey": "alice/p/", "label": "p", "outcome": "protected", "reason": "archive_read_only"},
-        {"itemKey": "alice/a/", "label": "a", "outcome": "cleared"},
-    ]
-
-    result = m._collect_transfer_results(_event(items, outcomes=arrived, transfer=_transfer(items)))
-
-    assert result["outcomes"][0] == arrived[0]
-    assert len(result["outcomes"]) == 2

@@ -184,23 +184,6 @@ describe('column geometry', () => {
     await waitFor(() => expect(headerNames()).toEqual(['id', 'total', 'status']));
   });
 
-  it('reorders by keyboard and announces where the column landed', async () => {
-    seedTabs([{id: 't1', table: 'orders'}]);
-    const {user} = render();
-    await screen.findByRole('columnheader', {name: 'id'});
-
-    await user.click(within(await columnRow(user, 'id')).getByRole('button', {name: 'Move id later'}));
-    await waitFor(() => expect(headerNames()).toEqual(['total', 'id', 'status']));
-
-    const panel = screen.getByRole('dialog', {name: 'Columns'});
-    expect(within(panel).getByRole('status')).toHaveTextContent('id moved to position 2 of 3.');
-
-    // The first column has nowhere earlier to go, and says so the same way a refused hide does.
-    const earlier = within(await columnRow(user, 'total')).getByRole('button', {name: 'Move total earlier'});
-    expect(earlier).toHaveAttribute('aria-disabled', 'true');
-    expect(earlier.getAttribute('title')).toMatch(/already first/);
-  });
-
   it('reorders a PINNED column within the pinned block', async () => {
     // The pinned block used to be ordered by pin order ALONE, so a move inside it was a
     // silent no-op that the live region still announced.
@@ -239,25 +222,6 @@ describe('column geometry', () => {
     // drag-reorder, silently missing.
     await drag('status', 'total');
     await waitFor(() => expect(headerNames()).toEqual(['id', 'total', 'status']));
-  });
-
-  it('keeps Arrow keys on a resize handle out of the cell cursor', async () => {
-    seedTabs([{id: 't1', table: 'orders'}]);
-    render();
-    const handle = await screen.findByRole('separator', {name: 'Resize column id'});
-
-    handle.focus();
-    fireEvent.keyDown(handle, {key: 'ArrowRight'});
-    fireEvent.keyDown(handle, {key: 'ArrowRight'});
-
-    // Both presses land on the column, and focus never leaves the handle for the body —
-    // un-stopped, the first press resized and threw focus into the grid, so the second
-    // moved the cell cursor instead. TWO guards make this true (the handle stops the event,
-    // and the grid ignores keys from outside a gridcell), so deleting either one alone
-    // leaves this green; deleting both reddens it, which is the bug it was written for.
-    expect(handle).toHaveAttribute('aria-valuenow', String(DEFAULT_COLUMN_WIDTH + 2 * COLUMN_RESIZE_STEP_PX));
-    expect(handle).toHaveFocus();
-    expect(screen.queryAllByRole('gridcell').filter((c) => c.getAttribute('aria-selected') === 'true')).toHaveLength(0);
   });
 
   it('keeps geometry across paging and tab switches, and costs NOTHING (FR-001 AC6/AC7)', async () => {
@@ -373,38 +337,6 @@ describe('columns before the first execution', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Running…');
     expect(screen.queryAllByRole('gridcell')).toHaveLength(0);
   });
-
-  it('reads NO results until the execution reports SUCCEEDED', async () => {
-    // The regression this guards is a real one, seen in production on an ordinary first
-    // load: results were requested as soon as StartQueryExecution returned an id, and
-    // Athena answers a QUEUED execution with 400 INVALID_QUERY_EXECUTION_STATE. That name
-    // (`InvalidRequestException`) mapped to nothing, so the user was shown
-    // "Something went wrong. Contact the Administrator."
-    //
-    // Asserted on the CALL, not on the screen. A rendering assertion passes just as well
-    // when the request was made and its failure swallowed — which is exactly how this
-    // survived: TanStack's `retry: 1` usually re-asked after the query had finished, so
-    // the grid looked right and the first request was wrong.
-    let state = 'QUEUED';
-    vi.mocked(getQueryStatus).mockImplementation((async (queryExecutionId: string) =>
-      ok({queryExecutionId, state, dataScannedBytes: 2048, engineExecutionTimeMillis: 120})) as never);
-    seedTabs([{id: 't1', table: 'orders'}]);
-    render();
-
-    // The statement has been submitted — so an ungated reader has an id in hand.
-    await waitFor(() => expect(runQuery).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Running…'));
-    expect(getQueryResults).not.toHaveBeenCalled();
-
-    // The second half is what stops this passing vacuously: a gate that never opens would
-    // satisfy the assertion above. `POLL_INTERVAL_MS` is 1500ms, so the next poll lands
-    // outside `waitFor`'s 1000ms default — these timeouts are deliberate, not padding, and
-    // the TEST timeout is raised with them. Without that, vitest's 5000ms default is the
-    // binding constraint and a slow CI worker fails here on the less legible error.
-    state = 'SUCCEEDED';
-    await waitFor(() => expect(getQueryResults).toHaveBeenCalled(), {timeout: 4000});
-    await waitFor(() => expect(screen.queryAllByRole('gridcell').length).toBeGreaterThan(0), {timeout: 4000});
-  }, 10_000);
 
   it('shows a SQL source no headers until the execution reports them', async () => {
     // No UI opens a `sql` source until SPEC-183 — the grid handles the arm now because

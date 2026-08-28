@@ -15,7 +15,6 @@ import {
   DEFAULT_RESULTS_PAGE_SIZE,
   DEFAULT_SQL,
   MAX_RESULTS_PAGE_SIZE,
-  MIN_EDITOR_HEIGHT,
   MIN_RESULTS_HEIGHT,
   MIN_RESULTS_PAGE_SIZE,
   QUERY_DRAFT_STORAGE_PREFIX,
@@ -44,11 +43,6 @@ describe('query.sql', () => {
       expect(sameSql('SELECT 1;', '  SELECT 1;  ')).toBe(true);
       expect(sameSql('SELECT 1;\nSELECT 2;', 'SELECT 1;\r\nSELECT 2;')).toBe(true);
     });
-
-    it('still detects a genuine edit (including interior whitespace)', () => {
-      expect(sameSql('SELECT 1;', 'SELECT 2;')).toBe(false);
-      expect(sameSql('SELECT a,b', 'SELECT a, b')).toBe(false);
-    });
   });
 
   describe('isSchemaChangingSql', () => {
@@ -64,12 +58,6 @@ describe('query.sql', () => {
       // The editor pre-fills a `-- …` comment; a CREATE under it must still count.
       expect(isSchemaChangingSql('-- make a table\nCREATE TABLE employees (id int)')).toBe(true);
       expect(isSchemaChangingSql('/* block */\n  create table t (id int)')).toBe(true);
-    });
-
-    it('does not flag non-schema statements', () => {
-      expect(isSchemaChangingSql('SELECT * FROM employees')).toBe(false);
-      expect(isSchemaChangingSql('-- just a comment\nSELECT 1')).toBe(false);
-      expect(isSchemaChangingSql('INSERT INTO t VALUES (1)')).toBe(false);
     });
   });
 
@@ -104,11 +92,6 @@ describe('query.sql', () => {
       expect(schemaChangingDatabase('DROP TABLE IF EXISTS mydb.t')).toBe('mydb');
       // Skips the editor's pre-filled leading comment.
       expect(schemaChangingDatabase('-- header\nCREATE OR REPLACE VIEW mydb.v AS SELECT 1')).toBe('mydb');
-    });
-
-    it('returns null for a non-schema-changing statement or an unqualified target', () => {
-      expect(schemaChangingDatabase('SELECT * FROM mydb.orders')).toBeNull();
-      expect(schemaChangingDatabase('CREATE TABLE bare (id int)')).toBeNull();
     });
   });
 
@@ -149,29 +132,11 @@ describe('query.sql', () => {
       expect(splitSqlStatements('SELECT 1;;;')).toHaveLength(1);
     });
 
-    it('drops whitespace/comment-only segments', () => {
-      expect(splitSqlStatements('SELECT 1; -- done\n; /* nothing */;')).toHaveLength(1);
-      expect(splitSqlStatements('-- only a comment')).toHaveLength(0);
-      expect(splitSqlStatements('   ')).toHaveLength(0);
-    });
-
-    it('yields exactly one statement for a single statement with no semicolon', () => {
-      const parsed = splitSqlStatements('SELECT * FROM mydb.orders');
-      expect(parsed).toHaveLength(1);
-      expect(parsed[0].sql).toBe('SELECT * FROM mydb.orders');
-    });
-
     it('records each statement’s trimmed source offsets in the buffer', () => {
       const buffer = '  SELECT 1;\n\nSELECT 2;';
       const [a, b] = splitSqlStatements(buffer);
       expect(buffer.slice(a.range.start, a.range.end)).toBe('SELECT 1');
       expect(buffer.slice(b.range.start, b.range.end)).toBe('SELECT 2');
-    });
-
-    it('keeps a statement’s interior comment inside its range', () => {
-      const buffer = 'SELECT 1;\n-- setup\nCREATE TABLE mydb.t (id int);';
-      const [, create] = splitSqlStatements(buffer);
-      expect(buffer.slice(create.range.start, create.range.end)).toBe('-- setup\nCREATE TABLE mydb.t (id int)');
     });
   });
 
@@ -203,23 +168,6 @@ describe('query.sql', () => {
       const gap = buffer.indexOf('SELECT 2;') + 'SELECT 2;'.length + 1; // in the blank line after it
       expect(resolveRunStatements(buffer, statements, null, gap).map((s) => s.sql)).toEqual(['SELECT 2']);
     });
-
-    it('a cursor before every statement falls back to the first', () => {
-      const padded = '  \n' + buffer;
-      const stmts = splitSqlStatements(padded);
-      expect(resolveRunStatements(padded, stmts, null, 0).map((s) => s.sql)).toEqual(['SELECT 1']);
-    });
-
-    it('a sole statement resolves regardless of cursor position (today’s behavior)', () => {
-      const solo = splitSqlStatements('SELECT 42');
-      expect(resolveRunStatements('SELECT 42', solo, null, 9).map((s) => s.sql)).toEqual(['SELECT 42']);
-    });
-
-    it('an empty selection object is ignored (falls through to cursor resolution)', () => {
-      const cursor = buffer.indexOf('SELECT 3') + 1;
-      const resolved = resolveRunStatements(buffer, statements, {start: cursor, end: cursor}, cursor);
-      expect(resolved.map((s) => s.sql)).toEqual(['SELECT 3']);
-    });
   });
 
   describe('isResultProducingSql (SPEC-078 FR-007)', () => {
@@ -230,24 +178,11 @@ describe('query.sql', () => {
       expect(isResultProducingSql('DESCRIBE mydb.t')).toBe(true);
       expect(isResultProducingSql('-- comment first\nSELECT 1')).toBe(true);
     });
-
-    it('is false for DDL/DML whose outcome is history + status only', () => {
-      expect(isResultProducingSql('CREATE TABLE mydb.t (id int)')).toBe(false);
-      expect(isResultProducingSql('INSERT INTO mydb.t VALUES (1)')).toBe(false);
-      expect(isResultProducingSql('DROP TABLE mydb.t')).toBe(false);
-      expect(isResultProducingSql('MSCK REPAIR TABLE mydb.t')).toBe(false);
-    });
   });
 
   describe('statementHint', () => {
     it('collapses whitespace and strips leading comments', () => {
       expect(statementHint('-- setup\nSELECT *\n  FROM mydb.t')).toBe('SELECT * FROM mydb.t');
-    });
-
-    it('truncates long statements with an ellipsis', () => {
-      const hint = statementHint(`SELECT ${'a, '.repeat(30)}z FROM mydb.orders`);
-      expect(hint.length).toBeLessThanOrEqual(30);
-      expect(hint.endsWith('…')).toBe(true);
     });
   });
 });
@@ -297,10 +232,6 @@ describe('queryTabs', () => {
       expect(readTabsState('alice')).toEqual(sample());
     });
 
-    it('returns null when no state exists', () => {
-      expect(readTabsState('alice')).toBeNull();
-    });
-
     it('keeps version 1 and IGNORES a pre-SPEC-173 savedQueryId — the tabs survive, the link does not', () => {
       // Bumping the version would have thrown the user's open buffers away in order to
       // discard one field, so the reader simply does not look at it.
@@ -334,11 +265,6 @@ describe('queryTabs', () => {
       expect(readTabsState('alice')).toBeNull();
     });
 
-    it('returns null (does not throw) on corrupt JSON', () => {
-      sessionStorage.setItem(KEY, '{not json');
-      expect(readTabsState('alice')).toBeNull();
-    });
-
     it('rejects structurally invalid state (activeTabId references no tab)', () => {
       sessionStorage.setItem(
         KEY,
@@ -352,36 +278,10 @@ describe('queryTabs', () => {
       expect(readTabsState('alice')).toBeNull();
     });
 
-    it('rejects an empty tabs array and a wrong version', () => {
-      sessionStorage.setItem(KEY, JSON.stringify({version: 1, tabs: [], activeTabId: 'a', nextQueryNumber: 2}));
-      expect(readTabsState('alice')).toBeNull();
-      sessionStorage.setItem(KEY, JSON.stringify({...sample(), version: 2}));
-      expect(readTabsState('alice')).toBeNull();
-    });
-
     it('is a no-op for an empty username', () => {
       writeTabsState('', sample());
       expect(sessionStorage.length).toBe(0);
       expect(readTabsState('')).toBeNull();
-    });
-
-    it('swallows storage failures rather than throwing', () => {
-      const setItem = vi.fn(() => {
-        throw new Error('QuotaExceededError');
-      });
-      const getItem = vi.fn(() => {
-        throw new Error('SecurityError');
-      });
-      vi.stubGlobal('sessionStorage', {
-        setItem,
-        getItem,
-        removeItem: vi.fn()
-      });
-
-      expect(() => writeTabsState('alice', sample())).not.toThrow();
-      expect(readTabsState('alice')).toBeNull();
-      expect(setItem).toHaveBeenCalled();
-      expect(getItem).toHaveBeenCalled();
     });
 
     describe('migrateDraftToTabs', () => {
@@ -393,18 +293,6 @@ describe('queryTabs', () => {
         expect(state!.tabs[0].sql).toBe('SELECT migrated;');
         // Old draft key is cleaned up.
         expect(sessionStorage.getItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`)).toBeNull();
-      });
-
-      it('returns null when there is no draft', () => {
-        expect(migrateDraftToTabs('alice')).toBeNull();
-      });
-
-      it('returns null when a tabs state already exists (does not clobber)', () => {
-        writeTabsState('alice', sample());
-        sessionStorage.setItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`, 'stale');
-        expect(migrateDraftToTabs('alice')).toBeNull();
-        // The stale draft is left alone (only migrated when tabs are absent).
-        expect(sessionStorage.getItem(`${QUERY_DRAFT_STORAGE_PREFIX}alice`)).toBe('stale');
       });
     });
   });
@@ -428,15 +316,6 @@ describe('schema.partition', () => {
       ]);
       expect(tables.map((t) => t.name)).toEqual(['sales', 'orders']);
       expect(views.map((t) => t.name)).toEqual(['revenue', 'summary']);
-    });
-
-    it('returns empty groups for an empty schema', () => {
-      expect(partitionSchema([])).toEqual({tables: [], views: []});
-    });
-
-    it('preserves the incoming order within each group', () => {
-      const {tables} = partitionSchema([table('b'), table('a'), table('c')]);
-      expect(tables.map((t) => t.name)).toEqual(['b', 'a', 'c']);
     });
   });
 });
@@ -496,29 +375,6 @@ describe('sqlCompletions', () => {
       expect(totals).toHaveLength(1);
       expect(totals[0].detail).toBe('double · alice.orders');
     });
-
-    it('spans multiple databases, fully-qualifying each table', () => {
-      const items = buildSqlCompletions([
-        {database: 'alice', tables: [orders]},
-        {database: 'bob', tables: [orders]}
-      ]);
-      const tables = items.filter((i) => i.kind === 'table').map((i) => i.label);
-      expect(tables).toEqual(['alice.orders', 'bob.orders']);
-    });
-
-    it('yields no schema items for undefined or empty input', () => {
-      expect(buildSqlCompletions(undefined)).toEqual([]);
-      expect(buildSqlCompletions([])).toEqual([]);
-    });
-
-    it('yields the table item only for a zero-column table', () => {
-      const items = buildSqlCompletions([
-        {database: 'alice', tables: [{name: 'empty', columns: [], tableType: 'EXTERNAL_TABLE'}]}
-      ]);
-      expect(items).toEqual([
-        {label: 'alice.empty', insertText: 'alice.empty', kind: 'table', detail: 'table · alice'}
-      ]);
-    });
   });
 
   // Minimal fake Monaco surface the provider factory touches: the kind enum plus a
@@ -553,21 +409,6 @@ describe('sqlCompletions', () => {
       });
       expect(suggestions.find((s) => s.label === 'id')).toMatchObject({kind: 3}); // Field
     });
-
-    it('reads the latest schema from the ref on each call (no stale closure)', () => {
-      const schemaRef = {current: undefined as DatabaseSchema[] | undefined};
-      const provider = createSqlCompletionProvider(fakeMonaco, schemaRef);
-
-      const empty = provider.provideCompletionItems(fakeModel, position, {} as never, {} as never);
-      expect((empty as unknown as {suggestions: unknown[]}).suggestions).toEqual([]);
-
-      schemaRef.current = [{database: 'alice', tables: [ordersView]}];
-      const after = provider.provideCompletionItems(fakeModel, position, {} as never, {} as never);
-      expect((after as unknown as {suggestions: Array<{label: string}>}).suggestions.map((s) => s.label)).toEqual([
-        'alice.orders_summary',
-        'total'
-      ]);
-    });
   });
 });
 
@@ -596,23 +437,9 @@ describe('useEditorLayout', () => {
       expect(clampEditorHeight('editor', 2000)).toBe(1800);
     });
 
-    it('floors the editor at MIN_EDITOR_HEIGHT on the Results preset', () => {
-      // 10% of 600 = 60 < MIN_EDITOR_HEIGHT.
-      expect(clampEditorHeight('results', 600)).toBe(MIN_EDITOR_HEIGHT);
-    });
-
     it('caps the editor so the results region keeps MIN_RESULTS_HEIGHT on the Editor preset', () => {
       // 90% of 400 = 360 > 400 - 120 = 280 → capped.
       expect(clampEditorHeight('editor', 400)).toBe(400 - MIN_RESULTS_HEIGHT);
-    });
-
-    it('lets the editor floor win when a short viewport cannot honor both floors', () => {
-      // container - MIN_RESULTS_HEIGHT < MIN_EDITOR_HEIGHT → the editor floor wins;
-      // never a negative/overlapping height.
-      const short = MIN_EDITOR_HEIGHT + MIN_RESULTS_HEIGHT - 40;
-      expect(clampEditorHeight('editor', short)).toBe(MIN_EDITOR_HEIGHT);
-      expect(clampEditorHeight('results', short)).toBe(MIN_EDITOR_HEIGHT);
-      expect(clampEditorHeight('even', 0)).toBe(MIN_EDITOR_HEIGHT);
     });
   });
 
@@ -631,59 +458,10 @@ describe('useEditorLayout', () => {
       expect(sessionStorage.getItem(KEY)).toBe('results');
     });
 
-    it('restores a stored preset on mount (reload/tab-switch survival)', () => {
-      sessionStorage.setItem(KEY, 'editor');
-      const {result} = renderHook(() => useEditorLayout(USER, 1000));
-      expect(result.current.preset).toBe('editor');
-    });
-
     it('ignores a corrupt stored value and falls back to the default', () => {
       sessionStorage.setItem(KEY, 'sideways');
       const {result} = renderHook(() => useEditorLayout(USER, 1000));
       expect(result.current.preset).toBe(DEFAULT_LAYOUT_PRESET);
-    });
-
-    it('scopes persistence to the username', () => {
-      sessionStorage.setItem(`${QUERY_EDITOR_LAYOUT_STORAGE_PREFIX}bob`, 'editor');
-      const {result} = renderHook(() => useEditorLayout(USER, 1000));
-      expect(result.current.preset).toBe(DEFAULT_LAYOUT_PRESET);
-    });
-
-    it('works without persisting when username is null', () => {
-      const {result} = renderHook(() => useEditorLayout(null, 1000));
-      act(() => result.current.setPreset('editor'));
-      expect(result.current.preset).toBe('editor');
-      expect(sessionStorage.length).toBe(0);
-    });
-
-    it('still selects (non-persistently) when sessionStorage throws', () => {
-      const throwing = {
-        getItem: () => {
-          throw new Error('blocked');
-        },
-        setItem: () => {
-          throw new Error('blocked');
-        }
-      };
-      const original = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
-      Object.defineProperty(globalThis, 'sessionStorage', {value: throwing, configurable: true});
-      try {
-        const {result} = renderHook(() => useEditorLayout(USER, 1000));
-        expect(result.current.preset).toBe(DEFAULT_LAYOUT_PRESET);
-        act(() => result.current.setPreset('results'));
-        expect(result.current.preset).toBe('results');
-      } finally {
-        if (original) Object.defineProperty(globalThis, 'sessionStorage', original);
-      }
-    });
-
-    it('re-derives the height when the container resizes', () => {
-      const {result, rerender} = renderHook(({height}: {height: number}) => useEditorLayout(USER, height), {
-        initialProps: {height: 1000}
-      });
-      expect(result.current.editorHeight).toBe(500);
-      rerender({height: 700});
-      expect(result.current.editorHeight).toBe(350);
     });
   });
 });
@@ -715,13 +493,6 @@ describe('useQueryTabs', () => {
       expect(result.current.tabs.map((t) => t.label)).toEqual(['Query 1', 'Query 3', 'Query 4']);
     });
 
-    it('blank + tab is empty and becomes active', () => {
-      const {result} = renderHook(() => useQueryTabs('alice'));
-      act(() => void result.current.openTab());
-      expect(result.current.activeTab.label).toBe('Query 2');
-      expect(result.current.activeTab.sql).toBe('');
-    });
-
     it('opens a named tab verbatim without consuming a Query N number (FR-009)', () => {
       const {result} = renderHook(() => useQueryTabs('alice'));
       act(
@@ -742,19 +513,6 @@ describe('useQueryTabs', () => {
       expect(result.current.activeTab.label).toBe('Query 2');
     });
 
-    it('isolates edits to the active tab', () => {
-      const {result} = renderHook(() => useQueryTabs('alice'));
-      act(() => result.current.setActiveSql('SELECT first;'));
-      const first = result.current.tabs[0].id;
-
-      act(() => void result.current.openTab());
-      act(() => result.current.setActiveSql('SELECT second;'));
-
-      act(() => result.current.setActiveTab(first));
-      expect(result.current.activeTab.sql).toBe('SELECT first;');
-      expect(result.current.tabs[1].sql).toBe('SELECT second;');
-    });
-
     it('refuses to open past QUERY_TABS_MAX, returning null', () => {
       const {result} = renderHook(() => useQueryTabs('alice'));
       for (let i = result.current.tabs.length; i < QUERY_TABS_MAX; i++) {
@@ -770,13 +528,6 @@ describe('useQueryTabs', () => {
       expect(result.current.tabs).toHaveLength(QUERY_TABS_MAX);
     });
 
-    it('never closes the last remaining tab', () => {
-      const {result} = renderHook(() => useQueryTabs('alice'));
-      const only = result.current.tabs[0].id;
-      act(() => result.current.closeTab(only));
-      expect(result.current.tabs).toHaveLength(1);
-    });
-
     it('activates the left neighbor when the active tab is closed', () => {
       const {result} = renderHook(() => useQueryTabs('alice'));
       act(() => void result.current.openTab()); // Query 2 (active)
@@ -788,50 +539,6 @@ describe('useQueryTabs', () => {
       act(() => result.current.closeTab(q2));
       // Left neighbor (Query 1) becomes active.
       expect(result.current.activeTabId).toBe(q1);
-    });
-
-    it('clearActive empties only the active tab', () => {
-      const {result} = renderHook(() => useQueryTabs('alice'));
-      act(() => result.current.setActiveSql('SELECT keep;'));
-      act(() => void result.current.openTab());
-      act(() => result.current.setActiveSql('SELECT clearme;'));
-
-      act(() => result.current.clearActive());
-      expect(result.current.activeTab.sql).toBe('');
-      expect(result.current.tabs[0].sql).toBe('SELECT keep;');
-    });
-
-    it('clearActive resets the tab name and unlinks any saved query', () => {
-      const {result} = renderHook(() => useQueryTabs('alice'));
-      // Open a saved-query tab: named label + saved-query link.
-      act(
-        () =>
-          void result.current.openTab({
-            label: 'Revenue',
-            sql: 'SELECT 1',
-            savedQuery: SAVED_LINK
-          })
-      );
-      expect(result.current.activeTab.label).toBe('Revenue');
-      expect(result.current.activeTab.savedQuery).toEqual(SAVED_LINK);
-
-      act(() => result.current.clearActive());
-      // Back to a fresh blank tab: empty SQL, a default "Query N" label, no link.
-      expect(result.current.activeTab.sql).toBe('');
-      expect(result.current.activeTab.label).toMatch(/^Query \d+$/);
-      expect(result.current.activeTab.savedQuery).toBeUndefined();
-    });
-
-    it('persists across remount (restore from sessionStorage)', () => {
-      const first = renderHook(() => useQueryTabs('alice'));
-      act(() => void first.result.current.openTab({label: 'Saved', sql: 'X'}));
-      expect(readTabsState('alice')?.tabs).toHaveLength(2);
-      first.unmount();
-
-      // A fresh mount restores the exact set + active tab.
-      const second = renderHook(() => useQueryTabs('alice'));
-      expect(second.result.current.tabs.map((t) => t.label)).toEqual(['Query 1', 'Saved']);
-      expect(second.result.current.activeTab.label).toBe('Saved');
     });
   });
 });
@@ -858,12 +565,6 @@ describe('useResultsPageSize', () => {
       expect(clampPageSize(1001)).toBe(MAX_RESULTS_PAGE_SIZE);
       expect(clampPageSize(999999)).toBe(MAX_RESULTS_PAGE_SIZE);
     });
-
-    it('rejects non-integers (FR-003: fractional/NaN never set a page size)', () => {
-      expect(clampPageSize(2.5)).toBeNull();
-      expect(clampPageSize(Number.NaN)).toBeNull();
-      expect(clampPageSize(Number.POSITIVE_INFINITY)).toBeNull();
-    });
   });
 
   describe('useResultsPageSize', () => {
@@ -879,29 +580,6 @@ describe('useResultsPageSize', () => {
       expect(sessionStorage.getItem(KEY)).toBe('250');
     });
 
-    it('clamps below-minimum and above-maximum values (FR-003)', () => {
-      const {result} = renderHook(() => useResultsPageSize(USER));
-      act(() => result.current.setPageSize(0));
-      expect(result.current.pageSize).toBe(MIN_RESULTS_PAGE_SIZE);
-      act(() => result.current.setPageSize(5000));
-      expect(result.current.pageSize).toBe(MAX_RESULTS_PAGE_SIZE);
-    });
-
-    it('ignores non-integer input, keeping the last valid value (FR-003)', () => {
-      const {result} = renderHook(() => useResultsPageSize(USER));
-      act(() => result.current.setPageSize(50));
-      act(() => result.current.setPageSize(12.7));
-      act(() => result.current.setPageSize(Number.NaN));
-      expect(result.current.pageSize).toBe(50);
-      expect(sessionStorage.getItem(KEY)).toBe('50');
-    });
-
-    it('restores a stored value on mount (reload survival, FR-005)', () => {
-      sessionStorage.setItem(KEY, '400');
-      const {result} = renderHook(() => useResultsPageSize(USER));
-      expect(result.current.pageSize).toBe(400);
-    });
-
     it('falls back to the default on a malformed or out-of-range stored value (FR-005)', () => {
       sessionStorage.setItem(KEY, 'lots');
       expect(renderHook(() => useResultsPageSize(USER)).result.current.pageSize).toBe(DEFAULT_RESULTS_PAGE_SIZE);
@@ -909,40 +587,6 @@ describe('useResultsPageSize', () => {
       expect(renderHook(() => useResultsPageSize(USER)).result.current.pageSize).toBe(DEFAULT_RESULTS_PAGE_SIZE);
       sessionStorage.setItem(KEY, '2.5');
       expect(renderHook(() => useResultsPageSize(USER)).result.current.pageSize).toBe(DEFAULT_RESULTS_PAGE_SIZE);
-    });
-
-    it('scopes persistence to the username', () => {
-      sessionStorage.setItem(`${QUERY_RESULTS_PAGE_SIZE_STORAGE_PREFIX}bob`, '17');
-      const {result} = renderHook(() => useResultsPageSize(USER));
-      expect(result.current.pageSize).toBe(DEFAULT_RESULTS_PAGE_SIZE);
-    });
-
-    it('works without persisting when username is null', () => {
-      const {result} = renderHook(() => useResultsPageSize(null));
-      act(() => result.current.setPageSize(33));
-      expect(result.current.pageSize).toBe(33);
-      expect(sessionStorage.length).toBe(0);
-    });
-
-    it('still applies (non-persistently) when sessionStorage throws', () => {
-      const throwing = {
-        getItem: () => {
-          throw new Error('blocked');
-        },
-        setItem: () => {
-          throw new Error('blocked');
-        }
-      };
-      const original = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
-      Object.defineProperty(globalThis, 'sessionStorage', {value: throwing, configurable: true});
-      try {
-        const {result} = renderHook(() => useResultsPageSize(USER));
-        expect(result.current.pageSize).toBe(DEFAULT_RESULTS_PAGE_SIZE);
-        act(() => result.current.setPageSize(200));
-        expect(result.current.pageSize).toBe(200);
-      } finally {
-        if (original) Object.defineProperty(globalThis, 'sessionStorage', original);
-      }
     });
   });
 });

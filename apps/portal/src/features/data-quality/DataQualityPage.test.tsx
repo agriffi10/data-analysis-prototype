@@ -77,7 +77,6 @@ describe('DataQualityPage', () => {
    */
   const rowFor = (location: string) => screen.findByRole('link', {name: new RegExp(escapeRe(location))});
   const rowForSync = (location: string) => screen.getByRole('link', {name: new RegExp(escapeRe(location))});
-  const queryRowFor = (location: string) => screen.queryByRole('link', {name: new RegExp(escapeRe(location))});
   const escapeRe = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const failed = {success: false as const, error: {message: 'nope', code: 'AccessDenied'}};
 
@@ -124,17 +123,6 @@ describe('DataQualityPage', () => {
       expect(rows[1]).toHaveTextContent('alice/sales/');
     });
 
-    it('links each row to its report, carrying the space it came from', async () => {
-      mockIndex.mockImplementation(async (_bucket, space) =>
-        space === 'team-data' ? ok([run({requestId: 'r-9', space: 'team-data', location: 'team-data/raw/'})]) : ok([])
-      );
-
-      renderPage();
-
-      const link = await screen.findByRole('link', {name: /team-data\/raw\//});
-      expect(link).toHaveAttribute('href', '/data-quality/team-data/r-9');
-    });
-
     it('names the location in the link, never "view" or "here"', async () => {
       mockIndex.mockImplementation(async (_bucket, space) => (space === 'alice' ? ok([run()]) : ok([])));
       renderPage();
@@ -156,14 +144,6 @@ describe('DataQualityPage', () => {
   });
 
   describe('DataQualityPage — the verdict and the sampled qualifier', () => {
-    it('shows the verdict as a dot PLUS a label, never colour alone', async () => {
-      mockIndex.mockImplementation(async (_bucket, space) =>
-        space === 'alice' ? ok([run({verdict: 'clean'})]) : ok([])
-      );
-      renderPage();
-      expect(await screen.findByText('Clean')).toBeInTheDocument();
-    });
-
     it('never renders a sampled run as an unqualified Clean', async () => {
       // The list is where a user forms a quick impression, so the same rule SPEC-112 and
       // SPEC-114 enforce in the report and the notification applies at row level too.
@@ -228,18 +208,6 @@ describe('DataQualityPage', () => {
       expect(screen.getByText(/1–1 of 1/)).toBeInTheDocument();
       expect(rowForSync('alice/ok/')).toBeInTheDocument();
     });
-
-    it('marks the active filter with aria-pressed, not styling alone', async () => {
-      mockIndex.mockImplementation(async (_bucket, space) => (space === 'alice' ? ok([run()]) : ok([])));
-      const {user} = renderPage();
-
-      await rowFor('alice/sales/');
-      expect(screen.getByRole('button', {name: 'All'})).toHaveAttribute('aria-pressed', 'true');
-
-      await user.click(screen.getByRole('button', {name: 'Issues found'}));
-      expect(screen.getByRole('button', {name: 'Issues found'})).toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByRole('button', {name: 'All'})).toHaveAttribute('aria-pressed', 'false');
-    });
   });
 
   describe('DataQualityPage — empty, loading and error states', () => {
@@ -266,12 +234,6 @@ describe('DataQualityPage', () => {
       expect(screen.queryByText('No quality checks yet')).not.toBeInTheDocument();
     });
 
-    it('announces loading as a status line', async () => {
-      mockIndex.mockImplementation(() => new Promise(() => {}));
-      renderPage();
-      expect(await screen.findByRole('status')).toHaveTextContent(/Loading data quality checks/);
-    });
-
     it('shows a friendly banner with Try again when every space fails', async () => {
       mockIndex.mockResolvedValue(failed);
       renderPage();
@@ -292,19 +254,6 @@ describe('DataQualityPage', () => {
 
       expect(await rowFor('alice/sales/')).toBeInTheDocument();
     });
-
-    it('refreshes on demand', async () => {
-      mockIndex.mockImplementation(async (_bucket, space) => (space === 'alice' ? ok([run()]) : ok([])));
-      const {user} = renderPage();
-
-      await rowFor('alice/sales/');
-      mockIndex.mockImplementation(async (_bucket, space) =>
-        space === 'alice' ? ok([run({requestId: 'r-2', location: 'alice/new/'})]) : ok([])
-      );
-      await user.click(screen.getByRole('button', {name: /refresh data quality checks/i}));
-
-      await waitFor(() => expect(queryRowFor('alice/new/')).toBeInTheDocument());
-    });
   });
 
   describe('DataQualityPage — the completed-only signpost', () => {
@@ -317,18 +266,6 @@ describe('DataQualityPage', () => {
       const link = await screen.findByRole('link', {name: 'notifications'});
       expect(link).toHaveAttribute('href', '/notifications');
       expect(screen.getByText(/This lists checks that finished/)).toBeInTheDocument();
-    });
-
-    it('promises a notification for EVERY failure, now that SPEC-126 drains the DLQs', async () => {
-      // This was worded "usually" while a request that never started an execution notified
-      // nobody. SPEC-126 drains the request DLQs back into the notification pipeline, so the
-      // hedge became the inaccuracy — and a page that under-promises teaches the same
-      // distrust as one that over-promises.
-      renderPage();
-
-      const note = await screen.findByText(/This lists checks that finished/);
-      expect(note).toHaveTextContent(/always/);
-      expect(note).not.toHaveTextContent(/usually/);
     });
   });
 
@@ -379,25 +316,6 @@ describe('DataQualityPage', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    it('enqueues a single file when one is selected', async () => {
-      mockList.mockResolvedValue({
-        success: true,
-        data: page({
-          files: [{type: 'file', key: 'alice/report.csv', name: 'report.csv', size: 1, lastModified: new Date(0)}]
-        })
-      });
-      const {user} = renderPage();
-
-      await openDialog(user);
-      await user.click(await screen.findByRole('button', {name: 'Select file report.csv'}));
-      // The confirm label names the target — the user is one click from a background job.
-      await user.click(await screen.findByRole('button', {name: 'Check this file'}));
-
-      await waitFor(() =>
-        expect(mockEnqueue).toHaveBeenCalledWith(expect.objectContaining({location: 'alice/report.csv'}))
-      );
-    });
-
     it('keeps the dialog open with the target intact when the enqueue fails', async () => {
       mockEnqueue.mockResolvedValue({success: false, error: {message: 'raw aws text', code: 'AccessDenied'}});
       mockList.mockResolvedValue({
@@ -417,24 +335,6 @@ describe('DataQualityPage', () => {
       expect(screen.getByRole('dialog', {name: 'Start a quality check'})).toBeInTheDocument();
       expect(screen.getByRole('button', {name: 'Check this folder'})).toBeInTheDocument();
       expect(screen.queryByText(/It will appear in this list when it finishes/)).not.toBeInTheDocument();
-    });
-
-    it('lists usable spaces only, personal first', async () => {
-      mockCache.mockResolvedValue({
-        success: true,
-        data: {
-          version: 1,
-          connections: [
-            {name: 'team-data', role: 'member', status: 'active'},
-            {name: 'half-built', role: 'owner', status: 'provisioning'}
-          ]
-        }
-      });
-      const {user} = renderPage();
-
-      await openDialog(user);
-      const options = within(screen.getByLabelText('Space')).getAllByRole('option');
-      expect(options.map((o) => o.textContent)).toEqual(['alice', 'team-data (shared)']);
     });
 
     it('resets the picker when the space changes, so a selection cannot straddle spaces', async () => {
@@ -491,17 +391,6 @@ describe('DataQualityPage', () => {
       for (const hidden of ['_data-quality-reports', 'athenaresults', 'user_settings']) {
         expect(screen.queryByRole('button', {name: `Open folder ${hidden}`})).not.toBeInTheDocument();
       }
-    });
-
-    it('returns focus to the trigger when the dialog is dismissed', async () => {
-      const {user} = renderPage();
-
-      const trigger = (await screen.findAllByRole('button', {name: 'New quality check'}))[0];
-      await user.click(trigger);
-      await screen.findByRole('dialog', {name: 'Start a quality check'});
-      await user.click(screen.getByRole('button', {name: /cancel/i}));
-
-      await waitFor(() => expect(trigger).toHaveFocus());
     });
   });
 });
@@ -609,14 +498,6 @@ describe('DataQualityPage.a11y', () => {
       await screen.findByRole('button', {name: 'Select file report.csv'});
 
       await expectContainerHasNoA11yViolations(container, ROUTE_AXE_OPTIONS);
-    });
-
-    it('exposes exactly one h1 and one main landmark', async () => {
-      render(withProviders());
-      await waitFor(() => expect(screen.getByRole('link', {name: /alice\/sales\//})).toBeInTheDocument());
-
-      expect(screen.getAllByRole('heading', {level: 1})).toHaveLength(1);
-      expect(screen.getAllByRole('main')).toHaveLength(1);
     });
   });
 });

@@ -32,7 +32,7 @@ export const ARCHIVE_RESERVED_ROOTS = [
  * everything else and then delete it.
  *
  * Every rule is anchored at the SPACE ROOT, which leaves a user's own `alice/reports/archive/` an
- * ordinary folder they may archive — the same anchoring `isUndeletableRootFolder` uses.
+ * ordinary folder they may archive — the same anchoring the undeletable-root refusal uses.
  *
  * @param items - The selection, as the dialog would enqueue it.
  * @param rootPrefix - The space root, trailing slash.

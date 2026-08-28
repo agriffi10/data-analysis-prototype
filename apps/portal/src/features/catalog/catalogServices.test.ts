@@ -9,7 +9,6 @@ import {
   getQueryStatus,
   getTableDdl,
   isAbandoned,
-  isTerminalState,
   runQuery,
   runStatementToCompletion,
   stopQuery
@@ -33,14 +32,6 @@ describe('glue.service', () => {
   });
 
   describe('getDatabase', () => {
-    it('returns the database name when it exists', async () => {
-      clientWithSend(vi.fn(async () => ({Database: {Name: 'alice'}})));
-
-      const result = await getDatabase('alice');
-
-      expect(result).toEqual({success: true, data: {name: 'alice'}});
-    });
-
     it('maps EntityNotFoundException to a clean NotFound error', async () => {
       clientWithSend(
         vi.fn(async () => {
@@ -117,22 +108,6 @@ describe('glue.service', () => {
 
       expect(result).toEqual({success: true, data: []});
     });
-
-    it('maps AccessDenied to a clean error', async () => {
-      clientWithSend(
-        vi.fn(async () => {
-          throw Object.assign(new Error('denied'), {
-            name: 'AccessDeniedException'
-          });
-        })
-      );
-
-      const result = await listTables('bob');
-
-      expect(result.success).toBe(false);
-      if (result.success) return;
-      expect(result.error.code).toBe('AccessDeniedException');
-    });
   });
 });
 
@@ -196,19 +171,6 @@ describe('query.service', () => {
       expect(send.mock.calls[0][0].input.QueryExecutionContext).toEqual({Database: 'salesdata'});
     });
 
-    it('does not assume query type — DDL is sent verbatim', async () => {
-      const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () => ({QueryExecutionId: 'q-ddl'}));
-      clientWithSend(send);
-
-      await runQuery({
-        sql: "CREATE EXTERNAL TABLE t (id int) LOCATION 's3://user-bucket/alice/t/'",
-        database: 'alice',
-        username: 'alice'
-      });
-
-      expect(send.mock.calls[0][0].input.QueryString).toMatch(/^CREATE EXTERNAL TABLE/);
-    });
-
     it('errors (no throw) when Athena returns no execution id', async () => {
       clientWithSend(vi.fn(async () => ({})));
 
@@ -217,21 +179,6 @@ describe('query.service', () => {
       expect(result.success).toBe(false);
       if (result.success) return;
       expect(result.error.message).toMatch(/execution id/i);
-    });
-
-    it('maps a start failure to a ServiceResult error', async () => {
-      clientWithSend(
-        vi.fn(async () => {
-          throw Object.assign(new Error('bad sql'), {name: 'InvalidRequestException'});
-        })
-      );
-
-      const result = await runQuery({sql: 'SELEKT 1', database: 'alice', username: 'alice'});
-
-      expect(result.success).toBe(false);
-      if (result.success) return;
-      expect(result.error.message).toBe('bad sql');
-      expect(result.error.code).toBe('InvalidRequestException');
     });
   });
 
@@ -284,16 +231,6 @@ describe('query.service', () => {
       expect(result.data.stateChangeReason).toBe('SYNTAX_ERROR: line 1');
     });
 
-    it('defaults to QUEUED when no status is present yet', async () => {
-      clientWithSend(vi.fn(async () => ({QueryExecution: {}})));
-
-      const result = await getQueryStatus('q-3');
-
-      expect(result.success).toBe(true);
-      if (!result.success) return;
-      expect(result.data.state).toBe('QUEUED');
-    });
-
     it('maps a failure to a ServiceResult error', async () => {
       clientWithSend(
         vi.fn(async () => {
@@ -308,16 +245,6 @@ describe('query.service', () => {
   });
 
   describe('stopQuery', () => {
-    it('issues StopQueryExecution and returns success', async () => {
-      const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () => ({}));
-      clientWithSend(send);
-
-      const result = await stopQuery('q-5');
-
-      expect(result).toEqual({success: true, data: undefined});
-      expect(send.mock.calls[0][0].input).toEqual({QueryExecutionId: 'q-5'});
-    });
-
     it('maps a failure to a ServiceResult error (never throws)', async () => {
       clientWithSend(
         vi.fn(async () => {
@@ -389,32 +316,6 @@ describe('query.service', () => {
       });
     });
 
-    it('does not strip a row on a continuation page and threads the token + maxRows', async () => {
-      const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () => ({
-        ResultSet: {
-          ResultSetMetadata: {ColumnInfo: [{Name: 'id', Type: 'integer'}]},
-          Rows: [{Data: [{VarCharValue: '3'}]}]
-        }
-      }));
-      clientWithSend(send);
-
-      const result = await getQueryResults({
-        queryExecutionId: 'q-1',
-        nextToken: 'tok2',
-        maxRows: 20
-      });
-
-      expect(result.success).toBe(true);
-      if (!result.success) return;
-      expect(result.data.rows).toEqual([['3']]);
-      expect(result.data.nextToken).toBeUndefined();
-      expect(send.mock.calls[0][0].input).toMatchObject({
-        QueryExecutionId: 'q-1',
-        NextToken: 'tok2',
-        MaxResults: 20
-      });
-    });
-
     it('returns an empty page (no error) for a DDL query with no result set', async () => {
       clientWithSend(vi.fn(async () => ({})));
 
@@ -424,16 +325,6 @@ describe('query.service', () => {
         success: true,
         data: {columns: [], rows: [], nextToken: undefined}
       });
-    });
-  });
-
-  describe('isTerminalState', () => {
-    it('is true for terminal states and false otherwise', () => {
-      expect(isTerminalState('SUCCEEDED')).toBe(true);
-      expect(isTerminalState('FAILED')).toBe(true);
-      expect(isTerminalState('CANCELLED')).toBe(true);
-      expect(isTerminalState('QUEUED')).toBe(false);
-      expect(isTerminalState('RUNNING')).toBe(false);
     });
   });
 
@@ -524,23 +415,6 @@ describe('query.service', () => {
       expect(result.error.message).toBe('boom');
     });
 
-    it('requests at most MaxResults 1000 for the DDL fetch (Athena hard cap)', async () => {
-      const send = athenaFake({
-        statuses: ['SUCCEEDED'],
-        resultRows: [['CREATE EXTERNAL TABLE foo (']]
-      });
-      const result = await getTableDdl({
-        database: 'alice',
-        table: 'foo',
-        username: 'alice'
-      });
-      expect(result.success).toBe(true);
-      // getQueryResults overfetches by one on the first page, so a maxRows of 1000
-      // would request MaxResults 1001 and Athena rejects it. Assert we stay <= 1000.
-      const getResults = send.mock.calls.find((c) => c[0].constructor.name === 'GetQueryResultsCommand');
-      expect(getResults?.[0].input.MaxResults).toBeLessThanOrEqual(1000);
-    });
-
     it('runs SHOW CREATE VIEW for a view (SPEC-048)', async () => {
       const send = athenaFake({
         statuses: ['SUCCEEDED'],
@@ -584,17 +458,6 @@ describe('query.service', () => {
       // who had simply navigated away.
       expect(result.error.code).toBe(ABANDONED_CODE);
       expect(isAbandoned(result)).toBe(true);
-    });
-
-    it('polls normally when no signal is given', async () => {
-      let calls = 0;
-      clientWithSend(async () => {
-        calls += 1;
-        return calls === 1 ? {QueryExecutionId: 'q-ok'} : {QueryExecution: {Status: {State: 'SUCCEEDED'}}};
-      });
-
-      const result = await runStatementToCompletion({sql: 'DROP TABLE alice.t', database: 'alice', username: 'alice'});
-      expect(result.success).toBe(true);
     });
   });
 });

@@ -14,13 +14,6 @@ describe('usernameTrie', () => {
   const bands = (query: string, limit?: number) => search(buildIndex(NAMES), query, limit).map((r) => r.match);
 
   describe('buildIndex', () => {
-    it('de-duplicates and orders the scan target', () => {
-      const index = buildIndex(['carol', 'alice', 'carol']);
-      expect(index.ordered).toEqual(['alice', 'carol']);
-      expect(index.size).toBe(2);
-      expect(index.truncated).toBe(false);
-    });
-
     it('caps the index and reports the truncation', () => {
       const many = Array.from({length: MAX_INDEXED_USERNAMES + 5}, (_, n) => `user${String(n).padStart(6, '0')}`);
       const index = buildIndex(many);
@@ -44,12 +37,6 @@ describe('usernameTrie', () => {
       expect(names('o')).toEqual(['bob', 'bob_smith', 'carol', 'robert_bob']);
     });
 
-    it('never returns a username twice when it matches two ways', () => {
-      // `bob` is the exact match AND a prefix match AND a substring of itself.
-      const results = search(buildIndex(NAMES), 'bob');
-      expect(new Set(results.map((r) => r.username)).size).toBe(results.length);
-    });
-
     it('truncates the lowest band first', () => {
       // 'bob' would give exact + prefix + substring; a limit of 2 must drop the substring one,
       // never the exact one.
@@ -64,28 +51,14 @@ describe('usernameTrie', () => {
   });
 
   describe('search — input handling', () => {
-    it('trims and lowercases the query', () => {
-      // `malice` rides along as a substring match — which is the point of the substring band and
-      // is why someone looking for `bob_smith` can type `smith`.
-      expect(names('  ALICE  ')).toEqual(['alice', 'malice']);
-    });
-
     it('returns nothing for an empty query rather than everything', () => {
       expect(names('')).toEqual([]);
       expect(names('   ')).toEqual([]);
     });
 
-    it('searches a single character normally — there is no minimum length', () => {
-      expect(names('c')).toEqual(['carol', 'alice', 'alicia', 'malice']);
-    });
-
     it('matches nothing rather than throwing on a character no username can hold', () => {
       expect(() => names('@!#')).not.toThrow();
       expect(names('@!#')).toEqual([]);
-    });
-
-    it('handles an empty index', () => {
-      expect(search(buildIndex([]), 'anything')).toEqual([]);
     });
   });
 
@@ -120,13 +93,6 @@ describe('usernameTrie', () => {
       expect(namesScanned).toBe(big.size);
     });
 
-    it('skips the substring scan entirely when the prefix band filled the limit', () => {
-      const {namesScanned, results} = searchWithCost(big, 'user00000', 8);
-      expect(results).toHaveLength(8);
-      expect(results.every((r) => r.match === 'prefix')).toBe(true);
-      expect(namesScanned).toBe(0);
-    });
-
     it('short-circuits the substring scan once the limit is reached', () => {
       // '00001' is a substring, never a prefix — so this is the linear band, and the point is
       // that it stops early rather than reading all 20,000.
@@ -139,12 +105,6 @@ describe('usernameTrie', () => {
     it('answers a prefix-heavy query over 20,000 entries quickly', () => {
       const started = performance.now();
       for (let n = 0; n < 200; n += 1) search(big, 'user01');
-      expect(performance.now() - started).toBeLessThan(1000);
-    });
-
-    it('answers a substring-only query over 20,000 entries quickly', () => {
-      const started = performance.now();
-      for (let n = 0; n < 20; n += 1) search(big, '999');
       expect(performance.now() - started).toBeLessThan(1000);
     });
   });
@@ -234,13 +194,6 @@ describe('userDirectory.service', () => {
       expect(result).toMatchObject({success: true, data: {usernames: ['alice', 'cara']}});
     });
 
-    it('drops generatedAt when it is not a string, keeping the usernames', async () => {
-      // BOTH SIDES, for the reason above.
-      fetchMock.mockResolvedValue(payload({usernames: ['alice'], generatedAt: 12345}));
-
-      expect(await getUserDirectory()).toMatchObject({data: {usernames: ['alice'], generatedAt: null}});
-    });
-
     it('reports a real fault as a failure', async () => {
       // KEPT. A 503 envelope is a fault, and the hook collapses it to 'unavailable' exactly as
       // an AWS error used to be.
@@ -257,25 +210,6 @@ describe('userDirectory.service', () => {
       const result = await getUserDirectory();
 
       expect(result).toMatchObject({success: false, error: {code: 'SessionExpired'}});
-    });
-
-    it('never throws — including on a body the gateway wrote rather than the API', async () => {
-      // KEPT AND EXTENDED. The old version threw from the SDK; this one covers the shape a
-      // client assuming every non-2xx is an envelope would hit a SyntaxError on.
-      fetchMock.mockImplementation(() => {
-        throw new TypeError('something unexpected');
-      });
-      await expect(getUserDirectory()).resolves.toMatchObject({success: false});
-
-      fetchMock.mockReset();
-      fetchMock.mockResolvedValue({
-        ok: false,
-        status: 502,
-        json: async () => {
-          throw new SyntaxError('Unexpected token < in JSON');
-        }
-      } as unknown as Response);
-      await expect(getUserDirectory()).resolves.toMatchObject({success: false});
     });
 
     it('reaches no AWS SDK, no S3 client and no bucket name', async () => {

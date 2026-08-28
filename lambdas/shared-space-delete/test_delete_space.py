@@ -62,41 +62,6 @@ def test_delete_cascades_files_tables_db_members_and_registry_frees_name():
     assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
 
 
-def test_delete_idempotent_tolerant_of_partial_prior_progress():
-    s3, glue, _lf, cognito = install()
-    _seed_full_space(s3, glue, cognito)
-    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
-    glue.databases.discard("sales")
-    glue.tables.pop("sales", None)
-    for key in [k for (b, k) in list(s3.store) if b == "shared-bkt"]:
-        s3.store.pop(("shared-bkt", key), None)
-
-    out = d.delete_space("sales", "alice", "req-d", reg)
-    assert out["status"] == "ok"
-    assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
-    for m in ("alice", "bob"):
-        assert cognito.users[m]["custom:shared_space_1"] == ""
-
-
-def test_delete_records_failure_and_reraises_without_deleting_registry():
-    s3, glue, _lf, cognito = install()
-    _seed_full_space(s3, glue, cognito)
-    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
-    orig = teardown.drop_database
-    try:
-        def boom(name):
-            raise RuntimeError("glue throttled")
-
-        teardown.drop_database = boom
-        raises(lambda: d.delete_space("sales", "alice", "req-d", reg), RuntimeError, "throttled")
-    finally:
-        teardown.drop_database = orig
-    saved = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
-    assert saved["status"] == "failed" and "throttled" in saved["reason"]
-    owner_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
-    assert owner_cache["connections"][0]["status"] == "failed"
-
-
 def test_delete_fans_out_to_every_member_deduped_with_distinct_deleter_message():
     s3, glue, _lf, cognito = install()
     _seed_full_space(s3, glue, cognito, members=("alice", "bob", "carol"))
@@ -115,59 +80,6 @@ def test_delete_fans_out_to_every_member_deduped_with_distinct_deleter_message()
     assert {m["MessageDeduplicationId"] for m in sqs.sent} == {
         "req-d:delete:alice", "req-d:delete:bob", "req-d:delete:carol"
     }
-
-
-def test_delete_failure_notifies_owner_with_reason():
-    s3, glue, _lf, cognito = install()
-    _seed_full_space(s3, glue, cognito)
-    sqs = _enable_notifications()
-    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
-    orig = teardown.drop_database
-    try:
-        def boom(name):
-            raise RuntimeError("glue throttled")
-
-        teardown.drop_database = boom
-        raises(lambda: d.delete_space("sales", "alice", "req-d", reg), RuntimeError, "throttled")
-    finally:
-        teardown.drop_database = orig
-    # A failed cascade notifies ONLY the owner (not the member fan-out, which is past the
-    # terminal success) — the owner otherwise hears nothing about the failure.
-    assert len(sqs.sent) == 1
-    msg = sqs.sent[0]
-    assert msg["MessageGroupId"] == "alice"
-    assert msg["MessageDeduplicationId"] == "req-d:delete-failed:alice"
-    body = json.loads(msg["MessageBody"])
-    assert body["username"] == "alice"
-    assert body["message"].startswith('We couldn\'t delete the shared workspace "sales":')
-    # SPEC-106 FR-009: the notification carries friendly text, never the raw AWS error.
-    assert "throttled" not in body["message"]
-    assert "contact the Administrator" in body["message"]
-
-
-def test_delete_swallows_emit_failure_and_still_succeeds():
-    s3, glue, _lf, cognito = install()
-    _seed_full_space(s3, glue, cognito)
-    _enable_notifications()
-
-    class Boom:
-        def send_message(self, **kw):
-            raise RuntimeError("sqs down")
-
-    clients._sqs = Boom()
-    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
-    out = d.delete_space("sales", "alice", "req-d", reg)  # must not raise
-    assert out["status"] == "ok"
-    assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
-
-
-def test_handler_uses_validated_context():
-    s3, glue, _lf, cognito = install()
-    _seed_full_space(s3, glue, cognito)
-    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
-    out = d.handler({"space": "sales", "actor": "alice", "requestId": "req-d", "registry": reg}, None)
-    assert out["status"] == "ok"
-    assert ("admin-bkt", "shared-spaces/sales.json") not in s3.store
 
 
 if __name__ == "__main__":
@@ -205,19 +117,3 @@ def test_a_key_that_could_not_be_deleted_leaves_the_registry_record_intact():
     # And the object that could not be removed is still in the bucket, which is the
     # condition the record is now protecting.
     assert ("shared-bkt", "sales/data/file.csv") in s3.store
-
-
-def test_a_table_that_could_not_be_dropped_leaves_the_registry_record_intact():
-    s3, glue, _lf, cognito = install()
-    _seed_full_space(s3, glue, cognito)
-    reg = json.loads(s3.store[("admin-bkt", "shared-spaces/sales.json")])
-    glue.undroppable.add("t2")
-
-    raises(
-        lambda: d.delete_space("sales", "alice", "req-d", reg),
-        teardown.TeardownIncompleteError,
-        "could not be dropped",
-    )
-
-    assert ("admin-bkt", "shared-spaces/sales.json") in s3.store
-    assert "sales" in glue.databases

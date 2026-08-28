@@ -11,7 +11,7 @@ import type {FileSpaceKind} from './useFileSpace';
  *
  * IAM denies `PutObject` / `DeleteObject` / `AbortMultipartUpload` under `archive/` in both space
  * buckets, so without this every attempt produces a bare `AccessDenied` for a
- * rule this application wrote — the situation `isUndeletableRootFolder` exists to prevent for
+ * rule this application wrote — the situation the undeletable-root refusal exists to prevent for
  * `athenaresults/`.
  *
  * **THE TWO SPACE KINDS ARE DENIED DIFFERENTLY, AND THIS MIRRORS EACH ONE RATHER THAN AVERAGING

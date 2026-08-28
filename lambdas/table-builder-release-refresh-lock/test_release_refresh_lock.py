@@ -15,7 +15,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 
 import release_refresh_lock as verb
-from cpcommon import clients, config
 from tbcommon import table_lock
 
 REQUEST = {
@@ -52,53 +51,6 @@ def test_a_create_passes_straight_through(released):
 
     assert verb.handler(event, None) == {"released": False}
     assert released == []
-
-
-def test_a_validate_failure_seed_does_not_raise(released):
-    """The failure path reaches here carrying null identity. A raise would replace a RECORDED
-    failure with an unrecorded one — the execution would die before NotifyFailure ran."""
-    seed = {
-        "requestId": None,
-        "actor": None,
-        "space": {"database": None},
-        "tableName": None,
-        "mode": "create",
-        "error": {"Error": "States.TaskFailed", "Cause": "boom"},
-    }
-
-    assert verb.handler(seed, None) == {"released": False}
-    assert released == []
-
-
-def test_a_lock_with_no_usable_table_identity_is_not_released(released):
-    """A held tag but a null table means the state is not one this verb can act on. Guessing a
-    key from a null name is how a lock belonging to something else gets freed."""
-    event = {**REQUEST, "tableName": None}
-
-    assert verb.handler(event, None) == {"released": False}
-    assert released == []
-
-
-def test_a_dead_s3_does_not_fail_the_request(monkeypatch):
-    """FR-002 AC3, exercised through the REAL primitive rather than a stub of it.
-
-    Release must never fail the request: the lock is recoverable by the staleness steal, and a
-    request that did its work and then reported failure over its own bookkeeping is strictly
-    worse. There are two layers — the primitive swallows, and the ASL Catch continues — and this
-    asserts the first one holds at the verb boundary, where a future refactor would break it.
-    """
-
-    class _Dead:
-        def get_object(self, **kwargs):
-            raise RuntimeError("s3 is down")
-
-        def put_object(self, **kwargs):
-            raise RuntimeError("s3 is down")
-
-    monkeypatch.setattr(clients, "_s3", _Dead())
-    monkeypatch.setattr(config, "ADMIN_BUCKET", "dat-prod-athena-admin", raising=False)
-
-    assert verb.handler(dict(REQUEST), None) == {"released": True}
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [A scanner gate blocks on a narrowed count, never a total (2026-08-09, completes SPEC-138)](#a-scanner-gate-blocks-on-a-narrowed-count-never-a-total-2026-08-09-completes-spec-138)
 - [Compiler and coverage defaults are declared, never inherited (SPEC-150)](#compiler-and-coverage-defaults-are-declared-never-inherited-spec-150)
 - [`ACCEPTED_` tripwires: what the project knows it has not verified (SPEC-153)](#accepted_-tripwires-what-the-project-knows-it-has-not-verified-spec-153)
+- [A refusal is the half of the system no user exercises (2026-08-28)](#a-refusal-is-the-half-of-the-system-no-user-exercises-2026-08-28)
 
 ## Security scanning (SPEC-138)
 
@@ -97,10 +98,23 @@ does not ride on one.
 
 The coverage floors are the same principle pointed at a different kind of erosion: both suites
 measured coverage and neither gated on it, so deleting tests passed CI identically to keeping them.
-They are **ratchets at the measured level, not targets** — portal 91/86/89/93, lambdas 95 — and each
-is a hard-coded literal on purpose. Nothing computes, inherits or reads them from a file, so lowering
-one is a visible one-line diff in review rather than a number that drifted. Raise them when coverage
-rises; never lower one to accommodate a regression.
+They are hard-coded literals on purpose. Nothing computes, inherits or reads them from a file, so
+changing one is a visible one-line diff in review rather than a number that drifted.
+
+> **Superseded — the ratchet is gone; the floor is flat 85.** They were ratchets at the measured
+> level (portal 91/86/89/93, lambdas 95) until the suites were rewritten around entry points rather
+> than around individual functions. A ratchet at the measured level makes any deliberate reduction
+> in test volume fail CI, which is the opposite of what was wanted, and it rewards adding tests
+> around internals to buy back a tenth of a point. Both suites now sit at a flat **85** and stay
+> there: raise it only with a reason that is not "coverage happens to be higher today", and never
+> lower it to accommodate a regression.
+>
+> **What that costs, measured.** A coverage floor was never a measure of guard strength, and the
+> review of that rewrite proved it: four separate mutations of production code — an archive
+> rollback default that routed to deletion, a route minting its own AWS client, the CI watcher
+> reporting a red run green, and a verb losing its `@traced` — each passed the full suite with
+> total coverage unchanged to the hundredth of a point. **Mutate the guard; do not ask coverage
+> whether it exists.**
 
 **Do NOT read this as "enable strict"** — it was already on. The work is *declaring* an inherited
 default, which is a much smaller and different thing.
@@ -158,3 +172,33 @@ Two pin accepted behaviour:
 
 A tripwire is **not** a licence to leave a defect. It is the difference between a project that knows
 what it has not verified and one that has forgotten.
+
+
+## A refusal is the half of the system no user exercises (2026-08-28)
+
+A control-plane verb is mostly its checks, and each one is a `raise TerminalError("<reason>", …)`
+whose first argument is a closed vocabulary driving the user-facing wording. **That reason code is
+the thing a test must assert by name** — "something raised" passes against the neighbouring path,
+and against an `ImportError` at cold start.
+
+**Refusals are the half of the system nothing else exercises.** The happy path is self-policing: it
+runs on every dev run, every live check and every real user action, so it fails loudly and
+immediately. A refusal path runs only when something is already wrong. When one stops working the
+system does not error — it **proceeds**, does the thing the check existed to prevent, and reports
+success.
+
+**A coverage number is close to blind to them, and a coverage-driven cleanup eats them first.** A
+`raise` is one line; delete the test that drives it and the surrounding function is still executed
+by the happy-path test, so the percentage barely moves. Measured on the suite reduction that
+produced this entry: reason codes with a test asserting them fell **62 → 34 of 85** while total
+coverage stayed above its floor throughout.
+
+**The check is mechanical, so run it rather than reviewing for it.** Enumerate the reason codes
+raised across `lambdas/`, enumerate the ones a test compares against, and diff. It answers in
+seconds and returns the whole population. Three fresh-context review frames over the same change
+returned 4, then 7, then 17 findings — diverging, because a review samples where an enumeration
+counts.
+
+> The 28 codes this project knowingly stopped asserting are listed on the PR that reduced the
+> suites. Restoring one is `git show <ref>:<path>` plus a prune; the decision to leave them was
+> deliberate, not an oversight.

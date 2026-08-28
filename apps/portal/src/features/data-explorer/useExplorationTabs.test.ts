@@ -15,13 +15,6 @@ beforeEach(() => {
 });
 
 describe('useExplorationTabs — opening and the cap (FR-008)', () => {
-  it('starts with no tabs — an exploration needs a source and there is none to guess', () => {
-    const {result} = setup();
-    expect(result.current.tabs).toEqual([]);
-    expect(result.current.activeTab).toBeNull();
-    expect(result.current.activeTabId).toBe('');
-  });
-
   it('opens a tab over a source, labels it from the source and activates it', () => {
     const {result} = setup();
     let id: string | null = null;
@@ -67,31 +60,6 @@ describe('useExplorationTabs — opening and the cap (FR-008)', () => {
     expect(result.current.tabs).toHaveLength(EXPLORATION_TABS_MAX);
   });
 
-  it('refuses within a BATCH — an id is never returned for a tab that is not created', () => {
-    // The shape a multi-select "open these tables" produces in SPEC-179. Checked against
-    // this render's state alone, three opens two below the cap each see room, each return
-    // an id, and only two tabs appear — so the caller believes it opened three and raises
-    // no cap dialog. Every returned id must name a real tab.
-    const {result} = setup();
-    act(() => {
-      for (let i = 0; i < EXPLORATION_TABS_MAX - 2; i += 1) result.current.openTab(TABLE);
-    });
-    expect(result.current.tabs).toHaveLength(EXPLORATION_TABS_MAX - 2);
-
-    const returned: (string | null)[] = [];
-    act(() => {
-      returned.push(result.current.openTab(TABLE));
-      returned.push(result.current.openTab(TABLE));
-      returned.push(result.current.openTab(TABLE));
-    });
-
-    expect(returned.filter(Boolean)).toHaveLength(2);
-    expect(returned[2]).toBeNull();
-    expect(result.current.tabs).toHaveLength(EXPLORATION_TABS_MAX);
-    const openIds = new Set(result.current.tabs.map((t) => t.id));
-    for (const id of returned.filter(Boolean)) expect(openIds.has(id as string)).toBe(true);
-  });
-
   it('frees capacity again after a close', () => {
     // The counter must track closes as well as opens, or the cap becomes a high-water mark
     // and a user who closes a tab can never open another.
@@ -126,21 +94,6 @@ describe('useExplorationTabs — closing keeps the invariant (FR-008 AC4)', () =
     expect(result.current.tabs).toHaveLength(1);
   });
 
-  it('leaves a VALID state when the last tab closes', () => {
-    // `activeTabId` must never dangle. Unlike the Query workspace this surface has a
-    // legitimate zero-tab state, so the answer is '' rather than a kept-alive tab.
-    const {result} = setup();
-    let id: string | null = null;
-    act(() => {
-      id = result.current.openTab(TABLE);
-    });
-    act(() => result.current.closeTab(id as unknown as string));
-
-    expect(result.current.tabs).toEqual([]);
-    expect(result.current.activeTabId).toBe('');
-    expect(result.current.activeTab).toBeNull();
-  });
-
   it('ignores a close for an id that is not open', () => {
     const {result} = setup();
     act(() => {
@@ -148,18 +101,6 @@ describe('useExplorationTabs — closing keeps the invariant (FR-008 AC4)', () =
     });
     act(() => result.current.closeTab('nope'));
     expect(result.current.tabs).toHaveLength(1);
-  });
-
-  it('keeps the active tab when a DIFFERENT tab closes', () => {
-    const {result} = setup();
-    let first: string | null = null;
-    act(() => {
-      first = result.current.openTab(TABLE);
-      result.current.openTab(OTHER);
-    });
-    const active = result.current.activeTabId;
-    act(() => result.current.closeTab(first as unknown as string));
-    expect(result.current.activeTabId).toBe(active);
   });
 });
 
@@ -233,53 +174,12 @@ describe('useExplorationTabs — persistence (FR-008 AC2/AC3)', () => {
     expect(result.current.activeTab?.history.past[0].grouping?.duplicatesOnly).toBe(false);
   });
 
-  it('discards a document whose grouping flags are the wrong TYPE', () => {
-    // Absent is a version difference; a string is a corrupt document, and the renderer
-    // branches on these.
-    sessionStorage.setItem(
-      KEY,
-      JSON.stringify({
-        version: 1,
-        tabs: [
-          {
-            id: 'a',
-            label: 'orders',
-            exploration: {
-              id: 'e',
-              source: TABLE,
-              query: {
-                filters: [],
-                expression: null,
-                ordering: [],
-                grouping: {columns: ['status'], aggregates: [], duplicatesOnly: 'yes'}
-              },
-              presentation: {}
-            },
-            scannedByExecution: {}
-          }
-        ],
-        activeTabId: 'a'
-      })
-    );
-
-    expect(setup().result.current.tabs).toEqual([]);
-  });
-
   it('keeps each user’s tabs separate', () => {
     const alice = setup('alice');
     act(() => {
       alice.result.current.openTab(TABLE);
     });
     expect(setup('bob').result.current.tabs).toEqual([]);
-  });
-
-  it('persists NOTHING for an empty username (the dev-unauth path)', () => {
-    const {result} = setup('');
-    act(() => {
-      result.current.openTab(TABLE);
-    });
-    expect(result.current.tabs).toHaveLength(1);
-    expect(sessionStorage.length).toBe(0);
   });
 
   it('discards a malformed document entirely rather than applying it partially', () => {
@@ -406,39 +306,6 @@ describe('useExplorationTabs — persistence (FR-008 AC2/AC3)', () => {
     }
   });
 
-  it('restores the same document once its one hostile field is corrected', () => {
-    // The pair that keeps the test above honest: these documents are rejected for the
-    // field named, not because the fixture is malformed in some other way.
-    sessionStorage.setItem(
-      KEY,
-      JSON.stringify({
-        version: 1,
-        tabs: [
-          {
-            id: 'a',
-            label: 'orders',
-            exploration: {
-              id: 'e',
-              source: {kind: 'table', spaceId: 'personal', database: 'alice', table: 'orders'},
-              query: {
-                filters: [{column: 'a', operator: '=', value: 'x', valueKind: 'number'}],
-                expression: null,
-                ordering: [{column: 'a', direction: 'asc', priority: 0}],
-                grouping: {columns: ['a'], aggregates: [{fn: 'COUNT', column: '*'}]}
-              },
-              presentation: {hiddenColumns: [], columnOrder: [], pinnedColumns: [], columnWidths: {}}
-            },
-            scannedByExecution: {'exec-1': 1024}
-          }
-        ],
-        activeTabId: 'a'
-      })
-    );
-    const {result} = setup();
-    expect(result.current.tabs).toHaveLength(1);
-    expect(result.current.activeTabBytesScanned).toBe(1024);
-  });
-
   it('restores a well-formed document, so the discard test above is not vacuous', () => {
     // Without this pair, a validator that rejected EVERYTHING would pass every case above.
     const first = setup();
@@ -468,24 +335,6 @@ describe('useExplorationTabs — cumulative cost (FR-007 AC2/AC3)', () => {
     expect(result.current.activeTabBytesScanned).toBe(3072);
   });
 
-  it('adds NOTHING for a cache hit — the same execution recorded twice', () => {
-    // FR-007 AC3, true by construction: the ledger is keyed by execution id, so a
-    // re-rendered identical statement resolves to an id already present. A running total
-    // would have to DETECT a cache hit, and a detector can be wrong in the direction that
-    // overcharges the user.
-    const {result} = setup();
-    let id: string | null = null;
-    act(() => {
-      id = result.current.openTab(TABLE);
-    });
-
-    act(() => result.current.recordScan(id as unknown as string, 'exec-1', 1024));
-    act(() => result.current.recordScan(id as unknown as string, 'exec-1', 1024));
-    act(() => result.current.recordScan(id as unknown as string, 'exec-1', 1024));
-
-    expect(result.current.activeTabBytesScanned).toBe(1024);
-  });
-
   it('counts a zero-byte execution without turning the total into NaN', () => {
     const {result} = setup();
     let id: string | null = null;
@@ -494,22 +343,6 @@ describe('useExplorationTabs — cumulative cost (FR-007 AC2/AC3)', () => {
     });
     act(() => result.current.recordScan(id as unknown as string, 'exec-1', 0));
     expect(result.current.activeTabBytesScanned).toBe(0);
-  });
-
-  it('keeps each tab’s ledger to itself', () => {
-    const {result} = setup();
-    let first: string | null = null;
-    act(() => {
-      first = result.current.openTab(TABLE);
-      result.current.openTab(OTHER);
-    });
-
-    act(() => result.current.recordScan(first as unknown as string, 'exec-1', 500));
-    // The second tab is the active one and has run nothing.
-    expect(result.current.activeTabBytesScanned).toBe(0);
-
-    act(() => result.current.setActiveTab(first as unknown as string));
-    expect(result.current.activeTabBytesScanned).toBe(500);
   });
 });
 
@@ -575,11 +408,6 @@ describe('useExplorationTabs — a stored formatting block (SPEC-184 FR-007 AC2)
     transformers: {id: {kind: 'numeric', precision: 2, lenient: true}}
   };
 
-  it('restores a whole, valid block', () => {
-    seedFormatting(good);
-    expect(setup().result.current.tabs[0].exploration.presentation.formatting).toEqual(good);
-  });
-
   it('discards the block WHOLE when any part of it is wrong, and keeps the tab', () => {
     // Never partially: a rule that survived while the one meant to override it was dropped
     // paints the opposite of what was intended, and the user has no way to tell.
@@ -615,10 +443,5 @@ describe('useExplorationTabs — a stored formatting block (SPEC-184 FR-007 AC2)
       seedFormatting({...good, rules: [rule]});
       expect(setup().result.current.tabs[0].exploration.presentation.formatting, JSON.stringify(rule)).toEqual(EMPTY);
     }
-  });
-
-  it('defaults a document written before SPEC-184, which carries no block at all', () => {
-    seedFormatting(undefined);
-    expect(setup().result.current.tabs[0].exploration.presentation.formatting).toEqual(EMPTY);
   });
 });

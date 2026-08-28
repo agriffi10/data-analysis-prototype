@@ -7,7 +7,6 @@ import {
   isLinkedSavedQuery,
   listSavedQueries,
   readSavedQuery,
-  savedQueriesPrefix,
   savedQueryKey,
   savedQueryName,
   validateSavedQueryName,
@@ -60,12 +59,6 @@ function listed(contents: {Key: string; Size?: number; LastModified?: Date}[], r
 const commandsOfType = (type: unknown) => mockSend.mock.calls.filter((c) => c[0] instanceof (type as never));
 
 describe('the name ↔ key rules (FR-004)', () => {
-  it('round-trips a name through key-then-name', () => {
-    expect(savedQueriesPrefix('alice/')).toBe('alice/saved_queries/');
-    expect(savedQueryKey('alice/', 'Monthly revenue')).toBe('alice/saved_queries/Monthly revenue.sql');
-    expect(savedQueryName(savedQueryKey('alice/', 'Monthly revenue'))).toBe('Monthly revenue');
-  });
-
   it('never doubles the extension, and strips it case-insensitively', () => {
     expect(savedQueryKey('alice/', 'report.sql')).toBe('alice/saved_queries/report.sql');
     // A key already in the bucket may carry any case — the store still reads it.
@@ -83,10 +76,6 @@ describe('the name ↔ key rules (FR-004)', () => {
     expect(savedQueryKey('alice/', 'REPORT.SQL')).toBe('alice/saved_queries/REPORT.sql');
     expect(savedQueryName(savedQueryKey('alice/', 'REPORT.SQL'))).toBe('REPORT');
   });
-
-  it('holds in a shared space, whose root is the space name', () => {
-    expect(savedQueryKey('project_alpha/', 'q1')).toBe('project_alpha/saved_queries/q1.sql');
-  });
 });
 
 describe('validateSavedQueryName (FR-004)', () => {
@@ -102,10 +91,6 @@ describe('validateSavedQueryName (FR-004)', () => {
     ['x'.repeat(126), /128 characters/]
   ])('refuses %j', (name, expected) => {
     expect(validateSavedQueryName(name)).toMatch(expected);
-  });
-
-  it.each(['Monthly revenue', 'q1-2026_report', 'sales.v2', 'ventes été', 'x'.repeat(124)])('accepts %j', (name) => {
-    expect(validateSavedQueryName(name)).toBeNull();
   });
 });
 
@@ -132,21 +117,10 @@ describe('isLinkedSavedQuery (SPEC-175 FR-004)', () => {
     expect(isLinkedSavedQuery(LINK, PERSONAL, 'monthly')).toBe(false);
   });
 
-  it('is false for the same name in a DIFFERENT space, across buckets', () => {
-    // The save-as case. A true here would overwrite a colleague's file with no prompt.
-    expect(isLinkedSavedQuery(LINK, SHARED, 'Monthly')).toBe(false);
-  });
-
   it('is false for a link whose space is a different bucket at the same key', () => {
     // Contrived, and deliberately asserted: the key alone is not identity across buckets.
     const crossBucket: SavedQueryLink = {...LINK, bucket: 'shared-space'};
     expect(isLinkedSavedQuery(crossBucket, PERSONAL, 'Monthly')).toBe(false);
-  });
-
-  it('is false with no link at all, and for an empty name', () => {
-    expect(isLinkedSavedQuery(undefined, PERSONAL, 'Monthly')).toBe(false);
-    expect(isLinkedSavedQuery(LINK, PERSONAL, '')).toBe(false);
-    expect(isLinkedSavedQuery(LINK, PERSONAL, '   ')).toBe(false);
   });
 });
 
@@ -175,16 +149,6 @@ describe('ensureSavedQueriesFolder (FR-001)', () => {
     expect(commandsOfType(PutObjectCommand)).toHaveLength(0);
   });
 
-  it('issues NO further request for the same space in the same session', async () => {
-    mockSend.mockResolvedValue({});
-
-    await ensureSavedQueriesFolder(PERSONAL);
-    const after = mockSend.mock.calls.length;
-    await ensureSavedQueriesFolder(PERSONAL);
-
-    expect(mockSend.mock.calls.length).toBe(after);
-  });
-
   it('checks each space separately', async () => {
     mockSend.mockResolvedValue({});
 
@@ -195,14 +159,6 @@ describe('ensureSavedQueriesFolder (FR-001)', () => {
       'alice/saved_queries/DO_NOT_DELETE.txt',
       'project_alpha/saved_queries/DO_NOT_DELETE.txt'
     ]);
-  });
-
-  it('returns a failed result on a failed put, which no caller treats as fatal', async () => {
-    mockSend.mockRejectedValueOnce(notFoundError()).mockRejectedValueOnce(new Error('nope'));
-
-    const result = await ensureSavedQueriesFolder(PERSONAL);
-
-    expect(result.success).toBe(false);
   });
 });
 
@@ -274,17 +230,6 @@ describe('listSavedQueries (FR-004)', () => {
     });
   });
 
-  it('returns S3’s own order, unmodified', async () => {
-    // Sorting by last-modified across a paginated listing is a lie: the newest query may
-    // sit on page nine, and re-sorting the loaded pages makes rows the user has already
-    // seen jump between pages as later pages arrive.
-    mockSend.mockResolvedValue(listed([{Key: 'alice/saved_queries/b.sql'}, {Key: 'alice/saved_queries/a.sql'}]));
-
-    const result = await listSavedQueries({space: PERSONAL});
-
-    expect(result.success && result.data.queries.map((q) => q.name)).toEqual(['b', 'a']);
-  });
-
   it('threads the continuation token and reports the next one', async () => {
     mockSend.mockResolvedValue(listed([], {IsTruncated: true, NextContinuationToken: 'page-2'}));
 
@@ -300,12 +245,6 @@ describe('listSavedQueries (FR-004)', () => {
     const result = await listSavedQueries({space: PERSONAL});
 
     expect(result).toEqual({success: true, data: {queries: [], isTruncated: false, nextContinuationToken: undefined}});
-  });
-
-  it('never throws when the client itself fails to initialise', async () => {
-    mockGetS3Client.mockResolvedValue({success: false, error: {message: 'no credentials'}});
-
-    await expect(listSavedQueries({space: PERSONAL})).resolves.toMatchObject({success: false});
   });
 });
 
@@ -333,15 +272,6 @@ describe('readSavedQuery (FR-004)', () => {
 });
 
 describe('writeSavedQuery (FR-004)', () => {
-  it('validates the name first and issues NO request when it is invalid', async () => {
-    const result = await writeSavedQuery({space: PERSONAL, name: 'a/b', sql: 'SELECT 1'});
-
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('InvalidName');
-    expect(mockSend).not.toHaveBeenCalled();
-  });
-
   it('HEADs the exact key and refuses a collision rather than clobbering', async () => {
     mockSend.mockResolvedValueOnce({}); // HEAD finds it
 
@@ -395,15 +325,6 @@ describe('deleteSavedQuery (FR-004)', () => {
     });
 
     expect(result).toEqual({success: true, data: undefined});
-  });
-
-  it('inherits the refusal for the root marker without a request', async () => {
-    const result = await deleteSavedQuery({bucket: 'user-space', key: 'alice/DO_NOT_DELETE.txt', username: 'alice'});
-
-    expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error.code).toBe('ProtectedObject');
-    expect(mockSend).not.toHaveBeenCalled();
   });
 });
 

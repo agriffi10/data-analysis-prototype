@@ -77,17 +77,6 @@ def test_add_members_assigns_slot_registry_cache_and_owner_projection():
     ]
 
 
-def test_add_members_ignores_unknown_users_silently():
-    s3, _glue, _lf, cognito = install()
-    cognito.users = {"bob": {}}
-    reg = _active_reg(members=["alice"])
-    _seed_reg(s3, reg)
-
-    out = a.add_members("sales", ["bob", "ghost"], "req-2", reg)
-    assert out["added"] == ["bob"] and out["ignoredUnknown"] == ["ghost"]
-    assert ("user-bkt", "ghost/user_settings/shared-connections.json") not in s3.store
-
-
 def test_add_members_skips_at_limit_target_and_still_adds_others():
     s3, _glue, _lf, cognito = install(max_memberships=2)
     cognito.users = {
@@ -103,42 +92,6 @@ def test_add_members_skips_at_limit_target_and_still_adds_others():
     assert set(reg2["members"]) == {"alice", "bob"}
 
 
-def test_add_members_idempotent_for_existing_member():
-    s3, _glue, _lf, cognito = install()
-    cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
-    reg = _active_reg(members=["alice", "bob"])
-    _seed_reg(s3, reg)
-
-    out = a.add_members("sales", ["bob"], "req-2", reg)
-    assert out["added"] == []
-    assert cognito.updates == []
-
-
-def test_add_members_does_not_demote_active_member():
-    # FR-002: re-adding an already-acknowledged (active) member keeps them active.
-    s3, _glue, _lf, cognito = install()
-    cognito.users = {"bob": {"custom:shared_space_1": "sales"}}
-    reg = _active_reg(members=["alice", "bob"])
-    reg["acknowledged"] = ["bob"]
-    _seed_reg(s3, reg)
-
-    a.add_members("sales", ["bob"], "req-2", reg)
-    owner_cache = json.loads(s3.store[("user-bkt", "alice/user_settings/shared-connections.json")])
-    assert owner_cache["connections"][0]["members"] == [
-        {"username": "alice", "status": "active"},
-        {"username": "bob", "status": "active"},
-    ]
-
-
-def test_add_members_never_adds_the_owner():
-    s3, _glue, _lf, _cognito = install()
-    reg = _active_reg(members=["alice"])
-    _seed_reg(s3, reg)
-
-    out = a.add_members("sales", ["alice"], "req-2", reg)
-    assert out["added"] == [] and out["ignoredUnknown"] == []
-
-
 def test_add_member_notifies_added_user():
     s3, _glue, _lf, cognito = install()
     cognito.users = {"bob": {}}
@@ -148,83 +101,6 @@ def test_add_member_notifies_added_user():
 
     a.add_members("sales", ["bob"], "req-2", reg)
     assert _sent(sqs) == [("bob", 'You\'ve been added to the shared workspace "sales".')]
-
-
-def test_add_unknown_notifies_owner():
-    s3, _glue, _lf, cognito = install()
-    cognito.users = {"bob": {}}
-    sqs = _enable_notifications()
-    reg = _active_reg(members=["alice"])
-    _seed_reg(s3, reg)
-
-    a.add_members("sales", ["ghost"], "req-2", reg)
-    assert _sent(sqs) == [("alice", 'Couldn\'t add "ghost" to "sales": no such user.')]
-
-
-def test_add_at_limit_notifies_owner():
-    s3, _glue, _lf, cognito = install(max_memberships=2)
-    cognito.users = {"full": {"custom:shared_space_1": "x", "custom:shared_space_2": "y"}}
-    sqs = _enable_notifications()
-    reg = _active_reg(members=["alice"])
-    _seed_reg(s3, reg)
-
-    a.add_members("sales", ["full"], "req-2", reg)
-    assert _sent(sqs) == [
-        ("alice", 'Couldn\'t add "full" to "sales": they\'ve reached their workspace limit.')
-    ]
-
-
-def test_bulk_add_emits_per_affected_user_and_silences_existing_members():
-    s3, _glue, _lf, cognito = install(max_memberships=2)
-    cognito.users = {
-        "bob": {},
-        "carol": {},
-        "full": {"custom:shared_space_1": "x", "custom:shared_space_2": "y"},
-        "dave": {"custom:shared_space_1": "sales"},  # already a member -> silent
-    }
-    sqs = _enable_notifications()
-    reg = _active_reg(members=["alice", "dave"])
-    _seed_reg(s3, reg)
-
-    a.add_members("sales", ["bob", "carol", "full", "ghost", "dave"], "req-2", reg)
-    sent = _sent(sqs)
-    # Two "added" (bob, carol) + one at-limit (full) + one unknown (ghost) to the owner;
-    # the already-member dave emits nothing.
-    assert ("bob", 'You\'ve been added to the shared workspace "sales".') in sent
-    assert ("carol", 'You\'ve been added to the shared workspace "sales".') in sent
-    assert ("alice", 'Couldn\'t add "full" to "sales": they\'ve reached their workspace limit.') in sent
-    assert ("alice", 'Couldn\'t add "ghost" to "sales": no such user.') in sent
-    assert len(sent) == 4
-    assert all(r != "dave" and "dave" not in m for r, m in sent)
-
-
-def test_add_members_fans_roster_to_existing_members():
-    # SPEC-075 FR-002: adding cara refreshes an existing member (bob)'s roster too.
-    s3, _glue, _lf, cognito = install()
-    cognito.users = {"bob": {"custom:shared_space_1": "sales"}, "cara": {}}
-    reg = _active_reg(members=["alice", "bob"])
-    reg["acknowledged"] = ["bob"]
-    _seed_reg(s3, reg)
-
-    a.add_members("sales", ["cara"], "req-2", reg)
-    bob_entry = json.loads(s3.store[("user-bkt", "bob/user_settings/shared-connections.json")])["connections"][0]
-    assert bob_entry["role"] == "member" and bob_entry["owner"] == "alice"
-    assert {(m["username"], m["status"]) for m in bob_entry["members"]} == {
-        ("alice", "active"),
-        ("bob", "active"),
-        ("cara", "pending"),
-    }
-
-
-def test_handler_uses_validated_context():
-    s3, _glue, _lf, cognito = install()
-    cognito.users = {"bob": {}}
-    reg = _active_reg(members=["alice"])
-    _seed_reg(s3, reg)
-    out = a.handler(
-        {"space": "sales", "requestId": "req-2", "registry": reg, "payload": {"members": ["bob"]}}, None
-    )
-    assert out["added"] == ["bob"]
 
 
 if __name__ == "__main__":

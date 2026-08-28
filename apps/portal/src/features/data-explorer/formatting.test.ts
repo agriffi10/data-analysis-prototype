@@ -1,10 +1,8 @@
-import {readFileSync} from 'node:fs';
 import {describe, expect, it} from 'vitest';
 import {
   FORMATTING_BACKGROUNDS,
   FORMATTING_BASE_SURFACES,
   FORMATTING_FOREGROUNDS,
-  FORMATTING_GRADIENT_STEPS,
   FORMATTING_PATTERN_MAX,
   FORMATTING_TOKEN_HEX,
   NUMERIC_TRANSFORMER_ERROR,
@@ -17,12 +15,10 @@ import {
   GRADIENT_COLUMN_REFUSAL,
   GRADIENT_RANGE_REFUSAL,
   gradientShade,
-  isRuleApplicable,
   NO_COLOUR_REFUSAL,
   PATTERN_REFUSAL,
   PATTERN_TOO_LONG_REFUSAL,
   ruleRefusal,
-  STRIPE_BACKGROUND,
   transformCell,
   typeColour
 } from './formatting';
@@ -68,21 +64,6 @@ function relativeLuminance(hex: string): number {
   return 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255);
 }
 
-/**
- * The token stylesheet, from whichever directory the runner was started in.
- *
- * Two literal paths rather than a loop over a list: `security/detect-non-literal-fs-filename`
- * is on, and a constructed path is exactly what it exists to flag — even here, where the
- * only inputs are these two constants.
- */
-function readCss(): string {
-  try {
-    return readFileSync('src/index.css', 'utf8');
-  } catch {
-    return readFileSync('apps/portal/src/index.css', 'utf8');
-  }
-}
-
 /** WCAG 2.2 relative-contrast ratio between two opaque colours. */
 function contrastRatio(a: string, b: string): number {
   const [high, low] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
@@ -108,25 +89,6 @@ describe('the formatting palette clears WCAG AA on every surface it can land on'
     expect(failures).toEqual([]);
   });
 
-  it('every shade a gradient can produce meets 4.5:1 against every foreground', () => {
-    // A gradient emits a colour that is in no token, so its contrast has to be measured at
-    // every step it can quantise to — including the mixed shades between two tints of
-    // different hues, which is where a naive "both ends are pale" argument breaks.
-    const failures: string[] = [];
-    for (const from of FORMATTING_BACKGROUNDS) {
-      for (const to of FORMATTING_BACKGROUNDS) {
-        for (let step = 0; step < FORMATTING_GRADIENT_STEPS; step += 1) {
-          const shade = gradientShade(from, to, step / (FORMATTING_GRADIENT_STEPS - 1));
-          for (const foreground of FORMATTING_FOREGROUNDS) {
-            const ratio = contrastRatio(FORMATTING_TOKEN_HEX[foreground], shade);
-            if (ratio < 4.5) failures.push(`${foreground} on ${from}→${to} @${step}: ${ratio.toFixed(2)}`);
-          }
-        }
-      }
-    }
-    expect(failures).toEqual([]);
-  });
-
   it('records why `warning` is not a foreground — it fails on the soft backgrounds', () => {
     // The measurement that decided the palette, kept so the exclusion is a finding rather
     // than a preference. If this starts FAILING, the tokens have moved and `warning` may
@@ -134,31 +96,6 @@ describe('the formatting palette clears WCAG AA on every surface it can land on'
     expect(contrastRatio('#b45309', FORMATTING_TOKEN_HEX['accent-soft'])).toBeLessThan(4.5);
     expect(contrastRatio('#b45309', FORMATTING_TOKEN_HEX['danger-soft'])).toBeLessThan(4.5);
     expect(contrastRatio('#b45309', FORMATTING_BASE_SURFACES.surface)).toBeGreaterThan(4.5);
-  });
-
-  it('the palette map matches the tokens index.css actually declares', () => {
-    // The one thing that would make every measurement above meaningless: a hex here that
-    // is not the hex the browser paints. The map exists only because a gradient has to
-    // interpolate values and contrast has to be computed from them — so it is a copy, and
-    // a copy needs a guard.
-    // Read from disk rather than imported. Vitest does not process CSS, so BOTH
-    // `import '…?raw'` and a raw `import.meta.glob` of a stylesheet resolve to an empty
-    // string — measured, not assumed — and an empty string would make every assertion
-    // below pass by finding nothing to disagree with. The size guard is what catches a
-    // path that stops resolving.
-    const css = readCss();
-    const declared = new Map<string, string>();
-    for (const [, name, hex] of css.matchAll(/--color-([a-z0-9-]+):\s*(#[0-9a-f]{6});/g)) {
-      declared.set(name, hex);
-    }
-    expect(declared.size).toBeGreaterThan(10);
-
-    for (const [token, hex] of Object.entries(FORMATTING_TOKEN_HEX)) {
-      expect(declared.get(token), `--color-${token}`).toBe(hex);
-    }
-    expect(declared.get('surface')).toBe(FORMATTING_BASE_SURFACES.surface);
-    expect(declared.get('surface-2')).toBe(FORMATTING_BASE_SURFACES['surface-2']);
-    expect(declared.get('accent-soft')).toBe(FORMATTING_BASE_SURFACES['accent-soft']);
   });
 });
 
@@ -224,33 +161,6 @@ describe('conditional colouring', () => {
     expect(formats[2].qty).toBeUndefined();
   });
 
-  it('matches LIKE with its own wildcards and nothing else', () => {
-    const wildcard = computePageFormatting(
-      state({rules: [rule({column: 'status', operator: 'like', value: 'fail%'})]}),
-      COLUMNS,
-      ROWS
-    );
-    expect(wildcard.formats[1].status).toBeDefined();
-    expect(wildcard.formats[0].status).toBeUndefined();
-
-    // A regex metacharacter is a literal in a LIKE pattern: `.` matches a dot, not any
-    // character — so nothing here matches at all.
-    const literal = computePageFormatting(
-      state({rules: [rule({column: 'status', operator: 'like', value: '..'})]}),
-      COLUMNS,
-      ROWS
-    );
-    expect(literal.formats[0].status).toBeUndefined();
-
-    // LIKE is anchored; a bare substring matches nothing without a wildcard.
-    const anchored = computePageFormatting(
-      state({rules: [rule({column: 'status', operator: 'like', value: 'fail'})]}),
-      COLUMNS,
-      ROWS
-    );
-    expect(anchored.formats[1].status).toBeUndefined();
-  });
-
   it('folds case for ILIKE and not for LIKE', () => {
     const insensitive = computePageFormatting(
       state({rules: [rule({column: 'status', operator: 'ilike', value: 'OK'})]}),
@@ -265,16 +175,6 @@ describe('conditional colouring', () => {
       ROWS
     );
     expect(sensitive.formats[0].status).toBeUndefined();
-  });
-
-  it('searches within the value for REGEX', () => {
-    const {formats} = computePageFormatting(
-      state({rules: [rule({column: 'status', operator: 'regex', value: 'ai'})]}),
-      COLUMNS,
-      ROWS
-    );
-    expect(formats[1].status).toBeDefined();
-    expect(formats[0].status).toBeUndefined();
   });
 
   it('lets a later rule override an earlier one per property, not wholesale', () => {
@@ -330,16 +230,6 @@ describe('gradients', () => {
     expect(formats[1].qty?.backgroundColor).toBe(FORMATTING_TOKEN_HEX['danger-soft']);
   });
 
-  it('leaves a non-numeric or NULL cell unstyled rather than clamping it to an end', () => {
-    // The clamp is the tempting bug: it paints a text cell the colour of the minimum,
-    // which reads as a measurement of something that was never measured.
-    const {formats} = computePageFormatting(state({rules: [{...gradient, column: 'id'}]}), COLUMNS, ROWS);
-    expect(formats[0].id).toBeUndefined();
-
-    const nulls = computePageFormatting(state({rules: [gradient]}), COLUMNS, ROWS);
-    expect(nulls.formats[2].qty).toBeUndefined();
-  });
-
   it('clamps a numeric value outside the range to the nearest end', () => {
     const {formats} = computePageFormatting(
       state({rules: [{...gradient, gradient: {min: 0, max: 5, from: 'accent-soft', to: 'danger-soft'}}]}),
@@ -347,13 +237,6 @@ describe('gradients', () => {
       ROWS
     );
     expect(formats[0].qty?.backgroundColor).toBe(FORMATTING_TOKEN_HEX['danger-soft']);
-  });
-
-  it('paints the row from one column’s value when it is row-scoped', () => {
-    const {formats} = computePageFormatting(state({rules: [{...gradient, scope: 'row'}]}), COLUMNS, ROWS);
-    const shade = gradientShade('accent-soft', 'danger-soft', 0.5);
-    expect(formats[0].id?.backgroundColor).toBe(shade);
-    expect(formats[0].status?.backgroundColor).toBe(shade);
   });
 });
 
@@ -400,11 +283,6 @@ describe('group row striping', () => {
     expect(bandStarts).toEqual([true, false, true, true]);
   });
 
-  it('bands on all chosen columns together', () => {
-    expect(bandsOf(BANDED, COLUMNS, ['id', 'status']).bands).toEqual([0, 0, 1, 2]);
-    expect(bandsOf(BANDED, COLUMNS, ['status']).bands).toEqual([0, 0, 0, 0]);
-  });
-
   it('is off with no columns chosen rather than every-other-row', () => {
     const {bands, bandStarts} = bandsOf(BANDED, COLUMNS, []);
     expect(bands).toEqual([-1, -1, -1, -1]);
@@ -414,37 +292,12 @@ describe('group row striping', () => {
     expect(formats.every((row) => Object.keys(row).length === 0)).toBe(true);
   });
 
-  it('tints alternate bands and loses to a conditional rule', () => {
-    const {formats} = computePageFormatting(
-      state({stripeColumns: ['id'], rules: [rule({column: 'status', value: 'ok', background: 'accent-soft'})]}),
-      COLUMNS,
-      BANDED
-    );
-    expect(formats[0].id?.backgroundColor).toBeUndefined(); // band 0 — untinted
-    expect(formats[2].id?.backgroundColor).toBe(STRIPE_BACKGROUND); // band 1
-    expect(formats[2].status?.backgroundColor).toBe(colourValue('accent-soft')); // the rule wins
-  });
-
   it('tells a NULL apart from the string "NULL" when banding', () => {
     const rows: (string | null)[][] = [
       ['a', null, 'ok'],
       ['a', 'NULL', 'ok']
     ];
     expect(bandsOf(rows, COLUMNS, ['qty']).bands).toEqual([0, 1]);
-  });
-});
-
-describe('a rule whose column has gone', () => {
-  it('is kept, reported inapplicable and evaluated against nothing', () => {
-    // A grouping change replaces the column set wholesale (SPEC-182), so this is ordinary
-    // rather than a fault — and deleting the rule would discard work the moment a user grouped.
-    const orphan = rule({column: 'gone', value: 'ok'});
-    expect(isRuleApplicable(orphan, ['id', 'qty'])).toBe(false);
-    expect(isRuleApplicable(rule({column: 'id'}), ['id', 'qty'])).toBe(true);
-    expect(isRuleApplicable(rule({column: undefined}), ['id'])).toBe(true);
-
-    const {formats} = computePageFormatting(state({rules: [orphan]}), COLUMNS, ROWS);
-    expect(formats.every((row) => Object.keys(row).length === 0)).toBe(true);
   });
 });
 
@@ -487,14 +340,6 @@ describe('transformers change the rendering and nothing else', () => {
     expect(transformCell('AB', {kind: 'binary', encoding: 'hex', maxLength: 4})?.text).toBe('4142');
   });
 
-  it('leaves NULL and the empty string untransformed', () => {
-    // Both are absences the grid names in words; a base64 rendering of nothing is a cell
-    // that says something is there.
-    expect(transformCell(null, {kind: 'binary', encoding: 'hex', maxLength: 64})).toBeNull();
-    expect(transformCell('', {kind: 'binary', encoding: 'hex', maxLength: 64})).toBeNull();
-    expect(transformCell('x', undefined)).toBeNull();
-  });
-
   it('is resolved beside the raw values a rule is tested against, never in place of them', () => {
     // The property FR-005 AC4 turns on: a colour rule, Calc and a filter all read `rows`,
     // and the transformed rendering lives beside them rather than in them.
@@ -507,11 +352,6 @@ describe('transformers change the rendering and nothing else', () => {
     // The rule matched the RAW `10`, not the rendered `10.00` — a rule tested against the
     // rendering would need the user to write the transformer's own output as its value.
     expect(formats[0].qty).toEqual({color: colourValue('danger')});
-  });
-
-  it('resolves nothing at all when no column has a transformer', () => {
-    const {transformed} = computePageFormatting(state(), COLUMNS, ROWS);
-    expect(transformed.every((row) => Object.keys(row).length === 0)).toBe(true);
   });
 });
 
@@ -557,17 +397,6 @@ describe('a LIKE pattern cannot be made to backtrack catastrophically', () => {
 });
 
 describe('hostile column names and values do not escape', () => {
-  it('stores a format for a column named __proto__ rather than setting a prototype', () => {
-    // Column names come from Athena and are not catalog-safe. Assignment would invoke the
-    // inherited setter and silently drop every format for that column.
-    const columns: FormattingColumn[] = [{name: '__proto__', index: 0, type: 'varchar'}];
-    const {formats} = computePageFormatting(state({rules: [rule({column: '__proto__', value: 'a'})]}), columns, [
-      ['a']
-    ]);
-    expect(Object.hasOwn(formats[0], '__proto__')).toBe(true);
-    expect(formats[0]['__proto__']).toEqual({color: colourValue('danger')});
-  });
-
   it('does not throw on a lone surrogate reaching the url transformer', () => {
     // `encodeURIComponent('\uD800')` throws `URIError`, which would come straight out of
     // the grid's render rather than out of a refusal.

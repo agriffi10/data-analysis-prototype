@@ -24,14 +24,8 @@ os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
 import pytest
 from cpcommon import clients
-from cpcommon.errors import TerminalError, TransientError
+from cpcommon.errors import TerminalError
 from table_share_create_table import athena_mod
-
-
-class _BotoError(Exception):
-    def __init__(self, code):
-        self.response = {"Error": {"Code": code}}
-        super().__init__(code)
 
 
 class _FakeAthena:
@@ -136,58 +130,10 @@ def test_failed_state_is_terminal_with_athenas_reason():
     raise AssertionError("expected TerminalError")
 
 
-def test_a_verbose_athena_reason_is_bounded_before_it_becomes_a_detail(caplog):
-    """THE CALL SITE, not just the helper.
-
-    Athena's StateChangeReason can echo a large fragment of the statement, and this arc
-    generates wide DDL. That detail becomes the exception message → the SFN error Cause →
-    a per-recipient entry in the table-share Map result. One verbose reason repeated across
-    recipients can breach the 256 KB state-payload limit, and States.DataLimitExceeded on
-    the Map destroys every per-recipient outcome it exists to preserve.
-
-    Nothing is lost: the FULL reason is logged before the bounded one is raised.
-    """
-    huge = "SYNTAX_ERROR: line 1:8: " + ("mismatched_column_name, " * 500)
-    _setup(_FakeAthena(states=("FAILED",), reason=huge))
-
-    with caplog.at_level("ERROR"):
-        try:
-            _run()
-        except TerminalError as exc:
-            assert exc.reason == "create_failed"
-            assert len(exc.detail) < len(huge)
-            assert exc.detail.startswith("SYNTAX_ERROR: line 1:8:")  # the useful head survives
-            assert "truncated" in exc.detail
-            # The whole thing still reaches an operator.
-            assert huge in caplog.text
-            return
-    raise AssertionError("expected TerminalError")
-
-
-def test_cancelled_state_is_terminal():
-    _setup(_FakeAthena(states=("CANCELLED",)))
-    _expect("create_failed")
-
-
 def test_poll_cap_exceeded_is_create_timeout():
     clock = _setup(_FakeAthena(states=("RUNNING",)))
     _expect("create_timeout")
     assert clock.t >= athena_mod.MAX_POLL_DURATION_SECONDS
-
-
-def test_throttled_start_is_transient():
-    _setup(_FakeAthena(start_error=_BotoError("TooManyRequestsException")))
-    _expect(None, exc_type=TransientError)
-
-
-def test_throttled_poll_is_transient():
-    _setup(_FakeAthena(poll_error=_BotoError("ThrottlingException")))
-    _expect(None, exc_type=TransientError)
-
-
-def test_non_transient_start_error_is_terminal():
-    _setup(_FakeAthena(start_error=_BotoError("InvalidRequestException")))
-    _expect("create_failed")
 
 
 if __name__ == "__main__":

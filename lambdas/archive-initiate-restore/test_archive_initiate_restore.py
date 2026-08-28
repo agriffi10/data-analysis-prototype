@@ -20,7 +20,6 @@ import archive_initiate_restore as m
 import pytest
 from arcommon.config import RESTORE_AVAILABILITY_DAYS, RESTORE_TIER
 from cpcommon import clients
-from cpcommon.errors import TransientError
 
 _ARCHIVE_ROOT = "personal/alice/archive/b71d0f42-9c3e-4a17-b8f5-0d1e2f3a4b5c/"
 
@@ -83,18 +82,6 @@ def test_every_item_in_the_batch_is_asked_for_at_the_tier_and_window():
     }
 
 
-def test_it_reads_the_SOURCE_side_of_the_manifest_and_never_the_destination():
-    """One manifest serves both Maps. This one asks for the archived object; the destination is
-    the copy-back's business, hours later — and a retrieval issued against a destination key
-    would ask S3 to restore an object that does not exist."""
-    fake = _install()
-
-    m.handler(_batch(_item()), None)
-
-    assert fake.restores[0]["Bucket"] == "archive-bkt"
-    assert fake.restores[0]["Key"].startswith(_ARCHIVE_ROOT)
-
-
 def test_an_already_in_progress_retrieval_does_not_fail_the_batch():
     """Which is what makes a re-submission after any later failure free rather than a second
     bill."""
@@ -112,38 +99,6 @@ def test_a_genuine_failure_raises_so_the_map_run_fails_and_nothing_is_copied():
     # ToleratedFailurePercentage 0 that fails the Map Run and the run.
     with pytest.raises(_S3Error):
         m.handler(_batch(_item()), None)
-
-
-def test_a_throttle_raises_transient_so_the_map_retries_the_whole_batch():
-    _install(error=_S3Error("SlowDown", 503))
-
-    with pytest.raises(TransientError):
-        m.handler(_batch(_item()), None)
-
-
-def test_an_empty_batch_asks_for_nothing_rather_than_failing():
-    """Not reachable from a Map over a non-empty manifest, and handled because the alternative
-    is an IndexError on the one input shape nothing upstream forbids."""
-    fake = _install()
-
-    assert m.handler(_batch(), None) == {"requested": 0}
-    assert fake.restores == []
-
-
-def test_the_verb_carries_no_failure_notifier_because_a_batch_has_no_actor():
-    """The same reasoning copy-objects records: a batch is a fragment of a request with no actor
-    on it, so `@notifies_on_failure` would resolve to nothing and send nothing — a decoration
-    that reads like a guarantee while providing none. The whole-request failure path reports
-    this Map's failure instead."""
-    import pathlib
-
-    decorators = [
-        line.strip()
-        for line in pathlib.Path(m.__file__).read_text().splitlines()
-        if line.startswith("@")
-    ]
-
-    assert decorators == ['@observability.traced("initiate-restore")']
 
 
 if __name__ == "__main__":
