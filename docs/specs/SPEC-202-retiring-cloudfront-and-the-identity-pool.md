@@ -682,6 +682,18 @@ one and leaving seven is worse than reversing it in none, because the seven read
 
 #### Acceptance Criteria:
 
+> **Partly discharged ahead of this spec (2026-08-28, the docs restructure).** `architecture.md` was
+> rewritten to describe how the system actually works, so the four grep phrases below — `no backend
+> server`, `All AWS calls come from the browser`, `exceptions to "no backend"`, `No backend / API
+> proxy` — now return **zero hits**, as does the *two network paths* subsection the note calls the
+> fifth site. Sections named here are gone too: *System Overview* is *The system at a glance*, *Known
+> Constraints* is *Constraints that shape the system*, and the file ends in an **Architecture Decision
+> Record** whose rows are what a reversal now amends. `process.md`'s ground rule was corrected in the
+> same pass, and the `No backend` register entry carries a superseded marker. **What this spec still
+> owes:** the CLAUDE.md sweep below, the SPEC-140/141 markers, the CSP verification-technique
+> correction, this spec's own register entries, and the `ARCS.md` update. Verify by grep before
+> building; do not assume this note is still accurate.
+
 - [ ] `docs/architecture.md` is rewritten where it asserts the old premise. **Find each site by
       grepping the quoted phrase, not by line number** — this file has already been restructured once
       since this spec was written, and every line number it used to carry was wrong by between 7 and

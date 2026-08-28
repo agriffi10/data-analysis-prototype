@@ -604,7 +604,7 @@ FR-005, FR-009, FR-011's backstop, and the drift and budget reporting of FR-010.
 The execution role's grants — Access Grants create/delete/list, `lakeformation:GrantPermissions` /
 `RevokePermissions` / `ListPermissions`, `identitystore:GetUserId` — plus the deploy-role expansion,
 as in-scope work per `CLAUDE.md`'s infra rule. New resource types are involved, so
-`architecture.md` → *Deploy-role IAM — adding a new resource type* is read first. Deployed-role
+`infra/info/deploy-role-iam.md` is read first. Deployed-role
 simulation on SPEC-186's discipline: every denial paired with an `allowed` control.
 
 ### Phase 5: Verification, and the cutover rehearsal

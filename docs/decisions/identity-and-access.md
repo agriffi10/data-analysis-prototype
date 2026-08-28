@@ -44,6 +44,14 @@ The domain runs Cognito **Managed Login** (`managed_login_version = 2`); the cla
 
 Browser → AWS direct. Cognito **trigger Lambdas** are allowed (service config, not an API).
 
+> **Superseded (2026-08-28).** This premise no longer describes the system. Privileged work moved onto
+> seven **control planes** (SPEC-051 onward), and SPEC-192→197 added an **HTTP API** that verifies a
+> bearer and serves routes. What survives is the boundary, not the absence: the browser still calls S3,
+> Athena and Glue **directly** with scoped credentials for most reads, and the two live rules are **no
+> second API** and **no new browser-side AWS SDK call on a path an API route already serves**. Full
+> entries: [`control-planes.md`](control-planes.md) and the API entries below. Shape:
+> `docs/architecture.md` → *The control planes* and *The API layer*.
+
 ## Usernames
 
 Usernames are the S3 prefix = principal tag = Glue DB name → validated at signup by the pre-signup Lambda; SPEC-033 tightens to catalog-safe `^[a-z][a-z0-9_]{2,62}$`.

@@ -51,13 +51,13 @@ scoped credentials **today**; Arc B is moving that behind an API (`api.dataquarr
 
 | Layer | Tech |
 |---|---|
-| Frontend | React 18 + Vite, TypeScript (strict), TailwindCSS; `focus-trap-react` (focus trapping for Modal/Drawer) |
+| Frontend | React 19 + Vite, TypeScript (strict), TailwindCSS; `focus-trap-react` (focus trapping for Modal/Drawer) |
 | AWS | `@aws-sdk/client-s3` v3 (modular), `s3-request-presigner`, `lib-storage`; `aws-amplify` v6 for Cognito; `@aws-sdk/client-athena` + `@aws-sdk/client-glue` (analytics, SPEC-034); `@aws-sdk/client-sqs` (shared-space control plane, SPEC-051) |
 | Editor | `@monaco-editor/react` + `monaco-editor` (self-hosted workers; lazy-loaded on the Query route only, SPEC-035) |
 | Routing / state | `react-router` v8 (**not** `react-router-dom` — that package is gone in v8; import everything from `react-router`); TanStack Query (server state) + Context/`useReducer` (UI state); no Redux |
 | Testing / lint | Vitest + React Testing Library + `@testing-library/user-event`; `@vitest/coverage-v8` (`npm run test:coverage`); `vitest-axe` (axe-core a11y assertions, SPEC-045); ESLint + Prettier. Tests are **integration-style** — render real hooks/children, mock only the AWS service boundary; shared harness `src/test/renderWithProviders.tsx`. Rules: `apps/portal/info/best-practices/react/react.md` §21 |
 | IaC | OpenTofu (HCL, S3 remote state) |
-| Security | `eslint-plugin-security` + `eslint-plugin-no-unsanitized` (in `npm run lint`, **blocking**); Semgrep / `npm audit` / `pip-audit` / gitleaks / Checkov / OWASP ZAP in `security.yml` (**report-only**, SPEC-138). Every scanner version-pinned — see the VERSIONS block and #311 |
+| Security | `eslint-plugin-security` + `eslint-plugin-no-unsanitized` (in `npm run lint`, **blocking**); Semgrep / `pip-audit` / gitleaks / Checkov **block** in `security.yml`; `npm audit` and the OWASP ZAP baseline **report** (SPEC-138 — the modes are the `GATE_*` block at the top of the workflow). Every scanner version-pinned — see the VERSIONS block and #311 |
 
 Don't add dependencies without noting them here first.
 
@@ -203,7 +203,7 @@ unrecoverable — revisit before real user data lands.
 - **An unreadable settings document is quarantined, never deleted and never overwritten**, and a
   **newer** schema is refused untouched — the parse is three-way, version checked before shape.
 
-### Control planes — one pattern, six planes, and the traps are shared
+### Control planes — one pattern, seven planes, and the traps are shared
 
 Shared spaces, table builder, table share, data quality, file send, **archive** and file
 operations each get:

@@ -185,7 +185,7 @@ several of them years old.
 - **Reasoning finds wording; execution finds defects.** Require a reproduction, not an argument — a
   run in the browser or against real AWS. SPEC-137's instrumented code passed review, unit tests and
   `update-function-code`, then raised `ModuleNotFoundError` at every cold start and broke sign-up for
-  nine days; every gate was blind because none of them ran the deployed artefact.
+  nine days; every gate was blind because none of them ran the deployed artifact.
 - **A spec touching lifecycle, IAM or concurrency gets an execution harness, not a review.** An
   import-time `_require` in a shared layer fails at **cold start** only, and a concurrent-refresh
   race is a property of two overlapping executions — neither is findable by reading.
@@ -359,7 +359,6 @@ When a spec is done, in the same pass:
    end-to-end** — a Draft or infra-less feature stays out until it ships. If nothing user-facing changed, say so
    and move on. (This step exists because help content silently drifts as features land; SPEC-073's join status
    and the table-builder arc, for instance, shipped after SPEC-074 was authored and had to be folded in.)
-
 
 **Anti-regrowth & doc hygiene** (each rule below was earned by a defect the 2026-08-03 doc sweep found).
 

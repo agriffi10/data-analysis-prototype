@@ -1246,7 +1246,7 @@ The rest of what CloudFront was doing, each of which needs explicit configuratio
 | Cache headers and busting | Long immutable cache on hashed assets, revalidate-always (`no-cache`) on `index.html` — the exact per-class scheme is **SPEC-141**, and nginx must reproduce it (SPEC-141 also records *why*: heuristic browser caching plus `--delete` produces a white screen, not stale content). Get this wrong and users silently run stale bundles after a deploy — intermittent and very hard to diagnose. |
 | Compression | CloudFront gzipped and brotli'd automatically. nginx must be told to. |
 | TLS and certificate | An ALB with ACM, or ingress TLS. **The OIDC provider requires HTTPS callback URLs** — Cognito does under **[B]**, Entra does under **[A]**. |
-| Security headers | The **shipped** response-headers policy (SPEC-140: enforcing CSP + HSTS + framing/nosniff/referrer/Permissions-Policy/COOP/CORP, `Server` stripped — `architecture.md` → *Infrastructure & Deployment*) moves into the nginx config. The CSP's `connect-src` is derived from Terraform variables; the nginx copy needs the same derivation, not a frozen string. HSTS currently carries `preload` (inert on `*.cloudfront.net`, never submitted) — re-decide `preload` deliberately for the new domain before emitting it there. |
+| Security headers | The **shipped** response-headers policy (SPEC-140: enforcing CSP + HSTS + framing/nosniff/referrer/Permissions-Policy/COOP/CORP, `Server` stripped — `architecture.md` → *How the SPA reaches a user*) moves into the nginx config. The CSP's `connect-src` is derived from Terraform variables; the nginx copy needs the same derivation, not a frozen string. HSTS currently carries `preload` (inert on `*.cloudfront.net`, never submitted) — re-decide `preload` deliberately for the new domain before emitting it there. |
 | Health check | The load balancer or orchestrator needs an endpoint to probe. |
 
 > **Delivered by SPEC-194 (2026-08-27); this table now records what was decided, not what is
@@ -2259,10 +2259,11 @@ doc). Deleting this code is a **cutover** task; keeping it working is a **today*
 the bucket registration, the user-space bucket policy template, and the shared-space `create`
 verb all **stay**. The portal owns them in the successor account (§4.2).
 
-Documentation to rewrite when this lands: `docs/architecture.md` (Authentication Flow,
-Authorization Model, and the "No backend" Known Constraint, which §3.5 breaks), `docs/decisions/`
-(auth, shared-space and Lake Formation material, plus a new entry for the federated claim — the
-file is one flat heading with no `##` sections, so locating passages means reading it),
+Documentation to rewrite when this lands: `docs/architecture.md` (*Identity*, *Authorization*, and
+the ADR rows for both, which §3.5 breaks), `docs/decisions/identity-and-access.md` (auth and
+shared-space material) and `docs/decisions/analytics.md` (Lake Formation), plus a new entry for the
+federated claim — the register is one file per area with a Contents at the top of each, so find the
+entry by its heading rather than reading the file,
 `lambdas/info/planes/shared-spaces.md` (ownership model), and the in-app help content per the
 SPEC-074 rule.
 

@@ -8,9 +8,10 @@ resource "time_sleep" "wait_for_deploy_policy" {
   create_duration = "30s"
 }
 
-# EVERY TOP-LEVEL PREFIX IS A USERNAME. `_directory/` is the one deliberate exception, safe
-# because CATALOG_IDENTIFIER_RE requires a leading lowercase letter so it can never BE a
-# username. ADDING A SECOND EXCEPTION MEANS RE-CHECKING THAT PROPERTY. README.md.
+# EVERY TOP-LEVEL PREFIX IS A USERNAME, apart from two deliberate exceptions: `_directory/`
+# (the username directory) and `_config/` (the feature-flag document). Both are safe because
+# CATALOG_IDENTIFIER_RE requires a leading lowercase letter, so neither can ever BE a username.
+# ADDING A THIRD MEANS RE-CHECKING THAT PROPERTY AGAINST THE REGEX, NOT AGAINST THIS LIST.
 resource "aws_s3_bucket" "user_space" {
   bucket = var.user_space_bucket_name
 

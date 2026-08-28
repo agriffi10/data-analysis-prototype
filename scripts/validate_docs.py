@@ -302,13 +302,20 @@ def check_decisions_register() -> list[str]:
         return [*errors, "docs/decisions/: INDEX.md is missing — the register has no router"]
 
     files = sorted(p for p in register.glob("*.md") if p.name != "INDEX.md")
-    titles = {}
+    titles: dict[str, pathlib.Path] = {}
     for path in files:
         first = path.read_text().split("\n", 1)[0]
         if not first.startswith("# "):
             errors.append(f"{path.relative_to(ROOT)}: does not open with an '# Area' heading")
             continue
-        titles[first[2:].strip()] = path
+        area = first[2:].strip()
+        if area in titles:
+            errors.append(
+                f"{path.relative_to(ROOT)}: '{area}' is already held by {titles[area].name}. Two files "
+                "claiming one area means one of them is unreachable, and nothing else here would notice."
+            )
+            continue
+        titles[area] = path
 
     for area in titles:
         if area not in expected_areas:
@@ -316,11 +323,21 @@ def check_decisions_register() -> list[str]:
                 f"docs/decisions/{titles[area].name}: '{area}' is not one of the areas CLAUDE.md's "
                 f"digest groups by. Add it there first, or file the entry under an existing one: {expected_areas}"
             )
+    index_text = index.read_text()
     for expected in expected_areas:
         if expected not in titles:
             errors.append(f"docs/decisions/: no file holds the '{expected}' area")
-        if f"({expected})" not in index.read_text() and expected not in index.read_text():
+        if expected not in index_text:
             errors.append(f"docs/decisions/INDEX.md: the '{expected}' area is not routed")
+
+    # The INDEX and the digest are read as parallel lists, so they are checked as parallel lists.
+    # Membership alone lets the two orders drift apart while both still "agree".
+    routed = [a for _, a in sorted((index_text.index(a), a) for a in expected_areas if a in index_text)]
+    if routed != [a for a in expected_areas if a in index_text]:
+        errors.append(
+            "docs/decisions/INDEX.md: the areas are routed in a different order from CLAUDE.md's "
+            f"digest. Digest order: {expected_areas}"
+        )
 
     for path in files:
         lines = path.read_text().split("\n")
@@ -341,6 +358,17 @@ def check_decisions_register() -> list[str]:
             target = base if seen[base] == 1 else f"{base}-{seen[base] - 1}"
             if target not in listed:
                 errors.append(f"{path.relative_to(ROOT)}: '{heading}' is not in the Contents (anchor #{target})")
+        headings = {
+            anchor(line[3:].strip())
+            for line in lines[contents_at:]
+            if line.startswith("## ") and line.strip() != "## Contents"
+        }
+        for target in sorted(listed):
+            if target.rstrip("-0123456789") not in headings and target not in headings:
+                errors.append(
+                    f"{path.relative_to(ROOT)}: the Contents links to #{target}, which is no entry in "
+                    "this file — the entry was moved or deleted and its listing was left behind"
+                )
         for line in lines:
             if line.startswith("### "):
                 errors.append(

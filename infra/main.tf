@@ -84,7 +84,7 @@ locals {
   # other role ARNs (shared-spaces creates it as
   # "${project}-${env}-shared-space-orchestrator-role"). It sits on the
   # analytics Lake Formation admins list as a CONSTRUCTED STRING — known at plan time
-  # so it doesn't break the compact() in data_lake_settings (info/deploy-role-iam.md);
+  # so it doesn't break the compact() in data_lake_settings (infra/info/deploy-role-iam.md);
   # apply ordering (module.analytics depends_on module.shared_spaces) guarantees the
   # role exists first.
   shared_space_orchestrator_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-shared-space-orchestrator-role"
@@ -220,7 +220,7 @@ locals {
   # A CONSTRUCTED STRING RATHER THAN A MODULE OUTPUT, and here that is load-bearing rather
   # than stylistic: this ARN goes into the user-space bucket policy's principal allowlist, and
   # an unknown-at-plan ARN inside a LIST attribute made OpenTofu plan NO change to that list —
-  # the value was never written (info/deploy-role-iam.md → "An unknown ARN inside compact()/a list
+  # the value was never written (infra/info/deploy-role-iam.md → "An unknown ARN inside compact()/a list
   # silently drops the change"). The module therefore exposes no role_arn output at all, so
   # there is nothing to reach for by mistake. Apply ordering is preserved by
   # module.user_directory's depends_on chain.
@@ -251,7 +251,7 @@ locals {
   # ARN scopes the orchestrator role's sqs:SendMessage, the URL is the verb Lambdas'
   # NOTIFICATIONS_QUEUE_URL. Constructed strings (not module.notifications' outputs) so
   # they're KNOWN AT PLAN TIME and don't force a shared_spaces→notifications dependency
-  # (info/deploy-role-iam.md "unknown ARN" discipline); IAM never validates that the queue
+  # (infra/info/deploy-role-iam.md "unknown ARN" discipline); IAM never validates that the queue
   # exists, so no apply ordering is needed (same pattern as the portal role's enqueue).
   notifications_queue_name = "${var.project_name}-${var.environment}-notifications-requests.fifo"
   notifications_queue_arn  = "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${local.notifications_queue_name}"
@@ -1202,7 +1202,7 @@ module "data_quality" {
 #
 # The four DLQ ARNs are CONSTRUCTED STRINGS (locals below), not the arc modules' outputs —
 # known at plan time, so the drain's IAM policy plans cleanly and no module→module edge is
-# created (the info/deploy-role-iam.md "unknown ARN in list" discipline; the same reason every
+# created (the infra/info/deploy-role-iam.md "unknown ARN in list" discipline; the same reason every
 # producer scopes to a constructed notifications queue ARN).
 module "control_plane_dlq_drain" {
   source = "./modules/control-plane-dlq-drain"

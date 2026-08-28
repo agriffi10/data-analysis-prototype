@@ -22,25 +22,29 @@ register.
 ## The system at a glance
 
 ```
-                    ┌──────────────────────────────────────────── the browser
-   Cognito ────────▶│  React 18 SPA — Vite, TypeScript, TanStack Query
-   Hosted UI        │  configuration read at runtime from /config.json
-   (Managed Login)  └───┬────────────────┬─────────────────────┬──────────────
-                        │                │                     │
-              scoped AWS credentials   bearer token       sqs:SendMessage
-                        │                │                     │
-                        ▼                ▼                     ▼
-                  S3 · Athena · Glue   API Gateway        FIFO request queue
-                  (direct SDK calls)   HTTP API                 │
-                        │                │                      ▼
-                        │            Lambda router       EventBridge Pipe
-                        │            (verifies, assumes         │
-                        │             the same role)            ▼
-                        │                │                Step Functions
-                        └────────────────┴──────────────▶ verb Lambdas ──▶ AWS
-                                                                │
-                                                                ▼
-                                                    notifications inbox
+  Cognito Hosted UI ──▶ ┌──────────────────────────────────────────────┐
+  (Managed Login v2)    │  the browser — React 19 SPA, Vite, strict    │
+                        │  TypeScript, TanStack Query; configuration   │
+                        │  read at runtime from /config.json           │
+                        └───┬─────────────┬──────────────┬─────────────┘
+                            │             │              │
+                    scoped AWS      bearer token    sqs:SendMessage
+                    credentials           │              │
+                            │             ▼              ▼
+                            │       API Gateway    FIFO request queue
+                            │        HTTP API             │
+                            │             │               ▼
+                            │      Lambda router    EventBridge Pipe
+                            │      (verifies, then        │
+                            │       assumes the           ▼
+                            │       same role)       Step Functions
+                            │             │               │
+                            │             │               ▼
+                            │             │         verb Lambdas ──▶ notifications
+                            ▼             ▼               │              inbox
+                     ┌──────────────────────────────────────────┐
+                     │   S3 · Glue · Athena · Lake Formation    │
+                     └──────────────────────────────────────────┘
 ```
 
 Two things decide almost everything else.
@@ -63,7 +67,7 @@ far), or **by enqueuing onto a control plane** (anything privileged, cross-user 
 
 ## The browser application
 
-`apps/portal/` is a React 18 + Vite + TypeScript (strict) SPA, and it is most of the code in this
+`apps/portal/` is a React 19 + Vite + TypeScript (strict) SPA, and it is most of the code in this
 repo. `infra/` is the OpenTofu that stands everything else up, `lambdas/` is the privileged
 server-side work, and `packages/` is reserved and empty.
 
@@ -212,9 +216,9 @@ bucket overall.
 
 | Bucket | Holds |
 |---|---|
-| user-space | every user's own prefix; `_directory/` is the one non-username top-level key |
-| shared-space | user-created shared spaces, mutated only through a control plane |
-| admin | Athena results, the shared-space registry, the planes' scratch, and `logs/` (retained forever) |
+| user-space | every user's own prefix, plus two shared documents every signed-in user may read: the username directory under `_directory/` and the feature flags under `_config/` |
+| shared-space | user-created shared spaces. The **lifecycle** — create, membership, delete — goes through a control plane; a member's browser writes objects inside a space it belongs to directly |
+| admin | the shared-space registry, the planes' scratch, `logs/` (retained forever), and Athena's **fallback** output — a user's own results land in their user-space prefix |
 | static assets | the built SPA, reachable only through the CloudFront OAC |
 | archive | the GLACIER vault, which the browser has no relationship with at all |
 
@@ -301,12 +305,12 @@ router.
 |---|---|---|
 | `ci.yml` | pull requests | lint, format check, `tsc -b`, unit tests, ruff, mypy, pytest, contract regeneration, doc-layout validation |
 | `spa-image.yml` | pull requests | builds the container and asserts its behaviour against every criterion the image is built to meet |
-| `deploy-infra.yml` | push to `main` | `tofu apply`, with a Checkov scan of the rendered plan and a `skip_refresh` break-glass |
+| `deploy-infra.yml` | pull requests (`plan`) and push to `main` (`apply`) | `tofu plan` with a Checkov scan of the rendered plan, then `tofu apply`, with a `skip_refresh` break-glass |
 | `deploy-app.yml` | push to `main` | builds the SPA, uploads it to the CloudFront origin, and renders `/config.json` alongside |
 | `deploy-spa-image.yml` | push to `main` | builds the image, pushes it to ECR tagged by commit sha, and points the ECS service |
 | `deploy-lambdas.yml` | push to `main` | packages each function and every layer, and updates the function code |
 | `deploy-config.yml` | push to `main` | publishes the feature-flag document to the user-space bucket |
-| `security.yml` | pull requests and a weekly schedule | the report-only scanner suite |
+| `security.yml` | pull requests and a weekly schedule | the scanner suite — Semgrep, pip-audit, gitleaks and Checkov **block**; npm audit and the ZAP baseline report |
 
 **Lambda code and infrastructure are deployed separately** — `tofu apply` never touches code, and CI
 owns every layer attachment. That split, and the traps that come with it, are
@@ -411,12 +415,12 @@ saying which row replaced it.
 
 | # | Decision | Context | Notes |
 |---|---|---|---|
-| 24 | [Privileged work runs on a control plane, not in the browser](decisions/identity-and-access.md#no-backend) | Cross-user, multi-step work needs permissions no browser session should hold, and durable retry the browser cannot provide. | FIFO SQS to a Pipe to Step Functions to single-task verb Lambdas. The browser's only grant is `sqs:SendMessage`. |
+| 24 | [Privileged work runs on a control plane, not in the browser](decisions/control-planes.md) | Cross-user, multi-step work needs permissions no browser session should hold, and durable retry the browser cannot provide. | FIFO SQS to a Pipe to Step Functions to single-task verb Lambdas. The browser's only grant is `sqs:SendMessage`. |
 | 25 | [One execution role and one DLQ per plane](../infra/info/control-plane-shape.md) | Per-verb roles were built and deliberately consolidated: the union policy is readable, and seven roles per plane were not. | A plane sharing another's DLQ lets one malformed request dead-letter someone else's work. |
 | 26 | [`cpcommon` owns the algorithm; a domain layer owns the wording](decisions/control-planes.md#the-deliberate-twins-are-discharged-one-implementation-per-cross-plane-helper-spec-156) | The same CAS loop, lock protocol and failure resolver existed three times and had already diverged. | **Do not merge the domain layers wholesale.** Where a layer is packaged by an explicit file list, a test asserts set equality with the directory. |
 | 27 | [Everything unbounded travels by pointer, never on the state](decisions/control-planes.md#everything-unbounded-on-the-state-travels-by-pointer--including-the-definition-spec-161-extending-spec-090160) | The 256 KB Step Functions state cap raises `States.DataLimitExceeded`, which escapes every `Catch` — so the failure mode is silence. | A cap on the list is not a substitute for a pointer. Every cap that does exist is computed by a test against the budget that sized it. |
 | 28 | [Outcomes arrive through the notifications inbox, on a single-writer queue](decisions/control-planes.md#notifications-spec-058061) | The work is asynchronous and may outlive the tab, so the completion channel has to be durable and readable later. | The UI never blocks. Delivery is at-least-once and **a redelivered message is not a re-run** — do not design recovery around it. |
-| 29 | [A restore is guarded absolutely, and the guard runs twice](decisions/archive-and-restore.md#the-commit-gate-and-the-four-choices-that-make-a-deletion-safe-spec-169) | Archive is the one surface where a mistake is unrecoverable, and the billed retrieval hours are exactly when a user re-creates the file. | Any occupied destination refuses the **whole** restore, and a 403 counts as occupied. The source is deleted only when every object is confirmed copied. |
+| 29 | [A restore is guarded absolutely, and the guard runs twice](decisions/archive-and-restore.md#the-destination-guard-runs-twice-because-this-spec-turned-a-guarantee-into-a-promise) | Archive is the one surface where a mistake is unrecoverable, and the billed retrieval hours are exactly when a user re-creates the file. | Any occupied destination refuses the **whole** restore, and a 403 counts as occupied. The source is deleted only when every object is confirmed copied. |
 
 ### Infrastructure and delivery
 

@@ -1,4 +1,4 @@
-# Control planes — one pattern, six planes, and the traps are shared
+# Control planes — one pattern, seven planes, and the traps are shared
 
 Part of the **Key Decisions register** — [`INDEX.md`](INDEX.md) is the router, and `CLAUDE.md`
 carries the one-line digest of each entry. This file holds the reasoning, the constraints and the
