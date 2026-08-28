@@ -26,7 +26,7 @@ Attributes:
 
 import os
 
-from cpcommon.config import _require
+from cpcommon.config import require
 
 SCHEMA_VERSION = 1
 OWNER_ONLY_ACTIONS = frozenset({"add_members", "remove_members", "delete"})
@@ -34,7 +34,7 @@ VALID_ACTIONS = frozenset(
     {"create", "add_members", "remove_members", "leave", "delete", "forget", "acknowledge_membership"}
 )
 
-PORTAL_ROLE_ARN = _require("PORTAL_ROLE_ARN")
+PORTAL_ROLE_ARN = require("PORTAL_ROLE_ARN")
 MAX_SHARED_MEMBERSHIPS = int(os.environ.get("MAX_SHARED_MEMBERSHIPS", "10"))
 
 DATABASE_PERMISSIONS = ["DESCRIBE", "CREATE_TABLE", "ALTER", "DROP"]

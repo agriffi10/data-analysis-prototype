@@ -34,11 +34,6 @@ Attributes:
   CATALOG_IDENTIFIER_RE: The single catalog-safe identifier rule — lowercase, leading
     letter, [a-z0-9_], 3-63 chars — for usernames, database, view, table and partition-key
     names.
-  REFRESH_MAX_DEFINITION_BYTES: Largest live table definition a refresh will carry onto the
-    Step Functions state. Its own bound, deliberately not table-share's, which was measured
-    for a 50-recipient Map. Breaching the 256 KB state-payload limit raises
-    States.DataLimitExceeded outside every Catch, so an oversized table is refused up front.
-    Sizing evidence is in ``docs/lambda-rationale.md``.
   _REQUIRED_VARS: Attribute name to environment variable, for the values a control plane
     cannot run without.
   _OPTIONAL_VARS: The same, for values that degrade to an empty string rather than raising.
@@ -63,8 +58,6 @@ _OPTIONAL_VARS = {
 }
 
 CATALOG_IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]{2,62}$")
-
-REFRESH_MAX_DEFINITION_BYTES = 40 * 1024
 
 
 def _require(name: str) -> str:
@@ -94,17 +87,24 @@ def require(name: str) -> str:
     ``_REQUIRED_VARS`` above is the set every control plane needs, and a domain layer must not
     add to it: that set is a fleet-wide contract, asserted per plane by
     ``test_the_common_environment_satisfies_every_import_time_require``, so a variable only one
-    plane sets would fail every other plane's guard. ``ARCHIVE_BUCKET`` is the first
+    plane sets would fail every other plane's guard. ``ARCHIVE_BUCKET`` was the first
     such value and this is what it uses instead.
 
     Exported rather than left private so a domain layer reaches for it instead of writing its
     own three-line ``os.environ`` check — one reader means one error sentence and one place the
     fail-fast behaviour is decided.
 
-    **It is a FUNCTION, not a module attribute, and that is what keeps a domain config
-    import-safe.** A constant resolved at import time in a layer module runs for every
-    attaching function whether or not it uses the value, and an unset variable then crashes at
-    COLD START, where no test and no deploy can see it.
+    **Being a FUNCTION is what lets a domain config stay import-safe, and the two callers use
+    that differently on purpose.** ``arcommon.config.archive_bucket()`` calls it lazily, so a verb
+    that never touches the archive bucket never pays for the variable — that is the shape to copy.
+    ``shared-space-common/config.py`` binds ``PORTAL_ROLE_ARN`` at import instead, deliberately:
+    every verb on that plane makes Lake Formation grants to it, so there is no invocation that
+    would rather find out later, and a missing value surfaces as a named cold-start error rather
+    than an opaque Lake Formation failure mid-request. The rule is therefore about the READER, not
+    the shape: resolve at import only where the value is common to every verb the layer attaches
+    to. Anywhere else, a constant resolved at import runs for every attaching function whether or
+    not it uses the value, and an unset variable crashes at COLD START, where no test and no
+    deploy can see it.
 
     Args:
       name: The environment variable to read.

@@ -1,11 +1,7 @@
 # ── The image registry ────────────────────────────────────────────────────────
-# One repository, holding one image: the SPA. The build that pushes to it is CI's;
-# everything about how it is stored is here.
-#
-# IMMUTABLE TAGS ARE THE LOAD-BEARING SETTING. The deploy tags by commit sha and the task
-# definition references that tag, so an image is what its tag says it is for as long as the
-# revision exists. With mutable tags a re-push under an existing sha silently changes what a
-# rolled-back task definition starts, and nothing in the state records it.
+# IMMUTABLE TAGS ARE THE LOAD-BEARING SETTING. The deploy tags by commit sha, so with mutable
+# tags a re-push under an existing sha silently changes what a rolled-back task definition
+# starts — and nothing in the state records it. There is no :latest. README.md.
 
 resource "aws_ecr_repository" "spa" {
   name                 = local.spa_name
@@ -15,15 +11,9 @@ resource "aws_ecr_repository" "spa" {
     scan_on_push = true
   }
 
-  # AES256, not a CMK. Checkov reports the absence of a customer-managed key and it is a
-  # deliberate no: the layers are a public SPA bundle, and a CMK here buys a key policy to
-  # maintain rather than a secret to protect. The disposition is in docs/security-baseline.md
-  # beside the other no-CMK entries.
-  #
-  # REVISITING IT IS A TWO-STEP once the repository holds an image: this block is ForceNew and
-  # `force_delete` is deliberately unset, so the replacement fails at DeleteRepository until the
-  # images are removed by hand. Deleting a registry full of deployed images should be a
-  # deliberate act, not a side effect of an encryption change.
+  # AES256, not a CMK — a deliberate no, dispositioned in docs/security-baseline.md.
+  # REVISITING IT IS A TWO-STEP once images exist: ForceNew, with force_delete deliberately
+  # unset, so the replacement fails at DeleteRepository until they are removed by hand.
   encryption_configuration {
     encryption_type = "AES256"
   }
@@ -31,10 +21,8 @@ resource "aws_ecr_repository" "spa" {
   tags = { Name = local.spa_name }
 }
 
-# Bounded, so the registry does not grow one layer set per deploy forever. Untagged images
-# go first and quickly: with IMMUTABLE tags an untagged image is one a later push orphaned,
-# and nothing can reference it. The tagged rule keeps the last thirty, which is a rollback
-# window measured in deploys rather than in days.
+# With IMMUTABLE tags an untagged image is one a later push orphaned and nothing can
+# reference. Thirty tagged images is a rollback window measured in deploys, not days.
 resource "aws_ecr_lifecycle_policy" "spa" {
   repository = aws_ecr_repository.spa.name
 

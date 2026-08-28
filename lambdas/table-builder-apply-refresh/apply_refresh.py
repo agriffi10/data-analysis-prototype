@@ -17,7 +17,7 @@ There is no moment at which the table is absent, so no concurrent refresh can se
 table mid-rebuild, and a failed update changes nothing. What that does not retire, stated
 rather than implied: two refreshes on one database still overlap, and Glue offers no
 compare-and-set to close it. The worst case degrades from one run seeing no table to
-last-write-wins between two definitions. See ``docs/lambda-rationale.md``.
+last-write-wins between two definitions. See ``lambdas/info/planes/table-builder.md``.
 
 Attributes:
   _TABLE_INPUT_FIELDS: The fields a Glue table update accepts. An allowlist rather than a
@@ -34,9 +34,9 @@ Attributes:
 
 import logging
 
-from cpcommon import clients, ddl, errors, events, glue, observability
+from cpcommon import clients, ddl, errors, events, observability
 from cpcommon.errors import TerminalError, TransientError
-from tbcommon import notify
+from tbcommon import glue, notify
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

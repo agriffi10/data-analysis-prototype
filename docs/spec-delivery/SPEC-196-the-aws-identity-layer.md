@@ -90,7 +90,7 @@ there is no route → **SPEC-199**.
 
 ## Component inventory: no row, and that is checked
 
-`docs/component-inventory/` has no API area file — SPEC-193's ritual did not create one, and every
+`apps/portal/info/component-inventory/` has no API area file — SPEC-193's ritual did not create one, and every
 existing area file covers `apps/portal/`. Nothing here belongs in one of those, so no row was added.
 
 ## Help & guides: nothing user-facing, verified and skipped

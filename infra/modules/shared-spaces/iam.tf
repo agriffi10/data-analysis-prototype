@@ -1,14 +1,7 @@
-# ── Control-plane IAM roles ────────────────────────────────────────────────
-# Two roles:
-#   - orchestrator role: the single privileged role the Step Function AND every verb/
-#     validator Lambda run under (trust = states + lambda). The plane decomposes into
-#     six Lambdas but keeps ONE shared role by user decision — so the policy carries the union of all verbs' permissions (Glue,
-#     Lake Formation, S3 on the shared bucket + admin registry prefix, user-space
-#     cache, Cognito admin, invoke the verb Lambdas, states/logs).
-#   - pipe role: assumed by the EventBridge Pipe to read the queue and start the SFN.
-#
-# Trust + permission policies are .tftpl templates rendered with templatefile()
-# (no inline jsonencode IAM, per architecture.md Lambda code/infra split).
+# ── Control-plane IAM roles ───────────────────────────────────────────────────
+# TWO roles, not three — this plane predates the split. The ORCHESTRATOR role is the single
+# privileged role the Step Function AND every verb Lambda run under, so its policy is the union
+# of every verb's permissions. The PIPE role reads the queue and starts the machine. README.md.
 
 # ── Orchestrator role (Step Function + Lambda) ───────────────────────────────
 resource "aws_iam_role" "orchestrator" {
@@ -34,34 +27,21 @@ resource "aws_iam_role_policy" "orchestrator" {
     sfn_log_group_arn     = local.sfn_log_group_arn
     # Trusted notifications producer — sqs:SendMessage scoped to this ARN only.
     notifications_queue_arn = var.notifications_queue_arn
-    # Structured-logging producer, same Sid and shape as data-quality's and the
-    # drain's, so all three read as one pattern rather than three inventions.
-    logs_queue_arn = var.logs_queue_arn
+    logs_queue_arn          = var.logs_queue_arn
   })
 }
 
 # ── Portal role — shared-space membership policy ────────────
-# A THIRD inline policy on the shared portal role (after data's "user-space-access"
-# and analytics' "analytics-access"), attached BY NAME like the analytics module does
-# (the role is created in module.data; module-level depends_on = [module.data]
-# guarantees it exists first). Fixed size — ten slots regardless of how many shared
-# spaces exist — so it stays well inside the portal role's inline-policy aggregate.
+# The portal role's THIRD inline policy, attached BY NAME. FIXED SIZE — ten slots regardless of
+# how many spaces exist — so it stays inside the role's inline-policy aggregate.
 #
-# Each slot is templated on ${aws:PrincipalTag/shared_space_k}: S3 object CRUD +
-# multipart and Glue DB/table scoped to the slot's space, a ListBucket conditioned on
-# the slot prefix, plus the shared delete-denies (athenaresults/ + DO_NOT_DELETE.txt)
-# and the SINGLE privileged grant the browser receives — sqs:SendMessage to the
-# request queue only. An unset slot stamps no tag → the statement matches nothing
-# (implicit deny); verified with aws iam simulate-custom-policy.
+# Each slot is templated on ${aws:PrincipalTag/shared_space_k}; an unset slot stamps no tag, so
+# the statement matches nothing. Verified with simulate-custom-policy.
 #
-# A third deny — SharedArchiveReceiptsAreNotUserWritable — using the
-# WILDCARD SPACE SEGMENT form the two existing denies already use
-# (${shared_space_bucket_arn}/*/archive/*) rather than a per-slot loop. That is not a
-# shortcut: a Deny needs no tag to be correct, so one wildcard statement covers every
-# membership slot including ones the user does not hold, where the per-slot Allows above
-# must be tag-scoped or they would grant access to spaces the user is not in. Same
-# reasoning as SharedResultsNoDelete. GetObject/ListBucket are untouched: a member can
-# browse the space's archive folder and download a receipt.
+# The archive-receipt Deny uses the WILDCARD SPACE SEGMENT rather than a per-slot loop, and
+# that is NOT a shortcut: A DENY NEEDS NO TAG TO BE CORRECT, so one statement covers every slot
+# including ones the user does not hold — where the per-slot ALLOWS must be tag-scoped or they
+# would grant access to spaces the user is not in. README.md.
 resource "aws_iam_role_policy" "portal_shared_space" {
   name = "shared-space-membership"
   role = var.portal_role_name

@@ -16,12 +16,8 @@ resource "aws_s3_bucket_public_access_block" "static_assets" {
   restrict_public_buckets = true
 }
 
-# Grants CloudFront OAC read access; denies all other principals.
-# Must be applied after the CloudFront distribution exists (references its ARN).
-# CKV_AWS_300. The only lifecycle rule this bucket has or needs: `deploy-app.yml` syncs `dist/`
-# on every deploy, and an interrupted sync leaves orphaned multipart parts that are billed and
-# invisible to every listing. NOTHING here expires objects — the deploy's own `--delete` pass
-# owns reconciliation, and a lifecycle expiry would race it.
+# CKV_AWS_300, and the only lifecycle rule this bucket has or needs. NOTHING here expires
+# objects — the deploy's own `--delete` pass owns reconciliation, and an expiry would race it.
 resource "aws_s3_bucket_lifecycle_configuration" "static_assets" {
   bucket = aws_s3_bucket.static_assets.id
 

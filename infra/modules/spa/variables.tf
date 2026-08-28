@@ -124,7 +124,7 @@ variable "image_tag" {
 
   validation {
     # An empty repo variable renders as the empty string, which satisfies a required variable
-    # and overrides a default — so the guard is on the value, not on its presence.
+    # AND overrides a default — so the guard is on the VALUE, not on its presence.
     condition     = can(regex("^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$", var.image_tag))
     error_message = "image_tag must be a valid ECR tag: it starts with a letter, digit or underscore, continues with those plus dot and hyphen, and is at most 128 characters. ECR refuses a leading dot or hyphen."
   }

@@ -1,48 +1,17 @@
 # ── The VPC the container runs in, and the route it deliberately does not have ──
 #
-# Two availability zones. Public subnets carry the load balancer and reach the internet through
-# an internet gateway. Private subnets carry the ECS tasks and have NO DEFAULT ROUTE AT ALL —
-# there is no NAT gateway in this design, and the three destinations a task actually needs are
-# reached by VPC endpoints instead (endpoints.tf).
+# Private subnets carry the ECS tasks and have NO DEFAULT ROUTE AT ALL. There is no NAT gateway
+# in this design; the residual is that any destination without an endpoint fails as a CONNECT
+# TIMEOUT, which is why flow logs are on. README.md.
 #
-# THE DECIDING ARGUMENT IS NOT COST. Interface endpoints bill per-AZ-hour plus data processed and
-# a NAT gateway bills per-hour plus per-GB; across two AZs at this traffic level the endpoint set
-# happens to be cheaper, but that is a fact that could change. What does not change is that "no
-# route to the internet" is a property a reviewer reads off a route table, where "a NAT gateway
-# nobody uses" is a claim somebody re-argues every year.
-#
-# THE RESIDUAL, STATED PLAINLY. Any future destination with no VPC endpoint is unreachable from a
-# task, and it fails as a CONNECT TIMEOUT rather than a 403 — the slowest failure there is to
-# diagnose. Foreclosed today: ECS Exec (ssmmessages, ssm, ec2messages), Secrets Manager, SSM
-# Parameter Store, any runtime package fetch, and any non-AWS host. The remedy for an AWS
-# destination is another interface endpoint; for a non-AWS one there is none short of a NAT
-# gateway, and that is a spec rather than a patch.
-
-# NO `state` FILTER, and an opt-in filter instead. Two different ways this list moves under you,
-# and both recreate every subnet:
-#
-#   `state = "available"` makes membership depend on AZ HEALTH. An impaired us-east-1a drops out,
-#   the slice below returns the next two names, and Terraform destroys and recreates the whole
-#   network — during an availability-zone event, which is the worst possible moment.
-#
-#   Local Zones and Wavelength Zones are named `us-east-1-atl-2a`, `us-east-1-wl1-bos-wlz-1` and
-#   so on, and `-` sorts BEFORE `a`. This account can see 14 of the former and more of the latter.
-#   They are `not-opted-in` today so the data source hides them — but anyone opting into one for
-#   an unrelated reason would put it at the front of the sorted list, and this network would move
-#   into two zones Fargate does not run in.
-#
-# `opt-in-not-required` is what an ordinary Availability Zone reports and what neither of the
-# other zone types ever reports, so the filter excludes them structurally rather than by name.
+# The AZ list is filtered on `opt-in-not-required`, NOT on `state`. A state filter ties
+# membership to AZ health and recreates every subnet during a zone event; the opt-in filter also
+# excludes Local and Wavelength Zones, which sort BEFORE ordinary ones. README.md.
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
 
-  # SORTED, and that is what makes the CIDR assignment stable. Subnets are keyed by AZ NAME so a
-  # reordering of the data source cannot recreate them — but the CIDR still has to come from
-  # somewhere, and deriving it from the source's own ordering would reintroduce exactly the
-  # recreate the keying exists to prevent. Sorting decides the pairing once.
-  #
-  # The sort is necessary and NOT sufficient on its own: it fixes the order of whatever the data
-  # source returns, and the filter above is what fixes the membership. Both are load-bearing.
+  # SORTED, which is what makes the CIDR assignment stable. The sort fixes the ORDER; the
+  # filter fixes the MEMBERSHIP. Both are load-bearing.
   azs = slice(sort(var.availability_zone_names), 0, 2)
 
   subnets = {
@@ -53,9 +22,8 @@ locals {
   }
 }
 
-# Both DNS settings are required, not merely advisable: `private_dns_enabled` on an interface
-# endpoint silently resolves to nothing without them, so the endpoints would exist, apply green,
-# and every call would still try to reach the public endpoint over a route that does not exist.
+# Both DNS settings are REQUIRED, not advisable: `private_dns_enabled` silently resolves to
+# nothing without them, and every call still tries a route that does not exist.
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
@@ -64,9 +32,7 @@ resource "aws_vpc" "main" {
   tags = { Name = local.name_prefix }
 }
 
-# The default security group AWS creates with the VPC allows all traffic between its own members.
-# Nothing is placed in it, but adopting it with no rules at all is cheaper than explaining why an
-# unused permissive group is harmless.
+# Adopted with no rules so the VPC's default permissive group cannot be used.
 resource "aws_default_security_group" "main" {
   vpc_id = aws_vpc.main.id
 
@@ -86,8 +52,7 @@ resource "aws_subnet" "public" {
   availability_zone = each.key
   cidr_block        = each.value.public
 
-  # The load balancer brings its own public addresses. Nothing else launches here, so an
-  # automatic public IP would only ever be given to something that should not have one.
+  # The load balancer brings its own addresses; nothing else launches here.
   map_public_ip_on_launch = false
 
   tags = { Name = "${local.name_prefix}-public-${each.key}" }
@@ -122,12 +87,8 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# ONE PRIVATE ROUTE TABLE PER AZ, and none of them carries a `0.0.0.0/0` entry of any kind. The
-# only route these ever gain is the S3 gateway endpoint's prefix-list route, which the endpoint
-# adds by association (endpoints.tf) rather than by a route resource here.
-#
-# Per-AZ rather than shared: a gateway endpoint associates with route tables, and keeping them
-# separate leaves room for an AZ to be treated differently later without moving every subnet.
+# ONE PER AZ, and none carries a `0.0.0.0/0` entry of any kind. The only route these gain is the
+# S3 gateway endpoint's prefix-list route, added by association rather than declared here.
 resource "aws_route_table" "private" {
   for_each = local.subnets
 
@@ -144,24 +105,12 @@ resource "aws_route_table_association" "private" {
 }
 
 # ── Security groups ───────────────────────────────────────────────────────────
-# The task group lives HERE rather than with the service, because the endpoint group's ingress
-# rule references it and a module must not depend on a group its own dependent owns. The load
-# balancer's group, and the two rules that name both sides, belong to the module that creates the
-# load balancer.
+# The task group lives HERE because the endpoint group's ingress rule references it. Its own
+# rules live with the LOAD BALANCER, and are not duplicated here.
 #
-# No rule that NAMES THIS GROUP AS ITS OWN is attached here. Every one of those names the load
-# balancer's group too, so they are declared in the module that creates it — a rule split across
-# two modules is a rule nobody can read. The one rule here that REFERENCES this group is the
-# endpoints' ingress in endpoints.tf, which belongs beside the endpoints it admits traffic to;
-# re-declaring it in the other module fails the apply with InvalidPermission.Duplicate.
-# THIS GROUP PERMITS NOTHING ON ITS OWN, AND THAT IS CORRECT. Terraform revokes the AWS default
-# allow-all egress when it creates a security group, so with no rules attached this group permits
-# nothing outbound and the endpoint group's ingress rule is inert. On platform version 1.4.0 every
-# leg of task startup — the ECR credential fetch, the image pull and the log stream — travels the
-# task ENI and is governed by this group, so a pull attempted with the front door's rules absent
-# WILL time out. Those rules are 443 to the endpoint group and the S3 gateway endpoint's managed
-# prefix list, and they live with the load balancer. Do not read such a timeout as an endpoint
-# defect.
+# THIS GROUP PERMITS NOTHING ON ITS OWN, AND THAT IS CORRECT. Every leg of task startup travels
+# this ENI, so a pull attempted with the load balancer module's rules absent WILL time out. Do
+# not read such a timeout as an endpoint defect. README.md.
 resource "aws_security_group" "task" {
   name        = "${local.name_prefix}-spa-task"
   description = "The SPA container. Ingress from the load balancer only; egress to the VPC endpoints only."
@@ -171,9 +120,7 @@ resource "aws_security_group" "task" {
 }
 
 # ── Flow logs ─────────────────────────────────────────────────────────────────
-# A private subnet with no default route fails as a connect timeout, and a timeout leaves nothing
-# behind. Flow logs are the only record of a rejected packet, which is what makes them worth their
-# cost in a design whose whole premise is that certain traffic cannot leave.
+# A connect timeout leaves nothing behind. These are the only record of a rejected packet.
 
 resource "aws_cloudwatch_log_group" "flow_logs" {
   name              = "/aws/vpc/${local.name_prefix}-flow-logs"
@@ -192,12 +139,8 @@ resource "aws_iam_role_policy" "flow_logs" {
   name = "flow-logs"
   role = aws_iam_role.flow_logs.id
 
-  # AWS publishes this policy with all five actions on `Resource: "*"`. FOUR OF THEM TAKE AN ARN,
-  # so they are scoped to this log group and the wildcard statement is left holding the one action
-  # that genuinely cannot be scoped: `logs:DescribeLogGroups` is a list operation with no resource
-  # type at all. Copying AWS's document verbatim would have handed a write grant on every log
-  # group in the account to a role whose entire job is one group — and the rendered-plan IAM scan
-  # reports it, which is how this was caught rather than argued about.
+  # AWS publishes this with all five actions on `Resource: "*"`. FOUR TAKE AN ARN and are
+  # scoped here; the wildcard holds only `logs:DescribeLogGroups`, which has no resource type.
   policy = templatefile("${path.module}/policies/flow-logs-permissions.json.tftpl", {
     log_group_arn = aws_cloudwatch_log_group.flow_logs.arn
   })
@@ -209,8 +152,7 @@ resource "aws_flow_log" "main" {
   log_destination_type = "cloud-watch-logs"
   log_destination      = aws_cloudwatch_log_group.flow_logs.arn
   iam_role_arn         = aws_iam_role.flow_logs.arn
-  # 60 rather than AWS's default of 600. These logs exist to make a connect timeout legible, and
-  # ten minutes of aggregation on top of the publish delay is long enough that the person
+  # 60, not AWS's default 600 — ten minutes of aggregation is long enough that the person
   # debugging gives up and adds a NAT gateway.
   max_aggregation_interval = 60
 

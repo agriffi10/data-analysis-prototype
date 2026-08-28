@@ -1,33 +1,16 @@
 # ── User-Space Bucket (Bucket 1) ─────────────────────────────────────────────
-# Holds every user's files under their own username prefix ({username}/...) plus
-# their future .config/connections.json. Private; per-user isolation is enforced
-# by IAM principal tags on the shared portal role, not by anything
-# in this module.
-#
-# This module is storage only — the bucket and its hygiene config. The portal
-# role, its prefix-scoped permission policy, and the bucket policy restricting
-# access to that role arrive with the portal role.
+# Every user's files under their own username prefix. Isolation is IAM principal tags on the
+# shared portal role, not anything in this file. README.md.
 
-# IAM propagation guard. The module-level `depends_on = [module.base]` orders the
-# API calls so the deploy-role policy (which grants S3 bucket management) is
-# written before this module runs — but IAM is eventually consistent, so the
-# deploy role using that grant to create the bucket in the same apply can race
-# the propagation and hit a transient AccessDenied. This pause closes that window.
-# It runs only on initial creation (no delay on later applies).
+# IAM propagation guard, on initial creation only: the deploy role can race its own
+# module.base grant and hit a transient AccessDenied.
 resource "time_sleep" "wait_for_deploy_policy" {
   create_duration = "30s"
 }
 
-# RESERVED ROOT PREFIX. This bucket has an invariant worth naming before breaking
-# it: EVERY TOP-LEVEL PREFIX IS A USERNAME. `_directory/` is the one deliberate exception — it
-# holds the daily username-directory document the browser reads for typeahead suggestions.
-#
-# It is safe for one specific, mechanical reason: `cpcommon.config.CATALOG_IDENTIFIER_RE`
-# requires a leading LOWERCASE LETTER, so `_directory` can never BE a username. The name was
-# chosen precisely because it cannot collide, which is also why the builder needs no special
-# case to exclude its own output — the same regex that validates a username drops it.
-#
-# Adding a second exception here means re-checking that property for the new name.
+# EVERY TOP-LEVEL PREFIX IS A USERNAME. `_directory/` is the one deliberate exception, safe
+# because CATALOG_IDENTIFIER_RE requires a leading lowercase letter so it can never BE a
+# username. ADDING A SECOND EXCEPTION MEANS RE-CHECKING THAT PROPERTY. README.md.
 resource "aws_s3_bucket" "user_space" {
   bucket = var.user_space_bucket_name
 
@@ -65,10 +48,8 @@ resource "aws_s3_bucket_ownership_controls" "user_space" {
   }
 }
 
-# Versioning is intentionally OFF for the MVP — no version history or undo. This
-# is a deliberate decision: overwrites and deletes are irreversible and the app
-# guards them in the UI (see docs/architecture.md Known Constraints). Revisit if
-# undo/version history is ever required.
+# Intentionally OFF: overwrites and deletes are irreversible and guarded only in the UI.
+# This is what makes a failure between a copy and a delete unrecoverable. README.md.
 resource "aws_s3_bucket_versioning" "user_space" {
   bucket = aws_s3_bucket.user_space.id
 
@@ -77,14 +58,8 @@ resource "aws_s3_bucket_versioning" "user_space" {
   }
 }
 
-# Lifecycle — abort incomplete multipart uploads after 7 days.
-# Uploads via the managed lib-storage Upload, which uses multipart above
-# the 5 MiB part size. A browser killed mid-upload (or a future cancel) can leave
-# in-progress parts that are billable but invisible; this rule sweeps them up.
-# The first lifecycle rule on the bucket. The
-# empty filter applies the rule to the whole bucket. The deploy role already holds
-# s3:* on this bucket (modules/base S3UserSpaceBucketManage), so no deploy-role
-# change is needed for s3:PutLifecycleConfiguration.
+# A browser killed mid-upload leaves in-progress parts that are billable but invisible to
+# every listing.
 resource "aws_s3_bucket_lifecycle_configuration" "user_space" {
   bucket = aws_s3_bucket.user_space.id
 
@@ -100,8 +75,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "user_space" {
   }
 }
 
-# CORS — without this, browser SDK calls fail (matches docs/architecture.md).
-# Origins always include local dev; the deployed app URL is added once known.
+# Without this every browser SDK call fails preflight. Origins are ADDITIVE — narrowing to
+# one origin makes the other a rollback nobody can exercise.
 resource "aws_s3_bucket_cors_configuration" "user_space" {
   bucket = aws_s3_bucket.user_space.id
 
@@ -114,36 +89,18 @@ resource "aws_s3_bucket_cors_configuration" "user_space" {
   }
 }
 
-# ── Bucket Policy — defense in depth ──────────────────────────────────────
-# Denies S3 *data* actions (object CRUD + ListBucket) to every principal except
-# the portal role, the deploy role, and the account root (break-glass). This is
-# belt-and-suspenders on top of the role's identity policy: even a misconfigured
-# principal can't read or write user data. Bucket *configuration* actions
-# (PutBucketPolicy, lifecycle, etc.) are intentionally NOT denied.
+# ── Bucket Policy — the hand-maintained allowlist ─────────────────────────
 #
-# The LF registration role MUST also be excluded: Lake Formation
-# assumes it to vend credentials for the registered user-space location, so when a
-# user queries a Glue table the S3 read happens AS this role. An explicit Deny in a
-# resource policy overrides the role's identity-policy Allow, so without the
-# exclusion queries fail with "PERMISSION_DENIED ... s3:ListBucket ... explicit deny
-# in a resource-based policy". It's a service role (not user-assumable), so
-# excluding it doesn't widen user data access.
+# ⚠ AN EXPLICIT RESOURCE-POLICY DENY BEATS AN IDENTITY-POLICY ALLOW. A role holding a correct
+# identity grant and missing from this list is denied AT RUNTIME, with nothing in the plan to
+# warn it — and it reads as a code bug, because the shared-space bucket has no policy so every
+# SHARED-space path succeeds while every PERSONAL one fails.
 #
-# The deploy role MUST be excluded: it runs `tofu plan`/`apply`, which calls
-# HeadBucket (an s3:ListBucket action) to refresh the bucket. An earlier version omitted it,
-# so once the policy was live the deploy role got 403 on HeadBucket, tofu refresh
-# reported the bucket as "deleted", and every subsequent infra plan proposed a
-# destructive recreate. Excluding the deploy role (which already holds s3:* on the
-# bucket via its identity policy, and can rewrite any policy anyway) fixes the
-# refresh without weakening the model. Human IAM admins remain denied data access.
-# Uses aws:PrincipalArn rather than relying on absence of grants.
+# ADD A ROLE HERE IN THE SAME PR THAT CREATES IT, not with the first verb that needs it. The
+# LF registration role and the DEPLOY role are both mandatory exclusions — omitting the latter
+# makes `tofu refresh` report the bucket deleted and plan a destructive recreate.
 #
-# The exclusion list uses the portal role's IAM ARN (arn:...:role/NAME), NOT the
-# assumed-role session ARN: per AWS docs, aws:PrincipalArn for an assumed-role
-# request (incl. Cognito AssumeRoleWithWebIdentity) resolves to the role's IAM
-# ARN, and the docs say not to use the session ARN as a value here. So users
-# (who assume this role via the Identity Pool) are correctly excluded from the
-# Deny and can reach their own prefix.
+# Every entry is the role's IAM ARN, NEVER the assumed-role session ARN. README.md.
 data "aws_caller_identity" "current" {}
 
 resource "aws_s3_bucket_policy" "user_space" {

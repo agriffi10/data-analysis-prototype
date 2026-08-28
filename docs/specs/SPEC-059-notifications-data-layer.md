@@ -202,7 +202,7 @@ change what the UI is telling the user.
 - [ ] `@aws-sdk/client-sqs` is added (modular v3) and recorded in CLAUDE.md Tech Stack; the SQS client is
   instantiated in `src/lib/` (e.g. `lib/sqsClient.ts`) from `getSessionCredentials`, never in a component.
 - [ ] `VITE_NOTIFICATIONS_QUEUE_URL` is documented in `apps/portal/.env.example` with a description.
-- [ ] All new symbols get one-line rows in `docs/component-inventory.md` at completion.
+- [ ] All new symbols get one-line rows in `apps/portal/info/component-inventory/INDEX.md` at completion.
 
 ---
 

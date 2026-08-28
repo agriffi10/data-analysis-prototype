@@ -301,7 +301,7 @@ invocation sees it.
       report-only one. It is new code with no legacy to ratchet through, and that block is the only
       home of the ratchet path.
 - [ ] `ruff check lambdas/` is clean, and the module carries **no inline comments** and a Google-style
-      docstring on every callable (`best-practices/python/python.md` §14).
+      docstring on every callable (`lambdas/info/best-practices/python/python.md` §14).
 
 ### FR-005: `infra/modules/spa/` — the container runtime and the load balancer
 
@@ -977,7 +977,7 @@ any ported route. Production is still served by CloudFront and is untouched.
   spec actually found. That list is explicitly a running record.
 - `ARCS.md`: the arc entry updated with what the apply found, since the arc file is where a later
   reader looks for how the eleven specs compose.
-- `docs/component-inventory/`: **no row.** There is no infra area file and this spec adds no reusable
+- `apps/portal/info/component-inventory/`: **no row.** There is no infra area file and this spec adds no reusable
   service, hook or component. Recorded rather than left ambiguous.
 - Help sweep: **nothing user-facing changes.** The live portal is still the CloudFront-served bundle;
   the two new hosts serve a placeholder no user is pointed at. Recorded explicitly and skipped.

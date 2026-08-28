@@ -1,17 +1,9 @@
-# ── Control-plane Lambdas ─────────────────────────────────────────
-# Single-task verb Lambdas — the front door, the lock's two halves and the notification of
-# last resort — orchestrated by the Step Function (stepfunction.tf). All four share ONE
-# execution role (iam.tf) and each gets its task's real timeout/memory (locals.tf).
-#
-# Code-ownership split: Terraform owns the function INFRASTRUCTURE + a placeholder zip;
-# deploy-lambdas.yml builds and ships the Python code (lambdas/file-ops-<suffix>/) AND
-# publishes + attaches the layers: the focommon domain layer PLUS the shared cpcommon
-# layer. `ignore_changes` keeps `tofu apply` from reverting CI's code OR layers — and
-# `layers` in that list is not optional, since without it every apply detaches what CI
-# attached and the next cold start fails on an import nobody changed.
+# ── The verb Lambdas ─────────────────────────────────────────────────────────
+# Entirely for_each over local.file_ops_functions. CI owns the code and both layers (cpcommon +
+# focommon), and `layers` in ignore_changes is NOT optional — without it every apply detaches
+# what CI attached and the next cold start fails on an import nobody changed.
 
-# One placeholder package per function so each is valid at create time. CI replaces the
-# code (and attaches the layers); these stubs only ever run pre-deploy.
+# One placeholder per function so each is valid at create time.
 data "archive_file" "placeholder" {
   for_each = local.file_ops_functions
 
@@ -24,9 +16,7 @@ data "archive_file" "placeholder" {
   }
 }
 
-# Explicit log group per function so retention is managed (14 days; matches the other
-# control planes). Lambda would otherwise create one with infinite retention on first
-# invoke.
+# Explicit so retention is managed (Lambda would otherwise default to infinite).
 resource "aws_cloudwatch_log_group" "functions" {
   for_each = local.file_ops_functions
 
@@ -44,10 +34,9 @@ resource "aws_lambda_function" "functions" {
   timeout       = each.value.timeout
   memory_size   = each.value.memory
 
-  # EVERY variable the shared layers require at import must be COMMON to all verbs: the
-  # layer's fail-fast runs on any `from focommon import …` chain, so a verb missing ANY
-  # required var crashes at cold start, where no test and no deploy can see it. The
-  # per-verb map (locals.tf) is reserved for OPTIONAL action env only.
+  # ⚠ EVERY variable the shared layers require must be COMMON to all verbs — a verb missing one
+  # fails at COLD START, where no test and no deploy can see it. The per-verb map is for
+  # OPTIONAL action env only.
   environment {
     variables = merge(
       {
@@ -61,15 +50,14 @@ resource "aws_lambda_function" "functions" {
         # Deliberately NOT mirrored by a required-config read, so a verb missing it logs
         # to stdout rather than crashing the plane at cold start.
         LOGS_QUEUE_URL = var.logs_queue_url
-        # Shipped on every structured record. Same source of truth as the feature-flag
-        # document's `environments` keys.
+        # Same source of truth as the feature-flag document's `environments` keys.
         ENV_NAME = var.environment
       },
       lookup(local.file_ops_verb_env, each.key, {}),
     )
   }
 
-  # Bootstrap with the placeholder; CI replaces code + attaches the layers.
+  # Bootstrap with the placeholder; CI replaces the code and attaches the layers.
   filename         = data.archive_file.placeholder[each.key].output_path
   source_code_hash = data.archive_file.placeholder[each.key].output_base64sha256
 

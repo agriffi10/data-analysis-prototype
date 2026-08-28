@@ -27,6 +27,7 @@ import pytest
 from cpcommon import clients, config, glue
 from cpcommon.ddl import build_create_table_ddl
 from cpcommon.errors import TerminalError, TransientError
+from tbcommon import config as tb_config
 
 BUCKET = "dat-prod-user-space"
 SHARED_BUCKET = "dat-prod-shared-space"
@@ -265,7 +266,7 @@ def _state_at_cap(column_share):
     is how table-share once certified a bound that did not exist
     (test_state_machines_cpcommon.py).
     """
-    cap = config.REFRESH_MAX_DEFINITION_BYTES
+    cap = tb_config.REFRESH_MAX_DEFINITION_BYTES
     columns, properties = [], {}
 
     def _size():
@@ -300,7 +301,7 @@ def test_the_refresh_cap_leaves_room_for_what_infer_schema_adds_to_the_same_stat
     worst, columns = _state_at_cap(column_share=1.0)
 
     assert worst < limit // 2, (
-        f"a {config.REFRESH_MAX_DEFINITION_BYTES:,}-byte definition of {columns:,} bare "
+        f"a {tb_config.REFRESH_MAX_DEFINITION_BYTES:,}-byte definition of {columns:,} bare "
         f"columns reaches {worst:,} bytes ({worst / limit:.0%}) once infer-schema adds its "
         f"columns and DDL — too close to the {limit:,}-byte state-payload limit"
     )

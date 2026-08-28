@@ -13,7 +13,7 @@
 >
 > **Two mechanisms in this repo do not work the way a reader would expect, and both bite this spec.** `Modal` has **no `closeOnEscape` prop** — only `dismissible` — and `useEscapeKey` is an **unconditional `document` keydown listener** that inspects neither `defaultPrevented` nor any stop flag. `Drawer.closeOnEscape` exists but is a caller-supplied opt-out, not something a leaf component can reach. So "the first Escape closes the suggestion list, the second closes the dialog" is not free; FR-004 specifies the mechanism and puts a fallback change to `useEscapeKey` **in scope** rather than assuming one.
 >
-> **Rulebooks:** `docs/best-practices/react/react.md` and the accessibility rulebook, routed via `docs/best-practices/INDEX.md`. The combobox pattern is prescriptive — read the a11y section before writing markup, not after.
+> **Rulebooks:** `apps/portal/info/best-practices/react/react.md` and the accessibility rulebook, routed via `docs/best-practices/INDEX.md`. The combobox pattern is prescriptive — read the a11y section before writing markup, not after.
 
 ## Overview
 

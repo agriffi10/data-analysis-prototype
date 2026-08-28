@@ -68,6 +68,13 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
+#: Every tree that holds prose docs, for the link and path checks below. ``docs/`` is the
+#: cross-cutting one; the rest sit beside the code they describe, so the doc is found by whoever is
+#: standing in the tree rather than by remembering a central path. A tree missing from this list is
+#: not an error anywhere — it is simply unchecked, which is how a moved doc silently stops being
+#: link-checked. Add the tree in the same commit that creates it.
+DOC_TREES = ("docs", "apps/portal/info", "lambdas/info", "infra/info", "infra/modules")
+
 TESTING_PERMANENT = frozenset({"e2e.md", "owed.md", "sessions.md"})
 TESTING_INFLIGHT_MAX = 1
 
@@ -75,6 +82,30 @@ FIXTURES_MAX_SCRIPTS = 1
 CLAUDE_MAX_BYTES = 50_000
 DIGEST_MAX_CHARS = 1_400
 DELIVERY_MAX_LINES = 260
+def decision_areas() -> list[str]:
+    """Read the areas ``CLAUDE.md``'s Key Decisions digest groups by, in order.
+
+    DERIVED, never transcribed. A hard-coded copy of these eight strings is what this function
+    replaced, and it had already drifted: one area's wording differed from the heading it claimed to
+    mirror, while the docstring beside it asserted the two agreed. That is the failure mode a second
+    copy always has — the copy is not checked against the original, so the claim of agreement is the
+    only thing holding, and a claim is not a check.
+
+    Args:
+      None.
+
+    Returns:
+      The area labels, in the order the digest declares them.
+
+    Raises:
+      None.
+    """
+    lines = (ROOT / "CLAUDE.md").read_text().split("\n")
+    start = next(i for i, line in enumerate(lines) if line.startswith("## Key Decisions"))
+    end = next(i for i, line in enumerate(lines[start + 1 :], start + 1) if line.startswith("## "))
+    return [line[4:].strip() for line in lines[start:end] if line.startswith("### ")]
+
+
 STATUS_WORDS = ("shipped", "complete", "active", "draft", "in progress", "filed", "scoped")
 SOURCE_TREES = (("apps/portal/src", (".ts", ".tsx")), ("lambdas", (".py",)), ("infra", (".tf", ".tftpl")))
 CITATION_RE = re.compile(r"SPEC-\d{3}|(?<![\w#])#\d{3,4}(?![\w])|\b(?:FR|AC)-?\d+\b")
@@ -236,25 +267,55 @@ def check_claude_budget() -> list[str]:
 
 
 def check_decisions_register() -> list[str]:
-    """Require one heading level per entry, and a Contents that reaches every one of them.
+    """Require the register's AREA grouping, one heading level per entry, and a reaching Contents.
 
-    The register is pulled entry by entry, so an entry outside the Contents is only findable
-    by reading the whole file — which is the cost the layering exists to avoid.
+    The register is pulled entry by entry, so an entry outside the Contents is only findable by
+    reading the whole file — which is the cost the layering exists to avoid.
+
+    The areas are a CLOSED set, and they are the same eight the ``CLAUDE.md`` digest groups by. That
+    is the point of checking them: the digest is never the only home of a fact, so a reader who finds
+    an area there must find the same area here. Ordering by spec number instead is what made this
+    file read as a changelog and feel disposable — an entry filed under a ninth area, or under none,
+    is the first step back to that.
 
     Args:
       None.
 
     Returns:
-      One message per unlisted entry, per broken anchor, or per stray heading level.
+      One message per unlisted entry, per broken anchor, per unknown area and per entry sitting
+      outside one.
 
     Raises:
       None.
     """
     lines = (ROOT / "docs" / "decisions.md").read_text().split("\n")
-    strays = [line for line in lines if line.startswith("## ") and not line.startswith("## Contents")]
+    errors = []
+
+    expected_areas = decision_areas()
+    if not expected_areas:
+        errors.append("CLAUDE.md: no '### ' area headings under Key Decisions — the digest lost its grouping")
+    areas = [line[3:].strip() for line in lines if line.startswith("## ")]
+    for area in areas:
+        if area != "Contents" and area not in expected_areas:
+            errors.append(
+                f"decisions.md: '{area}' is not one of the areas CLAUDE.md's digest groups by. "
+                f"Add it there first, or file the entry under an existing one: {expected_areas}"
+            )
+    for expected in expected_areas:
+        if expected not in areas:
+            errors.append(f"decisions.md: the '{expected}' area heading is missing")
+
+    # An entry must sit under an area, not above the first one.
+    first_area = next(
+        (i for i, line in enumerate(lines) if line.startswith("## ") and line[3:].strip() != "Contents"),
+        len(lines),
+    )
+    for i, line in enumerate(lines):
+        if line.startswith("### ") and i < first_area:
+            errors.append(f"decisions.md: '{line[4:].strip()}' sits above the first area heading")
+
     headings = [line[4:].strip() for line in lines if line.startswith("### ")]
     listed = set(re.findall(r"\]\(#([^)]+)\)", "\n".join(lines)))
-    errors = [f"decisions.md: '{s}' is a ## heading; every entry is ###" for s in strays]
     seen: dict[str, int] = {}
     for heading in headings:
         base = anchor(heading)
@@ -412,7 +473,9 @@ def check_links() -> list[str]:
       None.
     """
     errors = []
-    files = [ROOT / "README.md", ROOT / "CLAUDE.md", *sorted((ROOT / "docs").rglob("*.md"))]
+    files = [ROOT / "README.md", ROOT / "CLAUDE.md"]
+    for tree in DOC_TREES:
+        files.extend(sorted((ROOT / tree).rglob("*.md")))
     for path in files:
         for match in re.finditer(r"\[[^\]]*\]\(([^)#\s]+?)(?:#[^)]*)?\)", path.read_text()):
             target = match.group(1)
@@ -442,7 +505,10 @@ def check_section_pointers() -> list[str]:
     ledger = ROOT / "docs" / "testing" / "owed.md"
     sections = set(re.findall(r"^### (\d+\.\d+) ", ledger.read_text(), re.MULTILINE))
     errors = []
-    for path in [ROOT / "CLAUDE.md", *sorted((ROOT / "docs").rglob("*.md"))]:
+    scanned = [ROOT / "CLAUDE.md"]
+    for tree in DOC_TREES:
+        scanned.extend(sorted((ROOT / tree).rglob("*.md")))
+    for path in scanned:
         text = path.read_text()
         for match in re.finditer(r"(owed\.md`?[^.\n]{0,40}?|^)§(\d+\.\d+)", text, re.MULTILINE):
             cites_ledger = "owed.md" in match.group(1) or path == ledger
@@ -476,7 +542,9 @@ def check_doc_paths_everywhere() -> list[str]:
     """
     suffixes = {".tf", ".tftpl", ".yml", ".yaml", ".py", ".ts", ".tsx", ".sh", ".toml"}
     skip = ("node_modules", ".terraform", "dist", "coverage", ".git")
-    pattern = re.compile(r"docs/[A-Za-z0-9_./-]+\.md")
+    pattern = re.compile(
+        r"(?:" + "|".join(re.escape(tree) for tree in DOC_TREES) + r")/[A-Za-z0-9_./-]+\.md"
+    )
     errors = []
     for path in sorted(ROOT.rglob("*")):
         if path.suffix not in suffixes or any(part in skip for part in path.parts):

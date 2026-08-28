@@ -13,7 +13,7 @@
 > own prefix, both already granted. That is load-bearing and is stated as a constraint (FR-005),
 > not left as a happy accident.
 >
-> **Rulebooks:** `docs/best-practices/react/react.md` (§19 comments, §21 tests).
+> **Rulebooks:** `apps/portal/info/best-practices/react/react.md` (§19 comments, §21 tests).
 
 ## Overview
 

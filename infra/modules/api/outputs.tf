@@ -1,7 +1,4 @@
-# No api_origin or api_host output. Both are built at ROOT from the domain variables and
-# passed DOWN into this module — re-exporting them here would make a module output the
-# source of a value three other modules consume, which is the unknown-at-plan shape the
-# root-locals rule exists to avoid.
+# No api_origin or api_host output — both are built at ROOT and passed DOWN. README.md.
 
 output "api_id" {
   description = "HTTP API id — names the API in live checks and in the access-log group."

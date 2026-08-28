@@ -1,19 +1,10 @@
-# ── File-ops Step Function ────────────────────────────────────────────────
-# Standard state machine — validate-authorize, the lock's waiting loop, a branch per
-# operation and the whole-request failure path. Standard over Express keeps per-execution
-# history for debugging and allows the long waits this machine takes by design; Express is
-# doubly rejected, since a Pipe cannot use REQUEST_RESPONSE against a Standard machine and
-# this plane's outcome is a notification rather than a response.
+# ── File-ops Step Function ────────────────────────────────────────────────────
+# Standard, which Express doubly cannot be: a Pipe cannot use REQUEST_RESPONSE against a
+# Standard machine, and this plane's outcome is a notification rather than a response.
 #
-# The state machine runs under its OWN role (iam.tf: InvokeFunction on the verbs + log
-# delivery); the verb Lambdas run under the ONE shared execution role.
-#
-# THE TOP-LEVEL TimeoutSeconds SHIPS FROM THE FIRST VERSION, unlike the planes whose
-# ceiling arrived with their transfer. This machine can wedge before it does any data work
-# at all, because the waiting loop is in it from day one: a request whose lock is held by
-# something that never finishes would otherwise sit in a Wait/re-acquire cycle for a YEAR,
-# which is Step Functions' own default. The arithmetic behind the number is in locals.tf,
-# where a test computes the give-up bound against it.
+# THE TOP-LEVEL TimeoutSeconds SHIPS FROM THE FIRST VERSION, unlike the planes whose ceiling
+# arrived with their transfer — this machine can wedge before it does any data work at all,
+# because the waiting loop is in it from day one. The arithmetic is in locals.tf. README.md.
 
 resource "aws_cloudwatch_log_group" "orchestrator" {
   name              = local.sfn_log_group_name
@@ -66,22 +57,16 @@ resource "aws_sfn_state_machine" "file_ops" {
 }
 
 # ── The timed-out run's only route to a notification ─────────
-# A top-level TimeoutSeconds expiry terminates the execution OUTRIGHT. Step Functions
-# catchers cover Task, Parallel and Map states but NOT top-level execution failures, so the
-# machine's own RecordFailure -> NotifyFailure path is unreachable on this one failure and
-# the actor would be told nothing at all — the exact silence the failure path exists to
-# close. Listening for TIMED_OUT on an EventBridge bus is the documented remedy, and this
-# is it. Same shape as the neighbouring planes', which is the point: three planes with one
-# failure mode should not have three answers to it.
+# Catchers do not cover top-level execution failures, so the machine's own NotifyFailure path
+# is unreachable on this one failure and the actor would be told nothing at all. Same shape as
+# the neighbouring planes': three planes with one failure mode should not have three answers.
 #
-# TIMED_OUT ONLY, never FAILED. Every other whole-request failure already reaches
-# NotifyFailure through a Catch, so matching FAILED here would send a second notification
-# for every one of them.
+# TIMED_OUT ONLY, NEVER FAILED, or every caught failure double-notifies.
 #
-# THIS DOOR DELIBERATELY DOES NOT RELEASE THE LOCK. By the time it fires the execution is
-# already gone and the lock may have been stolen by a later arrival — releasing here would
-# overwrite that new holder's claim and reintroduce exactly the concurrency the lock
-# exists to prevent, from its own cleanup. The stale-lock steal is the recovery.
+# ⚠ THIS DOOR DELIBERATELY DOES NOT RELEASE THE LOCK. By the time it fires the execution is
+# gone and the lock may have been STOLEN by a later arrival — releasing here would overwrite
+# that new holder's claim and reintroduce the very concurrency the lock exists to prevent,
+# from its own cleanup. The stale-lock steal is the recovery. README.md.
 resource "aws_cloudwatch_event_rule" "execution_timed_out" {
   name        = "${local.state_machine_name}-timed-out"
   description = "Notify the actor when a file-operations execution is stopped by the state machine's own timeout."
@@ -101,8 +86,7 @@ resource "aws_cloudwatch_event_target" "execution_timed_out" {
   arn  = aws_lambda_function.functions["notify-failure"].arn
 }
 
-# Resource-based grant so the rule (events.amazonaws.com) may invoke the notifier — the
-# same reason the DLQ drain's sweep needs no invoke role. Scoped to this rule's ARN.
+# Resource-based grant, so the rule needs no invoke role. Scoped to this rule's ARN.
 resource "aws_lambda_permission" "execution_timed_out" {
   statement_id  = "AllowEventBridgeExecutionTimedOut"
   action        = "lambda:InvokeFunction"

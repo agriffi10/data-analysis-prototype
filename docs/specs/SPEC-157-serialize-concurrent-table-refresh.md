@@ -12,7 +12,7 @@
 > rule). No new resource type is introduced — the lock is an S3 object in a bucket that already
 > exists — so the deploy role needs nothing new, and this ships as ONE PR rather than two.
 >
-> **Rulebooks:** `docs/best-practices/lambdas/lambdas.md`, `docs/best-practices/python/python.md`.
+> **Rulebooks:** `lambdas/info/best-practices/lambdas/lambdas.md`, `lambdas/info/best-practices/python/python.md`.
 
 ## Overview
 

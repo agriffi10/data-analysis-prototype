@@ -9,7 +9,7 @@
 > (sans notifications/UI). Implements **`execute-ddl`**: run the generated `CREATE EXTERNAL TABLE` (incl.
 > partition-**projection** `TBLPROPERTIES`) via **Athena** against the target database and record terminal
 > success; finalizes the state machine's success/failure terminal states + `Catch` across all verbs and the
-> execute-ddl role's LF/Glue/Athena/S3 grants. Follows `docs/best-practices/lambdas/lambdas.md`.
+> execute-ddl role's LF/Glue/Athena/S3 grants. Follows `lambdas/info/best-practices/lambdas/lambdas.md`.
 >
 > **No partition load (decided 2026-06-30).** Partitioned tables use **partition projection** (SPEC-069), so there
 > is **no `MSCK REPAIR TABLE`** step and **no `partition_load_failed`** reason — a projected table is queryable

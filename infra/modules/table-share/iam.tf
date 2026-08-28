@@ -1,14 +1,6 @@
-# ── Control-plane IAM roles ─────────────────────────────────────────────────────────────────
-# ONE shared execution role for every verb Lambda (user decision,
-# docs/architecture.md (Control Planes -> Table Share) — mirrors the table-builder's consolidated
-# model; per-verb roles are NOT used), plus the Step Function role and the Pipe
-# role. Trust + permission policies are .tftpl templates rendered with
-# templatefile() (no inline jsonencode IAM, per architecture.md).
-#
-# At this stage the execution policy (execution.json.tftpl) is LOGS ONLY — the
-# placeholder path needs nothing else. The LF-admin / Glue / Athena / S3 / Cognito /
-# registry / notifications grants are added by the spec that first needs each
-# with the verbs, keeping this foundation behavior-free.
+# ── Control-plane IAM roles ──────────────────────────────────────────────────
+# One shared execution role, the Step Function role and the Pipe role.
+# ../../info/control-plane-shape.md and README.md.
 
 # ── Shared Lambda execution role (uniform lambda trust) ──────────────────────
 resource "aws_iam_role" "execution" {
@@ -20,32 +12,21 @@ resource "aws_iam_role_policy" "execution" {
   name = "permissions"
   role = aws_iam_role.execution.id
 
-  # CopyPlanReadWrite (2026-07-21): inspect-source WRITES the object list to
-  # {admin_bucket}/table-share/{requestId}/ and passes a KEY onward; copy-objects READS it.
-  # The list used to ride INLINE on the Step Functions state, and the Map's ItemSelector
-  # copies the whole state into every item — at the shipped caps (1000 objects, ordinary
-  # Hive keys) that put the Map's output state at 95% of the 256 KB payload limit, where
-  # States.DataLimitExceeded fires ON THE MAP and destroys every per-recipient outcome the
-  # Map exists to preserve. Same fix and same reason as the data-quality manifest.
+  # The copy plan travels BY POINTER: inspect-source writes the object list to
+  # {admin_bucket}/table-share/{requestId}/ and passes a KEY onward. Inline, the Map's
+  # ItemSelector copies the whole state into every item and States.DataLimitExceeded fires ON
+  # THE MAP, destroying every per-recipient outcome the Map exists to preserve.
   #
-  # THE ADMIN BUCKET, not a user space: the SPA never browses it, so the plan needs no
-  # hidden-folder convention, and a user cannot delete it out from under a running
-  # execution (they DO hold s3:DeleteObject in their own space). No delete is granted here
-  # either — analytics/s3.tf's expire-table-share-copy-plans lifecycle rule expires it.
+  # THE ADMIN BUCKET, not a user space — a user holds s3:DeleteObject in their own space and
+  # could delete the plan out from under a running execution.
   #
-  # NOTE FOR ANYONE ADDING A STATEMENT: IAM rejects a "//" comment key inside a statement
-  # ("Policy input list item 1 has invalid content" — verified with simulate_custom_policy),
-  # so rationale goes HERE, not in the .tftpl.
+  # ⚠ IAM REJECTS A "//" COMMENT KEY INSIDE A STATEMENT, so rationale goes HERE, never in the
+  # .tftpl. README.md.
   policy = templatefile("${path.module}/policies/execution.json.tftpl", {
     log_group_arn = local.table_share_log_group_wildcard_arn
-    # Registry read (source authz + recipient-space existence), Cognito
-    # recipient-existence checks. Source-bucket ListBucket for the
-    # copy-plan listing. Glue CreateTable, the Athena DDL run/poll and
-    # results write + lakeformation:GetDataAccess — the LF-admin designation itself
-    # lives in module.analytics' data_lake_settings (root wires the constructed
-    # role ARN; recipient DBs are dynamic, so catalog-wide create via LF admin,
-    # mirroring the table-builder). sqs:SendMessage to the notifications
-    # queue ONLY (best-effort sender + recipient outcome notifications).
+    # The union of every verb's needs. The LF-admin designation itself lives in
+    # module.analytics' data_lake_settings; recipient DBs are dynamic, so create is
+    # catalog-wide via LF admin.
     admin_bucket_arn        = local.admin_bucket_arn
     user_pool_arn           = local.user_pool_arn
     glue_catalog_arn        = local.glue_catalog_arn
@@ -55,18 +36,14 @@ resource "aws_iam_role_policy" "execution" {
     shared_space_bucket_arn = local.shared_space_bucket_arn
     athena_workgroup_arn    = local.athena_workgroup_arn
     notifications_queue_arn = var.notifications_queue_arn
-    # Structured-logging producer; same Sid and shape as the other three planes.
+
     logs_queue_arn = var.logs_queue_arn
   })
 }
 
 # ── Portal role — table-share enqueue policy ────────────────
-# The browser's ONLY table-share privilege: sqs:SendMessage to the request queue.
-# A small inline policy on the shared portal role, attached BY NAME like
-# the table-builder / notifications modules (the role is created in module.data; the
-# root module-level depends_on guarantees it exists first). No Lambda invoke, no DLQ,
-# no Step Function — just enqueue. The send helper is enqueueTableShare; the UI that
-# uses it lives in the browser.
+# The browser's ONLY privilege on this plane: sqs:SendMessage. Attached BY NAME (the role is
+# created in module.data). No Lambda invoke, no DLQ, no Step Function.
 resource "aws_iam_role_policy" "portal_table_share" {
   name = "table-share-enqueue"
   role = var.portal_role_name
@@ -86,18 +63,13 @@ resource "aws_iam_role_policy" "sfn" {
   name = "permissions"
   role = aws_iam_role.sfn.id
 
-  # The Distributed Map's permissions are the STATE MACHINE's, not the
-  # Lambdas'. AWS is explicit that the state machine role invokes StartExecution for each
-  # child workflow and reads/writes the ItemReader + ResultWriter objects — so the manifest
-  # read and the results write belong here, beside states:StartExecution, and NOT in
-  # execution.json.tftpl. That misplacement renders green, applies green, passes the policy
-  # render test, and fails on the first real share with AccessDenied at the ItemReader.
-  # StopExecution is NOT granted: nothing here stops a child, and StartExecution +
-  # DescribeExecution is the documented least-privilege pair.
+  # ⚠ THE DISTRIBUTED MAP'S PERMISSIONS ARE THE STATE MACHINE'S, NOT THE LAMBDAS'. The
+  # ItemReader read and the ResultWriter write belong HERE, beside states:StartExecution.
+  # Putting them in execution.json.tftpl renders green, applies green, passes the policy-render
+  # test, and fails on the first real share with AccessDenied at the ItemReader.
   #
-  # The ResultWriter bucket is the ADMIN bucket — a module input of this account's stack — so
-  # the same-account/same-Region requirement (a cross-account or cross-Region export fails the
-  # execution with States.ResultWriterFailed) holds by construction rather than by assertion.
+  # StopExecution is NOT granted. The ResultWriter bucket is the ADMIN bucket, so the
+  # same-account/same-Region requirement holds by construction. README.md.
   policy = templatefile("${path.module}/policies/sfn-permissions.json.tftpl", {
     # Invoke every verb Lambda (constructed ARNs, known at plan).
     function_arns_json           = jsonencode(local.table_share_function_arns)

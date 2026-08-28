@@ -1,9 +1,6 @@
-# ── Constructed names + ARNs ──────────────────────────────────────────────────────────────────────
-# All resource names derive from {project_name}-{environment} so the deploy policy
-# (the modules/base grant) scopes to the same {project}-*-data-quality-*
-# patterns, and so cross-resource ARNs referenced inside IAM policy templates are KNOWN
-# AT PLAN TIME (constructed strings, not resource attributes) — the architecture.md
-# "unknown ARN in list" discipline. This module plans standalone.
+# ── Constructed names + ARNs ──────────────────────────────────────────────────
+# Names are what the deploy policy scopes to, and every ARN here is KNOWN AT PLAN TIME.
+# This module plans standalone. ../../info/control-plane-shape.md.
 
 locals {
   requests_queue_name = "${var.project_name}-${var.environment}-data-quality-requests.fifo"
@@ -13,50 +10,25 @@ locals {
   state_machine_name  = "${var.project_name}-${var.environment}-data-quality-orchestrator"
   sfn_role_name       = "${var.project_name}-${var.environment}-data-quality-sfn-role"
 
-  # ONE shared execution role for all nine verb Lambdas (no per-verb roles — matching
-  # table-builder and table-share). Its policy covers logs, the S3 grants
-  # and the protected-object Deny, and the Glue/Athena/Lake-Formation
-  # admin grants. The ARN is a constructed
-  # string (known at plan time) so it can be added to the analytics LF admins list
-  # without a cycle.
+  # A constructed string so it can join the analytics LF admins list without a cycle.
   execution_role_name = "${var.project_name}-${var.environment}-data-quality-execution-role"
   execution_role_arn  = "arn:aws:iam::${var.account_id}:role/${var.project_name}-${var.environment}-data-quality-execution-role"
 
-  # The nine single-task verb Lambdas. Keyed by the function SUFFIX (= the
-  # lambdas/data-quality-<suffix>/ subdir AND the deploy-lambdas.yml matrix name
-  # "data-quality-<suffix>"); value = the handler + the task's real timeout/memory.
+  # The nine verb Lambdas, keyed by the function SUFFIX, which is also the
+  # lambdas/data-quality-<suffix>/ directory and the deploy-lambdas.yml matrix name.
   #
-  # BOTH timeout AND memory_size are set explicitly for every verb.
-  # The precedent this fixes, precisely: the shared-space verbs set `timeout = 60` but
-  # NEVER set `memory_size` (infra/modules/shared-spaces/lambda.tf:46), leaving it at
-  # the AWS default of 128 MB. It is the MEMORY default that was left implicit there,
-  # not the timeout — and an unset memory tier is invisible in the plan and only shows
-  # up as an OOM in production.
+  # ⚠ BOTH timeout AND memory_size are set for EVERY verb. The shared-space verbs set a
+  # timeout and never a memory_size, leaving the AWS default of 128 MB — AN UNSET MEMORY TIER
+  # IS INVISIBLE IN THE PLAN AND ONLY SHOWS UP AS AN OOM IN PRODUCTION.
   #
-  # NO VERB HERE STREAMS BULK DATA — Athena does the heavy work — which is why nothing
-  # needs the maximum timeout or memory tier. byte-scan is the ONLY function that
-  # touches file bytes, and its budget is bounded PER REQUEST (DQ_SCAN_TOTAL_BYTES,
-  # default 2 GiB); 300 s / 1024 MB is sized against that. A
-  # PER-FILE budget (v3's design: 256 MiB × up to 1000 files ≈ 276 GB) would need
-  # ~920 MB/s sustained through one Lambda and is impossible — it would pass on a
-  # three-file fixture and time out in production.
-  # Each verb's module is named dq_<verb>.py, never a uniform handler.py. An earlier version chose
-  # the uniform name on the grounds that "the verb directory already disambiguates"; that
-  # is true for Lambda (each function is its own zip) and FALSE for pytest, which flattens
-  # every verb dir into ONE module namespace. With nine `handler.py` files the first
-  # `import handler` wins for the whole session, so the tests silently imported
-  # the handler and asserted against the wrong module. Reversed (user
-  # decision, 2026-07-16) before the remaining seven verbs — and the file-converter arc's
-  # eight — inherited it.
+  # No verb here streams bulk data; Athena does the heavy work. byte-scan is the only one that
+  # touches file bytes, and its budget is bounded PER REQUEST. A per-FILE budget would need
+  # ~920 MB/s through one Lambda — it would pass on a three-file fixture and time out live.
   #
-  # The dq_ PREFIX is required on top of that: table-builder already owns the bare
-  # `inspect_source` / `validate_authorize` module names, and table-share prefixes its own
-  # (table_share_inspect_source.py) for exactly the same reason.
-  #
-  # The `handler` string here also drives the placeholder's filename (lambda.tf derives
-  # it via split(".", handler)[0]), so this map and lambdas/data-quality-<verb>/dq_<verb>.py
-  # MUST move together — a mismatch deploys a function whose entrypoint does not exist,
-  # and nothing but a live invoke would catch it.
+  # ⚠ Modules are dq_<verb>.py, NEVER a uniform handler.py: pytest flattens every verb
+  # directory into ONE module namespace, so nine handler.py files mean the first import wins
+  # and the tests assert against the wrong module. The `handler` string here also drives the
+  # placeholder filename, so this map and the source file MUST move together. README.md.
   data_quality_functions = {
     "validate-authorize"  = { handler = "dq_validate_authorize.handler", timeout = 15, memory = 256 }
     "inspect-source"      = { handler = "dq_inspect_source.handler", timeout = 120, memory = 1024 }
@@ -74,14 +46,11 @@ locals {
     suffix => "${var.project_name}-${var.environment}-data-quality-${suffix}"
   }
 
-  # Per-verb extra env, merged over the common env (lambda.tf). RESERVED FOR OPTIONAL
-  # action env only: everything cpcommon/config.py _require()s must live in the COMMON
-  # env instead — the shared layer's import-time fail-fast runs for every verb that
-  # imports it, so a verb missing any required var crashes at cold start.
+  # RESERVED FOR OPTIONAL action env ONLY — anything cpcommon/config.py requires belongs in
+  # the COMMON env in lambda.tf.
   data_quality_verb_env = {}
 
-  # Constructed function ARNs (known at plan time) — fed to the SFN role's
-  # InvokeFunction list and the Step Function tasks.
+  # Known at plan time — fed to the SFN role's InvokeFunction list.
   data_quality_function_arns = [
     for suffix, name in local.data_quality_function_names :
     "arn:aws:lambda:${var.aws_region}:${var.account_id}:function:${name}"
@@ -92,25 +61,16 @@ locals {
     suffix => "/aws/lambda/${name}"
   }
 
-  # The shared execution role writes to EVERY verb's log group, so its policy scopes
-  # logs to the /aws/lambda/{project}-{env}-data-quality-* wildcard (one statement
-  # covering all nine function log groups) rather than a per-verb ARN.
+  # The shared role writes to EVERY verb's log group, so one wildcard statement covers them.
   data_quality_log_group_wildcard_arn = "arn:aws:logs:${var.aws_region}:${var.account_id}:log-group:/aws/lambda/${var.project_name}-${var.environment}-data-quality-*"
 
-  # CI-built Lambda layers (deploy-lambdas.yml publishes + attaches them; TF ignores the
-  # `layers` attribute). Named to match the deploy-role *-data-quality-* layer wildcard
-  # (modules/base). Referenced here for documentation/parity only.
-  #
-  # dqcommon carries the DOMAIN surface only — no polars, no Excel engine, and NO
-  # PyJWT/cryptography (those live once, in cpcommon).
+  # CI builds, publishes and attaches these. dqcommon carries the DOMAIN surface only — no
+  # polars, no Excel engine, and NO PyJWT/cryptography, which live once in cpcommon.
   dqcommon_layer_name = "${var.project_name}-${var.environment}-data-quality-common"
 
-  # polars, attached to inspect-source ONLY. The layer is unavoidable: Athena requires
-  # an EXPLICIT COLUMN LIST for a Parquet or JSON external table and does NOT auto-detect
-  # a Parquet schema, so that list must come from inspect-source's per-file probe — and
-  # reading a Parquet footer needs a Parquet reader. "This arc needs no polars" would
-  # make its own Parquet support impossible to build. No fastexcel:
-  # this arc does not support Excel (convert it first, then check the Parquet).
+  # polars, on inspect-source ONLY, and UNAVOIDABLE: Athena needs an EXPLICIT COLUMN LIST for
+  # a Parquet or JSON external table and does not auto-detect a schema, so the list comes from
+  # a per-file probe — which needs a Parquet reader. No fastexcel: convert first. README.md.
   polars_layer_name = "${var.project_name}-${var.environment}-data-quality-polars"
 
   sfn_log_group_name = "/aws/vendedlogs/states/${local.state_machine_name}"
@@ -122,17 +82,12 @@ locals {
   shared_space_bucket_arn = "arn:aws:s3:::${var.shared_space_bucket_name}"
   admin_bucket_arn        = "arn:aws:s3:::${var.admin_bucket_name}"
 
-  # The SHARED portal Athena workgroup every verb runs in (var.athena_workgroup) — the
-  # same one table-builder/table-share use. This plane once had its OWN workgroup to
-  # escape the portal workgroup's scan cutoff, but a dedicated workgroup fails Lake
-  # Formation's Create/Describe checks (Athena ties LF to the workgroup); The live
-  # run proved it. The ARN scopes the execution role's athena:StartQueryExecution etc.
+  # The SHARED portal workgroup. A dedicated one fails Lake Formation's Create/Describe checks
+  # because Athena ties LF to the workgroup — proved by a live run. README.md.
   athena_workgroup_arn = "arn:aws:athena:${var.aws_region}:${var.account_id}:workgroup/${var.athena_workgroup}"
 
-  # Glue catalog ARNs for the temp-table grants. WILDCARD database and
-  # table on purpose: the temp table is created in the actor's own database (personal) or
-  # the shared space's (shared), so the target is only known at request time and cannot be
-  # enumerated in static Terraform. Same shape as table-builder/locals.tf:92-94.
+  # WILDCARD database and table ON PURPOSE: the temp table lands in the actor's own database
+  # or the shared space's, known only at request time and not enumerable in static Terraform.
   glue_catalog_arn  = "arn:aws:glue:${var.aws_region}:${var.account_id}:catalog"
   glue_database_any = "arn:aws:glue:${var.aws_region}:${var.account_id}:database/*"
   glue_table_any    = "arn:aws:glue:${var.aws_region}:${var.account_id}:table/*/*"

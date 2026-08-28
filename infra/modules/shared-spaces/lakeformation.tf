@@ -1,15 +1,9 @@
 # ── Lake Formation registration of the shared bucket ───────
-# Register dat-prod-shared-space as an LF location in HYBRID mode (as the user-space
-# bucket) so the file browser keeps direct-IAM S3 while Athena
-# reads shared tables via LF. LF assumes a custom registration role (below) to vend
-# temporary S3 creds for the location; the role is scoped to the shared bucket only.
+# Registered in HYBRID mode so the file browser keeps direct-IAM S3 while Athena reads shared
+# tables via LF. LF assumes a registration role scoped to this bucket only.
 #
-# The LF data-lake-settings singleton (admins + IAMAllowedPrincipals removal) lives
-# in the analytics module and is already applied account-wide; the
-# orchestrator role is added to its admins list there (root-wired). This
-# file only adds the per-bucket registration, which is independent of those settings.
-# Per-shared-DB LF grants + the DATA_LOCATION_ACCESS grant on this location are issued
-# by the orchestrator (now an LF admin) at create time.
+# The LF data-lake-settings singleton lives in modules/analytics and is applied account-wide;
+# this file only adds the per-bucket registration. README.md.
 
 resource "aws_iam_role" "lf_registration" {
   name               = "${var.project_name}-${var.environment}-shared-space-lf-registration-role"
@@ -27,8 +21,8 @@ resource "aws_iam_role_policy" "lf_registration" {
   })
 }
 
-# WARNING: hybrid mode — do NOT flip to enforced without opting in EVERY principal
-# first, or the file browser's direct S3 access to the shared bucket breaks.
+# ⚠ HYBRID MODE — do NOT flip to enforced without opting in EVERY principal first, or the file
+# browser's direct S3 access to this bucket breaks.
 resource "aws_lakeformation_resource" "shared_space" {
   arn                   = aws_s3_bucket.shared_space.arn
   role_arn              = aws_iam_role.lf_registration.arn
@@ -37,12 +31,8 @@ resource "aws_lakeformation_resource" "shared_space" {
   depends_on = [aws_iam_role_policy.lf_registration]
 }
 
-# DATA_LOCATION_ACCESS for the shared portal role on the registered shared location
-# — a single location-level grant (mirrors analytics' user-space grant)
-# so members can CREATE tables / CTAS over dat-prod-shared-space. Per-space isolation
-# is still IAM (the membership-tag Glue DB + S3 prefix scoping), not this
-# grant; the per-DB LF grant is issued by the provisioner at create time. Granted by
-# the deploy role (an LF admin via analytics' data_lake_settings).
+# One location-level grant so members can CREATE tables / CTAS over the shared bucket.
+# Per-space isolation is still IAM (the membership-tag scoping), not this grant.
 resource "aws_lakeformation_permissions" "portal_shared_location" {
   principal   = local.portal_role_arn
   permissions = ["DATA_LOCATION_ACCESS"]
@@ -54,13 +44,9 @@ resource "aws_lakeformation_permissions" "portal_shared_location" {
   depends_on = [aws_lakeformation_resource.shared_space]
 }
 
-# TBAC fix: DATA_LOCATION_ACCESS on the shared bucket for each
-# control-plane execution role (table-builder / table-share / data-quality), so a
-# verb can CREATE tables over any shared-space prefix. This is the location half the
-# `portal-managed` LF-Tag can't express (tags cover DB/table resources, not S3
-# locations); the tag itself + the tag-policy grants live in the analytics module.
-# One per-bucket grant, mirroring portal_shared_location; per-space gating stays at
-# validate-authorize. Empty list (standalone plan) => no grants.
+# THE LOCATION HALF THE `portal-managed` LF-TAG CANNOT EXPRESS — tags cover DB and table
+# resources, NOT S3 locations. One per-bucket grant per control-plane execution role; per-space
+# gating stays at validate-authorize. An empty list (standalone plan) means no grants.
 resource "aws_lakeformation_permissions" "control_plane_shared_location" {
   for_each    = toset(compact(var.control_plane_execution_role_arns))
   principal   = each.value

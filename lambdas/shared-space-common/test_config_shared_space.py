@@ -9,7 +9,7 @@ verb needs is still required by SOMETHING.
 
 That union test is the PR #196 lesson made executable. A verb must satisfy the requirements
 of ALL its layers, so the set is the union across them. **The two layers now fail at
-different moments** — this module's ``_require`` at import, ``cpcommon``'s six at first read
+different moments** — this module's ``require`` at import, ``cpcommon``'s six at first read
 (SPEC-156 FR-004) — and the union is unchanged by that. A variable that fails on a branch
 instead of at cold start is narrower, not optional.
 """

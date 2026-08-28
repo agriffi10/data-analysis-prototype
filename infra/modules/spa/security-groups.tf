@@ -1,7 +1,6 @@
 # ── The two groups, and every rule that names one of them ─────────────────────
-# The load balancer's group is created here. The TASK group is not: it belongs to the network
-# module, which creates it with no rules on purpose, because every rule on it also names the
-# load balancer's group and a rule split across two modules is a rule nobody can read.
+# The ALB's group is created here; the TASK group belongs to modules/network, which creates it
+# with NO rules on purpose. Every rule on it is declared here. README.md.
 
 resource "aws_security_group" "alb" {
   name        = "${local.spa_name}-alb"
@@ -20,9 +19,8 @@ resource "aws_vpc_security_group_ingress_rule" "alb_https" {
   description       = "HTTPS from the internet"
 }
 
-# Port 80 exists ONLY to answer the redirect. The listener's sole action is a 301, so nothing
-# is served over it — but the port has to be reachable for a browser that types the bare host
-# to be told where to go.
+# ONLY to answer the redirect — the listener's sole action is a 301, but the port has to be
+# reachable for a browser that types the bare host to be told where to go.
 resource "aws_vpc_security_group_ingress_rule" "alb_http" {
   security_group_id = aws_security_group.alb.id
   cidr_ipv4         = "0.0.0.0/0"
@@ -42,10 +40,8 @@ resource "aws_vpc_security_group_egress_rule" "alb_to_tasks" {
 }
 
 # ── The task group's rules ────────────────────────────────────────────────────
-# The group itself belongs to the network module, which created it with NO rules on purpose:
-# every rule names a group this module also names. Its reciprocal — the endpoints' ingress
-# from this group — is declared beside the endpoints and must NOT be repeated here, or the
-# apply fails with InvalidPermission.Duplicate.
+# Its reciprocal — the endpoints' ingress from this group — is declared beside the endpoints
+# and must NOT be repeated here, or the apply fails with InvalidPermission.Duplicate.
 
 resource "aws_vpc_security_group_ingress_rule" "tasks_from_alb" {
   security_group_id            = var.task_security_group_id
@@ -65,10 +61,8 @@ resource "aws_vpc_security_group_egress_rule" "tasks_to_endpoints" {
   description                  = "To the interface endpoints: the ECR credential fetch, the registry API and the log stream"
 }
 
-# BY PREFIX LIST, never by CIDR. ECR stores image layers in S3 and the S3 endpoint is a
-# GATEWAY: its traffic is matched by the managed prefix list the endpoint installs a route
-# for. A CIDR rule naming S3's address ranges does not match it, and the symptom is an image
-# pull that hangs rather than one that refuses.
+# BY PREFIX LIST, never by CIDR. The S3 endpoint is a GATEWAY, and a CIDR rule naming S3's
+# ranges does not match its traffic — the symptom is an image pull that HANGS.
 resource "aws_vpc_security_group_egress_rule" "tasks_to_s3" {
   security_group_id = var.task_security_group_id
   prefix_list_id    = var.s3_prefix_list_id

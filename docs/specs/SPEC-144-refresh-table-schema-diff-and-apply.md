@@ -13,7 +13,7 @@
 >
 > **This spec does more message-layer work than it looks like it should**, and FR-009 explains why: `tbcommon/messages.py` is a *failure* table whose renderer hard-codes `Couldn't create table "{name}": …`, `success_message` takes no reason and hard-codes *"is ready to query"*, and `emit_failure` never reads `TerminalError.tokens`. Every one of those is correct for a plane that only ever created tables, and every one of them is in the way now.
 >
-> **Rulebooks:** `docs/best-practices/lambdas/lambdas.md`.
+> **Rulebooks:** `lambdas/info/best-practices/lambdas/lambdas.md`.
 
 ## Overview
 

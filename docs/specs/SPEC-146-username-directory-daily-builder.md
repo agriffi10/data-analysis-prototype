@@ -11,7 +11,7 @@
 >
 > **Source decision, settled 2026-08-03 (user decision, after reading `docs/transition_plan.md`).** The directory is built from **S3 common prefixes on the user-space bucket**, not from Cognito `ListUsers`. FR-001 carries the reasoning, and it is worth reading before proposing the alternative, because the obvious objection to S3 today is real and stops being true after the transition.
 >
-> **Rulebooks:** `docs/best-practices/lambdas/lambdas.md`.
+> **Rulebooks:** `lambdas/info/best-practices/lambdas/lambdas.md`.
 
 ## Overview
 

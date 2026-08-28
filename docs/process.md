@@ -1,8 +1,9 @@
 # The Spec-Driven Development Process
 
 How work gets done in this repo. CLAUDE.md carries the terse, always-loaded rules; this doc is the
-fuller **method** they point to — read it once to understand the rhythm, then let CLAUDE.md's Session
-Workflow be your in-session checklist. It is read on demand, not every session.
+fuller **method** they point to, and it is the contract CLAUDE.md only summarises. **Read it at the
+start of every session, before any other doc** — CLAUDE.md's Session Workflow says the same, and this
+file used to say the opposite.
 
 Goal: each feature is **specified before it's built**, built in **reviewable phases**, landed as a
 **single PR on green CI**, and recorded in **lean, layered docs** so the next session starts cheap.
@@ -11,34 +12,55 @@ Goal: each feature is **specified before it's built**, built in **reviewable pha
 
 ## 1. Where truth lives (and why it's layered)
 
-The docs are tiered by how often they're loaded. Keep each tier in its lane — the always-loaded tier
-(`CLAUDE.md`, and `architecture.md` behind it) was deliberately cut down from much larger versions,
-must be kept lean, and **must not regrow**.
-It regrew once and was cut again: the fix each time is a pointer to a deeper tier, never a longer
-paragraph in the always-loaded file.
+Two axes, and they answer different questions. **How often is it loaded** decides what may go in it:
+the always-loaded tier was cut down from much larger versions and must not regrow, and the fix each
+time is a pointer to a deeper tier, never a longer paragraph. **Which tree does it describe** decides
+where it lives: documentation sits beside the code it is about, and `docs/` carries what spans trees
+or belongs to no tree at all.
 
-| Tier | File(s) | Loaded | Authoritative for |
-|---|---|---|---|
-| Always | `CLAUDE.md` | every session | conventions, key decisions, session workflow |
-| Status | `docs/specs/INDEX.md` + each spec header | on demand | spec **status** (one row per spec) |
-| The work | `docs/specs/SPEC-XXX-*.md` | the one you're building | requirements + phases |
-| Why | `docs/architecture.md` | the *section* you need | design rationale + Known Constraints |
-| Decisions | `docs/decisions.md` | the *entry* for your area | settled decisions in full + "do NOT build" fences |
-| Arcs | `docs/specs/ARCS.md` | the arc you're in | why an arc exists, how its specs compose |
-| Reuse | `docs/component-inventory.md` → `component-inventory/<area>.md` | the area(s) you need | services/hooks/components already built |
-| Rulebooks | `docs/best-practices/INDEX.md` → domain doc | the section(s) you need | domain coding rules (React, a11y, …) |
-| History | `docs/spec-delivery/SPEC-XXX-*.md` | when a dependency points to one | what a past spec shipped |
-| Validation | `docs/testing/e2e.md` + `owed.md` | when running live checks | how to validate the deployed app, and what is still owed |
-| Method | `docs/process.md` (this file) | once | how we work |
+### Loaded every session
 
-**Context discipline (the user cares about session-start token cost):**
+| File | Authoritative for |
+|---|---|
+| `CLAUDE.md` | conventions, the Key Decisions digest, the session workflow |
+| `docs/process.md` (this file) | how we work — the method behind that summary |
+
+### Pulled on demand, by tree
+
+| Tree | Entry point | Holds |
+|---|---|---|
+| The app | `apps/portal/info/component-inventory/INDEX.md` | a **router** to per-area inventories of what already exists — read the area(s) your spec touches, never all |
+| | `apps/portal/info/best-practices/` | the React and accessibility rulebooks |
+| The lambdas | `lambdas/info/INDEX.md` | every function, grouped by control plane — a lookup, not a description |
+| | `lambdas/info/planes/<plane>.md` | one page per plane: its machine, what it accepts, its fences, its layer, and the evidence behind its caps |
+| | `lambdas/info/shared-layer.md` | `cpcommon`'s module map and the long-form *why* behind it |
+| | `lambdas/info/best-practices/` | the Lambda-shape and Python rulebooks |
+| The infrastructure | `infra/info/INDEX.md` | the module index and the shape every control plane shares |
+| | `infra/modules/<name>/README.md` | one README per module, beside its `.tf` |
+
+`docs/best-practices/INDEX.md` is a **cross-tree router** — it names which rulebook lives in which
+tree, and holds no rules of its own.
+
+### Pulled on demand, spanning trees
+
+| File(s) | Loaded | Authoritative for |
+|---|---|---|
+| `docs/specs/INDEX.md` + each spec header | on demand | spec **status**, one row per spec |
+| `docs/specs/SPEC-XXX-*.md` | the one you're building | requirements + phases |
+| `docs/specs/ARCS.md` | the arc you're in | why an arc exists, how its specs compose |
+| `docs/architecture.md` | the *section* you need | the foundations: the SPA's shape, auth, the authorization model, the shared control-plane pattern, constraints, infrastructure and delivery |
+| `docs/decisions.md` | the *entry* for your area | settled decisions in full and the "do NOT build" fences, **grouped by the same eight areas as CLAUDE.md's digest** |
+| `docs/spec-delivery/SPEC-XXX-*.md` | when a dependency points to one | what a past spec shipped |
+| `docs/testing/e2e.md` + `owed.md` | when running live checks | how to validate the deployed app, and what is still owed |
+| `docs/transition_plan.md` | before auth, provisioning or LF work | the client-environment transition |
+
+**Context discipline (session-start token cost is a standing concern):**
 - Read **only the current spec** in full.
-- **Never** read `architecture.md`, `decisions.md`, `ARCS.md`, or delivery docs whole — pull the one
-  section/entry you need.
-- The component inventory is a **router**: read `component-inventory/<area>.md` for the areas the spec
-  touches, never all of them.
-- Delegate *dependency* delivery-doc reading to an Explore/subagent brief rather than loading it into
-  the main loop.
+- **Never** read `architecture.md`, `decisions.md`, `ARCS.md`, a plane page or a delivery doc whole —
+  pull the one section or entry you need. Each is built so that is possible.
+- The inventories and the Lambda index are **routers**: read the row, then the one file it names.
+- Delegate a *dependency's* delivery-doc reading to an Explore/subagent brief rather than loading it
+  into the main loop.
 
 ---
 
@@ -69,7 +91,8 @@ session you notice it (two hand-synced copies of one procedure is how numbering 
 **Start of session**
 1. Read CLAUDE.md, then the **current** spec in full. Don't infer scope from a prior conversation —
    read the spec file as it exists now.
-2. For reuse, read the `component-inventory/<area>.md` file(s) the spec touches; pull only the
+2. For reuse, read the `apps/portal/info/component-inventory/<area>.md` file(s) the spec touches, and
+   the `lambdas/info/planes/<plane>.md` page for any plane it changes; pull only the
    `architecture.md` section / `decisions.md` entry / dependency delivery-doc you actually need.
 3. Confirm CI is green: `gh run list --branch main --limit 5`. Investigate failures before building.
 4. **Branch from fresh `main`:** `git fetch && git switch -c <branch> origin/main`.
@@ -92,8 +115,9 @@ session you notice it (two hand-synced copies of one procedure is how numbering 
   built and how it maps back to the plan before continuing. Re-review the plan only if the phase
   changed it — a phase that revises the plan has produced a new artifact, and it goes through the
   gate as one.
-- Before writing code in a domain that has a rulebook (React, accessibility, …), route through
-  `docs/best-practices/INDEX.md` and load only the relevant section(s). Apply the rules as you write;
+- Before writing code in a domain that has a rulebook (React, accessibility, Lambda shape, Python),
+  route through `docs/best-practices/INDEX.md` — which names the tree each rulebook lives in — and
+  load only the relevant section(s). Apply the rules as you write;
   flag (don't silently break) any that conflict with existing code.
 - Specs ship with **no Open Questions** — they're resolved during authoring (§4). An issue that emerges
   mid-build is triaged by *kind*, not parked:
@@ -119,7 +143,7 @@ expensive of the two because the code that follows will faithfully implement it.
   finding that is silently dropped is a finding that was not reviewed.
 - **The reviewer gets the artifact and its sources, never the author's reasoning.** For a spec: the
   spec file, its arc entry in `ARCS.md`, the `decisions.md` entries it claims to follow, and the
-  specs it depends on. For a plan: the plan, the spec, and the `component-inventory/<area>.md` files
+  specs it depends on. For a plan: the plan, the spec, and the `apps/portal/info/component-inventory/<area>.md` files
   the spec touches. Handing over the authoring rationale tells the reviewer what to conclude.
 - **What each review is for.** A **spec** review asks: is every FR testable and binary; does any
   acceptance criterion pass vacuously; is anything in Out of Scope actually required by an FR; does
@@ -302,7 +326,7 @@ When a spec is done, in the same pass:
    page (~40–100 lines), with **no code/JSON pasted** (the code + component-inventory are the
    source of truth for reuse).
 4. If reusable services/hooks/components were added, add a **one-line** row to the
-   `docs/component-inventory/<area>.md` **matching the component's path** — a `features/query/` row
+   `apps/portal/info/component-inventory/<area>.md` **matching the component's path** — a `features/query/` row
    belongs in the query area file, nowhere else (the router only changes if a whole new area appeared).
 5. A *new architectural decision* gets its full entry in `docs/decisions.md` **first**, then **one
    line** in CLAUDE.md's Key Decisions — the digest line is **never the only home of a fact**, and
@@ -343,8 +367,8 @@ When a spec is done, in the same pass:
 > ledger, the log and at most **one** in-flight arc script; `docs/testing/fixtures/` to
 > plane-named scripts within a ratchet, refusing a spec-numbered one outright; `CLAUDE.md` to a
 > byte budget and each
-> Key Decisions line to a length; every `decisions.md` entry to one heading level and a resolving
-> Contents entry; every `ARCS.md` arc to a status-free heading that is in the arc list; every spec
+> Key Decisions line to a length; every `decisions.md` entry to one heading level, a resolving
+> Contents entry, and a place under one of the eight areas the CLAUDE.md digest groups by; every `ARCS.md` arc to a status-free heading that is in the arc list; every spec
 > header to agreeing with its `INDEX.md` row and every Completed spec to having a delivery doc;
 > every delivery doc to a line cap; and every relative markdown link to resolving. **The budgets
 > are ratchets at the measured level** (SPEC-150's convention for the coverage floors) — raising
@@ -358,6 +382,38 @@ When a spec is done, in the same pass:
 > is a gate.
 
 
+- **Documentation lives beside the code it describes.** A page named for a source file, a module or
+  a directory belongs in that tree's `info/`, not in `docs/`; `docs/` carries what spans trees or
+  belongs to no tree. The test is where a reader is standing when they need it — someone changing a
+  verb is in `lambdas/`, and a doc they must leave the tree to find is a doc they will not open. A
+  606-line `docs/lambda-rationale.md` whose every entry was named for a Lambda source file is how
+  this rule was learned.
+- **One organising axis per subject, and one doc that owns it.** If a subject is documented per-plane,
+  exactly one place is per-plane. `architecture.md` and `lambdas/info/planes/` both carried a section
+  per control plane; 58% of `architecture.md` was the duplicate half, and the two had already
+  diverged. A second doc on the same axis is not redundancy, it is a fork with no merge.
+- **A register is grouped by AREA; ordering it by spec number turns it into a changelog.** The
+  question a reader arrives with is "what has been settled about X", never "what did SPEC-143
+  decide". `decisions.md` sat in spec order for 195 entries and read as something disposable — which
+  it is not, since it is the only home of the rejected alternatives and the fences. The digest and
+  the register **group by the same areas**, so a reader who finds an area in one finds it in the other.
+- **When a doc moves, the pointers that rot unseen are in SOURCE files** — `.py` docstrings, `.tf`
+  comments, `.yml` steps. `validate_docs.py` walks those for exactly this reason; a markdown-only
+  sweep reports the tree clean. Grep the path, not the filename, and fix the Draft specs too: a
+  Draft is an unbuilt instruction, and pointing one at a deleted file sends the next builder nowhere.
+- **A doc's own statement of when to read it must agree with CLAUDE.md's.** This file told readers it
+  was read once and on demand while CLAUDE.md told them to read it first, every session. Both are
+  cheap to write and neither is checked, so they drift silently and the reader follows the wrong one.
+- **Status never appears in a heading**, anywhere. It rots the day the next spec lands, which is why
+  `ARCS.md`'s headings are gated for it.
+- **A heading in a doc read by SUBJECT names the subject, not the spec that produced it** — this is
+  `architecture.md` and the tree `info/` pages, where a reader arrives asking "how does the archive
+  plane work", never "what did SPEC-168 decide". The scope is deliberate and stops there: an entry in
+  `decisions.md` IS a record of what one spec settled, and its number is part of its identity when
+  you are coming from a delivery doc or a superseded marker, so those headings keep theirs. A rule
+  stated more broadly than that would be violated by 121 of that register's 195 headings on the day
+  it was written, and a rule practice contradicts at scale trains readers to ignore the ones that
+  hold.
 - If a memory or doc disagrees with the code, fix or delete it — don't let stale state accumulate.
   Don't add prose to the always-loaded tier.
 - **Standing rules never cite volatile numbers** (line counts, row counts, section ranges) — state the

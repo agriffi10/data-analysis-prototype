@@ -20,7 +20,7 @@ The task is to **recreate these designs in the existing codebase** (`apps/portal
 ---
 
 ## Mapping to the codebase
-These already exist (from `docs/component-inventory.md`) and are the intended integration points:
+These already exist (from `apps/portal/info/component-inventory/INDEX.md`) and are the intended integration points:
 
 - **`FileBrowser` (`features/files/FileBrowser.tsx`)** — top-level browser: breadcrumbs, listing, upload/create-folder. Per the inventory, rows already carry an always-visible **Details** button and *"bulk/single actions (download/copy/move/rename/delete) live in the selection toolbar."* This design **narrows the selection toolbar to Copy / Move / Delete only** and moves Download + Rename to the metadata panel. Adjust the toolbar's button set accordingly.
 - **`MetadataPanel` (`MetadataPanel.tsx`)** — read-only metadata drawer (close button + Escape). Add the **Download + Rename** action pair to its header region and gate its visibility to `selection.count === 1`.

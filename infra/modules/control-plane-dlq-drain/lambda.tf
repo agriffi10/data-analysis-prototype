@@ -1,12 +1,6 @@
 # ── The drain Lambda and its scheduled sweep ───────────────────────────────
-# ONE function over FOUR queues. The per-domain differences (the user-facing noun, the field
-# the actor's token lives in) are a table inside the handler keyed off the queue's ARN, so a
-# fifth control plane is one map entry and one more ARN in DLQ_ARNS — not a fifth copy of
-# this file.
-#
-# Code-ownership split (architecture.md): Terraform owns the function
-# INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml owns the Python code and attaches
-# the cpcommon layer. `ignore_changes` keeps `tofu apply` from reverting CI's deployed code.
+# ONE function over FOUR queues; the per-domain differences are a table in the handler. A fifth
+# plane is one map entry and one more ARN in DLQ_ARNS. README.md.
 
 data "archive_file" "placeholder" {
   type        = "zip"
@@ -18,13 +12,10 @@ data "archive_file" "placeholder" {
   }
 }
 
-# Explicit log group so retention is managed (Lambda would otherwise create one with
-# infinite retention on first invoke). 14 days, matching every other function here.
+# Explicit so retention is managed (Lambda would otherwise default to infinite).
 #
-# THIS LOG GROUP IS NOW THE ONLY COPY OF A DEAD-LETTERED BODY. Consuming a DLQ message
-# deletes it, so the 14-day queue retention the arcs kept "for inspection" is traded for
-# this group's 14-day retention — a deliberate cost, paid so the user
-# hears about the failure at all. Shortening this retention shortens the forensic window.
+# THIS LOG GROUP IS THE ONLY COPY OF A DEAD-LETTERED BODY — consuming a DLQ message deletes it.
+# Shortening this retention shortens the forensic window. README.md.
 resource "aws_cloudwatch_log_group" "drain" {
   name              = local.log_group_name
   retention_in_days = 14
@@ -35,20 +26,14 @@ resource "aws_lambda_function" "drain" {
   role          = aws_iam_role.drain.arn
   runtime       = "python3.12"
   handler       = "dlq_drain.handler"
-  # Headroom for a full-burst sweep. The handler's per-queue round cap already bounds a sweep
-  # well under this; the extra ceiling only covers a pathological backlog on all four queues.
+  # The handler's per-queue round cap already bounds a sweep well under this.
   timeout     = 60
   memory_size = 256
 
   environment {
     variables = {
-      # The drain needs the Cognito pair, the notifications queue URL to send to, and DLQ_ARNS —
-      # the queues it now sweeps itself (the four request DLQs, as a JSON list). The buckets and
-      # the workgroup are here because the cpcommon layer's config requires them of every
-      # function that attaches it. That read moved from import to FIRST ACCESS, so a
-      # missing one no longer crashes at COLD START — it
-      # fails on whichever branch reads it. Still set them; "the drain does not use it" is not
-      # a reason to prune one.
+      # The Cognito pair, the notifications URL and DLQ_ARNS are genuinely used; the buckets
+      # and workgroup are the cpcommon layer's union. Do not prune one — README.md.
       COGNITO_USER_POOL_ID    = var.user_pool_id
       COGNITO_APP_CLIENT_ID   = var.app_client_id
       NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
@@ -57,12 +42,10 @@ resource "aws_lambda_function" "drain" {
       SHARED_SPACE_BUCKET     = var.shared_space_bucket_name
       ADMIN_BUCKET            = var.admin_bucket_name
       ATHENA_WORKGROUP        = var.athena_workgroup
-      # Deliberately NOT mirrored by a config._require on the Lambda
-      # side: cpcommon.observability reads it with os.environ.get, so a drain that somehow
-      # loses this variable logs to stdout and still drains rather than crashing at cold start.
+      # Deliberately NOT mirrored by a config._require: observability reads it with
+      # os.environ.get, so losing it logs to stdout rather than crashing at cold start.
       LOGS_QUEUE_URL = var.logs_queue_url
-      # `env` shipped empty on every record. Same source of truth as the
-      # feature-flag document's `environments` keys (`var.environment`, default "prod").
+      # Same source of truth as the feature-flag document's `environments` keys.
       ENV_NAME = var.environment
     }
   }
@@ -82,17 +65,12 @@ resource "aws_lambda_function" "drain" {
   ]
 }
 
-# ── The scheduled sweep trigger (SQS event-source mappings → EventBridge) ─────
-# ONE EventBridge rule invokes the drain every 10 minutes; the handler polls all four DLQs
-# itself (receive → notify → delete, until empty). This replaced four always-on SQS
-# event-source mappings — four managed poll loops on queues that are, by design, almost always
-# empty — whose idle long-polling was the bulk of the account's SQS request volume.
+# ── The scheduled sweep trigger ──────────────────────────────────────────────
+# ONE rule every 10 minutes; the handler polls all four DLQs itself. This replaced four
+# always-on event-source mappings whose idle long-polling dominated the account's SQS volume.
 #
-# NOTHING re-drives a message here (there is still no DLQ on the drain, and the sweep deletes
-# every message it reads whether or not it could notify about it): a redelivery would only
-# re-run a decision already made about a terminal message — the invisibility this module ends
-# Trade-off vs the mappings: a dead-lettered request now surfaces within one interval
-# (~10 min) instead of seconds. Nothing watches these queues in real time, so that is immaterial.
+# NOTHING re-drives a message: the sweep deletes every message it reads, notified or not.
+# README.md.
 resource "aws_cloudwatch_event_rule" "sweep" {
   name                = "${local.function_name}-sweep"
   description         = "Sweep the control-plane request DLQs into user notifications every 10 minutes."
@@ -104,8 +82,7 @@ resource "aws_cloudwatch_event_target" "sweep" {
   arn  = aws_lambda_function.drain.arn
 }
 
-# Resource-based grant so the rule (events.amazonaws.com) may invoke the function — this is why
-# the sweep needs no separate invoke role, unlike EventBridge Scheduler. Scoped to this rule's ARN.
+# Resource-based grant, so the sweep needs no invoke role. Scoped to this rule's ARN.
 resource "aws_lambda_permission" "sweep" {
   statement_id  = "AllowEventBridgeSweep"
   action        = "lambda:InvokeFunction"

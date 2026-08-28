@@ -10,7 +10,7 @@
 > maps polars dtypes to Glue/Athena (Hive) types, folds in the **user-declared partition columns** (with their
 > declared types), and **generates the `CREATE EXTERNAL TABLE` DDL incl. partition-projection `TBLPROPERTIES`**.
 > `execute-ddl` (running it) is **SPEC-070**. Uses the SPEC-066 polars layer; follows
-> `docs/best-practices/lambdas/lambdas.md` (thin handler, pure mapping logic).
+> `lambdas/info/best-practices/lambdas/lambdas.md` (thin handler, pure mapping logic).
 >
 > **Partitions = projection, keys user-declared (decided 2026-06-30).** Partition columns + their types come from
 > the request's `partitionKeys` (SPEC-067), **not** the path; the DDL carries `projection.*` properties so the

@@ -8,7 +8,7 @@
 ## Overview
 
 A best-practices audit of the table-builder and shared-space Lambda groups against
-`docs/best-practices/lambdas/lambdas.md` and `docs/best-practices/python/python.md` found three
+`lambdas/info/best-practices/lambdas/lambdas.md` and `lambdas/info/best-practices/python/python.md` found three
 consistent, low-risk gaps that are cross-cutting rather than per-file. None is a live security or
 correctness bug today, but each removes a class of latent failure and brings the code in line with
 the rulebooks. They are grouped here because they share the same files, the same "harden the

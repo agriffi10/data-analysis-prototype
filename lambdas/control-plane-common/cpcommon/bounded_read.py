@@ -6,7 +6,7 @@ does not work in Lambda — it gives up on ranged access and tries to download t
 object. So a bounded head is fetched with boto3 and handed to polars as an in-memory buffer.
 Parquet keeps its schema in a footer that a head read cannot reach, so it gets
 ``S3RangeReader`` instead. Nothing in this codebase uses object_store any more. Full
-reasoning and measurements: ``docs/lambda-rationale.md``.
+reasoning and measurements: ``lambdas/info/shared-layer.md``.
 
 Attributes:
   DEFAULT_PROBE_LINES: Enough lines for a JSON sample plus a header. This bounds cost, not

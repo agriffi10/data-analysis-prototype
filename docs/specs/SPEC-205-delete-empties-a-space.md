@@ -647,7 +647,7 @@ not survive is the product claiming the data was destroyed, and today it claims 
       **zero** inline comments, and `scripts/validate_docs.py`'s citation rule bans `FR-\d+` and
       `AC-\d+` alongside `SPEC-\d{3}` — so the read-first ordering, the union pass and the `None`
       route are expressed in Google-style docstrings without requirement numbers, or moved to
-      `docs/lambda-rationale.md`. Budgeted here because it is the largest unbudgeted chunk of the
+      `lambdas/info/planes/shared-spaces.md`. Budgeted here because it is the largest unbudgeted chunk of the
       work and it fails CI rather than review.
 
 ---

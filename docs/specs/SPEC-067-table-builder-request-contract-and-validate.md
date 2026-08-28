@@ -10,7 +10,7 @@
 > and implements the **first real pipeline step — `validate-authorize`** (verify the caller's ID token → actor;
 > authorize that the actor may create a table in the **target space/DB**; validate the table name + that the
 > location is inside the space). Downstream verbs (check/inspect/infer/execute) stay stubs (SPEC-068→070). IAM is
-> `.tftpl`; the Lambda follows `docs/best-practices/lambdas/lambdas.md`.
+> `.tftpl`; the Lambda follows `lambdas/info/best-practices/lambdas/lambdas.md`.
 
 ## Overview
 

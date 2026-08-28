@@ -6,7 +6,7 @@ The portal's second surface: a `/query` workspace where a user writes SQL in a M
 editor against their own Glue database, runs it on the shared Athena workgroup, watches
 status, and reads results — presentation/interaction only, wired entirely to the SPEC-034
 data layer. Built to `docs/design/query-workspace.html` + design-system §6. Full public
-surface is in `docs/component-inventory.md` (Query feature → Workspace UI + `PrimaryNav`).
+surface is in `apps/portal/info/component-inventory/INDEX.md` (Query feature → Workspace UI + `PrimaryNav`).
 
 - **Primary tabs (FR-001):** `PrimaryNav` (Files | Query underline tabs) in `Header`,
   authenticated-only, `NavLink`-driven.

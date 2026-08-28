@@ -183,7 +183,7 @@ The queries inside an existing document are **abandoned by decision**, not migra
 - [ ] No module reads or writes `saved-queries.json`; a repo-wide search for the string finds it only in docs.
 - [ ] `useSavedQueries`'s `recovered` flag and the SPEC-159 quarantine handling for **this** document are removed along with it. `quarantineDocument` itself stays — query history and the other `user_settings/` documents still use it, and a test asserts those callers are untouched.
 - [ ] The `SavedQuery` type no longer carries `id`, `database`, `createdAt` or `sql`.
-- [ ] `docs/component-inventory/query-feature.md`'s `savedQueries.service.ts` and `useSavedQueries` rows describe the new surface.
+- [ ] `apps/portal/info/component-inventory/query-feature.md`'s `savedQueries.service.ts` and `useSavedQueries` rows describe the new surface.
 
 ### FR-008: `saved_queries/` is hidden when the `query` flag is off, and protected either way
 

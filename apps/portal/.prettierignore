@@ -8,3 +8,8 @@ package-lock.json
 # Generated from the Python wire contract. Formatting it here would be a diff no human
 # wrote, which the regeneration gate then rejects.
 src/types/apiContract.generated.ts
+
+# The domain docs that live beside the code they govern. They are hand-wrapped prose, not app
+# source, and were never formatted while they sat under docs/ — reflowing them now would be a
+# diff no human wrote, across files whose line breaks are deliberate.
+info

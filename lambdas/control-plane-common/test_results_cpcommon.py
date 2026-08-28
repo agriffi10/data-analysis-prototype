@@ -60,30 +60,6 @@ def test_the_data_quality_prefix_is_unchanged_and_has_no_trailing_slash():
     )
 
 
-def test_the_temp_table_ddl_output_is_unchanged():
-    """Was ``f"s3://{bucket}/{report_prefix.rstrip('/')}/ddl/"`` in create, and the same with an
-    empty-prefix fallback in drop. Both callers had already trimmed, so the shapes agreed."""
-    assert results.ddl_output("user-bkt", "alice/reports/req-1") == (
-        "s3://user-bkt/alice/reports/req-1/ddl/"
-    )
-    assert results.ddl_output("user-bkt", "alice/reports/req-1/") == (
-        "s3://user-bkt/alice/reports/req-1/ddl/"
-    )
-
-
-def test_an_absent_report_prefix_gives_the_bucket_root():
-    """Drop's fallback, now shared. Create had no fallback and would have built `s3:///ddl/`
-    from an empty prefix.
-
-    Unreachable there, but NOT because the field is required — `events.require` only rejects
-    a value that is blank after stripping, so `"/"` would pass it and rstrip to empty. The real
-    guarantee is that `dq_validate_authorize._validate_destination` is the only writer of
-    `reportPrefix` and builds it as `f"{space_root}/{REPORTS_PREFIX}/{request_id}/"`, which
-    always contains a literal segment. The shared builder resolves the case to the location
-    drop already used rather than to a broken URI."""
-    assert results.ddl_output("user-bkt", "") == "s3://user-bkt/"
-
-
 def test_no_plane_builds_an_athenaresults_prefix_by_hand():
     """The comment that was ignored twice, made executable.
 

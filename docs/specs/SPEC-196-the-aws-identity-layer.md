@@ -900,7 +900,7 @@ FR-004's refusal stays unit-tested only.
 - An `ARCS.md` update to the arc entry recording what this spec actually found — in particular that
   the ten membership slot tags are part of the identity, which the arc entry's "a `username` session
   tag now" phrasing understates.
-- A `docs/component-inventory/` row only if the API area file exists (SPEC-193's ritual creates it);
+- A `apps/portal/info/component-inventory/` row only if the API area file exists (SPEC-193's ritual creates it);
   the row names `apicommon/identity.py` and `apicommon/planes.py`, in the area file matching their
   path, never the router.
 - **The Help sweep: nothing user-facing changes in this spec.** No route is ported, no screen moves,

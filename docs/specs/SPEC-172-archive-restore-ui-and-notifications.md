@@ -316,8 +316,8 @@ src/
 
 ### Phase 6: Completion ritual
 
-- Delivery doc, INDEX status, `component-inventory/file-browser-feature.md` rows for the new
-  components and `isWriteLockedPrefix`, a new `component-inventory/archive-feature.md` with a router
+- Delivery doc, INDEX status, `apps/portal/info/component-inventory/file-browser-feature.md` rows for the new
+  components and `isWriteLockedPrefix`, a new `apps/portal/info/component-inventory/archive-feature.md` with a router
   row (a whole new area appeared), a `decisions.md` entry (the non-default confirm, the folder-names-
   are-ids surface instead of an archive index, the first prefix-based write gate), one Key Decisions
   line, and the **Help & guides** update. Prune CLAUDE.md's Current work of the whole arc.

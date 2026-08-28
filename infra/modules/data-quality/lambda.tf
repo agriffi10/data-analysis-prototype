@@ -1,24 +1,9 @@
-# ── Control-plane Lambdas (skeleton) ────────────────────────────────
-# Nine single-task verb Lambdas — validate-authorize / inspect-source /
-# create-temp-tables / start-profile-query / check-query / byte-scan / assemble-report /
-# drop-temp-tables / notify-failure — orchestrated by the Step Function
-# (stepfunction.tf). All nine share ONE execution role (iam.tf; matching table-builder
-# and table-share) and each gets its task's real timeout AND memory (locals.tf — see the
-# shared-spaces implicit-128 MB precedent recorded there).
-#
-# notify-failure is a PLACEHOLDER here: the notification producer wires its real handler and the
-# NotifyFailure state. Provisioning it in the foundation (function + log group +
-# deploy-lambdas matrix entry) is the notify-failure-Lambda pattern — the foundation
-# spec provisions the placeholder, the producer spec wires it.
-#
-# Code-ownership split (architecture.md): Terraform owns the function
-# INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python code
-# (lambdas/data-quality-<suffix>/) AND publishes + attaches the layers: cpcommon +
-# dqcommon on all nine, plus the polars layer on inspect-source. `ignore_changes` keeps
-# `tofu apply` from reverting CI's code OR layers.
+# ── The verb Lambdas ─────────────────────────────────────────────────────────
+# Entirely for_each over local.data_quality_functions. CI owns the code and the layers:
+# cpcommon + dqcommon on all nine, plus polars on inspect-source.
+# ../../info/control-plane-shape.md.
 
-# One placeholder package per function so each is valid at create time. CI replaces the
-# code (and attaches the layers); these stubs only ever run pre-deploy.
+# One placeholder per function so each is valid at create time.
 data "archive_file" "placeholder" {
   for_each = local.data_quality_functions
 
@@ -31,9 +16,7 @@ data "archive_file" "placeholder" {
   }
 }
 
-# Explicit log group per function so retention is managed (14 days; matches the other
-# control planes). Lambda would otherwise create one with infinite retention on first
-# invoke.
+# Explicit so retention is managed (Lambda would otherwise default to infinite).
 resource "aws_cloudwatch_log_group" "functions" {
   for_each = local.data_quality_functions
 
@@ -51,21 +34,12 @@ resource "aws_lambda_function" "functions" {
   timeout       = each.value.timeout
   memory_size   = each.value.memory
 
-  # EVERY variable cpcommon/config.py requires must be COMMON to all nine verbs: every verb
-  # attaches the cpcommon layer, and any of them may reach any of those values. The config
-  # the rule moved the fail-fast from import to FIRST READ, so a verb missing
-  # one no longer crashes at COLD START
-  # (check-table-absent, RuntimeError COGNITO_USER_POOL_ID unset) — it fails on whichever
-  # branch reads it, which is narrower and no less broken. The per-verb map
-  # (local.data_quality_verb_env) is reserved for OPTIONAL action env only.
-  # NOTIFICATIONS_QUEUE_URL stays optional by design (emit is a no-op when unset).
+  # ⚠ EVERY variable cpcommon/config.py requires must be COMMON to all nine verbs — any of
+  # them may reach any of those values. The per-verb map is for OPTIONAL action env only.
   #
-  # ATHENA_WORKGROUP is the SHARED portal workgroup (var.athena_workgroup) — the same one
-  # table-builder/table-share use. This plane originally had its own workgroup to
-  # escape the portal workgroup's 10 GiB scan cutoff, but Athena ties Lake Formation to the
-  # workgroup: a dedicated one fails LF's Create/Describe checks even for an LF-admin role
-  # (measured live). The cutoff tradeoff is documented in the architecture doc — a
-  # data-quality check over a source larger than the cutoff fails until it is raised.
+  # ATHENA_WORKGROUP is the SHARED portal workgroup. A DEDICATED one fails Lake Formation's
+  # Create/Describe checks even for an LF-admin role, because Athena ties LF to the workgroup —
+  # measured live. The cost is the portal workgroup's scan cutoff. README.md.
   environment {
     variables = merge(
       {
@@ -76,9 +50,8 @@ resource "aws_lambda_function" "functions" {
         COGNITO_APP_CLIENT_ID   = var.app_client_id
         ATHENA_WORKGROUP        = var.athena_workgroup
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
-        # Optional by construction — that is what makes a
-        # partial rollout safe: a function that somehow misses it logs to stdout instead
-        # of failing at import, which for a shared layer means at COLD START.
+        # Optional by construction: a function missing it logs to stdout rather than
+        # failing at cold start.
         LOGS_QUEUE_URL = var.logs_queue_url
         ENV_NAME       = var.environment
       },
@@ -86,7 +59,7 @@ resource "aws_lambda_function" "functions" {
     )
   }
 
-  # Bootstrap with the placeholder; CI replaces code + attaches the layers.
+  # Bootstrap with the placeholder; CI replaces the code and attaches the layers.
   filename         = data.archive_file.placeholder[each.key].output_path
   source_code_hash = data.archive_file.placeholder[each.key].output_base64sha256
 

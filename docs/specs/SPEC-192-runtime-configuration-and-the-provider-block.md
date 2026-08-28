@@ -709,7 +709,7 @@ are real invocations against the deployed app, as a new section of
   path, and the two-directional test that enforces the boundary — including the one that would have
   taken Amplify's own keys out of the document. One line in Key Decisions.
 - One-line inventory rows in the area files matching each path, never the router:
-  `docs/component-inventory/foundations.md` for `lib/runtimeConfig.ts` (and the reshaped
+  `apps/portal/info/component-inventory/foundations.md` for `lib/runtimeConfig.ts` (and the reshaped
   `lib/env.ts` and `lib/amplify.ts` rows), `shared-components.md` for `BootFailure`, and
   `shared-types.md` for `runtimeConfig.types.ts`.
 - `docs/architecture.md` → *Infrastructure & Deployment* gains the provider block's field set and the

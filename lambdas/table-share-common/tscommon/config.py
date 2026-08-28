@@ -2,7 +2,7 @@
 
 The shared core — region, user pool identifiers, buckets, workgroup, notifications queue, the
 catalog identifier rule — lives in ``cpcommon.config``. Only table-share's own constants live
-here. The sizing evidence behind the four caps is in ``docs/lambda-rationale.md``.
+here. The sizing evidence behind the four caps is in ``lambdas/info/planes/table-share.md``.
 
 Every cap below is a whole-request terminal in inspect-source, raised before either artifact
 is written, so a refused share leaves nothing behind and no recipient runs.

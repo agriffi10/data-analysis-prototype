@@ -32,9 +32,10 @@ Attributes:
 import json
 import logging
 
-from cpcommon import clients, config, ddl, errors, events, glue, observability
+from cpcommon import clients, config, ddl, errors, events, observability
 from cpcommon.errors import TerminalError
-from tbcommon import notify
+from tbcommon import config as tb_config
+from tbcommon import glue, notify
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -117,11 +118,11 @@ def _enforce_definition_cap(definition: dict, database: str, table: str) -> None
       TerminalError: ``definition_too_large`` when the serialised definition exceeds the cap.
     """
     size = len(json.dumps(definition, separators=(",", ":")).encode())
-    if size > config.REFRESH_MAX_DEFINITION_BYTES:
+    if size > tb_config.REFRESH_MAX_DEFINITION_BYTES:
         raise TerminalError(
             "definition_too_large",
             f"{database}.{table} definition is {size} bytes "
-            f"(cap {config.REFRESH_MAX_DEFINITION_BYTES})",
+            f"(cap {tb_config.REFRESH_MAX_DEFINITION_BYTES})",
         )
 
 

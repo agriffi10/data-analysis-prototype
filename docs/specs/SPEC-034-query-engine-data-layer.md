@@ -265,6 +265,6 @@ apps/portal/src/
 
 - [x] **Resolved (2026-06-17):** **append-at-submit** — `appendQueryHistory` is called when the query is submitted (so an interrupted/closed tab still records the attempt), and `updateQueryHistoryEntry` fills in the terminal `status` + stats once polling completes.
 - [x] **Resolved (2026-06-17):** v1 keeps `rows: string[][]` (Athena returns all cells as strings); the UI renders strings. Per-column typed coercion is deferred. The column `type` is still surfaced for display (type pill) per SPEC-035.
-- [x] **Resolved (2026-06-17):** **extract** the SPEC-011 "expired creds → one retry" logic into a shared `withCredentialRetry` helper in `src/lib/`, used by the S3/Athena/Glue clients; add it to `docs/component-inventory.md`.
+- [x] **Resolved (2026-06-17):** **extract** the SPEC-011 "expired creds → one retry" logic into a shared `withCredentialRetry` helper in `src/lib/`, used by the S3/Athena/Glue clients; add it to `apps/portal/info/component-inventory/INDEX.md`.
 - [x] **Resolved:** per-user history is an **app-side JSON file** at `{username}/athenaresults/query-history.json` (forced by the shared-workgroup decision; `ListQueryExecutions` is workgroup-scoped, leaks all users, and isn't granted) — not Athena named/saved queries.
 - [x] **Resolved (2026-06-17):** results + history live in `{username}/athenaresults/` in the **user-space bucket** (delete-denied, UI-locked), set by the client per query; IAM (SPEC-032) is the enforcement boundary. No dedicated results bucket.

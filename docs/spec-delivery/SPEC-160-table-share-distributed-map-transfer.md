@@ -30,7 +30,7 @@ behind a new limit.
   execution role gained **nothing**.
 
 Full reasoning: `decisions.md` → *The copy is a top-level Distributed Map, and attribution is a
-verb*. Sizing evidence: `lambda-rationale.md` → *`cpcommon/transfer/config.py`*.
+verb*. Sizing evidence: `lambdas/info/shared-layer.md` → *`cpcommon/transfer/config.py`*.
 
 ### Deliberate deviations
 

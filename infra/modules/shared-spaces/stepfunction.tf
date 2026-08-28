@@ -1,13 +1,7 @@
-# ── Orchestrator Step Function ─────────────────────────────────────────────
-# Standard state machine — the orchestration that routes by action: a
-# Validate task (verify token + authorize), a Choice state that routes on the
-# validated `action`, then exactly one single-task verb Lambda. Retry on transient
-# Lambda errors; Catch routes any failure to a terminal Fail state; else Succeed.
-#
-# Runs under the shared orchestrator role (iam.tf), which is also the exec role for
-# every verb Lambda it invokes. Execution history + data are logged to a dedicated
-# CloudWatch log group (Standard over Express precisely to keep this per-execution
-# history for debugging the multi-step pipeline).
+# ── Orchestrator Step Function ────────────────────────────────────────────────
+# Standard, routing by action: Validate → Choice(action) → exactly one verb. A Choice-routed
+# fan-out rather than a pipeline. It runs under the shared ORCHESTRATOR role, which is also the
+# exec role for every Lambda it invokes. README.md.
 
 resource "aws_cloudwatch_log_group" "orchestrator" {
   name              = local.sfn_log_group_name

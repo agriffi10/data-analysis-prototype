@@ -20,7 +20,7 @@ Add an automated accessibility test layer that runs `axe-core` against rendered 
 - A **route-level** axe pass for each top-level page in a realistic state: Landing, Files (authenticated browser with content), Query workspace (editor + schema + results), Not Found.
 - A **component-level** axe pass for the high-traffic primitives and stateful UI that route tests can't easily reach in every state: `Modal`/`ConfirmDialog`/`Drawer` (open), `Input` (error state), `Banner`/`Toast` (each variant), `UploadQueuePanel` (uploading/done/failed/collision), `CollisionPrompt`, `DestinationPicker`, `QueryTabStrip` (multi-tab), `Pager`.
 - A documented, centrally-defined axe configuration: which rules run, and which are disabled **with a written reason** (notably `color-contrast`, unsupported in jsdom, and `region` for isolated component renders).
-- A short contributor note in `docs/best-practices/accessibility/accessibility.md` (or a sibling `testing.md`) describing how to add an axe check for new UI and what axe does/doesn't cover.
+- A short contributor note in `apps/portal/info/best-practices/accessibility/accessibility.md` (or a sibling `testing.md`) describing how to add an axe check for new UI and what axe does/doesn't cover.
 
 ### Out of Scope
 

@@ -46,11 +46,8 @@ variable "max_shared_memberships" {
 }
 
 # ── Structured logging ────────────────────────────────────────────────────────
-# Both Cognito triggers attach the cpcommon layer for ONE import — `observability` —
-# and emit under service="auth". These two are the whole infra surface that needs: no
-# config variable joins them, because `observability` never reaches `cpcommon.config` and
-# so nothing here ever reads one of its six. (That was once enforced by a crash
-# at import; it is now enforced by a source scan and an import probe.)
+# Both triggers attach cpcommon for ONE import — `observability` — and emit under
+# service="auth". No cpcommon.config variable joins them. README.md.
 
 variable "logs_queue_arn" {
   description = "Structured-logging queue ARN — the ONLY sqs:SendMessage scope granted to either trigger's exec role. A CONSTRUCTED string from the root locals, not module.observability's output: module.observability consumes this module's user_pool_id, so a real reference here is a module cycle."

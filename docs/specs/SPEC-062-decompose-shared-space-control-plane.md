@@ -9,7 +9,7 @@
 > 711-line provisioner Lambda** (`shared_space_provisioner.py`) with an `action`-switch
 > (`create`/`add_members`/`remove_members`/`leave`/`delete`) plus inline JWT verification and every
 > S3/Glue/LF/Cognito helper. That violates the "small, single-task Lambda" rule
-> (`docs/best-practices/lambdas/lambdas.md` §1) and was always meant to be **multiple** provisioning
+> (`lambdas/info/best-practices/lambdas/lambdas.md` §1) and was always meant to be **multiple** provisioning
 > Lambdas (shared-spaces-architecture.md §7 says "the provisioning Lambda(s) it invokes (validate / create /
 > grant / cache-write / cascade-delete)"). This spec realigns the implementation with that intent: the
 > **Step Function orchestrates several single-task Lambdas** — it receives the request, runs a
@@ -211,7 +211,7 @@ Creating a space provisions only the creator; members are added afterward from t
   end state); the validator has its own tests (valid/expired/forged token; owner/non-owner; leave rules).
 - [ ] `tofu -chdir=infra validate` + `plan` clean; `simulate-custom-policy` asserts each verb role's scope
   (FR-005); the state machine definition validates.
-- [ ] Conforms to `docs/best-practices/lambdas/lambdas.md` (§1 single responsibility, §7 IAM, §10
+- [ ] Conforms to `lambdas/info/best-practices/lambdas/lambdas.md` (§1 single responsibility, §7 IAM, §10
   orchestration, §11 testing, §12 code/infra split) — consult it before writing.
 
 ---

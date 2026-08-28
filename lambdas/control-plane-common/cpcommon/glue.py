@@ -4,8 +4,9 @@ The refresh path asks the catalog the same question table-share does: is this ta
 I can faithfully reproduce? A view has no data files, a managed table's files are not the
 portal's to re-read, and a catalog-partitioned table's partitions live in the catalog rather
 than in the projection properties. Both callers must refuse all three, and the checks are
-fiddly enough that two copies would drift. ``tscommon.glue`` re-exports ``clone_definition``,
-so table-share's verbs and tests are untouched.
+fiddly enough that two copies would drift. ``tscommon.glue`` and ``tbcommon.glue`` re-export
+``clone_definition``, so table-share's and table-builder's verbs and tests reach it through
+their own layer.
 
 The shape reason codes are registered here rather than by a domain's import side effect,
 because ``TerminalError`` validates its reason at the raise site and a table-builder Lambda
@@ -23,9 +24,6 @@ Attributes:
     not ``portal-managed`` (the Lake Formation tag on databases, hyphenated).
   _SHAPE_REASONS: The refusals raised below, registered at import.
 """
-
-from datetime import UTC
-from typing import cast
 
 from . import config, messages
 from .errors import TerminalError
@@ -74,39 +72,6 @@ def _parse_location(location: str | None) -> dict:
     if not prefix.endswith("/"):
         prefix += "/"
     return {"bucket": bucket, "prefix": prefix}
-
-
-def update_time(table: dict) -> str | None:
-    """Renders a Glue table's last-modified stamp as a comparable string.
-
-    The freshness guard compares a stamp captured at the start of a refresh against one read
-    immediately before the write, and the two reads happen in DIFFERENT Lambdas — so the
-    rendering lives here rather than in each of them. Two copies that disagreed by a
-    representation would abandon every refresh while blaming a writer that does not exist, and
-    line coverage would not show it: boto3 returns a datetime, the suites mostly use strings, and
-    only one of the two branches ever runs in production.
-
-    Normalised to UTC before rendering because botocore's default parser localises to the
-    runtime's zone, so the same instant renders with different offsets under different ``TZ``.
-    Both Lambdas run under the same default today; relying on that is a dependency on
-    configuration nobody declared.
-
-    Args:
-      table: A Glue ``GetTable`` response's table dict.
-
-    Returns:
-      The stamp as an ISO-8601 UTC string, or None when the table carries none. Absent is a
-      legitimate answer, and callers must treat it as "no evidence" rather than as a change.
-
-    Raises:
-      None.
-    """
-    stamp = table.get("UpdateTime")
-    if stamp is None:
-        return None
-    if hasattr(stamp, "astimezone"):
-        return cast("str", stamp.astimezone(UTC).isoformat())
-    return str(stamp) or None
 
 
 def clone_definition(table: dict) -> tuple[dict, dict, bool]:

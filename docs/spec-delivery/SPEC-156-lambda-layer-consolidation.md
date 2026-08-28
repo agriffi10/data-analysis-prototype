@@ -39,7 +39,7 @@ Shipped as four PRs: [#390](https://github.com/agriffi10/data-analysis-prototype
   became three; Phase 1 did not land alone. The cost is stated in the spec's Implementation Phases
   amendment.
 - **No `component-inventory` row was added** (Phase 6 asked for one). That inventory is entirely
-  browser-side — every file under `docs/component-inventory/` maps to `apps/portal/src/`, and the
+  browser-side — every file under `apps/portal/info/component-inventory/` maps to `apps/portal/src/`, and the
   router's own rule is that a new row appears only when a whole area does. Inventing a `lambdas/`
   area for one spec is out of proportion; the new `cpcommon` surface is recorded in
   `architecture.md` → *Control Planes* → **Layers** instead, which is where a reader already looks

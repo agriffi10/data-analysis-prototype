@@ -178,7 +178,7 @@ place; the implementer must explicitly audit **both** layers before documenting 
   across **both layers**: (a) the **frontend code** — `apps/portal/src/features/*`, routes, `Header`/`PrimaryNav`
   — and (b) the **infrastructure** — `infra/` modules, IAM/policy templates, Lambdas, and provisioning pipelines
   (e.g. shared-space control plane, notifications write pipeline, analytics/Glue/Athena/Lake Formation), plus the
-  corresponding `docs/spec-delivery/` / `docs/component-inventory.md` / `architecture.md` entries — and writes
+  corresponding `docs/spec-delivery/` / `apps/portal/info/component-inventory/INDEX.md` / `architecture.md` entries — and writes
   guides only for capabilities present and wired end-to-end in both.
 - [ ] Every guide maps to a real, reachable capability in the shipped app; every referenced UI affordance (tab,
   button, menu, control name) exists in the current code **and** is backed by the infra/IAM that makes it

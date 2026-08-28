@@ -866,7 +866,7 @@ invocations, written as a runnable script under `docs/testing/`.
   items inside the same gesture, where on the plane a conflict is a final per-item outcome delivered
   by notification minutes later. The retry needs a fresh `submittedAt`, or FR-008's predicate will
   refuse the very objects the user just agreed to overwrite.
-- A one-line row in `docs/component-inventory/file-browser-feature.md` for `fileOps.service.ts` and
+- A one-line row in `apps/portal/info/component-inventory/file-browser-feature.md` for `fileOps.service.ts` and
   `fileOpRouting.ts` — the area file matching their path, never the router.
 - The `ARCS.md` arc entry updated with what this spec actually found (it is written ahead of the
   build, and the arc file is where a later reader looks for how the five specs compose).

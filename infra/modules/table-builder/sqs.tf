@@ -1,22 +1,7 @@
 # ── Request Queue + DLQ ────────────────────────────────────
-# The control-plane entry point. The browser enqueues a create-table
-# request; an EventBridge Pipe (pipe.tf) drains it into the Step Function.
-#
-# FIFO with MessageGroupId = the target DATABASE (set by the producer), so
-# two concurrent "create table X" requests against the SAME database serialize
-# strictly one-at-a-time (the duplicate-name race is closed by check-table-absent +
-# CREATE … IF NOT EXISTS), while creates in DIFFERENT databases run in parallel. The
-# Pipe reads a batch of 1 (pipe.tf).
-#
-# content_based_deduplication is on, but the producer ALSO sends an explicit
-# MessageDeduplicationId = requestId: the explicit id is the real
-# double-submit guard; content dedup just usefully absorbs a byte-identical retry
-# inside the 5-minute window. Per-DB serialization comes from MessageGroupId, above.
-#
-# No time_sleep guard here: the deploy-role grants these resource types need were
-# applied in modules/base (deploy-policy-table-builder) BEFORE this
-# module's resources land (the deploy-perms-before-resources rule), so there is no
-# self-grant propagation race to wait out — same as the notifications module.
+# MessageGroupId is the TARGET DATABASE, so two creates against the same database serialize
+# and creates in different ones run in parallel. The duplicate-name race is closed by
+# check-table-absent plus CREATE … IF NOT EXISTS. README.md.
 
 resource "aws_sqs_queue" "requests_dlq" {
   name                        = local.dlq_name

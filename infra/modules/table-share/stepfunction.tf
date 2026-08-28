@@ -1,15 +1,6 @@
 # ── Table-share Step Function ──────────────────────────────
-# Standard state machine — validate-authorize → inspect-source once per request,
-# then a Map over $.recipients running check-target-absent → copy-objects →
-# create-table PER RECIPIENT with a per-item Catch (one recipient's failure never
-# aborts its siblings — docs/architecture.md Control Planes -> Table Share). The per-step bodies
-# are STUBS here (pass-through) — the real logic + the structured recorded-failure
-# outcomes land with the verbs.
-#
-# The state machine runs under its OWN role (iam.tf, sfn-permissions: InvokeFunction
-# on the five verbs + log delivery); the verb Lambdas run under the ONE shared
-# execution role. Standard (over Express) keeps per-execution history for debugging
-# the multi-step share flow and allows long per-recipient copies.
+# Standard. Each per-recipient Map carries a PER-ITEM Catch, so one recipient's failure never
+# aborts its siblings. README.md.
 
 resource "aws_cloudwatch_log_group" "orchestrator" {
   name              = local.sfn_log_group_name
@@ -50,14 +41,12 @@ resource "aws_sfn_state_machine" "table_share" {
 }
 
 # ── The timed-out run's only route to a notification ─────
-# A top-level TimeoutSeconds expiry terminates the execution OUTRIGHT. Step Functions catchers
-# cover Task, Parallel and Map states but NOT top-level execution failures, so the machine's own
-# RecordFailure -> NotifyFailure path is unreachable on this one failure and the sender would be
-# told nothing at all — the exact silence the failure path exists to close. Listening for TIMED_OUT on an
-# EventBridge bus is the documented remedy, and this is it.
+# A top-level TimeoutSeconds expiry terminates the execution OUTRIGHT, and catchers do not
+# cover top-level failures — so the machine's own NotifyFailure path is unreachable on this
+# one failure and the sender would be told nothing at all.
 #
-# TIMED_OUT ONLY, never FAILED. Every other whole-request failure already reaches NotifyFailure
-# through a Catch, so matching FAILED here would send a second notification for every one of them.
+# TIMED_OUT ONLY, NEVER FAILED: every other whole-request failure already reaches
+# NotifyFailure through a Catch, so FAILED would double-notify every one of them. README.md.
 resource "aws_cloudwatch_event_rule" "execution_timed_out" {
   name        = "${local.state_machine_name}-timed-out"
   description = "Notify the sender when a table-share execution is stopped by the state machine's own timeout."
@@ -77,8 +66,7 @@ resource "aws_cloudwatch_event_target" "execution_timed_out" {
   arn  = aws_lambda_function.functions["notify-failure"].arn
 }
 
-# Resource-based grant so the rule (events.amazonaws.com) may invoke the notifier — the same
-# reason the DLQ drain's sweep needs no invoke role. Scoped to this rule's ARN.
+# Resource-based grant, so the rule needs no invoke role. Scoped to this rule's ARN.
 resource "aws_lambda_permission" "execution_timed_out" {
   statement_id  = "AllowEventBridgeExecutionTimedOut"
   action        = "lambda:InvokeFunction"

@@ -1,14 +1,7 @@
 # ── Notifications-writer Lambda and its trigger ───────────────────────────
-# The single writer of every user's notifications.json. The request queue triggers it
-# directly via an SQS event-source mapping (batch size 1 → one message = one
-# invocation). The handler is an action-switch read-modify-write; for user-originated
-# actions it verifies the caller's Cognito ID token against the pool JWKS (offline — no
-# Cognito IAM needed) and derives the target username from the verified claim.
-#
-# Code-ownership split (architecture.md): Terraform owns the function
-# INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml owns the Python code (builds
-# lambdas/notifications-writer, uploads it, update-function-code). `ignore_changes`
-# keeps `tofu apply` from reverting CI's deployed code.
+# The single writer of every user's notifications.json, triggered directly by the queue.
+# Terraform owns the function INFRASTRUCTURE + a placeholder zip; CI owns the code.
+# README.md.
 
 data "archive_file" "writer_placeholder" {
   type        = "zip"
@@ -20,8 +13,7 @@ data "archive_file" "writer_placeholder" {
   }
 }
 
-# Explicit log group so retention is managed (Lambda would otherwise create one with
-# infinite retention on first invoke). 14-day retention (matches the other singleton Lambdas).
+# Explicit so retention is managed (Lambda would otherwise default to infinite).
 resource "aws_cloudwatch_log_group" "writer" {
   name              = local.lambda_log_group_name
   retention_in_days = 14
@@ -40,26 +32,17 @@ resource "aws_lambda_function" "writer" {
       COGNITO_USER_POOL_ID  = var.user_pool_id
       COGNITO_APP_CLIENT_ID = var.app_client_id
       NOTIFICATIONS_MAX     = tostring(var.notifications_max)
-      # The identity the writer refuses a `create` from — the portal role's IAM unique ID,
-      # which is the half of SenderId before the ':'. Never the role name or ARN: SenderId
-      # carries neither, and comparing against the wrong one never matches, which reads
-      # exactly like a control that works. Unset, the writer refuses EVERY create rather
-      # than passing them: a boundary that cannot run must not report a pass.
+      # The portal role's IAM unique ID — the half of SenderId before the ':'. NEVER the
+      # role name or ARN: SenderId carries neither, and a wrong value never matches, which
+      # reads exactly like a control that works. Unset, the writer refuses EVERY create.
       NOTIFICATIONS_UNTRUSTED_SENDER_ID = var.portal_role_unique_id
-      # Optional BY CONSTRUCTION on the Lambda side — cpcommon.observability
-      # reads it with os.environ.get and never config._require — so a writer deployed without
-      # it logs to stdout instead of failing at cold start.
+      # Optional BY CONSTRUCTION — observability reads it with os.environ.get, so a writer
+      # without it logs to stdout rather than failing at cold start.
       #
-      # The writer now also imports cpcommon.auth and cpcommon.clients, which
-      # it could not before — cpcommon.config _require'd six variables AT IMPORT and only three
-      # of them are set here, so the layer's auth was unimportable and the function carried a
-      # second copy of the fleet's JWKS verifier. config resolves on first ACCESS now, so the
-      # import is safe and only the variables actually read are needed. The three still absent
-      # (ADMIN_BUCKET, SHARED_SPACE_BUCKET, ATHENA_WORKGROUP) are absent on purpose; a probe
-      # imports this module without them (test_layer_import_safety.py).
+      # ADMIN_BUCKET, SHARED_SPACE_BUCKET and ATHENA_WORKGROUP are absent ON PURPOSE, and a
+      # probe imports the module without them (test_layer_import_safety.py). README.md.
       LOGS_QUEUE_URL = var.logs_queue_url
-      # `env` shipped empty on every record. Same source of truth as the
-      # feature-flag document's `environments` keys (`var.environment`, default "prod").
+      # Same source of truth as the feature-flag document's `environments` keys.
       ENV_NAME = var.environment
     }
   }
@@ -69,9 +52,8 @@ resource "aws_lambda_function" "writer" {
   source_code_hash = data.archive_file.writer_placeholder.output_base64sha256
 
   lifecycle {
-    # CI owns the code AND the cpcommon layer attachment — never revert either on apply.
-    # `layers` was missing here while the code already imported cpcommon, so an apply
-    # landing after a deploy would have stripped the layer straight back off.
+    # CI owns the code AND the layer attachment. `layers` was once missing here while the
+    # code already imported cpcommon — an apply after a deploy stripped the layer back off.
     ignore_changes = [filename, source_code_hash, layers]
   }
 
@@ -81,8 +63,7 @@ resource "aws_lambda_function" "writer" {
   ]
 }
 
-# SQS event-source mapping — the queue triggers the writer directly (no Pipe, no Step
-# Function). Batch size 1 so each FIFO message is its own invocation, preserving the
+# Batch size 1 so each FIFO message is its own invocation — this is what preserves the
 # per-user one-at-a-time processing the single-writer model relies on.
 resource "aws_lambda_event_source_mapping" "writer" {
   event_source_arn = aws_sqs_queue.requests.arn

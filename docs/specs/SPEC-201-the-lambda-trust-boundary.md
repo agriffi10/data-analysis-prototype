@@ -695,7 +695,7 @@ planes read the block" from "the planes still read the token".
   SPEC-197 Premise 6, whose narrowing SPEC-200 added for `apicommon/enqueue.py`'s single `reveal()` — with
   both gone, the premise returns to its original form and the marker is removed rather than re-worded.
 - **Component inventory:** no row. `cpcommon.actor` is a Lambda layer module, and the inventory covers
-  `apps/portal/`; the layer's own documentation is its docstring plus `lambda-rationale.md`, which gains an
+  `apps/portal/`; the layer's own documentation is its docstring plus `lambdas/info/shared-layer.md`, which gains an
   entry for why the reader may not verify.
 - **Help sweep: nothing user-facing changed.** No component, copy, label or flow is touched, and the only
   new user-visible string is `unsupported_assurance`'s sentence, which no legitimate request can reach.

@@ -1,16 +1,8 @@
-# ── Control-plane Lambdas ─────────────────────────────────────────
-# Single-task verb Lambdas — validate-authorize and notify-failure at this stage —
-# orchestrated by the Step Function (stepfunction.tf). Both share ONE execution role
-# (iam.tf) and each gets its task's real timeout/memory (locals.tf).
-#
-# Code-ownership split (architecture.md): Terraform owns the function
-# INFRASTRUCTURE + a placeholder zip; deploy-lambdas.yml builds/ships the Python code
-# (lambdas/archive-<suffix>/) AND publishes + attaches the layers: the arcommon domain
-# layer PLUS the shared cpcommon layer. `ignore_changes` keeps `tofu apply`
-# from reverting CI's code OR layers.
+# ── The verb Lambdas ─────────────────────────────────────────────────────────
+# Entirely for_each over local.archive_functions. CI owns the code and both layers (cpcommon +
+# arcommon). ../../info/control-plane-shape.md.
 
-# One placeholder package per function so each is valid at create time. CI replaces the
-# code (and attaches the layers); these stubs only ever run pre-deploy.
+# One placeholder per function so each is valid at create time.
 data "archive_file" "placeholder" {
   for_each = local.archive_functions
 
@@ -23,9 +15,7 @@ data "archive_file" "placeholder" {
   }
 }
 
-# Explicit log group per function so retention is managed (14 days; matches the other
-# control planes). Lambda would otherwise create one with infinite retention on first
-# invoke.
+# Explicit so retention is managed (Lambda would otherwise default to infinite).
 resource "aws_cloudwatch_log_group" "functions" {
   for_each = local.archive_functions
 
@@ -43,15 +33,11 @@ resource "aws_lambda_function" "functions" {
   timeout       = each.value.timeout
   memory_size   = each.value.memory
 
-  # EVERY variable cpcommon/config.py _require()s must be COMMON to all verbs. cpcommon
-  # resolves them lazily on first ACCESS rather than at import, so a missing one is not
-  # automatically a cold-start crash — but arcommon's own modules are import-free by
-  # design and the verbs read config at request time, which means a missing variable
-  # surfaces as a failed REQUEST rather than a failed deploy either way. The per-verb map
-  # (locals.tf) is reserved for OPTIONAL action env only.
+  # ⚠ EVERY variable cpcommon/config.py requires must be COMMON to all verbs. A missing one
+  # surfaces as a failed REQUEST rather than a failed deploy. The per-verb map is for OPTIONAL
+  # action env only.
   #
-  # ARCHIVE_BUCKET is this plane's own addition to that shared set. No other
-  # plane sets it and none needs to: it is required only where it is read.
+  # ARCHIVE_BUCKET is this plane's own addition to that shared set — no other plane sets it.
   environment {
     variables = merge(
       {
@@ -61,19 +47,18 @@ resource "aws_lambda_function" "functions" {
         ARCHIVE_BUCKET        = var.archive_bucket_name
         COGNITO_USER_POOL_ID  = var.user_pool_id
         COGNITO_APP_CLIENT_ID = var.app_client_id
-        # Optional in cpcommon.config — unset ⇒ emits are logged no-ops.
+        # Optional in cpcommon.config — unset means emits are logged no-ops.
         NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
         # Deliberately NOT mirrored by a config._require — see variables.tf.
         LOGS_QUEUE_URL = var.logs_queue_url
-        # `env` shipped empty on every record. Same source of truth as the
-        # feature-flag document's `environments` keys (`var.environment`, default "prod").
+        # Same source of truth as the feature-flag document's `environments` keys.
         ENV_NAME = var.environment
       },
       lookup(local.archive_verb_env, each.key, {}),
     )
   }
 
-  # Bootstrap with the placeholder; CI replaces code + attaches the layers.
+  # Bootstrap with the placeholder; CI replaces the code and attaches the layers.
   filename         = data.archive_file.placeholder[each.key].output_path
   source_code_hash = data.archive_file.placeholder[each.key].output_base64sha256
 

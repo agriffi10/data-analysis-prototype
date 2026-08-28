@@ -1,39 +1,12 @@
-// a named principal that can read the catalog back, and nothing else.
+// The read-only role a live check assumes: catalog read-back, the trail objects, and the trail's
+// own status. NO write action appears anywhere in it, and a test asserts that.
 //
-// `Description`/column-comment preservation check and the owed foreign
-// projection fixture both fail today with `Insufficient Lake Formation permission(s): Required
-// Describe`, from every principal a human has. The role below closes that with a READ-ONLY
-// grant that touches no data bucket: `glue:GetTable`/`GetTableVersions` on the catalog, the
-// trail objects, and the trail's own status. No write action appears anywhere in it, and a
-// test asserts that.
+// ⚠ THE PRINCIPAL ARNs COME FROM THE `TF_VAR_verification_principal_arns` REPO VARIABLE, NEVER A
+// LOCAL terraform.tfvars. A local apply plans to DESTROY the data buckets, because no human
+// identity here is on their policy allowlists and tofu reads them as absent. README.md.
 //
-// TRUSTED TO NAMED PRINCIPALS, AND THE ROLE DOES NOT EXIST UNTIL ONE IS NAMED.
-//
-// The first version delegated to the account root (`arn:aws:iam::{account}:root`), which is the
-// standard AWS idiom and grants nothing by itself — an account principal still needs its own
-// `sts:AssumeRole`. **Checkov's plan scan rejected it (`CKV_AWS_61`), and rejecting it was
-// right.** the rule for the accept list is that it holds findings with *no scopable
-// alternative* — CloudFront and Cognito creation have no ARN before the resource exists, and no
-// applicable condition key. That is not true here: naming the principal IS the alternative, so
-// accepting the finding would have been suppressing a fixable one.
-//
-// `verification_principal_arns` is empty by default and the role is then **not created**, which
-// is deliberate on two counts. The ARNs are operator identities that do not belong in git — and
-// a role nobody has named is a role nobody needs. **The TRAIL is unconditional**: it is the half
-// that unblocks The restore's negative assertion, and it depends on no principal at all.
-//
-// THE ARNs COME FROM A REPO VARIABLE, NOT FROM A LOCAL `terraform.tfvars`. This comment used to
-// say tfvars, and that was wrong in a way that could have destroyed production. A local apply is
-// not available to any human identity here: the laptop IAM user is not on the data buckets'
-// policy allowlists (portal, deploy and execution roles, the account root and the Lake Formation
-// registration role — an IAM user ARN matches none of them, `:root` included), so tofu reads
-// `dat-prod-user-space` and `dat-prod-archive` as ABSENT and plans to destroy and recreate them
-// — measured 2026-08-14 as `25 to add, 3 to change, 13 to destroy`, with both buckets in the
-// replace set. `modules/data/s3.tf` records the same failure mode for the deploy role under
-// The same plan also fails outright on `GetLFTag` for `portal-managed`. So the
-// value is set as the `TF_VAR_verification_principal_arns` repo variable (a JSON list) and
-// reaches tofu through `deploy-infra.yml`, which runs as the deploy role. That keeps the ARNs
-// out of git without routing anyone through a local apply.
+// Empty by default, and the role is then NOT created. Delegating to the account root instead was
+// rejected by the plan scan (CKV_AWS_61) for the right reason. The TRAIL is unconditional.
 resource "aws_iam_role" "verification" {
   count = length(var.verification_principal_arns) > 0 ? 1 : 0
 
@@ -52,22 +25,14 @@ resource "aws_iam_role" "verification" {
   })
 }
 
-// THREE GLUE ARNs, NOT `catalog` + `catalog/*`. Glue has no `catalog/*` hierarchy: `GetTable`
-// and `GetTableVersions` each need the DATABASE ARN and the TABLE ARN alongside the catalog,
-// which is the shape `portal-role-analytics` and the table-builder execution role already use.
-// The first version scoped to `catalog/*`, which applies cleanly and then denies at runtime —
-// the read-back this role exists for stays blocked with no gate having failed, which is the
-// exact class of defect this spec was written to close. A test asserts the resource set.
+// THREE GLUE ARNs, NOT `catalog` + `catalog/*` — Glue has no `catalog/*` hierarchy, and that
+// form applies cleanly then DENIES AT RUNTIME. A test asserts the resource set.
 //
-// The `database/*` + `table/*/*` breadth is not a widening: Lake Formation gates every one of
-// these calls INDEPENDENTLY, and this role holds only the DESCRIBE tag grant from
-// modules/analytics. There is deliberately NO `lakeformation:GetDataAccess` — that is the
-// credential vend for reading a table's DATA, it is easy to add "to make GetTable work", and it
-// is not needed for it.
+// Deliberately NO `lakeformation:GetDataAccess`: it is the credential vend for a table's DATA,
+// it is easy to add "to make GetTable work", and it is not needed for it.
 //
-// The reasoning is HERE and not in the `.tftpl`. An IAM policy document must be printable
-// ASCII, and a first version carrying `"//"` comment keys with em dashes was rejected at
-// CreatePolicy — invisible to `tofu validate` and to the plan.
+// NO COMMENTS IN THE .tftpl — an IAM document must be printable ASCII, and comment keys with em
+// dashes were rejected at CreatePolicy, invisible to validate and to the plan. README.md.
 resource "aws_iam_role_policy" "verification" {
   count = length(aws_iam_role.verification)
 
@@ -82,14 +47,6 @@ resource "aws_iam_role_policy" "verification" {
   })
 }
 
-// The IAM grant above is necessary and NOT sufficient: Lake Formation gates the catalog
-// independently, and its refusal — `Insufficient Lake Formation permission(s): Required
-// Describe` — is the exact error the owed read-backs hit.
-//
-// The LF half is granted in `modules/analytics`, NOT here, because it hangs off the
-// `portal-managed` LF-Tag that module owns: the databases are created at
-// runtime, one per username and one per shared space, so nothing static can enumerate them and
-// a tag policy is the only expression that covers them all. This module outputs the role ARN
-// and analytics grants DESCRIBE against it — deliberately DESCRIBE alone, and deliberately no
-// `DATA_LOCATION_ACCESS`, so the role can read a table's definition and still not read a byte
-// of what the table points at.
+// The IAM grant above is necessary and NOT SUFFICIENT — Lake Formation gates the catalog
+// independently. The LF half is granted in modules/analytics, which owns the tag it hangs off.
+// DESCRIBE alone, and no DATA_LOCATION_ACCESS. README.md.

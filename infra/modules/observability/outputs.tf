@@ -9,6 +9,6 @@ output "logs_queue_arn" {
 }
 
 output "producer_policy_json" {
-  description = "Ready-to-attach policy granting sqs:SendMessage on the logs queue and nothing else. It is attached to the sweep's own role, and to the control planes' roles it to the data-quality execution role."
+  description = "Ready-to-attach policy granting sqs:SendMessage on the logs queue and nothing else. Attached to the sweep's own role and to the control-plane execution roles."
   value       = data.aws_iam_policy_document.logs_producer.json
 }

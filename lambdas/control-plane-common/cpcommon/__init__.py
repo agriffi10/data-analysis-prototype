@@ -10,5 +10,5 @@ functions attach the layer without setting them all, so an import added here bro
 cold start — and the reason that replaces it is cold-start COST. An import here runs for every
 attaching function whether or not it uses the module, on the layer that attaches to all of
 them; ``type_mapping`` alone would pull polars onto fifteen verbs. Pinned by
-``test_layer_import_safety.py``; see ``docs/lambda-rationale.md``.
+``test_layer_import_safety.py``; see ``lambdas/info/shared-layer.md``.
 """

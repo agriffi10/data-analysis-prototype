@@ -1,15 +1,9 @@
 # ── The endpoints that replace the NAT gateway ────────────────────────────────
 #
-# Three interface endpoints and one gateway endpoint. A Fargate task on platform version 1.4.0 in
-# a private subnet with no default route needs exactly these to start and to log, and every one of
-# them applies green when it is wrong.
-#
-# THE S3 GATEWAY ENDPOINT IS NOT AN OPTIMISATION. ECR stores image layers in S3, so with both ECR
-# interface endpoints present and this one missing the pull fails with `CannotPullContainerError`
-# — a message that reads like an authorization problem and is not. It is also the reason the
-# endpoint is a GATEWAY rather than an interface: a gateway endpoint installs a prefix-list route
-# in the tables it is associated with, which is how traffic reaches it with no default route at
-# all, and a security-group egress rule to a CIDR does not match that traffic.
+# Three interface endpoints and one gateway endpoint. EVERY ONE OF THEM APPLIES GREEN WHEN IT IS
+# WRONG. The S3 gateway endpoint is NOT an optimisation — ECR serves image layers from S3, and
+# without it the pull fails as `CannotPullContainerError`, which reads like authorization and is
+# not. README.md.
 
 resource "aws_security_group" "endpoints" {
   name        = "${local.name_prefix}-vpc-endpoints"
@@ -19,9 +13,8 @@ resource "aws_security_group" "endpoints" {
   tags = { Name = "${local.name_prefix}-vpc-endpoints" }
 }
 
-# FROM THE TASK GROUP, never from the VPC CIDR. A CIDR rule would also admit anything else that
-# ever lands in these subnets; naming the group means the endpoint's reachable set is exactly the
-# set of things wearing that group.
+# FROM THE TASK GROUP, never from the VPC CIDR — a CIDR rule would also admit anything else
+# that ever lands in these subnets.
 resource "aws_vpc_security_group_ingress_rule" "endpoints_from_tasks" {
   security_group_id            = aws_security_group.endpoints.id
   referenced_security_group_id = aws_security_group.task.id
@@ -31,14 +24,11 @@ resource "aws_vpc_security_group_ingress_rule" "endpoints_from_tasks" {
   description                  = "HTTPS from the SPA tasks"
 }
 
-# NO EGRESS RULE, deliberately. Security groups are stateful, so the endpoint's replies travel
-# the connection the task opened and never consult egress at all — and Terraform revokes the AWS
-# default allow-all egress on create, so "originates nothing" is what this group already is. A
-# placeholder rule here would only teach the next reader that one is required.
+# NO EGRESS RULE, deliberately — security groups are stateful, so the endpoint's replies travel
+# the connection the task opened. Do not add a placeholder. README.md.
 
-# `private_dns_enabled` is what makes this transparent: the task calls the ordinary public
-# hostname and DNS resolves it to the endpoint's private address. Without it — or without the
-# VPC's two DNS settings, which main.tf explains — the endpoints exist and nothing uses them.
+# `private_dns_enabled` needs the VPC's two DNS settings. Without them the endpoints exist,
+# apply green, and nothing uses them. README.md.
 resource "aws_vpc_endpoint" "interface" {
   for_each = toset(["ecr.api", "ecr.dkr", "logs"])
 
@@ -52,23 +42,13 @@ resource "aws_vpc_endpoint" "interface" {
   tags = { Name = "${local.name_prefix}-${each.key}" }
 }
 
-# THE ASSOCIATION SET IS THE WHOLE POINT. A gateway endpoint associated with the wrong route
-# table applies green and does nothing — there is no error, no drift, and the only symptom is a
-# pull that cannot complete. `route_table_ids` is therefore every private route table, derived
-# from the resource rather than listed, so an AZ added later cannot be forgotten here.
+# THE ASSOCIATION SET IS THE WHOLE POINT — a gateway endpoint on the wrong route table applies
+# green and does nothing. Derived from the resource, never listed, so a later AZ cannot be
+# forgotten.
 #
-# NO ENDPOINT POLICY, and the argument is AWS's own: the full-access default "can be used because
-# any restrictions that you have put in your task IAM roles or other IAM user policies still
-# apply on top of this policy". The minimum alternative is documented and is one bucket —
-# `prod-{region}-starport-layer-bucket`, where ECR serves layers from — so this is a choice, not
-# an absence of options.
-#
-# THE RESIDUAL IS REAL AND IS NAMED HERE rather than left implicit, because it is the one hole in
-# a design whose whole premise is "no route out": with the default policy, every S3 bucket in
-# every AWS account is reachable from these subnets. What bounds it is the task role, which holds
-# nothing — the SPA container makes no AWS call — so there is no identity in these subnets that
-# S3 would answer. Tighten this to the starport bucket the moment a task has a reason to reach
-# S3 on its own behalf, because the identity bound disappears at that point and this one does not.
+# NO ENDPOINT POLICY, deliberately. TIGHTEN THIS TO THE STARPORT BUCKET the moment a task has a
+# reason to reach S3 on its own behalf — the task role holding nothing is what bounds it today,
+# and that bound disappears at exactly that point. README.md.
 resource "aws_vpc_endpoint" "s3" {
   vpc_id            = aws_vpc.main.id
   service_name      = "com.amazonaws.${var.aws_region}.s3"

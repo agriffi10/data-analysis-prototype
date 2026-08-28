@@ -1,39 +1,17 @@
-# ── Control-plane IAM roles ────────────────────────────────────────────────────────────────────────────
-# ONE shared execution role for every verb Lambda (user decision — reverses the
-# Per-verb roles, mirroring the shared-spaces single-orchestrator model in
-# every plane uses), plus the Step Function role and the Pipe role. Trust + permission policies
-# are .tftpl templates rendered with templatefile() (no inline jsonencode IAM, per
-# architecture.md Lambda code/infra split).
+# ── Control-plane IAM roles ──────────────────────────────────────────────────
+# One shared execution role, the Step Function role and the Pipe role. The execution policy is
+# the UNION of every verb's needs. See ../../info/control-plane-shape.md and README.md.
 #
-# The execution policy (execution.json.tftpl) is the UNION of every verb's needs:
-#   - registry read (validate-authorize) + source S3 read/list (inspect/infer/execute)
-#   - Glue Describe + CREATE + UPDATE on the account catalog (check-table-absent +
-#     execute-ddl; GetTable for load-table-definition, which only READS; and UpdateTable
-# for apply-refresh, the in-place rebuild — scoped to the SAME catalog +
-#     database/* + table/*/* as the other Glue actions, not wider)
+# `glue:DeleteTable` WAS HERE AND IS DELETED — no verb on this plane deletes a table any more,
+# and a permission the code cannot use is one a future bug can still reach. A test greps these
+# modules to keep it that way.
 #
-# `glue:DeleteTable` WAS HERE AND IS DELETED. The refresh no
-# longer drops and recreates the table; it replaces the definition in place, so NO verb on
-# this plane deletes a table any more. The old comment argued a drop was SAFE because these
-# tables are EXTERNAL — true, and now beside the point: the stronger statement is that the
-# refresh path does not delete anything at all, and a permission the code cannot use is one
-# a future bug can still reach. A test greps the table-builder modules to keep it that way.
+# The explicit `Deny s3:DeleteObject` (Sid NoDataObjectDelete) is UNTOUCHED: it never depended
+# on the drop, and it outlives the mechanism that prompted it.
 #
-# The explicit `Deny s3:DeleteObject` (Sid NoDataObjectDelete) is UNTOUCHED. It never
-# depended on the drop: it is what makes "this plane cannot destroy a user's data"
-# enforceable rather than merely intended, and it outlives the mechanism that prompted it.
-#
-# Lake Formation needs NO change for the update, and the absence is recorded so the next
-# reader does not go looking for a missing grant: the `portal-managed` tag-policy grants
-# already give every control-plane execution role ALTER — the LF permission UpdateTable
-# requires — at TABLE level, alongside DROP at both levels
-# (infra/modules/analytics/lakeformation.tf, `control_plane_tag_table`).
-#   - Athena run + LF data-access + Athena-results write (execute-ddl), delete denied
-#   - logs to every table-builder function log group (wildcard)
-# The role is ALSO the table-builder Lake Formation admin (analytics data_lake_settings,
-# wired from root), so check-table-absent's GetTable + execute-ddl's CREATE resolve in
-# the DYNAMIC per-user + per-shared-space target databases that can't be statically
-# LF-granted.
+# The role is ALSO this plane's Lake Formation admin, which is what makes CREATE resolve in the
+# DYNAMIC target databases. LF, not the IAM resource scope, gates which database a table
+# lands in.
 
 # ── Shared Lambda execution role (uniform lambda trust) ──────────────────────
 resource "aws_iam_role" "execution" {
@@ -54,20 +32,14 @@ resource "aws_iam_role_policy" "execution" {
     glue_catalog_arn        = local.glue_catalog_arn
     glue_database_any       = local.glue_database_any
     glue_table_any          = local.glue_table_any
-    # Every verb emits an outcome notification (SendMessage, this queue only).
     notifications_queue_arn = var.notifications_queue_arn
-    # Structured-logging producer, same Sid and shape as data-quality's, the drain's
-    # and shared-space's, so all four read as one pattern.
-    logs_queue_arn = var.logs_queue_arn
+    logs_queue_arn          = var.logs_queue_arn
   })
 }
 
 # ── Portal role — table-build enqueue policy ────────────────
-# The browser's ONLY table-builder privilege: sqs:SendMessage to the request queue.
-# A small inline policy on the shared portal role, attached BY NAME like
-# the notifications / shared-spaces modules do (the role is created in module.data;
-# the root module-level depends_on guarantees it exists first). No Lambda invoke, no
-# DLQ, no Step Function — just enqueue. The send helper that uses it lives in the browser.
+# The browser's ONLY privilege on this plane: sqs:SendMessage. Attached BY NAME (the role is
+# created in module.data). No Lambda invoke, no DLQ, no Step Function.
 resource "aws_iam_role_policy" "portal_table_builder" {
   name = "table-build-enqueue"
   role = var.portal_role_name

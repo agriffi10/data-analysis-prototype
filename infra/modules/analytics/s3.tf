@@ -1,19 +1,8 @@
 # ── Admin-Only Athena Results Bucket ───────────────────────
-# The Athena workgroup's default/fallback output location and a future admin/audit
-# store. NO end-user access: the portal role is never granted anything on this
-# bucket (the role holds only the user-space {username}/athenaresults/
-# prefix). Reserved for future admin/audit roles, which are out of scope here.
-#
-# User-facing query results and history do NOT live here — they go to
-# {username}/athenaresults/ in the user-space bucket, readable by the
-# user and delete-protected. This bucket only ever receives a write when a
-# query omits an explicit OutputLocation (it shouldn't), keeping that data out of
-# any user-readable location.
-#
-# Hygiene mirrors the user-space bucket (data/s3.tf): all public access blocked,
-# SSE-S3, BucketOwnerEnforced, versioning off (MVP). Created by the deploy role,
-# which holds s3:* on this ARN (modules/base S3AthenaAdminBucketManage);
-# the time_sleep guard in athena.tf covers both this bucket and the workgroup.
+# The workgroup's default/fallback output location. NO END-USER ACCESS: the portal role is
+# never granted anything here. User-facing results live at {username}/athenaresults/ in the
+# user-space bucket; this one only ever receives a write when a query omits an explicit
+# OutputLocation. README.md.
 
 resource "aws_s3_bucket" "athena_admin" {
   bucket = var.athena_admin_bucket_name
@@ -48,7 +37,7 @@ resource "aws_s3_bucket_ownership_controls" "athena_admin" {
   }
 }
 
-# Versioning OFF for the MVP (matches the user-space bucket).
+# Versioning OFF, matching every other bucket.
 resource "aws_s3_bucket_versioning" "athena_admin" {
   bucket = aws_s3_bucket.athena_admin.id
 
@@ -57,26 +46,13 @@ resource "aws_s3_bucket_versioning" "athena_admin" {
   }
 }
 
-# Expire admin/fallback output after the retention window. (The user-facing
-# athenaresults/ prefix in the user-space bucket has NO expiry — kept indefinitely
-# by decision; this lifecycle applies only here.)
+# ⚠ `logs/` IS RETAINED INDEFINITELY (user decision, 2026-07-22), and the cost is unbounded
+# growth with no ceiling and no decision point.
 #
-# Scoped to the fallback-results/ prefix: the workgroup's fallback
-# OutputLocation now writes under fallback-results/ (athena.tf), and the shared-space
-# shared-spaces/ control-object registry also lives in this bucket. S3 lifecycle
-# rules can only INCLUDE a prefix (there is no exclude), so the rule targets only the
-# transient fallback output by prefix — registry objects under shared-spaces/ are
-# never matched and are retained indefinitely.
-#
-# `logs/` gets NO rule here — the structured logs are retained indefinitely
-# (user decision, 2026-07-22). The cost, stated plainly so it is read here rather than
-# discovered on a bill: unbounded growth, with no ceiling and no decision point.
-#
-# What makes that safe is structural, not conventional: every rule below that can EXPIRE
-# something carries a prefix filter, so none of them can match `logs/` by accident. S3 lifecycle
-# rules can only INCLUDE a prefix, never exclude one — so an expiring rule added later with an
-# empty filter would silently begin deleting the logs. The
-# `admin_lifecycle_rules_are_prefix_scoped` check below pins that.
+# What makes that safe is STRUCTURAL: every rule below that can EXPIRE something carries a
+# prefix filter. S3 LIFECYCLE RULES CAN ONLY INCLUDE A PREFIX, NEVER EXCLUDE ONE, so an
+# expiring rule added later with an empty filter would silently begin deleting the logs. The
+# `admin_lifecycle_rules_are_prefix_scoped` check pins that. README.md.
 resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
   bucket = aws_s3_bucket.athena_admin.id
 
@@ -93,13 +69,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
     }
   }
 
-  # The table-share copy plan (the object list inspect-source hands to copy-objects, moved
-  # off the Step Functions state because it pushed the Map's payload to 95% of the 256 KB
-  # limit). It is EXECUTION-SCOPED — read once, minutes after it is written — so nothing
-  # needs it long-term; the retention that remains is purely so an operator can inspect the
-  # plan of a failed share. Reuses the same retention as the fallback results rather than
-  # introducing a second knob: both are transient control-plane objects in this bucket, and
-  # neither matches shared-spaces/, which is the registry and is retained indefinitely.
+  # The table-share copy plan. Execution-scoped — read minutes after it is written — so the
+  # retention is purely so an operator can inspect the plan of a failed share.
   rule {
     id     = "expire-table-share-copy-plans"
     status = "Enabled"
@@ -113,12 +84,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
     }
   }
 
-  # The file-send copy plan — the expanded object list inspect-source hands to
-  # the manifest builder. Same reasoning as the table-share rule above and the same
-  # retention: execution-scoped, read minutes after it is written, kept only so an operator
-  # can inspect the plan of a failed send. It is a SEPARATE rule rather than a widened
-  # filter because S3 lifecycle takes one prefix per rule, and a prefix broad enough to
-  # cover both (`""`) would match `logs/`, which is retained indefinitely.
+  # The file-send copy plan. A SEPARATE rule rather than a widened filter because S3 lifecycle
+  # takes ONE PREFIX PER RULE, and a prefix broad enough to cover both ("") would match logs/.
   rule {
     id     = "expire-file-send-copy-plans"
     status = "Enabled"
@@ -132,18 +99,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
     }
   }
 
-  # The archive copy plan, transfer manifest and Map Run results — the expanded
-  # object list inspect-source hands to the manifest builder, and the export the collector
-  # reads back. Same reasoning as the table-share and file-send rules above and the same
-  # retention: execution-scoped, read minutes after it is written, kept only so an operator can
-  # inspect the plan of a failed archive.
+  # The archive copy plan, manifest and Map Run results. A separate rule for the same reason.
   #
-  # IT IS A SEPARATE RULE FOR THE SAME REASON THE OTHER TWO ARE: S3 lifecycle takes one prefix
-  # per rule, and a prefix broad enough to cover all three ("") would match `logs/`, which
-  # is retained indefinitely. The `archive/` prefix here is the ADMIN bucket's
-  # control-plane scratch space and has nothing to do with the `archive/` folder in a user's own
-  # space (which holds receipts and is never expired) or with the archive BUCKET (7 years).
-  # Three unrelated things named `archive/`, in three buckets, is worth stating once.
+  # ⚠ `archive/` HERE IS THE ADMIN BUCKET'S CONTROL-PLANE SCRATCH SPACE. It has nothing to do
+  # with the `archive/` folder in a user's own space (receipts, never expired) or with the
+  # archive BUCKET (7 years). Three unrelated things named `archive/`, in three buckets.
   rule {
     id     = "expire-archive-copy-plans"
     status = "Enabled"
@@ -157,17 +117,12 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
     }
   }
 
-  # The file-ops copy plan — the expanded object list inspect-source hands to the
-  # destination guard and, later, to the transfer. Same reasoning as the three rules above
-  # and the same retention: execution-scoped, read minutes after it is written, kept only
-  # so an operator can inspect the plan of a failed operation.
+  # The file-ops copy plan.
   #
-  # THE PREFIX CANNOT REACH THIS PLANE'S LOCKS, and that is worth stating because the two
-  # names look alike. An S3 lifecycle prefix anchors at the START of the key, so `file-ops/`
-  # does not match `locks/file-ops/`. It must not: that lock is released by OVERWRITING
-  # rather than deleting, so that "free" is a state of the object rather than its absence —
-  # an expiry rule reaching it would turn a released lock into a missing one and break the
-  # compare-and-set that detects a steal.
+  # ⚠ THE PREFIX CANNOT REACH THIS PLANE'S LOCKS: an S3 lifecycle prefix anchors at the START
+  # of the key, so `file-ops/` does not match `locks/file-ops/`. It MUST NOT — that lock is
+  # released by OVERWRITING, so an expiry rule reaching it would turn a released lock into a
+  # missing one and break the compare-and-set that detects a steal.
   rule {
     id     = "expire-file-ops-plans"
     status = "Enabled"
@@ -181,17 +136,12 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
     }
   }
 
-  # The load balancer's access logs. They are NOT execution-scoped like the four plan rules
-  # above and do not share their retention: a plan is read minutes after it is written, while
-  # these are the only record of a request that never reached a task, so their window is an
-  # incident-investigation one and has its own knob.
+  # The load balancer's access logs — NOT execution-scoped, and with their own knob: these are
+  # the only record of a request that never reached a task.
   #
-  # The prefix arrives as a variable from root, which is also where the module pointing the
-  # balancer at it reads the same value — two literals could disagree and the symptom would be
-  # logs that never expire. ALB appends its own AWSLogs/{account}/ beneath it, so this rule
-  # matches every object it writes and nothing else. Prefix-scoped like every other expiring rule
-  # here, for the reason the check below pins: an unfiltered expiring rule would reach logs/,
-  # which is retained indefinitely.
+  # The prefix arrives as a VARIABLE from root, which is also where the module pointing the
+  # balancer at it reads the same value — two literals could disagree, and the symptom would be
+  # logs that never expire.
   rule {
     id     = "expire-alb-access-logs"
     status = "Enabled"
@@ -205,15 +155,12 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
     }
   }
 
-  # Bucket-wide, and deliberately UNFILTERED (CKV_AWS_300). An abandoned multipart upload
-  # leaves orphaned parts that are billed and invisible to every listing, anywhere in the
-  # bucket — so scoping this to the prefixes we happen to know about today would leave a new
-  # prefix silently unprotected.
+  # Bucket-wide and deliberately UNFILTERED (CKV_AWS_300) — orphaned parts can appear
+  # anywhere, so scoping to today's prefixes would leave a new one unprotected.
   #
-  # Unfiltered is safe here in a way an expiration rule would NOT be: this rule carries no
-  # `expiration`, and abort-incomplete-multipart-upload can only discard the PARTS of an upload
-  # that never completed. It cannot delete an object, so it cannot reach `logs/`, which
-  # is retained indefinitely. The check below pins exactly that distinction.
+  # Unfiltered is safe here in a way an EXPIRATION rule would not be: this carries no
+  # `expiration` and can only discard the PARTS of an upload that never completed, so it
+  # cannot reach logs/. The check below pins exactly that distinction.
   rule {
     id     = "abort-incomplete-multipart-uploads"
     status = "Enabled"
@@ -226,24 +173,18 @@ resource "aws_s3_bucket_lifecycle_configuration" "athena_admin" {
   }
 }
 
-# No CORS: this bucket is never read by the browser. User-facing result downloads
-# read from the user-space {username}/athenaresults/ prefix instead.
+# No CORS: the browser never reads this bucket.
 
 # Pins the invariant the logs/ retention decision rests on.
 #
-# `check` surfaces this as a PLAN WARNING, not a hard failure: OpenTofu has no native way to
-# fail on it without restructuring the lifecycle resource to render its rules from a local via
-# `dynamic`, which is more risk than this is worth on a working retention config. A warning in
-# the plan output is enough — the failure mode it guards against (someone adds an unfiltered
-# rule and silently starts expiring the logs) is a code-review moment, and this puts the
-# evidence in the diff's own plan comment.
+# A PLAN WARNING, not a hard failure: OpenTofu cannot fail on this without restructuring the
+# lifecycle resource to render its rules via `dynamic`, which is more risk than it is worth on
+# a working retention config. The failure mode it guards is a code-review moment. README.md.
 check "admin_lifecycle_rules_are_prefix_scoped" {
   assert {
-    # Scoped to rules that can DELETE something. The guard exists because an unfiltered
-    # expiring rule would reach logs/; a rule with no expiration cannot delete an object at
-    # all, so requiring a prefix on it bought nothing and blocked the bucket-wide
-    # abort-incomplete-multipart-upload rule above (CKV_AWS_300). Narrowed deliberately, and
-    # an unfiltered EXPIRING rule still fails exactly as before.
+    # Scoped to rules that can DELETE something: a rule with no expiration cannot delete an
+    # object at all, so requiring a prefix on it bought nothing and blocked the bucket-wide
+    # CKV_AWS_300 rule. An unfiltered EXPIRING rule still fails exactly as before.
     condition = alltrue([
       for r in aws_s3_bucket_lifecycle_configuration.athena_admin.rule :
       try(one(r.filter).prefix, "") != ""

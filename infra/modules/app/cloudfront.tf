@@ -9,15 +9,10 @@ resource "aws_cloudfront_origin_access_control" "static_assets" {
 }
 
 # ── Response Headers Policy ───────────────────────────────────────────────────
-# Closes Checkov CKV2_AWS_32 and every Medium plus six of eight Low
-# findings from the 2026-08-03 ZAP baseline — two scanners reporting one gap.
+# Closes Checkov CKV2_AWS_32 and the 2026-08-03 ZAP baseline's Mediums.
 #
-# THE POLICY STRING ITSELF IS NOT BUILT HERE. It arrives assembled from root, so
-# that one computation feeds both delivery paths — this distribution and the
-# container — and so that a root-level check has something it can read. A local
-# inside a module is invisible to one, and this module is deleted when the
-# distribution is retired, which would orphan the computation the container
-# depends on.
+# THE CSP STRING IS NOT BUILT HERE — it arrives assembled from root, so one computation feeds
+# both delivery paths and a root-level check can read it. README.md.
 
 resource "aws_cloudfront_response_headers_policy" "portal" {
   name    = "${var.project_name}-security-headers"
@@ -27,20 +22,9 @@ resource "aws_cloudfront_response_headers_policy" "portal" {
     strict_transport_security {
       access_control_max_age_sec = 31536000
       include_subdomains         = true
-      # `preload` satisfies Checkov CKV_AWS_259, which objects to nothing else
-      # (max-age, include_subdomains and override all pass it already).
-      #
-      # It is INERT on its own: browsers act on the preload list, and entry to
-      # that list requires a manual submission at hstspreload.org that we have
-      # not made and are not making. So this directive changes no behaviour
-      # today — it states an intent, and the cost of stating it is that someone
-      # could act on it later.
-      #
-      # THE ONE THING TO KNOW: preload is close to irreversible once granted,
-      # and this is a shared-suffix *.cloudfront.net name that a custom domain
-      # will eventually replace (see CKV2_AWS_42). Do NOT submit this domain to
-      # hstspreload.org. When the custom domain lands, decide submission there
-      # on its own merits.
+      # Satisfies CKV_AWS_259, and is INERT on its own — browsers act on the preload list,
+      # which we have not submitted to. Do NOT submit this domain to hstspreload.org:
+      # preload is close to irreversible and this name is temporary. README.md.
       preload  = true
       override = true
     }
@@ -59,10 +43,7 @@ resource "aws_cloudfront_response_headers_policy" "portal" {
       override        = true
     }
 
-    # ENFORCING, after a signed-in pass against the
-    # report-only deploy reported no violations — sign-in and the Query editor
-    # running a statement included, which is the path exercising Monaco's
-    # worker, its runtime style injection and the Athena/Glue endpoints.
+    # ENFORCING, after a signed-in report-only pass reported no violations.
     content_security_policy {
       content_security_policy = var.content_security_policy
       override                = true
@@ -89,14 +70,8 @@ resource "aws_cloudfront_response_headers_policy" "portal" {
       override = true
     }
 
-    # DELIBERATELY ABSENT: Cross-Origin-Embedder-Policy.
-    #
-    # `require-corp` exists to enable cross-origin isolation. This app has no use
-    # for it — no SharedArrayBuffer, no high-resolution timers — so it would buy
-    # a scanner Low in exchange for a real risk of breaking subresource loads.
-    # ZAP alert 90004 therefore stays open BY DECISION; it is recorded as
-    # accepted in docs/security-baseline.md. Do not "fix" it by adding the
-    # header here without revisiting that decision.
+    # DELIBERATELY ABSENT: Cross-Origin-Embedder-Policy. ZAP alert 90004 stays open BY
+    # DECISION (docs/security-baseline.md). Do not "fix" it here — README.md.
   }
 
   remove_headers_config {
@@ -119,18 +94,10 @@ data "aws_cloudfront_cache_policy" "caching_optimized" {
   name = "Managed-CachingOptimized"
 }
 
-# The runtime configuration document must never be answered from an edge cache.
-#
-# CachingOptimized cannot express that. Its MinTTL is 1 second, and CloudFront applies
-# the MinTTL EVEN WHEN the origin sends `no-store` — so the header alone never gets to
-# zero. The larger numbers bite only if the object ever reaches the edge WITHOUT a
-# Cache-Control header, which is one forgotten flag away: the 24-hour DefaultTTL then
-# applies, and the 365-day MaxTTL lets an unreachable origin keep serving the last
-# document it saw. Any of those serves one environment's account ids to another
-# environment's users, as a portal that looks entirely healthy.
-#
-# 0/0/0 makes the guarantee a property of the distribution instead of a flag on one
-# upload step.
+# The runtime configuration document must NEVER be answered from an edge cache, and
+# CachingOptimized cannot express that — CloudFront applies its MinTTL even when the origin
+# sends `no-store`. 0/0/0 makes the guarantee a property of the distribution rather than a
+# flag on one upload step. README.md.
 data "aws_cloudfront_cache_policy" "caching_disabled" {
   name = "Managed-CachingDisabled"
 }
@@ -155,10 +122,8 @@ resource "aws_cloudfront_distribution" "portal" {
     response_headers_policy_id = aws_cloudfront_response_headers_policy.portal.id
   }
 
-  # `ResponseHeadersPolicyId` is per-behaviour and is NOT inherited from the default one:
-  # omitting it here would serve this path with no CSP, no HSTS, no frame or content-type
-  # options — and without the `Server` / encryption header stripping — on a URL any
-  # scanner finds immediately.
+  # `ResponseHeadersPolicyId` is per-behaviour and is NOT inherited from the default one.
+  # Omitting it serves config.json with no CSP and no HSTS, on a URL any scanner finds.
   ordered_cache_behavior {
     path_pattern               = "config.json"
     allowed_methods            = ["GET", "HEAD"]

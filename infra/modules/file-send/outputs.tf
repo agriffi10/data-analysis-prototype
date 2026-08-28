@@ -1,10 +1,7 @@
 # ── file-send module outputs ──────────────────────────────────────
-# The browser learns the queue URL to enqueue send requests (sqs:SendMessage granted
-# to the portal role above → VITE_FILE_SEND_QUEUE_URL); the queue ARN scopes that
-# grant; the state-machine ARN is for ops/observability. The execution-role ARN is
-# exported for reference only — root threads a CONSTRUCTED twin into the user-space
-# bucket policy's allowlist, because an unknown-at-plan ARN inside a list silently
-# drops the change (architecture.md's "unknown ARN in list" trap).
+# The execution-role ARN is exported FOR REFERENCE ONLY — root threads a CONSTRUCTED twin into
+# the user-space bucket policy's allowlist, because an unknown-at-plan ARN inside a list
+# silently drops the change.
 
 output "file_send_queue_url" {
   description = "URL of the FIFO request queue (ends in .fifo). The browser enqueues send-files requests here. Maps to VITE_FILE_SEND_QUEUE_URL."

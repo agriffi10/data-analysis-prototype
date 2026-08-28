@@ -4,7 +4,7 @@ Identifier quoting, the column body, ``PARTITIONED BY``, the Athena partition-pr
 ``TBLPROPERTIES`` and the statement assembly are shared. The storage clause is not: the
 table-builder and data-quality arcs deliberately choose different SerDes, so ``storage`` is
 injectable and a domain's SerDe choice stays in that domain's layer. See
-``docs/lambda-rationale.md``.
+``lambdas/info/shared-layer.md``.
 
 Attributes:
   CSV_OPEN_SERDE: OpenCSVSerde storage clause. Its ``escapeChar`` is a single backslash,

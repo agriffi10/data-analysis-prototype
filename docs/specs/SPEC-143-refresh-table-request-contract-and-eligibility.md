@@ -13,7 +13,7 @@
 >
 > **The design constraint that shapes FR-004, discovered while authoring and stated here so it is not re-discovered mid-build:** `inspect-source` and `infer-schema` are *not* generic over their inputs. `inspect-source` lists `space.bucket` + `space.prefix` (not a `location` field), and `infer-schema` hands its `partition_keys` straight to `cpcommon.ddl.build_create_table_ddl`, which requires the **SPEC-069 declared shape** (`type ∈ {integer,date,string}` plus `range` / `values` / `format`) and raises a bare `ValueError` on anything else. So `load-table-definition` must hand the shared spine exactly what a create would have handed it: a rewritten `space.prefix` and **reconstructed declared partition keys**, not raw Glue shapes. FR-004 is written around that.
 >
-> **Rulebooks:** `docs/best-practices/lambdas/lambdas.md`, routed via `docs/best-practices/INDEX.md`.
+> **Rulebooks:** `lambdas/info/best-practices/lambdas/lambdas.md`, routed via `docs/best-practices/INDEX.md`.
 >
 > **Transition note (`docs/transition_plan.md` §2 item 9, §7 Phase 4):** analytics is feature-flagged **off** for Phase 1 of the client transition and the table arcs are re-enabled one at a time in Phase 4 against their original acceptance criteria. Nothing in this arc reads the `cognito:username` claim outside `cpcommon.auth`, so it survives the transition unchanged. Do not add a second claim reader.
 

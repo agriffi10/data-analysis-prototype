@@ -98,7 +98,7 @@ Extract one reusable destination-folder picker used by both Move (SPEC-019) and 
 
 - [ ] A `DestinationPicker` component is extracted from SPEC-019's `MoveDialog`: it lists folders within the user's own space, excludes invalid targets (the item's own subtree for a folder op; the protected `athenaresults/` folder), and returns the chosen destination prefix
 - [ ] SPEC-019's `MoveDialog` is **refactored** to consume `DestinationPicker` (no behavior change to move); Copy uses the same component. A note records this refactor of the completed SPEC-019 UI
-- [ ] `DestinationPicker` is added to `docs/component-inventory.md` as a shared file-browser component
+- [ ] `DestinationPicker` is added to `apps/portal/info/component-inventory/INDEX.md` as a shared file-browser component
 - [ ] Existing move tests still pass after the refactor; new copy tests use the same picker
 
 ### FR-005: Collision Handling (Warn and Confirm)

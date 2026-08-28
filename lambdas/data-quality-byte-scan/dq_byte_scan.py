@@ -10,7 +10,7 @@ enormous, the function's ceiling is finite, and Athena cannot see raw bytes at a
 honest response is a labelled sample — the figure ships with its coverage percentage and the
 report says sampled — because a number that silently means "of the first fraction of a percent"
 is worse than no number at all. The budget is per request, never per file, and is divided across
-the manifest's files; the arithmetic is in ``docs/lambda-rationale.md``.
+the manifest's files; the arithmetic is in ``lambdas/info/planes/data-quality.md``.
 
 Text only. Binary formats and compressed objects are skipped with their reason: a binary format
 defines its encoding in the file itself, and a compressed file's raw bytes are compressor output,

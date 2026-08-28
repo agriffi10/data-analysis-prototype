@@ -1,14 +1,7 @@
-# The producer fragment.
+# The producer fragment: sqs:SendMessage on the logs queue and nothing else.
 #
-# sqs:SendMessage on the logs queue ARN and nothing else — no other action, no other queue. This
-# spec attaches it to the sweep's OWN role (the sweep instruments itself, which is what makes the
-# pipe end-to-end verifiable without instrumenting a control plane); the control planes attach the same
-# document to the data-quality execution role.
-#
-# The PORTAL role is deliberately granted NOTHING on this queue, here or anywhere. The queue's
-# contents are the operational record of what the control planes did, and a browser that could
-# enqueue could forge log events attributing arbitrary activity to arbitrary services. Producers
-# are execution roles only.
+# The PORTAL role is granted NOTHING on this queue, here or anywhere — a browser that could
+# enqueue could forge log events. Producers are execution roles only. README.md.
 data "aws_iam_policy_document" "logs_producer" {
   statement {
     sid       = "SendStructuredLogEvents"
@@ -35,21 +28,8 @@ resource "aws_iam_role" "sweep" {
 }
 
 # The sweep writes logs and reads BACK ONLY WHAT IT WROTE. No s3:DeleteObject, no Glue, no
-# Athena, and no access to the user-space or shared-space buckets.
-#
-# A later change REVERSED the "it reads nothing" property this role shipped with,
-# and that is a deliberate trade rather than a slip. One object per service per day means
-# read-modify-write, because S3 has no append: the sweep must GET the day's object to extend it.
-# What bounds the reversal is that s3:GetObject is scoped to the SAME logs/* prefix as the
-# write, so the role can read its own output and nothing else in the admin bucket — not
-# fallback-results/, not shared-spaces/, not table-share/. It still cannot read a single byte of
-# user data anywhere.
-#
-# The admin bucket is NOT in the user-space bucket-policy allowlist problem space — that
-# Deny-all-but-allowlist resource policy is on the USER-SPACE bucket, and this role touches
-# neither user-data bucket. Stated explicitly because "a new role got a 403 from the user-space
-# bucket policy" has bitten this repo three times (table-builder, table-share, data-quality, all
-# fixed since). No allowlist entry is needed for this role.
+# Athena, no access to either user-data bucket — and so no user-space bucket-policy allowlist
+# entry is needed for this role. Why it reads at all, and what bounds it: README.md.
 data "aws_iam_policy_document" "sweep" {
   statement {
     sid    = "DrainLogsQueue"
@@ -62,10 +42,9 @@ data "aws_iam_policy_document" "sweep" {
     resources = [aws_sqs_queue.logs.arn]
   }
 
-  # PutObject to extend a day's object, GetObject to read what is already in it. Both scoped to
-  # logs/* — NOT the bucket root, which also holds fallback-results/, shared-spaces/ and
-  # table-share/. A sweep that could write anywhere in the admin bucket could overwrite a user's
-  # query results with log lines; one that could READ anywhere could copy them into logs/.
+  # Both scoped to logs/* — NOT the bucket root, which also holds fallback-results/,
+  # shared-spaces/ and table-share/. Widening this lets the sweep overwrite a user's query
+  # results with log lines, or copy them into logs/.
   statement {
     sid       = "AppendLogObjects"
     effect    = "Allow"
@@ -90,8 +69,8 @@ resource "aws_iam_role_policy" "sweep" {
   policy = data.aws_iam_policy_document.sweep.json
 }
 
-# The sweep is also a PRODUCER — it instruments itself through
-# cpcommon.observability, which is what proves the whole path without touching a control plane.
+# The sweep is also a PRODUCER — it instruments itself, which proves the whole path without
+# touching a control plane.
 resource "aws_iam_role_policy" "sweep_producer" {
   name   = "logs-producer"
   role   = aws_iam_role.sweep.id

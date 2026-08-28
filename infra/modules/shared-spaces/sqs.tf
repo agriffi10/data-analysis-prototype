@@ -1,17 +1,9 @@
 # ── Request Queue + DLQ ────────────────────────────────────
-# The control-plane entry point. The browser enqueues a request
-# message; an EventBridge Pipe (pipe.tf) drains it into the Step Function.
+# FIFO with a SINGLE CONSTANT MessageGroupId, so requests are processed strictly one-at-a-time.
 #
-# FIFO with a single, constant MessageGroupId (a producer convention) so
-# requests are processed strictly one-at-a-time, in order — the user-required serial
-# intake that, together with the create action's atomic conditional PutObject
-# (If-None-Match), makes duplicate shared-space names impossible even when
-# two users submit the same name at once. The Pipe reads a batch of 1 (pipe.tf).
-#
-# Duplicate-name safety does NOT depend on SQS content dedup — content-based
-# deduplication only collapses byte-identical bodies inside the 5-minute window
-# (it usefully absorbs a double-click); the registry conditional-put is the real
-# guard. Producers may still set an explicit MessageDeduplicationId to override.
+# DUPLICATE-NAME SAFETY DOES NOT DEPEND ON SQS CONTENT DEDUP — that only collapses
+# byte-identical bodies inside a 5-minute window. THE REGISTRY'S CONDITIONAL PUT
+# (If-None-Match) IS THE REAL GUARD, and serial intake is what makes it sufficient. README.md.
 
 resource "aws_sqs_queue" "requests_dlq" {
   name                        = local.dlq_name
