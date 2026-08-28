@@ -65,7 +65,7 @@ def failure_reason(error) -> str:
     the Cause in a Pass state with ``States.StringToJson`` raises an uncatchable
     States.Runtime on three of the four realistic error shapes, killing the execution before
     the notify state. The machines now pass ``$.error`` through untouched. Evidence and the
-    TestState results are in ``docs/lambda-rationale.md``.
+    TestState results are in ``lambdas/info/shared-layer.md``.
 
     Returns the verb's own reason code when there is one, otherwise the raw SFN error name,
     which is already a stable code like ``States.Timeout``. The reason split is gated on the

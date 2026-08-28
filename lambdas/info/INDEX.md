@@ -20,7 +20,7 @@ to all of them are in `docs/architecture.md` → *Control Planes* and the Key De
 | | Path | Holds |
 |---|---|---|
 | Verb Lambdas | `lambdas/<plane>-<verb>/` | one handler, its tests, and nothing else |
-| Shared layer | `lambdas/control-plane-common/cpcommon/` | the algorithms every plane runs — auth, CAS, locks, transfer, errors, observability |
+| Shared layer | `lambdas/control-plane-common/cpcommon/` | the algorithms every plane runs — auth, CAS, locks, transfer, errors, observability. Its module map and long-form reasoning: [`shared-layer.md`](shared-layer.md) |
 | Domain layers | `lambdas/<plane>-common/` | that plane's tables, wording and domain rules |
 | API | `lambdas/api/` | the HTTP API's router, routes and `apicommon` |
 

@@ -7,7 +7,7 @@ constants, because they are product decisions rather than deployment knobs: chan
 what the report means, so it should be a reviewed code change rather than a per-environment
 variable somebody can drift.
 
-Sizing evidence for the scan budget and the sample floor is in ``docs/lambda-rationale.md``.
+Sizing evidence for the scan budget and the sample floor is in ``lambdas/info/planes/data-quality.md``.
 
 Attributes:
   RESERVED_PREFIXES: First-path-segment prefixes a report may not be written under and a check

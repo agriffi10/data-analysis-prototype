@@ -7,7 +7,7 @@ document the browser reads to suggest usernames as a user types.
 The source is S3 common prefixes, not Cognito, and that is a decision rather than a
 convenience — do not "fix" it back, and do not add Cognito as a union "to be safe". A test
 asserts this module never imports or clientises Cognito. The document is advisory: a name's
-presence in it grants nothing. Reasoning: ``docs/lambda-rationale.md``.
+presence in it grants nothing. Reasoning: ``lambdas/info/planes/standalone.md``.
 
 Attributes:
   DIRECTORY_PREFIX: The reserved root prefix this document lives under. Safe as the bucket's

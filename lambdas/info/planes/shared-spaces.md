@@ -72,3 +72,32 @@ This layer is **top-level modules, not a package** — the only one shaped that 
 | `teardown` | shared resource-teardown helpers |
 
 The verbs are listed in [`../INDEX.md`](../INDEX.md).
+
+---
+
+## Why the numbers are what they are
+
+Long-form reasoning that outgrew a docstring: sizing evidence, rejected designs and the
+traps. Read the entry for what you are changing.
+
+### `shared-space-common/registry.py` — why a membership write is a delta
+
+`save_members` takes **deltas** (`add=`, `remove=`, `acknowledge=`) and derives the new roster
+inside its own compare-and-swap. It used to take the roster the caller had computed from
+`event["registry"]` — a snapshot read before the request began — and assign it over the
+freshly-read record. So the CAS re-read the record and then overwrote the one field it exists to
+protect with a stale value: two overlapping requests on one space were **last-write-wins on the
+roster**, and a concurrent remove reinstated a just-added member (SPEC-151 FR-004).
+
+Nothing serializes those requests. `shared-spaces/pipe.tf` is `FIRE_AND_FORGET` and the FIFO
+group id is one global constant, which `cpcommon.cas`'s module docstring says outright (it was
+`casio`'s until SPEC-156 FR-001 moved the loop).
+
+**Four callers, not three.** `acknowledge-membership` is one too, and it is the only one that
+*adds* to `acknowledged`. Left out of the conversion, it would have kept passing a whole computed
+list and kept the defect.
+
+**`status` is no longer written by this path.** It used to be forced to `"active"`
+unconditionally, which let a membership write racing a delete return a `deleting` space to
+`active` — the cascade would then run against a record claiming to be healthy. Only a
+`setdefault` remains, to heal a record written before the field existed.

@@ -91,3 +91,52 @@ The schema inference itself is shared: `cpcommon.type_mapping` is the one polars
 `cpcommon.columns` holds the column-name rule.
 
 The verbs are listed in [`../INDEX.md`](../INDEX.md).
+
+---
+
+## Why the numbers are what they are
+
+Long-form reasoning that outgrew a docstring: sizing evidence, rejected designs and the
+traps. Read the entry for what you are changing.
+
+### `tbcommon/config.py` — sizing `REFRESH_MAX_DEFINITION_BYTES`
+
+The refresh path's definition cap is **40 KiB**, and it is deliberately not tscommon's
+`SHARE_MAX_DEFINITION_BYTES`. That 32 KiB was measured for table-share's 50-recipient Map,
+where the definition is copied into every item; table-builder has no Map.
+
+> **Note (SPEC-161).** The comparison above is now against a value that means something different:
+> table-share's definition travels by pointer, so its 64 KiB bounds Athena's query string, not a
+> state payload. The 40 KiB here is unaffected — table-builder's definition still rides on its own
+> state, and this paragraph's reasoning about that is unchanged.
+
+What rides on a refresh state instead is one definition plus what `infer-schema` then adds
+to the **same** state — its own inferred columns and the generated DDL. **Columns therefore
+ride three times** while table properties ride once, so the worst case is a definition spent
+entirely on columns (an ordinary flat Parquet table), not a mixed one. Measured at that
+composition by `test_load_table_definition.py`:
+
+| cap | columns | whole state | % of 256 KB |
+|---|---|---|---|
+| 32 KiB | 713 | 92,331 | 35% |
+| **40 KiB** | **891** | **115,293** | **44%** ← chosen |
+| 48 KiB | 1,069 | 138,255 | 53% ← over half; rejected |
+
+Breaching the 256 KB state-payload limit raises `States.DataLimitExceeded`, thrown **outside
+every Catch** — no recorded outcome and no notification, on a request that already did all
+its work. So an oversized table is refused up front as a whole-request terminal.
+
+### `table-builder-apply-refresh` — what the in-place update does *not* retire
+
+Stated rather than implied, because SPEC-144 FR-006 AC1 claimed a serialization guarantee
+that did not exist.
+
+The Pipe still invokes `StartExecution` as `FIRE_AND_FORGET`
+(`infra/modules/table-builder/pipe.tf`), so two refreshes on one database still overlap, and
+**Glue offers no compare-and-set to close it**: `UpdateTable`'s `VersionId` is documented only
+as "the version ID at which to update the table contents", alongside `TransactionId` and
+`ViewUpdateAction`, with no precondition-failure error.
+
+What changes is the **severity**. The worst case degrades from "one run sees no table" to
+last-write-wins between two definitions, and `ConcurrentModificationException` — which Glue
+raises on genuine simultaneity — is retried. SPEC-157 owns closing the rest.

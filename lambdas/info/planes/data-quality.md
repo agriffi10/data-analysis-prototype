@@ -100,3 +100,41 @@ Revisit before real users arrive.
 `cpcommon.bounded_read`, which exists so the probe does not need polars' cloud reader.
 
 The verbs are listed in [`../INDEX.md`](../INDEX.md).
+
+---
+
+## Why the numbers are what they are
+
+Long-form reasoning that outgrew a docstring: sizing evidence, rejected designs and the
+traps. Read the entry for what you are changing.
+
+### `dqcommon/config.py` — sizing the byte-scan budget
+
+**Why the budget is per REQUEST, never per file.** An earlier version bounded it per file:
+256 MiB × up to 1000 files ≈ 276 GB through one 1024 MB Lambda in 300 s ≈ **920 MB/s
+sustained**, against a real-world ~60–100 MB/s. It would have passed on a three-file fixture and
+timed out in production — the exact error class this arc's re-architecture exists to eliminate.
+
+**`DQ_SCAN_MIN_SAMPLE_BYTES` — the second disaster, which the byte budget does not prevent.**
+Bytes are not the only cost; **requests** are. A flat 1 head + 20 ranged reads per file is
+**21,000 sequential GetObjects** on a 1000-file manifest. At ~30 ms round-trip each that is
+~630 s against the function's 300 s ceiling, while reading only the 2 GiB the byte budget
+permits. It would have timed out on exactly the large folders the budget rewrite was meant to
+save, for a completely different reason.
+
+So a file's share only buys a ranged read when that read is worth a round trip. Measured across
+the range (share = 2 GiB / fileCount, head = half of it):
+
+| files | samples | GETs | time |
+|---|---|---|---|
+| 1 | 20 | 21 | ~36 s |
+| 12 | 20 | 252 | ~43 s |
+| 100 | 2 | 300 | ~44 s |
+| 1000 | 0 | 1000 | ~65 s — 21,000 GETs / ~630 s without the floor |
+
+Both costs are now bounded: never more than `DQ_SCAN_TOTAL_BYTES`, and never more than ~1000
+requests. At 1000 files no sample clears the floor, so a file's 2 MiB share buys only its head
+window — `head = int(share * DQ_SCAN_HEAD_FRACTION)` = **1 MiB**, and the 1 MiB remainder is
+under `DQ_SCAN_MIN_SAMPLE_BYTES`, so it buys no ranged read at all. That is the right trade: one
+contiguous 1 MiB read beats 21 scattered 100 KiB ones for finding a corrupt export, and the
+report says the coverage is sampled either way.

@@ -10,7 +10,7 @@ Attributes:
     Step Functions state. Its own bound, deliberately not table-share's, which was measured
     for a 50-recipient Map. Breaching the 256 KB state-payload limit raises
     States.DataLimitExceeded outside every Catch, so an oversized table is refused up front.
-    Sizing evidence is in ``docs/lambda-rationale.md``.
+    Sizing evidence is in ``lambdas/info/planes/table-builder.md``.
 """
 
 PARTITION_TYPES = frozenset({"integer", "date", "string"})

@@ -200,6 +200,5 @@ deliver while every bound computed from it reads as satisfied. Eight workers; th
 | `restore` | the restore request contract, and the archive it names |
 | `retrieval` | Glacier retrieval: asking for the bytes back, and knowing when they are there |
 
-The verbs are listed in [`../INDEX.md`](../INDEX.md). Long-form reasoning:
-`docs/lambda-rationale.md`; the UI's one refusal — the archive dialog never says "this can't be
+The verbs are listed in [`../INDEX.md`](../INDEX.md). The UI's one refusal — the archive dialog never says "this can't be
 undone" — is in `CLAUDE.md` → *The browser*.

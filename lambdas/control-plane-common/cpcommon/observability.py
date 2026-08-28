@@ -28,7 +28,7 @@ metadata in, file contents out, tokens and emails always out. The emitters do no
 at runtime, deliberately: it turns on provenance, which no filter over a field name or value
 shape can see, and a filter that looked like enforcement would be worse than none because it
 would be trusted. Shape notes, the stack-trace exemption and the one-run-is-nine-traces
-caveat are in ``docs/lambda-rationale.md``.
+caveat are in ``lambdas/info/shared-layer.md``.
 
 Import-safety is the point of this module's shape. The cpcommon layer attaches to every
 control-plane verb, including three that set almost none of ``config``'s environment — and

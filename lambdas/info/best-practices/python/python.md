@@ -183,7 +183,8 @@ Docstrings describe the interface and are the **primary source of context**; com
 > The first line says what the method does **and its context**, in the present tense. An optional
 > paragraph after it carries the non-obvious *why* — that paragraph is where a comment's content
 > goes. Module-level constants are documented in the module docstring's `Attributes:` block.
-> Reasoning longer than a paragraph belongs in `docs/lambda-rationale.md` behind a pointer, not in
+> Reasoning longer than a paragraph belongs in `lambdas/info/` behind a pointer — `shared-layer.md`
+> for `cpcommon`, the plane's own page otherwise — not in
 > the file. Sections use **2-space** indentation under the header.
 
 - ✅ Triple-double-quoted `"""` docstrings (PEP 257) for every public module, function, class, and method — plus any nontrivial or non-obvious function. First line a summary ending in a period, ≤ the docstring line limit; multi-line = summary, blank line, details, closing `"""` on its own line. 🔴 No docstring on a `lambda`. Enough info to call it without reading the body.

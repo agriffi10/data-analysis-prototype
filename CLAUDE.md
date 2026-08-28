@@ -20,7 +20,7 @@ the domain rulebooks and inventories live beside the code they govern, in each t
 - `@lambdas/info/INDEX.md` — every Lambda, grouped by control plane, with a page per plane
 - `@infra/info/INDEX.md` — every Terraform module, and the README beside each one carrying its
   reasoning; `control-plane-shape.md` is the shape all seven planes share
-- `@docs/lambda-rationale.md` — the long-form *why* behind `lambdas/` (sizing evidence, rejected designs, the traps); read the one entry for the area you're changing, never in full
+- `@lambdas/info/shared-layer.md` — the long-form *why* behind `cpcommon` (sizing evidence, rejected designs, the traps); a plane's own reasoning is on its page under `lambdas/info/planes/`. Read the one entry for the area you're changing, never in full
 
 **Context discipline:** these are pointers, not a reading list. Pull a doc when a task needs it.
 
@@ -64,7 +64,7 @@ Don't add dependencies without noting them here first.
 - Vite env vars: prefix `VITE_`; document each in `apps/portal/.env.example`.
 - **A comment names no spec, PR or issue number** — not `SPEC-166`, not `(#252)`, not "since SPEC-158". A reader is standing in the file, not in the project's history: write the reason ("a third copy would fork the lookup"), not the citation. Full entries live in `@docs/decisions.md`, findable by what they say. Applies to `.ts`/`.tsx`/`.py`/`.tf`/`.tftpl`; enforced by `scripts/validate_docs.py`.
 - **No verbose comments in `.ts`/`.tsx`/`.py` files.** JSDoc (TS/React) and docstrings (Python) are the primary source of context — expand those over adding narrative inline comments; comments are reserved for the non-obvious *why*, kept short. Detail: `apps/portal/info/best-practices/react/react.md` §19, `lambdas/info/best-practices/python/python.md` §14.
-- **`lambdas/` carries NO inline comments at all** (only `# noqa` / `# type: ignore` directives). Every module, class, method and function — public or `_private` — has a Google-style docstring: a one-line summary of what it does *and its context*, an optional short *why* paragraph, then `Args:` / `Returns:` / `Raises:`, each written out with `None.` when the section is empty. A module's constants are documented in its docstring's `Attributes:` block. Anything longer than a paragraph of reasoning goes in `@docs/lambda-rationale.md`, not the file. Format: `lambdas/info/best-practices/python/python.md` §14.
+- **`lambdas/` carries NO inline comments at all** (only `# noqa` / `# type: ignore` directives). Every module, class, method and function — public or `_private` — has a Google-style docstring: a one-line summary of what it does *and its context*, an optional short *why* paragraph, then `Args:` / `Returns:` / `Raises:`, each written out with `None.` when the section is empty. A module's constants are documented in its docstring's `Attributes:` block. Anything longer than a paragraph of reasoning goes beside the code in `@lambdas/info/` — `shared-layer.md` for `cpcommon`, the plane's own page otherwise — not in the file. Format: `lambdas/info/best-practices/python/python.md` §14.
 - When writing/refactoring code in a domain with a rulebook (React, accessibility, …), consult `@docs/best-practices/INDEX.md` first and load only the relevant section(s) — don't reinvent or guess the rules.
 
 ## Common Commands

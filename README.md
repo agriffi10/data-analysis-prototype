@@ -263,7 +263,8 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 | [`docs/decisions.md`](docs/decisions.md) | The **Key Decisions register in full** — reasoning + the "do NOT build" fences |
 | [`docs/architecture.md`](docs/architecture.md) | System design: auth flow, authorization model, the bucket model, control planes, env vars, deployment, known constraints |
 | [`docs/transition_plan.md`](docs/transition_plan.md) | The client-environment transition — IdC federation, de-provisioning, Lake Formation re-keying |
-| [`docs/lambda-rationale.md`](docs/lambda-rationale.md) | The long-form *why* behind `lambdas/` — sizing evidence, rejected designs, the traps |
+| [`lambdas/info/shared-layer.md`](lambdas/info/shared-layer.md) | The long-form *why* behind `cpcommon` — sizing evidence, rejected designs, the traps |
+| [`lambdas/info/planes/`](lambdas/info/planes/) | One page per control plane: its machine, rules, fences, layer and sizing |
 | [`apps/portal/info/component-inventory/INDEX.md`](apps/portal/info/component-inventory/INDEX.md) | **Router** to the per-area inventories in [`apps/portal/info/component-inventory/`](apps/portal/info/component-inventory/) (reusable services / hooks / components / types / utilities) |
 | [`docs/best-practices/INDEX.md`](docs/best-practices/INDEX.md) | Router to the domain rulebooks — React, Python, lambdas, accessibility |
 | [`lambdas/info/INDEX.md`](lambdas/info/INDEX.md) | Every Lambda grouped by control plane, with a page per plane |
