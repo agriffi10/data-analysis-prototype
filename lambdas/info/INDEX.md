@@ -24,6 +24,8 @@ to all of them are in [`infra/info/control-plane-shape.md`](../../infra/info/con
 | Domain layers | `lambdas/<plane>-common/` | that plane's tables, wording and domain rules |
 | API | `lambdas/api/` | the HTTP API's router, routes and `apicommon` |
 
+How code reaches any of them: [`deployment.md`](deployment.md).
+
 `cpcommon` owns the **algorithm**; a domain layer owns its **wording**. Do not merge the domain
 layers, and do not import one from another — they are packaged and attached separately, so an import
 across them silently merges two layers. Rules: [`best-practices/lambdas/lambdas.md`](best-practices/lambdas/lambdas.md).
@@ -195,7 +197,9 @@ directly — by Cognito, by a schedule, or by its own queue. Triggers and traps:
 1. Create `lambdas/<plane>-<verb>/` with one handler module and its test file.
 2. Add the state to that plane's `infra/modules/<plane>/state-machine.asl.json.tftpl`, and the
    function to its `lambda.tf` — see [`infra/info/INDEX.md`](../../infra/info/INDEX.md).
-3. Add a row to this index, and to the plane's page under [`planes/`](planes/) if the verb changes
+3. Add it to the deploy tables and the deploy role — [`deployment.md`](deployment.md) → *Adding a
+   function*, which is the one recipe for getting code onto a function.
+4. Add a row to this index, and to the plane's page under [`planes/`](planes/) if the verb changes
    the flow rather than extending it.
-4. Docstrings are mandatory and inline comments are forbidden — the standard is
+5. Docstrings are mandatory and inline comments are forbidden — the standard is
    [`best-practices/python/python.md`](best-practices/python/python.md) §14.

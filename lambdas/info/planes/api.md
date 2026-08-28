@@ -50,6 +50,28 @@ Arc B is porting the browser's direct AWS calls behind it. Today it serves `/hea
   unpredicted fault into a declared code. A catch *inside* the span ends every failed request
   successfully and records the fault nowhere.
 
+## Adding a route
+
+The wire is declared once, in Python, and the TypeScript is generated from it — so the order matters:
+declare, generate, then wire both ends.
+
+1. **Declare it** in `apicommon/contract.py`'s `ROUTES` tuple: an `id` (`noun.verb`), `method`,
+   `path`, `idempotent`, `plane`, and the `request`/`response` dataclasses. **`plane` is required and
+   has no default** — `"user"` acts as the caller, `"api"` as the service, and getting it wrong
+   *succeeds* against the wrong identity.
+2. **Write the handler** as a module under `routes/`, and register it in `router.py`'s `HANDLERS`
+   dict under the same route id. A route that authenticates is *not* added to `PUBLIC_ROUTES`; that
+   set holds `/healthz` and nothing else.
+3. **Regenerate the TypeScript**: `python3 scripts/generate_api_contract.py`, which rewrites
+   `apps/portal/src/types/apiContract.generated.ts`. Never hand-edit that file.
+4. **Call it** through `apiRequest(routeId)` — never a URL — and take the query's `retry` from
+   `apiRetryPolicy(routeId)`.
+
+**Three gates fail if you get it wrong**, and each catches a different half: CI reruns the generator
+and **refuses a diff**, so a regenerated file that was not committed reddens; `tsc -b` fails at every
+call site whose shape changed; and a response annotation outside the closed type vocabulary raises
+`UnsupportedTypeError` at generation rather than emitting a permissive type.
+
 `cpcommon.jwks` is imported only by this plane's tests directly, but it is a lazy dependency of
 `cpcommon.auth`, which ten planes use — it belongs to `cpcommon`, not here.
 

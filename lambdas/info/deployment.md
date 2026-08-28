@@ -10,7 +10,7 @@ function *is* lives in [`INDEX.md`](INDEX.md); how a plane works lives in [`plan
 |---|---|
 | The repo | `lambdas/<function-name>/<module>.py` and its tests, plus a shared `lambdas/requirements.txt` |
 | Terraform | the function resource, its execution role, its log group and its trigger wiring — bootstrapped with an inline `archive_file` placeholder and `lifecycle { ignore_changes = [filename, source_code_hash, layers] }` |
-| GitHub Actions | the Python code and **every layer attachment** — `deploy-lambdas.yml` matrixes over the functions, builds each package, uploads it to the artifacts bucket at `<name>/<git-sha>.zip`, and runs `update-function-code --publish` |
+| GitHub Actions | the Python code and **every layer attachment** — `deploy-lambdas.yml` reads the function table, builds each package, uploads it to the artifacts bucket at `<name>/<git-sha>.zip`, and runs `update-function-code --publish` |
 
 **Use underscores in the `.py` filename** (`pre_signup.py`, handler `pre_signup.handler`) — a
 hyphenated filename cannot be imported as a module, and the directory name is hyphenated.
@@ -24,15 +24,30 @@ back off and the function fails at its next cold start on an import that had bee
 ## Layers deploy like code
 
 CI builds and publishes `cpcommon`, each plane's `*-common` layer and polars, then attaches them.
-Terraform never manages a layer version. `lambdas/test_deploy_matrix.py` joins the deploy matrix
-against what each function actually **imports** — the gate that catches a function shipped without a
-layer it needs, which is the failure that broke sign-up for nine days.
+Terraform never manages a layer version, so nothing in the infrastructure knows which layers a
+function needs. The import-join in `lambdas/test_deploy_matrix.py` (below) is the only thing standing
+between a missing layer and a `ModuleNotFoundError` at every cold start — the failure that broke
+sign-up for nine days.
+
+## The two deploy tables
+
+**The function table is data, not workflow YAML.** `.github/lambda-functions.json` holds one object
+per function — its `name`, and the `layers` it needs by flag — and `.github/lambda-layers.json` holds
+what each of those flags builds. `deploy-lambdas.yml` reads both; its `strategy.matrix` is over
+**shards**, computed from what the plan found, and has not been a list of functions since a matrix
+could no longer express "these twelve in one job".
+
+`lambdas/test_deploy_matrix.py` parses that JSON and joins it against what each function actually
+**imports**, so a function omitted from the table, or shipped without a layer it imports, fails CI
+rather than failing at a cold start in production.
 
 ## Adding a function
 
 1. Create `lambdas/<name>/` with one handler module and its tests.
 2. Add the function infrastructure in the owning module — placeholder zip plus `ignore_changes`.
-3. Add a `{ name: <name> }` row to the `deploy-lambdas.yml` matrix.
+3. Add a `{"name": "<name>", "layers": ["cpcommon", …]}` row to `.github/lambda-functions.json`. A
+   layer flag it names must already exist in `.github/lambda-layers.json`; a **new** layer is a row
+   there too.
 4. Extend the deploy role for any new actions — [`../../infra/info/deploy-role-iam.md`](../../infra/info/deploy-role-iam.md).
 5. Add a row to [`INDEX.md`](INDEX.md).
 

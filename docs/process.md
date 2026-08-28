@@ -54,7 +54,8 @@ tree, and holds no rules of its own.
 | `docs/architecture.md` | whole, when you need orientation | **how the system works** — the pieces, how a request travels, and the ADR table indexing the decisions that shaped it. Short by design; it holds no rules and no trap lists |
 | `docs/decisions/INDEX.md` → one area file | the *entry* for your area | settled decisions in full and the "do NOT build" fences, **one file per area, matching CLAUDE.md's digest** |
 | `docs/spec-delivery/SPEC-XXX-*.md` | when a dependency points to one | what a past spec shipped |
-| `docs/testing/e2e.md` + `owed.md` | when running live checks | how to validate the deployed app, and what is still owed |
+| `docs/testing/e2e.md` + `owed.md` + `sessions.md` | when running live checks | how to validate the deployed app, what is still owed, and what has actually been run |
+| `docs/templates/` | when authoring a spec or closing one | the spec and completion templates §4 and §5 start from |
 | `docs/security-baseline.md` | before touching a scanner or a suppression | every shipped scanner finding and its written disposition |
 | `docs/transition_plan.md` | before auth, provisioning or LF work | the client-environment transition |
 | `docs/design/` | before changing visual language | the design system and the breakpoint reference |
@@ -452,19 +453,26 @@ These pass locally and fail later — check them as part of the work, not as an 
 
 - **Two gates have no local counterpart in Common Commands, so they only fail in CI unless you run
   them by hand.** `tsc -b` (via `npm run build`) is the only typecheck — `npm run test` never
-  typechecks and `tsc -p tsconfig.json` silently checks nothing. `ruff check lambdas/` is the Python
-  linter — `pytest` never sees it. Run both before pushing.
+  typechecks and `tsc -p tsconfig.json` silently checks nothing. The Python linter is
+  `ruff check lambdas/ scripts/ .github/scripts/` — **all three trees**, since `scripts/` holds the
+  doc gate every reviewer is told to run — and `pytest` never sees it. Run both before pushing.
 - **Vitest needs the Vite config for jsdom.** Running vitest with an explicit file path *from the repo
   root* uses no Vite config → `document is not defined`. Run from `apps/portal` or via
   `npm run test -w apps/portal`.
 - **`import.meta.env.VITE_*` read at module top level** is captured at import — `vi.stubEnv` in
   `beforeEach` is too late and CI has no `.env`. Stub at top level **and dynamic-import** the module.
-- **New `VITE_*` vars need deploy wiring.** Any var the app reads must be added to `deploy-app.yml`'s
-  build env **and** set as a GitHub Actions repo variable, or production ships it `undefined` (IAM
-  being correct won't save you).
-- **`lambdas/` has a second CI-only gate beside ruff: `mypy` is BLOCKING** over the five shared
-  layers at zero errors. The ratchet path — which package widens next, and at what strictness — is
-  recorded in `pyproject.toml`'s `[tool.mypy]` block and nowhere else.
+- **A new configuration key is wired in SIX places, and `deploy-app.yml`'s build env is not the one
+  that reaches production.** Production reads a runtime `/config.json`; a `VITE_*` value is the **dev
+  fallback only**, and `npm run check:bundle` asserts the production bundle carries no `VITE_` names
+  at all. Wiring the build env and the repo variable and stopping there ships a key that exists
+  nowhere the browser can see it. The list — including the render step and the container entrypoint's
+  own `KEYS`/`REQUIRED`, which is what decides whether the container starts — is
+  [`apps/portal/info/runtime-configuration.md`](../apps/portal/info/runtime-configuration.md).
+- **`lambdas/` has a second CI-only gate beside ruff: `mypy` is BLOCKING** at zero errors over every
+  shared layer, plus the API and the contract generator. The list is `pyproject.toml`'s `[tool.mypy]`
+  `files` block and nowhere else — a **new shared layer joins the ratchet with the spec that creates
+  it**, because added later it is a baseline of existing errors to argue about and added now it is
+  free.
 - **Never `tofu apply` from a laptop.** The deploy role is GitHub-OIDC-only and the local CLI
   identity is an IAM *user* that is on no data bucket's policy allowlist, so tofu reads those
   buckets as **absent** and plans to destroy and recreate them (measured: `25 to add, 3 to change,
