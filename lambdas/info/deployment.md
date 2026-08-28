@@ -45,9 +45,13 @@ rather than failing at a cold start in production.
 
 1. Create `lambdas/<name>/` with one handler module and its tests.
 2. Add the function infrastructure in the owning module — placeholder zip plus `ignore_changes`.
-3. Add a `{"name": "<name>", "layers": ["cpcommon", …]}` row to `.github/lambda-functions.json`. A
-   layer flag it names must already exist in `.github/lambda-layers.json`; a **new** layer is a row
-   there too.
+3. Add a `{"name": "<name>", "layers": ["cpcommon", …]}` row to `.github/lambda-functions.json`.
+   Every flag it names must already exist in `.github/lambda-layers.json`, and **the `layers` array
+   is stored in attach order** — a test asserts that, because layers land on `/opt` in order and a
+   later one shadows an earlier one's modules. A **genuinely new layer** is a row in
+   `.github/lambda-layers.json` **and** a new flag in `deploy-lambda.sh`'s literal attach-order loop,
+   in the same position: a test asserts the two orders are one list. All of these fail in CI rather
+   than at a cold start.
 4. Extend the deploy role for any new actions — [`../../infra/info/deploy-role-iam.md`](../../infra/info/deploy-role-iam.md).
 5. Add a row to [`INDEX.md`](INDEX.md).
 
