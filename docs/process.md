@@ -193,6 +193,24 @@ several of them years old.
   structurally blind to a defect that predates the diff — and to the states the diff is never
   exercised in: SPEC-140's CSP was reviewed and verified *signed in*, and the `connect-src` host it
   omitted broke **fresh sign-in** for a day.
+- **A review SAMPLES; when the risk is ABSENCE, enumerate instead.** Review is the right instrument
+  for "is this new code correct" and a weak one for "what did we stop checking" — a reviewer reads
+  what is there, and a deletion leaves nothing to read. Measured on the 2026-08-28 suite reduction:
+  three fresh frames returned **4, then 7, then 17** findings, diverging rather than converging,
+  because each sampled a population of hundreds. The mechanical sweep that answered it completely —
+  reason codes raised vs reason codes asserted — ran in seconds. **Before reviewing a change whose
+  risk is what it removed, write the sweep that lists the whole population.**
+- **A mechanical sweep REPORTS before it applies.** Print what it would change, read the list, then
+  re-run with `--apply`, and check the result by diffing **test names** rather than a pass count. A
+  classifier that looks right is routinely wrong at its edges: a sweep for unused module-level
+  helpers classified pytest's `Test*` classes as dead and would have deleted every test inside
+  them — caught only because it printed first. A regex over source is the same hazard one level
+  down; parse instead where a parser exists.
+- **A finding should carry a reproducing mutation, and the fix is verified by re-planting it.**
+  Then fix-verification is mechanical and needs no second reviewer — which is what stops a review
+  round spawning a review of its fixes. A frame only finds what its mutations probe, so a fix that
+  satisfies a weak mutation can still be wrong: the same reduction had a `watch_ci` guard restored
+  against one frame's probe and broken under the next frame's.
 - **Reasoning finds wording; execution finds defects.** Require a reproduction, not an argument — a
   run in the browser or against real AWS. SPEC-137's instrumented code passed review, unit tests and
   `update-function-code`, then raised `ModuleNotFoundError` at every cold start and broke sign-up for

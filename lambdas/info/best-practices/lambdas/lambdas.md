@@ -20,7 +20,7 @@
 - **§8 Observability** — structured logs; log request/correlation ids; never log secrets/PII; emit metrics.
 - **§9 Security & input trust** — validate every event field; verify JWTs fully; derive identity server-side; least trust on payloads.
 - **§10 Step Function orchestration** — workflow lives in the state machine (Choice/Map/Retry/Catch), one Task = one single-task Lambda.
-- **§11 Testing** — unit-test pure logic; stub AWS; cover idempotency + error paths; keep the handler thin enough to test logic directly.
+- **§11 Testing** — drive the **handler**, not the functions under it; stub AWS; 1–3 scenarios per verb; every refusal reason asserted by name.
 - **§12 Code/infra split & packaging** — `lambdas/` code vs Terraform infra; shared code in a common module/layer; pin + minimize deps.
 - **§13 Language conventions** — a Lambda is also code; Python Lambdas follow Python best practices on top of §1–§12.
 
@@ -119,11 +119,13 @@ Put the **workflow** in the state machine; keep each **Task** a single-task Lamb
 - ✅ Shared concerns that must run on **every** branch (e.g. emit a notification, record terminal status) are either a **common helper** each verb calls or a dedicated terminal state — decide per project (this repo: verb Lambdas emit inline via a shared helper, SPEC-061).
 
 ## §11 Testing
-Thin handlers + pure functions make logic testable without a Lambda runtime.
+A verb is tested the way the state machine drives it: through `handler(event, context)`.
 
-- ✅ Unit-test the **pure logic** functions directly (no Lambda context); the handler is thin enough (§2) that most coverage is on the functions it calls.
+- ✅ **Drive the handler.** A test that imports the inner function bypasses the decorator stack — `@traced`, `@notifies_on_failure` — so a verb can lose its instrumentation, or its failure notifier, with the suite green. It also couples the test to a private name, which is what makes a refactor look like a regression.
+- ✅ **1–3 scenarios per verb**, chosen for how a caller actually reaches it, not one per branch. A larger verb may need more; a dozen is a sign the verb is doing too much (§1).
 - ✅ **Stub/mock AWS** (e.g. `moto`, botocore stubbers, or injected client fakes) — never hit real AWS in unit tests.
 - ✅ Cover the **happy path, each terminal failure, and idempotency** (run the op twice → same end state; §3) and **authorization** rejections (§9).
+- 🔴 **Never assert only that something raised.** Assert the `TerminalError` **reason code** by name. The neighbouring path usually raises too, which is what makes the weaker assertion pass while the guard is gone — and a refusal is the half of a verb no user exercises, so nothing else will tell you.
 - ✅ Co-locate tests with the function (`test_<name>.py`) and keep them green **before pushing** (CLAUDE.md PR rule — the gates and the diff review both precede the push, not the merge).
 - ✅ When you split a monolith (§1), split its tests too — each new function gets a focused test file, not one giant suite.
 

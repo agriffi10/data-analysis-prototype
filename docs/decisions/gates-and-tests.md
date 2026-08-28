@@ -11,6 +11,7 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [A scanner gate blocks on a narrowed count, never a total (2026-08-09, completes SPEC-138)](#a-scanner-gate-blocks-on-a-narrowed-count-never-a-total-2026-08-09-completes-spec-138)
 - [Compiler and coverage defaults are declared, never inherited (SPEC-150)](#compiler-and-coverage-defaults-are-declared-never-inherited-spec-150)
 - [`ACCEPTED_` tripwires: what the project knows it has not verified (SPEC-153)](#accepted_-tripwires-what-the-project-knows-it-has-not-verified-spec-153)
+- [A refusal is the half of the system no user exercises (2026-08-28)](#a-refusal-is-the-half-of-the-system-no-user-exercises-2026-08-28)
 
 ## Security scanning (SPEC-138)
 
@@ -171,3 +172,33 @@ Two pin accepted behaviour:
 
 A tripwire is **not** a licence to leave a defect. It is the difference between a project that knows
 what it has not verified and one that has forgotten.
+
+
+## A refusal is the half of the system no user exercises (2026-08-28)
+
+A control-plane verb is mostly its checks, and each one is a `raise TerminalError("<reason>", …)`
+whose first argument is a closed vocabulary driving the user-facing wording. **That reason code is
+the thing a test must assert by name** — "something raised" passes against the neighbouring path,
+and against an `ImportError` at cold start.
+
+**Refusals are the half of the system nothing else exercises.** The happy path is self-policing: it
+runs on every dev run, every live check and every real user action, so it fails loudly and
+immediately. A refusal path runs only when something is already wrong. When one stops working the
+system does not error — it **proceeds**, does the thing the check existed to prevent, and reports
+success.
+
+**A coverage number is close to blind to them, and a coverage-driven cleanup eats them first.** A
+`raise` is one line; delete the test that drives it and the surrounding function is still executed
+by the happy-path test, so the percentage barely moves. Measured on the suite reduction that
+produced this entry: reason codes with a test asserting them fell **62 → 34 of 85** while total
+coverage stayed above its floor throughout.
+
+**The check is mechanical, so run it rather than reviewing for it.** Enumerate the reason codes
+raised across `lambdas/`, enumerate the ones a test compares against, and diff. It answers in
+seconds and returns the whole population. Three fresh-context review frames over the same change
+returned 4, then 7, then 17 findings — diverging, because a review samples where an enumeration
+counts.
+
+> The 28 codes this project knowingly stopped asserting are listed on the PR that reduced the
+> suites. Restoring one is `git show <ref>:<path>` plus a prune; the decision to leave them was
+> deliberate, not an oversight.
