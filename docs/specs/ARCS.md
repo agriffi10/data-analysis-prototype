@@ -127,7 +127,7 @@ the role per shared DB, IAM tag is the gate — same shape as the personal `user
 truth = an **S3 control-object registry** in the analytics admin bucket (`shared-spaces/` prefix,
 pipeline-only); each user's `{username}/user_settings/shared-connections.json` is a UI **cache** the pipeline
 writes (pending/active/failed status). Shared-DB query results route to the shared prefix. Decision record:
-`docs/architecture.md` → *Control Planes → Shared Spaces* (reverses the "no backend" decision for shared-space mutations only).
+`lambdas/info/planes/shared-spaces.md` (reverses the "no backend" decision for shared-space mutations only).
 The specs compose as: 050 = foundation plumbing (buckets, SQS/Pipe/Step
 Function skeleton, orchestrator role, deploy IAM); 056 = access model + request contract (membership tags,
 portal-role slots, LF registration, actor binding) — split from 050 so the IAM/access wiring applies separately;
@@ -181,7 +181,7 @@ the monolith role. **Behavior, the request contract (056), the membership-tag mo
 unchanged** — structure only — plus two clarifications: **create stays creator-only** (no member-add at create; adds go
 through 053 from the Connections tab), and each verb **emits its SPEC-061 notifications inline** via the shared helper.
 The old provisioner function/role/tests are removed at cutover. Follows `lambdas/info/best-practices/lambdas/lambdas.md`;
-decision recorded in `docs/architecture.md` → *Control Planes → Shared Spaces*.
+decision recorded in `lambdas/info/planes/shared-spaces.md`.
 
 > **The per-verb least-privilege roles were descoped (user decision, SPEC-062 FR-005):** every verb runs on **one
 > shared orchestrator role**. Read the roles claim above as history; full entry in `docs/decisions.md` → *Bucket 2
@@ -216,7 +216,7 @@ A new
 **dedicated** async control plane (its own FIFO **SQS → EventBridge Pipe → Step Function**, **single-task Lambdas**
 with per-verb least-privilege roles) that turns a folder of data files into a Glue/Athena **external table** in the
 database the space maps to (personal = username; shared = space name). Decision record:
-`docs/architecture.md` → *Control Planes → Table Builder* (read first). Reuses the **pattern** of the shared-spaces control plane
+`lambdas/info/planes/table-builder.md` (read first). Reuses the **pattern** of the shared-spaces control plane
 (SPEC-050) and the dedicated-pipeline precedent of notifications (SPEC-058), **not** their resources. The browser
 only gains `sqs:SendMessage`; authorization reuses the **ID-token actor** + shared-spaces **registry** membership
 model (any active member may create — not owner-only). The Step Function orchestrates five verbs:
@@ -268,7 +268,7 @@ stay). 077→080 are query-workspace one-offs (077 is a dependency-of-none but r
 
 ## Table-Share arc (SPEC-088 → 093, + 094 producer)
 
-Filed 2026-07-04; "**share a table** across databases." From the Query schema rail, a user shares any accessible table to one or more **users** and/or **shared spaces**: the data files are **copied** into each recipient's space under `shared_tables/{table}/` and a table of a chosen name is **created** over the copy in the recipient DB. A **new dedicated** async control plane (its own FIFO **SQS+DLQ → EventBridge Pipe → Standard Step Function**, single-task Lambdas + a **`table-share-common` (`tscommon`)** layer, **one shared execution role that is an LF admin**) mirrors the table-builder/shared-spaces pattern (reuses the pattern, not the resources). The SFN: **validate-authorize** (ID-token actor; actor must have **source** access — personal = own DB, shared = active member) → **inspect-source** (`GetTable`, **clone the source table definition**; reject views / catalog-partitioned / non-external; list objects; enforce object/size caps) → **`Map` over recipients** (per-item Catch): **check-target-absent** (fail that recipient on name conflict / non-empty prefix) → **copy-objects** (parallel server-side `CopyObject`, multipart >5 GiB, layout-preserving) → **create-table** (clone def, repoint `LOCATION`, Athena `CREATE EXTERNAL TABLE IF NOT EXISTS`; projection ⇒ no `MSCK`). **Decisions (2026-07-04):** push (no consent; recipient notified), clone-not-infer (format-agnostic), parallel `CopyObject` (Batch Ops deferred), **any space is a valid target** (source access still gated), conflict = **fail that recipient only** (no overwrite), v1 sources = **flat or projection-partitioned** base external tables. Build order 088→…→093; **094** (notifications: actor per-recipient outcome + recipient "shared with you") after SPEC-058 + the verb Lambdas. Decision record: `docs/architecture.md` → *Control Planes → Table Share* (read first). New infra: `infra/modules/table-share/`; new browser grant: `sqs:SendMessage` + `VITE_TABLE_SHARE_QUEUE_URL`.
+Filed 2026-07-04; "**share a table** across databases." From the Query schema rail, a user shares any accessible table to one or more **users** and/or **shared spaces**: the data files are **copied** into each recipient's space under `shared_tables/{table}/` and a table of a chosen name is **created** over the copy in the recipient DB. A **new dedicated** async control plane (its own FIFO **SQS+DLQ → EventBridge Pipe → Standard Step Function**, single-task Lambdas + a **`table-share-common` (`tscommon`)** layer, **one shared execution role that is an LF admin**) mirrors the table-builder/shared-spaces pattern (reuses the pattern, not the resources). The SFN: **validate-authorize** (ID-token actor; actor must have **source** access — personal = own DB, shared = active member) → **inspect-source** (`GetTable`, **clone the source table definition**; reject views / catalog-partitioned / non-external; list objects; enforce object/size caps) → **`Map` over recipients** (per-item Catch): **check-target-absent** (fail that recipient on name conflict / non-empty prefix) → **copy-objects** (parallel server-side `CopyObject`, multipart >5 GiB, layout-preserving) → **create-table** (clone def, repoint `LOCATION`, Athena `CREATE EXTERNAL TABLE IF NOT EXISTS`; projection ⇒ no `MSCK`). **Decisions (2026-07-04):** push (no consent; recipient notified), clone-not-infer (format-agnostic), parallel `CopyObject` (Batch Ops deferred), **any space is a valid target** (source access still gated), conflict = **fail that recipient only** (no overwrite), v1 sources = **flat or projection-partitioned** base external tables. Build order 088→…→093; **094** (notifications: actor per-recipient outcome + recipient "shared with you") after SPEC-058 + the verb Lambdas. Decision record: `lambdas/info/planes/table-share.md` (read first). New infra: `infra/modules/table-share/`; new browser grant: `sqs:SendMessage` + `VITE_TABLE_SHARE_QUEUE_URL`.
 
 > **Superseded in part by SPEC-160 (2026-08-10):** "parallel `CopyObject` (Batch Ops deferred)" no
 > longer describes the plan. **S3 Batch Operations is rejected, not deferred** — its Copy cannot
@@ -379,7 +379,7 @@ trust-marker design. Read all of it as design record only.
 ## Data-quality arc (SPEC-108 → 114, + 123 → 124)
 
 **Data-quality arc (108 → 114)** and **file-converter arc (115 → 121)** — filed 2026-07-11 from
-their architecture decision records (data-quality since folded into `docs/architecture.md` → *Control Planes → Data Quality*; the file-converter record and the 2026-07-11 review doc are removed), both **re-architected (v3)** after that review **and** the 250 GB source-file requirement. Two **independent** dedicated async control
+their architecture decision records (data-quality since folded into `lambdas/info/planes/data-quality.md`; the file-converter record and the 2026-07-11 review doc are removed), both **re-architected (v3)** after that review **and** the 250 GB source-file requirement. Two **independent** dedicated async control
 planes (FIFO SQS + DLQ → EventBridge Pipe → Standard Step Function → single-task verb Lambdas on **one shared execution role**).
 Either may go first; both depend on **107**. **Data quality** = *diagnose* a file or folder (per-column type consistency, null
 ratios, duplicates, row counts, ragged rows, encoding, cross-file column agreement) and write a report — read-only, never
@@ -1623,7 +1623,7 @@ neither.
 
 1. **The plan is the contract between the verbs**, at `{admin_bucket}/file-ops/{requestId}/plan.json`
    — its shape, its `executionArn`-based reuse guard and its `plan_superseded` check are in
-   `architecture.md` → *Control Planes → File Operations*. Every object already carries its `etag`,
+   `lambdas/info/planes/file-ops.md`. Every object already carries its `etag`,
    so **189 does not need to re-HEAD anything** — but 189 still owes the check SPEC-188 FR-001 AC5
    names: confirm conditional `DeleteObject` against the live API before relying on it.
 2. **The guard verb is reusable unchanged**, and 189's second pass is a second invocation of it, not

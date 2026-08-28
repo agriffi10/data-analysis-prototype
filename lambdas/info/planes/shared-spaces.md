@@ -3,6 +3,14 @@
 Creates and manages shared spaces: who owns one, who belongs to it, and what happens when someone
 leaves. Access is a **membership principal tag**, so the roster is the authorization.
 
+A shared space is a named collaborative space, where the name is at once the S3 prefix in the
+shared-space bucket and the Glue database name — globally unique and non-renameable, exactly as a
+username is for a personal space. The creator is the **owner**: they add and remove members
+(validated against the User Pool via `ListUsers`/`AdminGetUser`, with unknowns silently dropped) and
+they delete the space, which cascades through files, tables, the database, every slot and cache, and
+the registry record. Members leave on their own; everyone sees one shared copy. **Create is
+creator-only** — members are added after the fact.
+
 This plane is a `Choice`-routed fan-out rather than a pipeline — one verb runs per request.
 
 ## The machine
@@ -13,6 +21,24 @@ This plane is a `Choice`-routed fan-out rather than a pipeline — one verb runs
 AcknowledgeMembership }`
 
 `UnknownActionSeed` is the arm for an action the router does not recognise.
+`AcknowledgeMembership` flips the member's chip from pending to active and is display and
+bookkeeping only — access is granted at add time. One shared **`orchestrator`** role covers the state
+machine and every verb.
+
+## Where the state lives
+
+- **The registry is the source of truth:** `<admin-bucket>/shared-spaces/{name}.json`, writable by
+  the pipeline alone. Name uniqueness comes from a conditional `PutObject` (`If-None-Match: *`);
+  every mutator is ETag compare-and-swap. The admin bucket's expiry lifecycle excludes this prefix.
+- **The per-user UI cache** is `{username}/user_settings/shared-connections.json`, written by the
+  pipeline into each member's own prefix, carrying a per-entry status of `provisioning`, `active`,
+  `failed` or `leaving`. A missing cache is an empty state, never an error.
+  `cache.write_roster_to_all` fans the roster out on add, remove and leave.
+- **Results routing:** querying a shared database sets the per-query `OutputLocation` to
+  `{shared-space-bucket}/{name}/athenaresults/{username}/`, which is delete-denied, mirroring the
+  personal lock. Personal queries route to the personal `athenaresults/` unchanged.
+- **Lake Formation:** the bucket is registered hybrid, and create-space issues the per-database grant
+  to the shared portal role, exactly as the personal-database path does.
 
 ## The fences
 

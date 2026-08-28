@@ -1,7 +1,9 @@
 # Table builder — control plane
 
-Creates a Glue/Athena table over a folder of files, and refreshes an existing one in place. Two
-modes through one machine, routed by `RouteByMode`.
+Creates a Glue/Athena **external table** over a folder of files, and refreshes an existing one in
+place. "Create table from this folder" in the file browser, targeting the database the space maps to.
+Data columns are **inferred**; partition keys are **user-declared** in the modal. Two modes through
+one machine, routed by `RouteByMode`.
 
 Table creation is **TBAC**: the Lake Formation admin does *not* grant `CREATE_TABLE`. A
 `portal-managed` LF-Tag plus one tag-policy grant per execution role does.
@@ -18,6 +20,48 @@ InspectSource → InferSchema → DiffSchema → RouteByChange → ApplyRefresh 
 
 `ReleaseRefreshLockOnFailure` is the other arm — **the release runs on every terminal path, create
 included**.
+
+Two branches over one shared spine. The `mode` field on the envelope (`"create" | "refresh"`, absent
+means create) selects the branch, and **inspect-source and infer-schema are shared and know nothing
+about it**, because load-table-definition normalises the state into exactly what a create would have
+handed them.
+
+FIFO `MessageGroupId` is the **target database**, so same-database creates *and* refreshes serialize.
+The duplicate-name race is closed by check-table-absent plus `IF NOT EXISTS`.
+
+## What it accepts
+
+**Formats:** Parquet, CSV and JSON/NDJSON — one consistent format per folder. ORC is out, because
+there is no native polars reader.
+
+**CSV is not type-inferred** — every column is `string`, names come from the header, and a header
+plus comma separator is assumed, via OpenCSVSerde. Parquet and JSON infer types and parse dates.
+
+**JSON must be NDJSON**, one object per line, which is what Athena's SerDe needs anyway. Its schema
+comes from **one sample file**, so fields present only in other files are silently dropped. A
+multi-file schema union is deferred. Both limits are user-guide material.
+
+**Partitions are user-declared keys plus Athena partition projection, never `MSCK REPAIR`.** Keys are
+declared in granularity order, each with a projection type and range — `integer`, `date`, or
+`enum`-string, not `injected` — and `inspect-source` validates that the declared `key=value/` segments
+exist. The table is queryable the instant `CREATE` succeeds, and later partitions are picked up
+automatically. A value outside a declared range is silently excluded; the modal copy warns.
+
+**Authorization:** for a personal target, the database equals the actor's username. For a shared one,
+the actor is an active member — *any* member may create, not the owner only. The table location must
+resolve inside the target space, and the name must be catalog-safe (`CATALOG_IDENTIFIER_RE`).
+
+**Notifications:** a single recipient, the actor, with per-step failure reasons and a success message.
+
+## How the DDL is issued
+
+Creates go through Athena `StartQueryExecution` (`CREATE EXTERNAL TABLE IF NOT EXISTS`), polled to
+terminal — the same Lake-Formation-enforced path users already exercise, not the Glue `CreateTable`
+API. **That is the create path only.**
+
+The refresh apply issues **one `glue:UpdateTable`** as a read-modify-write on the live table. No
+statements, no window in which the table is absent, and **no verb on this plane holds
+`glue:DeleteTable`**.
 
 ## The fences
 

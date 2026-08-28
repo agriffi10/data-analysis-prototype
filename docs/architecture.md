@@ -12,21 +12,25 @@ Pointers (don't duplicate these here):
 **Contents** — jump straight to the section a task needs:
 
 - **System Overview** — orientation; the no-backend + principal-tag model in one paragraph.
+- **The Browser Application** — how the SPA is built: the three layers, the state split, the service
+  boundary, and the two network paths. Read before writing front-end code.
 - **Authentication Flow** — read when touching login, the token→credential exchange, or refresh.
-  - **The API's auth boundary** — one token, one verification path, two transports; read before touching
-    the API's identity handling or a provider parameter.
-- **Authorization Model** — read when touching IAM/isolation: user space, shared-space slots, analytics (TBAC).
-- **Control Planes** — read *The shared pattern* before any plane work; each plane section is its decision record:
-  - **Control Planes → Shared Spaces** — space lifecycle, registry, per-user caches, roster.
-  - **Control Planes → Table Builder** — create-table-from-folder, inference, partition projection.
-  - **Control Planes → Table Share** — snapshot push, clone-not-re-infer, recipient Map.
-  - **Control Planes → Data Quality** — Athena-computed checks, report/index discovery, cost.
-  - **Control Planes → File Operations** — the one machine for copy/move/delete, the per-space lock, the plan.
-- **Known Constraints** — read before building on S3/LF/deploy semantics: non-atomic move, no versioning, pagination, LF hybrid mode, parallel-deploy conflict, the depends_on/ForceNew rule.
+  - **The API's auth boundary** — one token, one verification path, two transports; read before
+    touching the API's identity handling or a provider parameter.
+- **Authorization Model** — read when touching IAM or isolation: user space, shared-space slots,
+  and the per-user catalog.
+- **Control Planes** — the shared pattern every privileged pipeline follows. Read it before any plane
+  work; the individual planes have their own pages under `lambdas/info/planes/`.
+- **Known Constraints** — read before building on S3, Lake Formation or deploy semantics: non-atomic
+  move, no versioning, pagination, LF hybrid mode, parallel-deploy conflict, the depends_on rule.
 - **Infrastructure & Deployment** — read when touching IaC layout, CI/CD, CORS, or LF-admin ordering.
-  - **Deploy-role IAM — adding a new resource type** — read before any spec adding new infra (self-grant propagation, scopability, refresh deadlocks).
+  - **Runtime configuration** — the `/config.json` document and its no-fallback rule.
+  - **The OIDC provider block** — the API's token verifier and its five fields.
+  - **Deploy-role IAM — adding a new resource type** — read before any spec adding new infra
+    (self-grant propagation, scopability, refresh deadlocks).
+  - **The container platform** — the VPC, the endpoints, and what a successful pull does not prove.
   - **Lambda code/infra split** — read before adding or rewiring a Lambda or layer.
-- **Deferred / Future Scope** — read when scoping: what is recorded as deliberately not built.
+- **Deferred / Future Scope** — what is recorded as deliberately not built.
 
 ---
 
@@ -48,7 +52,55 @@ Spaces**, **Table Builder**, **Table Share**, **Data Quality**, **Send Files**, 
 `cpcommon` layer, a DLQ-drain sweep (SPEC-126), and structured logging (SPEC-127→137). An
 admin-only bucket (SPEC-032) holds Athena results, the shared-space registry, and the `logs/` store.
 
-## Authentication Flow (summary)
+## The Browser Application
+
+Most of the code in this repo is the SPA, and it is the part with the least AWS in it. `apps/portal/`
+is a React 18 + Vite + TypeScript (strict) app; `infra/` is the OpenTofu that stands everything else
+up; `lambdas/` is the privileged server-side work. `packages/` is reserved and empty.
+
+**One tree, three layers, and the dependency runs one way.** `src/lib/` holds the clients and the
+primitives; `src/components/` holds shared UI; `src/features/<name>/` holds a feature's own
+components, hooks, services and types. **`components/` may not import from `features/`** — a lint
+rule enforces it — and a leaf feature that becomes a shared layer is *extracted before its second
+consumer*, not after. `src/routes/` holds the page-level components the router mounts, and it is the
+only place a default export is allowed.
+
+**A feature is a fixed shape:** an `index.ts` barrel, `Component.tsx` with its test beside it,
+`useFeature.ts`, `feature.types.ts` and `feature.service.ts`. The catalogue of what already exists is
+[`apps/portal/info/component-inventory/INDEX.md`](../apps/portal/info/component-inventory/INDEX.md),
+which is a reuse router rather than a description — read the row for the area you are touching.
+
+**Two kinds of state, kept apart.** Server state is TanStack Query; UI state is Context plus
+`useReducer`. There is no Redux, and the separation is the reason there is no cache of a cache. Query
+keys are centralised in `lib/queryKeys.ts`.
+
+**Every AWS call goes through a service file, and services never throw.** They return
+`ServiceResult<T>` — `{success: true, data}` or `{success: false, error: {message, code?}}` — so a
+caller branches instead of catching. Clients are instantiated in `src/lib/` and never in a component.
+
+**Raw AWS, Cognito and Athena text is never shown to a user.** `lib/errorMessages.ts` is the single
+source of wording, and rendering `error.message` is a defect rather than a shortcut.
+
+**Mobile-first, one tree.** Only two breakpoints are compiled — `tablet:` at 900 and `desktop:` at
+1300 — and the same tree reflows. A `*Mobile`/`*Desktop` component twin is a smell, not a pattern.
+
+### The two network paths
+
+The browser talks to AWS **directly** for almost everything: S3 through `@aws-sdk/client-s3` with
+presigned URLs and `lib-storage` uploads, Athena and Glue for the analytics workspace, and
+`sqs:SendMessage` to enqueue a control-plane request. Those calls carry the scoped role credentials
+described under *Authentication Flow*, and IAM is what makes them safe.
+
+The second path is newer and still small: `api.dataquarry.app`, reached through `lib/apiClient.ts`,
+which attaches a bearer token and returns the same `ServiceResult` shape. Its wire types are
+**generated** from a Python declaration rather than hand-written, so a contract change fails the
+build at every call site. Moving work onto it is the ongoing arc; CloudFront remains production and
+the rollback until it is finished.
+
+The rule that keeps the two from drifting: **no new browser-side AWS SDK call on a path an API route
+already serves**, and no second API.
+
+## Authentication Flow
 
 Amplify checks the session → no session redirects to the Cognito Hosted UI (Managed Login v2 —
 `decisions.md`) → on login Cognito issues
@@ -65,7 +117,7 @@ is `aws_cognito_identity_pool_provider_principal_tag` in `infra/modules/auth/ide
 tag **value** must be the `cognito:username` claim (the bare `username` claim doesn't exist in a User
 Pool ID token, so it never stamps).
 
-### The API's auth boundary, beside the control planes' (SPEC-195)
+### The API's auth boundary, beside the control planes'
 
 **One token, one verification path, two transports.** The seven control-plane verbs have taken the
 identity from a *verified* Cognito ID token since SPEC-011, carried in an SQS message body. The API
@@ -128,7 +180,7 @@ multi-valued `sts:AssumeRole` tags — replaces the whole credential path; recor
 
 All mutations (create/membership/delete) go through the Shared Spaces control plane (§ below).
 
-### Analytics (SPEC-032→036)
+### Analytics — per-user catalog isolation
 Per-user Glue-database isolation works exactly like S3 isolation — the **`username` IAM principal
 tag** scopes the portal role's Glue ARN to `database/${aws:PrincipalTag/username}` (DB name =
 username), **not** LF-Tags. Lake Formation grants the shared role broadly (per-DB grant issued by the
@@ -143,7 +195,7 @@ catalog-wide Describe, which fixes the `AccessDenied`-vs-`EntityNotFound` read f
 
 ---
 
-## Control Planes (privileged async pipelines)
+## Control Planes
 
 SEVEN features perform privileged, cross-user, multi-step AWS work that browser-scoped credentials
 must not: shared-space lifecycle, table creation, table sharing, data-quality checks, sending files
@@ -230,559 +282,28 @@ mutations only — the rest of the app stays browser-direct.
 - **Ops.** Request DLQs are swept every 10 min by the shared drain (SPEC-126; the notifications DLQ
   stays undrained — circular). All planes emit structured logs (SPEC-127→137).
 
-### Shared Spaces — SPEC-050→057, 062, 073, 075, 082, 125
+### The planes themselves
 
-A shared space is a named collaborative space: name = S3 prefix in `dat-prod-shared-space` = Glue DB
-name, globally unique, non-renameable (exactly as a username is for a personal space). Creator =
-**owner**: adds/removes members (validated against the User Pool via `ListUsers`/`AdminGetUser`,
-unknowns silently dropped), deletes the space (cascade: files, tables, DB, all slots/caches,
-registry). Members leave; everyone sees one shared copy. **Create is creator-only** — members are
-added post-creation.
+Each plane's own page carries its state graph, its rules, its fences and its layer — read the one you
+are changing rather than this file. They live in [`lambdas/info/planes/`](../lambdas/info/planes/),
+and every verb is listed in [`lambdas/info/INDEX.md`](../lambdas/info/INDEX.md).
 
-- **SFN:** validate-authorize → `Choice(action)` → one verb (`create-space` / `add-members` /
-  `remove-members` / `leave` / `delete-space`; SPEC-073 added `acknowledge-membership` — flips the
-  member's chip pending→active, display/bookkeeping only, access is granted at add time). One shared
-  **`orchestrator`** role for the SFN + all verbs.
-- **Registry = source of truth:** `<admin-bucket>/shared-spaces/{name}.json`, pipeline-writable
-  only. Name uniqueness via conditional `PutObject` (`If-None-Match: *`); mutators are ETag-CAS
-  (SPEC-082). The admin bucket's expiry lifecycle excludes this prefix.
-- **Per-user UI cache:** `{username}/user_settings/shared-connections.json`, written by the pipeline
-  into each member's prefix, with per-entry status (`provisioning`/`active`/`failed`/`leaving`).
-  Missing cache = empty state, never an error. SPEC-075: every member gets a read-only roster;
-  `cache.write_roster_to_all` fans out on add/remove/leave.
-- **Results routing:** querying a shared DB sets the per-query `OutputLocation` to
-  `dat-prod-shared-space/{name}/athenaresults/{username}/` (delete-denied, mirroring the personal
-  lock); personal queries route to the personal `athenaresults/` unchanged.
-- **LF:** the bucket is registered hybrid; create-space issues the per-DB grant to the shared portal
-  role (as SPEC-033 does per personal DB).
+| Plane | What it does | Page |
+|---|---|---|
+| Shared spaces | space lifecycle, the registry, per-user caches, the roster | [`shared-spaces.md`](../lambdas/info/planes/shared-spaces.md) |
+| Table builder | create a table from a folder, inference, partition projection, refresh | [`table-builder.md`](../lambdas/info/planes/table-builder.md) |
+| Table share | snapshot push, clone-not-re-infer, the recipient Map | [`table-share.md`](../lambdas/info/planes/table-share.md) |
+| Data quality | Athena-computed checks, report and index discovery, cost | [`data-quality.md`](../lambdas/info/planes/data-quality.md) |
+| File send | a selection into another person's or space's inbox | [`file-send.md`](../lambdas/info/planes/file-send.md) |
+| Archive | the GLACIER vault and its restore — the one unrecoverable surface | [`archive.md`](../lambdas/info/planes/archive.md) |
+| File operations | one machine for copy, move and delete; the per-space lock; the plan | [`file-ops.md`](../lambdas/info/planes/file-ops.md) |
 
-### Table Builder — SPEC-066→072, extended by SPEC-143
-
-"Create table from this folder" in the file browser: create a Glue/Athena **external table** over a
-folder's data files in the database the space maps to. Data columns are **inferred**; partition keys
-are **user-declared** in the modal.
-
-- **SFN — two branches over one shared spine** (was linear until SPEC-143): validate-authorize →
-  `RouteByMode` → {check-table-absent (Glue `GetTable`) | load-table-definition} → inspect-source →
-  infer-schema → `RouteTailByMode` → {execute-ddl | the refresh tail}. The `mode` field on the
-  envelope (`"create" | "refresh"`, absent ⇒ create) selects the branch; **inspect-source and
-  infer-schema are shared and know nothing about it**, because load-table-definition normalises the
-  state into exactly what a create would have handed them. FIFO `MessageGroupId` = **target
-  database** (same-DB creates *and refreshes* serialize; the duplicate-name race is closed by
-  check-table-absent + `IF NOT EXISTS`). Refresh eligibility and the reconstruction rules:
-  `decisions.md` → *Refresh eligibility turns on SHAPE*.
-- **Formats (v1):** Parquet, CSV, JSON/NDJSON — one consistent format per folder; ORC out (no
-  native polars reader). **CSV is not type-inferred** — all columns `string` (names from the header;
-  header + comma assumed) via OpenCSVSerde. Parquet/JSON infer types and parse dates.
-  **JSON must be NDJSON** (one object per line — what Athena's SerDe needs anyway), and the schema
-  comes from **one sample file** — fields present only in other files are silently dropped
-  (multi-file schema union is a deferred enhancement; both limits are user-guide material).
-- **Partitions = user-declared keys + Athena partition projection, never `MSCK REPAIR`.** Keys are
-  declared in granularity order, each with a projection type + range (`integer` / `date` /
-  `enum`-string — not `injected`); `inspect-source` validates the declared `key=value/` segments
-  exist. The table is queryable the instant `CREATE` succeeds; later partitions are picked up
-  automatically. A value outside a declared range is silently excluded (modal copy warns).
-- **DDL via Athena** `StartQueryExecution` (`CREATE EXTERNAL TABLE IF NOT EXISTS`), polled to
-  terminal — the same LF-enforced create path users already exercise, not the Glue `CreateTable`
-  API. **The CREATE path only.** The refresh apply issues **one `glue:UpdateTable`** as a
-  read-modify-write on the live table (SPEC-149) — no statements, no window in which the table is
-  absent, and no verb on this plane holds `glue:DeleteTable`. `decisions.md` → *The refresh apply
-  replaces the definition in place*.
-- **Authorization:** personal = target DB equals the actor's username; shared = actor is an active
-  member (any member may create, not owner-only). The table location must resolve inside the target
-  space; the name is catalog-safe (`CATALOG_IDENTIFIER_RE`).
-- **Notifications:** single recipient = the actor; per-step failure reasons + a success message.
-
-### Table Share — SPEC-088→094
-
-"Share table" from the Query schema rail: a **one-time snapshot push** (no consent step, no sync) —
-copy the source table's data files into each recipient's `shared_tables/{tableName}/` and create a
-table over them in the recipient's DB.
-
-- **Clone the source Glue definition — never re-infer.** Columns, SerDe, `TableType`, partition
-  keys, and `TBLPROPERTIES` (incl. projection props) are reused verbatim with only `LOCATION`
-  repointed — format-agnostic, exact schema, no `MSCK`. **v1 sources:** flat or
-  projection-partitioned base `EXTERNAL_TABLE`s; views, catalog-registered-partition tables,
-  non-external tables, and unresolvable `LOCATION`s are rejected (partition-metadata copy deferred).
-- **SFN (SPEC-160 shape):** validate-authorize → inspect-source (clone def, list objects, enforce
-  caps) → **guard `Map`** (check-target-absent, per-item `Catch`) → build-transfer-manifest →
-  **top-level Distributed `Map`** over a `(recipient × object)` JSONL manifest (batched
-  copy-objects, `STANDARD` children, `ToleratedFailurePercentage: 100`, `ResultWriter` export) →
-  collect-transfer-results → **finish `Map`** (create-table for the recipients that copied cleanly,
-  the rest carried through). One recipient's failure never aborts siblings — the guard by its
-  per-item `Catch`, the copy by attribution after the fact. Conflict (name exists, or a non-empty
-  target prefix) fails **that recipient only**; no overwrite. FIFO `MessageGroupId` = source
-  `database.table` (a heavy copy never overlaps itself).
-- **Recipients:** a `user` must exist in the User Pool; a `space` is **any space by name** — the
-  sender need not be a member (deliberate, recorded: the execution role does the write). The sender
-  must have **source** access (own DB, or active member of the source space).
-- **Copy:** a **top-level Step Functions Distributed Map** over a flat `(recipient × object)` JSONL
-  manifest in the admin bucket, batched into parallel server-side `CopyObject` (multipart above
-  5 GiB), key layout preserved. **Not** one Lambda per recipient, and **not S3 Batch Operations** —
-  Batch Ops cannot rewrite a key (`TargetKeyPrefix` prepends to the *full* source key, so a job
-  cannot produce `bob/shared_tables/sales/…` from `alice/tables/sales/…`) and caps objects at 5 GB
-  where this path already handles more via `UploadPartCopy`. **Do not re-propose it** — the refusal
-  is a property of the API. The copy code lives on `cpcommon.transfer` (SPEC-160).
-
-- **Caps (current, SPEC-161).** Every one is a **whole-request terminal in `inspect-source`**,
-  raised before either artifact is written, and every one is **computed by a test** from the
-  constants rather than asserted as a number.
-
-  | constant | value | what sizes it |
-  |---|---|---|
-  | `SHARE_MAX_OBJECTS` | 20,000 | `inspect-source`'s listing time (20 `ListObjectsV2` pages) |
-  | `SHARE_MAX_TOTAL_BYTES` | 1 TiB | **one copy of the source** — says nothing about the transfer |
-  | `SHARE_MAX_OBJECT_BYTES` | 10 GiB | a batch's **makespan** vs `copy-objects`' 900 s |
-  | `SHARE_MAX_TRANSFER_ITEMS` | 20,000 | `recipients × objects` — the manifest write + the collector's read-back |
-  | `SHARE_MAX_TRANSFER_BYTES` | 3 TiB | `recipients × bytes` — the state machine's `TimeoutSeconds` |
-  | `SHARE_MAX_RECIPIENTS` | 50 | the inline Map's state + per-item error detail (unchanged since 090) |
-  | `SHARE_MAX_DEFINITION_BYTES` | 64 KiB | **Athena's 262,144-byte query-string quota**, not the state payload |
-  | `MAX_ITEMS_PER_BATCH` | 8 | `= COPY_CONCURRENCY`, so a batch is exactly one round of the pool |
-  | `TimeoutSeconds` | 10,800 | `SHARE_MAX_TRANSFER_BYTES` at a makespan rate, minus both Maps and the serial verbs |
-
-  **The two product caps exist because the per-source caps cannot express them:** every manifest
-  item is a full copy, so both what the Map lists and what it moves scale with the recipient count.
-  20,000 objects is fine and 50 recipients is fine and together they are a million lines; 1 TiB is
-  fine and 50 recipients is fine and together they are 50 TiB. **Read `decisions.md` before changing
-  any of these** — five review rounds found four bounds measured against the wrong quantity, and the
-  tests are what hold the models now.
-
-  The cloned definition **travels by pointer** (`definitionKey` → `table-share/{hash}/definition.json`),
-  which is why its cap bounds Athena rather than the payload. The `TimeoutSeconds` **cannot itself
-  reach `NotifyFailure`** — AWS catchers do not cover top-level execution failures — so it ships
-  with an **EventBridge `TIMED_OUT` rule** invoking the same verb through a second door. Full
-  entries: `decisions.md` → *Everything unbounded on the state travels by pointer* and *Every
-  control-plane machine that can run for hours*.
-- **Per-recipient attribution is a verb, not a Map item (SPEC-160).** The fan-out is over
-  `(recipient × object)` pairs, so `collect-transfer-results` reads the Map Run's export and decides
-  who gets a table: **one failed item ⇒ no table for that recipient**. It reads **both**
-  `SUCCEEDED_n.json` (a batch reports per-item failures and still succeeds) and
-  `FAILED_n`/`PENDING_n` (whole-batch failures, attributed from the child's input); a record whose
-  payload Step Functions omitted is **unattributable and fails the whole request**, never "no
-  failures found". It is also where a copy failure is notified from — the batch verb has no
-  recipient to name.
-- **The 256 KB cap, twice:** the copy plan rides as an S3 pointer
-  (`<admin-bucket>/table-share/{hash}/copy-plan.json` — inline, the Map's `ItemSelector` put the
-  state at 101% of the cap, PR #256); the recipient cap exists because each failed Map item carries
-  raw `{Error, Cause}` and `cpcommon.errors.bounded_detail` truncation is the other half of the
-  bound.
-- **The admin-bucket key layout, and what the hash is NOT.** Three levels, only the first two ours:
-
-  ```
-  table-share/{digest}/copy-plan.json                              ← the SOURCE's file list
-  table-share/{digest}/{executionName}/transfer-manifest.jsonl     ← one RUN's (recipient × object) items
-  table-share/{digest}/{executionName}/results/{mapRunId}/…        ← Step Functions' ResultWriter export
-  ```
-
-  **The digest names the copy plan, not a share request.** It is a SHA-256 of
-  `actor + source database + source table + result name` and **deliberately excludes recipients**:
-  the plan is the source object list, identical whoever receives it, and content-addressing is what
-  makes an `inspect-source` retry rewrite the same object instead of orphaning a second one
-  (SPEC-090). So **two shares of the same table to different people share a root** and differ one
-  level down, where the recipient-dependent manifest lives — which is exactly the split SPEC-160
-  FR-001 needed, since a manifest's lines depend on which recipients the guard accepted *at that
-  moment*. It reads as one share swallowing another and is not; verified 2026-08-10 against two real
-  runs. The bucket is **not readable by eye** — go from the execution's state output (or the Map
-  state's `ResultWriterDetails`) to the keys, never by browsing. Recorded improvement, **not built**:
-  the nesting puts run-scoped artifacts under a plan-scoped name, and a `plans/{digest}/` +
-  `runs/{execution}/` split would separate the two identities (neither the `table-share/*` IAM grant
-  nor the `table-share/` lifecycle rule would change).
-- **Notifications:** the sender hears every per-recipient outcome; on success the recipient is also
-  told (a user directly; a space via its **owner only**, never the members). Failures notify the
-  sender only.
-
-### Send Files — SPEC-164 → 167 (complete)
-
-"Send these files to Bob": copy a user's selected files and folders into another person's or
-space's `shared_files/{sender}/` inbox. The browser cannot write into another user's prefix —
-that is the isolation model working — so this needs a privileged path for the same reason table
-share did.
-
-- **Its own plane, not a mode of table share.** The two share an *algorithm*
-  (`cpcommon.transfer`, SPEC-160) and nothing else: different request contract, different
-  authorization question, different failure vocabulary. One queue and one DLQ under two unrelated
-  features would let a malformed send dead-letter someone's table share.
-- **The envelope is FLAT** — `{requestId, actor (raw ID token, top level), source: {space, items},
-  recipients[]}` — and unknown top-level fields are **rejected, not ignored**. The flatness is a
-  contract with SPEC-126's drain, not a style choice: `_notify_one` reads `body.get("actor")` and
-  `_redacted` replaces top-level keys only, so a nested token would notify nobody on a
-  dead-lettered send *and* write the raw JWT to CloudWatch. `MessageGroupId` is the SHA-256 of
-  `{bucket}/{spaceRoot}` (a hash — SQS caps it at 128 chars, an S3 key reaches 1024);
-  `MessageDeduplicationId` is the `requestId`, the only double-submit guard.
-- **SFN:** `ValidateAuthorize → Validated → InspectSource → GuardRecipients → BuildTransferManifest
-  → HasTransferItems → TransferObjects → CollectTransferResults → ShapeSummary → Succeeded`, with
-  `ValidateFailureSeed`/`RequestFailureSeed → RecordFailure → NotifyFailure → Failed` complete from
-  day one. **The failure seeds read the request back from `$$.Execution.Input`** — the validate
-  task's input is the Pipe's JSON *array*, so its catch cannot carry a `ResultPath` and the error
-  replaces the state; without the context read, `NotifyFailure` would take its no-recipient branch
-  on every failure. Threading the request through the state was tried and rejected: the Pipe record
-  carries the same selection again as an escaped string, so it roughly doubles the payload for the
-  whole run. **TWO seeds, not one, and the second is not decoration:** `RecordFailure` reads
-  `$.raw`, which exists on no post-validate state, so a catch routed straight to it — as every
-  other plane's catches are — raises an uncatchable `States.Runtime` and the sender hears nothing.
-  The fleet guard identifies a seed structurally by `error.$ == "$"` and **cannot see the second
-  shape** (`"$.error"`, because that catch carries a `ResultPath`); the plane's own suite walks
-  every catch instead.
-- **Expansion happens once, in `inspect-source`, and travels by pointer** (SPEC-165). A `file` item
-  HEADs; a `folder` walks `cpcommon.s3_listing` past its 1,000-key pagination boundary. The plan
-  goes to `{admin}/file-send/{requestId}/copy-plan.json` — the object list is two orders of
-  magnitude over the 256 KB payload limit, so inline was never tunable — and only
-  `{copyPlanKey, objectCount, totalBytes}` return to the state. Each entry carries its owning item
-  name, its key **relative to that item**, its absolute source key and its size: everything
-  SPEC-166's manifest builder needs with no second listing.
-- **The destination is `{targetRoot}shared_files/{sender}/{item}[/{relKey}]`**, built by ONE
-  function in `fscommon.paths` with a sweep forbidding a second. Namespacing by sender mirrors
-  `shared_tables/{table}/`, so two senders never collide and provenance is visible in the file
-  browser with no metadata lookup — and the layout is independent of the sender's own folder
-  depth. Three refusals protect it: an **overlapping** selection, and two items whose **names**
-  would collide, are whole-request terminals; a **repeated** item collapses.
-- **The exclusion rule is this plane's own, anchored at the SPACE ROOT** — `is_ignored`'s rules are
-  anchored at the *listing prefix*, which here is whichever item the user picked, so reusing it
-  would silently drop a user-made `reports/athenaresults/` and any `_drafts/` from a copy.
-  `list_data_objects` took an optional `ignore` predicate rather than being forked. A genuinely
-  empty **file** is sent; a folder **placeholder** (zero bytes, trailing slash) is not, so an empty
-  subfolder does not survive a send.
-- **Authorization is about the SOURCE only.** A `personal` source must equal the verified username
-  (never a lookup — the username IS the prefix); a `shared` source needs `is_active_member`, i.e.
-  the space's own status is `active`. A member whose join chip reads *pending* is authorized —
-  SPEC-073 settled that access is granted at add time. Recipients are **not** an authorization
-  question: any space by name, any existing user, unreachable ones annotated and carried.
-- **Containment is two rules and a third about ancestors**, and it is the one place here where a
-  bug is a cross-tenant read. (a) trailing-slash-normalised root, so `alice2/` never passes as
-  inside `alice/`; (b) any `.`/`..` **path segment** refused outright, because
-  `"alice/../bob/x".startswith("alice/")` is `True`; (c) `athenaresults/` refused as the folder,
-  as anything under it, **and as any folder that contains it** — selecting the space root passes
-  (a) and (b), and SPEC-165 expands a folder by listing its prefix. Folder keys are normalised to a
-  trailing slash for the same reason. (c) is a **new rule for this plane** —
-  `protectedFolders.ts` keeps three divergent lists and none refuses copying *out* of it.
-- **Four caps, because there are four quantities.** `SEND_MAX_OBJECTS` (20,000) bounds what the
-  selection EXPANDS to — sized by the plan held in memory, against `inspect-source`'s configured
-  1024 MB, which a test reads back from `locals.tf`. Its timeout twin is sized per-ITEM, not
-  per-page: a `file` costs its own serial HeadObject, so 200 files is 200 round trips where 20,000
-  objects is 20. `SEND_MAX_TOTAL_BYTES` (1 TiB) bounds one selection's bytes at
-  `cpcommon.transfer`'s **makespan** rate (500 MB/s, never the aggregate 4 GB/s). **SPEC-166 added
-  three more, each against a different budget**: `SEND_MAX_OBJECT_BYTES` (10 GiB) against
-  `COPY_TIMEOUT_SECONDS`, because one object is one worker and a batch is one round of the pool;
-  `SEND_MAX_TRANSFER_ITEMS` (50,000) against the memory the two verbs either side of the Map hold
-  the manifest in; `SEND_MAX_TRANSFER_BYTES` (3 TiB) against the machine's own ceiling. Both
-  product caps are measured on the **requested** recipient count, before the guard.
-- The other two are the request-shape caps. `SEND_MAX_ITEMS` (200) bounds the per-item work;
-  `SEND_MAX_ITEM_BYTES` (96 KiB) bounds the serialised selection against the chain it travels —
-  SQS body → the Pipe's record with that body **re-escaped** → `StartExecution`'s 256 KB limit. A
-  count cap cannot bound bytes (a control character escapes to six), and a byte cap measured
-  against the state alone permits a request whose execution cannot start. The producer mirrors
-  both, held to the Python constants by a test.
-- **The transfer is the shape SPEC-160 established, reused rather than re-derived** (SPEC-166): a
-  fast inline **guard Map** (one delimited listing of `{targetRoot}shared_files/{sender}/` per
-  recipient — a `MaxKeys=1` probe per item **cannot** answer the question, because `/` is not the
-  lowest byte a key may carry), a `(recipient × object)` JSONL manifest beside the plan, a
-  **top-level** Distributed Map with `STANDARD` children and `ToleratedFailurePercentage: 100`, and
-  `collect-transfer-results` reading `SUCCEEDED_n` **as well as** `FAILED_n`/`PENDING_n` and
-  reconciling the count against the manifest. A recipient is `ok` only if none of its items failed;
-  an earlier terminal is never overwritten. **The guard's expected refusals are RETURN VALUES**, not
-  exceptions, because a conflict must name the colliding item and a `TerminalError` cannot carry one
-  to a user.
-- **`TimeoutSeconds` (10,800) is top-level and ships WITH its rule** (SPEC-166): catchers do not
-  cover top-level execution failures, so an EventBridge `TIMED_OUT` rule (never `FAILED`) invokes
-  `notify-failure` through a second door — which on this plane needs `states:DescribeExecution` to
-  read the input back, because EventBridge drops an input this plane's own cap allows to approach
-  200 KB. A `NoDataObjectDelete` **Deny** ships from the first apply, and the only write into a
-  user's space is `*/shared_files/*`.
-- **One producer says everything (SPEC-167).** `NotifyOutcomes` runs on the terminal summary, not
-  inside the Maps: sender per outcome, recipient on success only, a `space` through its registered
-  **owner**, a failed recipient told nothing. Its link carries the RECIPIENT's own space root
-  (`/files?prefix={recipientRoot}shared_files/{sender}/`, plus `?space=`), because the route keeps
-  a `?prefix=` only when it starts with the resolved space's root — a root-relative one is
-  discarded and lands them at their space root. Its `Catch` goes to **Succeeded**: the copy has
-  already happened, and a missed message must never turn a delivered send into a failed execution.
-- **The browser's only privilege remains `sqs:SendMessage`.** The **Send to…** control sits on the
-  selection toolbar; `useFileSend` mints the `requestId` per SUBMIT, which is the FIFO dedup id and
-  therefore what makes a retry possible rather than a queue-level guard.
-- **No LF-admin designation** — no table is created here.
-- **The execution role is on the user-space bucket policy's allowlist (FR-006)** — see that
-  spec-delivery doc before building any future plane that touches Bucket 1.
-
-### Archive — SPEC-168 → 172 (168–171 complete; 172 pending)
-
-"Put this away": move a file or folder out of a user's space into a separate bucket at the
-`GLACIER` storage class, delete the original, and leave behind a plain-text receipt. Reversible
-only through a restore request that takes **hours**, not a click.
-
-- **The storage class is the whole design.** `GLACIER` (Flexible Retrieval) is not readable, and a
-  `CopyObject` whose source is in it fails `InvalidObjectState` — so a restore is `RestoreObject` +
-  a 3-5 hour wait + a copy, and SPEC-171 grows a `Wait`/poll loop no other plane here has.
-  `GLACIER_IR` was rejected (readable in real time, which deletes the restore machinery but makes
-  "archive" mean "moved to a cheaper bucket") and `DEEP_ARCHIVE` too (12-48 h, 180-day minimum).
-  The **90-day minimum duration is surfaced to the user** in SPEC-172's confirm dialog: archive on
-  Monday and restore next week and you are still billed for 90 days.
-- **The archive bucket is the first bucket the browser has no relationship with at all** — no CORS,
-  absent from the CSP `connect-src`, and the portal role holds **zero** statements naming it. What
-  the browser does get is a **Deny**: `PutObject`/`DeleteObject`/`AbortMultipartUpload` under
-  `archive/` in **both** space buckets, so a receipt cannot be forged or deleted by the user it
-  describes. `lambdas/test_archive_bucket_isolation.py` pins all of that, because it is a NEGATIVE
-  claim and those rot silently.
-- **Retention is a CEILING, not a floor.** A 7-year expiry lifecycle, deliberately **bucket-wide
-  with no prefix filter** — the inverse of the admin bucket's `admin_lifecycle_rules_are_prefix_
-  scoped` check, which exists only because that bucket mixes retained and expiring content. Object
-  Lock is out of scope: it needs versioning (deferred 2026-08-03) and in compliance mode would make
-  SPEC-171's archive cleanup impossible.
-- **ONE plane serves both archive and restore**, branching on `mode` — SPEC-143's create/refresh
-  branch is the precedent, not a sixth module. The `Choice` guards every comparison with
-  **`IsPresent`**: a `Choice` on an absent path raises uncatchable `States.Runtime` and `Default`
-  does not cover it.
-- **The archived key encodes its own origin.** `personal/alice/archive/{uuid}/reports/q1.csv` came
-  from `alice/reports/q1.csv`, so SPEC-170 rebuilds every restore destination from a
-  `ListObjectsV2` over the archive prefix. **The receipt is a report, not a record** — same posture
-  as SPEC-143 judging a table by shape rather than by the marker it also writes.
-- **The leading `personal/` / `shared/` segment is not cosmetic.** Nothing anywhere checks a
-  proposed shared-space name against the User Pool, so a user `alice` and a space `alice` can both
-  exist. Flat, they would share one archive prefix — and since restore authorizes by *space* and
-  then reads whatever sits there, a member of space `alice` could restore user `alice`'s files.
-  Receipts need no such segment: they live in each space's own bucket.
-- **Containment lives in `cpcommon.paths`, not in `arcommon`** (SPEC-156). Archive is the third
-  plane to ask "is this key inside the root I authorized?", and it is the one place a second copy
-  is a cross-tenant read. `fscommon.paths` re-exports the three names.
-- **`ARCHIVE_BUCKET` is NOT a `cpcommon.config` required var.** That set is a fleet-wide contract
-  every plane's Lambda environment must satisfy; a variable only this plane sets belongs in
-  `arcommon.config.archive_bucket()` — a *function*, so the layer stays import-safe.
-- **The delete grant is the one this role could not inherit** (SPEC-169). Every other plane's
-  execution role carries a blanket `Deny s3:DeleteObject` from its first apply; this one cannot, so
-  the property that replaces it is written out: `DeleteObject` on the two SPACE buckets only, plus
-  an explicit **Deny** under `athenaresults/`, `user_settings/`, `archive/` and on any
-  `DO_NOT_DELETE.txt` at any depth. IAM is the second line — the first is the commit gate, and
-  `arcommon.delete.assert_deletable` refuses the whole list **before issuing anything**, so a key
-  the policy would refuse fails the run rather than stopping a deletion half way through.
-- **THE COMMIT GATE is the machine's shape** (SPEC-169). `collect-transfer-results` returns one
-  boolean — every object copied, or not — and `CommitOrRollback` branches on it: one arm reaches
-  `DeleteSource`, the other cannot, which a graph walk asserts rather than a comment. Its `Default`
-  is the ROLLBACK, so an unrecognisable verdict fails closed. Three ways to be short are one
-  verdict: a reported item failure, an export accounting for fewer items than the manifest, and a
-  manifest disagreeing with the plan. **"Copied 900 of 1000, deleted 1000" is the failure this
-  feature must never have.**
-- **The rollback deletes by LISTING the archive prefix**, not from a collector-supplied key list:
-  keys are the unbounded term, and the prefix is this request's alone — so the listing also catches
-  objects a batch copied before it died and never reported, which a list could not. A rollback that
-  itself fails partially does **not** change the outcome; the residue is billed at the GLACIER
-  90-day minimum, is unreachable by the user and is swept by the 7-year expiry.
-- **Most durable to least**: `_manifest.json` into the vault → the source deletion → the receipt
-  into the user's own space. A receipt therefore only ever exists for an archive that completed,
-  and its write failing **fails the run** even though the data is safe — a user with no receipt has
-  no id and no route to a restore, so the message says the data IS archived and names the id.
-- **`TimeoutSeconds` is top-level and ships WITH its EventBridge `TIMED_OUT` rule**
-  (SPEC-169), notify-failure's second door and its 15s → 60s raise. Catchers do not cover a
-  top-level execution failure. Sized by a **makespan** (`MAP_MAX_CONCURRENCY` ×
-  `CONSERVATIVE_STREAM_BYTES_PER_SECOND` = 500 MB/s), never an aggregate; a test adds the copy, the
-  per-child overhead and the seven serial verbs and reads the ceiling out of `locals.tf`.
-  **SPEC-171 raised it 10,800 → 43,200**, and not because the data grew: the restore arm's long
-  pole is a *wait*, and a 3-hour ceiling would have killed healthy restores before S3 finished
-  with them. It is one field on one machine, so the archive arm's backstop rose with it — a wedged
-  archive is now reported after twelve hours rather than three, which is accepted and pinned by a
-  test asserting the archive arm still clears the ceiling by more than 4×.
-- **THE DESTINATION GUARD RUNS TWICE, and the second pass is SPEC-171's own correction.** One check
-  was sufficient while the guard and the copy were seconds apart; this arc puts 3-5 BILLED HOURS
-  between them and spends those hours telling the user a restore is in flight — so re-creating a
-  file in that window is the ordinary case the guard was written for, arriving late, and the
-  copy-back would have overwritten it, reported success and swept the vault. `ReCheckDestinationClear`
-  is the same verb over the same plan immediately before the copy: seconds against a run that has
-  already waited hours. The two refusals are worded apart (after the retrieval the objects stay
-  ready for `RESTORE_AVAILABILITY_DAYS`, so trying again soon is free) and the ASL **seeds** which
-  pass it is rather than the verb inferring it.
-- **Retrieval is the point of no return, and its Map tolerates NO failure** (SPEC-171) — the exact
-  inverse of the copy's 100%. The copy must finish whatever happens or the commit gate cannot tell
-  "failed" from "not attempted"; the retrieval has no such gate, so a genuine fault fails the Map
-  Run with nothing copied and the archive untouched. What makes re-submitting free is the two
-  TOLERATED responses: `RestoreAlreadyInProgress` (the desired state wearing an error's clothes)
-  and `InvalidObjectState` (which keeps the restore path unconditional on `ARCHIVE_STORAGE_CLASS`).
-- **Completion is the `Restore` HEADER, and an absent header is a FAILURE** (SPEC-171). Nothing
-  about an archived object changes when its retrieval finishes — it stays `GLACIER`, and what
-  appears beside it is a temporary copy the header describes — so "no header" on a Glacier object
-  means nobody ever asked, not "not yet". Read as pending it would burn every iteration and then
-  report a timeout naming the wrong cause. The poll SAMPLES: progress is an S3 pointer beside the
-  plan, and one invocation sweeps as far as complete pages allow rather than one page per `Wait`.
-- **The retrieval budget has deliberate headroom** (SPEC-171): 7 hours against a tier whose worst
-  case is 5, because giving up on a retrieval that was going to finish makes the user pay for a
-  SECOND billed one, while waiting costs an invocation every five minutes.
-- **The copy IS what changes the storage class** (SPEC-171), so `STANDARD` is stated and never
-  omitted. The engine treats an absent class as "do not pass the argument", so relying on S3's
-  default would be invisible in the code and would land every restored object back in `GLACIER`,
-  looking like a success until it expired to unreadable.
-- **THE RESTORE'S GATE IS THE COMMIT GATE'S MIRROR IMAGE, not its twin** (SPEC-171). Archiving's
-  gate protects the SOURCE; this one protects the ARCHIVE, and the reason runs the other way — a
-  partial restore cannot be rolled back, because the user's space already holds some of their own
-  data. So the failure arm deletes **nothing**, and the archive it keeps is the only complete copy
-  left. `restore_incomplete` says all three things: how many came back, that the archive is intact
-  under the same id, and that re-requesting will report the files that DID land.
-- **The vault sweep may fail quietly and the source deletion may not** (SPEC-171) — same algorithm,
-  opposite consequence. A half-deleted source means a user told their archive completed while their
-  files are half there; a half-swept vault costs storage the 7-year expiry reclaims. So it is a
-  `cleanupIncomplete` flag on a SUCCESSFUL run. Deleting inside the 90-day minimum is an
-  early-deletion fee, not a defect.
-- **The receipt is REWRITTEN, never re-rendered** (SPEC-171). The archive lines record the archive
-  run and its start time is the one field no restore can recompute, so a fresh render would blank
-  it on the only durable record the user has. Keyed on the two LABELS, every other line verbatim. A
-  **proven** 404 composes a fresh document; a 403 raises rather than overwriting a receipt this
-  plane merely failed to read.
-- **The restore guard is absolute** (SPEC-170): any occupied destination key refuses the whole
-  restore — no skip, no overwrite, no merge, no "restore what fits" — and a `403` counts as
-  occupied, because a key this role cannot head is a key it must not overwrite. It runs **before
-  any `RestoreObject`**, which is why the arc splits here: everything on this side is verifiable
-  in seconds and everything on the other takes hours and is billed the moment it starts. That
-  asymmetry with archiving's rollback is deliberate — deleting restored data to make the
-  operation atomic would destroy the thing the restore was for.
-- **A restore takes its SPACE from the request and its ARCHIVE from a pasted id** (SPEC-170), so
-  authorization is a question about *that* space and an archive belonging to another one simply is
-  not found — `archive_not_found` never distinguishes "never existed" from "not yours". The id is
-  matched against `arcommon.paths`' one UUID rule **before** it is concatenated into a key, and the
-  root is then built by the same `archive_root` that wrote it. `requestId` ≠ `archiveId` is
-  enforced: the run and the archive are different things, or a refused restore could not be
-  re-submitted.
-- **The front door serves both modes and returns the SAME five keys** (SPEC-170). `ChooseMode` sits
-  downstream of validate-authorize and reads `$.mode` off the parsed request — in the raw Pipe
-  record that field is inside an escaped JSON string ASL cannot look into — so a separate restore
-  validator is not possible, and one shared `Validated` Pass means a key present in one mode and
-  absent in the other would raise an uncatchable `States.Runtime`. `source` is therefore the
-  authorized SPACE in both: the archive's source in one, the restore's destination in the other.
-- **One body table, two prefixes, and the failure path carries `mode`** (SPEC-170). The codes only
-  one mode can reach are unambiguous; the ones BOTH reach — `forbidden`, `malformed_event`,
-  `invalid_request` — are exactly the ones a single "Couldn't archive that" prefix gets wrong. Every
-  failure seed supplies `mode` (a literal `null` on the pre-identity one, whose input is the raw
-  error).
-- **`RESTORE_HEAD_CONCURRENCY` is bounded by botocore's CONNECTION POOL, not by the thread count**
-  (SPEC-170). "Workers × timeout / latency" says to widen the pool until the arithmetic fits, but
-  `boto3.client("s3")` takes the default `max_pool_connections` of 10 — threads past that contend
-  and urllib3 discards sockets rather than reusing them, so a wider pool buys throughput the client
-  cannot deliver while every bound computed from it reads as satisfied. 8 workers; the guard's
-  600 s **timeout** is what pays for 20,000 heads. A test reads the ceiling off botocore.
-
-### File Operations — SPEC-187 → 191 (187–189, 191 complete; 190 — the browser — pending)
-
-"Move / copy / delete these files and folders": the last bulk data operations this product performed
-in the **browser**. `copyFolder` issued one `CopyObject` per object in a strictly sequential loop
-from the user's laptop, `moveFolder` did that and then deleted, and closing the tab left the
-operation half-done with no record it had started.
-
-- **ONE machine serves all three operations.** They share the request contract, the authorization
-  question, the lock and the failure vocabulary; a selection routes the same way whichever verb the
-  user pressed. What differs is only whether a destination is derived.
-- **A selection stays synchronous if and only if it is exactly ONE FILE.** A single folder — a
-  *rename* included — is enqueued, because a rename is one `CopyObject` per contained object.
-- **The envelope is FLAT** (`actor` = the raw ID token, top level), for SPEC-126's drain, and the
-  copy/move-only fields (`destination`, `onConflict`, `submittedAt`) are **rejected for a delete**
-  and emitted as explicit nulls. That is why `NeedsDestinationGuard` branches on `$.operation`:
-  ASL's `IsPresent` is TRUE for a field that is present and null.
-- **A per-SPACE lock, whose loser WAITS.** FIFO orders delivery and the Pipe starts the machine
-  `FIRE_AND_FORGET`, so delivery is ordered and execution is not — and this plane's loser would
-  delete objects a concurrent move had already relocated. `cpcommon.lock` under ETag CAS, held by
-  the execution ARN, released by overwriting, stolen only when stale.
-- **There is NO `Validated` Pass**, unlike every neighbour, and its absence is load-bearing: a Pass
-  reading a path a delete does not carry raises an uncatchable `States.Runtime`, so the very first
-  delete would have died before the notifier. Read that rule before adding a `Pass` here.
-- **SFN:** `ValidateAuthorize → StampExecution → AcquireLock ⇄ WaitForLock → ChooseOperation →
-  InspectSource → NeedsDestinationGuard → CheckDestinations ×2 → BuildTransferManifest →
-  TransferObjects (Distributed Map) → CollectTransferResults → NeedsSourceDeletion → DeleteSource →
-  FinaliseOutcomes → ReleaseLock → NotifyOutcomes → Succeeded`, with three release states (one ASL
-  state has one `Next`) and
-  `ValidateFailureSeed`/`RequestFailureSeed`/`GiveUpFailureSeed → RecordFailure → NotifyFailure →
-  Failed`. **Every Task taken under the lock carries a `Catch`**: a Task without one has no edge to
-  any terminal, so the graph walk that proves no path reaches a terminal holding the lock stays
-  green while the space wedges until the stale steal.
-
-**The plan.** `{admin_bucket}/file-ops/{requestId}/plan.json`, written by inspect-source and read
-back by everything after it; only its key and the counts ride on the state, because at
-`FILE_OPS_MAX_OBJECTS` the object list is tens of megabytes against a 256 KB payload limit. A
-prefix-scoped lifecycle rule expires it (`modules/analytics/s3.tf`) and cannot reach
-`locks/file-ops/` — an S3 lifecycle prefix anchors at the start of the key, and a lock that is
-released by *overwriting* must never be expired into absence.
-
-```
-{ requestId, operation, submittedAt, onConflict, actor, executionArn,
-  source: {bucket, root}, destination: {bucket, prefix} | null,
-  items: [ { itemKey, label, kind, targetName, objectCount, totalBytes,
-             objects: [ {srcBucket, srcKey, relKey, size, etag, destBucket?, destKey?} ] } ],
-  itemCount, objectCount, totalBytes }
-```
-
-`requestId`, `submittedAt` and `onConflict` are on the plan because the guard's overwrite predicate
-reads them from there and **not** from the state — reading them off the state is the substitution
-`plan_superseded` exists to catch. `executionArn` is what makes the reused-id guard retry-safe:
-every Task retries three times, so refusing any occupied prefix would refuse the request the verb
-had itself just planned. `etag` rides because `ListObjectsV2` already returned it, and it is the
-field a later conditional delete turns on.
-
-**The notification is the completion channel, and one producer says it.** `NotifyOutcomes` is the
-last state and it sits **after** the release — before it, the space would be held for as long as the
-messages take to write — and **both** of `ReleaseLock`'s edges reach it, because a release that
-exhausts its `Retry` still has to notify or a completed operation tells the user nothing. It cannot
-fail the run (`ResultPath: null`, a `Catch` to the terminal, no `@notifies_on_failure`): by the time
-it runs a `move` has already deleted its sources. It is also the one Task whose catch reaches a
-terminal rather than a release — the lock is free, and a release is an *overwrite*, so a second one
-would clobber whichever execution had since acquired that space.
-
-**ONE message per run, not per item**, carrying a link and an optional structured `payload` on the
-notification row: `requestId` always (a reader settles its in-flight record by matching it, and a
-clean run has nothing to re-submit), plus what a re-submit needs — the operation, both spaces, the
-destination prefix and the **bounded** conflicted items. Bounded by **bytes as well as count**,
-because one conflicted item is ~200 bytes at ordinary key lengths and ~12,000 at this plane's caps.
-The link is the destination when anything landed, the source otherwise, and for a `delete` the
-common folder of the items' **parents**; its prefix is **percent-encoded**, which no other plane's
-link needs, because this is the only one built from an arbitrary user-controlled key.
-
-**The execution role reads both data buckets and writes to neither** — `ListBucket` +
-`GetBucketLocation` + `GetObject`, with an explicit `Deny` on every write verb, so the transfer
-spec has to delete a statement by name rather than widen an Allow. Its lock and plan prefixes in
-the admin bucket are the only places it may write, and it is on the user-space bucket policy's
-allowlist.
-
-### Data Quality — SPEC-108→114, 123, 124
-
-"Check data quality" on a file or folder (CSV/TXT, JSON/NDJSON, Parquet; classification by
-**extension**; no Excel — convert to Parquet first). Diagnostic only — it never writes to the
-source.
-
-- **The work is Athena's, not Lambda's.** Real sources reach 250 GB; a Lambda byte-pass would take
-  hours against a 900 s ceiling. Athena computes the exact checks in minutes. The accepted cost:
-  the execution role holds Glue + Athena + LF (TBAC create; admin = Describe only) — the same blast
-  radius as table-builder, deliberately surrendered for exactness (sampling and Fargate-in-a-VPC
-  were both rejected; Fargate remains the recorded escape hatch).
-- **The Athena poll lives in the state machine** (`Wait(30s)` → check-query → `Choice`), not inside
-  a Lambda — the plane's key structural difference; Standard executions remove the time ceiling.
-  What remains is the **account-level Athena DML quota: 30 min default, 240 by support ticket** —
-  the real ceiling on the feature. The dedicated workgroup leaves `bytes_scanned_cutoff_per_query`
-  **unset** (the portal workgroup's 10 GiB cutoff would fail every real check); result location is
-  set per query. `StartQueryExecution` carries `ClientRequestToken = requestId` (a retry must not
-  start a second query); temp tables are `dq_tmp_{hex32}` (hyphens parse as subtraction).
-- **Verbs:** validate-authorize → inspect-source (writes a **manifest to S3**; probes every file's
-  header/schema — it carries the polars layer, because Athena needs an explicit column list for
-  Parquet/JSON) → create-temp-tables → start-profile-query → poll → byte-scan → assemble-report →
-  **drop-temp-tables, reached from every failure path** — safe because it touches Glue only and the
-  role has **no `s3:DeleteObject` anywhere**, plus an explicit `Deny s3:PutObject` on
-  `*/user_settings/*` and `*/DO_NOT_DELETE.txt` (an overwrite of `notifications.json` would be
-  unrecoverable).
-- **Checks — exact:** per-column type consistency via `TRY_CAST` (skipped for Parquet, and the
-  report says so — the format enforces types), null/blank ratios, row counts per file (`"$path"`)
-  and total, JSON key drift (the **Hive** JSON SerDe, never OpenX — OpenX yields nondeterministic
-  nulls and the story rests on "null = missing key"). **Duplicates run as a separate query** (a
-  full shuffle — the most expensive thing Athena does) and degrade to `not_computed` on resource
-  exhaustion rather than failing the check. `DQ_MAX_COLUMNS` (200) guards Athena's 262,144-byte
-  query-string cap.
-- **Checks — approximate (labelled in report and notification):** ragged rows via a single-column
-  raw-line temp table (`\001` delimiter; quoted delimiters and embedded newlines over-report;
-  SPEC-142 tracks the union-column-count double-count bug); invalid UTF-8 via `byte-scan`, bounded
-  **per request** (`DQ_SCAN_TOTAL_BYTES`, 2 GiB, divided across the manifest) with coverage %
-  stated. Compressed text isn't splittable — a large `.gz` is rejected with guidance.
-- **Queueing:** `MessageGroupId` = SHA-256 of the canonical location (raw S3 keys can exceed SQS's
-  128-char cap); `MessageDeduplicationId` = `requestId`.
-- **Report & discovery:** `{space}/_data-quality-reports/{requestId}/report.json` — the key is a
-  pure function of `requestId`, so a replay overwrites byte-identically. The folder is hidden in
-  the browser; the notification deep-links to `/data-quality/:space/:requestId` (SPEC-113: space in
-  the route, a denied view issues **no** S3 request); the `/data-quality` dashboard (SPEC-123)
-  reads a per-space `index.json` appended under ETag CAS (capped 200, every failure swallowed —
-  durability order report → notification → index) and can start new checks (SPEC-124).
-- **Cost, honestly:** ~$5/TB scanned × multiple scans (profile, raw-line, duplicates) ≈ $2.50–3.75
-  per 250 GB check, with **no scan guardrail** and nothing capping runs per user — revisit before
-  real users arrive.
+The API is not a control plane and has its own page,
+[`api.md`](../lambdas/info/planes/api.md); so do the standalone functions,
+[`standalone.md`](../lambdas/info/planes/standalone.md).
 
 ---
+
 
 ## Known Constraints
 
@@ -1011,7 +532,7 @@ this list before merging:
   CloudWatch logs or by querying as an LF admin (only the deploy role + control-plane execution
   roles + post-confirmation exec role are LF admins).
 
-### The container platform (SPEC-193)
+### The container platform
 
 The network, the API's front door and the SPA's runtime. It serves the **real SPA** — built and
 deployed on every push to `main`, with CloudFront still production and still the rollback until the
@@ -1060,7 +581,7 @@ and every mount option.
 registers revisions and never moves the service — while the count stays Terraform's, because raising
 it is a verification step an ignored attribute would silently swallow.
 
-### Lambda code/infra split (established SPEC-012)
+### Lambda code/infra split
 
 Lambda **code** and **infrastructure** are deliberately separated; `tofu apply` never touches code:
 

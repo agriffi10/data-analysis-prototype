@@ -2263,7 +2263,7 @@ Documentation to rewrite when this lands: `docs/architecture.md` (Authentication
 Authorization Model, and the "No backend" Known Constraint, which §3.5 breaks), `docs/decisions.md`
 (auth, shared-space and Lake Formation material, plus a new entry for the federated claim — the
 file is one flat heading with no `##` sections, so locating passages means reading it),
-`docs/architecture.md` → *Control Planes → Shared Spaces* (ownership model), and the in-app help content per the
+`lambdas/info/planes/shared-spaces.md` (ownership model), and the in-app help content per the
 SPEC-074 rule.
 
 ---
