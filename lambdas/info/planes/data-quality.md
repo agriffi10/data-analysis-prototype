@@ -35,6 +35,7 @@ CheckQuery → ByteScan → AssembleReport → DropTempTables`
 | `messages` | user-facing wording and reason codes |
 | `notify` | best-effort outcome notifications |
 | `report` | the report shape, its exact-versus-approximate tagging, and the top-issues wording |
+| `results` | where the temp-table verbs' DDL writes, beside the request's report |
 | `sql` | Athena SQL generation for the checks |
 
 `data-quality-polars/` is a second layer with no source of ours — polars, installed from its

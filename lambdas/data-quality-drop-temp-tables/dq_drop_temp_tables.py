@@ -19,9 +19,9 @@ the ``verb`` field.
 
 import logging
 
-from cpcommon import athena, observability, results
+from cpcommon import athena, observability
 from cpcommon import config as cpconfig
-from dqcommon import messages, notify, sql
+from dqcommon import messages, notify, results, sql
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

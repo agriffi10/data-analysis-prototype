@@ -223,7 +223,7 @@ here was checked against its own mutation (`MAX_WAVES = 1`; the reserve forced t
 
 ---
 
-## `cpcommon/config.py` — sizing `REFRESH_MAX_DEFINITION_BYTES`
+## `tbcommon/config.py` — sizing `REFRESH_MAX_DEFINITION_BYTES`
 
 The refresh path's definition cap is **40 KiB**, and it is deliberately not tscommon's
 `SHARE_MAX_DEFINITION_BYTES`. That 32 KiB was measured for table-share's 50-recipient Map,

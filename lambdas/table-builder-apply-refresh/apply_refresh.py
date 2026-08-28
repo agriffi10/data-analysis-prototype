@@ -34,9 +34,9 @@ Attributes:
 
 import logging
 
-from cpcommon import clients, ddl, errors, events, glue, observability
+from cpcommon import clients, ddl, errors, events, observability
 from cpcommon.errors import TerminalError, TransientError
-from tbcommon import notify
+from tbcommon import glue, notify
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

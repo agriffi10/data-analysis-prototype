@@ -17,12 +17,12 @@ the ``verb`` field.
 
 import logging
 
-from cpcommon import athena, events, observability, results
+from cpcommon import athena, events, observability
 from cpcommon import columns as columns_mod
 from cpcommon import config as cpconfig
 from cpcommon.errors import TerminalError
 from dqcommon import manifest as manifest_store
-from dqcommon import messages, notify, sql
+from dqcommon import messages, notify, results, sql
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

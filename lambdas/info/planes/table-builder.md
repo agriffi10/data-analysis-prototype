@@ -36,7 +36,8 @@ included**.
 
 | Module | Holds |
 |---|---|
-| `config` | domain configuration |
+| `config` | domain configuration, including the refresh definition cap |
+| `glue` | the refresh freshness stamp; re-exports `cpcommon.glue.clone_definition` |
 | `messages` | user-facing outcome wording |
 | `notify` | best-effort outcome notifications |
 | `results` | where the plane's Athena statements write their results |

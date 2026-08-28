@@ -34,11 +34,6 @@ Attributes:
   CATALOG_IDENTIFIER_RE: The single catalog-safe identifier rule — lowercase, leading
     letter, [a-z0-9_], 3-63 chars — for usernames, database, view, table and partition-key
     names.
-  REFRESH_MAX_DEFINITION_BYTES: Largest live table definition a refresh will carry onto the
-    Step Functions state. Its own bound, deliberately not table-share's, which was measured
-    for a 50-recipient Map. Breaching the 256 KB state-payload limit raises
-    States.DataLimitExceeded outside every Catch, so an oversized table is refused up front.
-    Sizing evidence is in ``docs/lambda-rationale.md``.
   _REQUIRED_VARS: Attribute name to environment variable, for the values a control plane
     cannot run without.
   _OPTIONAL_VARS: The same, for values that degrade to an empty string rather than raising.
@@ -63,8 +58,6 @@ _OPTIONAL_VARS = {
 }
 
 CATALOG_IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_]{2,62}$")
-
-REFRESH_MAX_DEFINITION_BYTES = 40 * 1024
 
 
 def _require(name: str) -> str:
