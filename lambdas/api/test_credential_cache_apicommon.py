@@ -73,6 +73,7 @@ _TEST_ROUTE = contract.Route(
     idempotent=True,
     plane="user",
     request=_ClaimingBody,
+    query=None,
     response=contract.UserDirectoryResponse,
 )
 
@@ -83,6 +84,7 @@ _FAILURE_ROUTE = contract.Route(
     idempotent=True,
     plane="user",
     request=None,
+    query=None,
     response=contract.UserDirectoryResponse,
 )
 

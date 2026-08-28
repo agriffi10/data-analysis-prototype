@@ -48,6 +48,7 @@ _API_PLANE_ROUTE = contract.Route(
     idempotent=True,
     plane="api",
     request=None,
+    query=None,
     response=contract.UserDirectoryResponse,
 )
 
@@ -467,6 +468,7 @@ def test_a_plane_that_is_neither_of_the_two_is_REFUSED_rather_than_defaulted() -
         idempotent=True,
         plane="API",
         request=None,
+        query=None,
         response=contract.UserDirectoryResponse,
     )
 

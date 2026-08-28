@@ -54,6 +54,7 @@ Attributes:
 import json
 import re
 from collections.abc import Callable, Mapping
+from types import MappingProxyType
 from typing import Any
 
 from apicommon import contract, envelope, errors, identity, planes, principal
@@ -202,6 +203,7 @@ def route(
     headers: Mapping[str, str] | None = None,
     request_id: str = "",
     body: object = None,
+    query: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Identifies the caller, then dispatches.
 
@@ -290,10 +292,23 @@ def route(
         )
         return _answered(envelope.failure(refusal, request_id), refusal)
 
+    refusal = contract.validate_query(declared, query)
+    if refusal is not None:
+        observability.warning(
+            "request query refused", reason=refusal, route=asked_for, request_id=request_id
+        )
+        return _answered(envelope.failure(refusal, request_id), refusal)
+
     planes.begin_dispatch(declared.id)
     try:
         return _answered(
-            envelope.success(handler(RequestContext(caller, acting_as, asked_for, request_id)))
+            envelope.success(
+                handler(
+                    RequestContext(
+                        caller, acting_as, asked_for, request_id, body, MappingProxyType(dict(query or {}))
+                    )
+                )
+            )
         )
     except envelope.ApiError as exc:
         observability.warning(

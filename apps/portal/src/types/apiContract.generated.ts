@@ -14,8 +14,9 @@ export const API_ROUTES = {
 export type ApiRouteId = keyof typeof API_ROUTES;
 
 type RouteBodies = {
-  'userDirectory.get': {request: null; response: UserDirectoryResponse};
+  'userDirectory.get': {request: null; query: null; response: UserDirectoryResponse};
 };
 
 export type RequestOf<R extends ApiRouteId> = RouteBodies[R]['request'];
+export type QueryOf<R extends ApiRouteId> = RouteBodies[R]['query'];
 export type ResponseOf<R extends ApiRouteId> = RouteBodies[R]['response'];

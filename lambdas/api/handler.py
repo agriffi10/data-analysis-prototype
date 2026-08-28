@@ -110,9 +110,17 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
     because the router's own 404 is a better answer than a traceback for something that cannot
     reach this function through the API anyway.
 
-    The headers are handed to the router whole and the rest of the event is not, which is what
-    keeps a caller-stated username out of reach of every handler: the query string and the body
-    never leave this function.
+    The headers are handed to the router whole and the raw event is not. The query string and the
+    body DO leave this function now — the object routes take ``{space, key}`` and cannot work
+    otherwise — but they leave it as data the router **validates against the route's declaration**
+    before any handler sees them, and they never carry an identity anywhere.
+
+    **This used to say the query and the body never leave, and that sentence was the guarantee.**
+    It is not any more, and the replacement is named rather than implied: a handler is given
+    ``acting_as``, built from verified claims, and can assemble no other; ``routes/`` is swept for
+    any read of ``event`` or ``headers``; and a test asserts the resolved identity is unchanged
+    against a body and a query each naming a different user. Shape no longer forbids a handler
+    reading a caller-stated username — those three do.
 
     Args:
       event: The API Gateway payload-format-2.0 request.
@@ -133,7 +141,12 @@ def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
     path = str(http.get("path", ""))
     headers = event.get("headers") or {}
     return route(
-        method, path, headers, str(context_block.get("requestId", "")), _parsed_body(event)
+        method,
+        path,
+        headers,
+        str(context_block.get("requestId", "")),
+        _parsed_body(event),
+        event.get("queryStringParameters") or {},
     )
 
 

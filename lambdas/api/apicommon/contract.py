@@ -28,6 +28,7 @@ Attributes:
     in one of those places and not the others.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import (
     Any,
@@ -134,6 +135,10 @@ class Route:
       plane: Which credentials the route may reach for. The user plane is the caller's own
         assumed session; the API plane is the function's execution role.
       request: The declared request body type, or None for a route that takes no body.
+      query: The declared query-string type, or None for a route that takes no query. Its fields
+        are STRINGS ONLY — see ``check_routes``. Required like every other field: a defaulted one
+        would let a route be added without deciding, which is the mistake ``plane`` exists not to
+        repeat.
       response: The declared 200 body type. Always an object type, so an additive field always
         has somewhere to go.
     """
@@ -144,6 +149,7 @@ class Route:
     idempotent: bool
     plane: Literal["user", "api"]
     request: Any | None
+    query: Any | None
     response: Any
 
 
@@ -155,6 +161,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         idempotent=True,
         plane="user",
         request=None,
+        query=None,
         response=UserDirectoryResponse,
     ),
 )
@@ -311,8 +318,8 @@ def _object_node(annotation: Any) -> TypeNode:
 def declared_types() -> tuple[Any, ...]:
     """Every TypedDict the generated TypeScript must carry, in a deterministic order.
 
-    Walks the routes in declaration order and each route's request before its response, so the
-    emitted file's order is a function of this module alone.
+    Walks the routes in declaration order and each route's request, then its query, then its
+    response, so the emitted file's order is a function of this module alone.
 
     Args:
       None.
@@ -325,7 +332,7 @@ def declared_types() -> tuple[Any, ...]:
     """
     seen: list[Any] = []
     for route in ROUTES:
-        for annotation in (route.request, route.response):
+        for annotation in (route.request, route.query, route.response):
             for found in _referenced(annotation):
                 if found not in seen:
                     seen.append(found)
@@ -414,6 +421,47 @@ def check_routes() -> None:
             raise UnsupportedTypeError(
                 f"{route.id} accepts {route.request!r}; every request body is an object"
             )
+        if route.query is not None:
+            _check_query(route)
+
+
+_QUERY_KINDS: Final[frozenset[str]] = frozenset({"str", "literal"})
+
+
+def _check_query(route: "Route") -> None:
+    """Refuses a query declaration a query string cannot carry.
+
+    **A query string is all strings.** API Gateway hands ``queryStringParameters`` over as
+    ``dict[str, str]``, so a declaration naming an int, a bool or a nested object type-checks in
+    the browser, generates clean TypeScript, and then refuses every real request with a 400 the
+    handler never sees. Measured, not predicted: a declaration carrying ``space: SpaceRef`` and
+    ``maxKeys: int`` emitted correct TypeScript and 400'd on the exact payload the gateway sends.
+
+    So the vocabulary NARROWS here rather than widening. A route wanting a structured value in a
+    query flattens it — ``spaceKind`` and ``spaceName`` rather than a ``SpaceRef`` — and the
+    divergence from the body's own shape is deliberate. Refused at declaration time, which is a
+    build-time failure, rather than per request, which is an outage.
+
+    Args:
+      route: The route whose query declaration to check.
+
+    Returns:
+      None.
+
+    Raises:
+      UnsupportedTypeError: If the query is not an object, or carries a non-string field.
+    """
+    if not _is_typed_dict(route.query):
+        raise UnsupportedTypeError(
+            f"{route.id} accepts {route.query!r}; every query is an object"
+        )
+    for name, node, _required in walk(route.query).fields:
+        inner = node.of[0] if node.kind == "optional" else node
+        if inner.kind not in _QUERY_KINDS:
+            raise UnsupportedTypeError(
+                f"{route.id}'s query field {name!r} is {inner.kind}; a query string carries "
+                f"only strings, so declare it str or a Literal of strs and flatten what is not"
+            )
 
 
 def route_by_id(route_id: str) -> Route | None:
@@ -477,6 +525,31 @@ def validate_request(route: Route, body: object) -> str | None:
     if route.request is None:
         return None if body in (None, {}) else "InvalidRequest"
     if not _matches(walk(route.request), body):
+        return "InvalidRequest"
+    return None
+
+
+def validate_query(route: Route, query: Mapping[str, str] | None) -> str | None:
+    """Checks a request's query string against the route's declared type.
+
+    The same walk of the same annotation the generator emits from, exactly as ``validate_request``
+    uses for the body — so a query the browser was typed against and a query this refuses cannot
+    disagree.
+
+    Args:
+      route: The route the query was sent to.
+      query: The gateway's parsed query string, or None when none was sent.
+
+    Returns:
+      None when the query is acceptable, otherwise the machine code refusing it.
+
+    Raises:
+      UnsupportedTypeError: If the route's declared query type is outside the vocabulary, which
+        is a defect in the declaration rather than in the request.
+    """
+    if route.query is None:
+        return None if not query else "InvalidRequest"
+    if not _matches(walk(route.query), dict(query or {})):
         return "InvalidRequest"
     return None
 

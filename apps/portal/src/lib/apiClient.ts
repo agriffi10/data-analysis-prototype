@@ -1,5 +1,5 @@
 import {API_ROUTES} from '../types/apiContract.generated';
-import type {ApiErrorCode, ApiRouteId, RequestOf, ResponseOf} from '../types/apiContract.generated';
+import type {ApiErrorCode, ApiRouteId, QueryOf, RequestOf, ResponseOf} from '../types/apiContract.generated';
 import {configValue} from './runtimeConfig';
 import type {ServiceResult} from '../types/service.types';
 
@@ -97,7 +97,11 @@ export function apiRetryPolicy(route: ApiRouteId): false | number {
 /** What a caller may pass. A route id, never a URL — see the module's one-door rule. */
 export type ApiRequestOptions<R extends ApiRouteId> = {
   body?: RequestOf<R>;
-  query?: Record<string, string>;
+  // Generated from the route's own declaration, not `Record<string, string>`. Untyped, a
+  // misspelled or missing key is a runtime 400 the handler never sees; typed, it is a `tsc -b`
+  // failure at the call site. The declaration is all-strings by construction — the contract
+  // refuses a query field that is not one, because a query string cannot carry anything else.
+  query?: QueryOf<R> extends null ? never : QueryOf<R>;
   signal?: AbortSignal;
 };
 
@@ -125,7 +129,7 @@ export async function apiRequest<R extends ApiRouteId>(
   if (origin === undefined) return failure('ApiUnavailable');
 
   const {method, path} = API_ROUTES[route];
-  const url = `${origin}${path}${queryString(options.query)}`;
+  const url = `${origin}${path}${queryString(options.query as Record<string, string> | undefined)}`;
 
   for (let attempt = 0; attempt <= MAX_AUTH_RETRIES; attempt += 1) {
     if (!tokenProvider) return failure('SessionExpired');
