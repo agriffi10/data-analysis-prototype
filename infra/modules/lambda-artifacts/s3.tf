@@ -1,17 +1,9 @@
 # ── Lambda Deployment Artifacts Bucket ────────────────────────────
-# Staging bucket for Lambda code packages. GitHub Actions
-# (.github/workflows/deploy-lambdas.yml) builds each function's zip, uploads it
-# here under {function}/{git-sha}.zip, then calls update-function-code referencing
-# the object. Shared by every Lambda under /lambdas. Private — no public access,
-# no browser CORS (only the deploy role and the Lambda service read it).
+# Staging bucket for Lambda code packages. See README.md.
 
-# IAM propagation guard. The module-level `depends_on = [module.base]` orders the
-# API calls so the deploy-role policy (which grants this bucket's management) is
-# written before this module runs — but IAM is eventually consistent, so the
-# deploy role using that grant to create the bucket in the same apply can race
-# the propagation and hit a transient AccessDenied. This pause closes that window.
-# 60s (not 30s): The first apply saw a later bucket-config call
-# (GetLifecycleConfiguration) still race even after CreateBucket succeeded.
+# IAM propagation guard: the deploy role can race its own grant's propagation and hit a
+# transient AccessDenied. 60s, not 30s — a bucket-config call raced even after CreateBucket
+# succeeded. README.md.
 resource "time_sleep" "wait_for_deploy_policy" {
   create_duration = "60s"
 }
@@ -52,9 +44,8 @@ resource "aws_s3_bucket_ownership_controls" "artifacts" {
   }
 }
 
-# Artifacts are disposable: Lambda copies the code internally on
-# update-function-code, so an expired S3 object never affects a running function.
-# Expire old packages after 30 days to keep the bucket bounded.
+# Artifacts are disposable — Lambda copies the code internally on update-function-code, so an
+# expired object never affects a running function.
 resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
   bucket = aws_s3_bucket.artifacts.id
 
@@ -69,8 +60,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
     }
   }
 
-  # CKV_AWS_300. CI uploads a zip per function per deploy, so an interrupted runner is the
-  # ordinary way this bucket acquires orphaned parts — billed, and invisible to every listing.
+  # CKV_AWS_300. An interrupted runner is the ordinary way this bucket acquires orphaned
+  # parts — billed, and invisible to every listing.
   rule {
     id     = "abort-incomplete-multipart-uploads"
     status = "Enabled"

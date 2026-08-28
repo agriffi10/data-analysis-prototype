@@ -195,7 +195,7 @@ apps/portal/src/features/shared-spaces/
 ### Phase 2: Control plane (Lambdas + Step Function)
 - `add-members` writes new members as `pending`; never demotes an active member.
 - New `acknowledge-membership` verb; wire into the Step Function `Choice(action)`; deploy-role / layer
-  plumbing per the repo's Lambda code/infra split (`docs/best-practices/lambdas/lambdas.md`).
+  plumbing per the repo's Lambda code/infra split (`lambdas/info/best-practices/lambdas/lambdas.md`).
 
 ### Phase 3: Browser ack + UI
 - `useAcknowledgeMembership` enqueue, called once per session per member-role space from `useFileSpace`.

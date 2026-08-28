@@ -180,7 +180,7 @@ code (auth/registry/clients/cache/notify) in a common module/layer, and **per-ve
 the monolith role. **Behavior, the request contract (056), the membership-tag model, and registry/cache shapes are
 unchanged** — structure only — plus two clarifications: **create stays creator-only** (no member-add at create; adds go
 through 053 from the Connections tab), and each verb **emits its SPEC-061 notifications inline** via the shared helper.
-The old provisioner function/role/tests are removed at cutover. Follows `docs/best-practices/lambdas/lambdas.md`;
+The old provisioner function/role/tests are removed at cutover. Follows `lambdas/info/best-practices/lambdas/lambdas.md`;
 decision recorded in `docs/architecture.md` → *Control Planes → Shared Spaces*.
 
 > **The per-verb least-privilege roles were descoped (user decision, SPEC-062 FR-005):** every verb runs on **one

@@ -68,6 +68,13 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
+#: Every tree that holds prose docs, for the link and path checks below. ``docs/`` is the
+#: cross-cutting one; the rest sit beside the code they describe, so the doc is found by whoever is
+#: standing in the tree rather than by remembering a central path. A tree missing from this list is
+#: not an error anywhere — it is simply unchecked, which is how a moved doc silently stops being
+#: link-checked. Add the tree in the same commit that creates it.
+DOC_TREES = ("docs", "apps/portal/info", "lambdas/info", "infra/info", "infra/modules")
+
 TESTING_PERMANENT = frozenset({"e2e.md", "owed.md", "sessions.md"})
 TESTING_INFLIGHT_MAX = 1
 
@@ -412,7 +419,9 @@ def check_links() -> list[str]:
       None.
     """
     errors = []
-    files = [ROOT / "README.md", ROOT / "CLAUDE.md", *sorted((ROOT / "docs").rglob("*.md"))]
+    files = [ROOT / "README.md", ROOT / "CLAUDE.md"]
+    for tree in DOC_TREES:
+        files.extend(sorted((ROOT / tree).rglob("*.md")))
     for path in files:
         for match in re.finditer(r"\[[^\]]*\]\(([^)#\s]+?)(?:#[^)]*)?\)", path.read_text()):
             target = match.group(1)
@@ -442,7 +451,10 @@ def check_section_pointers() -> list[str]:
     ledger = ROOT / "docs" / "testing" / "owed.md"
     sections = set(re.findall(r"^### (\d+\.\d+) ", ledger.read_text(), re.MULTILINE))
     errors = []
-    for path in [ROOT / "CLAUDE.md", *sorted((ROOT / "docs").rglob("*.md"))]:
+    scanned = [ROOT / "CLAUDE.md"]
+    for tree in DOC_TREES:
+        scanned.extend(sorted((ROOT / tree).rglob("*.md")))
+    for path in scanned:
         text = path.read_text()
         for match in re.finditer(r"(owed\.md`?[^.\n]{0,40}?|^)§(\d+\.\d+)", text, re.MULTILINE):
             cites_ledger = "owed.md" in match.group(1) or path == ledger
@@ -476,7 +488,9 @@ def check_doc_paths_everywhere() -> list[str]:
     """
     suffixes = {".tf", ".tftpl", ".yml", ".yaml", ".py", ".ts", ".tsx", ".sh", ".toml"}
     skip = ("node_modules", ".terraform", "dist", "coverage", ".git")
-    pattern = re.compile(r"docs/[A-Za-z0-9_./-]+\.md")
+    pattern = re.compile(
+        r"(?:" + "|".join(re.escape(tree) for tree in DOC_TREES) + r")/[A-Za-z0-9_./-]+\.md"
+    )
     errors = []
     for path in sorted(ROOT.rglob("*")):
         if path.suffix not in suffixes or any(part in skip for part in path.parts):

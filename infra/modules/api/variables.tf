@@ -80,18 +80,12 @@ variable "athena_workgroup" {
 }
 
 # ── The provider block ────────────────────────────────────────────────────────
-# Five fields, and the verifier reads nothing else about who issues its tokens. That is the
-# whole point of them: the target environment swaps the identity provider by changing these
-# values rather than by rewriting an authorization path. Every one is computed at root from
-# resources Terraform already owns — none is an operator input today.
+# Five fields, computed at root. The client secret, redirect URI and post-logout URI are
+# deliberately ABSENT.
 #
-# The client secret, redirect URI and post-logout URI are deliberately ABSENT. They belong to
-# a server-side login flow this API does not perform, and a required variable that reaches
-# production unset fails a long way from its cause.
-#
-# Each carries a validation rather than relying on having no default. An unset repo variable
-# renders as the EMPTY STRING, which satisfies a required variable and overrides a default —
-# so "no default" guards nothing on its own.
+# EACH CARRIES A VALIDATION rather than relying on having no default: AN UNSET REPO VARIABLE
+# RENDERS AS THE EMPTY STRING, which satisfies a required variable AND overrides a default,
+# so "no default" guards nothing on its own. README.md.
 
 variable "oidc_issuer" {
   description = "Exact `iss` the API requires on every token. Computed at root from the pool."
@@ -137,12 +131,9 @@ variable "oidc_required_claims" {
   description = "JSON object of claim name to the exact value a token must carry, e.g. {\"token_use\":\"id\"}. An empty object is valid for a provider asserting no such claim; an empty STRING is not, and is what an unset variable looks like."
   type        = string
 
-  # Three layers, each measured rather than assumed. `jsondecode` alone accepts a bare
-  # scalar, so `42` and `"id"` reach the function and fail in the verifier's parse instead
-  # of here. `tomap` rejects those and a list. `keys` is what rejects the literal `null`,
-  # which tomap accepts and which plans clean end to end — and a null arriving is exactly
-  # the "token-type check never runs" outcome the message below names. An empty OBJECT
-  # still passes, which is correct: a provider asserting no such claim is not misconfigured.
+  # Three layers, each measured: jsondecode alone accepts a bare scalar, tomap rejects that
+  # and a list, and `keys` is what rejects the literal `null` — which tomap accepts and which
+  # plans clean end to end. An empty OBJECT still passes, correctly.
   validation {
     condition     = can(keys(tomap(jsondecode(var.oidc_required_claims))))
     error_message = "oidc_required_claims must be a JSON object such as {\"token_use\":\"id\"} — not a scalar, not a list. An empty value means it was never computed, and would silently stop the token-type check from running at all."
@@ -150,10 +141,9 @@ variable "oidc_required_claims" {
 }
 
 # ── The identity layer ────────────────────────────────────────────────────────
-# Three values, all required at first use and none defaulted in the function: a defaulted role
-# ARN fails a long way from its cause, and a defaulted slot count silently drops every shared
-# space a user is in -- which presents as the membership propagation delay the product already
-# documents, so nothing about the running system distinguishes it from correct behaviour.
+# Three values, NONE defaulted. A defaulted slot count silently drops every shared space a
+# user is in, which presents as the propagation delay the product already documents — so
+# nothing about the running system distinguishes it from correct behaviour. README.md.
 
 variable "portal_role_arn" {
   description = "The EXISTING portal role the API assumes to act as its caller -- the same ARN the Identity Pool's role attachment names. No new role is created: the user-space bucket policy's hand-maintained allowlist already names this one, and aws:PrincipalArn resolves an assumed-role request to the role's IAM ARN, so assuming the same role keeps that entry valid."

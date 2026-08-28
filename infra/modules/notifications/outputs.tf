@@ -1,8 +1,3 @@
-# ── notifications module outputs ──────────────────────────────────
-# The integration surface for the read/UI specs and any trusted producer. The browser
-# learns the queue URL to enqueue user-action messages (sqs:SendMessage granted to the
-# portal role here); the URL reaches the app as VITE_NOTIFICATIONS_QUEUE_URL.
-
 output "notifications_queue_url" {
   description = "URL of the FIFO request queue (ends in .fifo). Maps to VITE_NOTIFICATIONS_QUEUE_URL; the browser enqueues markRead/markAllRead here."
   value       = aws_sqs_queue.requests.url

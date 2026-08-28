@@ -21,7 +21,7 @@
   (tablist → tab children → aria-controls-linked tabpanel).
 - `npm run test:a11y -w apps/portal` (`vitest run a11y`) runs only the axe specs; they also run under the
   normal `npm test` (no new CI pipeline). Contributor note appended to
-  `docs/best-practices/accessibility/accessibility.md` (how to add a check; what axe does/doesn't cover).
+  `apps/portal/info/best-practices/accessibility/accessibility.md` (how to add a check; what axe does/doesn't cover).
 
 ## Real defects the suite surfaced on first run (fixed in scope)
 

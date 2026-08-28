@@ -910,7 +910,7 @@ after a JSON round trip; and that the browser has genuinely stopped talking to A
   not two, so "count executions on a statement that SUCCEEDS" no longer describes the app.
 - A superseded marker wherever a doc still says the browser calls Athena or Glue directly — the
   `architecture.md` *Analytics* section, and the arc entry in `ARCS.md`.
-- Component-inventory: `docs/component-inventory/query-feature.md` (or the catalog area file matching
+- Component-inventory: `apps/portal/info/component-inventory/query-feature.md` (or the catalog area file matching
   the path) — `athena.service.ts` and `glue.service.ts` rows rewritten to say "through the API";
   `foundations.md`'s `athenaClient.ts` / `glueClient.ts` rows **removed**.
 - The `ARCS.md` arc entry updated with what this spec found — in particular whether a foreign and an

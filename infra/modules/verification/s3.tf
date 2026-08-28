@@ -1,17 +1,7 @@
-// The archive plane's audit record.
-//
-// Two owed live assertions could not be made by ANY principal. The is the load-bearing
-// one: that a `destination_occupied` refusal did NOT already initiate retrieval. Making it
-// requires knowing whether `RestoreObject` was ever called for a run — and `dat-prod-archive`
-// explicit-denies the laptop IAM user, its execution role trusts `lambda.amazonaws.com` only,
-// the deploy role is GitHub-OIDC-only, and NO CLOUDTRAIL TRAILS EXIST. The script itself
-// records that a refusal which had already started retrieval "looks identical from the UI", so
-// there is no proxy, and the cost of being wrong is 3-5 billed, uncancellable hours.
-//
-// This is the read-only, audit-shaped answer the spec asked for rather than a grant on the
-// data path: it answers "was RestoreObject called for this run" DIRECTLY, and it is the record
-// a plane that spends real money on an uncancellable operation arguably should have had from
-// the start.
+// The archive plane's audit record: the only way to assert that a `destination_occupied`
+// refusal did NOT already initiate retrieval. No principal in the account could make that
+// assertion before this trail existed, there is no proxy for it, and the cost of being wrong is
+// 3-5 billed, uncancellable hours. README.md.
 
 resource "aws_s3_bucket" "trail" {
   bucket = var.trail_bucket_name
@@ -44,9 +34,8 @@ resource "aws_s3_bucket_ownership_controls" "trail" {
   }
 }
 
-// Unfiltered and bucket-wide, like the archive vault's own expiry and for the same reason: a
-// lifecycle rule can include a prefix but never exclude one, so a rule that missed a prefix
-// would keep those objects forever without saying so.
+// Unfiltered and bucket-wide: a lifecycle rule can INCLUDE a prefix but never EXCLUDE one, so
+// a rule that missed one would keep those objects forever without saying so.
 resource "aws_s3_bucket_lifecycle_configuration" "trail" {
   bucket = aws_s3_bucket.trail.id
 
@@ -66,10 +55,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "trail" {
   }
 }
 
-// CloudTrail's own delivery grants, and NOTHING ELSE. Unlike the archive vault this bucket
-// carries no allowlist: it is meant to be readable by an account principal with the ordinary
-// read permissions an admin has, because a record nobody can read is the situation this whole
-// requirement exists to fix. What it must not become is writable by anything but CloudTrail.
+// CloudTrail's own delivery grants, and NOTHING ELSE. Deliberately readable by an ordinary
+// admin — a record nobody can read is the situation this exists to fix. README.md.
 resource "aws_s3_bucket_policy" "trail" {
   bucket = aws_s3_bucket.trail.id
 
@@ -102,14 +89,8 @@ resource "aws_s3_bucket_policy" "trail" {
         }
       }
     ]
-    // NO blanket write-Deny here, and the omission is deliberate. The obvious one —
-    // `Deny s3:PutObject` where `aws:PrincipalServiceName != cloudtrail.amazonaws.com` — rests
-    // on a condition key CloudTrail's own delivery must populate for the Allow above to
-    // survive it. If it does not, delivery fails and the trail is silently EMPTY, which is
-    // this spec's own "did not run is never clean" failure with the evidence rather than a
-    // scanner. The bucket is private, public access is blocked, and this policy grants
-    // nothing but CloudTrail; the residual is that an account principal with identity-based
-    // S3 write could tamper with the record, which is acceptable for an operator's
-    // verification aid and would not be for a compliance vault.
+    // NO blanket write-Deny, deliberately: the obvious one rests on a condition key
+    // CloudTrail's delivery must populate for the Allow to survive it. If it does not,
+    // delivery fails and the trail is SILENTLY EMPTY. README.md.
   })
 }

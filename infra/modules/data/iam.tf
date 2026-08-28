@@ -1,55 +1,33 @@
 # ── Portal Role (shared, trust only) ─────────────────────────────────────────
-# The single IAM role every authenticated user assumes via the Identity Pool
-# Trust ONLY — no permission policy is attached here; the data module adds
-# the prefix-scoped S3 policy. Per-user isolation is enforced by the `username`
-# principal tag the Identity Pool stamps server-side (auth module), evaluated by
-# the policy via ${aws:PrincipalTag/username}. One role for all users.
+# The single role every authenticated user assumes. Isolation is the `username` principal tag
+# the Identity Pool stamps SERVER-SIDE, never asserted by the client. README.md.
 
-# IAM propagation guard: this spec grants the deploy role iam:CreateRole/PassRole
-# on this role name (modules/base) in the same apply that creates the role. Fresh
-# time_sleep (created this apply) absorbs the propagation window — see the bucket
-# guard in s3.tf for the full rationale.
+# IAM propagation guard: CreateRole/PassRole on this name is granted in the same apply that
+# creates the role.
 resource "time_sleep" "wait_for_portal_role_perms" {
   create_duration = "30s"
 }
 
-# The API's second door onto this role, and what its conditions can and cannot do.
+# The API's second door onto this role. It assumes THE SAME ROLE with THE SAME TAGS from THE
+# SAME CLAIMS, which is why no policy anywhere was rewritten.
 #
-# Both credential paths run side by side for the whole arc: the browser keeps exchanging its ID
-# token with the Identity Pool, and the API assumes THE SAME ROLE with THE SAME TAG SET read from
-# THE SAME CLAIMS. That is what makes "not one IAM policy, bucket policy or Lake Formation grant is
-# rewritten" a provable statement rather than an argument -- a policy sees a session tag, not who
-# stamped it.
+# BOTH sts:AssumeRole AND sts:TagSession are required, and either alone is a trap: the missing
+# one renders, plans, applies and unit-tests green, then fails at runtime naming neither.
 #
-# BOTH actions are required and either alone is a trap: sts:AssumeRole without sts:TagSession
-# renders, plans, applies and unit-tests green, then fails at runtime with an AccessDenied naming
-# neither the tag nor the missing action. It reads as a permissions bug in whichever feature
-# happened to call first.
-#
-# STATE THE LIMIT HONESTLY. `sts:TagKeys` constrains which tag KEYS may appear. It does NOT
-# constrain their VALUES, and IAM offers no way to. It is also a CEILING and not a floor:
-# ForAllValues:StringEquals is satisfied by a request carrying a subset of the listed keys, and
-# equally by one carrying none at all -- so this cannot require that `username` was stamped.
-# The unspoofability argument rests entirely on where the value comes from: a claim of a
-# signature-verified ID token, and nothing else the request carries. Not on this condition.
-#
-# The `Null` condition requires transitive tag keys to be ABSENT. A transitive tag survives role
-# chaining; nothing here chains onward, and a tag that outlives its session is a durable
-# escalation. Its value is the STRING "true" -- a JSON boolean is a MalformedPolicyDocument at
-# apply.
+# `sts:TagKeys` is a CEILING, NOT A FLOOR — it cannot require that `username` was stamped, and
+# constrains no VALUE. The unspoofability argument rests on the claim, not on this condition.
+# The `Null` condition's value is the STRING "true"; a JSON boolean fails at apply. README.md.
 resource "aws_iam_role" "portal" {
   name = var.portal_role_name
 
-  # Trust the Identity Pool (not the User Pool directly): authenticated identities
-  # from this pool may AssumeRoleWithWebIdentity and TagSession (the latter is
-  # required for the principal tag mapping to take effect).
+  # The Identity Pool, not the User Pool directly.
   assume_role_policy = templatefile("${path.module}/policies/portal-role-trust.json.tftpl", {
     identity_pool_id = var.identity_pool_id
 
     api_execution_role_arn = var.api_execution_role_arn
 
-    # Built from the same two variables the function's own environment carries, so the key set
-    # the API stamps and the key set this statement admits cannot drift apart by transcription.
+    # Same two variables the function's own environment carries, so the two key sets cannot
+    # drift apart by transcription.
     session_tag_keys = jsonencode(concat(
       [var.principal_tag_key],
       [for k in range(1, var.max_shared_memberships + 1) : "shared_space_${k}"]
@@ -59,9 +37,7 @@ resource "aws_iam_role" "portal" {
   depends_on = [time_sleep.wait_for_portal_role_perms]
 }
 
-# Bind the portal role as the Identity Pool's authenticated role. The pool ID is
-# passed in from the auth module, keeping the dependency one-directional
-# (data -> auth) with no cycle.
+# The pool id comes from the auth module, keeping the dependency one-directional (data -> auth).
 resource "aws_cognito_identity_pool_roles_attachment" "portal" {
   identity_pool_id = var.identity_pool_id
 
@@ -71,75 +47,16 @@ resource "aws_cognito_identity_pool_roles_attachment" "portal" {
 }
 
 # ── Prefix-Scoped Permission Policy ───────
-# Turns on real S3 access: each session may read/write/delete only under its own
-# {username}/ prefix, where {username} is the `username` principal tag the Identity
-# Pool stamps server-side — never asserted by the client. A session
-# without the tag matches nothing, so it gets an implicit deny (no access). The
-# tag variable is escaped as $${aws:PrincipalTag/username} in the template so
-# templatefile() emits it literally instead of interpolating it.
+# Each session reaches only its own {username}/ prefix; a session WITHOUT the tag matches
+# nothing and gets an implicit deny. The tag is escaped as $${aws:PrincipalTag/username} so
+# templatefile() emits it literally.
 #
-# The multipart actions exist for lib-storage uploads:
-#   s3:AbortMultipartUpload + s3:ListMultipartUploadParts (object-level, prefix-scoped).
-# CreateMultipartUpload / UploadPart / CompleteMultipartUpload need NO separate
-# action — they are authorized by the existing s3:PutObject grant.
-# s3:ListBucketMultipartUploads is intentionally NOT granted: lib-storage never
-# lists in-progress uploads (it tracks parts in memory), and that action does not
-# support the s3:prefix condition key, so it cannot be scoped to the user's prefix
-# — granting it bucket-wide would leak other users' in-progress upload keys.
+# s3:ListBucketMultipartUploads is deliberately NOT granted — it does not support the
+# s3:prefix condition key, so granting it would leak other users' in-progress upload keys.
 #
-# Exactly ONE statement covers the username directory, ReadTheUsernameDirectory: s3:GetObject on
-# ${bucket_arn}/_directory/*, and nothing else. Specifically NOT added:
-#
-#   * No ListBucket widening. UserPrefixList stays conditioned on the caller's own prefix, so
-#     `_directory/` is INVISIBLE to the file browser's listing and the file browser therefore
-#     needs no change. (The SPA's protectedFolders.ts lists gain `_directory` anyway — those
-#     govern the user's own prefix, so the addition is defensive, not load-bearing.)
-#   * No PutObject and no DeleteObject under _directory/. A user can read the directory and
-#     cannot write to it; the daily builder is the only writer.
-#
-# The disclosure this creates is intended and accepted, not incidental: the document is
-# readable by EVERY authenticated portal user. A username is already the S3 prefix, the
-# principal tag and the Glue database name, it is already visible on every
-# shared-space roster, and a prefix-search feature discloses the set by
-# construction. Recorded in docs/decisions.md rather than left implicit here.
-#
-# The SECOND such statement is ReadTheFeatureFlags: s3:GetObject on
-# ${bucket_arn}/_config/*, published by .github/workflows/deploy-config.yml. It is the same
-# shape as the directory's, for the same reasons, with the same two omissions — no ListBucket
-# widening (so `_config/` is invisible to the file browser) and no write of any kind (the
-# deploy role is the only writer). The document is advisory in the strongest sense: a feature
-# flag is PRESENTATION, never authorization, so turning one off revokes no grant here or
-# anywhere else. A reader who treats it as a security boundary has misread it.
-#
-# The bucket choice is deliberate and is the whole reason this statement is one line: this
-# bucket already has a CORS configuration, its host is already in the enforcing CSP
-# connect-src, and the portal role is already on the bucket policy's principal allowlist. The
-# admin bucket has none of the three. `lambdas/test_feature_flags_config.py` asserts all three
-# rather than assuming them, because a broken read here falls back silently to all-on.
-#
-# ── ArchiveReceiptsAreNotUserWritable ──────────────────────
-# A Deny on PutObject/DeleteObject/AbortMultipartUpload under the user's own `archive/`
-# prefix. The receipt is written by the archive execution role and must not be editable,
-# forgeable or deletable by the browser: a user who can rewrite a receipt can misreport
-# what was archived, to themselves and to anyone they show it to.
-#
-# It lives HERE, beside the Allow it narrows, rather than in the analytics template where
-# the two existing personal denies happen to sit. GetObject and ListBucket are untouched —
-# the user can browse the archive folder and download a receipt, which is the whole point
-# of the receipt being a plain text file. Denying a WRITE action does not perturb listing.
-#
-# s3:AbortMultipartUpload IS INCLUDED ON PURPOSE, and it is the part that reads as
-# redundant and is not. A Deny on PutObject alone already blocks a multipart upload
-# (every part is authorized as PutObject), so nothing can be written either way — but with
-# abort left out, a half-started upload cannot be TIDIED, and its orphaned parts sit there
-# billed and invisible to every listing until the bucket's abort-incomplete rule catches
-# them.
-#
-# THE UI MIRRORS THIS. An IAM Deny with no UI counterpart produces
-# a bare AccessDenied for a rule this application itself authored — exactly what
-# `isUndeletableRootFolder` exists to prevent for `athenaresults/`. Nothing gates Upload or
-# New folder on the current PREFIX, so the browser carries the app's first prefix-based
-# write gate for it.
+# The _directory/ and _config/ read statements add NO ListBucket widening and NO write.
+# The archive Deny includes AbortMultipartUpload ON PURPOSE, and THE UI MIRRORS IT — an IAM
+# Deny with no UI counterpart is a bare AccessDenied for a rule this app authored. README.md.
 resource "aws_iam_role_policy" "portal_permissions" {
   name = "user-space-access"
   role = aws_iam_role.portal.id

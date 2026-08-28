@@ -2,7 +2,7 @@
 
 > **Keep this short — typically under a page (~40–100 lines).** Delivery docs are read on demand by a later
 > spec that depends on this one; they should answer "what shipped and what changed," not re-explain
-> the code (the code + `docs/component-inventory.md` are the source of truth for reuse). Do **not**
+> the code (the code + `apps/portal/info/component-inventory/INDEX.md` are the source of truth for reuse). Do **not**
 > paste code, full file contents, or IAM/JSON. Link, don't duplicate.
 
 ## What was completed?

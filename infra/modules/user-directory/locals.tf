@@ -1,18 +1,7 @@
 # ── Constructed names + ARNs ──────────────────────────────────────────────────────────────────────
-# Names derive from {project_name}-{environment} so the deploy policy (modules/base, the
-# user-directory grant) scopes to the same {project}-*-user-directory-build patterns, and so
-# ARNs referenced inside IAM policy templates are KNOWN AT PLAN TIME — the architecture.md
-# "unknown ARN in list" discipline. This module plans standalone.
-#
-# The role name carries NO `-role` suffix. The repo is inconsistent about this (log-sweep and
-# the DLQ drain have none, pre-signup does), and PR1's grant is scoped to
-# `role/${project_name}-*-user-directory-build` with no trailing wildcard — so a `-role`
-# suffix here would be denied at CreateRole rather than caught at plan.
-#
-# The schedule rule is `{function_name}-schedule` for the same reason: PR1 scopes to
-# `rule/${project_name}-*-user-directory-build-schedule`, and the DLQ drain's sibling rule is
-# named `-sweep`, so the two names are not interchangeable.
-
+# Every name here is load-bearing: the deploy policy scopes to these exact patterns, so the role
+# name carries NO `-role` suffix and the rule is `-schedule`, not `-sweep`. Getting one wrong is
+# denied at CreateRole rather than caught at plan. Reasoning: README.md.
 locals {
   function_name  = "${var.project_name}-${var.environment}-user-directory-build"
   role_name      = "${var.project_name}-${var.environment}-user-directory-build"

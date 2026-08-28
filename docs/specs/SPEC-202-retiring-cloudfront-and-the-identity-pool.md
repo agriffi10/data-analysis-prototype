@@ -908,7 +908,7 @@ same way the merges do.
 - **FR-011 in full** — `architecture.md`'s reversal, the `decisions.md` superseded markers at every
   site, `process.md`, the CLAUDE.md four-place sweep, this spec's own `decisions.md` entries and
   their one-line digests, and the `ARCS.md` entry.
-- A row in `docs/component-inventory/` for `lib/idToken.ts`, and the removal of the rows for every
+- A row in `apps/portal/info/component-inventory/` for `lib/idToken.ts`, and the removal of the rows for every
   module FR-005 deletes — the inventory stating a deleted module is how a later session imports it.
 - The Help sweep: **nothing user-facing changed**, recorded explicitly and skipped.
 - Prune CLAUDE.md's `## Specs` section of everything the arc made stale, per the doc-size guardrail.

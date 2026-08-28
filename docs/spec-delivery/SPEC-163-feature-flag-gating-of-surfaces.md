@@ -110,7 +110,7 @@ exactly that rather than over-claiming.
 here — a flag is environment configuration with no control anywhere in the app, so there is no
 flow to document (SPEC-074 FR-005 documents what is shipped and wired, and an admin surface is out
 of scope repo-wide). What DID change is that guides now appear conditionally, which is recorded in
-`component-inventory/help-feature.md` rather than in the guides themselves.
+`apps/portal/info/component-inventory/help-feature.md` rather than in the guides themselves.
 
 ## Verification
 

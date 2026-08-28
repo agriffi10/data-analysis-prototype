@@ -6,7 +6,7 @@ The presentation layer over the SPEC-034 per-user history store, integrated into
 SPEC-035 query workspace: a right slide-over drawer listing the user's past queries
 (newest-first) with re-open and re-run. Read-only — no delete/clear (v1 decision). Built to
 the history drawer in `docs/design/query-workspace.html` + design-system §6. Public surface in
-`docs/component-inventory.md` (Query feature → Workspace UI).
+`apps/portal/info/component-inventory/INDEX.md` (Query feature → Workspace UI).
 
 - **`QueryHistoryPanel.tsx` (FR-001/002):** right slide-over drawer (mirrors the file-browser
   `UploadDrawer` pattern — scrim, Escape/click close), titled "Query history". Lists

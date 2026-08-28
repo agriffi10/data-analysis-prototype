@@ -4,7 +4,7 @@
 
 The data-layer foundation for the in-app Athena query workspace — no UI (SPEC-035/036
 build that). New `src/features/query/` feature plus shared `src/lib/` clients/helpers.
-Full public surface is in `docs/component-inventory.md` (Query feature + Foundations);
+Full public surface is in `apps/portal/info/component-inventory/INDEX.md` (Query feature + Foundations);
 names only below.
 
 - **Clients (FR-001):** `getAthenaClient`/`getGlueClient` (`lib/athenaClient.ts`,

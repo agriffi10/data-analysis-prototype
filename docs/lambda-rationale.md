@@ -2,7 +2,7 @@
 
 Long-form reasoning that used to live as narrative module docstrings and inline comments in
 `lambdas/`. Moved here when the Lambda tree adopted the Google-style docstring standard
-(`docs/best-practices/python/python.md` §14): a docstring states the interface and the
+(`lambdas/info/best-practices/python/python.md` §14): a docstring states the interface and the
 short *why*, and anything longer than a paragraph belongs in a doc.
 
 Read the entry for an area before changing it. Where a claim is already a settled project

@@ -25,7 +25,7 @@ paragraph in the always-loaded file.
 | Why | `docs/architecture.md` | the *section* you need | design rationale + Known Constraints |
 | Decisions | `docs/decisions.md` | the *entry* for your area | settled decisions in full + "do NOT build" fences |
 | Arcs | `docs/specs/ARCS.md` | the arc you're in | why an arc exists, how its specs compose |
-| Reuse | `docs/component-inventory.md` → `component-inventory/<area>.md` | the area(s) you need | services/hooks/components already built |
+| Reuse | `apps/portal/info/component-inventory/INDEX.md` → `apps/portal/info/component-inventory/<area>.md` | the area(s) you need | services/hooks/components already built |
 | Rulebooks | `docs/best-practices/INDEX.md` → domain doc | the section(s) you need | domain coding rules (React, a11y, …) |
 | History | `docs/spec-delivery/SPEC-XXX-*.md` | when a dependency points to one | what a past spec shipped |
 | Validation | `docs/testing/e2e.md` + `owed.md` | when running live checks | how to validate the deployed app, and what is still owed |
@@ -35,7 +35,7 @@ paragraph in the always-loaded file.
 - Read **only the current spec** in full.
 - **Never** read `architecture.md`, `decisions.md`, `ARCS.md`, or delivery docs whole — pull the one
   section/entry you need.
-- The component inventory is a **router**: read `component-inventory/<area>.md` for the areas the spec
+- The component inventory is a **router**: read `apps/portal/info/component-inventory/<area>.md` for the areas the spec
   touches, never all of them.
 - Delegate *dependency* delivery-doc reading to an Explore/subagent brief rather than loading it into
   the main loop.
@@ -69,7 +69,7 @@ session you notice it (two hand-synced copies of one procedure is how numbering 
 **Start of session**
 1. Read CLAUDE.md, then the **current** spec in full. Don't infer scope from a prior conversation —
    read the spec file as it exists now.
-2. For reuse, read the `component-inventory/<area>.md` file(s) the spec touches; pull only the
+2. For reuse, read the `apps/portal/info/component-inventory/<area>.md` file(s) the spec touches; pull only the
    `architecture.md` section / `decisions.md` entry / dependency delivery-doc you actually need.
 3. Confirm CI is green: `gh run list --branch main --limit 5`. Investigate failures before building.
 4. **Branch from fresh `main`:** `git fetch && git switch -c <branch> origin/main`.
@@ -119,7 +119,7 @@ expensive of the two because the code that follows will faithfully implement it.
   finding that is silently dropped is a finding that was not reviewed.
 - **The reviewer gets the artifact and its sources, never the author's reasoning.** For a spec: the
   spec file, its arc entry in `ARCS.md`, the `decisions.md` entries it claims to follow, and the
-  specs it depends on. For a plan: the plan, the spec, and the `component-inventory/<area>.md` files
+  specs it depends on. For a plan: the plan, the spec, and the `apps/portal/info/component-inventory/<area>.md` files
   the spec touches. Handing over the authoring rationale tells the reviewer what to conclude.
 - **What each review is for.** A **spec** review asks: is every FR testable and binary; does any
   acceptance criterion pass vacuously; is anything in Out of Scope actually required by an FR; does
@@ -302,7 +302,7 @@ When a spec is done, in the same pass:
    page (~40–100 lines), with **no code/JSON pasted** (the code + component-inventory are the
    source of truth for reuse).
 4. If reusable services/hooks/components were added, add a **one-line** row to the
-   `docs/component-inventory/<area>.md` **matching the component's path** — a `features/query/` row
+   `apps/portal/info/component-inventory/<area>.md` **matching the component's path** — a `features/query/` row
    belongs in the query area file, nowhere else (the router only changes if a whole new area appeared).
 5. A *new architectural decision* gets its full entry in `docs/decisions.md` **first**, then **one
    line** in CLAUDE.md's Key Decisions — the digest line is **never the only home of a fact**, and

@@ -46,15 +46,9 @@ variable "notifications_writer_role_arn" {
   default     = ""
 }
 
-# The three control-plane execution roles below all read USER-SPACE data via their own
-# execution role (table-builder/table-share inspect a source folder; data-quality lists +
-# probes + profiles one). Each holds the identity-side s3:GetObject/
-# ListBucket — but NONE was ever added to THIS bucket's resource-policy allowlist, so the
-# Deny below overrode those Allows and every read 403'd. The gap was invisible until the
-# Live smoke run became the first time any of the three actually read a real
-# user's files (greenfield, no production users). Constructed cycle-free by the root module
-# (a bucket-policy StringNotLike condition only needs the ARN string, so the role need not
-# exist at apply time); default "" keeps this module planning standalone.
+# Every ARN below is a bucket-policy allowlist entry. Root-constructed strings, so the role
+# need not exist at apply time; default "" keeps this module planning standalone.
+# OMITTING ONE IS A RUNTIME 403 THAT READS AS A CODE BUG — README.md.
 
 variable "table_builder_execution_role_arn" {
   description = "ARN of the table-builder shared execution role. Excluded from the user-space bucket policy's data-access Deny so inspect-source can read a personal-space source folder; the identity-side grant alone is overridden by the Deny without this exclusion."

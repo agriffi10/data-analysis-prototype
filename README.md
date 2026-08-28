@@ -264,7 +264,7 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 | [`docs/architecture.md`](docs/architecture.md) | System design: auth flow, authorization model, the bucket model, control planes, env vars, deployment, known constraints |
 | [`docs/transition_plan.md`](docs/transition_plan.md) | The client-environment transition — IdC federation, de-provisioning, Lake Formation re-keying |
 | [`docs/lambda-rationale.md`](docs/lambda-rationale.md) | The long-form *why* behind `lambdas/` — sizing evidence, rejected designs, the traps |
-| [`docs/component-inventory.md`](docs/component-inventory.md) | **Router** to the per-area inventories in [`docs/component-inventory/`](docs/component-inventory/) (reusable services / hooks / components / types / utilities) |
+| [`apps/portal/info/component-inventory/INDEX.md`](apps/portal/info/component-inventory/INDEX.md) | **Router** to the per-area inventories in [`apps/portal/info/component-inventory/`](apps/portal/info/component-inventory/) (reusable services / hooks / components / types / utilities) |
 | [`docs/best-practices/INDEX.md`](docs/best-practices/INDEX.md) | Router to the domain rulebooks — React, Python, lambdas, accessibility |
 | [`docs/specs/`](docs/specs/) | Feature specs — what each feature should do; [`INDEX.md`](docs/specs/INDEX.md) is status, [`ARCS.md`](docs/specs/ARCS.md) is arc narrative |
 | [`docs/spec-delivery/`](docs/spec-delivery/) | Delivery records — what was actually built per spec, plus later-change amendments |
@@ -283,7 +283,7 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
   never throw, feature‑folder structure, file‑naming) are defined in [`CLAUDE.md`](CLAUDE.md).
 - **Feature code** lives in `apps/portal/src/features/<feature>/`; shared UI primitives in
   `apps/portal/src/components/`; AWS clients in `apps/portal/src/lib/`.
-- **Before reusing code**, check [`docs/component-inventory.md`](docs/component-inventory.md) and
+- **Before reusing code**, check [`apps/portal/info/component-inventory/INDEX.md`](apps/portal/info/component-inventory/INDEX.md) and
   open the area file(s) it routes you to.
 - **Infrastructure** is organized as bounded‑context modules under `infra/modules/`; IAM policies
   are `.tftpl` templates rendered with `templatefile()`. New resource types must also be granted

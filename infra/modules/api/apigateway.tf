@@ -1,47 +1,33 @@
 # ── The HTTP API ──────────────────────────────────────────────────────────────
-# A $default route to one AWS_PROXY integration, reached through a regional custom
-# domain. One function serves every path, so the route table is in the code — a
-# per-route integration would put it in two places, and the authorization a later spec
-# adds resolves a principal once, before dispatch.
+# A $default route to one AWS_PROXY integration. The route table lives in the CODE.
+# `$default` matches OPTIONS, so the ROUTER must answer a preflight before auth. README.md.
 
 resource "aws_apigatewayv2_api" "api" {
   name          = local.function_name
   protocol_type = "HTTP"
 
-  # The API is reached through the custom domain and nowhere else. Left enabled, it also
-  # answers on https://{api-id}.execute-api.{region}.amazonaws.com — a second front door
-  # outside the CSP, outside the alias record, and one that makes a CORS preflight check
-  # ambiguous about which host it actually proved.
+  # Left enabled, the API answers on execute-api.* too — a second front door outside the CSP
+  # and the alias record, making a preflight check ambiguous about what it proved.
   disable_execute_api_endpoint = true
 
-  # CORS is the API's alone. AWS ignores CORS headers returned by the integration, so a
-  # header emitted in the handler would not reach the browser at all — but the rule stands
-  # on its own ground: two places able to answer the same question is how they come to
-  # disagree, and the one that wins here is not the one a reader is looking at.
+  # CORS is the API's alone — AWS IGNORES CORS headers returned by the integration.
   cors_configuration {
-    # Exact origins, never "*". Both are real for the length of the arc: the container is
-    # where ported features are proved, CloudFront is the rollback, and a list naming one
-    # of them leaves the other an app that loads and can do nothing.
+    # Exact origins, never "*", and ADDITIVE — naming one leaves the other an app that
+    # loads and can do nothing.
     allow_origins = compact([var.spa_origin, var.app_url])
 
     allow_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
-    # `x-request-id` is minted by the browser's API client on every call, and a header the
-    # preflight does not admit fails the preflight — so the request never reaches the API and
-    # the browser reports a generic network error. That failure is indistinguishable from the
-    # API being down, which is why this list is asserted against the client's headers rather
-    # than inferred from the app working.
+    # A header the preflight does not admit FAILS the preflight, and the browser reports a
+    # generic network error indistinguishable from the API being down. Asserted against the
+    # client's own header list, never inferred from the app working.
     allow_headers = ["content-type", "authorization", "x-request-id"]
 
-    # False, and not merely unset. The arc sends the ID token as an Authorization bearer,
-    # which is not a credential in the CORS sense — so true would grant a capability
-    # nothing uses while making the exact-origin echo load-bearing for a browser rule that
-    # no longer applies. It is also the half of the credentials/"*" pairing that every
-    # browser rejects while applying green.
+    # False, and not merely unset: a bearer is not a credential in the CORS sense, and this
+    # is the half of the credentials/"*" pairing browsers reject WHILE APPLYING GREEN.
     allow_credentials = false
 
-    # Every request carries `Authorization`, so EVERY request is preflighted — the cache
-    # duration is a latency decision rather than a nicety.
+    # Every request carries Authorization, so EVERY request is preflighted.
     max_age = 600
   }
 }
@@ -52,11 +38,8 @@ resource "aws_apigatewayv2_integration" "api" {
   integration_uri        = aws_lambda_function.api.invoke_arn
   payload_format_version = "2.0"
 
-  # The ceiling is a hard 30s on an HTTP API and is not raisable, so this sits AT it — and
-  # deliberately above the function's own 29s. The order is the point: the function must give
-  # up first, so a slow request returns the handler's own error rather than a 504 from the
-  # integration while the invocation keeps running and keeps billing. Set equal, the two expire
-  # at the same instant and which one answers is a race.
+  # AT API Gateway's hard 30s ceiling, and deliberately ABOVE the function's 29s. The order
+  # is the point — set equal, which one answers is a race. README.md.
   timeout_milliseconds = 30000
 }
 
@@ -77,8 +60,7 @@ resource "aws_apigatewayv2_stage" "default" {
   auto_deploy = true
 
   # HTTP APIs need NO account-level CloudWatch Logs role. A reader arriving from REST APIs
-  # will look for one and must not add it: the delivery permissions live on the deploy
-  # role, not on an apigateway.amazonaws.com account setting.
+  # will look for one and MUST NOT add it.
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.access.arn
     format = jsonencode({
@@ -95,9 +77,8 @@ resource "aws_apigatewayv2_stage" "default" {
   }
 }
 
-# Scoped to this API's own executions. "*" here would let any API Gateway in the account
-# invoke the function, which is a grant nobody would write on purpose and one that reads
-# as boilerplate in a diff.
+# Scoped to this API's own executions. "*" would let ANY API Gateway in the account invoke
+# the function — a grant that reads as boilerplate in a diff.
 resource "aws_lambda_permission" "api" {
   statement_id  = "AllowApiGatewayInvoke"
   action        = "lambda:InvokeFunction"
@@ -106,8 +87,7 @@ resource "aws_lambda_permission" "api" {
   source_arn    = "${aws_apigatewayv2_api.api.execution_arn}/*/*"
 }
 
-# REGIONAL, with a certificate in this module's own region. The us-east-1-only
-# certificate rule belongs to CloudFront and does not apply here.
+# REGIONAL. The us-east-1-only certificate rule belongs to CloudFront and not here.
 resource "aws_apigatewayv2_domain_name" "api" {
   domain_name = var.api_host
 
@@ -118,9 +98,7 @@ resource "aws_apigatewayv2_domain_name" "api" {
   }
 }
 
-# Mapped at the empty path, so what reaches the handler is already the path the router
-# expects — no stage prefix to strip, and no disagreement between the two hostnames
-# about what a request's path is.
+# Mapped at the EMPTY path, so no stage prefix reaches the router.
 resource "aws_apigatewayv2_api_mapping" "api" {
   api_id      = aws_apigatewayv2_api.api.id
   domain_name = aws_apigatewayv2_domain_name.api.id

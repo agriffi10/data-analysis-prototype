@@ -11,7 +11,7 @@
 >
 > **The one thing to read before writing any code is FR-002.** `UpdateTable` replaces the WHOLE table definition — a `TableInput` missing a field does not leave that field alone, it clears it. Building the `TableInput` from SPEC-143's capture would therefore reintroduce the very metadata loss this spec exists to remove, because that capture never carried `Description` or `Owner`. The design is a **read-modify-write on the live table**, not a rebuild from the capture.
 >
-> **Rulebooks:** `docs/best-practices/lambdas/lambdas.md`.
+> **Rulebooks:** `lambdas/info/best-practices/lambdas/lambdas.md`.
 
 ## Overview
 

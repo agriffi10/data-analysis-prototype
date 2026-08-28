@@ -12,7 +12,7 @@
 > portal-role `sqs:SendMessage` grant. It ships **no browser/UI behavior** (the read service + hook are
 > SPEC-059; the header bell + page are SPEC-060; the first real `create` producer is SPEC-061). The write
 > path is intentionally **simple** — a single small Lambda doing one task behind a FIFO queue
-> (`docs/best-practices/lambdas/lambdas.md` §1/§10: no Step Function for a one-task write) — and **dedicated**
+> (`lambdas/info/best-practices/lambdas/lambdas.md` §1/§10: no Step Function for a one-task write) — and **dedicated**
 > (its own queue / Lambda / role), decoupled from the shared-spaces control plane (SPEC-050). All IaC is
 > OpenTofu; IAM is `.tftpl`; Lambda code/infra are split.
 
@@ -320,7 +320,7 @@ infra/modules/notifications/
 └── outputs.tf            # queue URL/ARN, writer role ARN
 
 lambdas/notifications-writer/
-└── notifications_writer.py          # action-switch read-modify-write + JWT verify (FR-004/005); follows best-practices/lambdas/lambdas.md
+└── notifications_writer.py          # action-switch read-modify-write + JWT verify (FR-004/005); follows lambdas/info/best-practices/lambdas/lambdas.md
 
 infra/modules/base/policies/          # deploy-role expansion (FR-007)
 infra/modules/<portal-role module>/   # portal-role sqs:SendMessage statement (FR-006)

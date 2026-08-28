@@ -1,16 +1,21 @@
 # S3 File Portal — Project Memory
 
-Loaded every session — keep it lean. Deep docs live in `docs/` and are pulled **on demand**:
-- `@docs/process.md` — how we work: spec lifecycle, session rhythm, completion ritual (read once)
+Loaded every session — keep it lean. **Start by reading `@docs/process.md`** (step 1 of the Session
+Workflow below). Everything else is pulled **on demand**: the cross-cutting docs live in `docs/`, and
+the domain rulebooks and inventories live beside the code they govern, in each tree's `info/` folder:
+- `@docs/process.md` — **read at the start of every session, before any other doc**: how we work —
+  spec lifecycle, session rhythm, the reviewer contract, the completion ritual, doc hygiene
 - `@docs/architecture.md` — system design + Known Constraints (read the section you need, never in full)
 - `@docs/decisions.md` — the Key Decisions register in full (the digest below groups it by area)
 - `@docs/specs/INDEX.md` — the spec index + status (one row per spec)
 - `@docs/specs/ARCS.md` — why an arc exists / how its specs compose (only for the arc you're in)
 - `@docs/specs/SPEC-XXX-*.md` — the spec you're implementing
-- `@docs/component-inventory.md` — **router** to the per-area inventories; read only the area(s) you need
+- `@apps/portal/info/component-inventory/INDEX.md` — **router** to the per-area inventories; read only the area(s) you need
 - `@docs/spec-delivery/SPEC-XXX-*.md` — what a past spec delivered (pull only when a dependency points to one)
 - `@docs/testing/e2e.md` — **the** end-to-end validation guide; `owed.md` is what it can't settle, `sessions.md` what has been run
-- `@docs/best-practices/INDEX.md` — domain coding rulebooks (React, accessibility, …); route here, then load only the section(s) you need
+- `@docs/best-practices/INDEX.md` — **cross-domain router** to the coding rulebooks, which live beside
+  the code they govern: `apps/portal/info/best-practices/` (React, accessibility) and
+  `lambdas/info/best-practices/` (Lambda shape, Python style). Route here, then load only the section(s) you need
 - `@docs/transition_plan.md` — **single source of truth** for the client-environment transition (Entra ID sign-in in **two variants** — §3.3 — IdC propagation, one credential plane with S3 Access Grants, de-provisioning, LF re-keying, ODBC/JDBC driver migration); read before touching auth, provisioning or LF
 - `@docs/lambda-rationale.md` — the long-form *why* behind `lambdas/` (sizing evidence, rejected designs, the traps); read the one entry for the area you're changing, never in full
 
@@ -40,7 +45,7 @@ scoped credentials **today**; Arc B is moving that behind an API (`api.dataquarr
 | AWS | `@aws-sdk/client-s3` v3 (modular), `s3-request-presigner`, `lib-storage`; `aws-amplify` v6 for Cognito; `@aws-sdk/client-athena` + `@aws-sdk/client-glue` (analytics, SPEC-034); `@aws-sdk/client-sqs` (shared-space control plane, SPEC-051) |
 | Editor | `@monaco-editor/react` + `monaco-editor` (self-hosted workers; lazy-loaded on the Query route only, SPEC-035) |
 | Routing / state | `react-router` v8 (**not** `react-router-dom` — that package is gone in v8; import everything from `react-router`); TanStack Query (server state) + Context/`useReducer` (UI state); no Redux |
-| Testing / lint | Vitest + React Testing Library + `@testing-library/user-event`; `@vitest/coverage-v8` (`npm run test:coverage`); `vitest-axe` (axe-core a11y assertions, SPEC-045); ESLint + Prettier. Tests are **integration-style** — render real hooks/children, mock only the AWS service boundary; shared harness `src/test/renderWithProviders.tsx`. Rules: `best-practices/react/react.md` §21 |
+| Testing / lint | Vitest + React Testing Library + `@testing-library/user-event`; `@vitest/coverage-v8` (`npm run test:coverage`); `vitest-axe` (axe-core a11y assertions, SPEC-045); ESLint + Prettier. Tests are **integration-style** — render real hooks/children, mock only the AWS service boundary; shared harness `src/test/renderWithProviders.tsx`. Rules: `apps/portal/info/best-practices/react/react.md` §21 |
 | IaC | OpenTofu (HCL, S3 remote state) |
 | Security | `eslint-plugin-security` + `eslint-plugin-no-unsanitized` (in `npm run lint`, **blocking**); Semgrep / `npm audit` / `pip-audit` / gitleaks / Checkov / OWASP ZAP in `security.yml` (**report-only**, SPEC-138). Every scanner version-pinned — see the VERSIONS block and #311 |
 
@@ -55,8 +60,8 @@ Don't add dependencies without noting them here first.
 - Services never throw — return `ServiceResult<T>` (`{success:true,data} | {success:false,error:{message,code?}}`).
 - Vite env vars: prefix `VITE_`; document each in `apps/portal/.env.example`.
 - **A comment names no spec, PR or issue number** — not `SPEC-166`, not `(#252)`, not "since SPEC-158". A reader is standing in the file, not in the project's history: write the reason ("a third copy would fork the lookup"), not the citation. Full entries live in `@docs/decisions.md`, findable by what they say. Applies to `.ts`/`.tsx`/`.py`/`.tf`/`.tftpl`; enforced by `scripts/validate_docs.py`.
-- **No verbose comments in `.ts`/`.tsx`/`.py` files.** JSDoc (TS/React) and docstrings (Python) are the primary source of context — expand those over adding narrative inline comments; comments are reserved for the non-obvious *why*, kept short. Detail: `best-practices/react/react.md` §19, `best-practices/python/python.md` §14.
-- **`lambdas/` carries NO inline comments at all** (only `# noqa` / `# type: ignore` directives). Every module, class, method and function — public or `_private` — has a Google-style docstring: a one-line summary of what it does *and its context*, an optional short *why* paragraph, then `Args:` / `Returns:` / `Raises:`, each written out with `None.` when the section is empty. A module's constants are documented in its docstring's `Attributes:` block. Anything longer than a paragraph of reasoning goes in `@docs/lambda-rationale.md`, not the file. Format: `best-practices/python/python.md` §14.
+- **No verbose comments in `.ts`/`.tsx`/`.py` files.** JSDoc (TS/React) and docstrings (Python) are the primary source of context — expand those over adding narrative inline comments; comments are reserved for the non-obvious *why*, kept short. Detail: `apps/portal/info/best-practices/react/react.md` §19, `lambdas/info/best-practices/python/python.md` §14.
+- **`lambdas/` carries NO inline comments at all** (only `# noqa` / `# type: ignore` directives). Every module, class, method and function — public or `_private` — has a Google-style docstring: a one-line summary of what it does *and its context*, an optional short *why* paragraph, then `Args:` / `Returns:` / `Raises:`, each written out with `None.` when the section is empty. A module's constants are documented in its docstring's `Attributes:` block. Anything longer than a paragraph of reasoning goes in `@docs/lambda-rationale.md`, not the file. Format: `lambdas/info/best-practices/python/python.md` §14.
 - When writing/refactoring code in a domain with a rulebook (React, accessibility, …), consult `@docs/best-practices/INDEX.md` first and load only the relevant section(s) — don't reinvent or guess the rules.
 
 ## Common Commands
@@ -422,7 +427,7 @@ personal prefixes).
 
 ## Session Workflow
 
-**Start:** (1) this file; (2) the spec you're implementing (`@docs/specs/SPEC-XXX`); (3) for context, pull **only** what the spec touches — the matching `component-inventory/` area file(s), the one architecture.md section, the `decisions.md` entry for the area, a dependency's delivery doc. Never read architecture.md, the inventory, or delivery docs in full. (4) Confirm `gh run list --branch main --limit 5` is green (esp. Deploy Infrastructure / Lambdas / App); investigate failures before building. (5) Branch from fresh `main` (`git fetch && git switch -c <branch> origin/main`). (6) Generate an implementation plan from the spec's phases, validate it against the spec (FRs + acceptance criteria covered, reuse used, nothing out of scope), **send it to a fresh-context reviewer**, and confirm it before writing code.
+**Start:** (1) this file, then **`@docs/process.md` — read it every session, not once**: it is the contract this file only summarises; (2) the spec you're implementing (`@docs/specs/SPEC-XXX`); (3) for context, pull **only** what the spec touches — the matching `apps/portal/info/component-inventory/` area file(s), the one architecture.md section, the `decisions.md` entry for the area, a dependency's delivery doc. Never read architecture.md, the inventory, or delivery docs in full. (4) Confirm `gh run list --branch main --limit 5` is green (esp. Deploy Infrastructure / Lambdas / App); investigate failures before building. (5) Branch from fresh `main` (`git fetch && git switch -c <branch> origin/main`). (6) Generate an implementation plan from the spec's phases, validate it against the spec (FRs + acceptance criteria covered, reuse used, nothing out of scope), **send it to a fresh-context reviewer**, and confirm it before writing code.
 
 **During:** after a phase, stop and summarize what was built and how it maps to the plan. Specs carry no Open Questions — triage emergent issues by kind: **reversible/technical** ones you decide in-session (update the spec if scope changes); **product-changing or ambiguous** ones you stop and escalate to the human with options + a recommendation, never silently decide.
 
@@ -438,7 +443,7 @@ silently checks nothing. CI now runs it too (#363). Watch every PR to completion
 1. Set the spec file's `Status: Completed`.
 2. Update the one-line row in `@docs/specs/INDEX.md` (status only — don't add prose).
 3. Write a delivery doc at `docs/spec-delivery/SPEC-XXX-<name>.md` from the template — **short** (what shipped + what changed; reuse lives in code + component-inventory, not prose).
-4. If it added reusable services/hooks/components, add a one-line row to the `docs/component-inventory/<area>.md` **matching the component's path** — a `features/query/` row belongs in the query file, nowhere else (the router only gains a row if a whole new area appeared).
+4. If it added reusable services/hooks/components, add a one-line row to the `apps/portal/info/component-inventory/<area>.md` **matching the component's path** — a `features/query/` row belongs in the query file, nowhere else (the router only gains a row if a whole new area appeared).
 5. A *new architectural decision* gets the full entry in `@docs/decisions.md` **first**, then folds into the **area block** it belongs to in Key Decisions above — the digest is **never the only home of a fact**. **Do NOT add a line per spec**: that is what took the section to 105 lines and its own byte ceiling, and the fix was to group it. Add a clause, or replace one that your decision supersedes. If it **supersedes an earlier decision**, add an in-place superseded marker (short blockquote) at every doc site still stating the old claim (`ARCS.md` arcs, architecture.md sections). Reasoning belongs in the spec/delivery doc.
 6. **Prune `## Specs` → Current work:** delete what the closed spec made stale. It tracks *only* what is live and undocumented elsewhere — never append a changelog; INDEX.md has status and `ARCS.md` has narrative.
 7. **Live checks fold into the one guide:** add the steps to the matching feature section of `@docs/testing/e2e.md` — **never a new per-spec or per-arc file**, which is how that directory grew to sixteen. A check that can't be run from a signed-in session becomes a row in `@docs/testing/owed.md`; a CLI script it needs is named for the **plane**, never the spec — add a section to that plane's.

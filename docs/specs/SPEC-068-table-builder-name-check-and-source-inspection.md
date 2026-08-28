@@ -9,7 +9,7 @@
 > validation** Lambdas that run after `validate-authorize`: **`check-table-absent`** (the requested table must not
 > already exist in the target DB) and **`inspect-source`** (is it a single supported, consistent format; do the
 > **user-declared** partition keys match the folder layout). They emit the facts `infer-schema` (SPEC-069) needs.
-> `infer-schema` + `execute-ddl` stay stubs. Lambdas follow `docs/best-practices/lambdas/lambdas.md`.
+> `infer-schema` + `execute-ddl` stay stubs. Lambdas follow `lambdas/info/best-practices/lambdas/lambdas.md`.
 >
 > **Partition keys are user-declared (decided 2026-06-30), not auto-detected.** `inspect-source` no longer
 > derives keys from the path; the request carries `partitionKeys` (SPEC-067). This Lambda **confirms** they match
