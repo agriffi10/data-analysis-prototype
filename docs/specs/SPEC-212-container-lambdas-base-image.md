@@ -96,7 +96,10 @@ places a layer and a zip put them today. No import statement anywhere in `lambda
       as a zip deploys them today.
 - [ ] No test module, no `conftest.py`, no `__pycache__` and no `requirements*.txt` is present in the
       image; a test asserts each absence by pattern rather than by naming files.
-- [ ] A test asserts the set of packages under `/opt/python` equals the set the layer table declares,
+- [ ] A test asserts the set of packages under `/opt/python` equals the set the layer table declares
+      — and SPEC-214, which deletes that table, repoints this expectation at the layer source
+      directories rather than dropping the guard. Named here so the coupling is visible from both
+      ends,
       and the set of flat modules there equals `shared-space-common`'s declared `modules` list — the
       same set-equality guard the layer build already carries, moved onto the artifact.
 - [ ] `git diff` over `lambdas/**/*.py` for this spec is empty apart from new test files: the

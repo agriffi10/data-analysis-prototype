@@ -5,6 +5,9 @@
 **Last Updated:** 2026-08-28
 **Depends On:** SPEC-005 (the deploy workflows), SPEC-192 (the runtime configuration document and its six wiring sites), SPEC-194 (the container entrypoint that renders the document), SPEC-162 (the flag-document publish, which resolves its bucket from a repository variable)
 
+**Interacts with:** SPEC-214 becomes a fourth consumer of `tofu output`; FR-001's derived version
+set is written for that, and both specs state the obligation for either landing order.
+
 **Relates to:** SPEC-202 retires CloudFront, which deletes the `/config.json` render step in
 `deploy-app.yml` — one of the two consumers this spec fixes. The other, the task definition, is
 already Terraform. This spec is written to be correct whether it lands before or after 202, and FR-007
@@ -73,11 +76,18 @@ resource can tell you.
 #### Acceptance Criteria:
 
 - [ ] Each workflow runs `tofu init -backend-config=…` with the same backend configuration and the
-      same pinned OpenTofu version as `deploy-infra.yml`. A test **derives** the set of workflows
-      that init the backend and asserts they agree on one version — it does not count to three.
-      SPEC-214 makes `deploy-lambdas.yml` a fourth consumer of `tofu output`, and an assertion
-      hard-coded to three would keep passing while the fourth drifted, which is the failure it exists
-      to prevent.
+      same pinned OpenTofu version as `deploy-infra.yml`. A test **derives** the set of workflows and
+      asserts they agree on one version — it does not count to three, because SPEC-214 adds a fourth
+      consumer and a hard-coded count would keep passing while that one drifted.
+- [ ] The predicate is **"declares an OpenTofu version"**, not "runs `tofu init`". Those differ, and
+      the difference is load-bearing: SPEC-214 has `deploy-lambdas.yml` read an output through this
+      spec's resolver rather than writing its own `tofu init`, so an init-based predicate would
+      exclude the very workflow the derivation was widened for. `ci.yml` also pins a version and is
+      included for the same reason.
+- [ ] The assertion compares the version **constraints as declared**. Today all three sites read
+      `~1.8`, which is a constraint and not a version, so "they agree" means the declarations are one
+      string — the property that actually prevents drift. A criterion promising they resolve to one
+      *version* would be claiming something the workflow files cannot state.
 - [ ] The outputs are read **once** per job into a single JSON document, not by repeated
       `tofu output <name>` calls.
 - [ ] The deploy role is the identity used, unchanged; no new AWS grant is required, and a test
@@ -215,10 +225,13 @@ Both orders are workable and they produce different work, so the spec picks one.
 }
 ```
 
-> **The left column is checked, not guessed.** Nine of these outputs exist today under exactly these
-> names; `cloudfront_domain` exists and is repointed to `spa_origin` by SPEC-202 (FR-007); and the
-> remaining eight — the per-plane queue URLs other than `notifications_queue_url` and
-> `shared_space_request_queue_url` — genuinely do not exist yet and are **added** in Phase 1. Three
+> **The left column is checked against `infra/outputs.tf`, one name at a time.** **Twelve** of these
+> eighteen outputs exist today under exactly these names — including `notifications_queue_url` and
+> `shared_space_request_queue_url`, which is why the missing set is smaller than a first pass
+> assumed. `cloudfront_domain` is among the twelve and is repointed to `spa_origin` by SPEC-202
+> (FR-007). **Six** are missing and are added in Phase 1: `table_build_queue_url`,
+> `table_share_queue_url`, `data_quality_queue_url`, `file_send_queue_url`, `archive_queue_url`,
+> `file_ops_queue_url`. Three
 > names that a first draft got wrong are worth recording, because FR-002's existence test would have
 > been satisfied by adding duplicates under the wrong names rather than by correcting the mapping:
 > it is `shared_space_bucket_name` not `s3_shared_space_bucket_name`,
@@ -247,7 +260,7 @@ docs/process.md                             # §6's copy of the same fact
 
 - `config-outputs.json`, and the three assertions binding it to `runtimeConfig.types.ts`,
   `infra/outputs.tf` and the container entrypoint's key lists.
-- Add the eight missing per-plane queue-URL outputs. Adding an output whose name merely duplicates
+- Add the six missing per-plane queue-URL outputs named in the Data Model note. Adding an output whose name merely duplicates
   an existing one under a different spelling fails FR-002's existence test by design — the fix is
   always the mapping, never a second output.
 

@@ -113,8 +113,13 @@ the panel for the current route. No control is added to the header.
 - [ ] `AppNavDrawer`'s `/help` nav row is unchanged, so the full page keeps a direct route on mobile.
 - [ ] The control behaves identically at every breakpoint; the panel's presentation differs (FR-008),
       the affordance does not.
-- [ ] The header gains no element. A test asserts the header's control count is unchanged from before
-      this spec — the one measurement that keeps this from quietly becoming the six-button design.
+- [ ] The header gains no element, asserted as **route invariance** — the header's control count on
+      a route with a registry row equals the count on a route without one. Not "unchanged from before
+      this spec", which can only be a pinned number that SPEC-210 and SPEC-211 each legitimately
+      bump, leaving a guard that fails for the wrong reason.
+- [ ] `help.test.tsx`'s existing render of `<HelpLink />` inside a bare `MemoryRouter` is updated:
+      once the control reads route context it throws outside the app's providers. It is a trivial
+      rewrite and it is named here so it is not mistaken for a regression.
 
 ### FR-003: One registry maps a route to its help section
 
@@ -138,12 +143,24 @@ consumes rather than reproduces.
 
 #### Acceptance Criteria:
 
+- [ ] **The panel closes on a route change**, and the reset is on the pathname, not on first paint.
+      Two reachable failures otherwise, both of which ship green against a mount-only test: open the
+      panel on `/files`, navigate away and come back, and it is open again — contradicting this
+      spec's own "It opens closed, every time"; and open it on `/notifications`, press Back to
+      `/files`, and a different section's content is silently substituted into a live modal. Keying
+      the open state to the pathname does **not** fix the second one, because back-navigation
+      restores the same pathname; an effect that closes on pathname change does.
+- [ ] A test drives both journeys — forward-navigate-and-return, and browser Back — and asserts the
+      panel is closed on arrival.
 - [ ] Escape closes the panel and returns focus to the help control that opened it.
 - [ ] With a dialog open above the panel, Escape closes the dialog and leaves the panel open.
 - [ ] Tab from the last focusable element inside the panel returns to the first — focus does not
       escape to the page beneath.
-- [ ] `expectNoA11yViolations` runs against the **driven container** with the panel open, not a
-      re-render of the closed state.
+- [ ] The axe assertion runs against the **driven container** with the panel open — not a re-render
+      of the closed state — and uses the **component** options, not `ROUTE_AXE_OPTIONS`. The panel
+      opens from the header, which reads as route-level, but the shared `Drawer` renders
+      `<aside role="dialog">` and the route options' best-practice `aria-allowed-role` rule fails on
+      it. Every existing container-level assertion in the suite uses the component options.
 
 ### FR-005: `/help` gains guide-level deep links
 
@@ -156,7 +173,15 @@ nothing else.
 #### Acceptance Criteria:
 
 - [ ] `/help#upload-files` mounts with the Files section selected, the "Upload files" card expanded
-      and scrolled into view.
+      and scrolled into view. `HelpGuideCard` takes `defaultOpen` into `useState` and so ignores a
+      prop change, and it exposes neither an id nor a ref to scroll to — so this criterion changes
+      that component or wraps it, and either way it is in scope. A wrapper carrying the id is the
+      cheaper option and slightly weakens FR-001's same-markup criterion; whichever is chosen, say
+      which.
+- [ ] The guide scroll and `HelpPage`'s existing scroll-to-top on section change do not race. Both
+      run on a hash-driven mount and the one declared second wins; jsdom has no layout, so **no test
+      can catch this** — it is ordered deliberately in the code with a comment, or it is a bug
+      nothing will report.
 - [ ] A hash matching a guide id resolves to that guide's section; a hash matching a **section** id
       keeps behaving exactly as it does today, and a test pins the existing behaviour so this change
       cannot regress it.
@@ -229,6 +254,10 @@ export const HELP_SURFACES: readonly HelpSurface[] = [
 ];
 ```
 
+> **The panel on `/data-quality` is therefore headed "Files"**, holding eleven Files guides of which
+> two are about data quality. That is a real presentational cost of not inventing a seventh section,
+> and it is accepted rather than hidden: the alternative is content work this spec has excluded.
+>
 > `/data-quality` maps to `files` because that is where its guides were authored —
 > `check-data-quality` and `past-data-quality-checks` are in the Files section — and inventing a
 > seventh section to hold them would be content work this spec has excluded. If the guides are ever
@@ -268,6 +297,8 @@ apps/portal/src/features/help/
 ├── helpPanel.test.tsx
 ├── helpSurfaces.test.tsx
 ├── helpDeepLink.test.ts
+├── HelpGuideCard.tsx           # id/ref for the scroll anchor, or a wrapper (FR-005)
+├── help.test.tsx               # HelpLink's existing bare-MemoryRouter render inverts
 └── index.ts
 ```
 

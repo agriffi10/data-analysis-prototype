@@ -2553,8 +2553,16 @@ sweep, not the packaging — and the sweep has to count attribute-style usage (`
 ### Its relationship to SPEC-215
 
 214 wants CI's function list to come from a Terraform output rather than a hand-maintained JSON file,
-which is the same move SPEC-215 makes for the configuration values. They are independent — 215 ships
-on its own schedule and 214 reads the one output it needs whether or not 215 has landed — but they
-are the same idea arriving twice: **a value Terraform computes is consumed from Terraform, not
-copied by a human into a settings page or a JSON file.**
+which is the same move SPEC-215 makes for the configuration values — the same idea arriving twice:
+**a value Terraform computes is consumed from Terraform, not copied by a human into a settings page
+or a JSON file.**
+
+**They are order-independent, not independent**, and the distinction matters because an earlier
+draft of this paragraph said the looser thing while both spec bodies described a coupling. Either
+order works and each spec states its own obligation for both: if 215 lands first, 214 reads through
+its resolver; if 214 lands first, it adds the read directly and 215 folds it in. The one thing that
+had to be settled between them is the predicate SPEC-215's version-agreement test derives — it is
+*declares an OpenTofu version*, not *runs `tofu init`*, because a workflow using the resolver runs no
+init of its own and an init-based predicate would exclude the very workflow the derivation was
+widened to cover.
 

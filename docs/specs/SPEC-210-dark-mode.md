@@ -177,6 +177,19 @@ sibling, and the editor switches between them.
 
 #### Acceptance Criteria:
 
+- [ ] **Monaco's LIGHT theme stops holding private copies of the palette, in this spec.** Its rules
+      carry `string: #0f9d6e`, `number: #c2820a` and `comment: #8a93a2`, measuring **3.46**, **3.24**
+      and **3.10** on white, with `editorLineNumber.foreground` at **2.99** on its own gutter — all
+      below 4.5:1. Two of those hexes are the exact values `index.css`'s comments record as *already
+      rejected and darkened* ("was #0f9d6e ≈ 3.5:1 — failed", "was #c2820a ≈ 3.3:1 — failed"): Monaco
+      kept the pre-fix palette when the tokens moved. Pointing them at the current tokens
+      (`success` 5.48, `warning` 5.02, `text-3` 5.36 on white) is **removing a fork, not re-deciding
+      a hue**, so it does not collide with this spec's Out of Scope — but it must be said out loud,
+      because FR-006's next criterion would otherwise make the harness red against a shipped surface
+      the spec promised not to touch.
+- [ ] `predefined.sql`'s `#7c3aed` is not in the token set. It measures 5.70 on white and either
+      becomes a token or joins the exemption list with that ratio recorded — not left as a literal
+      the harness does not see.
 - [ ] A dark Monaco theme is defined whose `editor.background`, line-number foreground and gutter
       background are derived from the same token values the dark palette declares — not chosen
       separately.
@@ -290,7 +303,12 @@ export const PALETTE: Record<EffectiveTheme, Record<ColorToken, string>>;
  * FR-006 measures Monaco's own token colours and FR-007 measures the landing hero's fixed
  * gradient, and neither is a `ColorToken`.
  */
-export type ContrastPair = {fg: ColorToken | string; bg: ColorToken | string; min: 4.5 | 3; why?: string};
+export type Hex = `#${string}`;
+export type ContrastPair =
+  | {kind: 'token'; fg: ColorToken | '#ffffff'; bg: ColorToken; min: 4.5 | 3}
+  | {kind: 'raw'; fg: Hex; bg: Hex; min: 4.5 | 3; why: string};
+// NOT `ColorToken | string`: that union absorbs the literal type entirely, and `tsc --strict`
+// then accepts {fg: 'txet', bg: 'surfce'} without complaint.
 export const CONTRAST_PAIRS: readonly ContrastPair[];
 
 /** Tokens that carry no meaning and are measured against no floor. Reason required. */
@@ -298,13 +316,30 @@ export const DECORATIVE_TOKENS: Readonly<Record<'border' | 'border-2' | 'accent-
 ```
 
 > **`index.css` is the source; `palette.ts` is asserted against it by reading the file at test
-> time.** Not the other way round and not a generator — the mechanism already exists in this repo:
-> `features/data-explorer/formatting.test.ts` pins `FORMATTING_TOKEN_HEX` by reading `src/index.css`
-> through a one-function ambient declaration, and `docs/decisions/browser.md` records why it reads
-> the file rather than importing it (`?raw` resolves to the empty string under Vitest, which would
-> have made the guard pass by finding nothing). Two hand-maintained copies of a palette is a shape
-> this project has been bitten by before, and the failure is silent: the app paints one set of
-> colours while the harness measures another, and every test is green.
+> time.** Not the other way round, and not a generator.
+>
+> **This RESTORES a guard that was deleted, and the spec says so rather than presenting it as new.**
+> `features/data-explorer/formatting.test.ts` used to pin `FORMATTING_TOKEN_HEX` this way — it read
+> `src/index.css` with `readFileSync` through a one-function ambient declaration and carried a test
+> named *"the palette map matches the tokens index.css actually declares"*. Commit `a41bda69` (the
+> 2026-08-28 suite reduction) removed all of it. What survives is `src/test/node-fs.d.ts`, orphaned,
+> whose docstring still explains why the palette *has to* be checked against `index.css` and why a
+> `?raw` import cannot do it — `?raw` resolves to the empty string under Vitest, which makes the
+> guard pass by finding nothing. **The declaration without the check.** The reasoning in that
+> docstring is still correct and is why this mechanism is chosen; the check itself has to be written
+> again, and Phase 1 writes it.
+>
+> **The parse must be BLOCK-SCOPED, and this is the part that is easy to get wrong.** The deleted
+> version matched `--color-*` across the whole file, which was safe while `index.css` declared one
+> `@theme` block: it correctly ignored the hexes inside comments and the `--breakpoint-*: initial`
+> lines. FR-002 adds a second block. A whole-file scan then reads the dark values **over** the light
+> ones and every "light" assertion silently measures dark-on-dark, passing. So the parse resolves
+> `@theme` and `:root[data-theme='dark']` separately, and a test asserts that appending a dark block
+> does not change the light map.
+>
+> Two hand-maintained copies of a palette is a shape this project has been bitten by before, and the
+> failure is silent: the app paints one set of colours while the harness measures another, and every
+> test is green.
 
 ## API / Interface Contract
 
@@ -317,9 +352,14 @@ export function useTheme(): {
 };
 
 // apps/portal/src/lib/contrast.ts  — pure, no DOM.
-// EXTRACTED from features/data-explorer/formatting.test.ts, which already implements it;
+// EXTRACTED from features/data-explorer/formatting.test.ts, which still implements it;
 // that test then imports it here rather than keeping a second copy.
-export function contrastRatio(foreground: string, background: string): number;
+//
+// It MUST reject a malformed hex rather than compute on it. The existing implementation
+// returns 21 for 'zzz' (NaN propagating through the min/max) and a plausible 1.48 for a
+// five-digit '#4f46e' — so a typo'd pairing on the raw-hex side clears every floor with
+// nothing red, which is the failure the harness exists to prevent.
+export function contrastRatio(foreground: Hex, background: Hex): number;
 ```
 
 ## File & Folder Structure
@@ -345,9 +385,11 @@ apps/portal/
 
 ### Phase 1: Measurement, then the palette
 
-- `contrast.ts`, `palette.ts` and the harness, run first against the **light** palette alone, to
-  confirm it reproduces the ratios recorded in `index.css`'s comments before it is trusted.
-- The agreement check between `palette.ts` and `index.css`.
+- `contrast.ts` (extracted, with the malformed-hex guard), `palette.ts` and the harness, run first
+  against the **light** palette alone, to confirm it reproduces the ratios recorded in `index.css`'s
+  comments before it is trusted.
+- Re-write the deleted `index.css` agreement check, block-scoped, with its own test that appending a
+  dark block leaves the light map unchanged. `src/test/node-fs.d.ts` stops being an orphan.
 - The deliberate-failure test.
 - Then derive the dark values until every pair passes.
 

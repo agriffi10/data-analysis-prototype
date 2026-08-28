@@ -85,9 +85,17 @@ compare-and-swap on a freshly read record, in the manner `set_status` already us
       would be unsatisfiable by the implementation it prescribes. `acknowledged` is excluded because
       FR-003 requires it to change.
 - [ ] `lastRequestId` is the transferring request's id.
-- [ ] A concurrent write that changes the record between the read and the write causes a retry
-      against the fresh record, not a lost update; a test drives a precondition failure and asserts
-      the second attempt carries the newly read ETag.
+- [ ] `set_owner` takes the **expected current owner** and re-checks it inside the CAS body, refusing
+      if it no longer holds. `set_status` may retry unconditionally because a status is not
+      authorization-carrying; a transfer is. Without it: alice's request is authorized while she owns
+      the space, a concurrent transfer moves it to carol, alice's write retries against the fresh
+      record and **takes it away from carol** — a lost authorization wearing the shape of a correct
+      CAS retry.
+- [ ] A concurrent write that does not change the owner causes a retry against the fresh record, not
+      a lost update; a test drives a precondition failure and asserts the second attempt carries the
+      newly read ETag.
+- [ ] A concurrent write that **does** change the owner causes the retry to refuse, and a test drives
+      exactly the alice/carol interleaving above.
 - [ ] The verb makes no S3 object copy, no Glue call and no Lake Formation call — a test asserts the
       client fakes recorded none.
 
@@ -145,6 +153,11 @@ because the obvious "change one field" implementation ships a visible defect.
 - [ ] A test drives a space with **no** `acknowledged` field — created before the field existed and
       never added to — and asserts the transfer still leaves both parties `active`, preserving the
       legacy path where absence means everyone is acknowledged.
+- [ ] Transferring to a `pending` member and back leaves them reading `active` although they have
+      never signed in, because the round trip put them in `acknowledged` and nothing takes them out.
+      Accepted, and named rather than discovered: the alternative is remembering a pre-transfer join
+      status, which is state kept solely to re-create a chip. A test pins today's outcome so it is a
+      decision and not a drift.
 - [ ] Leaving is still a separate action — a test asserts the transfer verb never enqueues or
       performs a `leave`.
 
@@ -302,8 +315,12 @@ export type TransferOwnershipPayload = {
 ```python
 # lambdas/shared-space-common/registry.py — the new writer, beside set_status
 
-def set_owner(registry: dict, new_owner: str, request_id: str) -> dict:
-    """Rewrites a space's owner under CAS, preserving every other field."""
+def set_owner(registry: dict, expected_owner: str, new_owner: str, request_id: str) -> dict:
+    """Rewrites a space's owner under CAS, refusing if `expected_owner` no longer holds.
+
+    The expected owner is what separates a safe retry from a lost authorization: a retry that
+    re-reads a record someone else has already transferred must refuse, not re-apply.
+    """
 ```
 
 ```

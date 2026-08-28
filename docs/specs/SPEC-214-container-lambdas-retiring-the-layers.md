@@ -7,6 +7,9 @@
 
 **Arc:** Container Lambdas (212 → 213 → 214). Narrative in `ARCS.md`.
 
+**Interacts with:** SPEC-215, order-independently — FR-003 and SPEC-215 FR-001 each state the
+obligation for both orders. This spec also repoints one SPEC-212 test; see FR-002.
+
 ## Overview
 
 After SPEC-213 every function runs the container image and no function attaches a layer. What is
@@ -75,6 +78,14 @@ The deletion is conditional on a coverage proof, and the proof is mechanical.
 - [ ] `.github/lambda-layers.json` is deleted.
 - [ ] The layer build script and `deploy-lambda.sh`'s literal attach-order loop are deleted.
 - [ ] `lambdas/test_build_layer.py` is deleted.
+- [ ] **`lambdas/test_image_layout.py` is repointed, not left to break.** SPEC-212 FR-002 has it
+      assert that the packages under `/opt/python` equal "the set the layer table declares", and the
+      layer table is the `.github/lambda-layers.json` this spec deletes. Its set-equality guard is
+      still wanted — it is what stops the image quietly shipping without a shared package — so its
+      expected set is re-derived from the layer **source directories** on disk. This is the one
+      change to SPEC-212's artifact that this spec makes, and it is named here because SPEC-212's own
+      Out of Scope says a needed image change means the deletion was premature: it is not the image
+      that changes, it is where the test reads its expectation.
 - [ ] No workflow, script or `.tf` file references a layer version, a layer ARN or a layer name; a
       test greps for each and fails on a hit.
 - [ ] `ruff check lambdas/ scripts/ .github/scripts/` and the blocking `mypy` both pass — neither is
@@ -94,10 +105,12 @@ to say which functions exist, and Terraform already knows.
 - [ ] `deploy-lambdas.yml` reads that output and shards over it; `.github/lambda-functions.json` is
       deleted.
 - [ ] If SPEC-215 has landed, this workflow reads the output through **its** resolver rather than
-      writing a second `tofu init` + `tofu output -json` step, and it joins the derived workflow set
-      SPEC-215 FR-001 asserts a single OpenTofu version across. If 215 has not landed, this spec adds
-      the read directly and 215 folds it in — stated so the ordering is a choice rather than a
-      collision.
+      writing a second `tofu init` + `tofu output -json` step. It still joins SPEC-215 FR-001's
+      version agreement, because that predicate is "declares an OpenTofu version" and not "runs
+      `tofu init`" — a workflow that uses the resolver still pins the toolchain it runs, and an
+      init-based predicate would have excluded exactly this workflow.
+- [ ] If SPEC-215 has **not** landed, this spec adds the read directly and SPEC-215 folds it into the
+      resolver when it lands. Both specs state this obligation; neither leaves it to the other.
 - [ ] The shard computation covers the whole list — a test asserts the union of the shards equals
       the function list, so a sharding bug cannot silently skip a function.
 - [ ] A function added to Terraform is deployed with no further edit anywhere; a test asserts no
