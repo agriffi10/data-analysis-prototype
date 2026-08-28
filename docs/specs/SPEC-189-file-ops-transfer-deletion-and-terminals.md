@@ -408,6 +408,6 @@ re-asserts SPEC-187 FR-009's two inequalities and FR-001's joint budget against 
 ### Phase 6: Completion ritual
 
 - Delivery doc, INDEX status, component-inventory rows. (The `architecture.md` *Control Planes*
-  section for the finished plane belongs to **SPEC-191**, the arc closer, not here.) `decisions.md` entries for the **engine attribution generalisation**, the **per-item commit
+  section for the finished plane belongs to **SPEC-191**, the arc closer, not here.) `decisions/` entries for the **engine attribution generalisation**, the **per-item commit
   gate and the weaker graph property it can assert**, and the **conditional source deletion** — all
   three diverge from SPEC-160/169 and must be findable from them.

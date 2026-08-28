@@ -290,5 +290,5 @@ reads like a code bug.
 ### Phase 5: Completion ritual
 
 - Delivery doc, INDEX status, an `architecture.md` → *Control Planes → Send Files* section, a
-  `decisions.md` entry (its own plane, push semantics, any-space targets, no directory in
+  `decisions/` entry (its own plane, push semantics, any-space targets, no directory in
   authorization), and one Key Decisions line. No user-facing surface yet — no Help change.

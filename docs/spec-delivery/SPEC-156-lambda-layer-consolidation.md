@@ -62,7 +62,7 @@ Shipped as four PRs: [#390](https://github.com/agriffi10/data-analysis-prototype
 
 - **SPEC-082's `casio` CAS loop and SPEC-123's `dqcommon` index CAS** are gone — one loop in
   `cpcommon.cas`, cap 6. `DQ_INDEX_CAS_RETRIES` no longer exists. The superseded marker is in
-  `decisions.md` at the SPEC-123 entry.
+  `decisions/` at the SPEC-123 entry.
 - **SPEC-107's `Resolver`** is a superset: the pre-156 constructor and `body()` are unchanged for a
   caller passing no new arguments, which is why `shared-space-common/messages.py` and
   `control-plane-dlq-drain` needed no edit.

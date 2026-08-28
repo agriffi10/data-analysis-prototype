@@ -33,7 +33,7 @@ Implement the recipient fan-out: a Step Function **`Map`** over the validated re
 > Copy operation cannot rewrite a key (`TargetKeyPrefix` prepends the *full* source key), it caps
 > objects at 5 GB where `UploadPartCopy` already handles more, and one job writes to one destination
 > bucket while recipients span two. The scale path is a top-level **Step Functions Distributed Map**
-> over a flat `(recipient × object)` manifest. Full entry: `decisions.md` → *Table Share*.
+> over a flat `(recipient × object)` manifest. Full entry: `decisions/` → *Table Share*.
 
 - Rolling back a partial copy on a later create failure — the copied objects remain; a retry/overwrite is a future concern (documented).
 

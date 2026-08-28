@@ -86,7 +86,7 @@ Each single-task function gets its **own** role scoped to exactly what that task
 
 - ✅ One **execution role per function**, granting only the actions/resources that one task needs (e.g. the validator reads the registry + verifies tokens; the deleter gets recursive-delete + drop-DB). Small functions make tight roles natural (§1).
 - 🔴 Don't reuse one broad "orchestrator can do everything" role across unrelated tasks — that's the monolith's IAM smell. ✅ Split the role when you split the function.
-- ✅ Scope resource ARNs with principal-tag/path templates where the model allows; **isolate non-scopable actions** (those that only accept `"*"`) into their own statements (architecture.md "adding a new resource type" trap list).
+- ✅ Scope resource ARNs with principal-tag/path templates where the model allows; **isolate non-scopable actions** (those that only accept `"*"`) into their own statements (`infra/info/deploy-role-iam.md`).
 - ✅ Verify with `aws iam simulate-custom-policy`: the intended action on the intended resource is `allowed`; an adjacent resource is `implicitDeny`.
 - ✅ Grant `iam:PassRole` narrowly (only the roles the orchestrator actually passes), and add **deploy-role IAM** for every new role/function/resource type as in-scope work (CLAUDE.md infra rule).
 

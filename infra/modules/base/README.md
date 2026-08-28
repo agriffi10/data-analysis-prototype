@@ -13,7 +13,7 @@ Trust allows a push to `main` (deploy and apply) and `pull_request` events (`tof
 read-only, no deploy permissions used). The thumbprint is fetched from GitHub's OIDC discovery
 endpoint.
 
-Read `docs/architecture.md` → *Deploy-role IAM — adding a new resource type* before adding one.
+Read [`../../info/deploy-role-iam.md`](../../info/deploy-role-iam.md) before adding one.
 
 ## Why fourteen managed policies instead of more inline JSON
 

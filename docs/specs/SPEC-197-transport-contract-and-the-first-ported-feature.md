@@ -895,7 +895,7 @@ S3 against the deployed portal role.
 
 - `Status: Completed`; the `INDEX.md` row; the delivery doc — carrying FR-013's disposition table,
   which is the artefact the next five ports copy.
-- `decisions.md` entries, then **one line each** in CLAUDE.md's Key Decisions: (1) the error shape —
+- `decisions/` entries, then **one line each** in CLAUDE.md's Key Decisions: (1) the error shape —
   a machine code plus operator text nobody renders, and the passthrough disjointness guard that keeps
   SPEC-106 from being reversed through one of its own rules; (2) the contract is declared in Python
   and the TypeScript is **generated**, with the two CI gates and the closed type vocabulary that

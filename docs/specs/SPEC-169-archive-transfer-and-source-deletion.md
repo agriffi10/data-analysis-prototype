@@ -326,7 +326,7 @@ Restored to:      —
 ### Phase 6: Completion ritual
 
 - Delivery doc, INDEX status, extend the `architecture.md` → *Control Planes → Archive* section, a
-  `decisions.md` entry (the commit gate, the receipt-as-report / self-describing-key decision, the
+  `decisions/` entry (the commit gate, the receipt-as-report / self-describing-key decision, the
   storage-class extension on `cpcommon.transfer`), one Key Decisions line, and a
   `component-inventory/` row for the `cpcommon.transfer` extension. No user-facing surface yet — no
   Help change.

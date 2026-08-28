@@ -175,7 +175,7 @@ Grouped by rule; the count is the number of resources.
 | 32 | CKV_AWS_173 | Lambda env var encryption (CMK) | **defer** — env vars hold queue URLs and bucket names, not secrets. |
 | 32 | CKV_AWS_115 | Lambda reserved concurrency | **defer** — genuinely worth considering for SQS-fronted control planes. Follow-up. |
 | 32 | CKV_AWS_272 | Lambda code signing | **defer** — needs a signing profile and a deploy-pipeline change. |
-| 5 | CKV_AWS_21 | S3 versioning | **DEFERRED (2026-08-03, user decision)** — pre-production, no real user data, so the exposure is theoretical today. The reasoning stands and does not expire: S3 has no atomic move, so rename/move is `CopyObject` + `DeleteObject` (architecture.md, Known Constraints), and without versioning a failure between those two steps is **unrecoverable user data loss**. **Revisit before any real data lands.** |
+| 5 | CKV_AWS_21 | S3 versioning | **DEFERRED (2026-08-03, user decision)** — pre-production, no real user data, so the exposure is theoretical today. The reasoning stands and does not expire: S3 has no atomic move, so rename/move is `CopyObject` + `DeleteObject` (architecture.md → *Constraints that shape the system*), and without versioning a failure between those two steps is **unrecoverable user data loss**. **Revisit before any real data lands.** |
 | 5 | CKV_AWS_144 | Cross-region replication | **accept** — single-region system by design. |
 | 5 | CKV_AWS_145 | S3 KMS CMK | **defer** — SSE-S3 today. |
 | 5 | CKV_AWS_18 | S3 access logging | **defer** — cost vs. value; `logs/` already narrates control-plane activity. |
@@ -288,7 +288,7 @@ here — there was nothing to defer.
 | 1 | CKV_AWS_136 | ECR repository encrypted with a CMK | **defer** — AES256 today. The layers are a public SPA bundle; a CMK buys a key policy to maintain rather than a secret to protect. Consistent with the S3 and SQS no-CMK rows above. |
 | 4 | CKV_AWS_158 | Log group encrypted by KMS | **defer** — the same row as the Lambda log groups above, for the same reason. The four are the API function's group, the API's access log group, the VPC flow logs and the ECS task group. |
 | 4 | CKV_AWS_338 | Log group retention ≥ 1 year | **accept** — 14 days on all four, matching every other log group here. CloudWatch is the operational tail; the durable store is `logs/` in S3. |
-| 1 | CKV_AWS_309 | API Gateway v2 route specifies an authorization type | **accept — authorization will live in the router, and an authorizer would be a SECOND reader of the same token.** *Today there is nothing to authorize:* the deployed API is a placeholder serving `GET /healthz` and a 404, with **no identity, no AWS call and no data** — an internet-facing exposure recorded in `docs/testing/owed.md` and accepted there as billing rather than disclosure. **SPEC-195 adds the verification**, and it goes in the router: the request will carry an `Authorization` bearer, the router will verify it, resolve it to a principal and deny by default before dispatch, and that principal is what SPEC-196 scopes the role assumption by. An API Gateway authorizer would verify the same token independently and could disagree with the router about the claim the scoping depends on — a disagreement with no single arbiter. The API also serves every path through **one `$default` route and one integration**, so a per-route authorizer would have to duplicate the route table before it could say anything at all. This disposition rests on the bearer token, **not** on a session cookie: the arc's re-scope removed the cookie, and any wording that depends on it is stale. **UPDATED (SPEC-195, 2026-08-27): the verification has shipped, and the "nothing to authorize" clause above is now past tense.** The API resolves a principal before dispatch, refuses any undeclared route, and answers an unidentified caller **401 rather than 404** whatever path they ask for. The disposition itself is unchanged and is now load-bearing rather than anticipatory: the verifier is a module the router calls, with no router dependency, so an authorizer would be a second reader of the same token. The exposure this API carries is no longer "none" — it is the unknown-`kid` JWKS refetch, bounded by a per-container cooldown and reasoned about in `decisions.md`. |
+| 1 | CKV_AWS_309 | API Gateway v2 route specifies an authorization type | **accept — authorization will live in the router, and an authorizer would be a SECOND reader of the same token.** *Today there is nothing to authorize:* the deployed API is a placeholder serving `GET /healthz` and a 404, with **no identity, no AWS call and no data** — an internet-facing exposure recorded in `docs/testing/owed.md` and accepted there as billing rather than disclosure. **SPEC-195 adds the verification**, and it goes in the router: the request will carry an `Authorization` bearer, the router will verify it, resolve it to a principal and deny by default before dispatch, and that principal is what SPEC-196 scopes the role assumption by. An API Gateway authorizer would verify the same token independently and could disagree with the router about the claim the scoping depends on — a disagreement with no single arbiter. The API also serves every path through **one `$default` route and one integration**, so a per-route authorizer would have to duplicate the route table before it could say anything at all. This disposition rests on the bearer token, **not** on a session cookie: the arc's re-scope removed the cookie, and any wording that depends on it is stale. **UPDATED (SPEC-195, 2026-08-27): the verification has shipped, and the "nothing to authorize" clause above is now past tense.** The API resolves a principal before dispatch, refuses any undeclared route, and answers an unidentified caller **401 rather than 404** whatever path they ask for. The disposition itself is unchanged and is now load-bearing rather than anticipatory: the verifier is a module the router calls, with no router dependency, so an authorizer would be a second reader of the same token. The exposure this API carries is no longer "none" — it is the unknown-`kid` JWKS refetch, bounded by a per-container cooldown and reasoned about in `decisions/`. |
 
 **`CKV_AWS_65` (Container Insights) is deliberately absent from that table:** the spec's criterion
 puts it among the things fixed rather than dispositioned while the resource is new, and the cluster
@@ -355,7 +355,7 @@ request would hand any signed-in user a way to drown the plane's only operator-f
 The second fix shape this entry proposed — splitting `create` onto its own queue — was **rejected with
 reasons** rather than merely not chosen: two queues means two event-source mappings and two concurrent
 invocations read-modify-writing one `notifications.json`, trading a spoofing bug for a data-loss bug.
-See `docs/decisions.md` → *The notifications `create` boundary*.
+See `docs/decisions/control-planes.md` → *The notifications `create` boundary*.
 
 **Two limits, stated so they are not read as closed.** The grant itself is still unconditioned and
 must be — no SQS condition key reaches a field inside a message body — so this is a runtime control,
@@ -532,7 +532,7 @@ So the statement became two:
   The deploy role can no longer attach a mapping to an arbitrary Lambda in the account.
 - `NotificationsEventSourceMappingList` — `ListEventSourceMappings` alone, bare `"*"`, **deliberately
   unconditioned**. AWS defines no resource types and no condition keys for it, so a condition would
-  deny the call outright — the "unknown-ARN-in-list" trap from architecture.md. This one is a
+  deny the call outright — the "unknown-ARN-in-list" trap from `infra/info/deploy-role-iam.md`. This one is a
   documented accept, not an oversight.
 
 `lambda:ListTags` was dropped here too, for the same redundancy reason.
@@ -572,7 +572,7 @@ a function ARN are different resource types**, and AWS's service reference lists
 `ListTags`. That broke `main`: the next refresh needed the permission the pending fix restored, so
 plan, apply *and revert* all failed on the same `AccessDenied`.
 
-Recovered with the new `skip_refresh` dispatch lever (`decisions.md`), then confirmed with an
+Recovered with the new `skip_refresh` dispatch lever (`docs/decisions/infrastructure.md`), then confirmed with an
 ordinary refresh-enabled run.
 
 Two things worth carrying forward:

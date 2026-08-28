@@ -1,0 +1,756 @@
+# Control planes — one pattern, six planes, and the traps are shared
+
+Part of the **Key Decisions register** — [`INDEX.md`](INDEX.md) is the router, and `CLAUDE.md`
+carries the one-line digest of each entry. This file holds the reasoning, the constraints and the
+explicit "do NOT build" fences for one area. **Read the entry you need, not the file.**
+
+## Contents
+
+- [Everything unbounded on the state travels by pointer — including the definition (SPEC-161, extending SPEC-090/160)](#everything-unbounded-on-the-state-travels-by-pointer--including-the-definition-spec-161-extending-spec-090160)
+- [Every control-plane machine that can run for hours declares a TimeoutSeconds (SPEC-161)](#every-control-plane-machine-that-can-run-for-hours-declares-a-timeoutseconds-spec-161)
+- [Data-quality outcome notifications (SPEC-114)](#data-quality-outcome-notifications-spec-114)
+- [Control-plane DLQ drain → user notification (SPEC-126)](#control-plane-dlq-drain--user-notification-spec-126)
+- [Structured-logging pipe (SPEC-127→129)](#structured-logging-pipe-spec-127129)
+- [Structured-logging narrative primitives & the one-door rule (SPEC-130/131)](#structured-logging-narrative-primitives--the-one-door-rule-spec-130131)
+- [The field rule — what may be logged (SPEC-130)](#the-field-rule--what-may-be-logged-spec-130)
+- [Per-plane instrumentation rules (SPEC-132→137)](#per-plane-instrumentation-rules-spec-132137)
+- [No ASL state decodes an error Cause (PR #252, control-plane-wide)](#no-asl-state-decodes-an-error-cause-pr-252-control-plane-wide)
+- [Notifications (SPEC-058→061)](#notifications-spec-058061)
+- [Every plane notifies on a pre-verb failure, and `failure_reason` is the only decoder (SPEC-152)](#every-plane-notifies-on-a-pre-verb-failure-and-failure_reason-is-the-only-decoder-spec-152)
+- [A layer gate must check the copy list, not the flag map (SPEC-153)](#a-layer-gate-must-check-the-copy-list-not-the-flag-map-spec-153)
+- [The deliberate twins are discharged: one implementation per cross-plane helper (SPEC-156)](#the-deliberate-twins-are-discharged-one-implementation-per-cross-plane-helper-spec-156)
+- [The copy is a top-level Distributed Map, and attribution is a verb (SPEC-160)](#the-copy-is-a-top-level-distributed-map-and-attribution-is-a-verb-spec-160)
+- [A post-identity failure needs its own seed, and the fleet guard cannot see it (SPEC-165)](#a-post-identity-failure-needs-its-own-seed-and-the-fleet-guard-cannot-see-it-spec-165)
+- [The machine's ceiling cannot notify on its own, and this plane's timeout door needs a fallback (SPEC-166)](#the-machines-ceiling-cannot-notify-on-its-own-and-this-planes-timeout-door-needs-a-fallback-spec-166)
+- [The lock protocol is `cpcommon`'s, extracted ahead of its second consumer (SPEC-187)](#the-lock-protocol-is-cpcommons-extracted-ahead-of-its-second-consumer-spec-187)
+- [The engine's attribution vocabulary belongs to the CALLER, not to cpcommon (SPEC-189)](#the-engines-attribution-vocabulary-belongs-to-the-caller-not-to-cpcommon-spec-189)
+- [Two budgets, and both were wrong before they were computed (SPEC-189)](#two-budgets-and-both-were-wrong-before-they-were-computed-spec-189)
+- [One producer, after the release, reached from BOTH of ReleaseLock's edges (SPEC-191)](#one-producer-after-the-release-reached-from-both-of-releaselocks-edges-spec-191)
+- [A notification payload is bounded by BYTES, and the binding case is the PLAIN one (SPEC-191)](#a-notification-payload-is-bounded-by-bytes-and-the-binding-case-is-the-plain-one-spec-191)
+- [The run's ONE sentence opens neutrally, because its residue is not all failure (SPEC-191)](#the-runs-one-sentence-opens-neutrally-because-its-residue-is-not-all-failure-spec-191)
+- [A resolved space carries its own IDENTITY, not only its location (SPEC-191)](#a-resolved-space-carries-its-own-identity-not-only-its-location-spec-191)
+- [`requestId` rides on every row, including a clean run's and a failed run's (SPEC-191)](#requestid-rides-on-every-row-including-a-clean-runs-and-a-failed-runs-spec-191)
+- [The outcome link: destination, source, or the common folder of the items' PARENTS (SPEC-191)](#the-outcome-link-destination-source-or-the-common-folder-of-the-items-parents-spec-191)
+- [The outcome wording reuses the failure bodies and is deliberately NOT a resolver (SPEC-191)](#the-outcome-wording-reuses-the-failure-bodies-and-is-deliberately-not-a-resolver-spec-191)
+- [A pre-existing notifications spoofing gap, recorded and not fixed here (SPEC-191)](#a-pre-existing-notifications-spoofing-gap-recorded-and-not-fixed-here-spec-191)
+- [The notifications `create` boundary is a runtime check, because IAM cannot express it (SPEC-206)](#the-notifications-create-boundary-is-a-runtime-check-because-iam-cannot-express-it-spec-206)
+
+## Everything unbounded on the state travels by pointer — including the definition (SPEC-161, extending SPEC-090/160)
+
+The rule the table-share plane arrived at over three specs, stated once: **anything on the Step Functions state whose size a user controls lives in the admin bucket and rides as a key.** The object list went first (PR #256, at 95% of the 256 KB payload), the transfer manifest was born that way (SPEC-160), and SPEC-161 finishes it with the **cloned table definition** — `{admin_bucket}/table-share/{hash}/definition.json`, written by `inspect-source`, fetched by `create-table`. `tscommon.copy_plan` owns all three key layouts, so the request digest has one home.
+
+**A cap is not an alternative to a pointer, and this is the case that shows why.** The definition was bounded inline by `SHARE_MAX_DEFINITION_BYTES` at 32 KiB, and that number was doing two incompatible jobs: keeping the Map's state safe, and deciding how wide a table a user may share. A 100-column table with column comments serialises to roughly 32 KiB — an ordinary thing to want to share, sitting exactly on the boundary. Measured: with the definition inline at cap, the guard Map's peak state reaches **~55%** of the limit; with the pointer it is ~29%. The cap could protect the payload or serve the user, not both. **`test_the_whole_map_state_stays_under_the_payload_limit` now adds an at-cap definition back to the modelled state and asserts it fails the safety bar**, so the pointer is demonstrated to be load-bearing rather than assumed to be tidy.
+
+`SHARE_MAX_DEFINITION_BYTES` survives at **64 KiB** as an object-size sanity check, and **what sizes it is now Athena, not Step Functions**: the definition renders into one `CREATE EXTERNAL TABLE`, and Athena's query-string quota is **262,144 bytes and not adjustable**. The rendered statement can be **twice** the serialised JSON — `ddl.literal` backslash-escapes, so a `'` costs one byte in the JSON and two in the DDL — and *where* those quotes sit decides the ratio: a table property or SerDe parameter carries ~9 bytes of JSON overhead and renders at nearly the full 2x, where a column comment carries ~40 and reaches only ~1.7x. At 128 KiB the property-shaped worst case measured **99.98%** of the quota; at 64 KiB it is 50%. Do not re-read it as a state bound, and do not raise it on the strength of a comment-shaped measurement.
+
+**Three keys, two disciplines, and the split is about what the content depends on.** The plan and the definition are **pure functions of the request** — the digest covers the source database and table, so two overlapping executions write byte-identical content and either object is correct for either run. The manifest is **execution-unique**, because its lines depend on which recipients the guard Map accepted, which is time- and destination-dependent (SPEC-160's entry has the full argument). Do not "make them consistent" by giving the definition an execution segment; it would multiply objects under a lifecycle rule for no gain.
+
+**An unreadable definition fails THAT RECIPIENT, never the request, and never renders anyway.** `definition_unreadable` is terminal for the finish Map's item, and the reason the load refuses an object with no columns rather than passing it on is specific: an empty column list renders a `CREATE EXTERNAL TABLE` that **Athena accepts**, over the recipient's freshly-copied data — a table that reports success and returns nothing.
+
+**No IAM changed.** `CopyPlanReadWrite` already grants `PutObject`/`GetObject` on `${admin_bucket_arn}/table-share/*`, which is the whole benefit of one prefix owning every artifact — and the same property is why FR-004 was discharged by adding **no lifecycle rule**. Detail: `spec-delivery/SPEC-161`.
+
+## Every control-plane machine that can run for hours declares a TimeoutSeconds (SPEC-161)
+
+A Standard workflow with no `TimeoutSeconds` runs to Step Functions' default of **one year**. That was harmless while the copy was one Lambda bounded by its own 900-second timeout; once SPEC-160 made it a Distributed Map and SPEC-161 raised the byte cap to 1 TiB, "wedged" became a state a run could sit in indefinitely.
+
+**It is a TOP-LEVEL ASL field** — beside `StartAt`, not an argument to `aws_sfn_state_machine` and not a task field (SPEC-157 settled the same distinction for the table-builder's lock). On a Task it would bound one step, which is not what a wedged *run* needs.
+
+**And a top-level timeout CANNOT reach `NotifyFailure`, which is the trap this entry exists to record.** The state sits in the machine looking exactly like it would. It does not: AWS documents that *"Step Functions catchers are available for Task, Parallel and Map states, but not for top-level state machine execution failures"*, and the remedy it names is *"listen for `TIMED_OUT` events from Standard workflows with an EventBridge bus"*. A top-level expiry terminates the execution outright — no state runs, no `Catch` fires. **A `TimeoutSeconds` shipped alone would therefore have bounded the run and made the sender's silence permanent instead of merely long**, which is worse than it sounds: SPEC-152's guarantee would read as satisfied by a state that could never be reached.
+
+So the field ships **with an EventBridge rule** (`stepfunction.tf`) on `Step Functions Execution Status Change`, matching **`TIMED_OUT` only** and invoking the same `notify-failure` verb through a second door. AWS classifies Step Functions execution events as **best-effort delivery**, so this closes the hole rather than sealing it — a dropped event means the old silence for that one run. That is accepted: the alternative is polling `ListExecutions`, which is a scheduled sweep and a second moving part for a failure mode measured in runs per year. `TIMED_OUT` only is load-bearing: every other whole-request failure already reaches the verb through a `Catch` and ends at `Fail`, whose status is `FAILED`, so matching both would send a second notification for every caught failure. The two doors are disjoint by construction, not by a suppression rule.
+
+**The timeout door recovers the sender from the token, and expiry is deliberately not enforced.** The execution input is what the Pipe forwarded — the raw SQS batch — so the actor is the verified `cognito:username` claim inside the body's ID token, never the body's own assertion. By construction that token is expired: the timeout fires hours after it was minted. The relaxation is the DLQ drain's, taken through the same separately-named entry point (`verified_username_ignoring_expiry`) and safe for the same reason — this path **grants nothing**, it only addresses a message. An input EventBridge omitted (it caps an event at 256 KB) or a token that will not verify is a **logged no-op**, never a guessed inbox. Its wording is its own reason code, `share_timed_out`, rather than the generic failure sentence: a timeout is the one whole-request failure that can leave a recipient holding **part** of a dataset — the copy may have run and the create may not — so "try again" alone would be wrong advice.
+
+**Sized from `SHARE_MAX_TRANSFER_BYTES`, NOT from the source cap — and the difference is a factor of `SHARE_MAX_RECIPIENTS`.** The manifest carries one item per (recipient, object) pair and every item is a full copy, so the Map moves the source **once per recipient**. Sized against the 1 TiB source cap alone, this number was short by 50×: 50 recipients × 1 TiB is 50 TiB, which needs 3.8 hours even at the conservative rate. That is the omission `SHARE_MAX_TRANSFER_BYTES` (3 TiB) closes. **And the rate it is divided by is a makespan, not an aggregate bandwidth** — a fourth review round's correction, and the same class of error a fourth time: `copy_batch` gives one whole object to one worker and `copy_one` part-copies serially, so a batch dominated by one large object runs at ONE stream while seven idle. The pessimistic denominator is `MAP_MAX_CONCURRENCY × rate` (500 MB/s), not `× COPY_CONCURRENCY ×` it (4 GB/s) — under which 16 TiB read as 4,400 s when the truth was 35,000. At 500 MB/s, 3 TiB is ~6,600 s, and with the finish Map (3,000 s) and the serial verbs (~720 s) the worst run is ~10,300 s inside **10,800 s (3 h)**. The margin is bought against the sender's silence, so a longer timeout is a slower failure signal rather than free safety; the cap moves before the timeout does. **A test computes it**, because the hard-coded floor that stood here first is exactly what let the mismatch survive two review rounds.
+
+**The retention obligation inverts once a run can last hours.** Nothing new needed expiring: manifest, definition and Map Run export all sit under `table-share/`, which `expire-table-share-copy-plans` already covers. The risk was the opposite — the rule expiring a *live* run's manifest underneath it. `admin_results_retention_days` (30) clears the run ceiling by **240×**, computed by a test from both files, and **no rule and no rule id were added**.
+
+## Data-quality outcome notifications (SPEC-114)
+
+The notification **is** the completion channel — the browser never waits and the reports folder is hidden from the file browser, so a success message without a **link to `/data-quality/{space}/{requestId}`** would leave the report unreachable. The link builder mirrors SPEC-113's resolution precedence and returns **nothing** where the view would resolve the wrong space (a shared space named like the actor, a personal space that isn't theirs) — no link beats a permanent not-found. **Every figure this arc produces is approximate**, so a flat "some figures are estimates" rides every success message and the real warning is reserved for `hasIncompleteFigures`, the flag that varies. Failure covers three layers: `@notifies_on_failure` on every verb, the `NotifyFailure` state for what no verb can catch (import/SFN-level errors, decoded in Python — never in ASL), and **SPEC-126** for what never starts an execution at all. **One dedup token per outcome, not per verb** (`{requestId}:failure` / `:completed`): `NotifyFailure` runs after the execution has left the failing verb and cannot know which one raised, so a per-verb token would send two messages for one failure; the collapse relies on SQS FIFO's 5-minute window. `TerminalError` gained an optional **`tokens`** mapping — the user-facing inverse of `detail`, which stays raw and operator-only. **FR-005's CloudWatch alarms were removed, not deferred** (user decision): an alarm with no target, on one arc of five, told the user nothing. Detail: `spec-delivery/SPEC-114`.
+
+## Control-plane DLQ drain → user notification (SPEC-126)
+
+Replaces SPEC-114 FR-005. Every control plane dead-letters a request it cannot process, and until this shipped the user was told **nothing at all** — no verb ran, so no `@notifies_on_failure` fired; no execution started, so no `NotifyFailure` state was reached. **One shared drain Lambda** (`lambdas/control-plane-dlq-drain/`, `infra/modules/control-plane-dlq-drain/`) sits on all four request DLQs (data-quality, table-builder, table-share, shared-spaces) and turns each dead-lettered message into one notification. Four things are load-bearing: (1) the recipient is the **verified `cognito:username` from the token inside the body** — a body-asserted `username` would let anyone route a notification to anyone; (2) **expiry is not enforced** on this path (`cpcommon.auth.verified_username_ignoring_expiry`, a **separately named** entry point, never a flag on the function every authorization path calls) because a dead-lettered message is old by construction while an ID token lives an hour — signature/issuer/audience still are, and this path **grants nothing**; (3) **no value from the untrusted body reaches the message** — every other producer interpolates what a verb already authorized, nothing here has authorized anything, and echoing an attacker-supplied path into a victim's inbox would make notifications a text-injection channel; (4) every per-message path is **total** — a throw means redelivery, and a message that always throws loops until retention expires, burning invocations on a failure nobody is watching, which is the invisibility this exists to end. The dead-lettered body is logged (**token redacted**) before the drain consumes it, trading the DLQ's 14-day copy for the log group's. The **notifications DLQ is deliberately undrained** and is the one hole this cannot close — the drain's only delivery channel is the queue that DLQ implies is broken; the honest answer there is operator-facing. **No redrive, no replay, no CloudWatch alarms** (an alarm with no target told the user nothing — the user decision that killed SPEC-114 FR-005). **Follow-up (2026-07-22): the four SQS event-source mappings became one EventBridge scheduled sweep** (`rate(10 minutes)`) — the mappings idle-long-polled four almost-always-empty DLQs around the clock, and that was the bulk of the account's SQS request volume (it was tripping the 1M/month free tier). The handler now polls all four DLQs itself (`DLQ_ARNS`, the same ARNs as an env JSON list) and **deletes every message it reads whether or not it could notify**, so "total by construction" now means *never redeliver* rather than *safe to be redelivered* — the redelivery-loop hazard in (4) is moot because nothing redelivers (the `_guarded_notify` belt stays, so one bad message can't abort the sweep). A resource-based `lambda:AddPermission` lets the rule invoke the function, so **no invoke role** is needed (unlike EventBridge Scheduler); the execution role is unchanged (it already held the four DLQ read/delete grants the mappings polled with). Cost fell from ~10⁵–10⁶ idle receives/month to a few thousand; the price is that a dead-lettered request surfaces within one interval (~10 min) rather than seconds, immaterial for a queue nothing watches live. Detail: `spec-delivery/SPEC-126`.
+
+## Structured-logging pipe (SPEC-127→129)
+
+The pipe every control-plane function logs through; it carried **boundaries only** until SPEC-130 added the narrative half (next entry). `log-foundry` (pinned **exactly**, core not `[aws]`) ships in the `cpcommon` layer. `LOGS_QUEUE_URL` is **optional** (`environ.get`, never `_require`) so a function missing it logs to stdout instead of crashing a whole plane at cold start. The logs queue is **FIFO** with `message_group_id` = the **service** (SPEC-129; it was standard only until `log-foundry` 0.5.0 could set `MessageGroupId`), with **no** content-based dedup (the library mints UUID dedup ids), and it is **swept** on a 10-min schedule, never long-polled (#270/#271). `service` = the **control plane**, and it is untrusted input on an S3 key: anything failing `^[a-z][a-z0-9-]{2,62}$` goes to `logs/_unrouted/`. Layout is `logs/service={s}/year=/month=/day=/data.jsonl` — **one appended object per service-day**, so every write is an **ETag-CAS read-modify-write** (a failed read must never overwrite a day) and the sweep role can **read** `logs/*`, reversing SPEC-127 FR-006. Delivery is put-then-delete (at-least-once; duplicates collapse on `log_id`). Partitions come from the **event's** timestamp. `logs/` is retained **forever**. `@traced` goes **outermost, above `@notifies_on_failure`**, or failed invocations close their span as `ok`. One run = **nine traces**, joined on `fields.request_id`.
+
+## Structured-logging narrative primitives & the one-door rule (SPEC-130/131)
+
+The pipe SPEC-127/128/129 built carries **boundaries only** (entry above), and SPEC-130 opens the door to the narrative half. `cpcommon.observability` gains `info`/`warning`/`error` and `step(name)` — the module's full surface is `init`/`flush`/`traced`/`step`/`stamp`/`info`/`warning`/`error` — and **nothing outside that module may import `log_foundry`**: an emitter sits in the middle of business logic where an exception is a real failure path, so the never-raise discipline needs one door rather than thirty-four. `step` is a **thin** alias for `lf.trace` and must stay one: the library decorator is non-swallowing, and `@traced` sits **outermost above `@notifies_on_failure`**, so a step that caught anything would cost the user their failure notification. Messages are **literals**, everything variable is a field (an f-string message mints a distinct string per run and can be neither counted nor filtered). The narrative **never reaches the console**: `echo=` is prohibited repo-wide and grep-tested, dropped-and-warned when passed as a field (with `**fields` it is otherwise a silent no-op emitting a field named `echo`); the one named exposure is `init`'s `StdoutSink` fallback when `LOGS_QUEUE_URL` is unset, which **stays** because it is the cold-start safety property the module is shaped around (PR #196) and is bounded by the `logging.getLogger()` calls already putting the same keys in the same log group.
+
+Two identity defects fixed at the same time, because instrumenting on top of them would have multiplied the damage: `traced` now passes **`name=verb`** (without it `log-foundry` falls back to `fn.__qualname__` and every root span in the fleet read `function: "handler"`) — a **discontinuity in a store retained forever, accepted without migration** since rewriting appended NDJSON would risk a day of logs to save a `WHERE` clause, with `fields.verb` populated on both sides so a query spans the cutover; and **`verb` moved from a span default to baggage** (set after `_reset_baggage`, which clears the whole mapping), because a span default reaches that span's own events and nothing nested — the first `step` child would have carried `request_id` but not the verb that produced it. Consumers: SPEC-131 (sweep), 132 (data-quality), 133 (DLQ drain), 134→137 (the rest of the fleet).
+
+**SPEC-131 added an eighth name, `stamp(**fields)`** (trace baggage), because the sweep needed an invocation-scoped join key on the boundary spans and the only alternative was importing `log_foundry` at a call site — the one-door rule survives by widening the door, not by excepting it; `_stamp_verb` and `_stamp_request_id` now delegate to it. **SPEC-131's own bound is structural:** the sweep emits into the queue it drains, so its event count is O(1) in messages and O(G) in day-groups (measured `6+4G`, 4 on an empty sweep) — a per-message emitter would give that queue a floor it could never get below, and the guard is a test that sweeps 20 then 200 messages over the same groups and demands an identical count. Its CloudWatch calls **stay alongside** the events, uniquely for that function: the sink is SQS-only, so a sweep that cannot write to S3 cannot report through the structured store that it could not write to S3. Detail: `spec-delivery/SPEC-130`, `spec-delivery/SPEC-131`.
+
+## The field rule — what may be logged (SPEC-130)
+
+**The line is drawn at file contents — not at user-derived data** (user decision, 2026-07-23): `logs/` lives in the admin bucket and is read by administrators, and that destination is what makes user-derived *metadata* the right thing to log — file names, S3 keys, prefixes, **usernames** (already the S3 prefix, the principal tag and the Glue DB name, SPEC-033), database/table/**column names**, space names, counts and durations are all permitted and encouraged, because an operator debugging a failed run needs to reach the object. **Absolutely never: data from inside a file** — a cell value, a sampled row, a result set, a decoded byte range — because it can be PII, it is never needed to debug a control plane, and `logs/` is retained forever (column *names* are schema and are in; column *values* are contents and are out). **Never regardless of provenance: tokens, credentials, email addresses** — a bearer credential is not metadata, and an email is the only personal contact detail that would exist in a forever-retained prefix. There is deliberately **no runtime redaction filter** and the module docstring says so: the rule turns on *provenance*, which no filter over a field name or value shape can see, and a filter that looked like enforcement would be worse than none because it would be trusted — enforcement is review plus per-call-site criteria.
+
+**The no-file-contents rule is about FIELDS, and `error.stack` is an ACCEPTED exemption (user decision, 2026-07-23):** `log-foundry` attaches `traceback.format_exception` to every failed span unconditionally and it walks the `__cause__` chain, so a quoted cell (a polars parse error naming the value it could not convert) reaches `error.stack` regardless — suppressing `detail` does not help (see the per-plane entry below for the `detail` audit) and neither does fixing the raise site (`raise … from exc` is what puts it there). Rather than close it (an upstream `capture_stack=False`, or a strip in the sweep), the decision is to **accept it**: `logs/` is admin-only, and a stack is diagnostic metadata an admin debugging a failed run needs, so the absolute rule binds a **field a verb chooses to emit** — not an automatic traceback. **Do not read a stack trace as licence to relax the field rule.** The characterisation test (`test_ACCEPTED_the_span_error_stack_may_carry_file_contents`) is kept as a **tripwire, not deleted**: if it starts *failing*, `log-foundry` began stripping stacks and this decision should be revisited in the open.
+
+**The `error.stack` exemption covers FILE CONTENTS and not CREDENTIALS, and the API scrubs rather than exempts (SPEC-195, 2026-08-27):** the exemption above was reasoned about a polars parse error naming a cell it could not convert — diagnostic metadata an admin debugging a failed run needs, in an admin-only store. That reasoning was never applied to a bearer credential, and the API handles one on every request: a user's ID token is a credential for as long as it lives, and an admin-only store is not a safe place for a live one. Two facts were **measured rather than inherited**, and both narrow the problem. `log-foundry` 0.6.0 exposes **no way to turn stack capture off** — `config.py` offers only `max_stack_bytes`, whose validator rejects any value below 1 — so exemption is unavailable and scrubbing at the boundary is the only answer. And the exposure is **not automatic**: `format_exception` renders each frame's source line, not its locals, and PyJWT's own messages carry no token material. The live route is this repo's own code interpolating the token, or the gateway event whose headers hold it, into an exception message or a log field — so the verifier raises a **fixed literal reason code** and chains the provider exception as `__cause__`, which the API never reads. `max_stack_bytes` is set explicitly at the API and is a **ceiling, not a control**: a reader must not mistake it for the scrub. If a later `log-foundry` offers an opt-out, this is revisited — the tests are not deleted.
+
+**SPEC-137 put EMAIL on the never list** (user decision, 2026-07-23) in the shared module docstring: a username is not sensitive here (it IS the prefix, the tag and the DB name) but an address appears nowhere else, carries no operational meaning, and would be the only personal contact detail in a forever-retained prefix. The hazard is mechanical — a Cognito trigger event carries `request.userAttributes.email`, so **never log a raw event, an attributes map, or any dict you did not build field by field**; `pre-signup` logs the DOMAIN, which is what the rule turns on and is shared by every user of that provider.
+
+## Per-plane instrumentation rules (SPEC-132→137)
+
+**SPEC-132** spent the primitives on all nine data-quality verbs and settled two things the remaining planes inherit. **The `detail` audit is a deliverable, not a reassurance:** every `TerminalError` raise site is read, and any whose `detail` interpolates *parsed file content* logs the reason token and the exception type only — in data-quality that is `inspect-source`'s `_probe_columns` catch-all, whose detail carries a polars parse error that **quotes the offending cell**, and the suppression is unconditional for that verb rather than a denylist of reasons the next reason gets added without. And **a contents-shaped field NAME is banned even when the value is a count** — the tripwire caught `rows=` in `assemble-report` on its first run, so a row count is `row_count`; a field whose safety needs an argument is one whose name should say so instead. Failures are narrated **once per verb**, not per raise site.
+
+**SPEC-133** took it to `control-plane-dlq-drain` (`service="dlq-drain"` — not a control plane, since it spans all four and is nobody's verb) and settled two rules the rollout inherits. **`request_id` is a FIELD wherever one invocation handles many requests, never baggage:** `_reset_baggage()` runs once per invocation, so on a function draining up to 400 messages, baggage would leak one request's id onto the next — the fabricated correlation key SPEC-128 FR-002 forbids. **And one event per item is right or wrong depending on which queue you emit INTO:** the sweep emits into the queue it drains, so per-message events give that queue an undrainable floor; the drain emits to the logs queue and drains the request DLQs, so per-message is correct there. The dead-lettered body is a **permanent forensic record** — redacted (every known token field), size-capped, and ONE serialized field, never re-parsed into fields or a body could shadow `request_id`/`verb`/`service`.
+
+**SPEC-134** promoted the per-plane coverage guard to a **fleet-wide harness** in `control-plane-common`: registering a plane is one `Plane()` descriptor (its glob, service name, expected verb count as a LITERAL so a short enumeration fails rather than passing vacuously, and its decorator expectation), and a verb module is found by **defining a top-level `handler`** rather than by any filename convention. It also settled that **the decorator rule is per-plane and DECLARED**: shared-space verbs notify from inside the handler, so `@traced` is asserted to be their ONLY decorator — adding `notifies_on_failure` there later fails until someone establishes the ordering. And **per-item events are permitted where the bound is STRUCTURAL**: the roster fan-out emits per member because membership is capped at ten Cognito slots, which is the same rule as SPEC-131/133, not an exception to it.
+
+**SPEC-135→137 finished the fleet.** 135 logs Athena's `StateChangeReason` **verbatim** alongside the stable token — that raw text is what would have named the missing `CREATE_TABLE` grant, and a token cannot carry a diagnosis — and moved the DDL poll's transition-only narrative into **`cpcommon.athena`**, since the loop is shared. 137's email decision lives in the field-rule entry above; 137 also verified empirically that **`cpcommon.observability` imports and emits with ZERO env vars** (`cpcommon/__init__.py` has no imports, `clients` lazy-imports boto3), which is what makes the layer safe to attach to functions that lack the six `config._require` variables — one `from cpcommon import config` added to `__init__.py` would arm PR #196's bomb for them. Detail: `spec-delivery/SPEC-132`, `spec-delivery/SPEC-133`.
+
+## No ASL state decodes an error Cause (PR #252, control-plane-wide)
+
+`States.StringToJson($.error.Cause)` raises `States.Runtime`, which is **neither retriable nor catchable anywhere** — not even by a `Catch` on the same state. The `ParseError` `Pass` states that did this killed executions *before* the recorded-failure/notify states on 3 of 4 real error shapes (`States.Timeout`, `States.DataLimitExceeded`, `Lambda.Unknown` — verified live with `TestState`). Terminal states now carry the **raw `$.error` `{Error, Cause}`**; `cpcommon.errors.failure_reason` decodes it in Python. Enforced by `lambdas/control-plane-common/test_state_machines_cpcommon.py`. Related trap: a `Pass` state's JSONPath hard-fails on an **absent key** (a null *value* is fine), so anything a terminal `Pass` names must be seeded on every path — now **enforced by a test** (SPEC-114): every `Pass` reachable from a failure seed may read only keys that seed supplies. It has caught this arc twice (`$.location`, SPEC-112; `$.reportKey`, SPEC-114).
+
+## Notifications (SPEC-058→061)
+
+Per-user inbox at `{username}/user_settings/notifications.json` (array of `{id,message,read,timestamp}` — plus an **optional `link`**, SPEC-113 FR-008: an in-app path the message renders as, gated at render by `isSafeInAppPath` so it can never become an open redirect; absent = plain text, which is every pre-113 producer). **Single-writer:** all mutations (system `create` + user `markRead`/`markAllRead` — **no delete**) go through a **dedicated FIFO SQS queue that triggers the writer Lambda directly** (SQS event-source mapping, batch size 1 — **no Pipe, no Step Function**); per-user ordering via `MessageGroupId` = username. The browser only **reads** the file (+ a **60s background poll** for the unread icon) and enqueues (`sqs:SendMessage`). Anti-spoofing = user-action messages carry the Cognito **ID token**, writer derives `username` from the verified claim (`create` = trusted-producer-only — **enforced since SPEC-206** by the writer refusing a `create` whose SQS-stamped `SenderId` names the portal role; the grant itself is unconditioned and cannot be otherwise, since no SQS condition key reaches a message body). UI = header bell **linking to a `/notifications` page** (not a drawer, not a tab), **10/page**, mark-read/mark-all only. First `create` producer = the **shared-workspace control plane** (SPEC-061; seven lifecycle events, incl. delete fanning out to all members), granted `sqs:SendMessage` on the queue. (**058 write pipeline shipped** — `infra/modules/notifications/` + `lambdas/notifications-writer/`; **059 browser data layer done** — `features/notifications/` read service + `useNotifications` + prefetch; **060 UI done** — header `NotificationsBell` link + `/notifications` page (10/page, mark-read/all, optimistic + Toast); **061 done** — the 062 verb Lambdas emit `create` inline via `notify.emit_notification` (orchestrator role gains `sqs:SendMessage` to the notifications queue ARN only; `NOTIFICATIONS_QUEUE_URL` env), best-effort.)
+
+## Every plane notifies on a pre-verb failure, and `failure_reason` is the only decoder (SPEC-152)
+
+All four control planes now carry a `NotifyFailure` state ahead of their terminal `Fail`, reached on
+every failure path, invoking a thin per-plane verb that decodes the raw `{Error, Cause}` with
+`cpcommon.errors.failure_reason` and emits through the plane's own notifier.
+
+**The gap this closes was named by the repo's own design and closed in one of four planes.**
+`@notifies_on_failure` needs handler code to run. SPEC-126's DLQ drain covers requests that never
+started an execution. Neither covers the middle: an execution that started and then failed **before or
+outside** any verb's Python — a `States.Timeout`, a `States.DataLimitExceeded`, a task-level throttle,
+a Lambda that fails at **import**. In that window the user got no notification, no DLQ message, and a
+request that never completed — against SPEC-114's rule that the notification **is** the completion
+channel, with no admin UI to check and no reason to suspect anything but slowness. Not theoretical:
+SPEC-137's nine-day `ModuleNotFoundError` and PR #196's shared-layer cold-start crash are both exactly
+this shape.
+
+**A fifth plane cannot ship without it.** `test_state_machines_cpcommon.py` enumerates every
+`state-machine.asl.json.tftpl` under `infra/modules/` and asserts each has a `NotifyFailure` Task with
+a `States.ALL` Catch, plus that its `RecordFailure` copies `$.error` **whole**. The exemption list is
+an empty dict — an entry is a decision to leave users in the dark, not a formality. The second
+assertion is not redundant with the throwing-intrinsic guard: a plane could satisfy that one perfectly
+by copying `$.error.Error` alone, and every message would silently degrade to the generic.
+
+**The duplicate-suppression mechanism differs per plane, and the difference is forced, not stylistic.**
+This state sits on *every* failure path, because the paths where no verb ran cannot be selected for in
+ASL — so an ordinary failure would otherwise notify twice.
+
+- **table-builder / table-share** suppress in Python via `_verb_already_notified`, on **one name**:
+  `Error == "TerminalError"`. That is the only *positive* evidence available — a verb raised it
+  deliberately and the decorator's `emit_terminal` fired — and it is the only case where the
+  decorator's message is strictly better, because it carries `err.tokens` (without which a
+  `columns_removed` refusal cannot name the columns). Everything else notifies, including an
+  exhausted `TransientError`, which the decorator deliberately leaves un-notified — a gap this spec
+  therefore also closes.
+
+  **The obvious generalisation is wrong in the dangerous direction, and was caught in review.** An
+  earlier version inferred the same thing from the *absence of a dot*: bare class name means a
+  handler ran, dotted engine name means it did not. But `cpcommon.config` calls `_require` at
+  **module scope** and raises a bare `RuntimeError` — not a hypothetical, this fleet's own recorded
+  outage (`lambda.tf`: "check-table-absent: RuntimeError COGNITO_USER_POOL_ID unset", PR #196). The
+  heuristic would have suppressed it, silencing the exact class of failure the spec exists to
+  report. The set of dot-free names meaning "a verb notified" is unbounded and unknowable from the
+  payload; the set meaning `TerminalError` is one string.
+
+  **The price is a duplicate on the unexpected-exception path** — a `KeyError` inside a verb
+  notifies through `emit_unexpected` and again here, same generic sentence. FR-002 settles it: a
+  duplicate is preferable to none. A guess that suppresses is unrecoverable; a duplicate is a
+  papercut on a path that is already a bug.
+
+  **A seeded error must not wear a verb's name.** table-builder's `DiffMissingSeed` (the
+  `RouteByChange` `Default`) manufactured `Error: "TerminalError"` for a case where `diff-schema`
+  *returned successfully* without a `$.diff` — so no exception was raised and no decorator fired. It
+  now seeds `DiffMissing`, because a defensive seed whose whole purpose is the shouldn't-happen case
+  is the last thing that should buy itself a `Fail` state and silence. The user-facing text is
+  unchanged: neither code is registered, so both render the generic clause.
+- **shared-spaces** cannot use that test, because five of its seven verbs emit **no** failure message
+  at all and a "did a verb run" guard would restore their silence. It reproduces the verb's **FIFO
+  dedup token** byte-for-byte instead (`{requestId}:{action}-failed:{actor}`), so SQS drops the second
+  message where a verb already spoke and delivers it where none did.
+- **data-quality** is unchanged: `dqcommon` centralises one `FAILURE_STEP`, so its pair already
+  collapses on an identical token. Unifying `tbcommon`'s per-verb steps to match would change
+  notification behaviour on paths that already work.
+
+**shared-spaces needed structural work, not just a state.** Its seven verb `Catch` blocks carried **no
+`ResultPath`**, so the error object *replaced* the state and the verified actor was discarded — there
+was no recipient to notify even in principle. They now merge under `$.error`; a `ValidateFailureSeed`
+covers the pre-identity path (its Catch cannot carry a `ResultPath` — you cannot merge a key into an
+array), and the router's `Default` gets an `UnknownActionSeed` whose **literal** `Result` merged under
+`ResultPath` is the one seed form that reads no path and so cannot itself raise.
+
+**`$.mode` on table-builder's `RecordFailure` supersedes the rule that forbade it.** The old test
+banned `mode.$` there; its stated *reason* was that `ValidateFailureSeed` did not seed it and a Pass
+state hard-fails on an absent key. The ban was never the invariant — the seeding was. `mode` is now
+seeded, and the test asserts the general form: `RecordFailure` may read nothing `ValidateFailureSeed`
+does not seed. Without it a failed **refresh** tells the user their **create** failed.
+
+**shared-spaces gained a `failure_message` resolver** (`shared-space-common/messages.py`), the last
+plane to get one. Its domain table is **empty on purpose**: every reason that can reach this path is a
+raw engine name that SPEC-106 FR-008 forbids showing, so what varies is the **action**, not the reason.
+Going through `cpcommon.messages.register` rather than hard-coding the clause means a code registered
+later renders through the same path.
+
+**No deploy-role IAM was needed, and that was verified rather than assumed.** All three planes' deploy
+policies scope `lambda:CreateFunction`, `iam:PassRole` and `logs:CreateLogGroup` to
+`{project}-*-<plane>-*` wildcards, and each plane's SFN invoke grant renders from the same `locals.tf`
+map the new function was added to. SPEC-143's `load-table-definition` is the live precedent. The
+spec's Phase 1 assumed an expansion and sequenced a separate land-and-apply around the self-grant
+timing trap; neither was required.
+
+**The cold-start probe is the one gate that would have caught SPEC-137.** `test_notify_failure_import_safety.py`
+imports each new verb in a fresh interpreter whose `sys.path` is **exactly** what its deploy-matrix row
+grants. `conftest.py` puts every layer root on `sys.path` for the whole suite by design, `update-function-code`
+succeeds against a function that cannot import, and `test_deploy_matrix.py` reasons about **names** — it
+cannot tell you the named layer actually publishes what the code imports. The environment is
+**inherited**, unlike `test_layer_import_safety.py` which withholds `cpcommon.config`'s six: these verbs
+reach their DOMAIN config through their notifier, whose import-time `_require` is *supposed* to run.
+(`cpcommon`'s own six resolve on first access since SPEC-156 FR-004, so they are no longer part of what
+an import demands from anyone.) Only `sys.path` is scrubbed, because packaging is what is under test.
+
+**One layer needs a second guard, and only one.** The probe puts layer SOURCE TREES on `sys.path`, so a
+module present on disk but absent from a layer's *build* is invisible to it. Every layer copies a
+**package** (`cp -r cpcommon`) except `shared-space-common`, which publishes **flat modules** from an
+explicit `for m in config casio auth …` list in the workflow — so a new module there ships only if
+someone remembers to name it. Review confirmed the gap was live: deleting `messages` from that list left
+the entire suite green while the deployed layer lost it. A test now joins the workflow's list against the
+directory — **SPEC-153 moved it to `test_deploy_matrix.py`**, the harness whose subject is packaging, and
+generalised it; see *A layer gate must check the copy list, not the flag map* below.
+
+---
+
+## A layer gate must check the copy list, not the flag map (SPEC-153)
+
+`test_deploy_matrix.py` exists because SPEC-137 shipped instrumented code whose layer attachment was
+missing and every gate was blind. It joins each function's **imports** against the matrix **flags**.
+That answers "which functions attach the layer" and says nothing about **what the layer contains** —
+so adding a module to `lambdas/shared-space-common/`, importing it from a function whose row already
+reads `layer: true`, passed every check, deployed green, and raised `ModuleNotFoundError` at cold
+start. SPEC-137 again, straight through the gate built to stop it.
+
+**The rule: for any layer packaged by an explicit per-file list, assert SET EQUALITY between that list
+and the directory.** Both directions — a module in the directory and not the list never ships; a
+module in the list and not the directory fails the `cp` at deploy time. Completing the flag map does
+**not** substitute: all nine shared-space modules ship in one layer behind one flag, so a module that
+never reaches the zip is invisible to the flag map no matter how complete it is. `LAYER_PACKAGES` was
+corrected to all nine anyway, with a comment saying exactly that.
+
+`shared-space-common` is the **only** such layer — every other copies a whole package directory or
+pip-installs, so a new module ships by existing, and those are exempt for that named reason.
+`test_no_unchecked_explicit_copy_list_was_added` fails if a second one appears, so the exemption
+cannot quietly widen. A guard-the-guard asserts the parsed set is non-trivial: two empty sets are
+equal, and a regex that stops matching would otherwise pass vacuously.
+
+SPEC-152 shipped the shared-space half of this in
+`test_notify_failure_import_safety.py`; SPEC-153 moved it to the packaging harness and generalised it,
+rather than leaving two copies of one set-equality to drift apart.
+
+---
+
+## The deliberate twins are discharged: one implementation per cross-plane helper (SPEC-156)
+
+Four helpers were duplicated across the Lambda layers *on purpose*, each with a comment saying so
+and naming the condition under which the copies should converge. Those conditions had all expired,
+and in two cases the drift the comments warned about had already happened — `dqcommon`'s CAS twin
+handled a racing 409 that `casio`'s did not and used a different retry cap, and `cpcommon/auth.py`'s
+"one JWKS-verification path for the whole repo" docstring was false because `notifications-writer`
+could not import it.
+
+**Decided: `cpcommon` owns the algorithm; a domain layer owns its wording and its constants.** The
+conditional-write CAS loop (FR-001), the failure-message resolver (FR-002), the results-location
+builder (FR-003), the JWKS path (FR-004), the SQS envelope parser and the Athena DDL runner (FR-005)
+each exist once. The domain message modules keep only their **tables**: `cpcommon.messages.Resolver`
+gained `prefix`, `access_denied` and `fallback` templates and an opt-in `blank_unfilled`, so a plane
+expresses its whole sentence as configuration. `Resolver.__init__` refusing a re-defined base code
+is what had kept two planes out — both re-definitions were byte-identical restatements, so deleting
+them was a provable no-op rather than a wording change.
+
+**The blocker was `cpcommon.config` resolving eagerly** (FR-004). Six `_require`d environment
+variables at *import* meant a function that set three could not import `cpcommon.auth` at all, so it
+grew its own verifier. That is the general shape worth carrying: **an eager module-level requirement
+does not merely inconvenience an importer, it forces a fork.** Config resolves lazily now and still
+fails loudly at first use.
+
+**Byte-identity was measured, not asserted.** Every reason in all three planes was rendered under
+every argument combination against both implementations — 2214 messages per side. Exactly one row
+differed: `malformed_event` under table-share, a shared base code that plane never declared, which
+used to fall to `tscommon`'s unknown-code fallback and now reads what it means. It is unreachable
+there today (table-share's only `parse_sqs_request` call raises `unauthorized`), and it is pinned by
+a test rather than left to be rediscovered in an inbox. **Reading three implementations side by side
+would not have found it** — that is the argument for rendering both and diffing, on any future
+consolidation.
+
+**Do NOT** read this as licence to merge the domain layers into `cpcommon`. The layers stay; only
+genuinely cross-plane helpers moved, and a move that would change which layer a function attaches to
+is a `deploy-lambdas.yml` matrix change with SPEC-137's failure mode attached.
+
+## The copy is a top-level Distributed Map, and attribution is a verb (SPEC-160)
+
+Sharing a table used to copy every object for a recipient inside **one** `copy-objects` invocation,
+inside a `Map` over recipients. The share caps followed from that: `SHARE_MAX_OBJECTS = 1000` and
+`SHARE_MAX_TOTAL_BYTES = 20 GiB` were sized backwards from a 900-second Lambda timeout. A user with
+several hundred Parquet part files did not get a slow share; they got a refusal that read like a
+product decision and was really an implementation detail.
+
+The copy is now a **top-level Step Functions Distributed Map** over a flat `(recipient × object)`
+JSON Lines manifest in the admin bucket, batching items into the same copy code as before.
+
+**Top level, NOT nested inside the recipient `Map`.** The nested version is the obvious one and it
+buys nothing: it fans out per recipient, so the ceiling stays per-recipient work. One Map over pairs
+covers every recipient at once and never raises the nesting question. It costs exactly one thing,
+and that cost is this decision's other half: **per-recipient isolation stops being a property of a
+Map item.**
+
+**So attribution became a verb, and it reads BOTH result groups.** `collect-transfer-results` reads
+the Map Run's `ResultWriter` export. Step Functions files a child by its **execution status, not by
+what its payload says** — and the batch copier deliberately **succeeds** while reporting per-item
+failures, so those land in `SUCCEEDED_n.json`. A collector reading only `FAILED_n.json` would report
+universal success while a recipient received an incomplete dataset **and a table over it**. It
+therefore reads `SUCCEEDED_n` (per-item `failures` from the output) **and** `FAILED_n`/`PENDING_n`
+(whole-batch failures, attributed from the child's *input*). A record whose payload Step Functions
+omitted (`Included: false`) is **unattributable and fails the whole request** — never "no failures
+found". One failed item means that recipient gets **no table**: a partial copy under a table
+definition is worse than no table at all.
+
+**`ToleratedFailurePercentage: 100` and `STANDARD` children.** The Map Run must always finish, or
+there is nothing for the collector to attribute. Children are STANDARD because a batch may hold a
+multi-GiB object whose multipart copy exceeds EXPRESS's five-minute ceiling, and EXPRESS's
+at-least-once semantics would re-run whole batches.
+
+**A WHOLE-batch failure fails every recipient in that batch, and that is fail-closed on purpose.**
+Items are batched in recipient-major order, so a batch spans several recipients only when a
+recipient has fewer objects than the batch size — but when it does, a child execution that dies
+outright (an exhausted `TransientError` retry, a Lambda timeout) takes all of them down with it. It
+reported nothing per item, so which of its items landed is genuinely unknown, and the conservative
+answer is the only honest one. Pre-160 each recipient had its own invocation and its own retry
+budget, so this is a real narrowing of isolation, accepted deliberately: the alternative is trusting
+a copy nobody observed. A Distributed Map cannot partition batches by key, so a per-recipient
+guarantee would mean a Map per recipient — the nested design this decision rejects.
+
+**Attribution keys on `(kind, name)`, never the name alone.** A destination is a pair, and nothing
+in this system stops a shared space being named after a user (the archival arc records the same
+hazard for its key layout). Keyed on the name, one failed object in space `acme` would deny user
+`acme` a table they actually received, and send them a failure notification for it.
+
+**The export is reconciled against the manifest, not merely parsed.** Every unrecognised shape
+raises — an entry naming no object, a result file that is not a list of records, a record with no
+item count — because a reader that skips what it does not understand reports a clean run over an
+export it never read. Shape checks alone are not enough, though: a well-formed export can still
+cover only some of the batches, so the collector requires the item count the export accounts for to
+equal the count `build-transfer-manifest` wrote. Anything less is a whole-request failure.
+
+**The raw `{Error, Cause}` is decoded at the collector and NOT carried onward.** This is a payload
+decision. A Cause runs to hundreds of bytes with its stack; leaving `guardResults` on the state
+*and* re-emitting the raw error in the outcomes would put three copies of every refusal on the state
+by the time the finish Map merges its results — measured at **108% of the 256 KB limit** for 50
+conflicting recipients, which is the *ordinary* case of re-sharing a table most recipients already
+have, and a breach there lands **on a Map** and destroys every per-recipient outcome. So the
+collector **consumes** `guardResults` and carries `cpcommon.errors.failure_reason`'s decoded code;
+the raw object remains in the execution history at the state that produced it. The two peaks — the
+guard Map's output and the finish Map's — are both modelled by
+`test_the_whole_map_state_stays_under_the_payload_limit`, at 42% and 45%.
+
+**A deterministic item failure never raises; a transient one always does.** The batch returns
+per-item outcomes and succeeds, so one unreadable key never costs its 49 siblings their copy. A
+throttle raises after every in-flight copy settles, and the Map retries the whole batch — safe
+because copy is idempotent and the conflict guard has already run. The `CopyObjects` child state
+carries **no `Catch`**: catching there would SUCCEED a failed child, filing it under `SUCCEEDED_n`
+with no per-item failures, and every item in it would be reported as copied.
+
+**The manifest key is execution-unique; the copy plan beside it is deliberately not.** A plan is a
+pure function of the request, and two overlapping executions colliding on one plan key is harmless
+because both plans describe the same object set — that argument is written out in `plan_key`'s
+docstring and still holds. It does **not** carry to the manifest: its lines depend on which
+recipients the **guard accepted**, which is time- and destination-dependent, so a shared key would
+let one execution's Map Run copy for a recipient the other's guard had just refused as `conflict`.
+The execution name is stamped by a **Pass** state (SPEC-157's measured pattern: reading `$$` in a
+task's own `Parameters` wraps the payload, and every notify path here reads the request at the top
+level).
+
+**The Distributed Map's permissions are the STATE MACHINE role's, not the Lambda execution role's.**
+It is the state machine that calls `StartExecution` for each child and that reads the `ItemReader`
+object and writes the `ResultWriter` export. Putting them on the execution role renders green,
+applies green, passes a policy-render test, and fails on the first real share with `AccessDenied` at
+the `ItemReader` — naming a role nobody was looking at. `StopExecution` is not granted;
+`StartExecution` + `DescribeExecution` is the documented least-privilege pair. A test asserts the
+`states:` actions appear in the SFN policy and **not** in the execution policy.
+
+**The engine lives on `cpcommon.transfer`, not `tscommon`.** SPEC-164→167 (send files) is the second
+caller and SPEC-168→172 (archive) the third; SPEC-156 already settled that `cpcommon` owns the
+algorithm while a domain layer owns its wording and key layout. `tscommon.copy` was **deleted**, not
+wrapped — a re-export shim is the deliberate twin that spec exists to prevent. Table-share keeps the
+manifest **key layout** (`copy_plan.transfer_manifest_key`) and every user-facing sentence.
+
+**S3 Batch Operations is rejected, not deferred** — see the amendment on the *Table Share* entry
+above. The refusal is a property of the API (`TargetKeyPrefix` prepends to the full source key; 5 GB
+per object; one destination bucket per job), not of the implementation it was proposed to replace.
+
+**The caps did not move.** 160 changes the mechanism and nothing a user can see: same push, same
+conflict rules, same notifications, same `SHARE_MAX_*`. That ordering is deliberate — a regression in
+a new engine must not be able to hide behind a new limit. SPEC-161 raises the ceiling.
+
+**Two numbers live in two places, and a test holds them together.** `MAX_ITEMS_PER_BATCH` and
+`MAP_MAX_CONCURRENCY` (20) are read by the batch verb from `cpcommon/transfer/config.py` and by the
+rendered ASL from `locals.tf`, because Terraform cannot import Python. The batch size is sized
+against S3's *worst case* — two 1024-byte keys and two 63-byte bucket names put an item near 2.3 KB,
+so even 50 items sat under half the 256 KB child-execution input limit — and that bound is
+**computed in a test**, not asserted as a number.
+
+> **Superseded (SPEC-161, 2026-08-10) — `MAX_ITEMS_PER_BATCH` is 8, and the PAYLOAD bound is no
+> longer the binding one.** `ItemBatcher` batches by **count, never by bytes**, so the unit that
+> must copy inside `copy-objects`' 900 seconds is a whole batch. That was implicit while
+> table-share's total cap was 20 GiB — a batch could not exceed the whole table — and SPEC-161's
+> 1 TiB removed it.
+>
+> **And a batch's cost is a MAKESPAN.** `copy_batch` hands one whole object to each of
+> `COPY_CONCURRENCY` workers and `copy_one` part-copies serially, so the cost is
+> `ceil(items / COPY_CONCURRENCY)` rounds of the slowest object — never total bytes over an
+> aggregate rate. **8 = `COPY_CONCURRENCY` makes that ceiling one**, so a batch costs one object's
+> time (429 s at `SHARE_MAX_OBJECT_BYTES` 10 GiB). At 10 items it was two rounds and 859 s against
+> a 900 s timeout; the bytes-over-bandwidth reading called the same configuration 537 s and stayed
+> green. `test_a_worst_case_batch_copies_inside_the_verb_timeout` computes the makespan and
+> `test_a_batch_is_exactly_one_round_of_the_worker_pool` pins the equality. **The batch size,
+> `COPY_CONCURRENCY` and table-share's per-object cap can no longer be changed independently.**
+
+## A post-identity failure needs its own seed, and the fleet guard cannot see it (SPEC-165)
+
+**Decision.** The file-send machine carries **two** failure seeds. `InspectSource`'s catch uses
+`ResultPath: "$.error"` and routes to `InspectFailureSeed`, which supplies `raw` from
+`$$.Execution.Input` and the actor from `$.actor`.
+
+**Why not route the catch straight to `RecordFailure`,** which is what every other plane does. This
+plane's `RecordFailure` reads `$.raw`, and `raw` exists on **no** post-validate state — SPEC-164
+deliberately did not thread the request through, because the Pipe record carries the selection
+again as an escaped string. A Pass state's JSONPath hard-fails on an absent key with an uncatchable
+`States.Runtime`, so the direct route kills the execution **before** `NotifyFailure`: the sender
+hears nothing, on exactly the failures SPEC-152 exists to report.
+
+**Why the fleet guard does not cover it.**
+`test_a_failure_seed_supplies_every_key_the_failure_terminal_reads` identifies a seed
+**structurally**, as a Pass whose `error.$` is `"$"` — the shape a catch has when the error
+*replaced* the state. A catch carrying a `ResultPath` produces `"$.error"` instead, and the fleet
+walk skips it entirely. Widening that detection is a fleet-wide change to a guard, on five machines,
+and was **rejected as out of scope for this spec**; the plane's own suite compensates with a walk
+that derives from the machine what Step Functions actually leaves on the state at each catch
+(`ResultPath: "$.x"` ⇒ the task's input plus `x`; no `ResultPath` ⇒ nothing addressable). Verified
+by mutation — and the first version of that walk **passed vacuously** on the exact mutation it
+existed for, because it treated the catch target as a seed instead of as a reader.
+
+## The machine's ceiling cannot notify on its own, and this plane's timeout door needs a fallback (SPEC-166)
+
+**Decision.** A top-level `TimeoutSeconds` of 10,800, shipped together with an EventBridge rule on
+`Step Functions Execution Status Change` / `TIMED_OUT`, a second door in `fs_notify_failure`, that
+verb's raise to 60s, and the deploy role's `events:` grant.
+
+**Why together.** AWS catchers cover Task, Parallel and Map states but **not top-level execution
+failures**: the timeout terminates the run outright, so no state runs, no `Catch` fires, and the
+machine's own `NotifyFailure` is unreachable on the one failure it most exists for. `TIMED_OUT`
+only, never `FAILED`, or every caught failure notifies twice.
+
+**The budget is computed, every term of it**: copying 6,597 s + per-child overhead 939 s + guard Map
+600 s + serial verbs 735 s = 8,871 s against 10,800 s. The only input without a measurement behind
+it is the per-**round** child overhead — charged per round because slots pipeline — and it is
+load-bearing: charged per child at even half a second the budget would blow. The test states its
+own break-even (~9 s per round).
+
+**The door needs a fallback table-share does not.** EventBridge caps an event at 256 KB and Step
+Functions drops the input rather than exceed it, while `SEND_MAX_ITEM_BYTES` deliberately allows a
+Pipe record approaching 200 KB — so the sends most likely to time out are exactly the ones the
+event alone cannot attribute. The door reads the input back with `states:DescribeExecution`, on the
+**Lambda execution role**, because EventBridge invokes the notifier outside any execution.
+
+**And the seed that reports all of this must not carry the request twice.** `RequestFailureSeed`
+supplies `$.raw` (the Pipe record, ~200 KB at the cap) and **not** `$.source`, which is the same
+selection again: together they breach the 256 KB state limit for a quote-heavy legal request, on a
+Pass with no `Catch`, killing the run before `NotifyFailure` at the end of a three-hour copy.
+Nothing on the failure path reads the source; an operator has it inside `raw`.
+
+## The lock protocol is `cpcommon`'s, extracted ahead of its second consumer (SPEC-187)
+
+SPEC-187 needs a per-space lock, which made the file-operations plane the second consumer of a
+protocol that had lived on `tbcommon.table_lock` since SPEC-157. Copying it would have left **two
+full compare-and-set lock implementations in the fleet** — the deliberate twin SPEC-156 spent a spec
+discharging, in the one module whose entire purpose is preventing a concurrency bug.
+
+So the protocol moved to `cpcommon.lock`, parameterised by bucket, key, stale threshold, wording and
+identifying fields; each domain keeps its key layout, its own thresholds and its own sentences. It
+was extracted **ahead of** the second caller rather than after it, which is this repo's recorded
+pattern: building the caller first means importing a leaf domain's module, and that is the
+undeclared shared layer SPEC-155 had to unpick.
+
+**Two seams the shape had to grow, both forced by what a caller's tests need.** The reader is
+**injected**, called as `read(key)` — pinning the read is the only way to reach the concurrent case,
+two acquires seeing one stale tag decided by the compare-and-set rather than the age check. Had the
+protocol read S3 itself, that seam would not exist and `test_two_simultaneous_steals_and_only_one_wins`
+would have degraded into two sequential calls that still pass every assertion, which is worse than a
+failure. And the wording is **six sentences plus a fields mapping**, not one label: the six are
+emitted from seven call sites with different fields, and a caller's tests assert them by message.
+
+**The proof of behaviour preservation is that table-builder's two lock suites were not rewritten.**
+One assertion did have to move — a grep for `delete_object` pointing at a module that no longer holds
+any write code, which would have kept passing while asserting nothing.
+
+## The engine's attribution vocabulary belongs to the CALLER, not to cpcommon (SPEC-189)
+
+`cpcommon.transfer.copy_batch` and `results._from_input` built their failure records as
+`{recipient, kind, reason}`, hardcoded to table-share's vocabulary. This plane attributes to a
+**selected item**, and there was no field to carry it: an `itemKey` on a manifest line rode into the
+child input and was dropped on the way out. The engine now takes a caller-supplied `echo_fields` set
+in **both** halves — they are separately implemented, one copying what the batch verb wrote and one
+rebuilding it, which is exactly the pair that drifts, and a drifted record is one the caller
+silently cannot attribute.
+
+**`echo_fields` has no default.** A default hands a new caller either table-share's vocabulary or an
+empty set, and both are wrong without a review. Table-share and file-send pass
+`("recipient", "kind")` and their records are byte-identical, measured by rendering both rather than
+argued. **Archive passes the empty set and its records change**: its manifest carries neither field,
+so every archive failure used to read `{"recipient": null, "kind": null, …}`. A named test says the
+two nulls are gone on purpose.
+
+**The echoed fields must stay bounded.** The list rides the exported result and then the state, where
+a key list is the unbounded term that breaches the 256 KB limit **on the Map** — destroying every
+per-item outcome the export exists to preserve. Echo a name, never a key set.
+
+## Two budgets, and both were wrong before they were computed (SPEC-189)
+
+**The joint budget:** the lock give-up, two guard sweeps, every serial verb timeout, the copy's
+makespan and the deletion, added. At 3 TiB it came to ~12,700 s against a 10,800 s ceiling — and the
+earlier version carried **no give-up term at all**, though a waiter can spend 2,080 s. Waiting for a
+busy space and *then* copying is one execution, not two scenarios. **The cap moved to 2 TiB, not the
+ceiling**, because the ceiling also sets `STALE_LOCK_SECONDS` and a longer stale window on a shared
+space blocks everyone who works in it, not only the person whose run wedged.
+
+**The state budget, which no earlier spec owned:** the deletable list, the per-item counts and the
+per-item deletion records measure **287,532 bytes** at the selection cap against 262,144 (307,083
+with conflict samples). All three travel by pointer, on this plane's own recorded rule that
+everything unbounded on the state does. Where it would have broken is the worst place available:
+`States.DataLimitExceeded` on the collector's result lands **after the copy**, and on delete-source's
+**after the deletion**, and that error escapes every `Catch` — so the user would be told nothing at
+all about an operation that had already moved their data.
+
+## One producer, after the release, reached from BOTH of ReleaseLock's edges (SPEC-191)
+
+The plane's outcome producer is the last state before `Succeeded` and it sits **after**
+`ReleaseLock` — before it, the space would be held for as long as the messages take to write. The
+half that is easy to miss is that `ReleaseLock`'s **`Catch`** had to move with its `Next`. That
+catch exists so a failed release cannot fail a request that did its work; pointed at the terminal,
+it skips the producer, and a release whose `Retry` one throttle exhausts then **completes the
+operation and tells the user nothing**. The browser's per-space gate, which settles on a
+notification carrying the `requestId`, would hold that space until the machine's ceiling — the exact
+wedge the always-present `requestId` exists to prevent, arriving through the one path nobody looked
+at. Both edges reach the producer now, and a test asserts it.
+
+**It is also the one Task on this plane whose catch reaches a terminal rather than a release**, and
+that is not an oversight to be tidied. The lock is free by the time it runs, and a release is an
+**overwrite**, not a compare-and-set on the holder — so a second one would clobber whichever
+execution had since acquired that space. The graph walk's not-under-the-lock set names it with the
+reason, beside validate-authorize and the failure notifier.
+
+It cannot fail the run: `ResultPath: null` on the state *and* on the catch, and **no**
+`@notifies_on_failure` — by the time it runs a `move` has already deleted its sources, so a raise
+would report a completed operation as a failed one. And it reads the **state and nothing else**: a
+verb that loaded the plan would join the set whose smallest memory sizes `FILE_OPS_MAX_OBJECTS`,
+shrinking a cap that has nothing to do with notifying. A test derives that set from the source.
+
+## A notification payload is bounded by BYTES, and the binding case is the PLAIN one (SPEC-191)
+
+The inbox is capped at 200 rows and the browser fetches and `JSON.parse`s the **whole** document on
+every 60-second poll, from the header bell, on every page — so a worst-case inbox is a recurring
+per-minute download rather than a one-off read. Against that, one conflicted item is ~200 bytes at
+ordinary key lengths and ~12,000 at this plane's caps: S3 keys are 1,024 bytes of arbitrary UTF-8
+and JSON escaping turns a control character into six. A count of three is therefore either
+negligible or 36 KB, and the count alone cannot tell those apart.
+
+So the payload is bounded by **bytes as well as count**, enforced at mint by adding conflicted items
+only while the serialised payload still fits and setting `more` when any are dropped — for either
+reason. That is what makes the pathological case *safe* rather than merely small: a run whose keys
+are at S3's limit carries fewer items than the count allows, or none, and says so.
+
+**The budget the byte cap is derived from is the MARGINAL one** — the structured field may not add
+more to the worst-case inbox than the row already costs without it. An absolute number would be one
+chosen and then defended, and the row's own fixed cost (a percent-encoded link, a 1,024-byte
+destination prefix) is not something this spec controls.
+
+**The estimate was overturned twice, and both corrections came from measuring rather than
+reasoning.** 4 KiB was written down first. The first measurement refused it — and the binding case
+turned out to be the **plain** one, not the escape-heavy one, because a control character expands
+*six* times inside the JSON payload and only *three* times in the percent-encoded link beside it, so
+the row a payload competes against is **smaller** when the keys are hostile. Then a reviewer found
+the second error: that measurement compared the budget against a row **that already carried the
+payload head**, which weighs the field against itself. Measured against a row carrying no payload at
+all, the allowance is **1,674 bytes**, not 3,047. **The cap is 1 KiB.**
+
+**The head is mandatory, so its one unbounded term is capped separately.** Dropping conflicts cannot
+help when the head alone is over budget, and nothing validates the LENGTH of a destination prefix on
+the way in — only its containment. Left unbounded, a hand-crafted envelope with a multi-kilobyte
+prefix would push the payload past the writer's ceiling and lose the **whole message**, on the queue
+whose dead-letter queue is deliberately undrained, after the data had already moved.
+`FILE_OPS_NOTIFIED_PREFIX_BYTES` is S3's own key limit: a prefix longer than a legal key cannot
+produce a legal destination key, so the run it describes copied nothing and a re-submit of it would
+be meaningless.
+
+**The producer's bound and the writer's refusal are two numbers in two languages.** A payload the
+producer considers fine and the writer refuses does not lose its conflict list, it loses the
+**whole message** — on the one queue whose dead-letter queue is deliberately undrained. So
+`notifications_writer.MAX_PAYLOAD_BYTES` **rejects** (never truncates) an oversize payload, and a
+test reads that ceiling back out of the Lambda and asserts the largest payload this plane can emit
+sits under it.
+
+## The run's ONE sentence opens neutrally, because its residue is not all failure (SPEC-191)
+
+Partitioning a run's outcomes into "the operation's success outcome, or not" is the obvious split,
+and it makes the sentence contradict itself on the two outcomes that matter most.
+
+A **`duplicate`** reached the destination — the notification's own link points there — so an opening
+of "Nothing was moved" is false, and it is followed two clauses later by "This data is now in both
+places". A **`noop`** is a success that did nothing, which this plane's vocabulary says in as many
+words; reported as a denial it reads as exactly the failure the wording rules exist to prevent.
+
+So the opening is `N need your attention`, which is true of every member of the residue and is the
+only thing they have in common. What succeeded is still named first on a mixed run — "2 of 5"
+answers the question a user actually has, where a message listing only refusals reads as though
+nothing worked.
+
+## A resolved space carries its own IDENTITY, not only its location (SPEC-191)
+
+`authz` resolved a space to `{bucket, root}`. A root is not a name and a bucket is not a kind, and
+the difference surfaces only at the far end of the plane: the producer has to say which space a run
+touched and link into it, and a re-submit built from that notification needs the **source** space,
+which no absolute key contains.
+
+Left as it was, `kind` and `name` reached the summary as `None`, the link builder refused to mint
+anything, and **every notification shipped with no link at all** while the payload carried nulls
+where a re-submit's spaces belong — with a full green suite, because every fixture in the notifier's
+tests hand-wrote the shape it wanted. That is the test-that-cannot-fail class: the fixture asserts a
+shape the producer does not emit.
+
+They ride from the resolver rather than being re-read off the request, because that is the point at
+which the claim has been **authorized** — a later verb reading the untrusted body would be naming a
+space the actor may never have been granted. The guard against the fixture problem recurring is one
+test that builds the notifier's input from the real `authorize_source` and the real finaliser
+instead of a literal.
+
+## `requestId` rides on every row, including a clean run's and a failed run's (SPEC-191)
+
+A reader settles its in-flight record by matching it, and a clean run has nothing to re-submit — so
+scoping the field to "what a re-submit needs" would leave successful operations unsettled. The same
+argument applies one path over, to a run that **failed** before the producer ever ran, which settles
+nothing otherwise; so the two failure emitters carry a minimal `{requestId}` payload too. That is
+beyond the spec's own acceptance criteria and was built deliberately.
+
+## The outcome link: destination, source, or the common folder of the items' PARENTS (SPEC-191)
+
+A copy or move that landed anything links to the **destination**; anything else links to the
+**source**, because that is where the items still are. One message per run means one link, so the
+rule is about the run rather than about an item — and a `duplicate` counts as landed, since its
+objects *are* at the destination and that is exactly where the user has to look to choose which copy
+to keep.
+
+**A `delete` links to the deepest folder its items shared, computed over the items' PARENTS.** Over
+the keys themselves, a single-item delete yields the item — linking the user into the folder that
+was just removed, an empty listing where a folder used to be. Taking parents first makes the
+one-item and many-item cases the same computation. A common prefix is also cut back to its last
+slash: two siblings named `report-a` and `report-b` share `report-`, which names no folder.
+
+**`?space=` is minted FIRST, and that is not cosmetic.** `NotificationRow` gates the shared-space
+variant on the literal `?space=`; the other parameter order slips the gate, the route never reads
+the space, resolves the personal one, discards a prefix that does not start with it, and lands the
+user in their own files with no banner while the message names a shared space.
+
+**This is the fleet's first link built from an arbitrary KEY**, so the prefix is **percent-encoded**
+at mint — every other plane interpolates catalog-constrained names. An unencoded `?`, `#` or `&`
+truncates the link into one that resolves elsewhere, and the browser's `isSafeInAppPath` cannot see
+it: that guard inspects only the first two characters.
+
+## The outcome wording reuses the failure bodies and is deliberately NOT a resolver (SPEC-191)
+
+Six per-item outcomes carry a reason the failure table already words — `source_missing`,
+`source_empty`, `copy_failed`, `source_changed`, `source_delete_failed`, `delete_refused` — so the
+item clause resolves through that same table and only the outcomes with no body of their own are
+written out. A second table would be one code with two sentences, inside one module.
+
+**The outcome table is not registered as a `Resolver`.** `Resolver.__init__` ends by marking every
+key it is given a globally valid reason code, so registering these would let
+`TerminalError("duplicate")` pass raise-time validation — undercutting `outcomes.py`'s rule that no
+member of the per-item vocabulary may ever be a whole-request failure reason. That a success
+sentence cannot open with "Couldn't move that: " is the lesser argument.
+
+## A pre-existing notifications spoofing gap, recorded and not fixed here (SPEC-191)
+
+> **Superseded by SPEC-206 (2026-08-24).** The gap below is closed: the writer refuses a `create`
+> whose SQS-stamped `SenderId` names the portal role. The grant is still unconditioned — that part
+> stays true, and is why the control is a runtime one. See the SPEC-206 entry at the end.
+
+The portal role holds an **unconditioned** `sqs:SendMessage` on the notifications request queue, and
+the writer takes the body's `username` verbatim for a `create`. A signed-in browser can therefore
+already plant a notification — message and clickable in-app link — in another user's inbox. The
+comment directly above that IAM grant asserts the opposite, which is the dangerous combination: a
+reader checking the IaC is told the hole is closed. IAM cannot condition on a message body, so the
+fix is a second queue or a token on `create`, and it changes a plane seven features share. Recorded
+rather than absorbed into this spec; the payload ceiling above is the only part of it this spec owes.
+
+## The notifications `create` boundary is a runtime check, because IAM cannot express it (SPEC-206)
+
+The plane has said since SPEC-058 that `create` is trusted-producer-only, and the writer takes the
+body's `username` on that action — correctly, because a plane notifying a *recipient* holds no token
+for the person it is telling. **The IAM policy never implemented it.** The portal role's
+`sqs:SendMessage` on the notifications queue was unconditioned, so any signed-in user could enqueue a
+`create` naming anybody and saying anything, including a clickable in-app link. The comment above that
+grant asserted the opposite, which is the dangerous combination: a reader checking the IaC was told the
+question had been answered.
+
+**IAM cannot express this rule at all, and that is the argument — not a preference for runtime checks.**
+No SQS condition key reaches a field inside a message body, so a queue or identity policy could only
+deny the portal role `sqs:SendMessage` outright: the same principal on the same action that `markRead`
+and `markAllRead` need. There is no policy that permits two of the three actions. So the boundary is the
+`SenderId` SQS stamps on every message — a message *system* attribute the service sets and a
+`SendMessage` cannot — compared on the **role-id half**, the substring before the first `:`. Not
+equality against the whole value (which never matches, and a control that never matches reads exactly
+like one that works) and not `startswith` (which would refuse an unrelated role whose unique ID merely
+shares an opening). The session-name half is never examined: Cognito's enhanced flow does not document
+what it puts there.
+
+**The rule is a DENY of one principal, not an ALLOW of eight.** Nine principals hold the grant — seven
+control-plane execution roles, the DLQ drain, the portal role — and exactly one is user-reachable, which
+is what makes a single-principal refusal complete rather than partial. An allow-list would be a
+hand-maintained list of role IDs that fails closed on the day a plane is added: that plane's
+notifications would stop, drop or dead-letter unnoticed and nobody would connect the two. One
+environment variable beats eight, and the deny direction fails open only toward principals that require
+an explicit IAM change to exist.
+
+**A refusal LOGS AND DROPS; it does not raise.** Raising would cost three invocations and one permanent
+dead-letter message per forged request, on the queue whose DLQ SPEC-126 deliberately leaves undrained
+and which is this plane's only operator-facing signal — handing every signed-in user a way to drown it.
+The structured `observability.error` therefore *is* the signal, and has to be, precisely because nothing
+accumulates to notice. It carries the reason code and the SQS `messageId` (both service-stamped) and
+**nothing from the body**: echoing it would move the injection from the victim's inbox to the operator's
+log rather than remove it. The guard sits **above** `_resolve_username` rather than inside the `create`
+branch, because that call runs before any branch — lower, a forged create that simply omits `username`
+would reach `create requires a username` and raise, which is the vector the drop exists to close.
+
+**Three reason codes, not two.** `untrusted-sender`, `sender-id-absent` and
+`sender-check-unconfigured`. A check that cannot run must not report a pass, and the cases are
+operationally opposite: one is somebody trying it on, one is the control having broken, one is the
+deploy being wrong. Splitting the third out is also load-bearing, and two guards carry it: the
+empty role-id half is refused **before** the comparison, so an absent sender never compares equal to an
+unset variable and gets logged as a forgery; and the configuration is tested **first**, so an unset
+variable reports itself even when the sender is absent, rather than returning `sender-id-absent` and
+blaming the message for a broken deploy.
+
+**Do NOT split `create` onto a second queue.** It is the obvious fix — IAM could then enforce this with
+no runtime check — and it is rejected. The single-writer guarantee is *one FIFO queue, one message group
+per user, batch size 1*, and FIFO ordering is per `(queue, group)`. Two queues means two event-source
+mappings and two concurrent invocations read-modify-writing one user's `notifications.json`: a mark-read
+and an arriving notification can lose each other. It trades a spoofing bug for a data-loss bug, and
+closing that would mean putting the inbox write under ETag CAS first.
+
+**Two limits, stated rather than implied.** This decides who may send a `create`, not who may reach the
+queue — a non-JSON body or an unknown action still raises from `_parse_record` and dead-letters. And it
+is the **interim** fix: Arc B removes the browser's grant (SPEC-200) and after SPEC-196 the denied
+principal becomes a *service* principal, harmless because every `create` is emitted by execution roles.
+The check stays regardless; that removal is eleven specs out and reversible. Detail:
+`spec-delivery/SPEC-206`.

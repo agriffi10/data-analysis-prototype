@@ -694,7 +694,7 @@ def test_ACCEPTED_a_mixed_case_live_table_is_silently_re_cased_on_refresh():
     recorded as owed. Note the comment survives the re-casing — the carry is keyed on
     ``casefold()`` — so this is a rename, not a column swap.
 
-    If this starts failing, the fold changed: revisit the decision (decisions.md, "Removing a
+    If this starts failing, the fold changed: revisit the decision (decisions/, "Removing a
     column needs an opt-in" / SPEC-149's apply entry), do not delete the test.
     """
     storage = {

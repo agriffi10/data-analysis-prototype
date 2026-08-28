@@ -301,7 +301,7 @@ first real share with `AccessDenied` at the `ItemReader`.
 
 ### Phase 5: Completion ritual
 
-- Delivery doc, INDEX status, `component-inventory` rows for `cpcommon.transfer`, a `decisions.md`
+- Delivery doc, INDEX status, `component-inventory` rows for `cpcommon.transfer`, a `decisions/`
   entry (the Distributed Map decision **and** the S3-Batch-Operations rejection with its reason),
   one Key Decisions line, and the `architecture.md` *Table Share* + *Deferred / Future Scope*
   updates.

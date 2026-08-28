@@ -59,7 +59,7 @@ when the thing it guards is broken, which is the only property that makes a guar
   `test_the_fixture_carries_properties_our_renderer_never_writes`. The self-referential
   round-trip was **kept and renamed** to
   `test_the_parser_is_a_left_inverse_of_the_renderer_on_the_renderers_own_output`, which is what it
-  proves. Both tripwires are cross-referenced from `decisions.md`.
+  proves. Both tripwires are cross-referenced from `decisions/`.
 - **FR-007 — broad exception assertions name what they expect.** `pre-signup`'s `_raises` helper now
   **requires** `match=` (every call site already passed one) and the bare `pytest.raises(Exception)`
   became `_raises("temporary email")` — the assertion that would have caught SPEC-137's nine-day

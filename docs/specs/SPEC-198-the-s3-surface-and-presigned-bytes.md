@@ -625,7 +625,7 @@ supersedes a CLAUDE.md Key Decision.
       source (SPEC-195) and `withCredentialRetry` still serves Athena, Glue and SQS.
 - [ ] Local development points the SPA at a locally-run or deployed API. `.env.example` and the README
       say how, and the dev story is written down rather than implied by the absence of the old one.
-- [ ] A `decisions.md` entry records the supersession, and a **superseded marker** lands at every site
+- [ ] A `decisions/` entry records the supersession, and a **superseded marker** lands at every site
       still stating the old claim — CLAUDE.md's *Dev-unauth path* Key Decision line,
       `architecture.md`, and `.env.example`'s section comment.
 
@@ -907,7 +907,7 @@ start (SPEC-137 shipped instrumented code whose attachment was missing while eve
 - `Status: Completed`; the `INDEX.md` row; the delivery doc at
   `docs/spec-delivery/SPEC-198-the-s3-surface-and-presigned-bytes.md`, carrying the ported/deleted
   disposition of all nineteen `fileBrowser.service.ts` exports — the artefact SPEC-199 and SPEC-200 copy.
-- **`decisions.md` entries**, then **one line each** in CLAUDE.md's Key Decisions: (1) *bytes go to S3
+- **`decisions/` entries**, then **one line each** in CLAUDE.md's Key Decisions: (1) *bytes go to S3
   presigned and small text goes through the API*, with the document byte cap as the thing that holds
   the line, the single-`PUT` 5 GiB ceiling that does not move, the lost part-level retry, and the
   `XMLHttpRequest` requirement that keeps a shipped progress bar; (2) *a presigned URL is a bearer

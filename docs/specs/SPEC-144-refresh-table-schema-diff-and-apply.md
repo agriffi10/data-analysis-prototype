@@ -386,4 +386,4 @@ infra/modules/table-builder/
 ### Phase 4: Live check and closing out
 
 - Run the FR-010 live check end to end and record the result in the delivery doc.
-- Completion ritual: `INDEX.md` status, delivery doc, component-inventory rows, and a `decisions.md` entry for the removal-opt-in mechanism — the two rejected designs and the honest statement of what the guarantee is and is not belong in that entry, not in `CLAUDE.md`, which gets one line. **No help-content change yet** — the feature is not user-reachable until SPEC-145.
+- Completion ritual: `INDEX.md` status, delivery doc, component-inventory rows, and a `decisions/` entry for the removal-opt-in mechanism — the two rejected designs and the honest statement of what the guarantee is and is not belong in that entry, not in `CLAUDE.md`, which gets one line. **No help-content change yet** — the feature is not user-reachable until SPEC-145.

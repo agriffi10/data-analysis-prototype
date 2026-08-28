@@ -24,7 +24,7 @@ refuses a removal the user did not opt into, and rebuilds the table when there i
 
 ### Decisions worth carrying forward
 
-- **The removal opt-in mechanism** — full entry in `docs/decisions.md`, including the two designs the
+- **The removal opt-in mechanism** — full entry in `docs/decisions/`, including the two designs the
   spec rejected and the honest statement of what the guarantee is and is not.
 - **Both DDL statements carry an Athena `ClientRequestToken`.** Without one, a Step Functions Retry
   after a transient error that arrived *after* submission re-runs the statement — on a DROP + CREATE

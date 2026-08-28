@@ -202,5 +202,5 @@ apps/portal/src/
 ### Phase 3: Closing out
 
 - Help content, `INDEX.md`, delivery doc, component-inventory rows for the changed component and
-  the two hooks, and a `decisions.md` entry recording **why no space directory was published** —
+  the two hooks, and a `decisions/` entry recording **why no space directory was published** —
   the disclosure trade, so the question is not reopened without the reasoning.

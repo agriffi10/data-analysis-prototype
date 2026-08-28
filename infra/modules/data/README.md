@@ -92,7 +92,7 @@ tag matches nothing and gets an implicit deny. The tag variable is escaped as
 - **The username directory** is one statement: `GetObject` on `_directory/*`. **No `ListBucket`
   widening** (so `_directory/` is invisible to the file browser and the browser needs no change) and
   **no write** (the daily builder is the only writer). The disclosure is intended and accepted, not
-  incidental — recorded in `docs/decisions.md`.
+  incidental — recorded in `docs/decisions/storage.md`.
 - **The feature flags** are the same shape on `_config/*`, with the same two omissions. A feature
   flag is **presentation, never authorization**, so turning one off revokes no grant. The bucket
   choice is what makes it one line: this bucket already has CORS, its host is already in the
@@ -134,7 +134,7 @@ drops it.
 
 Deliberate for the MVP: no version history, no undo. Overwrites and deletes are irreversible and the
 app guards them in the UI. This is what makes a failure between a control plane's `CopyObject` and
-`DeleteObject` unrecoverable — see `docs/architecture.md` → *Known Constraints*. Revisit before real
+`DeleteObject` unrecoverable — see `docs/architecture.md` → *Constraints that shape the system*. Revisit before real
 user data lands.
 
 ## `portal_role_unique_id`

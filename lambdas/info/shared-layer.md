@@ -7,7 +7,7 @@ domain layer must never import another, are in
 
 This page is the long-form *why* behind the modules whose reasoning outgrew a docstring — sizing
 evidence, rejected designs, and the traps. Read the entry for the module you are changing; you will
-not need the rest. Where a claim is a settled project decision, the authority is `docs/decisions.md`
+not need the rest. Where a claim is a settled project decision, the authority is `docs/decisions/control-planes.md`
 — this records the working detail and the evidence, not the decision.
 
 | Module | Holds |
@@ -117,7 +117,7 @@ Adding a polars-carrying verb? Give it `cpcommon: true` **and** a polars layer i
 
 ## `cpcommon/observability.py` — the field rule's edges
 
-The field rule itself is a **Key Decision** and lives in `docs/decisions.md` (SPEC-130) —
+The field rule itself is a **Key Decision** and lives in `docs/decisions/control-planes.md` (SPEC-130) —
 read it before instrumenting any call site. Recorded here are the three things about it that
 are working detail rather than decision.
 
@@ -171,7 +171,7 @@ Three of four realistic shapes killed the execution **before** the recorded-fail
 notify states — so on precisely the failures a user most needs to hear about (a timeout, an
 oversized payload, a Lambda that died without a handled error) they were told nothing at
 all. Python can do this safely, so the decode moved to `cpcommon.errors.failure_reason` and
-the machines pass `$.error` through untouched. See the `decisions.md` entry (#252).
+the machines pass `$.error` through untouched. See the `docs/decisions/control-planes.md` entry.
 
 **Why the reason split is gated on `errorType`.** `TerminalError` composes its message as
 `f"{reason}: {detail}"` from a registered, colon-free code, so splitting on the first colon

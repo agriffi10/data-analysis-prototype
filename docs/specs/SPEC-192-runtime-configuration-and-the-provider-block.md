@@ -698,12 +698,12 @@ are real invocations against the deployed app, as a new section of
 
 - `Status: Completed`; the `INDEX.md` row; the delivery doc at
   `docs/spec-delivery/SPEC-192-runtime-configuration-and-the-provider-block.md`.
-- A `decisions.md` entry for **runtime configuration**: the document, the string-only rule, the
+- A `decisions/` entry for **runtime configuration**: the document, the string-only rule, the
   dev-only fallback and why it must be dead-code-eliminated rather than merely guarded, the four
   failure reasons, and the boot failure being hard where SPEC-162's flag document is deliberately
   silent — the two documents look alike and their failure semantics are opposite. Then **one line**
   in CLAUDE.md's Key Decisions.
-- A second `decisions.md` entry for **the provider block being the API's verifier configuration and
+- A second `decisions/` entry for **the provider block being the API's verifier configuration and
   server-side**: the field set, why it is a verifier and not an OAuth client while Amplify keeps
   performing the code exchange in the browser, why `OIDC_JWKS_URI` is a field rather than a derived
   path, and the two-directional test that enforces the boundary — including the one that would have

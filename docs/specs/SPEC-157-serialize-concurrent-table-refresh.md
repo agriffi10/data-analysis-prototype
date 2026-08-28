@@ -235,7 +235,7 @@ re-deriving it.
       per table, but delivery is already ordered and the gap is that `FIRE_AND_FORGET` decouples
       delivery from execution. It would change nothing, and would also split the per-database
       ordering the create path relies on.
-- [ ] Both rejections are recorded in `decisions.md` with the model evidence, not only here.
+- [ ] Both rejections are recorded in `decisions/` with the model evidence, not only here.
 
 ### FR-007: Observability
 
@@ -341,7 +341,7 @@ infra/modules/table-builder/
 └── policies/execution.json.tftpl           # + the locks/ prefix, Deny untouched
 
 .github/workflows/deploy-lambdas.yml        # + two matrix rows
-docs/decisions.md                           # + the entry FR-006 requires
+docs/decisions/                           # + the entry FR-006 requires
 ```
 
 ## Implementation Phases
@@ -366,6 +366,6 @@ docs/decisions.md                           # + the entry FR-006 requires
 ### Phase 4: Live check and closing out
 
 - The two-refresh live check from the UI.
-- Completion ritual: `INDEX.md`, delivery doc, the `decisions.md` entry (which **supersedes** the
+- Completion ritual: `INDEX.md`, delivery doc, the `decisions/` entry (which **supersedes** the
   "reduced, NOT closed" clause in SPEC-149's entry — mark it in place), and the `CLAUDE.md`
   digest line.

@@ -575,7 +575,7 @@ matches nothing here.
 
 ## 3. Discharged, and worth not re-litigating
 
-Kept short on purpose — the reasoning lives in `docs/decisions.md` and the delivery docs. These are
+Kept short on purpose — the reasoning lives in `docs/decisions/` and the delivery docs. These are
 here so a reader does not re-open them as gaps.
 
 | Settled | When |

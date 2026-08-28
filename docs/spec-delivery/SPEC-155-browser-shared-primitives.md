@@ -34,7 +34,7 @@ consolidation), and one PR for phases 4–6.
   - Files: `useFileBrowserDialogs`, `FileBrowserDialogs`, `useSharedSpaceAccessRecovery`,
     `FileListTable` / `FileListMobile`, `SelectionToolbar`.
 
-Four `decisions.md` entries: the `components/ → features/` rule, `FormDialog`'s Enter-to-submit
+Four `decisions/` entries: the `components/ → features/` rule, `FormDialog`'s Enter-to-submit
 semantics, Escape layering, and the byte-formatter unit ceiling.
 
 ### User-visible changes (all deliberate)
@@ -42,7 +42,7 @@ semantics, Escape layering, and the byte-formatter unit ceiling.
 The spec forbids user-visible change except where called out. Five landed, each on purpose:
 
 1. **`formatSize` reaches TB.** A 3 TB object read `3072.0 GB` in the file browser and `3.0 TB` in
-   the query status bar. FR-007's decision; recorded in `decisions.md`.
+   the query status bar. FR-007's decision; recorded in `decisions/`.
 2. **`formatRelativeTime`'s beyond-a-week fallback is pinned en-US** — `Jan 15, 2026` instead of the
    locale-default `1/15/2026`. Affects query history, saved queries, notifications, data-quality runs.
 3. **Notification filter labels** render `All`/`Unread` instead of the raw `all`/`unread` under CSS
@@ -61,15 +61,15 @@ The spec forbids user-visible change except where called out. Five landed, each 
   `ProtectedLayout.tsx` are app chrome — wiring features into the shell is what they are for — and
   are named in `eslint.config.js`. Tests are exempt (they mount real features by design). Three
   files that *were* on that list (`Sidebar`, `SpacesList`, `UsernameCombobox`/`UsernameChipsField`)
-  were moved into features instead. Reasoning and the two residuals are in `decisions.md`.
+  were moved into features instead. Reasoning and the two residuals are in `decisions/`.
 > **Superseded (2026-08-09):** the import is gone. `invalidateListing` moved to
 > `features/file-browser/invalidateListing.ts` and the ESLint rule widened to `src/lib/**` and
 > `src/hooks/**`. The mock count below was also wrong — **two** test files mocked the module by
-> path, not six; the rest merely imported it. Record: `decisions.md`.
+> path, not six; the rest merely imported it. Record: `decisions/`.
 
 - **`lib/queryClient.ts` still imports `features/file-browser/fileBrowserKeys`** — the same inversion
   one layer lower, and not covered by the rule. Six test files mock that module by path, so moving
-  it would change tests this spec requires to pass unchanged. Named in `decisions.md` as the next
+  it would change tests this spec requires to pass unchanged. Named in `decisions/` as the next
   notch.
 - **FR-009's "~500 lines" for `QueryWorkspace` was not reached** (727). Every named extraction
   shipped, plus two the spec did not name (`useTableActions`, `QueryResultsRegion`) because the

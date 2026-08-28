@@ -756,7 +756,7 @@ section.
 
 ### Phase 6: Completion ritual
 
-Per `CLAUDE.md`. Three `decisions.md` entries: retention keyed on a durable fact rather than live
+Per `CLAUDE.md`. Three `decisions/` entries: retention keyed on a durable fact rather than live
 status and why; the cleared `owner` field with the `authorize` reasoning; and the `revoke_portal_role`
 disagreement with SPEC-204, resolved in this spec's favour. `transition_plan.md` §6.3's rows are
 corrected per FR-002's two routes.

@@ -344,7 +344,7 @@ apps/portal/src/features/feature-flags/
 ### Phase 5: Completion ritual
 
 - Delivery doc, INDEX status, a `apps/portal/info/component-inventory/feature-flags-feature.md` area file plus a
-  router row (a whole new area), a `decisions.md` entry (flags are presentation-only; and why the
+  router row (a whole new area), a `decisions/` entry (flags are presentation-only; and why the
   document lives beside `_directory/` rather than in the admin bucket — the second advisory
   browser-read document in that bucket, and the precedent for a third), and one Key Decisions line.
   **No Help & guides change** — nothing user-visible ships until SPEC-163.

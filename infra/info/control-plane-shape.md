@@ -81,8 +81,40 @@ browser ──sqs:SendMessage──▶ FIFO request queue ──▶ EventBridge 
   name the colliding item, and the user needs it named.
 - **One producer says every per-recipient outcome**, at the end of the machine — not each verb.
 
+## A redelivered message is not a re-run
+
+**At-least-once delivery does NOT give you a re-run** (measured 2026-08-10, and it applies to
+every plane). The Pipe starts executions `FIRE_AND_FORGET` and **cannot name them** — Pipes exposes no
+execution-name parameter at all — and the names it generates are **v5 UUIDs**, i.e. derived
+deterministically from something stable per message (the SQS `messageId` is v4/random, so it is
+not simply copied). What a repeated name does is **measured, not just documented** (2026-08-10,
+against the deployed table-share machine), and the middle case is the trap: same name + same input
+**while the original is still running** → the call succeeds and **returns the original execution
+ARN**, no second run; once the original has **closed** → **400 `ExecutionAlreadyExists`**; and the
+name is only reusable **90 days after it closes**. So a redelivered SQS message does not retry the work — it is either swallowed or it
+**fails the target invocation**, and a target that keeps failing exhausts the redrive policy and
+lands on the request DLQ, where the DLQ drain turns it into a **user-facing failure
+notification for a request that may have SUCCEEDED**. Do not design a plane's recovery story
+around SQS redelivery.
+> **How the name semantics were verified, and how to re-verify:** start an execution with a
+> deliberately malformed input (`[]`), which dies at `validate-authorize` **before an actor
+> exists** — so `NotifyFailure` runs with `actor=` and messages nobody. Call `StartExecution`
+> again with the same name and input while it runs (expect the same ARN back), then again once it
+> has closed (expect `ExecutionAlreadyExists`). Zero blast radius; the only cost is a FAILED
+> execution in history and **a name burned for 90 days**, so pick a fresh one.
+>
+> **Still unproven:** that Pipes derives the name *per message*. It is inferred from the v5
+> version nibble — the namespace is private, and no combination of the message id, pipe ARN or
+> state-machine ARN reproduces an observed name. **A redrive cannot settle it and is not worth
+> attempting:** an SQS DLQ redrive needs a message in the DLQ, and Step Functions'
+> `RedriveExecution` restarts states *within the same execution ARN* — it never calls
+> `StartExecution`, so it can never collide on a name. Only a genuine SQS **redelivery of the same
+> `messageId`** tests it, which means forcing the Pipe to miss its delete inside the queue's
+> 60-second visibility timeout — production drift on an IaC-managed queue, racing a sub-second
+> window. Declined as not worth it. Until then, treat redelivery as unreliable.
+
 ## Where the rest lives
 
 The Lambda side — the verbs, the layer split, and each plane's own fences — is
 [`lambdas/info/INDEX.md`](../../lambdas/info/INDEX.md) and its `planes/` pages. The long-form
-reasoning is `docs/architecture.md` → *Control Planes* and `docs/decisions.md`.
+reasoning is `docs/architecture.md` → *The control planes* and [`docs/decisions/control-planes.md`](../../docs/decisions/control-planes.md).

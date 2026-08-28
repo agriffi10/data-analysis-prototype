@@ -2,8 +2,9 @@
 
 A web portal that lets authenticated users upload and download files to/from their own
 private space in AWS S3. Authentication is handled by **AWS Cognito**; per‑user isolation is
-enforced at the **IAM layer**, not in application code. There is **no backend server** — the
-single‑page app talks to AWS directly from the browser using short‑lived, scoped credentials.
+enforced at the **IAM layer**, not in application code. The single‑page app talks to AWS **directly
+from the browser** using short‑lived, scoped credentials for most of what it does, with an HTTP API
+and seven async control planes behind it for work a browser session must not be trusted with.
 
 > **New here?** Start with this README for the big picture and setup, then read
 > [`docs/architecture.md`](docs/architecture.md) for the design and
@@ -28,11 +29,11 @@ Browser (React SPA)
 - **One shared IAM role** for all users. Isolation comes from the Identity Pool mapping the
   verified `username` claim to a principal tag — the browser never asserts its own identity,
   so it can't be spoofed.
-- **No backend / API layer.** Uploads, downloads, listing, delete, move/rename all run in the
-  browser against S3. Move/rename are copy‑then‑delete (S3 has neither); folders are zero‑byte
-  marker objects.
-- Full detail, diagrams, the two‑bucket model, and known constraints live in
-  [`docs/architecture.md`](docs/architecture.md).
+- **Most file work runs in the browser** against S3 — uploads, downloads, listing, delete and
+  single‑file move/rename. Move/rename are copy‑then‑delete (S3 has neither); folders are zero‑byte
+  marker objects. Anything privileged, cross‑user or multi‑step runs on a **control plane** instead.
+- The pieces, how a request travels between them, and the decision record that explains the shape
+  live in [`docs/architecture.md`](docs/architecture.md).
 
 ---
 
@@ -222,7 +223,7 @@ On the first deploy the CloudFront domain isn't known yet. After it's live: set 
 variable to `tofu output cloudfront_domain`, set the same value as `app_url` in `terraform.tfvars`
 and re‑apply infra (so Cognito's OAuth callback URLs include the real domain), then redeploy the
 app. A custom domain additionally needs an ACM certificate in `us-east-1` (DNS‑validated) — see
-[`docs/architecture.md`](docs/architecture.md) Deployment.
+[`docs/architecture.md`](docs/architecture.md) → *Infrastructure and delivery*.
 
 ---
 
@@ -242,9 +243,10 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 
 ## Environment & configuration reference
 
-- **App build vars (`VITE_*`)** — every variable, with its `tofu output` source, is documented
-  in [`apps/portal/.env.example`](apps/portal/.env.example) and mapped in
-  [`docs/architecture.md`](docs/architecture.md) (Environment Variables).
+- **App configuration** — the app reads a runtime `/config.json` document rather than build-time
+  `VITE_*` values in production. Every key, and the six places it is wired, is
+  [`apps/portal/info/runtime-configuration.md`](apps/portal/info/runtime-configuration.md); the dev
+  fallback variables are [`apps/portal/.env.example`](apps/portal/.env.example).
 - **IaC inputs** — [`infra/variables.tf`](infra/variables.tf) /
   [`infra/terraform.tfvars.example`](infra/terraform.tfvars.example).
 - **IaC outputs** (the values you wire into GitHub Actions) —
@@ -260,8 +262,8 @@ See [`.github/workflows/README.md`](.github/workflows/README.md) for the full co
 |---|---|
 | [`CLAUDE.md`](CLAUDE.md) | Project memory (always loaded, kept lean): tech stack, code conventions, a one-line **Key Decisions** digest, session workflow |
 | [`docs/process.md`](docs/process.md) | How we work: where truth lives, the spec lifecycle, the reviewer contract, the completion ritual |
-| [`docs/decisions.md`](docs/decisions.md) | The **Key Decisions register in full** — reasoning + the "do NOT build" fences |
-| [`docs/architecture.md`](docs/architecture.md) | System design: auth flow, authorization model, the bucket model, control planes, env vars, deployment, known constraints |
+| [`docs/decisions/`](docs/decisions/INDEX.md) | The **Key Decisions register in full** — reasoning + the "do NOT build" fences |
+| [`docs/architecture.md`](docs/architecture.md) | **How the system works** — the pieces, how a request travels, the constraints that shape it, and the Architecture Decision Record indexing the register |
 | [`docs/transition_plan.md`](docs/transition_plan.md) | The client-environment transition — IdC federation, de-provisioning, Lake Formation re-keying |
 | [`lambdas/info/shared-layer.md`](lambdas/info/shared-layer.md) | The long-form *why* behind `cpcommon` — sizing evidence, rejected designs, the traps |
 | [`lambdas/info/planes/`](lambdas/info/planes/) | One page per control plane: its machine, rules, fences, layer and sizing |

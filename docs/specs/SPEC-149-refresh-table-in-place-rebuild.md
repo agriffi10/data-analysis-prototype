@@ -5,7 +5,7 @@
 **Last Updated:** 2026-08-04
 **Depends On:** SPEC-143 (the refresh branch, `load-table-definition`, the reconstructed partition keys), SPEC-144 (`diff-schema`, `apply-refresh`, the removal opt-in and the message layer this spec edits), SPEC-070 (`execute-ddl`, whose Athena DDL path this spec deliberately does **not** follow), SPEC-107 (`cpcommon`)
 
-> **Reference:** `docs/architecture.md` → *Control Planes → Table Builder*; `docs/decisions.md` → *Removing a column requires an explicit opt-in*. Sequenced **between SPEC-144 and SPEC-145**, and that ordering is the point — see the Overview.
+> **Reference:** `docs/architecture.md` → *Control Planes → Table Builder*; `docs/decisions/` → *Removing a column requires an explicit opt-in*. Sequenced **between SPEC-144 and SPEC-145**, and that ordering is the point — see the Overview.
 >
 > **This spec changes ONE verb's mechanism and deletes more than it adds.** `apply-refresh` stops issuing DDL through Athena and calls `glue:UpdateTable` instead. The diff, the opt-in, the eligibility checks, the notifications and the state machine's shape are all unchanged.
 >
@@ -227,4 +227,4 @@ infra/modules/table-builder/
 ### Phase 3: Live check and closing out
 
 - Run FR-008's live check: refresh a table carrying a `Description` and a column comment; confirm from `GetTable` that both survive, the columns changed, and a previous table version exists. Run FR-006's `simulate-custom-policy`.
-- Completion ritual: `INDEX.md` status, delivery doc, a `decisions.md` amendment to the SPEC-144 entry (the apply is no longer a DROP + CREATE), and the one-line CLAUDE.md update. **No help-content change** — the feature is not user-reachable until SPEC-145.
+- Completion ritual: `INDEX.md` status, delivery doc, a `decisions/` amendment to the SPEC-144 entry (the apply is no longer a DROP + CREATE), and the one-line CLAUDE.md update. **No help-content change** — the feature is not user-reachable until SPEC-145.

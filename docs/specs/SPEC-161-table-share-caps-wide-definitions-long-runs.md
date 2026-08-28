@@ -131,7 +131,7 @@ existing rule expires a *live* run's manifest underneath it, now that a run can 
 #### Description:
 
 **The docs are already corrected** (2026-08-10): `architecture.md` → *Table Share* carries a
-superseded marker, *Deferred / Future Scope* no longer lists a Batch Ops scale path, `decisions.md`
+superseded marker, *Deferred / Future Scope* no longer lists a Batch Ops scale path, `decisions/`
 → *Table Share* has the amended fence, and `ARCS.md`, SPEC-090, SPEC-091 and SPEC-090's delivery doc
 each carry an in-place marker. What remains is three strings in `lambdas/`.
 
@@ -156,7 +156,7 @@ no longer exists.
 - [ ] A grep-style check fails if the retired phrase reappears anywhere in `lambdas/`. **No existing
       test asserts the old wording** (the suites assert `exc.reason` and the user sentence, neither
       of which carries it), so this check is the only guard and must be added, not assumed.
-- [ ] **No further docs edit is needed** — re-editing `architecture.md`, `decisions.md`, `ARCS.md` or
+- [ ] **No further docs edit is needed** — re-editing `architecture.md`, `decisions/`, `ARCS.md` or
       the SPEC-090/091 markers for this would mean one was missed, which is itself the finding.
 
 ---
@@ -204,6 +204,6 @@ SHARE_MAX_RECIPIENTS = 50  # unchanged
 
 ### Phase 5: Completion ritual
 
-- Delivery doc (including the `TimeoutSeconds` arithmetic), INDEX status, `decisions.md` entry for
+- Delivery doc (including the `TimeoutSeconds` arithmetic), INDEX status, `decisions/` entry for
   the pointer-not-state rule extended to the definition, and one Key Decisions line. **No
   `architecture.md` edit** — FR-005's last criterion says why.

@@ -201,4 +201,4 @@ Phases are independently landable; each should be its own PR.
 
 ### Phase 7: Completion
 
-- Completion ritual per `CLAUDE.md`. Tests only, so expect no `decisions.md` entry and no component-inventory row; the delivery doc records the coverage delta and any finding filed under FR-007's "report, don't paper over" clause.
+- Completion ritual per `CLAUDE.md`. Tests only, so expect no `decisions/` entry and no component-inventory row; the delivery doc records the coverage delta and any finding filed under FR-007's "report, don't paper over" clause.

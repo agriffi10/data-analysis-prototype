@@ -86,7 +86,7 @@ Each is computed by a test that reads `locals.tf` back, never asserted as a numb
 - **No `component-inventory/` row**, which the spec's Phase 6 asks for. That inventory documents
   `apps/portal/src/` only — no file in it names a Lambda layer — so a Python row would be a new
   area, and the router's own rule is that a new row appears only when a whole area does. The
-  `cpcommon.transfer` extension is recorded in `decisions.md` and `architecture.md` instead.
+  `cpcommon.transfer` extension is recorded in `decisions/` and `architecture.md` instead.
 - **A collector fault (unreadable export) does not roll back.** It is a whole-request terminal with
   the source untouched; a collector that cannot read the export cannot say what there is to roll
   back, and the residue is swept by the bucket's own expiry — the same disposition FR-004 AC4
@@ -112,7 +112,7 @@ Three defects, found by a fresh-context review of the finished branch and fixed 
   does not describe it (`plan_superseded`), so a run cannot pass its own commit gate and then
   delete another execution's selection. And inspect-source refuses a request whose archive prefix
   already holds anything (`request_id_reused`) — without it, a later run's ROLLBACK would delete an
-  EARLIER completed archive out of a bucket with versioning off. Both are in `decisions.md`.
+  EARLIER completed archive out of a bucket with versioning off. Both are in `decisions/`.
 - **An object under an `archive/`, `athenaresults/` or `user_settings/` folder at ANY depth would
   have been copied to Glacier and then failed mid-delete.** The IAM Deny cannot be anchored at the
   space root (`*` matches `/`), where the code's reserved-folder rule deliberately is. Refused at

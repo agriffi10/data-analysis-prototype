@@ -35,7 +35,7 @@ genuine token passes both — an API that skips verification entirely works perf
   — see the amendment under* Premises *below.*
 - **Deny by default in the router**, and the refusal surface: 401 vs 403, one indistinguishable 401 body, no
   provider text on the wire (FR-003, FR-004), plus one temporary probe route (FR-005).
-- **The `error.stack` scrub**, with its own `decisions.md` entry beside the original (FR-007).
+- **The `error.stack` scrub**, with its own `decisions/` entry beside the original (FR-007).
 - **The SPA's half**: `lib/apiClient.ts` attaches the token, and refreshes once and retries once on a 401
   — the arc's only retry (FR-008).
 - **The negative sweeps** proving the API is not a BFF (FR-009).
@@ -178,7 +178,7 @@ reaches production unset fails far from its cause.
       > **AMENDED 2026-08-27, during build.** As written this criterion has no boundary, and the
       > composition root cannot honour it without re-spelling the region and the pool id in a
       > second literal — which is the drift the criterion is trying to prevent, moved rather than
-      > removed. What the harm actually is, in this FR's own words and `decisions.md`'s, is a
+      > removed. What the harm actually is, in this FR's own words and `decisions/`'s, is a
       > **verifier** that knows which provider it is verifying. So the boundary is named instead:
       > **the concatenation may appear once, at the composition root** — which already names
       > Cognito through `module.auth`, the Hosted UI domain and the CSP, and is therefore already
@@ -334,7 +334,7 @@ boundary, and both were harmless while the only caller was a Step Functions verb
       with the new key. Cognito publishes both keys across a rotation and a ≤ 60 s window is far inside
       any overlap, so no real rotation is expected to reach a user; the trade is bounded refusal against
       an unauthenticated amplification vector, and refusal is the fail-closed direction. Recorded in the
-      `decisions.md` entry, not only here.
+      `decisions/` entry, not only here.
 - [ ] A JWKS fetch failure returns 5xx, and **no code path returns a `Principal` when the fetch raised** — the
       fail-open direction, which a `try/except` returning a default produces and which no happy-path test can
       see.
@@ -375,7 +375,7 @@ headers hold the bearer — into an exception message or a log field.
       under `lambdas/api/` reads `__cause__`.
 - [ ] `apicommon` sets `max_stack_bytes` explicitly rather than inheriting 32768, and a test asserts it is
       passed. It is a ceiling, not a control — a reader must not mistake it for the scrub.
-- [ ] A `decisions.md` entry sits **beside** the original stack-trace entry, recording that the SPEC-130
+- [ ] A `decisions/` entry sits **beside** the original stack-trace entry, recording that the SPEC-130
       exemption covers file contents and **not** credentials, that the answer here is a scrub at the boundary,
       and that `log-foundry` 0.6.0 offers no opt-out. If a later version does, the decision is revisited, not
       the tests deleted.
@@ -607,7 +607,7 @@ that a real expired token is refused by the expiry check rather than by an earli
 
 - `Status: Completed`; the `INDEX.md` row (status only); the delivery doc at
   `docs/spec-delivery/SPEC-195-the-api-auth-boundary.md`.
-- Two `decisions.md` entries, then **one line each** in CLAUDE.md's Key Decisions: (1) the API is a verifier
+- Two `decisions/` entries, then **one line each** in CLAUDE.md's Key Decisions: (1) the API is a verifier
   and not an OIDC client — the bearer trust model, why no cookie means no CSRF surface, and that
   provider-agnosticism lives in five configuration fields; (2) FR-007's `error.stack` scrub, **beside** the
   SPEC-130 entry, recording that the original exemption covers file contents and not credentials.

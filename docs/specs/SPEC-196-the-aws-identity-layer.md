@@ -561,7 +561,7 @@ The identity layer's spans go through `cpcommon.observability` — the only door
       revisit the decision, not delete the test. A scrub written against user-data-shaped strings
       would contradict that decision and redden that tripwire from a spec that never argued the case.
       Credentials were never inside the 2026-07-23 exemption; that is the whole of what SPEC-195 FR-007
-      re-opened, and this layer inherits exactly that scope. One `decisions.md` entry covers both
+      re-opened, and this layer inherits exactly that scope. One `decisions/` entry covers both
       layers.
 - [ ] The API function's row in the deploy matrix carries the `cpcommon` layer flag and
       `lambdas/test_deploy_matrix.py` is green for it. SPEC-137 is the precedent: a layer that is
@@ -882,7 +882,7 @@ FR-004's refusal stays unit-tested only.
 
 - `Status: Completed`; the `INDEX.md` row (status only); the delivery doc at
   `docs/spec-delivery/SPEC-196-the-aws-identity-layer.md`.
-- **`decisions.md` entries**, then **one line each** in CLAUDE.md's Key Decisions:
+- **`decisions/` entries**, then **one line each** in CLAUDE.md's Key Decisions:
   1. *The API reads the SAME claims the Identity Pool reads, and assumes the SAME role with the SAME
      tag set* — the equivalence argument stated as one computation over one input (the ID token),
      the claim-name pairs as the only thing copied from `identity-pool.tf`, what would break it, the

@@ -282,4 +282,4 @@ apps/portal/src/features/
 - The bounded schema invalidation.
 - Responsive pass at 400px.
 - Help content (FR-006).
-- Completion ritual for the spec **and the arc**: `INDEX.md` statuses, delivery doc, component-inventory rows in `table-builder-feature.md` and `query-feature.md`, and — since 143's shape-not-marker eligibility rule and 144's removal opt-in are both genuinely new architectural decisions — confirm their `decisions.md` entries and one-line `CLAUDE.md` rows are in place, then prune `CLAUDE.md`'s Current-work block of everything the arc made stale.
+- Completion ritual for the spec **and the arc**: `INDEX.md` statuses, delivery doc, component-inventory rows in `table-builder-feature.md` and `query-feature.md`, and — since 143's shape-not-marker eligibility rule and 144's removal opt-in are both genuinely new architectural decisions — confirm their `decisions/` entries and one-line `CLAUDE.md` rows are in place, then prune `CLAUDE.md`'s Current-work block of everything the arc made stale.

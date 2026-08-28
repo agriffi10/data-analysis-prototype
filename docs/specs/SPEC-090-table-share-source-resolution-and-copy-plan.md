@@ -36,7 +36,7 @@ Implement **inspect-source**: given the validated request, `GetTable` the source
 > Copy operation cannot rewrite a key (`TargetKeyPrefix` prepends the *full* source key), it caps
 > objects at 5 GB where `UploadPartCopy` already handles more, and one job writes to one destination
 > bucket while recipients span two. The scale path is a top-level **Step Functions Distributed Map**
-> over a flat `(recipient × object)` manifest. Full entry: `decisions.md` → *Table Share*.
+> over a flat `(recipient × object)` manifest. Full entry: `decisions/` → *Table Share*.
 
 - Emit `{ tableDefinition, location:{bucket,prefix}, objects:[{relKey,size}], partitioned:boolean }` for the `Map`.
 - Wire as the SFN state after `validate` (before the recipient `Map`).

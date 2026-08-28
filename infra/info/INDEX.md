@@ -87,8 +87,8 @@ Plus the Lambda artifacts bucket (`lambda-artifacts`) and the CloudTrail bucket 
 
 1. **The deploy role's grant lands in its own PR, applied before the resources that need it.** Adding
    a new resource type trips recurring IAM traps — self-grant timing, non-scopable actions, refresh
-   deadlocks, unknown-ARN-in-list. Read `docs/architecture.md` → *Deploy-role IAM — adding a new
-   resource type* and [`../modules/base/README.md`](../modules/base/README.md) first.
+   deadlocks, unknown-ARN-in-list. Read [`deploy-role-iam.md`](deploy-role-iam.md) and
+   [`../modules/base/README.md`](../modules/base/README.md) first.
 2. **Measure scopability with `simulate-custom-policy`**, never assume it. Actions with no resource
    type sit alone in a wildcard statement.
 3. **Cross-module ARNs are constructed strings from the root locals**, never another module's output —
@@ -102,6 +102,7 @@ Plus the Lambda artifacts bucket (`lambda-artifacts`) and the CloudTrail bucket 
 ## Related
 
 - [`lambdas/info/INDEX.md`](../../lambdas/info/INDEX.md) — every function, grouped by control plane
-- `docs/architecture.md` → *Infrastructure & Deployment* — the cross-cutting design
-- `docs/decisions.md` — the full reasoning register
+- [`deploy-role-iam.md`](deploy-role-iam.md) — the trap list for adding a new AWS resource type
+- `docs/architecture.md` → *Infrastructure and delivery* — how this fits the running system
+- [`docs/decisions/INDEX.md`](../../docs/decisions/INDEX.md) — the full reasoning register, one file per area
 - [`../bootstrap/README.md`](../bootstrap/README.md) — remote-state bootstrap

@@ -891,7 +891,7 @@ after a JSON round trip; and that the browser has genuinely stopped talking to A
 - `Status: Completed`; the `INDEX.md` row (status only); the delivery doc at
   `docs/spec-delivery/SPEC-199-the-catalog-surface-athena-and-glue.md`, carrying FR-012's disposition
   table.
-- **`decisions.md` entries**, then **one line each** in CLAUDE.md's Key Decisions:
+- **`decisions/` entries**, then **one line each** in CLAUDE.md's Key Decisions:
   1. *The polling loop stays in the browser, and the API makes exactly one AWS call per request* —
      with the computed ceiling (a 5-minute query is 10× a non-raisable 29-second integration limit),
      the four loops that stay, and SPEC-198's free-name route named as the arc's one exception.

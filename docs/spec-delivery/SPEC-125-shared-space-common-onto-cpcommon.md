@@ -33,7 +33,7 @@ boto-client / notification path now shares `cpcommon`. **No user-visible change.
   neither file had: the **union** a shared-space verb needs at cold start is still required
   by *one of its two layers* — the PR #196 lesson made executable.
 - **`casio`'s CAS retry loop stays domain-side**, per the spec's own exclusion. So
-  `dqcommon`'s duplicate CAS is **not** resolved by this spec; `decisions.md`'s SPEC-123
+  `dqcommon`'s duplicate CAS is **not** resolved by this spec; `decisions/`'s SPEC-123
   entry, which said 125 was where they merge, is corrected.
 
 ## What changed from earlier specs?

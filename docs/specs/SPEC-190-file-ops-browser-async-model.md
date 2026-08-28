@@ -320,6 +320,6 @@ export type InFlightOperation = {
 
 - Delivery doc, INDEX status, component-inventory rows for the dispatcher, the in-flight store and its
   surface, and the extended banner.
-- `decisions.md` entries for **the persistent in-flight surface** (new, no precedent) and **no progress
+- `decisions/` entries for **the persistent in-flight surface** (new, no precedent) and **no progress
   percentage**. *Not* for acknowledging acceptance over completion — that is already this component's
   established pattern across three async planes.

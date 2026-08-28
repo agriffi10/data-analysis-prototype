@@ -208,7 +208,7 @@ Not the eligibility test (FR-004 is), but worth having: a durable, queryable ans
 - [ ] `@observability.traced("load-table-definition")` is the **outermost** decorator, above `@notifies_on_failure` — the ordering rule, or a failed invocation closes its span `ok`.
 - [ ] The root span is named after the verb, and `verb` is baggage (SPEC-130).
 - [ ] Messages are literals; every variable is a field. Fields include `database`, `table`, `location`, `column_count`, `partition_key_count`, `mode` and `request_id`.
-- [ ] **No column values, sampled rows or file contents** appear in any field — column *names* are schema and are permitted, per the field rule in `decisions.md`.
+- [ ] **No column values, sampled rows or file contents** appear in any field — column *names* are schema and are permitted, per the field rule in `decisions/`.
 - [ ] The function is picked up automatically by `lambdas/control-plane-common/test_instrumentation_coverage.py`'s handler sweep. `PLANES` there is a **list of `Plane` dataclasses carrying a hard-coded `verb_count`**, with verbs discovered from disk — there is no verb list to append to. The table-builder entry's `verb_count` literal is bumped **5 → 6** or `test_the_enumeration_actually_found_the_verbs` fails.
 
 ### FR-011: Tests and lint
@@ -411,4 +411,4 @@ apps/portal/src/features/table-builder/
 
 - `portal.managed` in `build_create_table_ddl` and in `_EXCLUDED_PARAMETERS`, with the naming comments.
 - Run FR-008's two live checks, including the partitioned one.
-- Completion ritual: `INDEX.md` status, delivery doc, component-inventory rows, and a `decisions.md` entry for the shape-not-marker eligibility rule with one line in `CLAUDE.md`. **No help-content change** — nothing user-visible ships in this spec (SPEC-074 FR-005).
+- Completion ritual: `INDEX.md` status, delivery doc, component-inventory rows, and a `decisions/` entry for the shape-not-marker eligibility rule with one line in `CLAUDE.md`. **No help-content change** — nothing user-visible ships in this spec (SPEC-074 FR-005).

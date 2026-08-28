@@ -88,7 +88,7 @@ This leaves the ordinary last-writer-wins race on the document itself alone. Tha
   and the spec puts a Help entry out of scope.
 - **Component inventory:** `foundations.md` — rows for `classifyDocument` and `quarantineDocument`;
   the `readJsonDocument`/`writeJsonDocument` row now points write paths at the classifier.
-- **`decisions.md`:** *An unreadable settings document is quarantined, never deleted and never
+- **`decisions/`:** *An unreadable settings document is quarantined, never deleted and never
   overwritten* — with the two consequences FR-005 AC3/AC4 require be recorded.
 
 ## Verification

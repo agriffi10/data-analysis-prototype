@@ -41,7 +41,7 @@ real outage, and it recurred on every infra merge.
 and is known at plan time.
 
 **`ignore_changes` would have been the wrong fix.** Compare the LF-grants case in
-`docs/decisions.md`, where `aws_lakeformation_permissions` genuinely reads back different values than
+`docs/decisions/infrastructure.md`, where `aws_lakeformation_permissions` genuinely reads back different values than
 were written and the drift is unavoidable. Here **nothing drifts** — the value is correct and
 constant, it was merely unknowable at plan time. Suppressing the diff would hide a real change to the
 provider name if the pool were ever recreated.

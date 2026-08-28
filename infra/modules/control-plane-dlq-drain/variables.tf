@@ -19,7 +19,7 @@ variable "account_id" {
 }
 
 variable "dlq_arns" {
-  description = "The request-DLQ ARNs to drain — the drain's ONLY SQS read scope, and the DLQ_ARNS the scheduled sweep polls. Constructed strings from the root module, not other modules' outputs, so they are known at plan time (architecture.md 'unknown ARN in list')."
+  description = "The request-DLQ ARNs to drain — the drain's ONLY SQS read scope, and the DLQ_ARNS the scheduled sweep polls. Constructed strings from the root module, not other modules' outputs, so they are known at plan time (infra/info/deploy-role-iam.md)."
   type        = list(string)
 }
 

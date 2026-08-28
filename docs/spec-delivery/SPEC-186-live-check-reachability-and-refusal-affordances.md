@@ -32,7 +32,7 @@ drifting patterns one home each.
 
 ## The decisions worth carrying
 
-Full entries in `docs/decisions.md` → *A default that an empty string can defeat is not a default
+Full entries in `docs/decisions/` → *A default that an empty string can defeat is not a default
 (SPEC-186)*. The five that reach outside this spec:
 
 ### `??` does not fall back on `''`, and a helper that returns `''` is a trap for every consumer

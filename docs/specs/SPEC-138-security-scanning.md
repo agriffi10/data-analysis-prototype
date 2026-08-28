@@ -210,7 +210,7 @@ organization accounts; the direct invocation has no license mechanics to break i
 moves to an org.
 
 Output is redacted. A secret scanner that prints the secret it found into a CI log that a wider
-audience can read has made the problem worse, and this repo's log-field rule (`decisions.md`, tokens
+audience can read has made the problem worse, and this repo's log-field rule (`decisions/`, tokens
 and emails always out) applies to CI output for the same reason it applies to `logs/`.
 
 #### Acceptance Criteria
@@ -348,7 +348,7 @@ apps/portal/package.json                    # two devDependencies
 .gitleaks.toml                              # allowlist, only if FR-005 turns one up
 .checkov.yml                                # suppressions by ID, only if FR-006 turns one up
 docs/security-baseline.md                   # new — the triaged first run (FR-009)
-docs/decisions.md                           # the no-GHAS decision and its consequence
+docs/decisions/                           # the no-GHAS decision and its consequence
 CLAUDE.md                                   # tech-stack table + one Key Decisions line
 docs/specs/INDEX.md                         # status row
 docs/spec-delivery/SPEC-138-security-scanning.md
@@ -387,6 +387,6 @@ docs/spec-delivery/SPEC-138-security-scanning.md
 - Run the whole workflow, collect every finding, and write `docs/security-baseline.md` with a
   disposition each (FR-009).
 - The docs sweep: workflows README, `CLAUDE.md` tech stack + one Key Decisions line, the
-  `decisions.md` entry, INDEX row, delivery doc.
+  `decisions/` entry, INDEX row, delivery doc.
 - **No user-facing change** — nothing in the portal UI changes, so the SPEC-074 Help & guides sweep
   is a no-op and is recorded as such.

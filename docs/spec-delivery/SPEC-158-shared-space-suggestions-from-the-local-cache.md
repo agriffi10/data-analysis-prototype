@@ -68,7 +68,7 @@ AWS call.
   suggestions are the spaces you belong to, and that you can still type the name of any other space.
 - **Component inventory:** rows updated for `UsernameCombobox`, `UsernameChipsField`,
   `TableShareDialog` and the types row; added for `useUsernameSuggestions` and `useSpaceSuggestions`.
-- **`decisions.md`:** *No shared-space directory is published* — the disclosure trade, so the
+- **`decisions/`:** *No shared-space directory is published* — the disclosure trade, so the
   question is not reopened without the reasoning.
 
 ## Verification

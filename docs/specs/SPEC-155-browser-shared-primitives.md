@@ -223,4 +223,4 @@ The seams are named, not speculative.
 
 - Completion ritual per `CLAUDE.md`.
 - `component-inventory` rows for `FormDialog`, `OperationFeedback`, `SegmentedFilter`, `RefreshIconButton`, `ErrorBoundary`'s neighbours, `useClientPager`, `useFileDownload`, `s3Json`, `s3Url`, `format`, `env` — each in the file matching its path, per the ritual's rule.
-- FR-005's dependency direction and FR-007's byte-formatting decision are the two candidates for a `decisions.md` entry; the rest are refactors and are not.
+- FR-005's dependency direction and FR-007's byte-formatting decision are the two candidates for a `decisions/` entry; the rest are refactors and are not.

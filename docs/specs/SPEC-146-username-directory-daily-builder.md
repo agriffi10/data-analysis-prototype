@@ -48,7 +48,7 @@ The list is deliberately **advisory**. It is up to a day stale, it never becomes
 - **Any browser code**, with two named exceptions: the stale `parseMemberInput` docstring, and the one-line addition of `_directory` to `protectedFolders.ts` in FR-003. Both are listed in In Scope. Anything else under `apps/portal/` belongs to SPEC-147 or SPEC-148.
 - **The stale user-facing copy in `AddMembersDialog.tsx`** — "Unknown usernames are ignored." is the same false claim as the two docstrings, but it is rendered text in a dialog SPEC-148 rewrites, so **SPEC-148 FR-005 owns it**. Fixing it here would mean touching a component this arc replaces two specs later.
 - **Cognito `ListUsers`.** FR-001 records why. Do not add it as a union "to be safe" — a second source with different completeness properties is a second thing to reason about every time the directory looks wrong.
-- **Display names, email addresses or any profile data.** The document holds usernames and nothing else. An email is not metadata under this repo's field rule (`decisions.md`) and has no place in a document every authenticated user can read.
+- **Display names, email addresses or any profile data.** The document holds usernames and nothing else. An email is not metadata under this repo's field rule (`decisions/`) and has no place in a document every authenticated user can read.
 - **Shared-space names.** Bucket 2's prefixes are spaces, not users. `TableShareDialog` can target either, and a space directory is a reasonable follow-up, but it is a different list from a different bucket with different membership semantics — and shipping both at once would make the "what am I looking at" question harder in exactly the component that must be unambiguous.
 - **Removing a user from the directory when their prefix is deleted.** The document is rebuilt from scratch every day; there is no incremental state and nothing to reconcile.
 - **Any authorization use.** The directory is never read by a control plane and never becomes a membership check. A test enforces this.
@@ -118,7 +118,7 @@ The user-space bucket has an invariant worth naming before breaking it: **every 
 - [ ] No `ListBucket` is added, no `PutObject`, no access to any other new prefix. A user cannot enumerate `_directory/` and cannot write to it.
 - [ ] The existing prefix-conditioned `ListBucket` and the `Deny` on `DO_NOT_DELETE.txt` are untouched.
 - [ ] `aws iam simulate-custom-policy` confirms the portal role can `GetObject` on `_directory/usernames.json`, cannot `PutObject` there, and still cannot `GetObject` under another user's prefix.
-- [ ] The document is readable by **every authenticated portal user**, and that is the intended and accepted disclosure: a username is already the S3 prefix, the principal tag and the Glue database name (SPEC-033), it is already visible on every shared-space roster (SPEC-075), and a prefix-search feature discloses the set by construction. Recorded in `decisions.md` rather than left implicit.
+- [ ] The document is readable by **every authenticated portal user**, and that is the intended and accepted disclosure: a username is already the S3 prefix, the principal tag and the Glue database name (SPEC-033), it is already visible on every shared-space roster (SPEC-075), and a prefix-search feature discloses the set by construction. Recorded in `decisions/` rather than left implicit.
 
 ### FR-005: The builder role and the bucket policy
 
@@ -294,4 +294,4 @@ docs/transition_plan.md                       # + _directory in §6.3's Contents
 ### Phase 4: Live check and closing out
 
 - Manual invoke; confirm the document and the two IAM behaviours from a real browser session.
-- Completion ritual: `INDEX.md` status, delivery doc (including the manual-invoke command), component-inventory rows if any reusable surface appeared, and a `decisions.md` entry covering **both** settled calls — the S3-not-Cognito source with its transition reasoning, and the accepted all-users disclosure — with one line each in `CLAUDE.md` Key Decisions. **No help-content change** — nothing user-visible ships until SPEC-148.
+- Completion ritual: `INDEX.md` status, delivery doc (including the manual-invoke command), component-inventory rows if any reusable surface appeared, and a `decisions/` entry covering **both** settled calls — the S3-not-Cognito source with its transition reasoning, and the accepted all-users disclosure — with one line each in `CLAUDE.md` Key Decisions. **No help-content change** — nothing user-visible ships until SPEC-148.

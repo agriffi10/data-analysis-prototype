@@ -1199,8 +1199,8 @@ That leaves roughly **30 genuine production config reads across ~18 files**.
 > functions. The bootstrap is real, and awaiting the load was **not sufficient on its own**: a
 > module's static imports evaluate before its first statement runs, so `main.tsx` reaches the
 > application graph through a **dynamic import** and a sweep pins its five static imports. The
-> document is `/config.json`, same-origin, `no-store`; `architecture.md` → *Runtime configuration*
-> carries the contract and `decisions.md` the reasoning.
+> document is `/config.json`, same-origin, `no-store`; `apps/portal/info/runtime-configuration.md`
+> carries the contract and `decisions/` the reasoning.
 
 **Most of the pattern already exists.** The repo already reads config at *call* time rather than
 module load in many places, because module-level `import.meta.env` constants broke `vi.stubEnv` in
@@ -1277,7 +1277,7 @@ The rest of what CloudFront was doing, each of which needs explicit configuratio
 **The deploy pipeline changes shape.** Build, push to a registry, update the service, replacing
 build, sync to S3, invalidate the distribution. New resource types mean the deploy role's
 `.tftpl` policies expand as in-scope work, per the `CLAUDE.md` infra rule — read
-`architecture.md` → *Deploy-role IAM — adding a new resource type* before starting.
+`infra/info/deploy-role-iam.md` before starting.
 
 **The availability model changes, and not in your favour.** CloudFront was a globally distributed
 CDN with essentially no operational burden. A container behind a load balancer has instances,
@@ -1350,7 +1350,7 @@ there into `logs/`. Tokens are already "always out" under the field rule, but th
 was not written with a token-handling service in mind, and it would carry them straight past it.
 
 **Either exempt this service from stack attachment, or scrub its exception paths explicitly**, and
-record the decision in `decisions.md` alongside the original. Do not assume the existing
+record the decision in `decisions/` alongside the original. Do not assume the existing
 exemption covers this — it does not.
 
 ---
@@ -2260,7 +2260,7 @@ the bucket registration, the user-space bucket policy template, and the shared-s
 verb all **stay**. The portal owns them in the successor account (§4.2).
 
 Documentation to rewrite when this lands: `docs/architecture.md` (Authentication Flow,
-Authorization Model, and the "No backend" Known Constraint, which §3.5 breaks), `docs/decisions.md`
+Authorization Model, and the "No backend" Known Constraint, which §3.5 breaks), `docs/decisions/`
 (auth, shared-space and Lake Formation material, plus a new entry for the federated claim — the
 file is one flat heading with no `##` sections, so locating passages means reading it),
 `lambdas/info/planes/shared-spaces.md` (ownership model), and the in-app help content per the

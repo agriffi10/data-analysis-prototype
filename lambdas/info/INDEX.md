@@ -12,7 +12,7 @@ filesystem has, and this index is the only place that grouping is written down.
 **Every plane has the same shape** — FIFO SQS → EventBridge Pipe → Step Functions → single-task verb
 Lambdas, one execution role per plane, its own DLQ, and two layers (`cpcommon` plus the plane's own).
 Read [`planes/`](planes/) for the one you are changing; the shared pattern and the fences that apply
-to all of them are in `docs/architecture.md` → *Control Planes* and the Key Decisions digest in
+to all of them are in [`infra/info/control-plane-shape.md`](../../infra/info/control-plane-shape.md) and the Key Decisions digest in
 `CLAUDE.md`.
 
 ## Where the code is

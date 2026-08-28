@@ -68,7 +68,7 @@ spreads to the whole fleet with SPEC-134→137) and escalated. **The decision wa
 strip it:** `logs/` is admin-only, and a stack is diagnostic metadata an admin debugging a failed
 run needs. So the absolute no-file-contents rule is understood to bind a **field a verb chooses to
 emit** — the thing the `detail` audit and the denylist tripwire cover — and not an automatic
-traceback. The rule text in `cpcommon/observability.py`'s docstring and in `decisions.md` now says
+traceback. The rule text in `cpcommon/observability.py`'s docstring and in `decisions/` now says
 so explicitly, so the exemption reads as a decision rather than a leak nobody noticed.
 
 The characterisation test was **renamed and kept** (`test_ACCEPTED_the_span_error_stack_may_carry_

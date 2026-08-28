@@ -266,6 +266,6 @@ the restore was for.
 ### Phase 5: Completion ritual
 
 - Delivery doc, INDEX status, complete the `architecture.md` → *Control Planes → Archive* section, a
-  `decisions.md` entry (retrieval as the point of no return, polling over event notifications, the
+  `decisions/` entry (retrieval as the point of no return, polling over event notifications, the
   partial-restore asymmetry with archiving's commit gate, the receipt surviving), and one Key
   Decisions line. The user-facing surface lands in SPEC-172, so the Help sweep happens there.
