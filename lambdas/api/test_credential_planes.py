@@ -216,6 +216,150 @@ def findings(tree) -> list[tuple[str, str]]:
 # ── The sweep ─────────────────────────────────────────────────────────────────
 
 
+def test_the_sweep_has_a_subject_and_its_exemption_is_an_identity_not_a_pattern() -> None:
+    """Guard-the-guard, both halves.
+
+    A subject that collapsed to nothing reads as a clean pass, and an exemption that matched by
+    prefix or substring would quietly cover every module named nearby — which is the failure a
+    docstring-versus-declaration exemption already cost this repo once.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the subject is empty, or the exemption matches anything but itself.
+    """
+    modules = {path for path, _ in _shipped()}
+    assert len(modules) >= 10, (
+        f"the sweep's subject is {len(modules)} modules: {sorted(modules)}. A floor set well "
+        "below the real count lets half the package leave the sweep without anyone noticing."
+    )
+    for exempt in EXEMPT_MODULES:
+        assert exempt in modules, f"{exempt} is exempted and does not exist"
+
+    assert is_exempt("apicommon/identity.py")
+    for near_miss in (
+        "apicommon/identity_helpers.py",
+        "apicommon/identity2.py",
+        "identity.py",
+        "apicommon/identity.py ",
+    ):
+        assert not is_exempt(near_miss), f"{near_miss} is exempt by resemblance"
+
+
+def test_no_module_outside_the_identity_layer_reaches_aws_or_mints_an_identity() -> None:
+    """The whole sweep, over every shipped module but the one door.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If any module builds a client, imports the default-credential cache,
+        reaches a private name in the identity layer, or constructs an identity of its own.
+    """
+    for path, tree in _shipped():
+        if is_exempt(path):
+            continue
+        assert findings(tree) == [], f"{path} reaches around the two doors: {findings(tree)}"
+
+
+def test_the_package_holds_exactly_one_client_construction_site() -> None:
+    """A COUNT, not an absence — "none outside the layer" permits six inside it.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the package builds no client, or more than one.
+    """
+    sites = [
+        (path, detail)
+        for path, tree in _shipped()
+        for kind, detail in findings(tree)
+        if kind == "client_construction"
+    ]
+    assert len(sites) == 1, f"the package constructs {len(sites)} clients: {sites}"
+    assert sites[0][0] in EXEMPT_MODULES
+
+
+def test_the_identity_is_constructed_in_one_module_and_nowhere_else() -> None:
+    """A route minting its own identity assumes the portal role as somebody else.
+
+    It would compile, pass review and pass every test that supplies a matching token — the
+    credential-selection defect the tag rule forbids, wearing a scoping parameter's clothes.
+
+    **Equality, not a subset.** ``builders <= EXEMPT_MODULES`` is satisfied by an EMPTY builders
+    set, so a detector that stopped recognising the construction would report clean — which is
+    exactly how the aliased and attribute-qualified forms stayed invisible. The count is what
+    makes a broken detector redden.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If any module outside the layer constructs one.
+    """
+    builders = {
+        path
+        for path, tree in _shipped()
+        for kind, _ in findings(tree)
+        if kind == "identity_construction"
+    }
+    assert builders == set(EXEMPT_MODULES), (
+        f"identities are minted in {sorted(builders)}, expected exactly {sorted(EXEMPT_MODULES)}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("label", "source", "kind"),
+    [
+        ("a client", "import boto3\ndef f():\n    return boto3.client('s3')\n", "client_construction"),
+        ("a resource", "import boto3\nb = boto3.resource('s3')\n", "client_construction"),
+        ("a session", "import boto3\ns = boto3.Session()\n", "client_construction"),
+        ("the cache", "from cpcommon import clients\n", "clients_import"),
+        ("the cache by path", "import cpcommon.clients\n", "clients_import"),
+        ("a private door", "from apicommon.identity import _execution_client\n", "private_identity_import"),
+        ("a private door by attribute", "from apicommon import identity\nx = identity._execution_client('s3')\n", "private_identity_access"),
+        ("an identity", "from apicommon.identity import UserIdentity\nu = UserIdentity(username='x', memberships={})\n", "identity_construction"),
+        ("a client by from-import", "from boto3 import client\nc = client('s3')\n", "boto3_import"),
+        ("a client by aliased from-import", "from boto3 import client as mk\nc = mk('s3')\n", "client_construction"),
+        ("an identity through the module", "from apicommon import identity\nu = identity.UserIdentity(username='x', memberships={})\n", "identity_construction"),
+        ("an identity by aliased import", "from apicommon.identity import UserIdentity as UI\nu = UI(username='x', memberships={})\n", "identity_construction"),
+        ("an identity by dataclass replace", "import dataclasses\nu = dataclasses.replace(context.acting_as, username='bob')\n", "identity_construction"),
+        ("a client through botocore", "import botocore.session\nc = botocore.session.get_session().create_client('s3')\n", "client_construction"),
+        ("a private door by getattr", "from apicommon import identity\nc = getattr(identity, '_client')('s3')\n", "private_identity_access"),
+    ],
+)
+def test_the_checker_catches_every_shape_it_claims_to(label, source, kind) -> None:
+    """Guard-the-guard: a sweep that matched nothing would pass over all of these.
+
+    Args:
+      label: What the synthetic module does.
+      source: The synthetic module.
+      kind: The finding it must produce.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the checker does not flag it.
+    """
+    kinds = {found for found, _ in findings(ast.parse(source))}
+    assert kind in kinds, f"the checker missed {label}"
+
+
 # ── The runtime guard ─────────────────────────────────────────────────────────
 
 

@@ -154,9 +154,6 @@ def test_a_bad_signature_notifies_nobody():
     assert sqs.sent == []
 
 
-# ── FR-003: the message says it never ran, and says nothing else ─────────────
-
-
 # ── FR-004: the body survives consumption, the token does not ────────────────
 
 
@@ -235,27 +232,6 @@ def test_the_sweep_deletes_each_message_it_drains(monkeypatch):
     assert sqs.deleted == [(url, "rh-A"), (url, "rh-B")]
 
 
-# -- SPEC-133: the drain joins the pipe ------------------------------------------------
-
-
-# -- FR-002: request_id is a FIELD here, never baggage ---------------------------------
-
-
-# -- FR-003: the body becomes a permanent forensic record ------------------------------
-
-
-# -- FR-004: one event per message, and per-queue spans --------------------------------
-
-
-# -- FR-005: the sweep's own failures --------------------------------------------------
-
-
 # -- FR-006: the handler stays total ---------------------------------------------------
 
 
-class _RaisingSink:
-    def emit(self, batch):
-        raise RuntimeError("sink exploded")
-
-    def close(self):
-        pass

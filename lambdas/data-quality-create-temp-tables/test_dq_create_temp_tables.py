@@ -71,13 +71,6 @@ def _install_manifest(monkeypatch, manifest):
     monkeypatch.setattr(v.manifest_store, "load", lambda bucket, key: manifest)
 
 
-def _manifest_raises(monkeypatch, exc):
-    def _load(bucket, key):
-        raise exc
-
-    monkeypatch.setattr(v.manifest_store, "load", _load)
-
-
 # ── The typed table ──────────────────────────────────────────────────────────
 
 
@@ -89,9 +82,6 @@ def test_csv_creates_both_the_typed_and_the_raw_table(ran):
     assert len(ran) == 2
     assert "OpenCSVSerde" in ran[0]["query"]
     assert "LazySimpleSerDe" in ran[1]["query"]
-
-
-# ── Partitions ───────────────────────────────────────────────────────────────
 
 
 # ── The width cap ────────────────────────────────────────────────────────────
@@ -138,15 +128,6 @@ def test_a_header_athena_cannot_use_is_a_terminal_that_names_the_columns(monkeyp
     assert ran == []
 
 
-# ── LOCATION resolution ──────────────────────────────────────────────────────
-
-
-# ── State threading + idempotence ────────────────────────────────────────────
-
-
-# ── Manifest read failures ───────────────────────────────────────────────────
-
-
 # ── Shape validation ─────────────────────────────────────────────────────────
 
 
@@ -157,4 +138,3 @@ def _raise(exc):
     return _fn
 
 
-# -- SPEC-132: the narrative ------------------------------------------------------------

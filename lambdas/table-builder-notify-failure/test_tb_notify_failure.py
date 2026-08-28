@@ -117,15 +117,6 @@ def test_a_verbs_own_terminal_error_is_suppressed():
     assert fake.calls == []
 
 
-# ── The plane's own vocabulary (FR-002) ───────────────────────────────────────
-
-
-# ── Recipient trust (FR-002, the SPEC-126 rule) ───────────────────────────────
-
-
-# ── Totality: it never raises, whatever it is handed (FR-002) ─────────────────
-
-
 # ── The instrumentation rules (FR-002) ────────────────────────────────────────
 
 

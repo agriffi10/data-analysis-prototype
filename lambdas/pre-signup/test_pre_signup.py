@@ -59,4 +59,3 @@ if __name__ == "__main__":
     print(f"\n{len(fns)} passed")
 
 
-# -- SPEC-137 FR-005: an email address reaches no event ---------------------------------

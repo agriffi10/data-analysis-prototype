@@ -104,4 +104,3 @@ if __name__ == "__main__":
     print("all notify-failure tests passed")
 
 
-# -- SPEC-132 FR-007: the verb invoked when everything else already went wrong -----------

@@ -91,9 +91,6 @@ def _summary(request_id="r-1", **over):
     return summary
 
 
-# ── The key + the entry shape ────────────────────────────────────────────────
-
-
 # ── The CAS (FR-001's named tests) ───────────────────────────────────────────
 
 

@@ -7,16 +7,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
 import remove_members as r
-from cpcommon import clients
-from cpcommon import config as cpconfig
 from fakes import install
-
-
-def _enable_notifications():
-    """Point the emit helper at a queue so notify is no longer a no-op; return the
-    FakeSqs install() already wired onto clients._sqs."""
-    cpconfig.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
-    return clients._sqs
 
 
 def _active_reg(name="sales", owner="alice", members=None):

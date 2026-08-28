@@ -73,10 +73,6 @@ def test_shared_source_non_member_is_forbidden():
     _expect_reason(_event(source={"database": "salesteam", "table": "orders"}), "forbidden")
 
 
-def _raise_unauthorized(token, **kw):
-    raise TerminalError("unauthorized", "stub")
-
-
 def test_invalid_table_name_is_terminal():
     _setup()
     for bad in ["Orders", "1orders", "or", "", None, "a" * 64]:

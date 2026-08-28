@@ -8,17 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 import auth
 import validate as v
-from cpcommon import clients
-from cpcommon import config as cpconfig
 from fakes import install, raises
-
-
-def _enable_notifications():
-    """Point the emit helper at a queue so notify is no longer a no-op; return the
-    FakeSqs install() already wired onto clients._sqs."""
-    cpconfig.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
-    return clients._sqs
-
 
 _PENDING_KEY = ("user-bkt", "alice/user_settings/shared-connections.json")
 

@@ -76,9 +76,6 @@ def test_the_document_names_exactly_the_known_flags():
     assert all(isinstance(value, bool) for value in defaults.values())
 
 
-# ── Reading the upload targets ───────────────────────────────────────────────
-
-
 # ── Validation is a hard error (FR-002) ──────────────────────────────────────
 
 
@@ -93,19 +90,3 @@ def test_an_unknown_flag_key_fails():
 # ── The publish pipeline (FR-003) ────────────────────────────────────────────
 
 
-def _as_list(value: object) -> list:
-    """A policy field that may be a scalar or a list, always as a list.
-
-    Args:
-      value: An `Action` or `Resource` field.
-
-    Returns:
-      The field's entries.
-    """
-    return value if isinstance(value, list) else [value]
-
-
-# ── Portal-role IAM ──────────────────────────────────────────────────────────
-
-
-# ── FR-008: the reachability this spec depends on and does not change ────────

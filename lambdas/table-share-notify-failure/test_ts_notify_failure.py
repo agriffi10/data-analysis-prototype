@@ -142,9 +142,6 @@ def test_the_message_names_the_source_table():
     assert "q3_returns" in fake.messages()[0]
 
 
-# ── Recipient trust (FR-002, the SPEC-126 rule) ───────────────────────────────
-
-
 # ── Totality: it never raises, whatever it is handed (FR-002) ─────────────────
 
 
@@ -157,43 +154,6 @@ def test_every_malformed_error_payload_still_notifies():
 
 
 # ── the EventBridge door: a run the machine's own timeout stopped (SPEC-161) ──
-
-
-def _timeout_event(body=None, *, included=True, input_override=None):
-    """EventBridge's Step Functions Execution Status Change event for a TIMED_OUT run.
-
-    ``detail.input`` is the EXECUTION input, which on this plane is what the Pipe forwarded —
-    the raw SQS batch — so the body sits inside a record inside a JSON string inside the event.
-    Built here the same way rather than hand-flattened, because the nesting is the part of this
-    path most likely to be got wrong.
-    """
-    if input_override is not None:
-        raw = input_override
-    else:
-        record_body = body if body is not None else {
-            "actor": "token-for-alice",
-            "source": {"database": "alice", "table": "sales"},
-            "tableName": "sales_copy",
-        }
-        raw = json.dumps([{"body": json.dumps(record_body)}])
-    return {
-        "source": "aws.states",
-        "detail-type": "Step Functions Execution Status Change",
-        "detail": {
-            "executionArn": "arn:aws:states:us-east-1:1:execution:m:e",
-            "stateMachineArn": "arn:aws:states:us-east-1:1:stateMachine:m",
-            "status": "TIMED_OUT",
-            "input": raw,
-            "inputDetails": {"included": included},
-        },
-    }
-
-
-def _verified(monkeypatch, username="alice"):
-    """Stubs the token verification the timeout door depends on."""
-    monkeypatch.setattr(
-        nf.auth, "verified_username_ignoring_expiry", lambda token, **kw: username
-    )
 
 
 if __name__ == "__main__":

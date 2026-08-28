@@ -59,31 +59,6 @@ ACCEPTED_PRE_MOVE_DIRECTIVES = (
 )
 
 
-def _module_block(name: str) -> str:
-    """Returns one ``module "<name>" {…}`` block from the root composition.
-
-    Scoped rather than searched whole: root composes twenty-odd modules, and a substring found
-    anywhere in the file cannot tell which one it belongs to — so an argument wired to the wrong
-    module would satisfy an unscoped assertion exactly.
-
-    Args:
-      name: The module's label.
-
-    Returns:
-      The block's body.
-
-    Raises:
-      AssertionError: When the block is absent, so no assertion on it runs vacuously.
-    """
-    text = ROOT_MAIN.read_text()
-    marker = f'module "{name}" {{'
-    assert marker in text, f"root does not compose module {name}."
-    start = text.index(marker)
-    end = text.index("\n}\n", start)
-    assert end > start, f'module "{name}" does not close where expected.'
-    return text[start:end]
-
-
 def test_the_policy_string_is_byte_identical_to_its_pre_move_value() -> None:
     """The separator and the directive list, term for term and in order, against a recorded copy.
 

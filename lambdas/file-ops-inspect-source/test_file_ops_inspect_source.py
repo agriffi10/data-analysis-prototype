@@ -136,7 +136,7 @@ def test_a_folders_objects_keep_their_structure_under_the_destination():
     dropped, whatever depth it lived at."""
     fake = _install({"alice/reports/2026/q1.csv": 91234, "alice/reports/notes.txt": 12})
 
-    result = m._inspect_source(_event())
+    result = m.handler(_event(), None)
 
     objects = _plan(fake)["items"][0]["objects"]
     assert [o["destKey"] for o in objects] == [
@@ -168,7 +168,7 @@ def test_the_portal_managed_folders_are_swept_out_of_an_expansion_that_reaches_t
         }
     )
 
-    m._inspect_source(_event([{"kind": "folder", "key": "alice/"}]))
+    m.handler(_event([{"kind": "folder", "key": "alice/"}]), None)
 
     assert [o["srcKey"] for o in _plan(fake)["items"][0]["objects"]] == ["alice/reports/a.csv"]
 
@@ -182,14 +182,14 @@ def test_one_item_containing_another_refuses_the_WHOLE_request():
     _install({"alice/reports/a.csv": 1})
 
     with pytest.raises(TerminalError) as err:
-        m._inspect_source(
+        m.handler(
             _event(
                 [
                     {"kind": "folder", "key": "alice/reports/"},
                     {"kind": "file", "key": "alice/reports/a.csv"},
                 ]
             )
-        )
+        , None)
 
     assert err.value.reason == "overlapping_items"
 
@@ -201,14 +201,14 @@ def test_a_duplicate_is_kind_AND_key_never_the_key_alone():
     _install({"alice/reports/": 0, "alice/reports/a.csv": 1})
 
     with pytest.raises(TerminalError) as err:
-        m._inspect_source(
+        m.handler(
             _event(
                 [
                     {"kind": "file", "key": "alice/reports/"},
                     {"kind": "folder", "key": "alice/reports/"},
                 ]
             )
-        )
+        , None)
 
     assert err.value.reason == "overlapping_items"
 
@@ -221,14 +221,14 @@ def test_a_missing_file_fails_ITS_ITEM_and_the_rest_proceed():
     file-send fails the whole request here on purpose; this plane deliberately does not."""
     fake = _install({"alice/reports/a.csv": 1})
 
-    result = m._inspect_source(
+    result = m.handler(
         _event(
             [
                 {"kind": "file", "key": "alice/gone.csv"},
                 {"kind": "folder", "key": "alice/reports/"},
             ]
         )
-    )
+    , None)
 
     assert [(o["itemKey"], o["outcome"]) for o in result["outcomes"]] == [
         ("alice/gone.csv", "source_missing"),
@@ -253,7 +253,7 @@ def test_the_object_cap_is_enforced_INSIDE_the_walk(monkeypatch):
     _install({f"alice/reports/f{n:04d}.csv": 1 for n in range(3000)})
 
     with pytest.raises(TerminalError) as err:
-        m._inspect_source(_event())
+        m.handler(_event(), None)
 
     assert err.value.reason == "too_many_objects"
     assert "reached 6 objects and was still counting" in err.value.detail
@@ -267,7 +267,7 @@ def test_the_plan_goes_to_S3_and_only_its_pointer_and_counts_ride_on_the_state()
     """At the object cap the list is tens of megabytes against a 256 KB payload limit."""
     fake = _install({"alice/reports/a.csv": 4})
 
-    result = m._inspect_source(_event())
+    result = m.handler(_event(), None)
 
     assert result["planKey"] == "file-ops/req-1/plan.json"
     assert fake.puts[-1]["Bucket"] == "admin-bkt"

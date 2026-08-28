@@ -73,14 +73,6 @@ def test_a_failed_profile_query_is_a_terminal_query_failed(athena_says):
     assert exc.value.reason == messages.QUERY_FAILED
 
 
-# ── ragged / duplicates degrade instead (FR-004) ─────────────────────────────
-
-
 # ── It does not wait ─────────────────────────────────────────────────────────
 
 
-def _boom(*_a, **_k):
-    raise AssertionError("check-query must not sleep")
-
-
-# -- SPEC-132 FR-005: transitions, not polls ---------------------------------------------

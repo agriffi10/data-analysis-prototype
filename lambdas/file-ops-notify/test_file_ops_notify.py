@@ -65,10 +65,6 @@ def test_one_message_names_the_actor_the_run_and_where_the_result_is(sent):
     assert kwargs["payload"]["requestId"] == "req-1"
 
 
-def _explode(_event):
-    raise RuntimeError("the wording blew up")
-
-
 def test_a_mixed_run_produces_ONE_message_naming_both_halves(sent):
     """Not one message per item: a selection at the item cap would flood an inbox capped at 200
     rows and read whole on every poll."""
@@ -91,10 +87,6 @@ def test_a_mixed_run_produces_ONE_message_naming_both_halves(sent):
     assert len(sent) == 1
     message = sent[0][1]
     assert "Moved 1 of 2 items" in message and '"q1.csv"' in message
-
-
-def _no_client():
-    raise AssertionError("the producer opened an S3 client")
 
 
 if __name__ == "__main__":

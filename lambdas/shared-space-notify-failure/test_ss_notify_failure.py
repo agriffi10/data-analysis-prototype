@@ -103,9 +103,6 @@ def test_every_routed_action_has_its_own_vocabulary():
     assert len(seen) == 7, "two actions produced the same sentence"
 
 
-# ── The duplicate collapse (FR-002) ───────────────────────────────────────────
-
-
 # ── Recipient trust (FR-002, the SPEC-126 rule) ───────────────────────────────
 
 

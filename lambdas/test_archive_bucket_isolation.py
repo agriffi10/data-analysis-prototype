@@ -101,33 +101,6 @@ def test_the_portal_role_names_the_archive_bucket_nowhere():
 # ── FR-001 AC3: the bucket host is not in the CSP connect-src ────────────────
 
 
-def _csp_connect_src_entries(main_tf=None):
-    """The enumerated hosts inside `csp_connect_src = join(" ", [ … ])`.
-
-    Every entry, quoted or not. The list puts each host on its own line, so the slice is what
-    makes the scan see more than the assignment line — a per-line scan for `connect_src` finds
-    exactly one line and would pass with an archive host three lines below it.
-
-    Unquoted entries count. A regex over quoted strings alone was complete while every term was
-    a literal; the list now also carries interpolated locals, and a new bucket's origin would
-    most naturally arrive as one of those — invisible to the old pattern.
-    """
-    body = _read(main_tf or INFRA / "main.tf")
-    block = body[body.index("csp_connect_src = join("):]
-    block = block[: block.index("])")]
-    entries = []
-    for line in block.splitlines()[1:]:
-        line = line.strip().rstrip(",")
-        if not line or line.startswith("#"):
-            continue
-        # Quoted AND unquoted, because the list carries both. A regex over quoted strings
-        # alone was correct while every term was a literal; the first interpolated local
-        # (an origin built at root) made it blind to exactly the kind of entry a new bucket
-        # would arrive as.
-        entries.append(line[1:-1] if line.startswith('"') and line.endswith('"') else line)
-    return entries
-
-
 # ── FR-001 AC8: the bucket policy admits this plane and deploy, nobody else ──
 
 
@@ -145,14 +118,6 @@ def test_the_archive_bucket_policy_denies_every_principal_but_this_plane_and_dep
     # pass with ${portal_role_arn} substituted for ${execution_role_arn} — which is the exact
     # widening the policy exists to prevent — so each placeholder keeps its own name.
     assert allowed == ["execution_role_arn", "deploy_role_arn", "arn:aws:iam::account_id:root"]
-
-
-def _execution_statement(sid):
-    """One statement of the archive execution role's policy, by Sid."""
-    found = [s for s in _statements(ARCHIVE_EXECUTION) if s.get("Sid") == sid]
-
-    assert len(found) == 1, f"{sid} is not in the archive execution policy exactly once"
-    return found[0]
 
 
 # ── FR-006: the browser cannot write under archive/ in either space bucket ───
@@ -177,27 +142,6 @@ def test_each_space_bucket_denies_the_browser_writing_under_archive(deny_of):
 
 
 # ── FR-001 AC4/AC5/AC6: retention is a ceiling, and the rule is unfiltered ───
-
-
-def _lifecycle_rules():
-    """The archive bucket's lifecycle rules, as `{id: block-text}`.
-
-    Read as text: this is HCL, not JSON, and the question — does this rule carry a
-    `filter {}` or a `filter { prefix = … }` — is answerable without a parser.
-    """
-    body = _read(INFRA / "modules" / "archive" / "s3.tf")
-    block = body[body.index('resource "aws_s3_bucket_lifecycle_configuration" "archive"'):]
-    rules = {}
-    for chunk in block.split("\n  rule {")[1:]:
-        chunk = chunk.split("\n  }")[0]
-        rules[re.search(r'id\s*=\s*"([^"]+)"', chunk).group(1)] = chunk
-    return rules
-
-
-# ── The admin bucket's archive/ prefix, and the three unrelated things so named ──
-
-
-# ── SPEC-170: the guard's permission, where the failure mode is a FALSE PASS ─
 
 
 # ── SPEC-139 parity: no new Resource "*" anywhere in this plane ──────────────

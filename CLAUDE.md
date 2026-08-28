@@ -425,8 +425,11 @@ reads and enqueues.
   reasoning, and say *revisit the decision, don't delete the test*.
 - **No silent caps.** If a check bounds coverage, say what was dropped — silent truncation reads as
   "covered everything".
-- Coverage floors and `"strict": true` are **declared, never inherited**, and are ratchets at the
-  measured level. Never lower one for a regression.
+- Coverage floors and `"strict": true` are **declared, never inherited**. The floors are a flat
+  **85**, no longer ratchets at the measured level — a ratchet fails CI on any deliberate reduction
+  in test volume, and is bought back by testing internals. Never lower one for a regression, and
+  never read a floor as evidence a guard exists: four mutations of production code once passed the
+  whole suite with coverage unchanged. **Mutate the guard instead.**
 
 ---
 

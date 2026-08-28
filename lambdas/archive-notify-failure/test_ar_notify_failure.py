@@ -37,16 +37,6 @@ def _raw(actor_token="eyJ-token"):
     })}]
 
 
-def _raw_restore(actor_token="eyJ-token"):
-    """A RESTORE request body, for the timeout door's wording. See the tests at the foot of this
-    file: SPEC-171's retrieval wait is what makes a timed-out restore reachable at all."""
-    return [{"messageId": "m-1", "body": json.dumps({
-        "requestId": UUID, "mode": "restore", "actor": actor_token,
-        "space": {"kind": "personal", "name": "alice"},
-        "archiveId": "b71d0f42-9c3e-4a17-b8f5-0d1e2f3a4b5c",
-    })}]
-
-
 def _failed(**overrides):
     request = {"requestId": UUID, "actor": None, "raw": _raw(), "status": "failed",
                "error": {"Error": "States.Timeout", "Cause": None}}
@@ -69,9 +59,6 @@ def test_the_actor_is_recovered_from_the_verified_token_in_the_raw_request(monke
     assert [user for user, _ in sent] == ["alice"]
 
 
-# ── Suppression is by ONE NAME, never by a heuristic ─────────────────────────
-
-
 # ── No verified actor is a logged no-op, never a guess ───────────────────────
 
 
@@ -86,22 +73,6 @@ def test_a_failure_with_no_recoverable_actor_notifies_nobody(monkeypatch, sent):
 
 
 # ── The second door: a run the machine's own ceiling stopped (SPEC-169) ──────
-
-
-class _FakeSfn:
-    """Step Functions, for the input read-back the timeout door falls back to.
-
-    Only the succeeding shape is needed here: the read-back's own failure modes are
-    ``cpcommon.events.timed_out_execution_input``'s and are tested there.
-    """
-
-    def __init__(self, described=None):
-        self._described = described
-        self.calls = []
-
-    def describe_execution(self, executionArn):
-        self.calls.append(executionArn)
-        return self._described or {}
 
 
 def _timed_out(included=True, input_body=None, arn="arn:aws:states:us-east-1:1:execution:m:e"):

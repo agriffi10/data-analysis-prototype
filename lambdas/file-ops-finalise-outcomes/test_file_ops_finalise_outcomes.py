@@ -86,7 +86,7 @@ def _quiet_notifications(monkeypatch):
 def test_a_committed_item_becomes_its_operations_terminal_success(operation, expected):
     _install(deletions=[{"itemKey": "alice/a/", "deleted": 3, "failed": 0, "reason": ""}])
 
-    result = m._finalise_outcomes(_event([_cleared()], operation=operation))
+    result = m.handler(_event([_cleared()], operation=operation), None)
 
     assert result["outcomes"][0]["outcome"] == expected
 
@@ -105,7 +105,7 @@ def test_NO_gate_verdict_survives_to_a_terminal():
         {"itemKey": "alice/n/", "label": "n", "outcome": "noop"},
     ]
 
-    result = m._finalise_outcomes(_event(arrived))
+    result = m.handler(_event(arrived), None)
 
     for record in result["outcomes"]:
         assert record["outcome"] in outcomes.TERMINALS
@@ -121,10 +121,9 @@ def test_a_copied_item_whose_SOURCE_SURVIVED_is_a_duplicate(reason):
     be told, because only they can decide which copy to keep."""
     _install(deletions=[{"itemKey": "alice/a/", "deleted": 0, "failed": 2, "reason": reason}])
 
-    result = m._finalise_outcomes(_event([_cleared()]))
+    result = m.handler(_event([_cleared()]), None)
 
     assert result["outcomes"][0]["outcome"] == "duplicate"
     assert result["outcomes"][0]["reason"] == reason
 
 
-# ── The terminal's payload ───────────────────────────────────────────────────

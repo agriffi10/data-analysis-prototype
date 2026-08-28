@@ -32,15 +32,6 @@ _ARCHIVE_ROOT = f"personal/alice/archive/{_ARCHIVE_ID}/"
 _PLAN_KEY = f"archive/{_REQUEST_ID}/restore-plan.json"
 
 
-class _S3Error(Exception):
-    def __init__(self, code, status=400):
-        self.response = {
-            "Error": {"Code": code},
-            "ResponseMetadata": {"HTTPStatusCode": status},
-        }
-        super().__init__(code)
-
-
 class _Body:
     def __init__(self, payload):
         self._payload = payload

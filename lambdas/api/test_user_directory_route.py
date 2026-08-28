@@ -13,7 +13,6 @@ The four here:
   a non-array ``usernames`` field is the empty state
 """
 
-import json
 
 import router
 from apicommon import identity
@@ -59,21 +58,6 @@ def _get(headers=None):
       None.
     """
     return router.route("GET", "/v1/user-directory", bearer() if headers is None else headers, "r1")
-
-
-def _body(response):
-    """The response's parsed body.
-
-    Args:
-      response: The router's response.
-
-    Returns:
-      The parsed body.
-
-    Raises:
-      None.
-    """
-    return json.loads(response["body"])
 
 
 def test_it_reads_the_key_the_builder_publishes_from_the_user_space_bucket(

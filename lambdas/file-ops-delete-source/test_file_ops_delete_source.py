@@ -147,7 +147,7 @@ def test_only_the_CONFIRMED_items_keys_are_deleted():
     items = [_item("alice/a/", "a", ["alice/a/1"]), _item("alice/b/", "b", ["alice/b/1"])]
     fake = _install(items, ["alice/a/"])
 
-    result = m._delete_source(_event())
+    result = m.handler(_event(), None)
 
     assert fake.deleted == ["alice/a/"[:-1] + "/1"]
     assert result["deletedCount"] == 1
@@ -162,9 +162,6 @@ def test_the_subset_guard_refuses_an_unconfirmed_item():
     assert caught.value.reason == "forbidden"
 
 
-# ── Per-item isolation ───────────────────────────────────────────────────────
-
-
 # ── Conditionality ───────────────────────────────────────────────────────────
 
 
@@ -174,7 +171,7 @@ def test_a_MOVE_compares_the_ETag_the_PLAN_recorded():
     items = [_item("alice/a/", "a", ["alice/a/1"])]
     fake = _install(items, ["alice/a/"], heads={"alice/a/1": '"moved-on"'})
 
-    m._delete_source(_event())
+    m.handler(_event(), None)
 
     assert fake.deleted == []
     records = fake.written[_RESULTS_KEY]["deletions"]

@@ -166,13 +166,3 @@ def test_invalid_utf8_is_counted_with_its_offset_and_file(monkeypatch):
     assert out["sampleOffsets"] == [{"key": "alice/s/a.csv", "offset": 13}]
 
 
-# ── Read boundaries must not invent findings ─────────────────────────────────
-
-
-# ── The two bounds ───────────────────────────────────────────────────────────
-
-
-# ── Faults ───────────────────────────────────────────────────────────────────
-
-
-# -- SPEC-132 FR-004: the highest-risk emitter in the plane ------------------------------

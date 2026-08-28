@@ -13,17 +13,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-builder-common"))
 
 import validate_authorize as v
-from cpcommon import clients, config
 from cpcommon.errors import TerminalError
-
-
-class _FakeClientError(Exception):
-    """A botocore-SHAPED error carrying ``.response["Error"]["Code"]`` — what the verb's
-    transient classifier actually reads (a code-in-the-message exception would be a no-op)."""
-
-    def __init__(self, code):
-        super().__init__(code)
-        self.response = {"Error": {"Code": code, "Message": code}}
 
 # Capture the REAL verified_username before any test patches the shared module attr.
 _REAL_VERIFIED = v.auth.verified_username
@@ -37,12 +27,6 @@ class _FakeSqs:
         self.calls.append(kwargs)
         return {"MessageId": "m"}
 
-
-def _arm_notifications():
-    config.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/dat-prod-notifications-requests.fifo"
-    fake = _FakeSqs()
-    clients._sqs = fake
-    return fake
 
 USER_BUCKET = "dat-prod-user-space"
 SHARED_BUCKET = "dat-prod-shared-space"
@@ -139,9 +123,6 @@ def test_bad_table_name_is_invalid_table_name():
     _expect_reason(_event(_personal(), table_name="Sales-2026"), "invalid_table_name")
 
 
-# ── mode: the create/refresh branch selector (SPEC-143 FR-001 / FR-002) ──────
-
-
 # ── allowRemovals: the removal opt-in (SPEC-144 FR-003) ──────────────────────
 
 
@@ -165,3 +146,15 @@ if __name__ == "__main__":
 # or TypeError from inside infer-schema — surfacing to the user as "something went wrong"
 # for a request they could simply have corrected. The refusal must name the key and be
 # `invalid_partition_keys`, which is what the user-facing partition message keys on.
+
+
+def test_ACCEPTED_allow_removals_false_rides_a_create_while_true_is_refused():
+    """SPEC-151 FR-007 asks for this asymmetry to be PINNED, not changed. `false` is the
+    browser's always-present default and is accepted; `true` on a create is a producer bug
+    asking for something the mode cannot do, and is refused rather than silently dropped
+    (validate_authorize._normalize_removals). If this ever starts failing, the accepted
+    asymmetry changed — revisit the decision, do not delete the test."""
+    _setup()
+    out = v.handler(_event(_personal(), allow_removals=False), None)
+    assert out is not None
+    _expect_reason(_event(_personal(), allow_removals=True), "removals_flag_not_applicable")

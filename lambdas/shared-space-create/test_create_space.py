@@ -13,15 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import create_space as c
 import registry as reg
 from cpcommon import clients
-from cpcommon import config as cpconfig
 from fakes import install, raises
-
-
-def _enable_notifications():
-    """Point the emit helper at a queue so notify is no longer a no-op; return the
-    FakeSqs install() already wired onto clients._sqs."""
-    cpconfig.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
-    return clients._sqs
 
 
 def test_create_happy_path_provisions_everything():
@@ -81,7 +73,6 @@ def test_create_replay_same_request_is_idempotent():
 
 def test_create_failure_after_slot_rolls_back_slot():
     install()
-    from cpcommon import clients
 
     # The slot is assigned, then a later provisioning step fails: the except path must
     # clear the slot so a failed create doesn't leak one toward the membership cap.
@@ -104,4 +95,3 @@ if __name__ == "__main__":
     sys.exit(0)
 
 
-# ── SPEC-151 FR-008: a Glue transient during create is retryable ────────────

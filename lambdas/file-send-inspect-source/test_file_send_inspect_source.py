@@ -118,6 +118,3 @@ if __name__ == "__main__":
 # ── SPEC-166 FR-005: the transfer caps ──────────────────────────────────────
 
 
-def _recipients(count):
-    """A recipient list of the given length, all resolvable."""
-    return [{"kind": "user", "name": f"user{n}"} for n in range(count)]

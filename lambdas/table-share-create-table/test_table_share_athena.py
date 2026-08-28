@@ -28,12 +28,6 @@ from cpcommon.errors import TerminalError
 from table_share_create_table import athena_mod
 
 
-class _BotoError(Exception):
-    def __init__(self, code):
-        self.response = {"Error": {"Code": code}}
-        super().__init__(code)
-
-
 class _FakeAthena:
     """States are consumed one per poll; the last repeats if polling continues."""
 

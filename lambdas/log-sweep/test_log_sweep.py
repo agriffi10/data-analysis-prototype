@@ -181,14 +181,6 @@ class NullSink:
         pass
 
 
-class RaisingSink:
-    def emit(self, batch):
-        raise RuntimeError("sink exploded")
-
-    def close(self):
-        pass
-
-
 def _install_sink(sink):
     """Swap the process sink AND retire the worker built from the previous one.
 
@@ -225,53 +217,11 @@ def captured(_quiet_sink):
     return sink
 
 
-def _levels(sink):
-    """Every event that is not a span boundary — the narrative proper."""
-    return [e for e in sink.events if e["message"] not in ("span.start", "span.end")]
-
-
 def _by_message(sink, message):
     return [e for e in sink.events if e["message"] == message]
 
 
-def _spans(sink, function):
-    return [e for e in sink.events if e["message"] == "span.start" and e["function"] == function]
-
-
-# -- FR-001: intake ---------------------------------------------------------------------
-
-
-# -- FR-002: every destination is named, with its outcome -------------------------------
-
-
-# -- FR-003: degraded paths are warnings, not silence -----------------------------------
-
-
-# -- FR-004: the outcome event is total -------------------------------------------------
-
-
 # -- FR-005: a sweep's events stay below the messages it drains -------------------------
-
-
-def _sweep_event_count(wired_factory, message_count, captured):
-    receipts = [
-        _message(_event(service="data-quality" if n % 2 else "observability"), f"r{n}")
-        for n in range(message_count)
-    ]
-    wired_factory([receipts[i : i + 10] for i in range(0, len(receipts), 10)])
-    captured.events.clear()
-    result = log_sweep.handler({}, None)
-    assert result["waves"] == 1, (
-        "this helper's whole scope is a single wave; a second one makes the count differ for a "
-        "reason that is not a per-message emitter"
-    )
-    return len(captured.events)
-
-
-# -- FR-006: CloudWatch keeps everything it has ----------------------------------------
-
-
-# -- FR-007: sweep_id joins the two accounts -------------------------------------------
 
 
 # -- FR-005: routing, and the key-injection surface -------------------------------------
@@ -403,4 +353,3 @@ def test_the_wave_cap_bounds_a_sweep_and_says_so(monkeypatch, captured):
     assert stopped[0]["fields"]["reason"] == log_sweep.STOP_WAVE_CAP
 
 
-# -- FR-005: the handler is total -------------------------------------------------------

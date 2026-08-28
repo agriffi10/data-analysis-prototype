@@ -16,10 +16,8 @@ Attributes:
     deny-by-default is told apart from allow-by-default.
 """
 
-import ast
 import json
 import os
-import pathlib
 import sys
 import time
 
@@ -88,53 +86,3 @@ def test_the_provider_configuration_failing_is_a_server_fault_and_never_a_401(mo
     assert response["statusCode"] != 401
 
 
-def _shipped_modules():
-    """Every non-test module in this package, parsed.
-
-    Args:
-      None.
-
-    Returns:
-      Pairs of relative path and parsed tree.
-
-    Raises:
-      None.
-    """
-    root = pathlib.Path(__file__).resolve().parent
-    for path in sorted(root.rglob("*.py")):
-        if path.name.startswith(("test_", "conftest.")) or "__pycache__" in path.parts:
-            continue
-        yield path.relative_to(root), ast.parse(path.read_text(encoding="utf-8"))
-
-
-def _constants(tree):
-    """Yields every constant in a module EXCEPT its docstrings.
-
-    A raw substring scan cannot tell a status a module returns from a docstring saying that
-    status must never be returned — and this package's own refusal module says exactly that, in
-    the sentence explaining why a 401 is not a 401-shaped 403. Parsing means the assertion is
-    about code, which is what it claims to be about.
-
-    Args:
-      tree: The parsed module.
-
-    Returns:
-      An iterator of constant nodes.
-
-    Raises:
-      None.
-    """
-    docstrings = set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            body = getattr(node, "body", None)
-            if (
-                body
-                and isinstance(body[0], ast.Expr)
-                and isinstance(body[0].value, ast.Constant)
-                and isinstance(body[0].value.value, str)
-            ):
-                docstrings.add(id(body[0].value))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and id(node) not in docstrings:
-            yield node

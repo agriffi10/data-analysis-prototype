@@ -316,27 +316,6 @@ def test_a_scoped_statement_holds_no_non_scopable_action() -> None:
             )
 
 
-def _iam_match(pattern: str, arn: str) -> bool:
-    """Applies IAM's wildcard semantics to one resource pattern.
-
-    IAM's ``*`` matches any run of characters including ``/`` and ``:``, which is why an ECS
-    service ARN of ``service/{cluster}/{service}`` matches a pattern naming one segment. ``?``
-    matches exactly one character.
-
-    Args:
-      pattern: The ``Resource`` entry from a statement.
-      arn: A concrete ARN to test it against.
-
-    Returns:
-      Whether IAM would consider the pattern to cover the ARN.
-
-    Raises:
-      None.
-    """
-    expression = re.escape(pattern).replace(r"\*", ".*").replace(r"\?", ".")
-    return re.fullmatch(expression, arn) is not None
-
-
 # Resource types whose creation makes AWS create a SERVICE-LINKED ROLE in the account, mapped
 # to the service name `iam:CreateServiceLinkedRole` is conditioned on. A missing entry is a 403
 # at apply — "Caller does not have permissions to create a Service Linked Role" — naming neither
@@ -351,19 +330,3 @@ SERVICE_LINKED_ROLE_TRIGGERS = {
 }
 
 
-def _declared_resource_types() -> set[str]:
-    """Every resource type the IaC tree declares.
-
-    Args:
-      None.
-
-    Returns:
-      The set of `resource "<type>"` names across infra/.
-
-    Raises:
-      None.
-    """
-    types: set[str] = set()
-    for path in (ROOT / "infra").rglob("*.tf"):
-        types.update(re.findall(r'^resource\s+"([a-z0-9_]+)"', path.read_text(), re.MULTILINE))
-    return types

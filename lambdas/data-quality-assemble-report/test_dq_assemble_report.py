@@ -9,7 +9,6 @@ import csv
 import io
 import json
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
@@ -136,52 +135,10 @@ def _setup(monkeypatch, objects=None, missing=()):
     return fake
 
 
-def _written(fake):
-    """The REPORT document, selected by key rather than by being the last write.
-
-    It used to be `puts[-1]`. SPEC-123 made this verb write twice — the report, then the
-    per-space runs index — so "the last thing put" silently became the index, and every
-    assertion below started reading the wrong object.
-    """
-    reports = [p for p in fake.puts if p["Key"].endswith(v.REPORT_BASENAME)]
-    assert reports, "the report object was never written"
-    return json.loads(reports[-1]["Body"])
-
-
 def _index(fake):
     """The runs-index document (SPEC-123), or None if this run never wrote one."""
     indexes = [p for p in fake.puts if p["Key"].endswith("index.json")]
     return json.loads(indexes[-1]["Body"]) if indexes else None
-
-
-def _state_machine():
-    """Parse the DEPLOYED ASL template, with its Terraform placeholders stubbed out.
-
-    Read from infra/ rather than duplicated here on purpose: a copy would drift, and the
-    whole value of the contract tests below is that they fail when one side moves.
-    """
-    path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "..", "..", "infra", "modules", "data-quality", "state-machine.asl.json.tftpl",
-    )
-    with open(path) as handle:
-        return json.loads(re.sub(r"\$\{[^}]+\}", "stub-arn", handle.read()))
-
-
-def _has_path(state, path):
-    """Whether a JSONPath like ``$.a.b`` resolves to an existing KEY in ``state``.
-
-    Walks nested segments rather than slicing off "$." and comparing to top-level keys: the
-    sibling table-builder machine already reads `$.space.database`, so a naive check would
-    false-fail the first time this machine grows a nested read. Only the key's PRESENCE
-    matters — a null value is fine in a Pass state, a missing key is fatal.
-    """
-    cursor = state
-    for segment in path.removeprefix("$.").split("."):
-        if not isinstance(cursor, dict) or segment not in cursor:
-            return False
-        cursor = cursor[segment]
-    return True
 
 
 # ── The write ────────────────────────────────────────────────────────────────
@@ -230,10 +187,3 @@ def test_a_result_that_is_nowhere_raises_a_terminal_with_a_friendly_reason(monke
     assert excinfo.value.reason == "query_failed"
 
 
-# ── The summary payload (FR-003) and the SPEC-123 seam (FR-004) ──────────────
-
-
-# ── Faults ───────────────────────────────────────────────────────────────────
-
-
-# -- SPEC-132: counts and the key, never a result row -----------------------------------

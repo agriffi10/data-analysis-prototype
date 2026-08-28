@@ -108,12 +108,6 @@ def test_a_valid_archive_request_resolves_its_source_and_its_destination():
     assert out["source"]["items"] == [{"kind": "file", "key": "alice/reports/q1.csv"}]
 
 
-# ── The actor comes from the token and nowhere else ──────────────────────────
-
-
-# ── The contract: unknown fields are REJECTED, not ignored ───────────────────
-
-
 # ── Containment: the two rules, each with its own case (FR-005) ──────────────
 
 
@@ -121,12 +115,6 @@ def test_a_key_with_a_dot_dot_path_segment_is_refused():
     """THE alice/../bob/ CASE. Normalisation does nothing about dot segments, and
     "alice/../bob/secrets.csv".startswith("alice/") is True."""
     assert _refused(source=_source(items=[{"kind": "file", "key": "alice/../bob/secrets.csv"}])) == "forbidden"
-
-
-# ── The reserved roots and the prefix marker (FR-005) ────────────────────────
-
-
-# ── The selection caps (FR-005) ──────────────────────────────────────────────
 
 
 # ── The restore branch (SPEC-170 FR-001, FR-002) ─────────────────────────────

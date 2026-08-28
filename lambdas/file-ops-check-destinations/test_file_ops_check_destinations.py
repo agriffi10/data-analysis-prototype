@@ -157,7 +157,7 @@ def test_a_clear_item_is_cleared_and_every_key_was_actually_checked():
     guard's timeout is sized for."""
     fake = _install([_item("alice/reports/", "reports", ["alice/out/reports/a", "alice/out/reports/b"])], {})
 
-    result = m._check_destinations(_event())
+    result = m.handler(_event(), None)
 
     assert _outcome(result, "alice/reports/")["outcome"] == "cleared"
     # Sorted, because the heads are appended from inside the worker pool: the ORDER they land in is
@@ -177,7 +177,7 @@ def test_a_403_counts_as_OCCUPIED():
         {"alice/out/a/x": _S3Error("AccessDenied", 403)},
     )
 
-    result = m._check_destinations(_event())
+    result = m.handler(_event(), None)
 
     assert _outcome(result, "alice/a/")["outcome"] == "conflict"
 
@@ -193,12 +193,9 @@ def test_an_object_NEWER_than_the_submission_conflicts_the_item():
         on_conflict="overwrite",
     )
 
-    result = m._check_destinations(_event(on_conflict="overwrite"))
+    result = m.handler(_event(on_conflict="overwrite"), None)
 
     assert _outcome(result, "alice/a/")["outcome"] == "conflict"
-
-
-# ── The sample ───────────────────────────────────────────────────────────────
 
 
 # ── The plan and the outcome list ────────────────────────────────────────────

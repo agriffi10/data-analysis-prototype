@@ -115,22 +115,3 @@ def test_the_status_map_is_total_and_its_image_is_the_closed_set() -> None:
     assert set(contract.ERROR_STATUS.values()) <= contract.ROUTE_STATUSES
 
 
-def _with_routes(routes, action):
-    """Runs an action against a replaced route table, restoring it afterwards.
-
-    Args:
-      routes: The route tuple to install for the duration.
-      action: The zero-argument callable to run.
-
-    Returns:
-      Whatever the action returned.
-
-    Raises:
-      Exception: Whatever the action raised.
-    """
-    original = contract.ROUTES
-    contract.ROUTES = routes  # type: ignore[misc]
-    try:
-        return action()
-    finally:
-        contract.ROUTES = original  # type: ignore[misc]

@@ -30,18 +30,9 @@ import pathlib
 import apply_refresh as m
 import pytest
 from cpcommon import clients, config
-from cpcommon.errors import TerminalError
 
 BUCKET = "dat-prod-user-space"
 LAMBDAS = pathlib.Path(__file__).resolve().parent.parent
-
-
-class _ClientError(Exception):
-    """A botocore-shaped fault: the verb classifies on ``response['Error']['Code']``."""
-
-    def __init__(self, code, message="boom"):
-        super().__init__(f"An error occurred ({code}) when calling the UpdateTable operation: {message}")
-        self.response = {"Error": {"Code": code, "Message": message}}
 
 
 class _NoAthena:
@@ -187,16 +178,6 @@ def _event(**over):
     return event
 
 
-def _expect_reason(event, reason, **install):
-    _install(**install)
-    try:
-        m.handler(event, None)
-    except TerminalError as exc:
-        assert exc.reason == reason, f"expected {reason!r}, got {exc.reason!r} ({exc.detail})"
-        return exc
-    raise AssertionError(f"expected TerminalError({reason!r}), but handler succeeded")
-
-
 # ── One Glue call, no Athena, no delete (FR-001, FR-005) ─────────────────────
 
 
@@ -286,34 +267,7 @@ def test_a_retyped_column_takes_the_fresh_type_and_keeps_its_comment():
 # ── Partitioned tables ───────────────────────────────────────────────────────
 
 
-def _partitioned_live():
-    live = _live_table()
-    live["PartitionKeys"] = [{"Name": "year", "Type": "int"}]
-    live["Parameters"].update({
-        "projection.enabled": "true",
-        "projection.year.type": "integer",
-        "projection.year.range": "2000,2100",
-        "projection.year.digits": "4",
-        # A stale key from a PREVIOUS partition scheme: replaced means removed, not merged.
-        "projection.region.type": "enum",
-        "projection.region.values": "eu,us",
-    })
-    return live
-
-
 _KEYS = [{"name": "year", "type": "integer", "range": [2000, 2100], "digits": 4}]
-
-
-# ── FR-004: the previous definition is retained ──────────────────────────────
-
-
-# ── FR-003: the post-condition ───────────────────────────────────────────────
-
-
-# ── Failure modes ────────────────────────────────────────────────────────────
-
-
-# ── Outcome ──────────────────────────────────────────────────────────────────
 
 
 # ── SPEC-153 FR-006: the Athena case-fold premise, pinned ────────────────────
@@ -323,9 +277,50 @@ if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
 
 
-# ── SPEC-157 FR-005: the residual window, narrowed ───────────────────────────
-
-
 # ── SPEC-157: the shapes boto3 ACTUALLY returns ──────────────────────────────
 
 _AWARE = datetime.datetime(2026, 2, 1, tzinfo=datetime.UTC)
+
+
+def test_ACCEPTED_a_mixed_case_live_table_is_silently_re_cased_on_refresh():
+    """The premise SPEC-149 made OURS, written down as behaviour instead of prose.
+
+    AWS documents that Athena lowercases every column name it creates through DDL, so a
+    portal-created table's live columns are already lowercase and the fold below is a no-op.
+    SPEC-149's in-place ``UpdateTable`` bypasses Athena entirely, which is why this verb does
+    the fold itself — and that turned a documented property of Athena into a property of OUR
+    code. If the premise is wrong (a pre-149 table, an ``ALTER TABLE`` a user ran, a table
+    created outside the pipeline), the first refresh REWRITES the casing of every column
+    while ``diff-schema`` — which folds case to compare — reports the columns unchanged. No
+    test and no notification would say so.
+
+    Every other fixture in this file supplies already-lowercase live columns, so they assume
+    the conclusion. This one does not: the live table carries ``Order_ID`` and the refresh is
+    a pure add, yet what lands is ``order_id``.
+
+    ACCEPTED, and CORROBORATED-NOT-DISCHARGED: the AWS documentation is strong evidence and
+    is why 149 hard-codes the fold, but documentation is the same class of evidence that had
+    SPEC-144 FR-001 reversed mid-build. The check that would discharge it is a live
+    ``GetTable`` read-back after refreshing a table carrying a mixed-case column, and it is
+    recorded as owed. Note the comment survives the re-casing — the carry is keyed on
+    ``casefold()`` — so this is a rename, not a column swap.
+
+    If this starts failing, the fold changed: revisit the decision (docs/decisions/analytics.md, "Removing a
+    column needs an opt-in" / SPEC-149's apply entry), do not delete the test.
+    """
+    storage = {
+        **_live_table()["StorageDescriptor"],
+        "Columns": [{"Name": "Order_ID", "Type": "string", "Comment": "the shop's own id"}],
+    }
+    glue, _ = _install(table=_live_table(StorageDescriptor=storage))
+
+    m.handler(_event(columns=[
+        {"name": "Order_ID", "type": "string"},
+        {"name": "amount", "type": "string"},
+    ]), None)
+
+    written = glue.table_input["StorageDescriptor"]["Columns"]
+    assert [c["Name"] for c in written] == ["order_id", "amount"], (
+        "the fold is no longer being applied on write"
+    )
+    assert written[0]["Comment"] == "the shop's own id", "the carried comment was lost"

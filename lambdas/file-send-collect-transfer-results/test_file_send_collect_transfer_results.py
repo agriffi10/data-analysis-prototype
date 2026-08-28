@@ -70,15 +70,6 @@ def _cleared(kind, name):
     }
 
 
-def _refused(kind, name, reason, detail=""):
-    return {
-        "status": "failed",
-        "recipient": {"kind": kind, "name": name},
-        "reason": reason,
-        "detail": detail,
-    }
-
-
 def _event(guard_results, item_count=2, map_run=True):
     event = {
         "requestId": "req-1",

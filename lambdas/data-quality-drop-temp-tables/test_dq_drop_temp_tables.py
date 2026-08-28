@@ -63,9 +63,6 @@ def test_it_drops_both_tables(ran):
     assert out["cleanup"]["failed"] == []
 
 
-# ── Reached before anything was created (FR-005) ─────────────────────────────
-
-
 # ── Never raising (FR-005) ───────────────────────────────────────────────────
 
 
@@ -81,7 +78,3 @@ def test_a_drop_failure_is_swallowed_so_it_cannot_mask_the_original_reason(monke
     assert out["cleanup"]["failed"] == [f"dq_tmp_{HEX32}", f"dq_tmp_raw_{HEX32}"]
 
 
-# ── The failure-path invocation shape ────────────────────────────────────────
-
-
-# -- SPEC-132: cleanup narrates, and never claims the run failed ------------------------

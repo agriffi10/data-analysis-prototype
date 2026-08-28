@@ -7,14 +7,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "shared-space-common"))
 
 import leave as l
-from cpcommon import clients
-from cpcommon import config as cpconfig
 from fakes import install
-
-
-def _enable_notifications():
-    cpconfig.NOTIFICATIONS_QUEUE_URL = "https://sqs/notifications.fifo"
-    return clients._sqs
 
 
 def _seed_full_space(s3, glue, cognito, name="sales", members=("alice", "bob")):

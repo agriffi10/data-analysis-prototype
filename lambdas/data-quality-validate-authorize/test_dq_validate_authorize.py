@@ -76,10 +76,6 @@ def test_path_traversal_cannot_escape_the_space():
 # ── shared authorization (FR-005) ────────────────────────────────────────────
 
 
-def _shared_event(**over):
-    return _event(space={"kind": "shared", "bucket": SHARED_BUCKET, "prefix": "salesteam/"}, location="salesteam/raw/", **over)
-
-
 if __name__ == "__main__":
     tests = [fn for name, fn in sorted(globals().items()) if name.startswith("test_")]
     failed = 0
@@ -94,4 +90,3 @@ if __name__ == "__main__":
     sys.exit(1 if failed else 0)
 
 
-# -- SPEC-132: the narrative ------------------------------------------------------------

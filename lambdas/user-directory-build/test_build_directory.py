@@ -6,7 +6,6 @@ its event count does not grow with the organisation (FR-008), and nothing else i
 treats the document it writes as an authorization input (FR-007).
 """
 
-import ast
 import json
 import os
 import pathlib
@@ -114,60 +113,6 @@ def test_an_empty_result_never_overwrites_the_existing_document(s3):
     assert result == {"published": False, "username_count": 0}
 
 
-# -- FR-006: idempotence ---------------------------------------------------------------
-
-
-# -- FR-007: the directory is never an authorization input -----------------------------
-
-
 # -- FR-008: observability -------------------------------------------------------------
 
 
-def _event_count(s3, captured_events, user_count):
-    s3([[f"user{n:04d}/" for n in range(user_count)]])
-    captured_events.events.clear()
-    build_directory.handler({}, None)
-    return len(captured_events.events)
-
-
-def _terraform_environment_variables():
-    """The names ASSIGNED inside lambda.tf's `environment { variables = { … } }` block.
-
-    Parsed rather than substring-searched, and that distinction is the whole point of the test
-    below. A bare `name in source` check also matches the COMMENTS — and lambda.tf's comment
-    explaining the cold-start trap names `USER_SPACE_BUCKET`, so the one variable this function
-    actually uses was the one the guard could not see. Deleting its assignment left the suite
-    green.
-    """
-    module = (LAMBDAS.parent / "infra" / "modules" / "user-directory" / "lambda.tf").read_text()
-    block = module.split("variables = {", 1)[1]
-    names = set()
-    depth = 1
-    for line in block.splitlines():
-        depth += line.count("{") - line.count("}")
-        if depth <= 0:
-            break
-        assignment = __import__("re").match(r"\s*([A-Z][A-Z0-9_]*)\s*=", line)
-        if assignment:
-            names.add(assignment.group(1))
-    return names
-
-
-def _cpcommon_required_variables():
-    """The env vars `cpcommon.config` requires, read from its `_REQUIRED_VARS` declaration.
-
-    Parsed from source rather than imported, and from the DECLARATION rather than a regex over
-    `_require("…")` calls: SPEC-156 moved the resolution to first access, so the calls no longer
-    name the variables and a call-site regex would silently find none.
-    """
-    source = (LAMBDAS / "control-plane-common" / "cpcommon" / "config.py").read_text()
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Assign) and any(
-            isinstance(target, ast.Name) and target.id == "_REQUIRED_VARS"
-            for target in node.targets
-        ):
-            return set(ast.literal_eval(node.value).values())
-    return set()
-
-
-# -- FR-003: the reserved prefix is on every list that governs a user's own space -------

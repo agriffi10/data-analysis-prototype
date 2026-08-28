@@ -81,11 +81,6 @@ def _succeeded_record(copied, failures=0):
     }
 
 
-def _failed_record(items):
-    """One FAILED child record: no usable output, so attribution comes from its INPUT."""
-    return {"Input": json.dumps({"Items": [{"srcKey": f"alice/f{i}.csv"} for i in range(items)]})}
-
-
 def _export(succeeded=(), failed=()):
     """A whole ResultWriter export — the run manifest plus the group files it lists."""
     objects = {}

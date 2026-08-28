@@ -20,14 +20,11 @@ os.environ.setdefault("USER_SPACE_BUCKET", "dat-prod-user-space")
 os.environ.setdefault("SHARED_SPACE_BUCKET", "dat-prod-shared-space")
 os.environ.setdefault("ATHENA_WORKGROUP", "test-workgroup")
 
-import json
 
 import load_table_definition as m
 import pytest
 from cpcommon import clients, config
-from cpcommon.ddl import build_create_table_ddl
 from cpcommon.errors import TerminalError, TransientError
-from tbcommon import config as tb_config
 
 BUCKET = "dat-prod-user-space"
 SHARED_BUCKET = "dat-prod-shared-space"
@@ -204,40 +201,6 @@ def test_a_table_in_the_right_bucket_but_another_users_prefix_is_refused():
     _expect_reason(_event(), "table_outside_space")
 
 
-def _state_at_cap(column_share):
-    """The whole post-infer-schema state for a definition sized to exactly the cap.
-
-    ``column_share`` splits that cap between columns and table properties. The split is a
-    PARAMETER because it is what decides the answer: COLUMNS RIDE THE STATE THREE TIMES
-    (existingColumns, infer-schema's own columns, and again inside the generated DDL) while
-    table properties ride once, so the same cap spent entirely on columns produces a far
-    bigger state than a mixed definition. Modelling the mix and calling it the worst case
-    is how table-share once certified a bound that did not exist
-    (asserted where the machine is built).
-    """
-    cap = tb_config.REFRESH_MAX_DEFINITION_BYTES
-    columns, properties = [], {}
-
-    def _size():
-        return len(json.dumps({"c": columns, "p": properties}, separators=(",", ":")).encode())
-
-    while _size() < cap * column_share:
-        columns.append({"name": f"column_number_{len(columns):04d}", "type": "string"})
-    while _size() < cap:
-        properties[f"some.table.property.{len(properties):04d}"] = "v" * 64
-
-    state = {
-        **_event(),
-        "existingColumns": columns,
-        "tableProperties": properties,
-        "storage": {"serializationLibrary": "x" * 64, "parameters": {"separatorChar": ","}},
-        # What infer-schema then ADDS to this same state.
-        "columns": columns,
-        "ddl": build_create_table_ddl("alice", "sales_2026", columns, [], "csv", "s3://b/p/"),
-    }
-    return len(json.dumps(state).encode()), len(columns)
-
-
 # ── FR-005: the reconstruction ───────────────────────────────────────────────
 
 #: A partitioned table whose projection properties exercise all three declared types,
@@ -325,4 +288,3 @@ if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
 
 
-# ── SPEC-157 FR-005: capture the stamp apply-refresh compares against ────────

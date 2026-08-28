@@ -59,66 +59,6 @@ CONFIG_LOADER = ROOT / "apps" / "portal" / "src" / "lib" / "runtimeConfig.ts"
 WRITABLE_PATHS = ("/tmp", "/var/cache/nginx")  # noqa: S108 — container paths, not host temp files
 
 
-def _ts_string_array(text: str, name: str) -> tuple[str, ...]:
-    """Returns the quoted members of an exported ``const <name> = [ … ] as const`` array.
-
-    Args:
-      text: The TypeScript source to read.
-      name: The exported constant's name.
-
-    Returns:
-      Each member, unquoted, in declaration order.
-
-    Read line by line rather than with one regex over the slice. These arrays are interleaved
-    with comments, and a comment carrying an apostrophe — "the document's own defaults" — pairs
-    with the next real quote and desynchronises every match after it, which yields a list of the
-    gaps between the members rather than the members.
-
-    Args:
-      text: The TypeScript source to read.
-      name: The exported constant's name.
-
-    Returns:
-      Each member, unquoted, in declaration order.
-
-    Raises:
-      AssertionError: When the constant or its closing bracket cannot be found, or a line inside
-        it does not parse, so no comparison below runs against an empty tuple and passes.
-    """
-    start = text.find(f"export const {name} = [")
-    assert start > -1, f"No `export const {name} = [` — the parse went trivial."
-    end = text.find("]", start)
-    assert end > start, f"`{name}` does not close where expected."
-
-    members = []
-    for raw in text[start:end].splitlines()[1:]:
-        line = raw.strip()
-        if not line or line.startswith("//"):
-            continue
-        member = re.fullmatch(r"'([^']+)',?", line)
-        assert member, f"Unparsed line in {name}: {line!r}"
-        members.append(member.group(1))
-    return tuple(members)
-
-
-def _shell_word_list(text: str, name: str) -> tuple[str, ...]:
-    """Returns a single-quoted shell assignment's words, e.g. ``KEYS='a b c'``.
-
-    Args:
-      text: The shell source to read.
-      name: The variable's name.
-
-    Returns:
-      The words, in order.
-
-    Raises:
-      AssertionError: When the assignment is absent, so no comparison runs vacuously.
-    """
-    found = re.search(rf"^{name}='([^']*)'", text, re.MULTILINE)
-    assert found, f"No `{name}='…'` assignment in the entrypoint — the parse went trivial."
-    return tuple(found.group(1).split())
-
-
 def test_the_image_writes_only_where_the_task_mounts() -> None:
     """A mount set missing one of these produces a container that never starts.
 
@@ -203,23 +143,6 @@ def test_the_baked_policy_is_the_one_terraform_computes() -> None:
     )
 
 
-def _shell_array_body(source: str, name: str) -> str:
-    """The text between a shell array's parentheses.
-
-    Args:
-      source: The script's text.
-      name: The array's name.
-
-    Returns:
-      The body, or the empty string when the array is absent.
-
-    Raises:
-      None.
-    """
-    match = re.search(rf"^{name}=\((.*?)^\)", source, re.DOTALL | re.MULTILINE)
-    return match.group(1) if match else ""
-
-
 def test_the_entrypoint_refuses_unset_and_empty_alike() -> None:
     """`[ -z "${VAR+x}" ]` passes the empty case, and empty is the case that actually happens.
 
@@ -250,23 +173,3 @@ def test_the_entrypoint_refuses_unset_and_empty_alike() -> None:
     assert "exit 1" in text, "The entrypoint never exits non-zero, so nginx starts regardless."
 
 
-def _uncommented(path: pathlib.Path) -> str:
-    """Returns a workflow's source with comment-only lines dropped.
-
-    Every assertion in this section names a directive that must be PRESENT, and a raw read finds
-    it just as happily on a line that has been commented out — which is how a directive is most
-    likely to be removed in the first place. Measured: commenting out the wait, the zero-count
-    guard and the settled-revision check left all three of their guards green.
-
-    Args:
-      path: The workflow to read.
-
-    Returns:
-      The source without comment-only lines.
-
-    Raises:
-      AssertionError: When the file reads empty, so nothing below runs vacuously.
-    """
-    text = path.read_text()
-    assert text.strip(), f"{path} is empty."
-    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))

@@ -15,12 +15,10 @@ Attributes:
 """
 
 import json
-import os
 import pathlib
 import re
 import shutil
 import subprocess
-import tempfile
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 INFRA = REPO / "infra"
@@ -252,9 +250,6 @@ def test_the_tag_key_set_is_the_same_in_the_trust_policy_and_the_identity_pool()
     assert declared == _expected_tag_keys()
 
 
-# ── FR-003: the deploy grant, verified rather than assumed ────────────────────
-
-
 # ── FR-001: the role is the existing one ──────────────────────────────────────
 
 
@@ -290,59 +285,33 @@ def test_the_api_assumes_the_EXISTING_portal_role_and_creates_none() -> None:
     )
 
 
-def _plan_root_variable(name: str, value: str) -> bool:
-    """Plans one root variable declaration with a value, and reports whether it was refused.
+def test_ACCEPTED_a_recreated_api_role_would_not_redraw_the_trust_policy() -> None:
+    """A tripwire for a trap nothing in this repo can currently detect.
 
-    Extracted into a scratch module rather than planned in place: the root needs a provider and a
-    backend, and this is about one validation condition. Extracted, the module declares no
-    provider, so the init is offline and no credentials are involved. The same shape the provider
-    block's own refusal test already uses.
+    IAM stores a trust policy's principal as the role's **unique id**, not as the ARN written. If
+    the API's execution role is ever destroyed and recreated — a project or environment rename, a
+    taint — the rendered ARN string is unchanged, so Terraform sees no diff, never rewrites the
+    trust policy, and every API request fails with a refusal that names nothing. The old unique id
+    is simply dead.
+
+    There is no offline assertion that can catch this and no plan that shows it. What this test
+    pins is that the exposure is still the one described: exactly one statement in the trust policy
+    names an AWS principal, so a reader chasing an inexplicable blanket refusal has one place to
+    look. **If this reddens, do not delete it** — re-read the note above and decide whether the new
+    shape has the same trap.
 
     Args:
-      name: The root variable to plan.
-      value: The value to plan it with.
+      None.
 
     Returns:
-      True if OpenTofu refused the value.
+      None.
 
     Raises:
-      AssertionError: If the declaration cannot be extracted, or tofu is unavailable — a skip
-        here would read as coverage this suite would not have.
+      AssertionError: If the trust policy's shape changed enough to invalidate the note.
     """
-    tofu = shutil.which("tofu")
-    assert tofu, "OpenTofu is not on PATH — this assertion cannot be skipped into passing"
-
-    source = (INFRA / "variables.tf").read_text()
-    match = re.search(rf'variable\s+"{name}"\s*\{{', source)
-    assert match, f"root no longer declares {name}"
-    index, depth = source.index("{", match.start()), 0
-    while index < len(source):
-        if source[index] == "{":
-            depth += 1
-        elif source[index] == "}":
-            depth -= 1
-            if depth == 0:
-                break
-        index += 1
-    declaration = source[match.start() : index + 1]
-
-    with tempfile.TemporaryDirectory() as scratch:
-        pathlib.Path(scratch, "variables.tf").write_text(declaration + "\n")
-        environment = {
-            "PATH": os.environ.get("PATH", ""),
-            "HOME": os.environ.get("HOME", ""),
-            "TF_IN_AUTOMATION": "1",
-            f"TF_VAR_{name}": value,
-        }
-        setup = subprocess.run(  # noqa: S603
-            [tofu, "init", "-backend=false", "-input=false"],
-            cwd=scratch, env=environment, capture_output=True, text=True, check=False,
-        )
-        assert setup.returncode == 0, (
-            f"tofu init failed in the scratch module:\n{setup.stdout}\n{setup.stderr}"
-        )
-        plan = subprocess.run(  # noqa: S603
-            [tofu, "plan", "-input=false"],
-            cwd=scratch, env=environment, capture_output=True, text=True, check=False,
-        )
-    return plan.returncode != 0
+    principals = [
+        statement
+        for statement in _rendered_trust()["Statement"]
+        if "AWS" in statement.get("Principal", {})
+    ]
+    assert len(principals) == 1

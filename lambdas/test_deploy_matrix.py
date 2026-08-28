@@ -30,7 +30,6 @@ import ast
 import importlib.util
 import json
 import pathlib
-import re
 
 import pytest
 
@@ -210,11 +209,6 @@ def _imported_roots(paths):
     return roots
 
 
-def _layer_table():
-    """Every layer definition, keyed by its flag."""
-    return {entry["flag"]: entry for entry in json.loads(LAYERS.read_text())}
-
-
 def _copy_list(directory):
     """The module names the layer build copies for ``directory``, as a set."""
     for entry in json.loads(LAYERS.read_text()):
@@ -223,15 +217,6 @@ def _copy_list(directory):
             assert listed, f"the layer entry for {directory} names no modules"
             return listed
     raise AssertionError(f"no layer entry with a sourceDir for {directory} in {LAYERS.name}")
-
-
-def _shipped_modules(directory):
-    """The production Python modules present in ``lambdas/<directory>/``, as a set."""
-    return {
-        path.stem
-        for path in (LAMBDAS / directory).glob("*.py")
-        if not path.name.startswith(_NOT_SHIPPED)
-    }
 
 
 def test_the_handler_sweep_found_the_fleet():
@@ -280,34 +265,3 @@ def test_every_imported_layer_package_is_attached(name):
     )
 
 
-def _shard_bindings():
-    """The deploy job's three sharding inputs, as written in the workflow.
-
-    All three now come from the SAME plan job, which is what makes them unable to
-    disagree — the earlier design declared the shard list and the divisor independently,
-    so ``SHARD_COUNT: 6`` beside ``shard: [0, 1, 2, 3]`` was valid YAML that silently never
-    deployed a third of the fleet.
-    """
-    text = WORKFLOW.read_text()
-    found = {}
-    for name, pattern in (
-        ("shards", r"^\s*shard:\s*(.+?)\s*$"),
-        ("count", r"^\s*SHARD_COUNT:\s*(.+?)\s*$"),
-        ("planned", r"^\s*PLANNED:\s*(.+?)\s*$"),
-    ):
-        match = re.search(pattern, text, re.MULTILINE)
-        assert match, f"no {name} binding found in {WORKFLOW.name} — did the deploy job change?"
-        found[name] = match.group(1)
-    return found
-
-
-def _attach_order():
-    """The layer order ``deploy-lambda.sh`` actually attaches in.
-
-    Extracted from the script rather than restated here: the whole point of this pair of
-    tests is that the order in the script is the one that reaches AWS, so a copy in the test
-    would let the two drift while both looked right.
-    """
-    match = re.search(r"^for flag in ((?:\w+ ?)+); do$", DEPLOY_SCRIPT.read_text(), re.MULTILINE)
-    assert match, "no literal attach-order loop found in deploy-lambda.sh"
-    return match.group(1).split()

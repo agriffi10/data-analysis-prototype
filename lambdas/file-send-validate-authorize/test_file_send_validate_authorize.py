@@ -87,9 +87,6 @@ def test_a_valid_personal_send_is_validated():
     }
 
 
-# ── FR-002: the contract ─────────────────────────────────────────────────────
-
-
 # ── FR-003: source authorization ─────────────────────────────────────────────
 
 
@@ -118,9 +115,6 @@ def test_a_shared_source_is_authorized_for_an_active_member():
         "root": "sales/",
         "items": [{"kind": "file", "key": "sales/q1.csv"}],
     }
-
-
-# ── FR-003: containment — RULE (a), the normalised root ──────────────────────
 
 
 # ── FR-003: containment — RULE (b), dot segments ─────────────────────────────
@@ -175,9 +169,6 @@ def test_too_many_recipients_is_a_whole_request_failure():
         _event(recipients=[{"kind": "user", "name": f"u{i}"} for i in range(SEND_MAX_RECIPIENTS + 1)]),
         "too_many_recipients",
     )
-
-
-# ── Malformed lists ──────────────────────────────────────────────────────────
 
 
 # ── Notification behaviour ───────────────────────────────────────────────────

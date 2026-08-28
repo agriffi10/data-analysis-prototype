@@ -13,28 +13,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 
 import inspect_source as i
-from cpcommon import clients, config, s3_listing
+from cpcommon import s3_listing
 from cpcommon.errors import TerminalError
-
-
-class _FakeClientError(Exception):
-    """A botocore-SHAPED error carrying ``.response["Error"]["Code"]``."""
-
-    def __init__(self, code):
-        super().__init__(code)
-        self.response = {"Error": {"Code": code, "Message": code}}
-
-
-def _list_raises(err):
-    """Stub list_data_objects with a generator that raises ``err`` mid-pagination — what a
-    throttle actually looks like: the paginator faults while the listing is CONSUMED, not
-    when it is called."""
-
-    def _gen(bucket, prefix):
-        raise err
-        yield  # pragma: no cover - unreachable; makes this a generator
-
-    s3_listing.list_data_objects = _gen
 
 
 class _FakeSqs:
@@ -44,13 +24,6 @@ class _FakeSqs:
     def send_message(self, **kwargs):
         self.calls.append(kwargs)
         return {"MessageId": "m"}
-
-
-def _arm_notifications():
-    config.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/dat-prod-notifications-requests.fifo"
-    fake = _FakeSqs()
-    clients._sqs = fake
-    return fake
 
 
 BUCKET = "dat-prod-user-space"
@@ -128,15 +101,6 @@ class _FakePaginator:
 
     def paginate(self, Bucket, Prefix):  # boto3 kwarg names
         return iter(self._pages)
-
-
-class _FakePaginatedS3:
-    def __init__(self, pages):
-        self._pages = pages
-
-    def get_paginator(self, name):
-        assert name == "list_objects_v2"
-        return _FakePaginator(self._pages)
 
 
 if __name__ == "__main__":

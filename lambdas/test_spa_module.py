@@ -106,26 +106,6 @@ def _container_definition() -> str:
     return text[start:end]
 
 
-def _root_module_block(name: str) -> str:
-    """Returns one ``module "<name>" {…}`` block from the root composition.
-
-    Args:
-      name: The module's label.
-
-    Returns:
-      The block's body.
-
-    Raises:
-      AssertionError: When the block is absent, so no assertion on it runs vacuously.
-    """
-    text = ROOT_MAIN.read_text()
-    start = text.find(f'module "{name}" {{')
-    assert start > -1, f'No module "{name}" block at root.'
-    end = text.find("\n}", start)
-    assert end > start, f'module "{name}" does not close where expected.'
-    return text[start:end]
-
-
 def test_the_container_runs_read_only_as_a_non_root_user() -> None:
     """Both halves, because either alone leaves the other undone.
 

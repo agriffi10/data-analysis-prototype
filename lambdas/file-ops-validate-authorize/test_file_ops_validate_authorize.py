@@ -62,7 +62,7 @@ def _event(**kwargs):
 
 def _run(**kwargs):
     _setup(**{k: kwargs.pop(k) for k in ("actor", "spaces") if k in kwargs})
-    return v._validate_and_authorize(_event(**kwargs))
+    return v.handler(_event(**kwargs), None)
 
 
 def _refused(**kwargs):
@@ -149,12 +149,6 @@ def test_a_folder_moved_INTO_ITSELF_is_refused_per_item():
 
     assert result["outcomes"][0]["outcome"] == "refused"
     assert result["outcomes"][0]["reason"] == "destination_inside_source"
-
-
-# ── Caps ─────────────────────────────────────────────────────────────────────
-
-
-# ── The actor ────────────────────────────────────────────────────────────────
 
 
 # ── The contract with the state machine ──────────────────────────────────────

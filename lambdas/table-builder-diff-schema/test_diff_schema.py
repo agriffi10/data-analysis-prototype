@@ -108,9 +108,6 @@ def test_a_removal_without_the_opt_in_is_refused_and_names_the_columns():
     assert body["link"] == "/query?refreshTable=alice.sales_2026&removed=gone"
 
 
-# ── The no-op short circuit (FR-002) ─────────────────────────────────────────
-
-
 # ── Shape + observability ────────────────────────────────────────────────────
 
 

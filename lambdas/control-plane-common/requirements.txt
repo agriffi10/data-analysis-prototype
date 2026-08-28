@@ -18,7 +18,7 @@ PyJWT[crypto]>=2.8,<3
 # type_mapping.py is safe to live in this layer because cpcommon/__init__.py imports no
 # submodules, so the polars import only runs for a verb that explicitly imports
 # type_mapping — and those are exactly the two carrying a polars layer. That module's
-# docstring has the full constraint; test_type_mapping_cpcommon.py pins the __init__ rule.
+# docstring has the full constraint, including the __init__ rule.
 
 # log-foundry — structured logging for the control-plane verbs (SPEC-127).
 #

@@ -4,11 +4,9 @@ Pure logic, AWS stubbed: s3_listing.list_data_objects and the S3 client are repl
 the verb module, so no bucket is touched.
 """
 
-import io
 import json
 import os
 import sys
-import zlib
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "control-plane-common"))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data-quality-common"))
@@ -226,15 +224,6 @@ def test_a_transient_head_error_is_retryable_not_a_folder():
         v.handler(_event(), None)
 
 
-# ── FR-002: extension-based classification ───────────────────────────────────
-
-
-# ── FR-003: single-format enforcement ────────────────────────────────────────
-
-
-# ── FR-004: caps ─────────────────────────────────────────────────────────────
-
-
 # ── FR-005: the per-file header probe ────────────────────────────────────────
 #
 # These drive REAL polars against real files (local paths for the s3:// path, a real
@@ -242,70 +231,11 @@ def test_a_transient_head_error_is_retryable_not_a_folder():
 # thing SPEC-111's DDL depends on.
 
 
-def _write(tmp_path, name, content, binary=False):
-    p = tmp_path / name
-    p.write_bytes(content) if binary else p.write_text(content)
-    return str(p)
-
-
-def _probe_local(monkeypatch, path, fmt):
-    """Run the probe against a local file.
-
-    Mirrors the two read paths the verb uses (SPEC-111): CSV/JSON are read via
-    ``_read_plain_head`` (a boto3 buffer — polars' cloud reader does not work in Lambda) so
-    the stub feeds polars the file's bytes; Parquet reads through a ranged file object (its
-    schema is a footer at the END, unreachable by a head read), so the stub hands
-    ``_parquet_source`` a local file object, which polars seeks the same way.
-    """
-    monkeypatch.setattr(v, "_check_access", lambda bucket, key: None)
-    if fmt == "parquet":
-        # Seam handle: polars reads it after the lambda returns, so it must stay open.
-        monkeypatch.setattr(
-            v, "_parquet_source", lambda bucket, key: open(path, "rb")  # noqa: SIM115
-        )
-    else:
-        with open(path, "rb") as fh:
-            data = fh.read()
-        monkeypatch.setattr(v, "_read_plain_head", lambda bucket, key: data)
-    return v._probe_columns("bkt", "some/key", fmt)
-
-
 # ── FR-005: the gzip probe's byte bound ──────────────────────────────────────
 
 
 # The probe checks its bounds after each chunk, so it can overshoot by at most one chunk.
 _CHUNK_SLACK = 256 * 1024
-
-
-def _install_ranged_object(path):
-    """Serve ``path`` over a fake S3 that honours Range, recording what was fetched.
-
-    The Parquet footer read is only meaningful if the bytes are counted — this is what
-    makes "reads the footer, not the object" an assertion rather than a claim.
-    """
-    served = {"bytes": 0, "ranges": []}
-    size = os.path.getsize(path)
-
-    class _S3:
-        @staticmethod
-        def head_object(Bucket, Key):  # boto3's kwarg casing
-            return {"ContentLength": size}
-
-        @staticmethod
-        def get_object(Bucket, Key, Range=None):
-            with open(path, "rb") as fh:
-                if Range is None:
-                    data = fh.read()
-                else:
-                    start, end = Range.split("=")[1].split("-")
-                    fh.seek(int(start))
-                    data = fh.read(int(end) - int(start) + 1)
-            served["bytes"] += len(data)
-            served["ranges"].append(Range)
-            return {"Body": io.BytesIO(data)}
-
-    v.clients.s3 = lambda: _S3()
-    return served
 
 
 class _CountingBody:
@@ -326,53 +256,7 @@ class _CountingBody:
         self.closed = True
 
 
-def _gzip_source(rows=400_000):
-    """A .gz whose decompressed body is far larger than the probe should ever read."""
-    import gzip
-
-    raw = "id,amount,note\n" + "".join(f"{i},{i}.5,row-{i}\n" for i in range(rows))
-    return gzip.compress(raw.encode()), len(raw)
-
-
-def _install_body(blob):
-    counter = {"read": 0}
-    body = _CountingBody(blob, counter)
-    v.clients.s3 = lambda: type("S3", (), {"get_object": staticmethod(lambda **kw: {"Body": body})})()
-    return body, counter
-
-
-def _streaming_gzip(blocks, block_bytes, *, newline_free=False, seed=0):
-    """Build a gzip stream incrementally, never materialising the raw body.
-
-    Compressing ``blocks * block_bytes`` up front would put hundreds of MB in the test
-    process — the very thing under test. compressobj lets each block be fed and dropped.
-    ``newline_free`` yields near-incompressible blocks with no newlines, so the LINE stop
-    can't fire and the byte bounds are what the probe actually hits.
-    """
-    import random
-
-    rnd = random.Random(seed)
-    compressor = zlib.compressobj(1, zlib.DEFLATED, 16 + zlib.MAX_WBITS)
-    parts = [compressor.compress(b"id,amount,note\n")]
-    for _ in range(blocks):
-        block = rnd.randbytes(block_bytes).replace(b"\n", b"x") if newline_free else b"x" * block_bytes
-        parts.append(compressor.compress(block))
-    parts.append(compressor.flush())
-    return b"".join(parts)
-
-
 # ── FR-005: partition detection ──────────────────────────────────────────────
-
-
-def _partition_event(objects):
-    """Run the verb and return (state_output, manifest).
-
-    Partition NAMES ride in the state output; the observed VALUES live in the manifest
-    (FR-006), so a partition assertion generally wants both.
-    """
-    _, fake = _setup(objects)
-    out = v.handler(_event(), None)
-    return out, _manifest_of(fake)
 
 
 # ── FR-006: the manifest and the bounded state output ────────────────────────
@@ -405,3 +289,40 @@ def _probe_that_quotes_a_cell(secret):
             ) from exc
 
     return _boom
+
+
+def test_ACCEPTED_the_span_error_stack_may_carry_file_contents(monkeypatch, captured_events):
+    """CHARACTERISATION of an ACCEPTED behaviour (user decision, 2026-07-23), not a gap.
+
+    `log-foundry`'s `end_event` attaches `traceback.format_exception(...)` to every failed
+    span, and that walks the `__cause__` chain — so the polars message, cell value and all,
+    lands in `error.stack` on the span.end of both the step and the handler. Suppressing
+    `detail` does nothing about it, and neither would fixing the raise site, since
+    `raise ... from exc` is what puts the cause's text there.
+
+    The user accepted this rather than stripping it: `logs/` is admin-only, and a stack is
+    diagnostic metadata an admin debugging a failed run needs. The absolute no-file-contents
+    rule binds a **field** a verb chooses to emit (asserted by the test above); it does not
+    bind an automatic traceback. See `docs/decisions/control-planes.md` and the module docstring in
+    `cpcommon/observability.py`.
+
+    Kept as a tripwire, NOT deleted: if this starts **failing**, `log-foundry` began stripping
+    stacks (an upstream `capture_stack=False` landed), and the decision to accept them should
+    be revisited in the open rather than the test quietly removed.
+    """
+    _setup([("alice/sales/a.csv", 10)])
+    secret = "ACME-SECRET-CELL-VALUE"
+    monkeypatch.setattr(v, "_probe_columns", _probe_that_quotes_a_cell(secret))
+
+    with pytest.raises(TerminalError):
+        v.handler(_event(), None)
+
+    stacks = [
+        e["function"]
+        for e in captured_events.events
+        if secret in str((e.get("error") or {}).get("stack", ""))
+    ]
+    assert stacks, (
+        "error.stack no longer carries the cause's text — log-foundry began stripping stacks. "
+        "Revisit the 2026-07-23 decision to accept them (decisions/) rather than deleting this."
+    )

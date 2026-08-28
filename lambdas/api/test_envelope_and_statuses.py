@@ -8,34 +8,7 @@ import json
 
 import router
 from apicommon import contract
-from conftest import bearer, declare_route
-
-
-class _ServiceError(Exception):
-    """A botocore-shaped client error, built here rather than imported.
-
-    `botocore` is provided by the Lambda runtime and is declared as a dependency nowhere, so it is
-    absent in CI — importing it passes on a laptop that happens to have boto3 and fails on the
-    runner. The identity layer classifies by reading `response["Error"]["Code"]`, which is all the
-    shape any of this needs.
-    """
-
-    def __init__(self, code, message=""):
-        """Builds the error.
-
-        Args:
-          code: The service error code.
-          message: The service's own message, which must reach no response body.
-
-        Returns:
-          None.
-
-        Raises:
-          None.
-        """
-        super().__init__(code)
-        self.response = {"Error": {"Code": code, "Message": message}}
-
+from conftest import bearer
 
 _FAULT_ROUTE = contract.Route(
     id="envelope.fault",
@@ -46,25 +19,6 @@ _FAULT_ROUTE = contract.Route(
     request=None,
     response=contract.UserDirectoryResponse,
 )
-
-
-def _drive(handler, method="GET", path="/v1/envelope-fault", headers=None):
-    """Runs one request against a temporary route.
-
-    Args:
-      handler: The route handler.
-      method: The request method.
-      path: The request path.
-      headers: The request headers; an authenticated set by default.
-
-    Returns:
-      The response.
-
-    Raises:
-      Exception: Whatever the handler raised and the router did not classify.
-    """
-    with declare_route(_FAULT_ROUTE, handler):
-        return router.route(method, path, bearer() if headers is None else headers, "req-1")
 
 
 def test_a_success_body_is_the_payload_itself_and_is_always_an_object(stub_directory) -> None:

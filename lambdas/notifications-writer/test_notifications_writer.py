@@ -195,10 +195,39 @@ def test_user_action_without_token_rejected():
     )
 
 
-# ── SPEC-153 FR-005: the batch-size coupling is pinned on both sides ──────────
-
-
 # ── SPEC-153 FR-010: what a redelivery does is stated, not assumed ────────────
+
+
+def test_ACCEPTED_a_redelivered_create_writes_a_SECOND_inbox_entry():
+    """Today's behaviour, accepted by decision — not an oversight, and not a bug report.
+
+    These pipelines are at-least-once. ``apply_create`` mints ``uuid.uuid4().hex`` per
+    invocation, so the same SQS message delivered twice (a visibility-timeout redelivery,
+    which FIFO's 5-minute producer-side ``MessageDeduplicationId`` window does not bound)
+    lands as two inbox rows for one event. ``dqcommon.index_store`` handles the equivalent
+    case by replacing the row and has a test saying so; the user-facing inbox does not.
+
+    ACCEPTED because the blast radius is one duplicated line in a read-only list — no
+    access is granted, nothing is overwritten, and the user can dismiss it — while the fix
+    with real teeth is a producer-supplied idempotency key, a contract change across four
+    control planes and the browser producer. Recorded in docs/decisions/control-planes.md.
+
+    If this starts failing, the writer became idempotent: revisit the decision and the
+    delivery-doc note, do not delete the test.
+    """
+    s3 = _setup()
+    record = {
+        "body": json.dumps({"action": "create", "username": "alice", "message": "hi"}),
+        "attributes": {"SenderId": SERVICE_SENDER},
+    }
+
+    w.handler({"Records": [record]}, None)
+    w.handler({"Records": [record]}, None)  # same message, redelivered
+
+    inbox = _inbox(s3, "alice")
+    assert len(inbox) == 2
+    assert inbox[0]["message"] == inbox[1]["message"] == "hi"
+    assert inbox[0]["id"] != inbox[1]["id"]
 
 
 # ── The create boundary: who may write to another user's inbox ───────────────
@@ -207,6 +236,115 @@ def test_user_action_without_token_rejected():
 def _refusals():
     """The reason codes captured from observability.error this test."""
     return [fields.get("reason") for message, fields in _ERRORS if message == "create refused"]
+
+
+def test_a_create_from_the_portal_role_is_refused_and_nothing_is_written():
+    """The boundary itself.
+
+    The writer takes the body's username for a create, which is right — a plane telling Bob
+    that Alice sent him files holds no token for Bob. What was missing is that the browser
+    could send one too, because IAM cannot condition on a message body. SenderId can.
+    """
+    s3 = _setup()
+
+    result = w.handler(
+        _msg({"action": "create", "username": "victim", "message": "click here"}, PORTAL_SENDER),
+        None,
+    )
+
+    assert _inbox(s3, "victim") is None, "a forged create reached an inbox"
+    assert result["refused"] == w.CREATE_REFUSAL_UNTRUSTED
+    assert _refusals() == [w.CREATE_REFUSAL_UNTRUSTED]
+
+
+def test_a_bare_role_id_with_no_session_name_is_refused():
+    """The comparison is on the role-id half, so a value with no half still resolves to one.
+
+    Equality against the WHOLE SenderId would never match a real message and would read
+    exactly like a control that works.
+    """
+    s3 = _setup()
+
+    w.handler(_msg({"action": "create", "username": "victim", "message": "x"}, "AROAPORTAL"), None)
+
+    assert _inbox(s3, "victim") is None
+    assert _refusals() == [w.CREATE_REFUSAL_UNTRUSTED]
+
+
+def test_a_refused_create_DROPS_rather_than_raising_even_with_no_username():
+    """The refusal must not become a dead-letter, and this is the case that would.
+
+    The guard sits above the username resolution, not inside the create branch. Lower, a
+    forged create that simply omits `username` would reach "create requires a username" and
+    RAISE — three invocations and one permanent message on a dead-letter queue that is
+    deliberately undrained, per forged request, which is a way for any signed-in user to
+    drown the only operator-facing signal this plane has.
+    """
+    s3 = _setup()
+
+    result = w.handler(_msg({"action": "create", "message": "no username here"}, PORTAL_SENDER), None)
+
+    assert result["refused"] == w.CREATE_REFUSAL_UNTRUSTED
+    assert _inbox(s3, "victim") is None
+    assert "count" not in result, "a refusal reported a write it did not make"
+
+
+def test_the_untrusted_sender_id_is_wired_to_the_PORTAL_ROLES_UNIQUE_ID_end_to_end():
+    """The infra half, pinned across all three hops rather than at the Lambda alone.
+
+    lambda.tf on its own cannot see where the value comes from. A MISSING root wiring fails
+    tofu validate, because the variable has no default — but a WRONG one does not: the role's
+    ARN and its name live in the same module as the right value, and either would validate
+    clean and then never match at runtime, which reads exactly like a control that works.
+    """
+    import os
+    import re
+
+    infra = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "infra")
+
+    with open(os.path.join(infra, "modules", "notifications", "lambda.tf")) as handle:
+        lambda_tf = handle.read()
+    assert re.search(
+        r"^\s*NOTIFICATIONS_UNTRUSTED_SENDER_ID\s*=\s*var\.portal_role_unique_id\s*$",
+        lambda_tf,
+        re.MULTILINE,
+    ), "the writer must take the sender it refuses from var.portal_role_unique_id"
+
+    with open(os.path.join(infra, "main.tf")) as handle:
+        root = handle.read()
+    assert re.search(
+        r"^\s*portal_role_unique_id\s*=\s*module\.data\.portal_role_unique_id\s*$",
+        root,
+        re.MULTILINE,
+    ), "the root must pass module.data.portal_role_unique_id to the notifications module"
+
+    with open(os.path.join(infra, "modules", "data", "outputs.tf")) as handle:
+        outputs = handle.read()
+    # Split rather than match a brace-delimited block: the description legitimately contains
+    # braces ("{unique_id}:{session-name}"), so a [^}]* block match stops inside the prose.
+    parts = outputs.split('output "portal_role_unique_id"', 1)
+    assert len(parts) == 2, "module.data must output the portal role's unique id"
+    assert re.search(
+        r"^\s*value\s*=\s*aws_iam_role\.portal\.unique_id\s*$", parts[1], re.MULTILINE
+    ), "the output must be the role's unique_id — not its name, not its ARN"
+
+    # The variable's own two guards, both silent-failure-shaped if removed. A default would let
+    # a root that forgets the wiring deploy a writer that refuses every notification in the
+    # product; the shape check is what catches a wire to the ARN or the name, which validate
+    # accepts and which then never matches at runtime.
+    with open(os.path.join(infra, "modules", "notifications", "variables.tf")) as handle:
+        variables = handle.read()
+    declared = variables.split('variable "portal_role_unique_id"', 1)
+    assert len(declared) == 2, "the notifications module must declare portal_role_unique_id"
+    block = declared[1].split("\nvariable ", 1)[0]
+    assert not re.search(r"^\s*default\s*=", block, re.MULTILINE), (
+        "portal_role_unique_id must take NO default — a root that forgets to wire it has to "
+        "fail at plan, not deploy a writer that refuses every create"
+    )
+    assert "AROA" in block and "validation" in block, (
+        "portal_role_unique_id must keep its validation block — the role's ARN and its name "
+        "are the plausible mis-wires and both validate clean without it"
+    )
 
 
 if __name__ == "__main__":

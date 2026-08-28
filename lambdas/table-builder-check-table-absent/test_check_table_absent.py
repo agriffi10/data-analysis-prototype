@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "table-builder-common"))
 
 import check_table_absent as c
-from cpcommon import clients, config
+from cpcommon import clients
 from cpcommon.errors import TerminalError, TransientError
 
 
@@ -23,14 +23,6 @@ class _FakeSqs:
     def send_message(self, **kwargs):
         self.calls.append(kwargs)
         return {"MessageId": "m"}
-
-
-def _arm_notifications():
-    """Configure the notifications queue + a fake SQS so emits are observable."""
-    config.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/dat-prod-notifications-requests.fifo"
-    fake = _FakeSqs()
-    clients._sqs = fake
-    return fake
 
 
 class _EntityNotFound(Exception):
@@ -110,12 +102,6 @@ def test_transient_glue_throttle_is_raised_as_TransientError():
     except TerminalError:
         raise AssertionError("a throttle must not be terminalized")
     raise AssertionError("expected TransientError from a throttled get_table")
-
-
-def _actor_event():
-    ev = _event()
-    ev["actor"] = "alice"  # the validated payload carries the actor
-    return ev
 
 
 if __name__ == "__main__":

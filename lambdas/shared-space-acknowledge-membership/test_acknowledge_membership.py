@@ -31,12 +31,6 @@ def _owner_members(s3, owner="alice"):
     return cache["connections"][0]["members"]
 
 
-def _member_roster(s3, member):
-    """Read one MEMBER's own cached roster for the first space in their cache."""
-    cache = json.loads(s3.store[("user-bkt", f"{member}/user_settings/shared-connections.json")])
-    return cache["connections"][0]["members"]
-
-
 def test_acknowledge_flips_pending_member_to_active():
     s3, _glue, _lf, _cognito = install()
     _seed(s3, acknowledged=[])  # bob was added as pending

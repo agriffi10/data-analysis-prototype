@@ -49,7 +49,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from typing import TypedDict
 
-import handler as api_handler
 import router
 from apicommon import config, contract, errors, identity
 from conftest import bearer, declare_route
@@ -226,27 +225,6 @@ def _caller(username="alice", **spaces):
     return identity.UserIdentity(username=username, memberships=memberships)
 
 
-def _spaces(**slots):
-    """Builds the ``custom:shared_space_k`` claims for a token.
-
-    Args:
-      **slots: ``slot_<k>=name`` for each occupied slot.
-
-    Returns:
-      The claim overrides.
-
-    Raises:
-      None.
-    """
-    return {
-        identity.SHARED_SPACE_CLAIM.format(int(name.split("_")[1])): value
-        for name, value in slots.items()
-    }
-
-
-# ── FR-001: the tags come from the claims and from nothing else ───────────────
-
-
 # ── FR-006: the cache, and the leak it invites ────────────────────────────────
 
 
@@ -311,9 +289,6 @@ def test_the_margin_is_the_life_of_one_request_computed_from_the_timeout() -> No
     )
 
 
-# ── FR-006: the single expiry retry ───────────────────────────────────────────
-
-
 # ── FR-007: three conditions, three statuses, three codes ─────────────────────
 
 
@@ -331,36 +306,6 @@ def _assuming_route(context):
     """
     identity.user_client("s3", context.acting_as)
     return {"ok": True}
-
-
-def _drive_via_handler(handler_fn, headers=None):
-    """Runs one request through the FUNCTION rather than the router.
-
-    The observability assertions need this: a child span has to have a parent, and the parent is
-    the traced handler. Driving the router alone opens no trace, so a span assertion against it
-    is vacuous rather than false.
-
-    Args:
-      handler_fn: The route handler.
-      headers: The request headers.
-
-    Returns:
-      The response.
-
-    Raises:
-      None.
-    """
-    with declare_route(_FAILURE_ROUTE, handler_fn):
-        return api_handler.handler(
-            {
-                "requestContext": {
-                    "http": {"method": "GET", "path": "/v1/_test-failure"},
-                    "requestId": "req-span",
-                },
-                "headers": bearer() if headers is None else headers,
-            },
-            None,
-        )
 
 
 def _drive(handler_fn, headers=None):
@@ -404,7 +349,3 @@ def test_an_assume_failure_is_a_FAULT_even_though_sts_calls_it_access_denied(aws
     assert json.loads(response["body"])["error"]["code"] == errors.IDENTITY_UNAVAILABLE_CODE
 
 
-# ── FR-009: what the records carry, and what they must not ────────────────────
-
-
-# ── The limits, announced rather than discovered ──────────────────────────────

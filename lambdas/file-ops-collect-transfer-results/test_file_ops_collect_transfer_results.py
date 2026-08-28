@@ -162,7 +162,7 @@ def test_an_item_whose_objects_ALL_copied_is_deletable():
     items = [_item("alice/a/", "a", 3)]
     fake = _install(_plan(items), _export([{"Output": json.dumps({"copied": 3, "failures": []})}]))
 
-    result = m._collect_transfer_results(_event(items, transfer=_transfer(items)))
+    result = m.handler(_event(items, transfer=_transfer(items)), None)
 
     assert result["deletableCount"] == 1
     assert _results(fake)["deletable"] == ["alice/a/"]
@@ -189,7 +189,7 @@ def test_an_item_with_ONE_failed_object_is_NOT_deletable():
         ]),
     )
 
-    result = m._collect_transfer_results(_event(items, transfer=_transfer(items)))
+    result = m.handler(_event(items, transfer=_transfer(items)), None)
 
     assert result["deletableCount"] == 0
     assert _results(fake)["deletable"] == []
@@ -211,9 +211,8 @@ def test_a_MOVE_with_no_export_RAISES_rather_than_marking_everything_deletable()
     _install(_plan(items))
 
     with pytest.raises(TerminalError) as caught:
-        m._collect_transfer_results(_event(items, transfer=None, map_run=False))
+        m.handler(_event(items, transfer=None, map_run=False), None)
 
     assert caught.value.reason == "transfer_results_unreadable"
 
 
-# ── What rides, and what does not ────────────────────────────────────────────

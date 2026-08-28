@@ -46,15 +46,6 @@ def _states(asl, states=None, prefix=""):
             yield from _states(asl, state["ItemProcessor"]["States"], f"{prefix}{name}/")
 
 
-def _tasks_in(state):
-    """The Lambda ARNs a Map's ItemProcessor invokes."""
-    return [
-        s["Parameters"]["FunctionName"]
-        for s in state["ItemProcessor"]["States"].values()
-        if s.get("Type") == "Task"
-    ]
-
-
 def _policy(path):
     """The rendered policy. A bare placeholder in a value position (``jsonencode``d ARN lists)
     is stubbed to a string, a quoted one to its contents — the same two-step the ASL needs."""
@@ -119,22 +110,7 @@ def test_the_maps_sizing_matches_the_constants_the_verb_reads():
     assert '"MaxConcurrency": ${transfer_map_max_concurrency}' in asl_raw
 
 
-# ── the restructure ─────────────────────────────────────────────────────────
-
-
 # ── SPEC-161: the caps and the verbs that have to survive them ──────────────
-
-
-def _verb_sizing(suffix):
-    """The (timeout, memory) locals.tf declares for one table-share verb."""
-    with open(_LOCALS) as handle:
-        match = re.search(
-            rf'^\s*"{suffix}"\s*=\s*\{{[^}}]*timeout\s*=\s*(\d+),\s*memory\s*=\s*(\d+)',
-            handle.read(),
-            re.MULTILINE,
-        )
-    assert match, f"locals.tf declares no timeout/memory for {suffix} — the block was reformatted"
-    return int(match.group(1)), int(match.group(2))
 
 
 # ── SPEC-161 FR-003/FR-004: the machine cannot hang, and nothing expires under it ──

@@ -16,7 +16,6 @@ but only under an environment that provides both.
 """
 
 import datetime as dt
-import io as io_module
 import os
 import sys
 import tempfile
@@ -28,22 +27,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import infer_schema as i
 import polars as pl
 import pytest
-from cpcommon import clients, config
+from cpcommon import clients
 from cpcommon.errors import TerminalError
-
-
-class _FakeClientError(Exception):
-    """A botocore-SHAPED error: carries ``.response["Error"]["Code"]``.
-
-    The distinction matters. The pre-existing tests raised ``RuntimeError("Throttling
-    Exception")`` — a throttle NAME in the message but no ``.response`` — so
-    ``_error_code`` read "" and the transient mapping never fired, i.e. those tests passed
-    whether or not the fix worked. A real botocore fault looks like THIS.
-    """
-
-    def __init__(self, code):
-        super().__init__(code)
-        self.response = {"Error": {"Code": code, "Message": code}}
 
 
 class _FakeSqs:
@@ -53,13 +38,6 @@ class _FakeSqs:
     def send_message(self, **kwargs):
         self.calls.append(kwargs)
         return {"MessageId": "m"}
-
-
-def _arm_notifications():
-    config.NOTIFICATIONS_QUEUE_URL = "https://sqs.test/dat-prod-notifications-requests.fifo"
-    fake = _FakeSqs()
-    clients._sqs = fake
-    return fake
 
 
 _REAL_CHECK = i._check_access
@@ -100,34 +78,6 @@ class _FakeS3Get:
 
     def get_object(self, **kwargs):
         return {"Body": _FakeBody(self.data)}
-
-
-def _use_ranged_parquet(data):
-    """Serve ``data`` over a fake S3 honouring Range, with the REAL S3RangeReader in play.
-
-    The other Parquet tests hand polars a local file, which cannot tell a footer read from
-    a whole-object read. This one counts bytes, so "reads the footer, not the object" is
-    an assertion — the property that broke in production for CSV.
-    """
-    served = {"bytes": 0, "ranges": []}
-
-    class _RangedS3:
-        @staticmethod
-        def head_object(*a, **k):
-            return {"ContentLength": len(data)}
-
-        @staticmethod
-        def get_object(Bucket=None, Key=None, Range=None):
-            start, end = Range.split("=")[1].split("-")
-            chunk = data[int(start): int(end) + 1]
-            served["bytes"] += len(chunk)
-            served["ranges"].append((int(start), len(chunk)))
-            return {"Body": io_module.BytesIO(chunk)}
-
-    i._check_access = _REAL_CHECK
-    i._parquet_source = _REAL_PARQUET_SOURCE
-    clients._s3 = _RangedS3()
-    return served
 
 
 def _use_s3_fixture(data):
@@ -250,10 +200,6 @@ def test_ddl_is_generated_and_carried():
 _CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde"
 _JSON_SERDE = "org.openx.data.jsonserde.JsonSerDe"
 _PARQUET_SERDE = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
-
-
-def _storage(library):
-    return {"serializationLibrary": library, "parameters": {}}
 
 
 if __name__ == "__main__":

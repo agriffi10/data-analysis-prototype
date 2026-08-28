@@ -62,10 +62,6 @@ def started(monkeypatch):
     return calls
 
 
-def _by_token(calls):
-    return {kw["client_request_token"]: kw for kw in calls}
-
-
 # ── The three queries ────────────────────────────────────────────────────────
 
 
@@ -97,15 +93,6 @@ def test_every_submission_carries_a_client_request_token(started):
     query — the pipeline then polls one execution while another runs unwatched."""
     v.handler(_event(), None)
     assert all(kw.get("client_request_token") for kw in started)
-
-
-# ── Result routing (FR-003) ──────────────────────────────────────────────────
-
-
-# ── Shape validation ─────────────────────────────────────────────────────────
-
-
-# -- SPEC-132: the narrative ------------------------------------------------------------
 
 
 # ── SPEC-151 FR-001: a single-file target narrows every query ────────────────

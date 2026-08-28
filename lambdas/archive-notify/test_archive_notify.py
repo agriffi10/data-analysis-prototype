@@ -67,9 +67,6 @@ def test_the_archived_message_names_the_count_the_size_and_the_id(sent):
     assert _ARCHIVE_ID in message
 
 
-# ── restore_started ──────────────────────────────────────────────────────────
-
-
 # ── restored ─────────────────────────────────────────────────────────────────
 
 

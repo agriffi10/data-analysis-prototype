@@ -127,7 +127,7 @@ def test_a_cleared_item_contributes_one_line_per_object():
     items = [_item("alice/a/", "a", ["alice/a/1", "alice/a/2"])]
     fake = _install(items)
 
-    result = m._build_transfer_manifest(_event(items))
+    result = m.handler(_event(items), None)
 
     assert result["transfer"]["itemCount"] == 2
     assert len(_lines(fake)) == 2
@@ -142,7 +142,7 @@ def test_an_item_with_ANY_other_outcome_contributes_ZERO_lines():
         {"itemKey": "alice/b/", "label": "b", "outcome": "cleared"},
     ]
 
-    result = m._build_transfer_manifest(_event(items, outcomes=outcomes))
+    result = m.handler(_event(items, outcomes=outcomes), None)
 
     assert [line["itemKey"] for line in _lines(fake)] == ["alice/b/"]
     assert result["transfer"]["itemCount"] == 1
@@ -162,11 +162,10 @@ def test_an_UNDELETABLE_item_is_refused_HERE_having_copied_nothing():
     items = [_item("alice/a/", "a", ["alice/a/athenaresults/r.csv"])]
     fake = _install(items)
 
-    result = m._build_transfer_manifest(_event(items))
+    result = m.handler(_event(items), None)
 
     assert fake.puts == []
     assert result["outcomes"][0]["outcome"] == "protected"
     assert result["outcomes"][0]["reason"] == "delete_refused"
 
 
-# ── What the collector needs back ────────────────────────────────────────────

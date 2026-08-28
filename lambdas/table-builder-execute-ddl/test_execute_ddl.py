@@ -40,13 +40,6 @@ def _arm_notifications():
 
 # ── Fakes ────────────────────────────────────────────────────────────────────
 
-class _FakeClientError(Exception):
-    """Mimics botocore.exceptions.ClientError enough for cpcommon.errors.error_code."""
-
-    def __init__(self, code):
-        super().__init__(code)
-        self.response = {"Error": {"Code": code}}
-
 
 class _FakeAthena:
     """Scripts ``start_query_execution`` + a sequence of ``get_query_execution``
@@ -115,15 +108,6 @@ def _event(*, partitioned=False, kind="personal", bucket=BUCKET, database="alice
     }
 
 
-def _expect_reason(event, reason):
-    try:
-        e.handler(event, None)
-    except TerminalError as exc:
-        assert exc.reason == reason, f"expected {reason!r}, got {exc.reason!r} ({exc.detail})"
-        return
-    raise AssertionError(f"expected TerminalError({reason!r}), but handler succeeded")
-
-
 # ── Success ──────────────────────────────────────────────────────────────────
 
 def test_flat_source_succeeds_with_one_query():
@@ -135,9 +119,6 @@ def test_flat_source_succeeds_with_one_query():
     # The request threads through unchanged for the RecordSuccess projection.
     assert out["tableName"] == "sales_2026"
     assert out["actor"] == "alice"
-
-
-# ── Results location routing ─────────────────────────────────────────────────
 
 
 # ── Failures ─────────────────────────────────────────────────────────────────
@@ -188,4 +169,3 @@ if __name__ == "__main__":
     sys.exit(1 if failed else 0)
 
 
-# -- SPEC-135 FR-004: the in-Lambda poll narrates transitions, not iterations ------------

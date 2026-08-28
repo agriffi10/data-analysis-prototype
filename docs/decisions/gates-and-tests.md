@@ -97,10 +97,23 @@ does not ride on one.
 
 The coverage floors are the same principle pointed at a different kind of erosion: both suites
 measured coverage and neither gated on it, so deleting tests passed CI identically to keeping them.
-They are **ratchets at the measured level, not targets** — portal 91/86/89/93, lambdas 95 — and each
-is a hard-coded literal on purpose. Nothing computes, inherits or reads them from a file, so lowering
-one is a visible one-line diff in review rather than a number that drifted. Raise them when coverage
-rises; never lower one to accommodate a regression.
+They are hard-coded literals on purpose. Nothing computes, inherits or reads them from a file, so
+changing one is a visible one-line diff in review rather than a number that drifted.
+
+> **Superseded — the ratchet is gone; the floor is flat 85.** They were ratchets at the measured
+> level (portal 91/86/89/93, lambdas 95) until the suites were rewritten around entry points rather
+> than around individual functions. A ratchet at the measured level makes any deliberate reduction
+> in test volume fail CI, which is the opposite of what was wanted, and it rewards adding tests
+> around internals to buy back a tenth of a point. Both suites now sit at a flat **85** and stay
+> there: raise it only with a reason that is not "coverage happens to be higher today", and never
+> lower it to accommodate a regression.
+>
+> **What that costs, measured.** A coverage floor was never a measure of guard strength, and the
+> review of that rewrite proved it: four separate mutations of production code — an archive
+> rollback default that routed to deletion, a route minting its own AWS client, the CI watcher
+> reporting a red run green, and a verb losing its `@traced` — each passed the full suite with
+> total coverage unchanged to the hundredth of a point. **Mutate the guard; do not ask coverage
+> whether it exists.**
 
 **Do NOT read this as "enable strict"** — it was already on. The work is *declaring* an inherited
 default, which is a much smaller and different thing.
