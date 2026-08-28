@@ -16,15 +16,6 @@ from cpcommon import clients
 from cpcommon.errors import TerminalError, TransientError
 
 
-class _FakeSqs:
-    def __init__(self):
-        self.calls = []
-
-    def send_message(self, **kwargs):
-        self.calls.append(kwargs)
-        return {"MessageId": "m"}
-
-
 class _EntityNotFound(Exception):
     pass
 

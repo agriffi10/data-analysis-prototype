@@ -23,6 +23,8 @@ import pathlib
 import re
 import sys
 
+import pytest
+
 _HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "control-plane-common"))
 sys.path.insert(0, str(_HERE.parent / "file-send-validate-authorize"))
@@ -221,46 +223,6 @@ def _exit_keys(name: str, state: dict, entry: set) -> set:
     return entry
 
 
-def _entry_keys(states: dict) -> dict:
-    """What is addressable on entry to every state on the SUCCESS path, derived by walking it.
-
-    This is the model the catch walk needs, and deriving it is the whole point: the earlier
-    version read the immediately preceding ``Pass``, which was true while the machine was two
-    Tasks and silently gave up the moment a Map or a Choice sat between them — reporting an
-    empty set, which every assertion passes against.
-
-    A state reachable by two paths gets the INTERSECTION of what they supply, because a key that
-    only one branch adds is not one a downstream state may read. ``mapRun`` is exactly that: the
-    Choice's skip branch reaches the collector without it.
-
-    Args:
-      states: The machine's states.
-
-    Returns:
-      State name to the set of top-level keys addressable on entry.
-
-    Raises:
-      None.
-    """
-    entry = {"ValidateAuthorize": set()}
-    frontier = ["ValidateAuthorize"]
-    while frontier:
-        name = frontier.pop()
-        state = states[name]
-        out = _exit_keys(name, state, entry[name])
-        targets = [state.get("Next")] if state.get("Next") else []
-        if state.get("Type") == "Choice":
-            targets = [choice["Next"] for choice in state["Choices"]] + [state.get("Default")]
-        for target in targets:
-            if not target or target not in states:
-                continue
-            merged = out if target not in entry else entry[target] & out
-            if target not in entry or merged != entry[target]:
-                entry[target] = merged
-                frontier.append(target)
-    return entry
-
-
 def _task_output_prefix(states: dict, task_name: str) -> str:
     """The JSONPath prefix at which a task's output sits when the state after it runs.
 
@@ -300,28 +262,6 @@ def _task_output_prefix(states: dict, task_name: str) -> str:
     )
     key = next(iter(selector)).removesuffix(".$")
     return f"{result_path}.{key}."
-
-
-def _reads_through(states: dict, task_name: str, pass_name: str) -> set[str]:
-    """The verb-output keys a Pass state reads, at whatever prefix the machine uses.
-
-    Args:
-      states: The machine's states.
-      task_name: The task whose output the Pass consumes.
-      pass_name: The Pass state doing the reading.
-
-    Returns:
-      The leaf key names.
-
-    Raises:
-      None.
-    """
-    prefix = _task_output_prefix(states, task_name)
-    return {
-        value[len(prefix) :]
-        for key, value in states[pass_name]["Parameters"].items()
-        if key.endswith(".$") and str(value).startswith(prefix)
-    }
 
 
 # ── SPEC-166 FR-004: which role holds which grant ───────────────────────────
@@ -403,6 +343,70 @@ def _resources(statement):
     """
     resource = statement["Resource"]
     return resource if isinstance(resource, list) else [resource]
+
+
+def _machine() -> dict:
+    """The state machine, with template placeholders neutralised so it parses as JSON.
+
+    Args:
+      None.
+
+    Returns:
+      The parsed ASL document.
+
+    Raises:
+      None.
+    """
+    # Two steps, because a placeholder in a VALUE position is a number (TimeoutSeconds,
+    # MaxConcurrency) and a quoted one is a string.
+    raw = re.sub(r":\s*\$\{[a-z_0-9]+\}", ": 0", _ASL.read_text())
+    return json.loads(re.sub(r"\$\{[a-z_0-9]+\}", "PLACEHOLDER", raw))
+
+
+def _validated_reads(states: dict) -> set[str]:
+    """The keys ``Validated`` reads out of validate-authorize's output."""
+    return _reads_through(states, "ValidateAuthorize", "Validated")
+
+
+def _read_paths(parameters: dict) -> set[str]:
+    """The top-level keys a Pass state's Parameters block reads from its input.
+
+    Args:
+      parameters: The state's ``Parameters``.
+
+    Returns:
+      The first path segment of every ``$.x`` reference.
+
+    Raises:
+      None.
+    """
+    reads = set()
+    for key, value in (parameters or {}).items():
+        if key.endswith(".$") and isinstance(value, str) and value.startswith("$."):
+            reads.add(value[2:].split(".")[0])
+    return reads
+
+
+def _reads_through(states: dict, task_name: str, pass_name: str) -> set[str]:
+    """The verb-output keys a Pass state reads, at whatever prefix the machine uses.
+
+    Args:
+      states: The machine's states.
+      task_name: The task whose output the Pass consumes.
+      pass_name: The Pass state doing the reading.
+
+    Returns:
+      The leaf key names.
+
+    Raises:
+      None.
+    """
+    prefix = _task_output_prefix(states, task_name)
+    return {
+        value[len(prefix) :]
+        for key, value in states[pass_name]["Parameters"].items()
+        if key.endswith(".$") and str(value).startswith(prefix)
+    }
 
 
 def test_the_only_write_into_a_users_space_is_an_inbox():
@@ -491,3 +495,29 @@ def _states_including_map_items(states: dict, prefix: str = ""):
 # ResultPath, an ItemSelector, and the five field names the Map's own reader and writer take
 # from a verb's output. Each was mutation-tested — renaming any of them left the whole suite
 # green while the machine produced a send that reported success and copied nothing.
+
+
+def test_the_success_path_reads_only_keys_the_verb_emits():
+    """The happy-path half nothing else covers."""
+    states = _machine()["States"]
+    validated = _validated_output()
+
+    reads = _validated_reads(states)
+
+    assert reads, "the Validated state reads nothing through the task's output path"
+    assert reads <= set(validated), (
+        f"the machine reads {sorted(reads - set(validated))} which validate-authorize does not "
+        f"return — an absent key raises an uncatchable States.Runtime on the SUCCESS path"
+    )
+
+
+@pytest.mark.parametrize("state", ["ValidateFailureSeed", "RecordFailure"])
+def test_the_failure_terminal_reads_only_seeded_keys(state):
+    """A narrower restatement of the fleet guard, kept local so this plane's own suite fails
+    on it rather than a shared one three directories away."""
+    states = _machine()["States"]
+    seeded = set(states["ValidateFailureSeed"]["Parameters"]) | {
+        k.removesuffix(".$") for k in states["ValidateFailureSeed"]["Parameters"]
+    }
+
+    assert _read_paths(states[state]["Parameters"]) <= seeded

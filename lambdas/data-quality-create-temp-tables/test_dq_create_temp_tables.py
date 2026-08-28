@@ -131,10 +131,3 @@ def test_a_header_athena_cannot_use_is_a_terminal_that_names_the_columns(monkeyp
 # ── Shape validation ─────────────────────────────────────────────────────────
 
 
-def _raise(exc):
-    def _fn(**_kw):
-        raise exc
-
-    return _fn
-
-

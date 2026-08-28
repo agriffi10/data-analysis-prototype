@@ -54,6 +54,21 @@ class TestIsSettled:
         """
         assert watch_ci.is_settled([]) is False
 
+    def test_one_unfinished_run_among_finished_ones_is_not_settled(self):
+        """THE BUG THIS FILE EXISTS FOR, stated as a test.
+
+        The shell condition it replaces was ``! echo "$OUT" | grep -qv completed``, which
+        was intended as "no line lacks 'completed'" and printed "settled" while two deploys
+        were still in progress. This is that exact fixture: two finished, two not.
+        """
+        runs = [
+            run("Deploy Infrastructure"),
+            run("Deploy App"),
+            run("Deploy SPA image", status="in_progress", conclusion=None),
+            run("Deploy Lambdas", status="in_progress", conclusion=None),
+        ]
+        assert watch_ci.is_settled(runs) is False
+
 
     @pytest.mark.parametrize("status", sorted(watch_ci.FINISHED_STATUSES))
     def test_every_finished_status_settles(self, status):
@@ -86,6 +101,21 @@ class TestVerdict:
         ok, bad = watch_ci.verdict([run("CI", conclusion=None)])
         assert ok is False
         assert bad == ["CI (no conclusion)"]
+
+
+class TestMoved:
+    """Detecting that the thing being watched is no longer the head."""
+
+
+    def test_an_unchanged_ref_reports_nothing(self, monkeypatch):
+        """The common case must not produce a spurious abort."""
+        monkeypatch.setattr(watch_ci, "resolve_sha", lambda pr, branch: "abc")
+        assert watch_ci.moved("abc", 538, None) is None
+
+    def test_a_moved_ref_reports_the_new_sha(self, monkeypatch):
+        """Someone pushed, so a verdict about the old commit is about superseded work."""
+        monkeypatch.setattr(watch_ci, "resolve_sha", lambda pr, branch: "def")
+        assert watch_ci.moved("abc", 538, None) == "def"
 
 
 class TestWatchExitStatus:

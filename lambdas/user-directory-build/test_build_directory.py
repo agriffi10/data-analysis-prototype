@@ -113,6 +113,3 @@ def test_an_empty_result_never_overwrites_the_existing_document(s3):
     assert result == {"published": False, "username_count": 0}
 
 
-# -- FR-008: observability -------------------------------------------------------------
-
-

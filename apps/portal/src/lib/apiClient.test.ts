@@ -4,7 +4,10 @@ import {
   apiRetryPolicy,
   resetApiClientForTests,
   setAuthTokenProvider,
-  setUnauthenticatedHandler
+  setUnauthenticatedHandler,
+  API_FUNCTION_TIMEOUT_SECONDS,
+  API_GATEWAY_INTEGRATION_CEILING_SECONDS,
+  TIMEOUT_MS
 } from './apiClient';
 import {API_ROUTES} from '../types/apiContract.generated';
 import {toUserText} from './errorMessages';
@@ -229,6 +232,15 @@ describe('apiRequest — the wording boundary', () => {
 });
 
 describe('the timeout', () => {
+  it('sits above the FUNCTION timeout, so the server always gives up first', () => {
+    // Pinned against the constants rather than against a number: a client that aborts first
+    // cancels requests the server then completes, which for a write is a mutation the user
+    // believes failed.
+    expect(API_FUNCTION_TIMEOUT_SECONDS).toBeLessThan(API_GATEWAY_INTEGRATION_CEILING_SECONDS);
+    expect(TIMEOUT_MS).toBeGreaterThan(API_FUNCTION_TIMEOUT_SECONDS * 1000);
+    expect(TIMEOUT_MS).toBe(API_GATEWAY_INTEGRATION_CEILING_SECONDS * 1000);
+  });
+
   it('produces RequestTimeout when the request is aborted', async () => {
     fetchMock.mockRejectedValue(Object.assign(new Error('aborted'), {name: 'AbortError'}));
 

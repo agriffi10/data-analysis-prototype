@@ -232,6 +232,3 @@ def test_the_sweep_deletes_each_message_it_drains(monkeypatch):
     assert sqs.deleted == [(url, "rh-A"), (url, "rh-B")]
 
 
-# -- FR-006: the handler stays total ---------------------------------------------------
-
-

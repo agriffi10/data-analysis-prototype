@@ -54,15 +54,6 @@ def _matches(rule, state):
     return present and state["mode"] == rule["StringEquals"]
 
 
-def _route(states, choice_name, state):
-    """Where ``choice_name`` sends ``state`` — its Default when no rule matches."""
-    choice = states[choice_name]
-    for rule in choice["Choices"]:
-        if _matches(rule, state):
-            return rule["Next"]
-    return choice["Default"]
-
-
 def _targets(state):
     """Every state this one can transition to, by ANY edge type.
 

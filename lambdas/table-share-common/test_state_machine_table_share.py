@@ -110,9 +110,6 @@ def test_the_maps_sizing_matches_the_constants_the_verb_reads():
     assert '"MaxConcurrency": ${transfer_map_max_concurrency}' in asl_raw
 
 
-# ── SPEC-161: the caps and the verbs that have to survive them ──────────────
-
-
 # ── SPEC-161 FR-003/FR-004: the machine cannot hang, and nothing expires under it ──
 
 

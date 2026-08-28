@@ -80,6 +80,34 @@ def _successors(name: str) -> set:
 # ── The failure seeds ────────────────────────────────────────────────────────
 
 
+def _paths_to_terminals() -> list:
+    """Walks every route from the start state to a terminal.
+
+    Cycles are broken by refusing to revisit a state on the same path, which is what makes the
+    waiting loop walkable at all.
+
+    Args:
+      None.
+
+    Returns:
+      A list of state-name paths, each ending at a Succeed or a Fail.
+
+    Raises:
+      None.
+    """
+    paths, frontier = [], [["ValidateAuthorize"]]
+    while frontier:
+        path = frontier.pop()
+        state = STATES[path[-1]]
+        if state["Type"] in ("Succeed", "Fail"):
+            paths.append(path)
+            continue
+        for nxt in _successors(path[-1]):
+            if nxt not in path:
+                frontier.append([*path, nxt])
+    return paths
+
+
 def test_the_delete_branch_routes_PAST_the_destination_guard_on_the_operation():
     """A delete has no destination to check, and the obvious guard is the wrong one.
 
@@ -199,3 +227,27 @@ def test_no_gate_between_the_copy_and_the_deletion_DEFAULTS_into_deleting():
         assert not _reaches(STATES[name]["Default"], "DeleteSource"), (
             f"{name}'s Default can reach DeleteSource, so a state that lost its shape deletes"
         )
+
+
+def test_no_path_that_takes_the_lock_reaches_a_terminal_without_releasing_it():
+    """The property the plane turns on, and one no fleet guard can express.
+
+    A wedged lock is not a failed request — it is a SPACE in which nobody can copy, move or delete
+    anything until the staleness rule recovers it, which is hours. Every route that gets past the
+    acquire has to pass through one of the three release states.
+    """
+    for path in _paths_to_terminals():
+        if "AcquireLock" not in path:
+            continue
+
+        assert RELEASE_STATES & set(path), f"this path takes the lock and never frees it: {path}"
+
+
+def test_the_paths_that_do_NOT_release_are_the_ones_that_never_took_the_lock():
+    """The complement, so the rule above cannot be satisfied by a machine that releases
+    everywhere and means nothing by it."""
+    for path in _paths_to_terminals():
+        if RELEASE_STATES & set(path):
+            continue
+
+        assert "AcquireLock" not in path, f"this path holds a lock at a terminal: {path}"

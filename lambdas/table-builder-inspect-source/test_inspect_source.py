@@ -16,16 +16,6 @@ import inspect_source as i
 from cpcommon import s3_listing
 from cpcommon.errors import TerminalError
 
-
-class _FakeSqs:
-    def __init__(self):
-        self.calls = []
-
-    def send_message(self, **kwargs):
-        self.calls.append(kwargs)
-        return {"MessageId": "m"}
-
-
 BUCKET = "dat-prod-user-space"
 PREFIX = "alice/sales/2026/"
 
@@ -95,12 +85,6 @@ def test_mixed_formats_is_terminal():
 
 
 # Fake S3 paginator backing the ignore-rules test above.
-class _FakePaginator:
-    def __init__(self, pages):
-        self._pages = pages
-
-    def paginate(self, Bucket, Prefix):  # boto3 kwarg names
-        return iter(self._pages)
 
 
 if __name__ == "__main__":

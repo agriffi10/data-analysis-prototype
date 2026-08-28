@@ -41,15 +41,6 @@ ASL = _load()
 STATES = ASL["States"]
 
 
-# ── The failure seeds: what they carry, and what they must not read ──────────
-
-
-# ── The ceiling, and the door that makes it reachable (SPEC-169 FR-003) ──────
-
-
-# ── The transfer (SPEC-169 FR-003) ───────────────────────────────────────────
-
-
 # ── The commit gate (SPEC-169 FR-004) ────────────────────────────────────────
 
 
@@ -231,3 +222,17 @@ def test_the_restores_gate_guards_its_comparison_and_fails_closed():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_the_commit_gate_guards_its_comparison_and_fails_closed():
+    """The gate is one boolean computed by one verb, so there is one place it can be wrong. Its
+    Default is the ROLLBACK rather than the commit: an absent or unrecognisable verdict must
+    fail closed, because the failure on the other side is deleting a user's only copy."""
+    gate = STATES["CommitOrRollback"]
+    clauses = gate["Choices"][0]["And"]
+
+    assert clauses[0]["IsPresent"] is True
+    assert clauses[1]["BooleanEquals"] is True
+    assert {c["Variable"] for c in clauses} == {"$.transferOutcome.complete"}
+    assert gate["Default"] == "Rollback"
+    assert gate["Choices"][0]["Next"] != "Rollback"

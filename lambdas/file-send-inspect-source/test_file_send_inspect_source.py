@@ -115,6 +115,3 @@ if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
 
 
-# ── SPEC-166 FR-005: the transfer caps ──────────────────────────────────────
-
-

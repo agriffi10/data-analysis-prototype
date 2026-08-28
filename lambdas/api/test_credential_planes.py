@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import router
 from apicommon import contract, identity, planes
+from conftest import bearer, declare_route
 
 _API_PLANE_ROUTE = contract.Route(
     id="test.apiPlane",
@@ -476,3 +477,125 @@ def test_a_plane_that_is_neither_of_the_two_is_REFUSED_rather_than_defaulted() -
             planes.planes_for("typo.get")
     finally:
         contract.ROUTES = original
+
+
+def test_the_api_plane_is_unreachable_with_no_dispatch_in_progress(no_aws) -> None:
+    """The sentinel is not a key in the table, so it authorizes nothing.
+
+    Args:
+      no_aws: The construction recorder.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a client is handed out with no route running.
+    """
+    planes.begin_request()
+    assert planes.current_route() == planes.NO_ROUTE
+    with pytest.raises(identity.PlaneViolationError):
+        identity.api_client("sts")
+    assert no_aws == []
+
+
+def test_a_request_that_never_DISPATCHES_cannot_inherit_the_last_one_declaration(
+    no_aws, monkeypatch
+) -> None:
+    """The window the entry reset actually protects, driven where it can be stale.
+
+    **The first version of this test was tautological, and the correction is worth stating.** It
+    claimed the entry reset was "the ONLY thing that stops B", drove two dispatching requests, and
+    still passed with ``begin_request`` gutted — because ``begin_dispatch`` overwrites the route
+    key unconditionally before any handler runs, so a *dispatching* request can never read a stale
+    one. The reset is not what protects that path.
+
+    What it does protect is the window before dispatch, and the paths that never reach it at all:
+    a public route, a 404, a refusal. With cleanup skipped, a request that returns early leaves
+    whatever the last one declared — and a call reaching the API plane in that window is allowed.
+    So this drives exactly that: an API-plane request, cleanup neutered, then a public route, then
+    a reach for the API plane.
+
+    Args:
+      no_aws: The construction recorder.
+      monkeypatch: pytest's patcher.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the API plane is reachable after a request that never dispatched.
+    """
+    def _api_plane_route(context):
+        identity.api_client("sts")
+        return {"ok": True}
+
+    # NOT stubbed: `_API_PLANE_ROUTE` declares `plane="api"`, so the grant resolves through the
+    # real derivation. Stubbing `planes_for` here would exercise the stub rather than the arm that
+    # actually hands out the execution role.
+    monkeypatch.setattr(planes, "end_dispatch", lambda: None)
+
+    with declare_route(_API_PLANE_ROUTE, _api_plane_route):
+        router.route("GET", "/v1/_test-api-plane", bearer())
+    assert no_aws == ["sts"], "the declared route did not get its client"
+
+    router.route("GET", "/healthz", {})
+    assert planes.current_route() == planes.NO_ROUTE
+
+    with pytest.raises(identity.PlaneViolationError):
+        identity.api_client("sts")
+
+
+def test_an_undispatched_refusal_also_leaves_the_plane_at_the_sentinel(no_aws, monkeypatch) -> None:
+    """The other early-return paths: a refusal and a route that does not exist.
+
+    Args:
+      no_aws: The construction recorder.
+      monkeypatch: pytest's patcher.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If either leaves a declaration behind.
+    """
+    monkeypatch.setattr(
+        planes,
+        "planes_for",
+        lambda route_id: frozenset({planes.Plane.API}) if route_id == "test.apiPlane" else frozenset(),
+    )
+    monkeypatch.setattr(planes, "end_dispatch", lambda: None)
+
+    for method, path, headers in (
+        ("GET", "/v1/user-directory", {}),
+        ("GET", "/_no/such/route", bearer()),
+    ):
+        planes.begin_dispatch("test.apiPlane")
+        router.route(method, path, headers)
+        assert planes.current_route() == planes.NO_ROUTE, (
+            f"{method} {path} returned before dispatch and left a declaration behind"
+        )
+
+
+def test_a_route_that_declared_the_api_plane_gets_its_client(no_aws, monkeypatch) -> None:
+    """The other direction. One alone passes for a guard that always raises.
+
+    Args:
+      no_aws: The construction recorder.
+      monkeypatch: pytest's patcher.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the declared route is refused.
+    """
+    monkeypatch.setattr(
+        planes,
+        "planes_for",
+        lambda route_id: frozenset({planes.Plane.API}) if route_id == "test.apiPlane" else frozenset(),
+    )
+    planes.begin_request()
+    planes.begin_dispatch("test.apiPlane")
+
+    identity.api_client("sts")
+    assert no_aws == ["sts"]

@@ -198,3 +198,14 @@ def test_the_output_supplies_every_path_the_MACHINE_reads_of_it():
     produced = set(_run().keys()) | set(created_later)
 
     assert read <= produced, f"the machine reads {sorted(read - produced)}, which this verb never emits"
+
+
+def test_the_SPACE_ROOT_is_refused_as_an_item():
+    """The third way to select a protected folder, and the one no rule looks for.
+
+    Every protected-location rule matches the named folder or something below it; none looks UP.
+    A single item of ``alice/`` passes all of them while naming a subtree containing
+    ``athenaresults/``, ``user_settings/``, ``archive/`` and every marker — a request this plane's
+    own IAM refuses part-way through. The browser cannot express it, so refusing costs nothing.
+    """
+    assert _refused(operation="delete", items=[{"kind": "folder", "key": "alice/"}]) == "space_root_not_an_item"

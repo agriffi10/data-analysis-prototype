@@ -30,16 +30,6 @@ import pytest
 from cpcommon import clients
 from cpcommon.errors import TerminalError
 
-
-class _FakeSqs:
-    def __init__(self):
-        self.calls = []
-
-    def send_message(self, **kwargs):
-        self.calls.append(kwargs)
-        return {"MessageId": "m"}
-
-
 _REAL_CHECK = i._check_access
 # Captured because _use_fixture replaces it globally and never restores it: without this,
 # a test that needs the REAL ranged reader silently gets the previous test's local-file

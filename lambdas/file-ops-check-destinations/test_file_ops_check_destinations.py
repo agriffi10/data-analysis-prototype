@@ -210,3 +210,18 @@ if __name__ == "__main__":
 
 def _cleared(item_key, label="a"):
     return {"itemKey": item_key, "label": label, "outcome": "cleared"}
+
+
+def test_a_destination_with_no_LastModified_conflicts_under_OVERWRITE():
+    """S3 always returns one; a response that did not would leave the predicate with nothing to
+    compare, and the fallback has to be the occupied one. This is the fail-closed branch, and it is
+    unreachable through the API on purpose — which is exactly why it needs a test."""
+    _install(
+        [_item("alice/a/", "a", ["alice/out/a/x"])],
+        {"alice/out/a/x": _NO_LAST_MODIFIED},
+        on_conflict="overwrite",
+    )
+
+    result = m._check_destinations(_event(on_conflict="overwrite"))
+
+    assert _outcome(result, "alice/a/")["outcome"] == "conflict"

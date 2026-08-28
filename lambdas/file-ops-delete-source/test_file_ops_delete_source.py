@@ -176,3 +176,38 @@ def test_a_MOVE_compares_the_ETag_the_PLAN_recorded():
     assert fake.deleted == []
     records = fake.written[_RESULTS_KEY]["deletions"]
     assert records[0]["reason"] == "source_changed"
+
+
+def test_the_subset_guard_runs_once_per_item_IMMEDIATELY_BEFORE_its_keys_reach_S3(monkeypatch):
+    """The compensating guard for the gate's weakened graph property, and this is the test that
+    proves it is WIRED rather than merely correct.
+
+    Step Functions has no per-item ``Choice`` over a list, so the machine can only assert that an
+    empty ``deletable`` set never reaches this verb. The per-item half is carried here and in the
+    collector, and it is worth nothing unless the check sits between the filter and the call.
+
+    Asserted by INTERLEAVING: the recorded sequence must alternate guard-then-delete, so a guard
+    hoisted above the loop — which would still pass an "is it called?" test — fails this one.
+    """
+    items = [_item("alice/a/", "a", ["alice/a/1"]), _item("alice/b/", "b", ["alice/b/1"])]
+    fake = _install(items, ["alice/a/", "alice/b/"])
+    events = []
+
+    real_assert = m._assert_subset
+    monkeypatch.setattr(
+        m, "_assert_subset", lambda d, a: (events.append(("guard", sorted(d))), real_assert(d, a))[1]
+    )
+    real_delete = fake.delete_objects
+    fake.delete_objects = lambda Bucket, Delete: (
+        events.append(("delete", [o["Key"] for o in Delete["Objects"]])),
+        real_delete(Bucket=Bucket, Delete=Delete),
+    )[1]
+
+    m._delete_source(_event())
+
+    assert events == [
+        ("guard", ["alice/a/"]),
+        ("delete", ["alice/a/1"]),
+        ("guard", ["alice/b/"]),
+        ("delete", ["alice/b/1"]),
+    ]

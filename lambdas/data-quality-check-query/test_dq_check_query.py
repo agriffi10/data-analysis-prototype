@@ -73,6 +73,3 @@ def test_a_failed_profile_query_is_a_terminal_query_failed(athena_says):
     assert exc.value.reason == messages.QUERY_FAILED
 
 
-# ── It does not wait ─────────────────────────────────────────────────────────
-
-

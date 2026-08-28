@@ -19,15 +19,6 @@ from cpcommon.errors import TerminalError
 _REAL_VERIFIED = v.auth.verified_username
 
 
-class _FakeSqs:
-    def __init__(self):
-        self.calls = []
-
-    def send_message(self, **kwargs):
-        self.calls.append(kwargs)
-        return {"MessageId": "m"}
-
-
 USER_BUCKET = "dat-prod-user-space"
 SHARED_BUCKET = "dat-prod-shared-space"
 

@@ -238,27 +238,6 @@ def test_a_transient_head_error_is_retryable_not_a_folder():
 _CHUNK_SLACK = 256 * 1024
 
 
-class _CountingBody:
-    """A GetObject body that records how many COMPRESSED bytes were actually pulled."""
-
-    def __init__(self, data, counter):
-        self._data = data
-        self._counter = counter
-        self.closed = False
-
-    def iter_chunks(self, size):
-        for i in range(0, len(self._data), size):
-            chunk = self._data[i : i + size]
-            self._counter["read"] += len(chunk)
-            yield chunk
-
-    def close(self):
-        self.closed = True
-
-
-# ── FR-005: partition detection ──────────────────────────────────────────────
-
-
 # ── FR-006: the manifest and the bounded state output ────────────────────────
 
 

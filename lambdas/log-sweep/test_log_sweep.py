@@ -221,9 +221,6 @@ def _by_message(sink, message):
     return [e for e in sink.events if e["message"] == message]
 
 
-# -- FR-005: a sweep's events stay below the messages it drains -------------------------
-
-
 # -- FR-005: routing, and the key-injection surface -------------------------------------
 
 

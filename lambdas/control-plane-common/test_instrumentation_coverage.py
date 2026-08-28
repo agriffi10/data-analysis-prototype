@@ -126,6 +126,21 @@ CONTENTS_DENYLIST = {
 CREDENTIAL_NAMES = {"id_token", "idtoken", "token", "access_token", "credentials", "authorization"}
 
 
+def _emitter_calls(path):
+    """Every `observability.info/warning/error(...)` call, as AST nodes.
+
+    AST rather than a substring search, so a mention inside a docstring or a comment cannot
+    satisfy the guard — the point is that the verb *emits*, not that it talks about emitting.
+    """
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.Call) and ast.unparse(node.func) in (
+            "observability.info",
+            "observability.warning",
+            "observability.error",
+        ):
+            yield node
+
+
 @pytest.mark.parametrize("plane", PLANES, ids=lambda p: p.service)
 def test_the_enumeration_actually_found_the_verbs(plane):
     """Guards the guard: a glob that matches nothing makes every test below vacuous.
@@ -262,4 +277,27 @@ def test_every_lambda_in_the_repo_is_in_the_pipe(path):
     )
     assert "observability.init(service=" in path.read_text(), (
         f"{path.parent.name}/{path.name} never calls observability.init"
+    )
+
+
+@pytest.mark.parametrize(("plane", "path"), MODULES, ids=_IDS)
+def test_no_verb_enables_argument_or_return_capture(plane, path):
+    """The single setting that would turn every traced verb into a data-exfiltration path."""
+    source = path.read_text()
+    for banned in ("capture_args", "capture_return", "capture=", "include_args"):
+        assert banned not in source, f"{path.name} enables {banned}"
+
+
+@pytest.mark.parametrize(("plane", "path"), MODULES, ids=_IDS)
+def test_no_emitter_passes_a_contents_shaped_field(plane, path):
+    """`logs/` is retained forever, and these functions hold users' data in memory."""
+    offenders = [
+        f"{ast.unparse(node.func)}({kw.arg}=...)"
+        for node in _emitter_calls(path)
+        for kw in node.keywords
+        if kw.arg and kw.arg.lower() in CONTENTS_DENYLIST
+    ]
+    assert not offenders, (
+        f"{path.name} logs a contents-shaped field: {offenders} — column NAMES are schema and are "
+        "permitted; column VALUES are file contents and are not (SPEC-132 FR-004)"
     )

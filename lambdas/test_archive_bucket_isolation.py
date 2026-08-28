@@ -98,9 +98,6 @@ def test_the_portal_role_names_the_archive_bucket_nowhere():
         assert "prod-archive" not in body, f"{path.name} names the archive bucket"
 
 
-# ── FR-001 AC3: the bucket host is not in the CSP connect-src ────────────────
-
-
 # ── FR-001 AC8: the bucket policy admits this plane and deploy, nobody else ──
 
 
@@ -139,9 +136,6 @@ def test_each_space_bucket_denies_the_browser_writing_under_archive(deny_of):
     assert deny["Effect"] == "Deny"
     assert set(deny["Action"]) == {"s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"}
     assert deny["Resource"].endswith("/archive/*")
-
-
-# ── FR-001 AC4/AC5/AC6: retention is a ceiling, and the rule is unfiltered ───
 
 
 # ── SPEC-139 parity: no new Resource "*" anywhere in this plane ──────────────

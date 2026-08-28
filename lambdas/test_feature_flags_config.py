@@ -87,6 +87,3 @@ def test_an_unknown_flag_key_fails():
     assert any("unknown flag 'quries'" in p for p in problems)
 
 
-# ── The publish pipeline (FR-003) ────────────────────────────────────────────
-
-
