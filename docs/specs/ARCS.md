@@ -39,6 +39,7 @@ authoritative detail lives in `docs/spec-delivery/SPEC-XXX-*.md` and the per-arc
 - [File-operations control-plane arc (SPEC-187 → 191)](#file-operations-control-plane-arc-spec-187--191)
 - [API-layer & containerisation arc (SPEC-192 → 202)](#api-layer--containerisation-arc-spec-192--202)
 - [Transition identity arc (SPEC-203 → 205)](#transition-identity-arc-spec-203--205)
+- [Container-lambdas arc (SPEC-212 → 213 → 214)](#container-lambdas-arc-spec-212--213--214)
 
 ---
 
@@ -2484,4 +2485,84 @@ defect.
 be claimed again — the record is the name lock and it is never released. And data a user asked to
 delete is retained; the wording stays "delete" because from every user's view the space is gone, but
 no copy anywhere may claim the data was destroyed, which is what FR-006's sweep enforces.
+
+## Container-lambdas arc (SPEC-212 → 213 → 214)
+
+Eighty-two functions, ten layers, two JSON tables and a literal attach-order loop. The arrangement
+works. What is wrong with it is that **what a function can import is decided at deploy time, by a
+join between two tables, and is observable nowhere else** — so a missing layer is a
+`ModuleNotFoundError` at the next cold start, in production, behind a green suite. That is not
+hypothetical: SPEC-137 shipped instrumented code that passed review, the unit tests and
+`update-function-code`, then failed at every cold start and broke sign-up for nine days. Every gate
+was blind because none of them ran the deployed artifact.
+
+The arc replaces the join with an artifact. One image, dependencies installed once, shared code
+copied once, every function running the same image with a different command. What a function can
+import becomes a property of something you can pull and run — which is exactly what the arc's
+central test does.
+
+### Why it is three specs, and why this order
+
+The three specs have three different risk profiles, and mixing them would give the whole arc the
+worst of them.
+
+**212 cannot break production.** It builds the image, proves it, pushes it to ECR and deploys it
+nowhere. At the end of it not one `aws_lambda_function` has changed. This is where the import smoke
+test is built — the check that runs every function's handler import inside the real image — and
+building it before anything depends on it is what makes the rest of the arc a packaging change
+rather than a leap.
+
+**213 is where the risk is, and it has a known shape.** Terraform keeps owning the function and CI
+keeps owning the code, so `image_uri` carries `ignore_changes`, so **CI must point every function at
+the new image on every deploy.** A pipeline that builds and pushes and never calls
+`update-function-code` leaves all 82 functions on the previous image and every one of them keeps
+working. Nothing goes red. This is not a new lesson: SPEC-193/194 hit exactly this with the SPA's
+ECS service, where a pipeline that only registered a task-definition revision left a
+`CannotPullContainerError` indistinguishable from the endpoint failure the platform was tested for.
+The mitigation is the same one — CI counts what it pointed, waits for each update to settle, and
+fails loudly on a shortfall.
+
+**214's risk is the mirror image: it is a deletion, and the danger is a guard nobody misses.**
+`lambdas/test_deploy_matrix.py` is the only thing standing between a missing layer and that cold
+start. Deleting it removes real protection unless something already replaced it, and a review will
+not catch that — a reviewer reads what is there, and a deletion leaves nothing to read. So 214 does
+not begin with a deletion. It begins with a sweep that enumerates every function, every assertion
+the matrix makes, and what now covers each one, and it prints that report before anything is
+removed. Three counts — functions the image matrix imports, functions Terraform declares, function
+directories on disk — are asserted equal.
+
+### What the arc does not do
+
+It does **not** merge the domain layers' source. `cpcommon` owns the algorithm and each domain layer
+owns its wording, and `docs/decisions/` says do not merge them; an image that copies them into one
+directory changes nothing about that. It does not convert `shared-space-common` from flat modules
+into a package, which would be a refactor of every import in that plane. And it changes no
+function's behaviour, environment, timeout, memory or role — 213 asserts that claim against a
+fixture captured from the pre-cutover plan, rather than making it in prose.
+
+### The one thing the arc makes worse, stated rather than glossed
+
+Today a function can import only the layers attached to it. In one image every function can import
+everything — including `shared-space-common`'s nine flat top-level modules, whose names (`config`,
+`auth`, `registry`, `cache`, `notify`, `messages`, `membership`, `casio`, `teardown`) are generic
+enough to be imported from another plane by accident and would resolve. The image gives every
+function a strictly larger import surface than its zip has. What keeps that from mattering is an AST
+sweep, not the packaging — and the sweep has to count attribute-style usage (`import x` then
+`x.y()`), because a submodule-path scan alone undercounts consumers.
+
+### Its relationship to SPEC-215
+
+214 wants CI's function list to come from a Terraform output rather than a hand-maintained JSON file,
+which is the same move SPEC-215 makes for the configuration values — the same idea arriving twice:
+**a value Terraform computes is consumed from Terraform, not copied by a human into a settings page
+or a JSON file.**
+
+**They are order-independent, not independent**, and the distinction matters because an earlier
+draft of this paragraph said the looser thing while both spec bodies described a coupling. Either
+order works and each spec states its own obligation for both: if 215 lands first, 214 reads through
+its resolver; if 214 lands first, it adds the read directly and 215 folds it in. The one thing that
+had to be settled between them is the predicate SPEC-215's version-agreement test derives — it is
+*declares an OpenTofu version*, not *runs `tofu init`*, because a workflow using the resolver runs no
+init of its own and an init-based predicate would exclude the very workflow the derivation was
+widened to cover.
 
