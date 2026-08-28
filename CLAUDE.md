@@ -5,7 +5,9 @@ Workflow below). Everything else is pulled **on demand**: the cross-cutting docs
 the domain rulebooks and inventories live beside the code they govern, in each tree's `info/` folder:
 - `@docs/process.md` — **read at the start of every session, before any other doc**: how we work —
   spec lifecycle, session rhythm, the reviewer contract, the completion ritual, doc hygiene
-- `@docs/architecture.md` — system design + Known Constraints (read the section you need, never in full)
+- `@docs/architecture.md` — the foundations: the SPA's shape, auth, the authorization model, the
+  shared control-plane pattern, Known Constraints, infrastructure and delivery (read the section
+  you need, never in full). A single plane's own design is on its page under `lambdas/info/planes/`
 - `@docs/decisions.md` — the Key Decisions register in full (the digest below groups it by area)
 - `@docs/specs/INDEX.md` — the spec index + status (one row per spec)
 - `@docs/specs/ARCS.md` — why an arc exists / how its specs compose (only for the arc you're in)
