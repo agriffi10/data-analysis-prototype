@@ -1,8 +1,10 @@
+import {readFileSync} from 'node:fs';
 import {describe, expect, it} from 'vitest';
 import {
   FORMATTING_BACKGROUNDS,
   FORMATTING_BASE_SURFACES,
   FORMATTING_FOREGROUNDS,
+  FORMATTING_GRADIENT_STEPS,
   FORMATTING_PATTERN_MAX,
   FORMATTING_TOKEN_HEX,
   NUMERIC_TRANSFORMER_ERROR,
@@ -70,6 +72,53 @@ function contrastRatio(a: string, b: string): number {
   return (high + 0.05) / (low + 0.05);
 }
 
+/**
+ * The token stylesheet, from whichever directory the runner was started in.
+ *
+ * Two literal paths rather than a loop over a list: `security/detect-non-literal-fs-filename`
+ * is on, and a constructed path is exactly what it exists to flag — even here, where the
+ * only inputs are these two constants.
+ */
+function readCss(): string {
+  try {
+    return readFileSync('src/index.css', 'utf8');
+  } catch {
+    return readFileSync('apps/portal/src/index.css', 'utf8');
+  }
+}
+
+/**
+ * The body of `index.css`'s `@theme` block, with comments removed.
+ *
+ * Scoped to the block rather than matched across the whole file, because a whole-file scan
+ * reads every `--color-*` anywhere in the stylesheet: a second token block — which is what a
+ * dark theme adds — would overwrite these values with its own, and every assertion below
+ * would go on passing while measuring a palette the light theme never paints.
+ */
+function themeBlock(css: string): string {
+  // Comments come out FIRST, before the braces are counted. Stripping afterwards leaves the
+  // scan reading punctuation inside prose: a `}` in a comment truncates the block, and — the
+  // only case that fails open rather than loudly — an `@theme` mentioned in a comment with no
+  // real block returns the NEXT block's body as though it were the theme. On today's
+  // stylesheet both orders give byte-identical output, which is exactly why the order has to
+  // be chosen deliberately rather than discovered later.
+  const source = css.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  const declaration = source.indexOf('@theme');
+  const start = declaration < 0 ? -1 : source.indexOf('{', declaration);
+  if (start < 0) throw new Error('index.css declares no @theme block');
+
+  let depth = 0;
+  for (let i = start; i < source.length; i += 1) {
+    if (source[i] === '{') depth += 1;
+    else if (source[i] === '}') {
+      depth -= 1;
+      if (depth === 0) return source.slice(start + 1, i);
+    }
+  }
+  throw new Error('index.css has no closed @theme block');
+}
+
 describe('the formatting palette clears WCAG AA on every surface it can land on', () => {
   // Every surface a formatted cell can sit on: the grid's own two, the SELECTION's fill
   // (a coloured cell is still selectable), and every background a rule may choose.
@@ -96,6 +145,82 @@ describe('the formatting palette clears WCAG AA on every surface it can land on'
     expect(contrastRatio('#b45309', FORMATTING_TOKEN_HEX['accent-soft'])).toBeLessThan(4.5);
     expect(contrastRatio('#b45309', FORMATTING_TOKEN_HEX['danger-soft'])).toBeLessThan(4.5);
     expect(contrastRatio('#b45309', FORMATTING_BASE_SURFACES.surface)).toBeGreaterThan(4.5);
+  });
+
+  it('every shade a gradient can produce meets 4.5:1 against every foreground', () => {
+    // A gradient emits a colour that is in no token, so its contrast has to be measured at
+    // every step it can quantise to — including the mixed shades between two tints of
+    // different hues, which is where a naive "both ends are pale" argument breaks.
+    const failures: string[] = [];
+    for (const from of FORMATTING_BACKGROUNDS) {
+      for (const to of FORMATTING_BACKGROUNDS) {
+        for (let step = 0; step < FORMATTING_GRADIENT_STEPS; step += 1) {
+          const shade = gradientShade(from, to, step / (FORMATTING_GRADIENT_STEPS - 1));
+          for (const foreground of FORMATTING_FOREGROUNDS) {
+            const ratio = contrastRatio(FORMATTING_TOKEN_HEX[foreground], shade);
+            if (ratio < 4.5) failures.push(`${foreground} on ${from}→${to} @${step}: ${ratio.toFixed(2)}`);
+          }
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it('the palette map matches the tokens index.css actually declares', () => {
+    // The one thing that would make every measurement above meaningless: a hex here that is
+    // not the hex the browser paints. The map exists only because a gradient has to
+    // interpolate values and contrast has to be computed from them — so it is a copy, and a
+    // copy needs a guard.
+    // Read from disk rather than imported. Vitest does not process CSS, so BOTH
+    // `import '…?raw'` and a raw `import.meta.glob` of a stylesheet resolve to an empty
+    // string — measured, not assumed — and an empty string would make every assertion below
+    // pass by finding nothing to disagree with. The size guard is what catches a path that
+    // stops resolving.
+    const declared = new Map<string, string>();
+    for (const [, name, hex] of themeBlock(readCss()).matchAll(/--color-([a-z0-9-]+):\s*(#[0-9a-f]{6});/g)) {
+      declared.set(name, hex);
+    }
+    expect(declared.size).toBeGreaterThan(10);
+
+    for (const [token, hex] of Object.entries(FORMATTING_TOKEN_HEX)) {
+      expect(declared.get(token), `--color-${token}`).toBe(hex);
+    }
+
+    // The SECOND mirror, and the one with no other cover: `surface` and `surface-2` appear in
+    // no other map, and they are the backgrounds every contrast number above is measured
+    // against. Pinning both maps to the same source is also what makes `accent-soft` — the one
+    // token they share — agree by construction rather than by a fourth assertion.
+    expect(declared.get('surface')).toBe(FORMATTING_BASE_SURFACES.surface);
+    expect(declared.get('surface-2')).toBe(FORMATTING_BASE_SURFACES['surface-2']);
+    expect(declared.get('accent-soft')).toBe(FORMATTING_BASE_SURFACES['accent-soft']);
+  });
+
+  it('reads only the @theme block, so a second token block cannot overwrite it', () => {
+    // The scoping is the whole reason the parse above is not a whole-file regex, and
+    // `index.css` does not exercise it yet — a dark theme is what adds the second block. So
+    // it is asserted against a synthetic stylesheet, which is the only way to have the guard
+    // before the case it guards against exists.
+    const body = themeBlock(
+      [
+        '@theme {',
+        '  /* text-3 was #8a93a2 (failed) */',
+        '  --color-surface: #ffffff;',
+        '}',
+        ":root[data-theme='dark'] {",
+        '  --color-surface: #14171c;',
+        '}'
+      ].join('\n')
+    );
+
+    // Asserted through the SAME matchAll the real check runs, not on the extracted text — a
+    // guard on the extractor alone would still pass if the composition around it changed.
+    const declared = new Map<string, string>();
+    for (const [, name, hex] of body.matchAll(/--color-([a-z0-9-]+):\s*(#[0-9a-f]{6});/g)) {
+      declared.set(name, hex);
+    }
+
+    expect(declared.get('surface'), 'a later block must not reach the light palette').toBe('#ffffff');
+    expect(declared.size, 'a hex inside a comment is not a declaration').toBe(1);
   });
 });
 
