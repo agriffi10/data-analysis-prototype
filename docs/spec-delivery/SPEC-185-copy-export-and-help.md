@@ -24,7 +24,7 @@ since SPEC-049.
 
 ## The decisions worth carrying
 
-Full entries in `docs/decisions.md` → *Copy is the selection-shaped tool and export is the
+Full entries in `docs/decisions/` → *Copy is the selection-shaped tool and export is the
 result-shaped one (SPEC-185)*. The three that reach outside this spec:
 
 ### Reusing `useSaveResults` required moving it, and the move closed a live defect

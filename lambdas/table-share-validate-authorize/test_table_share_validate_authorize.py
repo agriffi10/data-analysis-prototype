@@ -216,7 +216,7 @@ def test_space_recipient_must_be_active():
 
 def test_recipient_space_membership_not_required():
     # Any ACTIVE space is a valid target even though the actor isn't a member
-    # (docs/architecture.md Control Planes -> Table Share, user decision).
+    # (lambdas/info/planes/table-share.md, user decision).
     _setup(spaces={"otherteam": _active_space(["carol", "dan"])})
     out = v.handler(_event(recipients=[{"kind": "space", "name": "otherteam"}]), None)
     assert out["recipients"] == [{"kind": "space", "name": "otherteam", "valid": True}]

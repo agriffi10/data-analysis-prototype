@@ -213,5 +213,5 @@ Unit tests cannot settle FR-001/FR-002 — the defect is in what Athena does wit
 
 ### Phase 6: Completion
 
-- Completion ritual per `CLAUDE.md`. FR-003 meets an existing SPEC-054 criterion and FR-006 changes a rendering rule — both warrant a `decisions.md` entry; the rest are bug fixes and do not.
+- Completion ritual per `CLAUDE.md`. FR-003 meets an existing SPEC-054 criterion and FR-006 changes a rendering rule — both warrant a `decisions/` entry; the rest are bug fixes and do not.
 - Prune the `## Specs` note in `CLAUDE.md` of anything this spec makes stale.

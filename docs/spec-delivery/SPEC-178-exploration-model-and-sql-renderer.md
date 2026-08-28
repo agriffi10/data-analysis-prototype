@@ -164,7 +164,7 @@ preventing a "BILLING LOOP". AWS does **not** bill a failed Athena query, and an
 non-grouped column is rejected at analysis having scanned nothing. The design is unchanged and still
 right — an unbounded `StartQueryExecution` loop is a real hazard, and the same branch covers
 **CANCELLED**, which *is* billed for what it scanned before stopping — but the justification now says
-what is true. Corrected in the code comments, `decisions.md`, the inventory and `CLAUDE.md`.
+what is true. Corrected in the code comments, `decisions/`, the inventory and `CLAUDE.md`.
 
 ## Notes for the next spec
 

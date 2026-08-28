@@ -460,6 +460,6 @@ portal suite and `npm run build`. Then the FR-007 live check in a non-production
 
 ### Phase 6: Completion ritual
 
-Per `CLAUDE.md`. The `decisions.md` entry is the index itself: why it is an authorization input where
+Per `CLAUDE.md`. The `decisions/` entry is the index itself: why it is an authorization input where
 SPEC-146's directory is not, what makes that safe, and — recorded because it will be re-proposed —
 why per-request scoping was tried and could not work.

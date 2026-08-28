@@ -23,7 +23,7 @@ than thirty-four. Messages are literals and everything variable is a field: a li
 across invocations and can be counted, filtered and alerted on, while an f-string mints a
 distinct message per run and can do none of those things.
 
-**Read the field rule in ``docs/decisions.md`` before instrumenting any call site** — user
+**Read the field rule in ``docs/decisions/control-planes.md`` before instrumenting any call site** — user
 metadata in, file contents out, tokens and emails always out. The emitters do not enforce it
 at runtime, deliberately: it turns on provenance, which no filter over a field name or value
 shape can see, and a filter that looked like enforcement would be worse than none because it

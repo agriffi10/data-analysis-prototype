@@ -1199,8 +1199,8 @@ That leaves roughly **30 genuine production config reads across ~18 files**.
 > functions. The bootstrap is real, and awaiting the load was **not sufficient on its own**: a
 > module's static imports evaluate before its first statement runs, so `main.tsx` reaches the
 > application graph through a **dynamic import** and a sweep pins its five static imports. The
-> document is `/config.json`, same-origin, `no-store`; `architecture.md` → *Runtime configuration*
-> carries the contract and `decisions.md` the reasoning.
+> document is `/config.json`, same-origin, `no-store`; `apps/portal/info/runtime-configuration.md`
+> carries the contract and `decisions/` the reasoning.
 
 **Most of the pattern already exists.** The repo already reads config at *call* time rather than
 module load in many places, because module-level `import.meta.env` constants broke `vi.stubEnv` in
@@ -1246,7 +1246,7 @@ The rest of what CloudFront was doing, each of which needs explicit configuratio
 | Cache headers and busting | Long immutable cache on hashed assets, revalidate-always (`no-cache`) on `index.html` — the exact per-class scheme is **SPEC-141**, and nginx must reproduce it (SPEC-141 also records *why*: heuristic browser caching plus `--delete` produces a white screen, not stale content). Get this wrong and users silently run stale bundles after a deploy — intermittent and very hard to diagnose. |
 | Compression | CloudFront gzipped and brotli'd automatically. nginx must be told to. |
 | TLS and certificate | An ALB with ACM, or ingress TLS. **The OIDC provider requires HTTPS callback URLs** — Cognito does under **[B]**, Entra does under **[A]**. |
-| Security headers | The **shipped** response-headers policy (SPEC-140: enforcing CSP + HSTS + framing/nosniff/referrer/Permissions-Policy/COOP/CORP, `Server` stripped — `architecture.md` → *Infrastructure & Deployment*) moves into the nginx config. The CSP's `connect-src` is derived from Terraform variables; the nginx copy needs the same derivation, not a frozen string. HSTS currently carries `preload` (inert on `*.cloudfront.net`, never submitted) — re-decide `preload` deliberately for the new domain before emitting it there. |
+| Security headers | The **shipped** response-headers policy (SPEC-140: enforcing CSP + HSTS + framing/nosniff/referrer/Permissions-Policy/COOP/CORP, `Server` stripped — `architecture.md` → *How the SPA reaches a user*) moves into the nginx config. The CSP's `connect-src` is derived from Terraform variables; the nginx copy needs the same derivation, not a frozen string. HSTS currently carries `preload` (inert on `*.cloudfront.net`, never submitted) — re-decide `preload` deliberately for the new domain before emitting it there. |
 | Health check | The load balancer or orchestrator needs an endpoint to probe. |
 
 > **Delivered by SPEC-194 (2026-08-27); this table now records what was decided, not what is
@@ -1277,7 +1277,7 @@ The rest of what CloudFront was doing, each of which needs explicit configuratio
 **The deploy pipeline changes shape.** Build, push to a registry, update the service, replacing
 build, sync to S3, invalidate the distribution. New resource types mean the deploy role's
 `.tftpl` policies expand as in-scope work, per the `CLAUDE.md` infra rule — read
-`architecture.md` → *Deploy-role IAM — adding a new resource type* before starting.
+`infra/info/deploy-role-iam.md` before starting.
 
 **The availability model changes, and not in your favour.** CloudFront was a globally distributed
 CDN with essentially no operational burden. A container behind a load balancer has instances,
@@ -1350,7 +1350,7 @@ there into `logs/`. Tokens are already "always out" under the field rule, but th
 was not written with a token-handling service in mind, and it would carry them straight past it.
 
 **Either exempt this service from stack attachment, or scrub its exception paths explicitly**, and
-record the decision in `decisions.md` alongside the original. Do not assume the existing
+record the decision in `decisions/` alongside the original. Do not assume the existing
 exemption covers this — it does not.
 
 ---
@@ -2259,10 +2259,11 @@ doc). Deleting this code is a **cutover** task; keeping it working is a **today*
 the bucket registration, the user-space bucket policy template, and the shared-space `create`
 verb all **stay**. The portal owns them in the successor account (§4.2).
 
-Documentation to rewrite when this lands: `docs/architecture.md` (Authentication Flow,
-Authorization Model, and the "No backend" Known Constraint, which §3.5 breaks), `docs/decisions.md`
-(auth, shared-space and Lake Formation material, plus a new entry for the federated claim — the
-file is one flat heading with no `##` sections, so locating passages means reading it),
+Documentation to rewrite when this lands: `docs/architecture.md` (*Identity*, *Authorization*, and
+the ADR rows for both, which §3.5 breaks), `docs/decisions/identity-and-access.md` (auth and
+shared-space material) and `docs/decisions/analytics.md` (Lake Formation), plus a new entry for the
+federated claim — the register is one file per area with a Contents at the top of each, so find the
+entry by its heading rather than reading the file,
 `lambdas/info/planes/shared-spaces.md` (ownership model), and the in-app help content per the
 SPEC-074 rule.
 

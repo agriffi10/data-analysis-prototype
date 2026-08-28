@@ -672,7 +672,7 @@ planes read the block" from "the planes still read the token".
 - `Status: Completed`; the `INDEX.md` row; the delivery doc, carrying the measured enumeration cardinality,
   the per-plane deliberate-violation counts, the queue-depth figures from FR-006, the two deploy
   timestamps, and which side of the rollback line each landed on.
-- **`decisions.md` entries**, then one line each in CLAUDE.md's Key Decisions:
+- **`decisions/` entries**, then one line each in CLAUDE.md's Key Decisions:
   1. *The planes trust a field because of who may write it* — the verification/authorization split stated
      in those words, with SPEC-200 FR-008's identity grant and its enumerated `.tftpl` sweep as the
      provenance. **This entry does not re-open the resource-policy question**: SPEC-200 owns that decision

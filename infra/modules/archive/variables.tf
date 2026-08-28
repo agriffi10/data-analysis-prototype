@@ -2,7 +2,7 @@
 # Bounded-context module for the "put it away" control plane: a DEDICATED FIFO SQS →
 # EventBridge Pipe → Step Function pipeline running single-task verb Lambdas on ONE
 # shared execution role, plus the archive bucket itself. Mirrors the file-send
-# control-plane PATTERN (not its resources); decision record: docs/architecture.md
+# control-plane PATTERN (not its resources); decision record: lambdas/info/planes/archive.md
 # (Control Planes -> Archive).
 #
 # ONE PLANE SERVES BOTH ARCHIVE AND RESTORE, branching on `mode` in the request. That
@@ -15,7 +15,7 @@
 # request contract and validate-authorize. Nothing is listed, copied or deleted
 # Cross-module ARNs
 # are CONSTRUCTED STRINGS (passed from root locals), never another module's output, so
-# they are known at plan time (architecture.md "unknown ARN in list" trap) and this
+# they are known at plan time (infra/info/deploy-role-iam.md) and this
 # module plans standalone.
 
 variable "project_name" {

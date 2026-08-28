@@ -167,4 +167,4 @@ SHARED_FILES_FOLDER = "shared_files"
 
 - Delivery doc, INDEX status, component-inventory rows for `fscommon.paths`/`config`, and the
   destination-layout line in the `architecture.md` *Send Files* section. The layout decision
-  (`shared_files/{sender}/`) gets a `decisions.md` entry — it is what a recipient sees forever.
+  (`shared_files/{sender}/`) gets a `decisions/` entry — it is what a recipient sees forever.

@@ -43,7 +43,7 @@ presence cannot be verified.
 ## The role ARN is not a module output
 
 It goes into the user-space bucket policy's principal allowlist, and an unknown-at-plan ARN inside a
-list attribute **silently drops the change** (`docs/architecture.md` → *unknown ARN inside
+list attribute **silently drops the change** (`infra/info/deploy-role-iam.md` → *unknown ARN inside
 `compact()`/a list*). The root module passes a **constructed string** instead, and this module
 deliberately gives it nothing to reach for — see `infra/main.tf`'s `user_directory_build_role_arn`
 local.

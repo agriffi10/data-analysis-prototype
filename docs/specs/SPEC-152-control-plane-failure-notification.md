@@ -111,7 +111,7 @@ CLAUDE.md's Lambda code/infra split is where SPEC-137 failed: instrumented code 
 
 ### Phase 1: Read the infra rules, then the deploy role
 
-- Read `architecture.md` → *Deploy-role IAM — adding a new resource type* and *Lambda code/infra split*, and the `decisions.md` entry for the refresh-deadlock lever, **before** writing Terraform.
+- Read `architecture.md` → *Deploy-role IAM — adding a new resource type* and *Lambda code/infra split*, and the `decisions/` entry for the refresh-deadlock lever, **before** writing Terraform.
 - Expand the deploy role's IAM (`.tftpl` under `infra/modules/base/policies/`) for the new function resources.
 - Land and apply this before the functions exist — the self-grant timing trap is the reason it goes first.
 
@@ -137,5 +137,5 @@ CLAUDE.md's Lambda code/infra split is where SPEC-137 failed: instrumented code 
 ### Phase 6: Completion
 
 - Completion ritual per `CLAUDE.md`.
-- This is a new architectural decision — "every plane notifies on a pre-verb failure; `failure_reason` is the only decoder" — so it earns a full `decisions.md` entry and **one line** in Key Decisions.
+- This is a new architectural decision — "every plane notifies on a pre-verb failure; `failure_reason` is the only decoder" — so it earns a full `decisions/` entry and **one line** in Key Decisions.
 - Add a `component-inventory` row for each new verb.

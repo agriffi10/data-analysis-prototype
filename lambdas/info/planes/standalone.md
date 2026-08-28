@@ -57,7 +57,7 @@ group, never varying, which is the signature of a structural limit rather than a
 **Why `WaitTimeSeconds` was not the bug, and long-polling is not the fix.** A short poll does
 return spurious empties, and that was the first theory. It does not survive the evidence: a
 sampling artifact produces a varying count, and twelve consecutive sweeps returned exactly 20.
-Long-polling would also have reversed a recorded decision (`decisions.md` → *structured logging*,
+Long-polling would also have reversed a recorded decision (`docs/decisions/control-planes.md` → *structured logging*,
 #270/#271) while fixing nothing — a blocked group does not become unblocked by waiting for it.
 
 **Why the receive, the write and the delete have to repeat together.** Deleting is what unblocks

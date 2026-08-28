@@ -24,7 +24,7 @@ on:
         description: >-
           Apply with -refresh=false. RECOVERY ONLY. Use when tofu cannot refresh because
           the deploy role is missing a permission that only this apply can grant — the
-          refresh deadlock in architecture.md's trap list. It applies from cached state,
+          refresh deadlock in infra/info/deploy-role-iam.md. It applies from cached state,
           so anything changed outside tofu since the last run will not be seen.
         type: boolean
         default: false

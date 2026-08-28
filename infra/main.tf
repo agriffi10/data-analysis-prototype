@@ -84,7 +84,7 @@ locals {
   # other role ARNs (shared-spaces creates it as
   # "${project}-${env}-shared-space-orchestrator-role"). It sits on the
   # analytics Lake Formation admins list as a CONSTRUCTED STRING — known at plan time
-  # so it doesn't break the compact() in data_lake_settings (architecture.md trap);
+  # so it doesn't break the compact() in data_lake_settings (infra/info/deploy-role-iam.md);
   # apply ordering (module.analytics depends_on module.shared_spaces) guarantees the
   # role exists first.
   shared_space_orchestrator_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project_name}-${var.environment}-shared-space-orchestrator-role"
@@ -220,7 +220,7 @@ locals {
   # A CONSTRUCTED STRING RATHER THAN A MODULE OUTPUT, and here that is load-bearing rather
   # than stylistic: this ARN goes into the user-space bucket policy's principal allowlist, and
   # an unknown-at-plan ARN inside a LIST attribute made OpenTofu plan NO change to that list —
-  # the value was never written (architecture.md → "An unknown ARN inside compact()/a list
+  # the value was never written (infra/info/deploy-role-iam.md → "An unknown ARN inside compact()/a list
   # silently drops the change"). The module therefore exposes no role_arn output at all, so
   # there is nothing to reach for by mistake. Apply ordering is preserved by
   # module.user_directory's depends_on chain.
@@ -251,7 +251,7 @@ locals {
   # ARN scopes the orchestrator role's sqs:SendMessage, the URL is the verb Lambdas'
   # NOTIFICATIONS_QUEUE_URL. Constructed strings (not module.notifications' outputs) so
   # they're KNOWN AT PLAN TIME and don't force a shared_spaces→notifications dependency
-  # (architecture.md "unknown ARN" discipline); IAM never validates that the queue
+  # (infra/info/deploy-role-iam.md "unknown ARN" discipline); IAM never validates that the queue
   # exists, so no apply ordering is needed (same pattern as the portal role's enqueue).
   notifications_queue_name = "${var.project_name}-${var.environment}-notifications-requests.fifo"
   notifications_queue_arn  = "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${local.notifications_queue_name}"
@@ -900,7 +900,7 @@ module "table_builder" {
 # and create a clone table in each recipient database. Mirrors the table-builder
 # control-plane PATTERN with ONE shared execution role (logs-only at this stage;
 # grants land with the verbs). Foundation only here (plumbing + Lambda stubs);
-# decision record: docs/architecture.md (Control Planes -> Table Share). Standalone-deployable: names
+# decision record: lambdas/info/planes/table-share.md. Standalone-deployable: names
 # derive from {project}-{environment} inside the module. The deploy-role grants this
 # module needs are already applied, so no in-module time_sleep guard is
 # required. The shared execution role is on the analytics LF admins list
@@ -960,7 +960,7 @@ module "table_share" {
 # different failure vocabulary. One queue and one DLQ under two unrelated user features
 # would let a malformed send dead-letter someone's table share.
 #
-# The plane and its front door. Nothing is listed or copied by the front door itself. Decision record: docs/architecture.md (Control Planes -> Send Files).
+# The plane and its front door. Nothing is listed or copied by the front door itself. Decision record: lambdas/info/planes/file-send.md.
 # Standalone-deployable: names derive from {project}-{environment} inside the module. The
 # deploy-role grants this module needs are already applied, so no in-module
 # time_sleep guard is required. NOT on the analytics LF admins list — this plane creates no
@@ -1067,7 +1067,7 @@ module "file_ops" {
 # receipt (the table-builder's create/refresh branch is the precedent).
 #
 # The vault bucket, the plane and its front door. Decision record:
-# docs/architecture.md (Control Planes -> Archive).
+# lambdas/info/planes/archive.md.
 #
 # THE BROWSER HAS NO RELATIONSHIP WITH THE ARCHIVE BUCKET, which is why this block passes
 # no CSP input, no CORS origin and no bucket name to module.app: no CORS configuration, no
@@ -1130,7 +1130,7 @@ module "archive" {
 # source. Mirrors the table-builder/table-share control-plane PATTERN with ONE shared
 # execution role — logs-only at this stage (S3, Glue, Athena and LF admin land with
 # the verbs). Foundation only here (plumbing + Lambda stubs); decision record:
-# docs/architecture.md (Control Planes -> Data Quality).
+# lambdas/info/planes/data-quality.md.
 #
 # The engine is ATHENA, not Lambda: a full pass over a 250 GB source is impossible inside
 # Lambda's 900 s ceiling, so a short Lambda STARTS the query and the STATE MACHINE waits
@@ -1141,7 +1141,7 @@ module "archive" {
 # even for an LF-admin role (measured live). TRADEOFF: the portal workgroup's scan
 # cutoff now applies to data-quality's profile queries, so a check over a source larger
 # than the cutoff fails until it is raised — tracked with the deferred DML-timeout quota
-# increase (architecture.md, Control Planes -> Data Quality).
+# increase (lambdas/info/planes/data-quality.md).
 #
 # Standalone-deployable: names derive from {project}-{environment} inside the module. The
 # deploy-role grants this module needs are already applied, so no in-module
@@ -1202,7 +1202,7 @@ module "data_quality" {
 #
 # The four DLQ ARNs are CONSTRUCTED STRINGS (locals below), not the arc modules' outputs —
 # known at plan time, so the drain's IAM policy plans cleanly and no module→module edge is
-# created (the architecture.md "unknown ARN in list" discipline; the same reason every
+# created (the infra/info/deploy-role-iam.md "unknown ARN in list" discipline; the same reason every
 # producer scopes to a constructed notifications queue ARN).
 module "control_plane_dlq_drain" {
   source = "./modules/control-plane-dlq-drain"

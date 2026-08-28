@@ -59,7 +59,7 @@ reader to infer that the channel is now protected.
   spec falsifies (its `create` fixtures must now supply a service `SenderId`).
 - `docs/security-baseline.md`'s design finding is **closed** — it read *accepted for now … tracked
   separately*. The second fix shape it proposed, a separate queue, is rejected with reasons in
-  `decisions.md` rather than merely not chosen.
+  `decisions/` rather than merely not chosen.
 - SPEC-191's "pre-existing gap, not fixed here" entry and `ARCS.md`'s "not a safe model to copy" note
   carry superseded markers.
 - `CLAUDE.md`: the three file-operations digest lines folded into one (1,789 → 842 chars), which is

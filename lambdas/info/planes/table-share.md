@@ -89,7 +89,7 @@ written, and every one is **computed by a test** from the constants rather than 
 **The two product caps exist because the per-source caps cannot express them.** Every manifest item
 is a full copy, so both what the Map lists and what it moves scale with the recipient count. 20,000
 objects is fine and 50 recipients is fine and together they are a million lines; 1 TiB is fine and 50
-recipients is fine and together they are 50 TiB. **Read `docs/decisions.md` before changing any of
+recipients is fine and together they are 50 TiB. **Read `docs/decisions/analytics.md` before changing any of
 these** — five review rounds found four bounds measured against the wrong quantity, and the tests are
 what hold the models now.
 

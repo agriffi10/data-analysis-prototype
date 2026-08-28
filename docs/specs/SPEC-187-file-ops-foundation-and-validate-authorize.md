@@ -114,7 +114,7 @@ Stated here because those specs are not yet written and each of these is a decis
    outcomes the two sets were identical, which is why SPEC-169's gate could be all-or-nothing. **A
    skipped item is planned and not copied** — so deleting plan keys would remove the user's source
    file while the destination still holds the colliding object that displaced it: a direct,
-   unrecoverable substitution. This needs its own `decisions.md` entry against SPEC-169's.
+   unrecoverable substitution. This needs its own `decisions/` entry against SPEC-169's.
 2. **The commit gate is therefore PER ITEM.** SPEC-169's gate is one boolean over the whole run —
    every object confirmed copied, or nothing is deleted. That cannot express "these three items
    copied, this one collided", so the gate becomes per selected item: an item's source is deleted only
@@ -854,7 +854,7 @@ invocations, written as a runnable script under `docs/testing/`.
 - `Status: Completed`; the `INDEX.md` row; the delivery doc.
 - (The `architecture.md` → *Control Planes* section and the six → seven correction are **SPEC-191's**,
   as the arc closer — not repeated here.)
-- A `decisions.md` entry for the FR-002 boundary, the FR-009 lock (including why its loser **waits**
+- A `decisions/` entry for the FR-002 boundary, the FR-009 lock (including why its loser **waits**
   where SPEC-157's is refused), and Premise 1's **divergence from SPEC-169** — confirmed-copied-keys-only
   deletion, and the orphan accepted as its cost. Then one line each in CLAUDE.md's Key Decisions.
 - A note in SPEC-190's brief covering four things this spec discovered but does not own: FR-002's

@@ -243,7 +243,7 @@ it (FR-012 AC7).
       inherited by the serving one is the exact silent failure FR-005 describes.
 - [ ] No path returns an **absent** `Cache-Control`. The matrix job asserts presence per class, not
       merely correctness where present — an absent header is the original bug.
-- [ ] `docs/decisions.md` § *Static-asset caching* and CLAUDE.md's SPEC-141 bullet each carry a
+- [ ] `docs/decisions/` § *Static-asset caching* and CLAUDE.md's SPEC-141 bullet each carry a
       superseded-in-part marker naming SPEC-194 (the container never had the class) and SPEC-202 (when
       the S3 delivery path carrying it is retired).
 
@@ -768,7 +768,7 @@ environment.
 
 - `Status: Completed`; the `INDEX.md` row; a delivery doc at
   `docs/spec-delivery/SPEC-194-the-spa-container.md`.
-- **Three `decisions.md` entries**, then one digest line each in CLAUDE.md's Key Decisions:
+- **Three `decisions/` entries**, then one digest line each in CLAUDE.md's Key Decisions:
   (1) *the nginx config reproduces CloudFront's jobs and three are divergences* — `Server` (FR-008),
   brotli (FR-009), `preload` (FR-007), each with its cost and re-open trigger, plus the `add_header`
   inheritance rule that makes the header set fragile in a way no config review catches;
@@ -781,7 +781,7 @@ environment.
   read, and a module SPEC-202 deletes), and the removal-owner table: the list starts as SPEC-140's
   plus the API host and shrinks per porting spec, the Cognito hosts surviving this whole arc because
   Amplify does.
-- **Superseded markers**, in place, at every site still stating the old claim: `decisions.md`
+- **Superseded markers**, in place, at every site still stating the old claim: `decisions/`
   § *Static-asset caching* and § *Response headers / CSP* (the latter also for the CSP locals' new
   home); CLAUDE.md's SPEC-141 and SPEC-140 bullets;
   `docs/transition_plan.md` §4.6's table (its CloudFront-job rows now have owners); SPEC-141's own

@@ -1,6 +1,6 @@
 # S3 File Portal
 
-A web portal where authenticated users bring their own data, manage it, and query it with SQL — all in the browser, with **no backend server**. A React + TypeScript SPA talks directly to AWS using short-lived, scoped credentials.
+A web portal where authenticated users bring their own data, manage it, and query it with SQL — mostly straight from the browser. A React + TypeScript SPA talks directly to AWS using short-lived, scoped credentials, with an HTTP API and seven async control planes behind it for the work a browser session must not be trusted with.
 
 ## What users can do
 

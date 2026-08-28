@@ -48,7 +48,7 @@ twice. table-builder and table-share suppress on one positively-identified name,
 `Error == "TerminalError"`; everything else notifies, including an exhausted `TransientError`, which
 closes the un-notified-retry gap as a side effect. shared-spaces cannot use that test at all,
 because five of its seven verbs emit no failure message and the guard would restore their silence —
-it reproduces the verb's FIFO dedup token instead. Full reasoning: `decisions.md`.
+it reproduces the verb's FIFO dedup token instead. Full reasoning: `decisions/`.
 
 ## What the fresh-context review changed
 

@@ -132,7 +132,7 @@ Two premises are load-bearing and unverified, and the repo has correctly said so
 - [ ] A test named with the repo's `test_ACCEPTED_` prefix pins today's behaviour for a **mixed-case** live table fixture (e.g. `{"Name": "Order_ID"}`), documenting in its docstring that the Athena fold is corroborated by AWS documentation but not verified here, and that a failure means the premise should be revisited — not the test deleted.
 - [ ] At least one projection fixture's `Parameters` is a **verbatim paste of a real `GetTable` response** for a hand-created partition-projected table, with a comment recording where it came from and when.
 - [ ] The existing self-referential round-trip test is kept and relabelled to say what it does prove, rather than being deleted or left implying more.
-- [ ] Both tripwires are cross-referenced from the relevant `decisions.md` entry so the link survives the test file.
+- [ ] Both tripwires are cross-referenced from the relevant `decisions/` entry so the link survives the test file.
 - [ ] These tests do not change production behaviour.
 
 ### FR-007: Broad exception assertions name what they expect
@@ -148,7 +148,7 @@ Two premises are load-bearing and unverified, and the repo has correctly said so
 
 #### Description
 
-`security.yml:648-649` warns that it is "reporting 0, which may not mean clean" and then passes `0` to the gate anyway. Harmless under `report`; under `block` a broken scanner reads as a pass — the precise thing `decisions.md` forbids with "'did not run' is never 'clean'". Note the *skip* path at `:604-611` is a deliberate written decision and is **not** in scope.
+`security.yml:648-649` warns that it is "reporting 0, which may not mean clean" and then passes `0` to the gate anyway. Harmless under `report`; under `block` a broken scanner reads as a pass — the precise thing `decisions/` forbids with "'did not run' is never 'clean'". Note the *skip* path at `:604-611` is a deliberate written decision and is **not** in scope.
 
 #### Acceptance Criteria
 
@@ -218,4 +218,4 @@ These pipelines are at-least-once, and two of them have no test saying what a re
 ### Phase 7: Completion
 
 - Completion ritual per `CLAUDE.md`.
-- FR-006's tripwire idiom and FR-001's copy-list rule are both worth `decisions.md` entries — the first because it records what the project accepts as unverified, the second because it states what a layer gate must check.
+- FR-006's tripwire idiom and FR-001's copy-list rule are both worth `decisions/` entries — the first because it records what the project accepts as unverified, the second because it states what a layer gate must check.

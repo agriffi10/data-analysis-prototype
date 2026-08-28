@@ -359,7 +359,7 @@ space creation.
 ### Phase 6: Completion ritual
 
 - Delivery doc, INDEX status, an `architecture.md` → *Control Planes → Archive* section (and the
-  "Four features" count in that section's preamble becomes five), a `decisions.md` entry (the bucket
+  "Four features" count in that section's preamble becomes five), a `decisions/` entry (the bucket
   and its browser-invisibility, `GLACIER` over the two alternatives, retention as a ceiling not a
   floor, the kind-partitioned key layout and the namespace collision it prevents, one plane with a
   `mode` branch), and one Key Decisions line. No user-facing surface yet — no Help change.

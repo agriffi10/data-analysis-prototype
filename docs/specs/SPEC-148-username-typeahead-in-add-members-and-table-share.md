@@ -220,4 +220,4 @@ apps/portal/src/features/
 - The FR-004 loading and unavailable behaviours in both dialogs.
 - Responsive pass at 400px and the FR-006 Escape order in the live tree.
 - Help content (FR-005).
-- Completion ritual for the spec **and the arc**: `INDEX.md` statuses, delivery doc, component-inventory rows for the changed dialogs, and confirmation that SPEC-146's two `decisions.md` entries — the S3-not-Cognito source and the accepted all-users disclosure — are in place with their one-line `CLAUDE.md` rows, then prune `CLAUDE.md`'s Current-work block of everything the arc made stale.
+- Completion ritual for the spec **and the arc**: `INDEX.md` statuses, delivery doc, component-inventory rows for the changed dialogs, and confirmation that SPEC-146's two `decisions/` entries — the S3-not-Cognito source and the accepted all-users disclosure — are in place with their one-line `CLAUDE.md` rows, then prune `CLAUDE.md`'s Current-work block of everything the arc made stale.

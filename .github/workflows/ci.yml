@@ -158,7 +158,7 @@ jobs:
       # holds already existed in CLAUDE.md or docs/process.md, and every one was violated
       # anyway: `## Specs` regrew to 371 lines of changelog against its own "prune, never
       # append"; the Key Decisions digest grew a 3,349-character entry against "one line
-      # each"; docs/testing/ reached sixteen files; decisions.md listed 50 of 149 entries.
+      # each"; docs/testing/ reached sixteen files; decisions/ listed 50 of 149 entries.
       # The budgets are ratchets at the measured level, like the coverage floors (SPEC-150) —
       # raising one to make this step pass is the failure mode it exists to catch.
       - name: Validate the documentation layout

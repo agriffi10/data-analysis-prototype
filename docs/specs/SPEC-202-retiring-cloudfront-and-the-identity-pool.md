@@ -682,6 +682,18 @@ one and leaving seven is worse than reversing it in none, because the seven read
 
 #### Acceptance Criteria:
 
+> **Partly discharged ahead of this spec (2026-08-28, the docs restructure).** `architecture.md` was
+> rewritten to describe how the system actually works, so the four grep phrases below — `no backend
+> server`, `All AWS calls come from the browser`, `exceptions to "no backend"`, `No backend / API
+> proxy` — now return **zero hits**, as does the *two network paths* subsection the note calls the
+> fifth site. Sections named here are gone too: *System Overview* is *The system at a glance*, *Known
+> Constraints* is *Constraints that shape the system*, and the file ends in an **Architecture Decision
+> Record** whose rows are what a reversal now amends. `process.md`'s ground rule was corrected in the
+> same pass, and the `No backend` register entry carries a superseded marker. **What this spec still
+> owes:** the CLAUDE.md sweep below, the SPEC-140/141 markers, the CSP verification-technique
+> correction, this spec's own register entries, and the `ARCS.md` update. Verify by grep before
+> building; do not assume this note is still accurate.
+
 - [ ] `docs/architecture.md` is rewritten where it asserts the old premise. **Find each site by
       grepping the quoted phrase, not by line number** — this file has already been restructured once
       since this spec was written, and every line number it used to carry was wrong by between 7 and
@@ -698,13 +710,13 @@ one and leaving seven is worse than reversing it in none, because the seven read
       > was written as an accurate description of a migration in flight, NOT as this reversal. It is
       > the fifth site to rewrite here, and it is the one most likely to be missed, because unlike the
       > other four it does not read as false today.
-- [ ] `docs/decisions.md`'s **No backend** entry gets an in-place superseded marker naming SPEC-202 —
+- [ ] `docs/decisions/`'s **No backend** entry gets an in-place superseded marker naming SPEC-202 —
       **not a deletion**. The reasoning is why the codebase looks the way it does and a later reader
       needs it. Same treatment for the SPEC-140 entry (its CloudFront distribution, its
       `connect-src` derivation and its "there is no backend" sentence) and the SPEC-141 entry
       (FR-007).
 - [ ] **SPEC-140's CSP *verification technique* is corrected, not merely superseded**, in
-      `decisions.md` and in CLAUDE.md's Key Decisions line. It reads "verify with a same-origin page
+      `decisions/` and in CLAUDE.md's Key Decisions line. It reads "verify with a same-origin page
       script + a negative control (CDP eval bypasses page CSP)". What was measured was `script-src`
       (`new Function` reported allowed) — the debugger's script-evaluation exemption — and the
       prescription it produced is unsatisfiable against a policy carrying `script-src 'self'`, since
@@ -720,7 +732,7 @@ one and leaving seven is worse than reversing it in none, because the seven read
       Scope** line ("No backend/API layer"), and the Tech Stack table's `@aws-sdk/*` row (FR-006).
       The Out-of-Scope line is replaced by its successors — no *second* API, no in-browser AWS SDK —
       rather than simply struck, because a removed fence reads as permission.
-- [ ] `decisions.md` gains this spec's own entries, then **one line each** in CLAUDE.md's Key
+- [ ] `decisions/` gains this spec's own entries, then **one line each** in CLAUDE.md's Key
       Decisions: (1) *the cutover order and what the rollback requires*; (2) *the Identity Pool is
       retired and that is not a change to how anyone signs in* — the conflation this spec's Overview
       exists to prevent; (3) *the `@aws-sdk/*` ban is a lint rule plus a `package.json` sweep, and the
@@ -916,8 +928,8 @@ same way the merges do.
 
 - `Status: Completed`; the `INDEX.md` row; the delivery doc at
   `docs/spec-delivery/SPEC-202-retiring-cloudfront-and-the-identity-pool.md`.
-- **FR-011 in full** — `architecture.md`'s reversal, the `decisions.md` superseded markers at every
-  site, `process.md`, the CLAUDE.md four-place sweep, this spec's own `decisions.md` entries and
+- **FR-011 in full** — `architecture.md`'s reversal, the `decisions/` superseded markers at every
+  site, `process.md`, the CLAUDE.md four-place sweep, this spec's own `decisions/` entries and
   their one-line digests, and the `ARCS.md` entry.
 - A row in `apps/portal/info/component-inventory/` for `lib/idToken.ts`, and the removal of the rows for every
   module FR-005 deletes — the inventory stating a deleted module is how a later session imports it.
@@ -942,6 +954,6 @@ reasoning; this is the index and the supersession map.
 | **PKCE, `state`, and the login transaction** held server-side; the server-side return path. | `lib/returnPath.ts`, which Arc B left exactly as it is — including its private-browsing degradation, which FR-009 §6 exercises rather than fixes. The arc's open question 3 was **voided**, not answered. |
 | **Entra ID as the identity provider.** | The four Cognito keys SPEC-192 classifies as permanent browser configuration, and SPEC-195's Cognito-shaped defaults (`token_use: id`, `cognito:username`). SPEC-195's provider block is configuration precisely so this is a config change and not a rewrite — but the *claims* move, and `transition_plan.md` §6.1 calls the federated username claim the highest-consequence detail in the migration. |
 | **Identity Center and trusted identity propagation** — the jwt-bearer exchange (**single-use**: exchange once at login, then the `refresh_token` grant), `CreateTokenWithIAM`, the carrier role, the identity context on the assumed role, and Lake Formation enforcing against an IdC identity. | SPEC-196's `session_tags()` — the *tag source* changes, not the call site, which is the shape FR-001 there was built for. **Identity Center is not a login provider for a web application**; Entra authenticates the users, IdC propagates their identity into AWS. Re-reading it as a sign-in flow builds something that cannot work. |
-| **The `error.stack` interaction, in its larger form.** SPEC-195 FR-007 scrubs the API's exception paths because it handles a user's ID token. A token-**minting** service handles access and refresh tokens it created, and `log-foundry`'s `end_event` attaches `traceback.format_exception` to every failed span. | Nothing — it **extends** SPEC-195 FR-007's `decisions.md` entry rather than reversing it. The existing file-contents exemption does not cover it, and did not cover Arc B's case either. |
+| **The `error.stack` interaction, in its larger form.** SPEC-195 FR-007 scrubs the API's exception paths because it handles a user's ID token. A token-**minting** service handles access and refresh tokens it created, and `log-foundry`'s `end_event` attaches `traceback.format_exception` to every failed span. | Nothing — it **extends** SPEC-195 FR-007's `decisions/` entry rather than reversing it. The existing file-contents exemption does not cover it, and did not cover Arc B's case either. |
 | **The machine-facing door** — a non-human authorizer, credential issuance, the may-this-client-act-as-X model, rate limiting. | Nothing. SPEC-200 landed the `{actor, delegated_by, assurance}` contract and every plane accepts it, precisely so the door needs no rework; `delegated_by` is null for a human at a keyboard and stays that way until this arrives. |
 | **Availability**: autoscaling, capacity providers, a WAF, and the multi-AZ obligations a load balancer brings (`transition_plan.md` §4.6). | Nothing. Deferred by the arc, and the portal has run behind one ALB since SPEC-193 without them. |

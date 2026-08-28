@@ -194,7 +194,7 @@ Document components with a JSDoc block so usage, prop meaning, and examples surf
   number tells them a decision was made somewhere else and leaves them to find it, where a sentence
   tells them what is true. Write the *reason* instead — "a third copy of this would fork the
   lookup" beats "the fork SPEC-156 exists to prevent". The decision's full entry lives in
-  `docs/decisions.md`, findable by what it says rather than by when it happened, and a comment that
+  `docs/decisions/`, findable by what it says rather than by when it happened, and a comment that
   cannot be written without citing a spec is a sign the reasoning never made it there. Enforced by
   `scripts/validate_docs.py`.
 - 🔴 No verbose or paragraph-length inline comments. Keep inline comments short, sparse, and reserved for the genuinely non-obvious *why* (a tricky workaround, a non-obvious ordering requirement) — never restate *what* the next line does.

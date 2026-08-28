@@ -3,7 +3,7 @@
 Every rule below already existed in prose, in ``CLAUDE.md`` or ``docs/process.md``, and every
 one of them was violated anyway — ``## Specs`` regrew to 371 lines of changelog, the Key
 Decisions digest grew entries of 3,349 characters against a stated "one line each",
-``docs/testing/`` reached sixteen files of four different genres, ``decisions.md`` listed 50
+``docs/testing/`` reached sixteen files of four different genres, ``decisions/`` listed 50
 of its 149 entries in a Contents nobody regenerated, and four arc headings in ``ARCS.md``
 carried a status that had gone stale. A rule a reader has to remember is a rule that rots;
 this file is the same rules where CI can see them.
@@ -49,7 +49,7 @@ Attributes:
     stopped meaning anything the moment the section was rewritten as wrapped prose: the longest
     physical line went from 846 characters to 103, so the guard could no longer fire on anything
     while still being advertised in ``process.md``. The digest is a reminder with the reasoning in
-    ``decisions.md``; past this length it has become the reasoning.
+    ``decisions/``; past this length it has become the reasoning.
   DELIVERY_MAX_LINES: A delivery doc is "what shipped + what changed", typically under a page.
   STATUS_WORDS: Words that must not appear in an ``ARCS.md`` arc heading. Status lives in
     ``INDEX.md``, which is the only place it can be kept true.
@@ -215,7 +215,7 @@ def check_claude_budget() -> list[str]:
     """Hold the always-loaded file, and each Key Decisions line, to their budgets.
 
     Both numbers are ratchets at the measured level. A digest line past the cap has stopped
-    being a reminder and become the reasoning, which belongs in ``decisions.md``.
+    being a reminder and become the reasoning, which belongs in ``decisions/``.
 
     Args:
       None.
@@ -261,68 +261,120 @@ def check_claude_budget() -> list[str]:
         if len(bullet) > DIGEST_MAX_CHARS:
             errors.append(
                 f"A Key Decisions bullet is {len(bullet)} chars (cap {DIGEST_MAX_CHARS}): "
-                f"{bullet[:70]}… — keep the claim and the fence here, the reasoning in decisions.md."
+                f"{bullet[:70]}… — keep the claim and the fence here, the reasoning in decisions/."
             )
     return errors
 
 
 def check_decisions_register() -> list[str]:
-    """Require the register's AREA grouping, one heading level per entry, and a reaching Contents.
+    """Require one register file per AREA, one heading level per entry, and a reaching Contents.
 
-    The register is pulled entry by entry, so an entry outside the Contents is only findable by
-    reading the whole file — which is the cost the layering exists to avoid.
+    The register is pulled entry by entry, so an entry outside its file's Contents is only findable
+    by reading the whole file — which is the cost the layering exists to avoid.
 
     The areas are a CLOSED set, and they are the same eight the ``CLAUDE.md`` digest groups by. That
     is the point of checking them: the digest is never the only home of a fact, so a reader who finds
-    an area there must find the same area here. Ordering by spec number instead is what made this
-    file read as a changelog and feel disposable — an entry filed under a ninth area, or under none,
-    is the first step back to that.
+    an area there must find the same area here. The register was ONE file ordered by spec number
+    until 2026-08-28, which made it read as a changelog and feel disposable; it is now one file per
+    area under ``docs/decisions/``, routed by ``INDEX.md``. An area file that exists under no digest
+    heading, or a digest heading with no file, is the first step back to a register nobody can look
+    something up in.
 
     Args:
       None.
 
     Returns:
-      One message per unlisted entry, per broken anchor, per unknown area and per entry sitting
-      outside one.
+      One message per unlisted entry, per unknown area file, per missing area file and per entry
+      sitting above its file's Contents.
 
     Raises:
       None.
     """
-    lines = (ROOT / "docs" / "decisions.md").read_text().split("\n")
+    register = ROOT / "docs" / "decisions"
     errors = []
 
     expected_areas = decision_areas()
     if not expected_areas:
         errors.append("CLAUDE.md: no '### ' area headings under Key Decisions — the digest lost its grouping")
-    areas = [line[3:].strip() for line in lines if line.startswith("## ")]
-    for area in areas:
-        if area != "Contents" and area not in expected_areas:
+
+    index = register / "INDEX.md"
+    if not index.exists():
+        return [*errors, "docs/decisions/: INDEX.md is missing — the register has no router"]
+
+    files = sorted(p for p in register.glob("*.md") if p.name != "INDEX.md")
+    titles: dict[str, pathlib.Path] = {}
+    for path in files:
+        first = path.read_text().split("\n", 1)[0]
+        if not first.startswith("# "):
+            errors.append(f"{path.relative_to(ROOT)}: does not open with an '# Area' heading")
+            continue
+        area = first[2:].strip()
+        if area in titles:
             errors.append(
-                f"decisions.md: '{area}' is not one of the areas CLAUDE.md's digest groups by. "
-                f"Add it there first, or file the entry under an existing one: {expected_areas}"
+                f"{path.relative_to(ROOT)}: '{area}' is already held by {titles[area].name}. Two files "
+                "claiming one area means one of them is unreachable, and nothing else here would notice."
             )
+            continue
+        titles[area] = path
+
+    for area in titles:
+        if area not in expected_areas:
+            errors.append(
+                f"docs/decisions/{titles[area].name}: '{area}' is not one of the areas CLAUDE.md's "
+                f"digest groups by. Add it there first, or file the entry under an existing one: {expected_areas}"
+            )
+    index_text = index.read_text()
     for expected in expected_areas:
-        if expected not in areas:
-            errors.append(f"decisions.md: the '{expected}' area heading is missing")
+        if expected not in titles:
+            errors.append(f"docs/decisions/: no file holds the '{expected}' area")
+        if expected not in index_text:
+            errors.append(f"docs/decisions/INDEX.md: the '{expected}' area is not routed")
 
-    # An entry must sit under an area, not above the first one.
-    first_area = next(
-        (i for i, line in enumerate(lines) if line.startswith("## ") and line[3:].strip() != "Contents"),
-        len(lines),
-    )
-    for i, line in enumerate(lines):
-        if line.startswith("### ") and i < first_area:
-            errors.append(f"decisions.md: '{line[4:].strip()}' sits above the first area heading")
+    # The INDEX and the digest are read as parallel lists, so they are checked as parallel lists.
+    # Membership alone lets the two orders drift apart while both still "agree".
+    routed = [a for _, a in sorted((index_text.index(a), a) for a in expected_areas if a in index_text)]
+    if routed != [a for a in expected_areas if a in index_text]:
+        errors.append(
+            "docs/decisions/INDEX.md: the areas are routed in a different order from CLAUDE.md's "
+            f"digest. Digest order: {expected_areas}"
+        )
 
-    headings = [line[4:].strip() for line in lines if line.startswith("### ")]
-    listed = set(re.findall(r"\]\(#([^)]+)\)", "\n".join(lines)))
-    seen: dict[str, int] = {}
-    for heading in headings:
-        base = anchor(heading)
-        seen[base] = seen.get(base, 0) + 1
-        target = base if seen[base] == 1 else f"{base}-{seen[base] - 1}"
-        if target not in listed:
-            errors.append(f"decisions.md: '{heading}' is not in the Contents (anchor #{target})")
+    for path in files:
+        lines = path.read_text().split("\n")
+        contents_at = next((i for i, line in enumerate(lines) if line.strip() == "## Contents"), None)
+        if contents_at is None:
+            errors.append(f"{path.relative_to(ROOT)}: has no '## Contents' — the file is only readable whole")
+            continue
+        listed = set(re.findall(r"\]\(#([^)]+)\)", "\n".join(lines)))
+        seen: dict[str, int] = {}
+        for i, line in enumerate(lines):
+            if not line.startswith("## ") or line.strip() == "## Contents":
+                continue
+            heading = line[3:].strip()
+            if i < contents_at:
+                errors.append(f"{path.relative_to(ROOT)}: '{heading}' sits above the Contents")
+            base = anchor(heading)
+            seen[base] = seen.get(base, 0) + 1
+            target = base if seen[base] == 1 else f"{base}-{seen[base] - 1}"
+            if target not in listed:
+                errors.append(f"{path.relative_to(ROOT)}: '{heading}' is not in the Contents (anchor #{target})")
+        headings = {
+            anchor(line[3:].strip())
+            for line in lines[contents_at:]
+            if line.startswith("## ") and line.strip() != "## Contents"
+        }
+        for target in sorted(listed):
+            if target.rstrip("-0123456789") not in headings and target not in headings:
+                errors.append(
+                    f"{path.relative_to(ROOT)}: the Contents links to #{target}, which is no entry in "
+                    "this file — the entry was moved or deleted and its listing was left behind"
+                )
+        for line in lines:
+            if line.startswith("### "):
+                errors.append(
+                    f"{path.relative_to(ROOT)}: '{line[4:].strip()}' is a second heading level — "
+                    "every entry sits at '##' so the Contents reaches all of them"
+                )
     return errors
 
 
@@ -424,7 +476,7 @@ def check_source_citations() -> list[str]:
 
     A number tells a reader that a decision was made somewhere else and leaves them to go and find
     it; a sentence tells them what is true. The reasoning belongs in the comment, and its full entry
-    in ``docs/decisions.md`` — findable by what it says rather than by when it happened. A comment
+    in ``docs/decisions/`` — findable by what it says rather than by when it happened. A comment
     that cannot be written without citing a spec is a sign the reasoning never reached the register.
 
     Test files are excluded for now: 163 test NAMES carry the requirement they cover, and renaming
@@ -541,7 +593,7 @@ def check_doc_paths_everywhere() -> list[str]:
       None.
     """
     suffixes = {".tf", ".tftpl", ".yml", ".yaml", ".py", ".ts", ".tsx", ".sh", ".toml"}
-    skip = ("node_modules", ".terraform", "dist", "coverage", ".git")
+    skip = ("node_modules", ".terraform", "dist", "coverage", ".git", ".claude")
     pattern = re.compile(
         r"(?:" + "|".join(re.escape(tree) for tree in DOC_TREES) + r")/[A-Za-z0-9_./-]+\.md"
     )

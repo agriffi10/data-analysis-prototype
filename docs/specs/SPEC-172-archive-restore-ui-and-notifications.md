@@ -166,7 +166,7 @@ prevent for `athenaresults/`.
       > `{archiveBucket}/{archiveRoot}`. The browser cannot produce it — SPEC-168 keeps the archive
       > bucket's name out of the SPA entirely and a test enforces the absence — and the bucket adds
       > no discrimination, since it is one constant across every restore. The archive ROOT alone is
-      > used, and its `personal/`/`shared/` segment already makes it unique. `decisions.md` carries
+      > used, and its `personal/`/`shared/` segment already makes it unique. `decisions/` carries
       > the reasoning; `docs/testing/e2e.md` was corrected to match.
 - [ ] The body carries the ID token and **never a username**; the actor is derived server-side.
 - [ ] Success means *enqueued*, not done — the hooks expose a pending state and never a completion.
@@ -198,7 +198,7 @@ prevent for `athenaresults/`.
       > restore puts every object back where it came from, which for any selection of more than one
       > folder is several places at once — there is no single restored path, and picking the first
       > would send the user to a folder holding part of what they asked for. Reasoning in
-      > `decisions.md`; the `archived` link is unchanged.
+      > `decisions/`; the `archived` link is unchanged.
 - [ ] One dedup token **per outcome**, not per verb (the data-quality rule).
 - [ ] Every message is a literal, `echo=` is not used, and no message carries a file's contents
       (SPEC-127's field rule).
@@ -318,6 +318,6 @@ src/
 
 - Delivery doc, INDEX status, `apps/portal/info/component-inventory/file-browser-feature.md` rows for the new
   components and `isWriteLockedPrefix`, a new `apps/portal/info/component-inventory/archive-feature.md` with a router
-  row (a whole new area appeared), a `decisions.md` entry (the non-default confirm, the folder-names-
+  row (a whole new area appeared), a `decisions/` entry (the non-default confirm, the folder-names-
   are-ids surface instead of an archive index, the first prefix-based write gate), one Key Decisions
   line, and the **Help & guides** update. Prune CLAUDE.md's Current work of the whole arc.

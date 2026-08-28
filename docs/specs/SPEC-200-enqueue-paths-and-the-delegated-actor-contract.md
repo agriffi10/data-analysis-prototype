@@ -285,7 +285,7 @@ the entire double-submit guard.
 - [ ] A test asserts two different users submitting the identical share in the same minute produce
       **different** dedup ids. Dropping the actor from the canonical form entirely — the obvious
       simplification — would collapse one user's share into another's and deliver nothing.
-- [ ] The divergence is recorded in `decisions.md` and in the delivery doc as the one derivation this
+- [ ] The divergence is recorded in `decisions/` and in the delivery doc as the one derivation this
       spec deliberately changed, with the two properties above as its evidence. A "preserved exactly"
       claim covering all ten would be false.
 
@@ -822,7 +822,7 @@ missing while every offline gate passed), and that the removed portal-role grant
 
 - `Status: Completed`; the `INDEX.md` row; the delivery doc — carrying the ten-route table and the
   golden-vector procedure, which is the artefact SPEC-201 reads to know what it may remove.
-- `decisions.md` entries, then **one line each** in CLAUDE.md's Key Decisions: (1) the identity block
+- `decisions/` entries, then **one line each** in CLAUDE.md's Key Decisions: (1) the identity block
   is **nested and stays nested**, because `actor` is already the raw token on four planes and a flat
   verified `actor` would overwrite the field they verify — and `assurance` is `interactive`, naming
   the assurance *kind* so the machine-facing door can add `delegated` without renaming anything;

@@ -274,6 +274,6 @@ notification; the vocabulary is fixed here so that the two specs cannot disagree
 ### Phase 5: Completion ritual
 
 - Delivery doc, INDEX status, extend the `architecture.md` → *Control Planes → Archive* section with
-  the restore branch, a `decisions.md` entry (the absolute guard, the space-from-request rule, the
+  the restore branch, a `decisions/` entry (the absolute guard, the space-from-request rule, the
   self-describing key layout as the lookup mechanism, `requestId` ≠ `archiveId`), and one Key
   Decisions line. No user-facing surface yet — no Help change.

@@ -25,7 +25,7 @@ what is shipped and wired end to end, and until this spec the feature was still 
 - Export: the current exploration's result into a chosen space, over `useSaveResults`.
 - Help guides for the Data Explorer, with their registry rows under `dataExplorer`.
 - The arc's live-check script.
-- The arc's completion ritual: `ARCS.md` narrative, `decisions.md` entries, the Key Decisions
+- The arc's completion ritual: `ARCS.md` narrative, `decisions/` entries, the Key Decisions
   digest lines, the component-inventory rows and the `INDEX.md` statuses.
 
 ### Out of Scope
@@ -43,7 +43,7 @@ what is shipped and wired end to end, and until this spec the feature was still 
   > `SaveResultsDialog` and `normalizeCsvName`; the exclusion above is read as "no behavioural
   > change", which the move meets. One field did change and it closed a live defect: the
   > destinations are now a **parameter**, because the hook's own unfiltered list had been offering
-  > a colleague's space as a write target with `sharedWorkspaces` off. See `decisions.md`.
+  > a colleague's space as a write target with `sharedWorkspaces` off. See `decisions/`.
 
 ---
 
@@ -136,7 +136,7 @@ labels, expected numbers.
 
 - [ ] `ARCS.md` gains the Data Explorer arc's narrative: why it exists, and how ten specs
       compose.
-- [ ] `decisions.md` gains full entries for the arc's architectural decisions — the server-side
+- [ ] `decisions/` gains full entries for the arc's architectural decisions — the server-side
       engine and one-execution-per-rendered-SQL; the presentation/SQL split enforced by the
       renderer's signature; the TypeScript DML escaper and its distinction from the DDL one; the
       independent flag and the ungated expression bar; Calc-client/Grouping-server; and the
@@ -205,4 +205,4 @@ docs/testing/e2e.md      # NEW
 ### Phase 4: Live checks and the ritual
 
 - The e2e script.
-- `ARCS.md`, `decisions.md`, the Key Decisions lines, the inventory rows, and the INDEX sweep.
+- `ARCS.md`, `decisions/`, the Key Decisions lines, the inventory rows, and the INDEX sweep.

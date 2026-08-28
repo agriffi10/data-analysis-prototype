@@ -2,7 +2,7 @@
 # Bounded-context module for the file-operations control plane: a DEDICATED FIFO SQS →
 # EventBridge Pipe → Step Function pipeline running single-task verb Lambdas on ONE shared
 # execution role. Mirrors the shared control-plane PATTERN (not its resources); decision
-# record: docs/architecture.md (Control Planes).
+# record: infra/info/control-plane-shape.md.
 #
 # THE SEVENTH PLANE, AND THE ONE WHOSE ABSENCE IS FELT DAILY. Recursive folder copy, move
 # and delete are the last bulk data operations this product performs in the BROWSER: one

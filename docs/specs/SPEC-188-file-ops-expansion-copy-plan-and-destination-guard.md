@@ -439,5 +439,5 @@ infra/modules/file-ops/
 
 - Delivery doc, INDEX status, component-inventory rows for `focommon.paths`/`config`/`outcomes`, and
   the plan layout in the `architecture.md` *Control Planes* section. The **per-item conflict model**
-  and the **key-level collision unit that preserves merging** each get a `decisions.md` entry — they
+  and the **key-level collision unit that preserves merging** each get a `decisions/` entry — they
   are what separate this plane from every other one, all of which refuse whole-request.

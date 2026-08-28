@@ -252,7 +252,7 @@ ships.
 - [ ] **`docs/security-baseline.md`'s disposition is closed** — it currently reads *accepted for now
       … tracked separately* and names this exact fix shape. Leaving it open would have the security
       register asserting a live acceptance for a hole that no longer exists.
-- [ ] `docs/decisions.md`'s Notifications entry gains what enforces trusted-producer-only, since it
+- [ ] `docs/decisions/`'s Notifications entry gains what enforces trusted-producer-only, since it
       is the sentence this spec makes true.
 - [ ] The two repo comment rules hold in everything touched: no spec or PR numbers in `.tf`/`.py`,
       and `observability` messages are literals.
@@ -397,7 +397,7 @@ apps/portal/src/features/notifications/notifications.service.ts   # the ID_SHAPE
 docs/security-baseline.md                          # the disposition, closed
 docs/specs/ARCS.md                                 # its pointer at that disposition
 docs/spec-delivery/SPEC-191-file-ops-notifications-and-live-checks.md  # a one-line pointer
-docs/decisions.md                                  # what enforces trusted-producer-only
+docs/decisions/                                  # what enforces trusted-producer-only
 docs/specs/SPEC-201-the-lambda-trust-boundary.md   # FR-006's line
 docs/testing/owed.md                               # FR-005's row, beside §2.1
 ```
@@ -420,16 +420,16 @@ a comment.
 
 ### Phase 3: The comments and the registers
 
-- FR-004's five sites, its test, the `security-baseline.md` disposition and the `decisions.md` line.
+- FR-004's five sites, its test, the `security-baseline.md` disposition and the `decisions/` line.
 - FR-006's note into SPEC-201.
 
 ### Phase 4: The live check, the post-deploy control, and the ritual
 
 - FR-005's `owed.md` row beside §2.1; FR-003's post-deploy positive control.
-- Delivery doc, INDEX row, and a `decisions.md` entry carrying **three** fences, not one: the deny of
+- Delivery doc, INDEX row, and a `decisions/` entry carrying **three** fences, not one: the deny of
   one principal rather than an allow of eight; why IAM cannot express this at all (no condition key
   reaches a message body); and **why a second queue is rejected** — the FIFO single-writer argument
-  from FR-001. `decisions.md` is where this repo's "do NOT build" fences live, and a rejection that
+  from FR-001. `decisions/` is where this repo's "do NOT build" fences live, and a rejection that
   exists only inside a closed spec is a rejection that gets re-proposed.
 - **`CLAUDE.md` pruning is in scope here, not optional.** It sits at 51,845 bytes against a 52,000
   ratchet, so any Key Decisions line breaks `validate_docs.py` — and the rule is prune, never raise

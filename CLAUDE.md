@@ -5,10 +5,12 @@ Workflow below). Everything else is pulled **on demand**: the cross-cutting docs
 the domain rulebooks and inventories live beside the code they govern, in each tree's `info/` folder:
 - `@docs/process.md` — **read at the start of every session, before any other doc**: how we work —
   spec lifecycle, session rhythm, the reviewer contract, the completion ritual, doc hygiene
-- `@docs/architecture.md` — the foundations: the SPA's shape, auth, the authorization model, the
-  shared control-plane pattern, Known Constraints, infrastructure and delivery (read the section
-  you need, never in full). A single plane's own design is on its page under `lambdas/info/planes/`
-- `@docs/decisions.md` — the Key Decisions register in full (the digest below groups it by area)
+- `@docs/architecture.md` — **how the system works**: the pieces, how a request travels between them,
+  and the **Architecture Decision Record** indexing the decisions that shaped it. Short enough to read
+  whole, and the cheapest way into a part of the system you haven't touched. It carries no rules and
+  no trap lists — those live beside the code
+- `@docs/decisions/INDEX.md` — **router** to the Key Decisions register, one file per area; open the
+  area file, then the entry (the digest below groups by the same areas)
 - `@docs/specs/INDEX.md` — the spec index + status (one row per spec)
 - `@docs/specs/ARCS.md` — why an arc exists / how its specs compose (only for the arc you're in)
 - `@docs/specs/SPEC-XXX-*.md` — the spec you're implementing
@@ -21,7 +23,10 @@ the domain rulebooks and inventories live beside the code they govern, in each t
 - `@docs/transition_plan.md` — **single source of truth** for the client-environment transition (Entra ID sign-in in **two variants** — §3.3 — IdC propagation, one credential plane with S3 Access Grants, de-provisioning, LF re-keying, ODBC/JDBC driver migration); read before touching auth, provisioning or LF
 - `@lambdas/info/INDEX.md` — every Lambda, grouped by control plane, with a page per plane
 - `@infra/info/INDEX.md` — every Terraform module, and the README beside each one carrying its
-  reasoning; `control-plane-shape.md` is the shape all seven planes share
+  reasoning; `control-plane-shape.md` is the shape all seven planes share, and
+  `deploy-role-iam.md` is the trap list for adding a new resource type
+- `@lambdas/info/deployment.md` — the Lambda code/infra split and its deploy-time traps
+- `@apps/portal/info/runtime-configuration.md` — the `/config.json` contract and its six wiring sites
 - `@lambdas/info/shared-layer.md` — the long-form *why* behind `cpcommon` (sizing evidence, rejected designs, the traps); a plane's own reasoning is on its page under `lambdas/info/planes/`. Read the one entry for the area you're changing, never in full
 
 **Context discipline:** these are pointers, not a reading list. Pull a doc when a task needs it.
@@ -46,13 +51,13 @@ scoped credentials **today**; Arc B is moving that behind an API (`api.dataquarr
 
 | Layer | Tech |
 |---|---|
-| Frontend | React 18 + Vite, TypeScript (strict), TailwindCSS; `focus-trap-react` (focus trapping for Modal/Drawer) |
+| Frontend | React 19 + Vite, TypeScript (strict), TailwindCSS; `focus-trap-react` (focus trapping for Modal/Drawer) |
 | AWS | `@aws-sdk/client-s3` v3 (modular), `s3-request-presigner`, `lib-storage`; `aws-amplify` v6 for Cognito; `@aws-sdk/client-athena` + `@aws-sdk/client-glue` (analytics, SPEC-034); `@aws-sdk/client-sqs` (shared-space control plane, SPEC-051) |
 | Editor | `@monaco-editor/react` + `monaco-editor` (self-hosted workers; lazy-loaded on the Query route only, SPEC-035) |
 | Routing / state | `react-router` v8 (**not** `react-router-dom` — that package is gone in v8; import everything from `react-router`); TanStack Query (server state) + Context/`useReducer` (UI state); no Redux |
 | Testing / lint | Vitest + React Testing Library + `@testing-library/user-event`; `@vitest/coverage-v8` (`npm run test:coverage`); `vitest-axe` (axe-core a11y assertions, SPEC-045); ESLint + Prettier. Tests are **integration-style** — render real hooks/children, mock only the AWS service boundary; shared harness `src/test/renderWithProviders.tsx`. Rules: `apps/portal/info/best-practices/react/react.md` §21 |
 | IaC | OpenTofu (HCL, S3 remote state) |
-| Security | `eslint-plugin-security` + `eslint-plugin-no-unsanitized` (in `npm run lint`, **blocking**); Semgrep / `npm audit` / `pip-audit` / gitleaks / Checkov / OWASP ZAP in `security.yml` (**report-only**, SPEC-138). Every scanner version-pinned — see the VERSIONS block and #311 |
+| Security | `eslint-plugin-security` + `eslint-plugin-no-unsanitized` (in `npm run lint`, **blocking**); Semgrep / `pip-audit` / gitleaks / Checkov **block** in `security.yml`; `npm audit` and the OWASP ZAP baseline **report** (SPEC-138 — the modes are the `GATE_*` block at the top of the workflow). Every scanner version-pinned — see the VERSIONS block and #311 |
 
 Don't add dependencies without noting them here first.
 
@@ -64,7 +69,7 @@ Don't add dependencies without noting them here first.
 - AWS SDK: v3 modular only; instantiate clients in `src/lib/` (never in components); all S3 ops go through service files.
 - Services never throw — return `ServiceResult<T>` (`{success:true,data} | {success:false,error:{message,code?}}`).
 - Vite env vars: prefix `VITE_`; document each in `apps/portal/.env.example`.
-- **A comment names no spec, PR or issue number** — not `SPEC-166`, not `(#252)`, not "since SPEC-158". A reader is standing in the file, not in the project's history: write the reason ("a third copy would fork the lookup"), not the citation. Full entries live in `@docs/decisions.md`, findable by what they say. Applies to `.ts`/`.tsx`/`.py`/`.tf`/`.tftpl`; enforced by `scripts/validate_docs.py`.
+- **A comment names no spec, PR or issue number** — not `SPEC-166`, not `(#252)`, not "since SPEC-158". A reader is standing in the file, not in the project's history: write the reason ("a third copy would fork the lookup"), not the citation. Full entries live in `@docs/decisions/INDEX.md`, findable by what they say. Applies to `.ts`/`.tsx`/`.py`/`.tf`/`.tftpl`; enforced by `scripts/validate_docs.py`.
 - **No verbose comments in `.ts`/`.tsx`/`.py` files.** JSDoc (TS/React) and docstrings (Python) are the primary source of context — expand those over adding narrative inline comments; comments are reserved for the non-obvious *why*, kept short. Detail: `apps/portal/info/best-practices/react/react.md` §19, `lambdas/info/best-practices/python/python.md` §14.
 - **`lambdas/` carries NO inline comments at all** (only `# noqa` / `# type: ignore` directives). Every module, class, method and function — public or `_private` — has a Google-style docstring: a one-line summary of what it does *and its context*, an optional short *why* paragraph, then `Args:` / `Returns:` / `Raises:`, each written out with `None.` when the section is empty. A module's constants are documented in its docstring's `Attributes:` block. Anything longer than a paragraph of reasoning goes beside the code in `@lambdas/info/` — `shared-layer.md` for `cpcommon`, the plane's own page otherwise — not in the file. Format: `lambdas/info/best-practices/python/python.md` §14.
 - When writing/refactoring code in a domain with a rulebook (React, accessibility, …), consult `@docs/best-practices/INDEX.md` first and load only the relevant section(s) — don't reinvent or guess the rules.
@@ -103,7 +108,7 @@ Keyed by feature in `@docs/testing/e2e.md`. **Do not restate an owed check here.
 
 **Grouped by area, not by spec.** Each block is the settled shape, then the fences and the traps —
 the things that **apply green and fail later**, which is the failure mode this project keeps paying
-for. **Full reasoning, and every "do NOT build" in its long form: `@docs/decisions.md`**, findable by
+for. **Full reasoning, and every "do NOT build" in its long form: `@docs/decisions/INDEX.md`**, findable by
 what it says rather than by number. Read the entry for an area before working in it.
 
 ### Identity, access and the name that ties them together
@@ -198,7 +203,7 @@ unrecoverable — revisit before real user data lands.
 - **An unreadable settings document is quarantined, never deleted and never overwritten**, and a
   **newer** schema is refused untouched — the parse is three-way, version checked before shape.
 
-### Control planes — one pattern, six planes, and the traps are shared
+### Control planes — one pattern, seven planes, and the traps are shared
 
 Shared spaces, table builder, table share, data quality, file send, **archive** and file
 operations each get:
@@ -432,27 +437,28 @@ personal prefixes).
 
 ## Session Workflow
 
-**Start:** (1) this file, then **`@docs/process.md` — read it every session, not once**: it is the contract this file only summarises; (2) the spec you're implementing (`@docs/specs/SPEC-XXX`); (3) for context, pull **only** what the spec touches — the matching `apps/portal/info/component-inventory/` area file(s), the one architecture.md section, the `decisions.md` entry for the area, a dependency's delivery doc. Never read architecture.md, the inventory, or delivery docs in full. (4) Confirm `gh run list --branch main --limit 5` is green (esp. Deploy Infrastructure / Lambdas / App); investigate failures before building. (5) Branch from fresh `main` (`git fetch && git switch -c <branch> origin/main`). (6) Generate an implementation plan from the spec's phases, validate it against the spec (FRs + acceptance criteria covered, reuse used, nothing out of scope), **send it to a fresh-context reviewer**, and confirm it before writing code.
+**Start:** (1) this file, then **`@docs/process.md` — read it every session, not once**: it is the contract this file only summarises; (2) the spec you're implementing (`@docs/specs/SPEC-XXX`); (3) for context, pull **only** what the spec touches — the matching `apps/portal/info/component-inventory/` area file(s), the `decisions/<area>.md` entry, a dependency's delivery doc; read architecture.md whole if the spec touches a part of the system you don't already hold. Never read the inventory or delivery docs in full. (4) Confirm `gh run list --branch main --limit 5` is green (esp. Deploy Infrastructure / Lambdas / App); investigate failures before building. (5) Branch from fresh `main` (`git fetch && git switch -c <branch> origin/main`). (6) Generate an implementation plan from the spec's phases, validate it against the spec (FRs + acceptance criteria covered, reuse used, nothing out of scope), **send it to a fresh-context reviewer**, and confirm it before writing code.
 
 **During:** after a phase, stop and summarize what was built and how it maps to the plan. Specs carry no Open Questions — triage emergent issues by kind: **reversible/technical** ones you decide in-session (update the spec if scope changes); **product-changing or ambiguous** ones you stop and escalate to the human with options + a recommendation, never silently decide.
 
-**Review — three artifacts, one blocking gate:** a **spec**, an implementation **plan** and a **diff** each go to a reviewer in a **fresh context** (new session or subagent), never the context that produced them. A spec is not Draft-ready and a plan does not start code until every finding is fixed or **explicitly rejected in writing**. Cap same-frame rounds at two, then rotate the frame; exit on a new frame finding nothing, never on a round count. Check against the spec's acceptance criteria, not just "looks fine." Full contract: `@docs/process.md` §3 → *The reviewer contract*.
+**Review — three artifacts, one blocking gate:** a **spec**, an implementation **plan** and a **diff** each go to a reviewer in a **fresh context** (new session or subagent), never the context that produced them. A spec is not Draft-ready, a plan does not start code, and **a branch does not reach the remote**, until every finding is either **fixed** or **flagged** — a rejection costs a sentence out loud, and only goes in writing when it carries a lesson worth keeping. The diff review gates the PUSH, not the merge. Cap same-frame rounds at two, then rotate the frame; exit on a new frame finding nothing, never on a round count. Check against the spec's acceptance criteria, not just "looks fine." Full contract: `@docs/process.md` §3 → *The reviewer contract*.
 
-**PRs & main:** before opening a PR, get the formatter, linter, unit tests **and `npm run build`**
+**PRs & main:** before pushing, get the diff through the review gate above, and get the formatter, linter, unit tests **and `npm run build`**
 green locally — `build` (`tsc -b`) is the only one that typechecks, and `tsc -p tsconfig.json`
 silently checks nothing. CI now runs it too (#363). Watch every PR to completion and merge it as soon as CI is green — never open-and-abandon. `main` is always watched: after any merge confirm it went green, and if `main` fails, diagnose immediately and fix it with a new PR before anything else.
 
-**Infra rule:** any spec that provisions new infra must expand the deploy role's IAM (`.tftpl` under `infra/modules/base/policies/`) as in-scope work — not an afterthought. Adding a *new resource type* trips recurring IAM/propagation traps (self-grant timing, non-scopable actions, refresh deadlocks, unknown-ARN-in-list) and Lambda code/infra split — read architecture.md → *Deploy-role IAM — adding a new resource type* + *Lambda code/infra split* first.
+**Infra rule:** any spec that provisions new infra must expand the deploy role's IAM (`.tftpl` under `infra/modules/base/policies/`) as in-scope work — not an afterthought, and it lands in its own PR before the resources that need it. Adding a *new resource type* trips recurring IAM/propagation traps (self-grant timing, non-scopable actions, refresh deadlocks, unknown-ARN-in-list) — read `@infra/info/deploy-role-iam.md` first, and `@lambdas/info/deployment.md` before adding or rewiring a Lambda.
 
 **On spec completion — keep the always-loaded files lean:**
 1. Set the spec file's `Status: Completed`.
 2. Update the one-line row in `@docs/specs/INDEX.md` (status only — don't add prose).
 3. Write a delivery doc at `docs/spec-delivery/SPEC-XXX-<name>.md` from the template — **short** (what shipped + what changed; reuse lives in code + component-inventory, not prose).
 4. If it added reusable services/hooks/components, add a one-line row to the `apps/portal/info/component-inventory/<area>.md` **matching the component's path** — a `features/query/` row belongs in the query file, nowhere else (the router only gains a row if a whole new area appeared).
-5. A *new architectural decision* gets the full entry in `@docs/decisions.md` **first**, then folds into the **area block** it belongs to in Key Decisions above — the digest is **never the only home of a fact**. **Do NOT add a line per spec**: that is what took the section to 105 lines and its own byte ceiling, and the fix was to group it. Add a clause, or replace one that your decision supersedes. If it **supersedes an earlier decision**, add an in-place superseded marker (short blockquote) at every doc site still stating the old claim (`ARCS.md` arcs, architecture.md sections). Reasoning belongs in the spec/delivery doc.
-6. **Prune `## Specs` → Current work:** delete what the closed spec made stale. It tracks *only* what is live and undocumented elsewhere — never append a changelog; INDEX.md has status and `ARCS.md` has narrative.
-7. **Live checks fold into the one guide:** add the steps to the matching feature section of `@docs/testing/e2e.md` — **never a new per-spec or per-arc file**, which is how that directory grew to sixteen. A check that can't be run from a signed-in session becomes a row in `@docs/testing/owed.md`; a CLI script it needs is named for the **plane**, never the spec — add a section to that plane's.
-8. **User-facing docs sweep:** if the spec changed anything a user can see, update the in-app **Help & guides** content (`apps/portal/src/features/help/helpContent.ts`, SPEC-074) and any onboarding copy — add a guide for a shipped feature, fix a changed flow's steps, delete a removed one. Document only what's shipped + wired end-to-end. If nothing user-facing changed, note that and skip.
+5. A *new architectural decision* gets the full entry in `@docs/decisions/<area>.md` **first**, then folds into the **area block** it belongs to in Key Decisions above — the digest is **never the only home of a fact**. **Do NOT add a line per spec**: that is what took the section to 105 lines and its own byte ceiling, and the fix was to group it. Add a clause, or replace one that your decision supersedes. If it **supersedes an earlier decision**, add an in-place superseded marker (short blockquote) at every doc site still stating the old claim (`ARCS.md` arcs, architecture.md sections). Reasoning belongs in the spec/delivery doc.
+6. **If it changed the SHAPE of the system** — a piece added or removed, a boundary moved, a mechanism swapped — add a row to `@docs/architecture.md` → *Architecture Decision Record* and fix the prose section it contradicts. Rows are **append-only, never renumbered**. Most decisions do NOT qualify: a rule or a fence is a register entry and nothing more.
+7. **Prune `## Specs` → Current work:** delete what the closed spec made stale. It tracks *only* what is live and undocumented elsewhere — never append a changelog; INDEX.md has status and `ARCS.md` has narrative.
+8. **Live checks fold into the one guide:** add the steps to the matching feature section of `@docs/testing/e2e.md` — **never a new per-spec or per-arc file**, which is how that directory grew to sixteen. A check that can't be run from a signed-in session becomes a row in `@docs/testing/owed.md`; a CLI script it needs is named for the **plane**, never the spec — add a section to that plane's.
+9. **User-facing docs sweep:** if the spec changed anything a user can see, update the in-app **Help & guides** content (`apps/portal/src/features/help/helpContent.ts`, SPEC-074) and any onboarding copy — add a guide for a shipped feature, fix a changed flow's steps, delete a removed one. Document only what's shipped + wired end-to-end. If nothing user-facing changed, note that and skip.
 
 **Doc-size guardrail:** `CLAUDE.md` is the always-loaded file — if an edit pushes a section past a
 few lines, the detail belongs in a `docs/` file behind a pointer. Same for `INDEX.md` (status rows

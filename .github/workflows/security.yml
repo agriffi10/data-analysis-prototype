@@ -455,7 +455,7 @@ jobs:
       - name: Scan (gitleaks)
         if: always()
         # --redact: a secret scanner that prints the secret into a CI log has widened the
-        # exposure, not closed it. The repo's own field rule (decisions.md — tokens and
+        # exposure, not closed it. The repo's own field rule (docs/decisions/control-planes.md — tokens and
         # emails never leave the process) applies to CI output for the same reason.
         run: |
           set +e
@@ -700,7 +700,7 @@ jobs:
           else
             # SPEC-153 FR-008. This used to warn and then pass `0` to the gate anyway —
             # harmless under `report`, but under `block` a scanner that produced nothing
-            # would have read as a clean pass, which is exactly what decisions.md forbids
+            # would have read as a clean pass, which is exactly what docs/decisions/gates-and-tests.md forbids
             # with "'did not run' is never 'clean'". A scan that ran and left no readable
             # report is a BROKEN SCAN, and a broken scan fails its job in every gate mode.
             # This is a different condition from the deliberate no-target skip above, which

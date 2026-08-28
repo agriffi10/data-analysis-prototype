@@ -32,7 +32,7 @@ user-facing feature; two new user-visible *failure* messages.
 
 ## What changed from earlier specs?
 
-- **SPEC-149's "reduced, not closed" is superseded** — marked in place in `decisions.md` and
+- **SPEC-149's "reduced, not closed" is superseded** — marked in place in `decisions/` and
   `ARCS.md`. What it says about Glue having no compare-and-set is still true and is why the lock
   exists.
 - **`apply-refresh` gained a freshness guard in front of its `UpdateTable`**, and its retry-safety
@@ -52,7 +52,7 @@ user-facing feature; two new user-visible *failure* messages.
   spec touches; the two new notification bodies are rendered by the existing failure path.
 - **No component-inventory row.** The inventory covers `apps/portal/src/` only; there is no area
   file for the Lambda layers, and `tbcommon/table_lock.py` and `cpcommon.glue.update_time` are
-  layer modules. Their homes are recorded here and in `decisions.md`.
+  layer modules. Their homes are recorded here and in `decisions/`.
 
 ## Verification
 

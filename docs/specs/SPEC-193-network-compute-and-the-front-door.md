@@ -964,7 +964,7 @@ any ported route. Production is still served by CloudFront and is untouched.
   `docs/spec-delivery/SPEC-193-network-compute-and-the-front-door.md`, recording the **actual**
   non-scopable action list, whether the first apply failed and on what, and the endpoint set the pull
   really needed.
-- `decisions.md` entries, then **one line each** in CLAUDE.md's Key Decisions: (1) no NAT gateway —
+- `decisions/` entries, then **one line each** in CLAUDE.md's Key Decisions: (1) no NAT gateway —
   endpoints, the cost/blast-radius trade and the connect-timeout residual; (2) the API Lambda is not in
   the VPC; (3) authorization lives in the router, not in an API Gateway authorizer — resolved from the verified
   bearer, with the `$default` route as the compounding reason; (4) immutable ECR tags mean the tag is

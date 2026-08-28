@@ -48,7 +48,7 @@ Turns the read-only browser into a filesystem:
 download, upload, create-folder, metadata, delete, move, rename, large-file upload, copy. All
 build on SPEC-013 (authenticated user-space bucket). Move/rename = copy-then-delete; copy (039)
 reuses the same `copyObject` minus the delete (additive, same-folder auto-suffix). Folder ops are
-recursive + non-atomic. See architecture.md Known Constraints.
+recursive + non-atomic. See architecture.md → *Constraints that shape the system*.
 
 ---
 
@@ -113,7 +113,7 @@ independent. No IAM/infra change (all reuse existing user-scoped S3 + analytics 
 
 > **047's active-database model was removed by SPEC-077** (round 5, below): no workspace/current database anywhere —
 > every base table is fully-qualified `database.table` and the schema rail is browse-only. Read the switcher and DB-chip
-> text above as history; full entry in `docs/decisions.md`.
+> text above as history; full entry in `docs/decisions/`.
 
 ---
 
@@ -184,7 +184,7 @@ The old provisioner function/role/tests are removed at cutover. Follows `lambdas
 decision recorded in `lambdas/info/planes/shared-spaces.md`.
 
 > **The per-verb least-privilege roles were descoped (user decision, SPEC-062 FR-005):** every verb runs on **one
-> shared orchestrator role**. Read the roles claim above as history; full entry in `docs/decisions.md` → *Bucket 2
+> shared orchestrator role**. Read the roles claim above as history; full entry in `docs/decisions/` → *Bucket 2
 > (shared-space)*.
 
 ---
@@ -206,7 +206,7 @@ was written.)*
 
 > **The active-database model referenced above was removed by SPEC-077** (round 5, below): no current database anywhere —
 > 063's radio-style active control is gone (the tree is browse-only) and 065's autocomplete became schema-wide over
-> fully-qualified `database.table` names. Read the active-DB references as history; full entry in `docs/decisions.md`.
+> fully-qualified `database.table` names. Read the active-DB references as history; full entry in `docs/decisions/`.
 
 ---
 
@@ -238,7 +238,7 @@ name dialog **+ partition-keys section** + enqueue (the only browser surface); *
 (layer). New IaC: `infra/modules/table-builder/`.
 
 > **The per-verb least-privilege roles were descoped here too (same user decision as SPEC-062):** the five verbs run
-> on **one shared execution role**. Full entry: `docs/decisions.md` → *Table Builder (SPEC-066→072)*.
+> on **one shared execution role**. Full entry: `docs/decisions/` → *Table Builder (SPEC-066→072)*.
 
 ---
 
@@ -274,10 +274,10 @@ Filed 2026-07-04; "**share a table** across databases." From the Query schema ra
 > longer describes the plan. **S3 Batch Operations is rejected, not deferred** — its Copy cannot
 > rewrite a key (`TargetKeyPrefix` prepends the full source key) and it caps objects at 5 GB. The
 > scale path is a top-level **Step Functions Distributed Map** over a flat `(recipient × object)`
-> manifest, running the same copy code. Full entry: `decisions.md` → *Table Share*.
+> manifest, running the same copy code. Full entry: `decisions/` → *Table Share*.
 
 > **"An LF admin" is history in one load-bearing way (SPEC-111 correction):** admin status does **not** confer
-> `CREATE_TABLE` — table creation rides the `portal-managed` LF-Tag (TBAC). Full entry: `docs/decisions.md` →
+> `CREATE_TABLE` — table creation rides the `portal-managed` LF-Tag (TBAC). Full entry: `docs/decisions/` →
 > *Control-plane table creation = TBAC*.
 
 ---
@@ -399,7 +399,7 @@ dynamic per-user/per-space so can't be statically LF-granted — same reasoning 
 access, tiny blast radius" property is **deliberately surrendered**; it was a real virtue and 250 GB is worth more.
 
 > **"Lake Formation admin" was corrected by SPEC-111:** admin status does **not** grant `CREATE_TABLE` — table
-> creation rides the `portal-managed` LF-Tag (TBAC). Full entry: `docs/decisions.md` → *Control-plane table
+> creation rides the `portal-managed` LF-Tag (TBAC). Full entry: `docs/decisions/` → *Control-plane table
 > creation = TBAC*.
 
 Cross-cutting decisions that shape both arcs: **(1) the Athena poll lives in the STATE MACHINE** (`Wait → check-query →
@@ -520,7 +520,7 @@ recovered from the records' own `timestamp`/`log_id`, not from delivery.
 > runs.** The queue is now **FIFO** with `message_group_id` = the service (`log-foundry` 0.5.0 removed the `MessageGroupId`
 > constraint), the sweep is on a **10-minute** schedule, and the layout is **one appended object per service-day** at
 > `logs/service={s}/year=/month=/day=/data.jsonl` — so every write is an ETag-CAS read-modify-write. Read this paragraph as
-> history; `decisions.md` and `spec-delivery/SPEC-129` carry the current shape. Delivery is a **pull, not a push**, for the reason
+> history; `decisions/` and `spec-delivery/SPEC-129` carry the current shape. Delivery is a **pull, not a push**, for the reason
 #270/#271 already established: an event-source mapping or Pipe idle-long-polls a queue that is empty almost always, and that
 idle polling was the bulk of the account's SQS volume — so the sweep short-polls (`WaitTimeSeconds=0`) explicitly, since a
 scheduled consumer sitting in a 20-second long poll reintroduces the same bill from the other direction. And `service` arrives
@@ -718,12 +718,12 @@ assume nothing happened.
 > `ALTER` on the `portal-managed` tag policy is what `UpdateTable` needs). The reason code split above is gone with the
 > mechanism — one `update_failed` says nothing was changed, because nothing was. The **concurrent-refresh overlap
 > survives**, reduced rather than closed: Glue offers no compare-and-set on `UpdateTable`, so the worst case is
-> last-write-wins between two definitions instead of one run seeing no table. See `decisions.md` → *The refresh apply
+> last-write-wins between two definitions instead of one run seeing no table. See `decisions/` → *The refresh apply
 > replaces the definition in place*.
 >
 > **Superseded by SPEC-157 (2026-08-09):** the overlap no longer survives. A per-table lock in the admin bucket,
 > claimed under ETag CAS, serializes refresh outside Glue — the second run is refused with a notification rather
-> than racing. Glue still offers no compare-and-set, which is *why* the lock exists. See `decisions.md` →
+> than racing. Glue still offers no compare-and-set, which is *why* the lock exists. See `decisions/` →
 > *A per-table lock serializes refresh, because the catalog cannot*.
 
 **The message layer needs more work than the feature looks like it should need**, and it is in 144's scope for a reason:
@@ -848,7 +848,7 @@ with different membership semantics, and one field pretending to serve both noun
 
 > **Superseded by SPEC-158 (shipped).** The space kind is now the same combobox, suggesting the user's OWN spaces from the
 > connections cache — one field serving both nouns, because the source became a prop rather than something the component
-> reached for. What survives is the reason there is no space *directory*: see `decisions.md`.
+> reached for. What survives is the reason there is no space *directory*: see `decisions/`.
 
 **Explicitly not built:** a shared-space directory, display names or emails (an email is not metadata under the field rule
 and has no place in a document every authenticated user can read), server-side search, fuzzy matching, and any
@@ -1142,7 +1142,7 @@ live rather than hypothetical. The guard's pool is bounded by **botocore's defau
 **time** (600 s) rather than threads. And the restore validator turned out to be a **branch of the
 existing front door** rather than its own verb: `ChooseMode` sits downstream of validate-authorize
 and the raw Pipe record buries `mode` in an escaped JSON string, so both modes return the same five
-keys through one `Validated` Pass. Full reasoning: `decisions.md` → *The restore guard*.
+keys through one `Validated` Pass. Full reasoning: `decisions/` → *The restore guard*.
 
 The arc is the table-share shape, one spec per reviewable unit: **168** the bucket, the plane and
 validate-authorize; **169** expansion, the Glacier transfer, the commit gate and the receipt;
@@ -1863,7 +1863,7 @@ because each spec was internally consistent and pinned its own version with its 
 **This entry exists to hand the arc to a session that was not in the room when it was scoped.** Read
 it before writing SPEC-192. It carries the decisions, the open questions and the traps; the reasoning
 behind the settled ones is in `docs/transition_plan.md` §3–§4 (amended 2026-08-17) and in the
-`decisions.md` entries the arc's specs will add.
+`decisions/` entries the arc's specs will add.
 
 ### Why the arc exists
 
@@ -2230,7 +2230,7 @@ that can observe the isolation model before it was ever observed. What ran and w
 the browser, which is the thing this arc removes, and keeping it would mean the SPA still ships
 `@aws-sdk/client-s3` for one dev-only branch nobody tests against the real one. Local work points the
 SPA at a locally-run or deployed API. This supersedes a CLAUDE.md Key Decision and needs a
-`decisions.md` entry plus a superseded marker at every site still stating the old claim.
+`decisions/` entry plus a superseded marker at every site still stating the old claim.
 
 ### Was open, now answered — and it was never a spec decision
 

@@ -27,7 +27,7 @@ is a hand-crafted SQS message.
 
 ### Decisions worth carrying forward
 
-- **Eligibility turns on SHAPE, never on the marker.** Full entry in `docs/decisions.md`.
+- **Eligibility turns on SHAPE, never on the marker.** Full entry in `docs/decisions/`.
 - **The reconstruction needs TWO guards and neither suffices alone.** The round-trip re-renders each
   key through the create path's own renderer and demands exact equality, catching dropped, rewritten
   and extra `projection.*` properties. It cannot see the **column type**, and Athena permits a

@@ -29,7 +29,7 @@ behind a new limit.
   `states:StartExecution`/`DescribeExecution` + the manifest read and results write. The Lambda
   execution role gained **nothing**.
 
-Full reasoning: `decisions.md` → *The copy is a top-level Distributed Map, and attribution is a
+Full reasoning: `decisions/` → *The copy is a top-level Distributed Map, and attribution is a
 verb*. Sizing evidence: `lambdas/info/shared-layer.md` → *`cpcommon/transfer/config.py`*.
 
 ### Deliberate deviations
@@ -60,7 +60,7 @@ verb*. Sizing evidence: `lambdas/info/shared-layer.md` → *`cpcommon/transfer/c
   batch spans recipients only when one has fewer objects than the batch size — but then a child
   that dies outright takes all of them down. Fail-closed on purpose (the batch reported nothing per
   item, so which of its items landed is unknown), and a real narrowing of the pre-160 isolation,
-  where each recipient had its own invocation and retry budget. Recorded in `decisions.md`.
+  where each recipient had its own invocation and retry budget. Recorded in `decisions/`.
 - **The per-recipient entry drops the raw `{Error, Cause}` and carries the decoded `reason`.** The
   final summary therefore reads `{kind, name, status, reason}` for a guard refusal where it used to
   read `{kind, name, status, error}`; a *create* failure still carries the raw error, unchanged.

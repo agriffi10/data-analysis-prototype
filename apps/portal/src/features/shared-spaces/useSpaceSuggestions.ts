@@ -20,7 +20,7 @@ import type {
  * What it deliberately does NOT offer is every space in the organisation. Sharing a table to a
  * space does not require membership, so a complete list would be strictly more useful — and would
  * disclose every space name to every authenticated user, which has no equivalent today. A space
- * the user does not belong to stays typeable; see the `decisions.md` entry.
+ * the user does not belong to stays typeable; see the `docs/decisions/identity-and-access.md` entry.
  *
  * @returns `status` and `search`, using the same three-state vocabulary as the username
  *   directory: `'unavailable'` covers both a failed fetch and a user who belongs to no shared

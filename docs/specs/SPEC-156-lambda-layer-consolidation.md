@@ -204,4 +204,4 @@ Consolidation PRs must be reviewable as "nothing changed", so keep them narrow.
 
 - Completion ritual per `CLAUDE.md`.
 - Update `component-inventory` for the new `cpcommon` modules.
-- The convergence itself is worth a short `decisions.md` note — the "deliberate twin" comments pointed at SPEC-125 and are now discharged, and a future reader should find that recorded rather than inferring it from a deleted comment.
+- The convergence itself is worth a short `decisions/` note — the "deliberate twin" comments pointed at SPEC-125 and are now discharged, and a future reader should find that recorded rather than inferring it from a deleted comment.

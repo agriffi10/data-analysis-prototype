@@ -12,7 +12,7 @@
 > Copy operation cannot rewrite a key (`TargetKeyPrefix` prepends the *full* source key), it caps
 > objects at 5 GB where `UploadPartCopy` already handles more, and one job writes to one destination
 > bucket while recipients span two. The scale path is a top-level **Step Functions Distributed Map**
-> over a flat `(recipient × object)` manifest. Full entry: `decisions.md` → *Table Share*.
+> over a flat `(recipient × object)` manifest. Full entry: `decisions/` → *Table Share*.
 
 - **Infra**: `USER_SPACE_BUCKET`/`SHARED_SPACE_BUCKET` module vars + execution-role `s3:ListBucket`/`GetBucketLocation` on both buckets; **the full tscommon-required env is now COMMON to all five verbs** (the PR #196 env-union rule); `tscommon.clients.glue()` added.
 

@@ -148,7 +148,7 @@ the `.tf`.
 
 #### Acceptance Criteria
 
-- [ ] `docs/decisions.md` records the rejection with the measurement.
+- [ ] `docs/decisions/` records the rejection with the measurement.
 - [ ] The SPEC-138 blind-spot comment in `security.yml` is updated: it currently describes an open
       gap and must point at the plan scan instead.
 - [ ] The note states the secondary reason to keep the extension — `.tftpl` is the signal that
@@ -190,7 +190,7 @@ policy content is not one of them. FR-006 records this in place of the old gap.
 .github/workflows/deploy-infra.yml     # -out, tofu show -json, the Checkov step, the gate
 .github/workflows/security.yml         # the blind-spot comment now points here
 docs/security-baseline.md              # the plan-scan section; the old gap entry rewritten
-docs/decisions.md                      # the .tftpl→.json rejection, with the measurement
+docs/decisions/                      # the .tftpl→.json rejection, with the measurement
 CLAUDE.md                              # one Key Decisions line
 ```
 
@@ -204,4 +204,4 @@ CLAUDE.md                              # one Key Decisions line
 ### Phase 2: Triage and record
 
 - Read the first real run's IAM findings, write the baseline section, rewrite the closed gap.
-- The `decisions.md` entry, the `security.yml` comment, the Key Decisions line, INDEX + delivery doc.
+- The `decisions/` entry, the `security.yml` comment, the Key Decisions line, INDEX + delivery doc.

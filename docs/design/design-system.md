@@ -176,7 +176,7 @@ Container: `surface`, `border`, `rounded-lg`, clipped. Header row 40px on `surfa
 - Name cell: 20px icon (folder = `accent` fill, file = `text-3` stroke) + filename (weight 500, ellipsis-truncated).
 - Size / modified in `text-2 text-sm`; type as a neutral **pill** (`surface-2` bg, `border`, `rounded-full`, `text-xs`).
 - Checkbox `accent-color: accent`. Row-hover reveals inline actions (opacity 0 → 1).
-- Pagination: a centered ghost **Load more** button below the table (`ListObjectsV2` is capped at 1000 keys — see architecture Known Constraints; pairs with TanStack `useInfiniteQuery`).
+- Pagination: a centered ghost **Load more** button below the table (`ListObjectsV2` is capped at 1000 keys — see architecture.md → *Constraints that shape the system*; pairs with TanStack `useInfiniteQuery`).
 
 ### Selection bar
 When ≥1 row is selected, the default toolbar is replaced by an `accent-soft` bar: master checkbox + "N selected" (`accent-text`, weight 600) + spacer + batch actions (Download, Rename, Move, **Delete** as danger-ghost). This is where SPEC-018/019 multi-select operations live.
@@ -190,7 +190,7 @@ When ≥1 row is selected, the default toolbar is replaced by an `accent-soft` b
 Centered modal, `rounded-lg`, `shadow-lg`. Warning-circle icon (`warning` on `warning-soft`) + title + explanation naming the conflicting key in `<code>`. Footer on `surface-2` with three actions: **Keep both (rename)**, **Cancel**, **Overwrite** (primary). This is the HEAD-check → Overwrite-or-Rename flow required because versioning is off (architecture: "No overwrite protection from S3").
 
 ### Empty / error states
-Missing `connections.json` or an empty folder renders as a friendly empty state (icon + `text-xl` headline + `text-2` guidance + primary CTA), **not** an error — per architecture Known Constraints.
+Missing `connections.json` or an empty folder renders as a friendly empty state (icon + `text-xl` headline + `text-2` guidance + primary CTA), **not** an error — per architecture.md → *Constraints that shape the system*.
 
 ---
 

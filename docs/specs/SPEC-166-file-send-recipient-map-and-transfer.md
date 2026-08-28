@@ -201,5 +201,5 @@ the Distributed Map, and the **user-space bucket policy** decides whether either
 ### Phase 5: Completion ritual
 
 - Delivery doc, INDEX status, component-inventory rows, the `architecture.md` *Send Files* section
-  filled in, a `decisions.md` entry for the conflict-not-overwrite rule and the shared transfer
+  filled in, a `decisions/` entry for the conflict-not-overwrite rule and the shared transfer
   engine, and one Key Decisions line.

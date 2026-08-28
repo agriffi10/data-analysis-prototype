@@ -233,7 +233,7 @@ This is worth stating as a finding rather than a constraint: it means the two bu
       variable and silently grant every member every space.
 - [ ] A test asserts each grant's scope names exactly one space prefix — no wildcard covering the
       bucket, no shared grant covering multiple spaces.
-- [ ] The rejection of the policy-variable form **for this bucket** is recorded in `decisions.md`,
+- [ ] The rejection of the policy-variable form **for this bucket** is recorded in `decisions/`,
       with the note that it says nothing about the personal bucket.
 
 ### FR-003: The Identity Center principal, and what an unresolvable member means
@@ -604,7 +604,7 @@ FR-005, FR-009, FR-011's backstop, and the drift and budget reporting of FR-010.
 The execution role's grants — Access Grants create/delete/list, `lakeformation:GrantPermissions` /
 `RevokePermissions` / `ListPermissions`, `identitystore:GetUserId` — plus the deploy-role expansion,
 as in-scope work per `CLAUDE.md`'s infra rule. New resource types are involved, so
-`architecture.md` → *Deploy-role IAM — adding a new resource type* is read first. Deployed-role
+`infra/info/deploy-role-iam.md` is read first. Deployed-role
 simulation on SPEC-186's discipline: every denial paired with an `allowed` control.
 
 ### Phase 5: Verification, and the cutover rehearsal
@@ -617,5 +617,5 @@ is not a merge in this spec.
 
 ### Phase 6: Completion ritual
 
-Per `CLAUDE.md`. Two `decisions.md` entries: FR-002's literal-grant finding (and what it does not say
+Per `CLAUDE.md`. Two `decisions/` entries: FR-002's literal-grant finding (and what it does not say
 about the personal bucket), and FR-008's ordering with both failure directions named.

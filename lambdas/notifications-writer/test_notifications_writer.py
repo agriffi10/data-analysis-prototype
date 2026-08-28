@@ -466,7 +466,7 @@ def test_ACCEPTED_a_redelivered_create_writes_a_SECOND_inbox_entry():
     ACCEPTED because the blast radius is one duplicated line in a read-only list — no
     access is granted, nothing is overwritten, and the user can dismiss it — while the fix
     with real teeth is a producer-supplied idempotency key, a contract change across four
-    control planes and the browser producer. Recorded in decisions.md.
+    control planes and the browser producer. Recorded in docs/decisions/control-planes.md.
 
     If this starts failing, the writer became idempotent: revisit the decision and the
     delivery-doc note, do not delete the test.
