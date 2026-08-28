@@ -82,6 +82,19 @@ FIXTURES_MAX_SCRIPTS = 1
 CLAUDE_MAX_BYTES = 50_000
 DIGEST_MAX_CHARS = 1_400
 DELIVERY_MAX_LINES = 260
+#: The areas ``decisions.md`` groups by, which are the areas ``CLAUDE.md``'s Key Decisions digest
+#: groups by. A closed set on purpose: the two files are meant to be findable the same way.
+DECISION_AREAS = frozenset({
+    "Identity, access and the name that ties them together",
+    "Storage, and the fact S3 is not a filesystem",
+    "Control planes — one pattern, and the traps are shared",
+    "Analytics, the catalog, and two SQL dialects",
+    "Archive and restore — the only place a mistake is unrecoverable",
+    "The browser",
+    "Infrastructure, IAM and delivery",
+    "Gates, scanners and tests",
+})
+
 STATUS_WORDS = ("shipped", "complete", "active", "draft", "in progress", "filed", "scoped")
 SOURCE_TREES = (("apps/portal/src", (".ts", ".tsx")), ("lambdas", (".py",)), ("infra", (".tf", ".tftpl")))
 CITATION_RE = re.compile(r"SPEC-\d{3}|(?<![\w#])#\d{3,4}(?![\w])|\b(?:FR|AC)-?\d+\b")
@@ -243,25 +256,52 @@ def check_claude_budget() -> list[str]:
 
 
 def check_decisions_register() -> list[str]:
-    """Require one heading level per entry, and a Contents that reaches every one of them.
+    """Require the register's AREA grouping, one heading level per entry, and a reaching Contents.
 
-    The register is pulled entry by entry, so an entry outside the Contents is only findable
-    by reading the whole file — which is the cost the layering exists to avoid.
+    The register is pulled entry by entry, so an entry outside the Contents is only findable by
+    reading the whole file — which is the cost the layering exists to avoid.
+
+    The areas are a CLOSED set, and they are the same eight the ``CLAUDE.md`` digest groups by. That
+    is the point of checking them: the digest is never the only home of a fact, so a reader who finds
+    an area there must find the same area here. Ordering by spec number instead is what made this
+    file read as a changelog and feel disposable — an entry filed under a ninth area, or under none,
+    is the first step back to that.
 
     Args:
       None.
 
     Returns:
-      One message per unlisted entry, per broken anchor, or per stray heading level.
+      One message per unlisted entry, per broken anchor, per unknown area and per entry sitting
+      outside one.
 
     Raises:
       None.
     """
     lines = (ROOT / "docs" / "decisions.md").read_text().split("\n")
-    strays = [line for line in lines if line.startswith("## ") and not line.startswith("## Contents")]
+    errors = []
+
+    areas = [line[3:].strip() for line in lines if line.startswith("## ")]
+    for area in areas:
+        if area != "Contents" and area not in DECISION_AREAS:
+            errors.append(
+                f"decisions.md: '{area}' is not one of the areas CLAUDE.md's digest groups by. "
+                f"Add it there first, or file the entry under an existing one: {sorted(DECISION_AREAS)}"
+            )
+    for expected in DECISION_AREAS:
+        if expected not in areas:
+            errors.append(f"decisions.md: the '{expected}' area heading is missing")
+
+    # An entry must sit under an area, not above the first one.
+    first_area = next(
+        (i for i, line in enumerate(lines) if line.startswith("## ") and line[3:].strip() != "Contents"),
+        len(lines),
+    )
+    for i, line in enumerate(lines):
+        if line.startswith("### ") and i < first_area:
+            errors.append(f"decisions.md: '{line[4:].strip()}' sits above the first area heading")
+
     headings = [line[4:].strip() for line in lines if line.startswith("### ")]
     listed = set(re.findall(r"\]\(#([^)]+)\)", "\n".join(lines)))
-    errors = [f"decisions.md: '{s}' is a ## heading; every entry is ###" for s in strays]
     seen: dict[str, int] = {}
     for heading in headings:
         base = anchor(heading)
