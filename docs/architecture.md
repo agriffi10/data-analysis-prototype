@@ -28,9 +28,9 @@ register.
                         │  read at runtime from /config.json           │
                         └───┬─────────────┬──────────────┬─────────────┘
                             │             │              │
-                  scoped AWS creds   bearer token   sqs:SendMessage
-                 (Athena, Glue) +          │              │
-                  presigned bytes          ▼              ▼
+                   presigned bytes   bearer token   sqs:SendMessage
+                 (signed server-side)      │              │
+                            │              ▼              ▼
                             │       API Gateway    FIFO request queue
                             │        HTTP API             │
                             │             │               ▼
@@ -299,6 +299,15 @@ Both data buckets are registered in Lake Formation **hybrid** access mode, which
 browser keep direct-IAM S3 access while Athena reads through LF. Flipping to enforced without first
 opting in every principal would break the file browser.
 
+The six calls the workspace and the Data Explorer ride on — Athena start, status, results and stop,
+and Glue get-database and list-tables — go **through the API**, which derives the workgroup, the
+results location and the caller's identity server-side. Lake Formation is unaffected by that move
+because its grants attach to a **principal**, and the principal is the same portal role, now assumed
+by the API instead of vended to the browser. Two properties are load-bearing and easy to lose in a
+port: **the API makes exactly one AWS call per request and never waits**, so every poll and page walk
+stays in the browser; and **a failed query is a 200**, carrying Athena's `stateChangeReason` verbatim
+for the browser to choose wording from.
+
 ## Notifications and observability
 
 **Notifications** are a single-writer FIFO queue feeding one writer Lambda — deliberately simpler than
@@ -458,3 +467,4 @@ superseded decision keeps its row and gains a note saying which row replaced it.
 | 36 | [The deploy role self-grants, and grants land in their own PR first](../infra/info/deploy-role-iam.md) | The role that creates everything has to be able to create the thing that grants it — so the grant and its first use cannot be in the same apply. | Scopability is **measured** with `simulate-custom-policy`, never assumed. A simulate matches patterns, not the ARN a service actually passes. |
 | 37 | [A gate blocks on a narrowed count, never a total](decisions/gates-and-tests.md#a-scanner-gate-blocks-on-a-narrowed-count-never-a-total-2026-08-09-completes-spec-138) | Enforcing what passes is a ratchet; suppressing what fails is a list that grows. A line matching no finding is a hard error. | **"Did not run" is never "clean."** A broken scanner fails the job even in report mode. |
 | 38 | [Coverage floors and compiler strictness are declared, never inherited](decisions/gates-and-tests.md#compiler-and-coverage-defaults-are-declared-never-inherited-spec-150) | An inherited default changes under you when a tool upgrades, and the change is invisible in the diff. | Ratchets at the measured level. Never lower one for a regression — the doc-layout budgets follow the same rule. |
+| 41 | [The API makes exactly one AWS call per request, and every loop stays in the browser](decisions/identity-and-access.md#the-api-makes-exactly-one-aws-call-per-request-and-every-loop-stays-in-the-browser-spec-199) | "The API waits for the query" is the shape a reader reaches for. A five-minute query is 10× a **non-raisable** 30-second integration ceiling, so the rejected design does not fail at the margin — it fails always, and it holds a Lambda open for the duration of a user's query while doing so. | The count is on the **route's own service client**, never on botocore — the session cache fires `AssumeRole` on some invocations and not others. SPEC-198's free-name route is the arc's one exception. A route may now carry **path parameters**, and a value that is not one segment is refused in the browser. |

@@ -36,9 +36,10 @@ the domain rulebooks and inventories live beside the code they govern, in each t
 ## Project Overview
 
 A web portal where authenticated users upload/download files to/from their own S3 prefix.
-Auth is AWS Cognito (standalone User Pool + Identity Pool). The browser calls AWS directly with
-scoped credentials **today**; Arc B is moving that behind an API (`api.dataquarry.app` serves
-`/healthz` and `GET /v1/user-directory` — one route ported, sixteen services still calling AWS). Status: greenfield, no production users yet.
+Auth is AWS Cognito (standalone User Pool + Identity Pool). Arc B has moved the object surface and
+the catalog behind an API (`api.dataquarry.app`); what the browser still calls directly is
+**presigned S3 bytes**, Cognito through Amplify, and **eight control-plane `sqs:SendMessage`
+enqueues** (SPEC-200). Status: greenfield, no production users yet.
 
 ## Monorepo (npm workspaces)
 
@@ -92,14 +93,15 @@ recorded nowhere else** — when a spec closes, prune here rather than appending
 
 ### Current work
 
-- **API layer & containerisation (192 → 202, 192–198 done)** — "Arc B". CloudFront is still
-  production and the rollback. Next: the catalog surface (199 — Athena, Glue and Lake Formation are
-  the last browser-side AWS calls on a read path), then the queues (200). **The browser now makes no
-  AWS call but presigned S3 bytes**, and 202 removes the remaining SDK class.
-  **Owed and unrun:** `arc-b-api-container-e2e.md` §F, and the SPEC-198 block of `e2e.md` §4.2 —
-  chiefly the multi-GiB upload that settles whether a presigned URL's expiry is evaluated at request
-  receipt (the premise the single-`PUT` design rests on) and the live foreign-prefix 403. §D/§E were
-  **partly run on 2026-08-27** (`sessions.md`). Read the `ARCS.md` arc entry first.
+- **API layer & containerisation (192 → 202, 192–199 done)** — "Arc B". CloudFront is still
+  production and the rollback. Next: the queues (200), then 202 retires the Identity Pool's browser
+  credentials. **The browser's only remaining AWS calls are presigned S3 bytes and eight
+  `sqs:SendMessage` enqueues.**
+  **Owed and unrun:** `arc-b-api-container-e2e.md` §F, and the SPEC-198 and SPEC-199 blocks of
+  `e2e.md` §4.2/§4.3/§4.5 — chiefly the multi-GiB upload that settles whether a presigned URL's
+  expiry is evaluated at request receipt, the live foreign-prefix 403, and the **Lake Formation
+  positive, which also discharges SPEC-196 Phase 5 item 4** and is the arc's central claim. §D/§E
+  were **partly run on 2026-08-27** (`sessions.md`). Read the `ARCS.md` arc entry first.
 
 ### Live checks
 
@@ -118,7 +120,7 @@ what it says rather than by number. Read the entry for an area before working in
 Cognito User Pool → Identity Pool, ABAC. The `username` principal tag is stamped **server-side from
 the verified claim**, so it cannot be spoofed; one shared role, isolation by
 `${aws:PrincipalTag/username}`. Hosted UI is **Managed Login v2** — the classic one broke the
-post-signup redirect. Browser → AWS direct today; Arc B is porting that behind an API.
+post-signup redirect. The API verifies the browser's bearer and assumes that same role for it.
 
 - **The API VERIFIES a bearer, and is not an OIDC client.** No cookie → no CSRF surface; CORS
   still required. Provider-agnosticism is **five config fields**, the JWKS URL built once at the
@@ -169,6 +171,16 @@ post-signup redirect. Browser → AWS direct today; Arc B is porting that behind
   out at the hour mark with a green suite. Idempotency is declared **per route**, never derived from
   the method. The client's timeout sits **above the function's**, so the server gives up first and an
   abort always means a dead connection.
+- **The API makes exactly ONE AWS call per request and never waits** — every poll and page walk stays
+  in the browser, because a 5-minute query is 10× a **non-raisable** 30-second integration ceiling
+  (the *function* timeout is the 29 — the two are easy to conflate and a past spec did).
+  The count is on the **route's own service client**, never on botocore: the session cache fires
+  `AssumeRole` on some invocations and not others, so "one botocore call" is unsatisfiable cold and
+  satisfiable warm. SPEC-198's free-name route is the arc's one exception. A route may carry **path
+  parameters**, and a value that is not **one segment** is refused in the browser — `%2F` survives to
+  the gateway and `.`/`..` collapse in `fetch`'s URL parser, so either addresses a **sibling route
+  that answers 200 with the wrong shape**. A missing parameter is a **compile error**: as an optional
+  field the omission ships the literal `{queryExecutionId}` to Athena as an execution id.
 - **`$default` matches OPTIONS**, so API Gateway's own CORS responder never sees a preflight and the
   router must answer one **before authentication**. Found live: every bearer-carrying `fetch` failed
   as an opaque `TypeError`, which reads as "the API is down" — and `curl` cannot see it, because only
@@ -297,8 +309,11 @@ DLQ lets one malformed request dead-letter someone else's work.
   a schedule, appended under ETag CAS, retained forever. `@traced` outermost — **except the API**, where one decorator sits
   outside it to turn an unpredicted fault into a declared code: a catch INSIDE the span ends every
   failed request successfully and the fault is recorded nowhere. Messages are literals.
-  The **`error.stack` exemption covers file contents, NOT credentials**; the API scrubs at its
-  boundary.
+  The **`error.stack` exemption covers file contents, NOT credentials**, and it covers **no field a
+  call site chooses to emit** — neither a **SQL statement** nor an Athena **`stateChangeReason`** may
+  be one, since both quote a user's own cell values back; `sql_bytes` and `state` instead. The API
+  **prevents rather than redacts**: there is no scrubber, a handler is never given a credential, and
+  an AST sweep is what holds it.
 
 ### Analytics, the catalog, and two SQL dialects
 
@@ -320,8 +335,16 @@ Glue database ARN — **not** LF-Tags. Table creation is **TBAC**: LF admin does
 - **A column name is user data.** Creates refuse empty, non-`[a-z0-9_]`, over-255 and fold-collision
   names; a refresh does not, or it strands pre-rule tables.
 - **A table's `LOCATION` is read recursively**, so the space root is not a data folder.
-- **Results are read only at `SUCCEEDED`.** `GetQueryResults` against a QUEUED execution is a 400
-  whose name maps to nothing, and it reached users as a generic "contact the administrator".
+- **Results are read only at `SUCCEEDED`.** A too-early `GetQueryResults` reached users as a generic
+  "contact the administrator"; the API now answers **409 `QueryNotFinished`**, classified by Athena's
+  **message** — the same `InvalidRequestException` is a malformed query at submit, and a name-keyed
+  mapper passes any test exercising one at a time. The client gate is **kept**, and asserts on the
+  **CALL**: with the 409 in place the screen looks right either way.
+- **A failed query is a 200.** `stateChangeReason` rides the body byte-identical and the browser
+  picks the sentence; enveloping it retires six authored ones at a stroke. Lake Formation denies in
+  **two shapes** — a Glue 403, and an execution that reaches FAILED on a 200 — and a 403 is **never**
+  a re-login. `dataScannedBytes` is `null` while non-terminal, never `0`. The generic sentence is
+  reserved for what a user **cannot** act on, held by a computed `USER_FIXABLE_CODES`.
 - **A refresh is judged by SHAPE, not by a marker** — never by the `portal.managed` property it also
   writes, which pre-existing tables lack and users can set. Removing a column needs an opt-in, and
   **the refusal is the warning**. The apply is a read-modify-write on the live table, serialized by a

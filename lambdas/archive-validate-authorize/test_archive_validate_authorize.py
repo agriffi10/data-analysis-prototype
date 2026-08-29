@@ -126,3 +126,16 @@ def test_a_space_the_actor_is_not_a_member_of_is_refused():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_the_identity_block_rides_along_on_both_modes():
+    """Two allowed-field sets, one per mode, and the block has to be admitted by each.
+
+    The restore set lives in the archive layer rather than in this verb, so a widening that
+    touched only the local dict would pass an archive and refuse every restore.
+    """
+    archived = verb.handler(_event(identity={"actor": "alice", "delegated_by": None, "assurance": "interactive"}), None)
+    restored = verb.handler(_restore_event(identity={"actor": "alice", "delegated_by": None, "assurance": "interactive"}), None)
+
+    assert archived["mode"] == "archive"
+    assert restored["mode"] == "restore"

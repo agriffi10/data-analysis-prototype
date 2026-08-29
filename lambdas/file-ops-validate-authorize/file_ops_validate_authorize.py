@@ -58,7 +58,8 @@ logger.setLevel(logging.INFO)
 observability.init(service="file-ops")
 
 _ALLOWED_FIELDS = frozenset(
-    {"requestId", "actor", "operation", "source", "destination", "onConflict", "submittedAt"}
+    {"requestId", "actor", "operation", "source", "destination", "onConflict", "submittedAt",
+     "identity"}
 )
 
 _COPY_MOVE_FIELDS = ("destination", "onConflict", "submittedAt")

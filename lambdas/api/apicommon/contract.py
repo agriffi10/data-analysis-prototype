@@ -654,6 +654,395 @@ class TablesResponse(TypedDict):
     nextToken: str | None
 
 
+class EnqueueAccepted(TypedDict):
+    """What every enqueue route answers with.
+
+    200 rather than 202: the status set is closed, and "accepted, not processed" is what every one
+    of these call sites has always meant by success.
+
+    Attributes:
+      requestId: The caller's own id, echoed back. This service mints none — the one id it does
+        generate is the notifications queue's dedup key, which never leaves the send. ``None`` on
+        the one plane that has no request id.
+    """
+
+    requestId: str | None
+
+
+class SharedSpacePayload(TypedDict, total=False):
+    """The optional body of a shared-space request.
+
+    Typed closed rather than as an open record, because the contract's vocabulary has no open
+    record and a fallback that agreed with every value would be the day the wire stopped being
+    checked. ``members`` is the only key any verb reads.
+
+    Attributes:
+      members: The usernames an add or remove names.
+    """
+
+    members: list[str]
+
+
+class SharedSpaceEnqueueRequest(TypedDict):
+    """A shared-space request, minus the token and the advisory actor the sender stamps.
+
+    Attributes:
+      requestId: The caller's per-submit id, which is also the dedup key.
+      action: Which shared-space verb to run.
+      space: The space's name.
+      payload: The verb's arguments, if it takes any.
+    """
+
+    requestId: str
+    action: Literal[
+        "create",
+        "add_members",
+        "remove_members",
+        "leave",
+        "delete",
+        "forget",
+        "acknowledge_membership",
+    ]
+    space: str
+    payload: SharedSpacePayload
+
+
+class NotificationsEnqueueRequest(TypedDict):
+    """A notification action. The username the browser used to send is now the verified caller.
+
+    Attributes:
+      action: Which action to run.
+      id: The notification the action names, absent for the all-at-once action.
+    """
+
+    action: Literal["markRead", "markAllRead"]
+    id: str | None
+
+
+class PartitionKeyBase(TypedDict):
+    """What every declared partition key carries, whichever kind it is.
+
+    Attributes:
+      name: The column name, catalog-safe.
+      type: Which projection kind it is.
+    """
+
+    name: str
+    type: Literal["integer", "date", "string"]
+
+
+class PartitionKeyWire(PartitionKeyBase, total=False):
+    """The per-kind fields, FLATTENED into one shape rather than three.
+
+    The browser models these as three variants and the contract's type vocabulary has no union of
+    object shapes, so the three are declared as one object whose per-kind fields are optional. The
+    consequence is deliberate and bounded: this service no longer refuses a date field on an
+    integer key, and the plane's own ``_validate_partition_keys`` — which checks the name, the
+    kind, the range shape, the format, the enum contents and duplicate names in full — is the only
+    validator of the combination. A wrong combination therefore comes back as a notification rather
+    than as an immediate refusal.
+
+    ``range`` is a list of STRINGS for both the integer and the date kind. That is safe rather than
+    lossy: the plane accepts bounds that are numbers or strings, and the DDL builder interpolates
+    them into one ``lo,hi`` property without arithmetic, so the emitted table property is identical
+    either way.
+
+    Attributes:
+      range: The projection bounds, low then high.
+      format: The date format, for a date key.
+      values: The enumerated values, for a string key.
+      digits: The zero-padded width, for an integer key.
+      interval: The step, for a date key.
+      intervalUnit: The step's unit, for a date key.
+    """
+
+    range: list[str]
+    format: str
+    values: list[str]
+    digits: int
+    interval: int
+    intervalUnit: str
+
+
+class CatalogSpaceRef(TypedDict):
+    """A space as the catalog planes name it, carrying the database the tables live in.
+
+    Attributes:
+      kind: Which sort of space.
+      bucket: The bucket holding it. Sent because the plane requires it; the FIFO derivation
+        resolves its own from the kind and never reads this.
+      prefix: The folder the table points at.
+      database: The Glue database, which is also the table-build FIFO group.
+    """
+
+    kind: Literal["personal", "shared"]
+    bucket: str
+    prefix: str
+    database: str
+
+
+class TableBuildCreateRequest(TypedDict):
+    """A create-table request.
+
+    Attributes:
+      requestId: The caller's per-submit id.
+      space: The target space, whose database is also the FIFO group.
+      tableName: The table to create.
+      partitionKeys: The partition keys to declare, empty when there are none.
+    """
+
+    requestId: str
+    space: CatalogSpaceRef
+    tableName: str
+    partitionKeys: list[PartitionKeyWire]
+
+
+class TableBuildRefreshBase(TypedDict):
+    """A refresh request. ``mode`` is not here: it is the route, and the sender stamps it.
+
+    Attributes:
+      requestId: The caller's per-submit id.
+      space: The target space.
+      tableName: The table to refresh.
+      allowRemovals: Whether a column disappearing from the data may be dropped from the table.
+        Sent only when the user ticked the opt-in, because an always-present ``false`` is a
+        different request from an absent one.
+    """
+
+    requestId: str
+    space: CatalogSpaceRef
+    tableName: str
+    partitionKeys: list[PartitionKeyWire]
+
+
+class TableBuildRefreshRequest(TableBuildRefreshBase, total=False):
+    """The opt-in a refresh carries only when the user ticked it.
+
+    Optional rather than nullable: the diff validates the flag rather than coercing it, so an
+    always-present ``false`` is a different request from an absent one.
+
+    Attributes:
+      allowRemovals: Whether a column disappearing from the data may be dropped from the table.
+    """
+
+    allowRemovals: bool
+
+
+class TableSourceRef(TypedDict):
+    """The table a share copies from.
+
+    Attributes:
+      database: The source database.
+      table: The source table.
+    """
+
+    database: str
+    table: str
+
+
+class ShareRecipient(TypedDict):
+    """One recipient of a shared table.
+
+    Attributes:
+      kind: Whether the recipient is a user or a space.
+      name: The recipient's name.
+    """
+
+    kind: Literal["user", "space"]
+    name: str
+
+
+class TableShareEnqueueRequest(TypedDict):
+    """A share-table request. The plane has no request id, so the dedup digest is the only guard.
+
+    Attributes:
+      source: The table to share.
+      tableName: The name the copy takes in each recipient's catalog.
+      recipients: Who to share with.
+    """
+
+    source: TableSourceRef
+    tableName: str
+    recipients: list[ShareRecipient]
+
+
+class DataQualitySpaceRef(TypedDict):
+    """A space as the data-quality plane names it, which is not how a body route names one.
+
+    It carries the bucket and the root prefix and NOT a name, because the verb requires both and
+    resolves nothing itself. The FIFO derivation still takes its bucket from the kind rather than
+    from here: what the plane needs on the wire and what a group id may be built from are two
+    different questions, and conflating them is how a caller comes to choose their own group.
+
+    Attributes:
+      kind: Which sort of space.
+      bucket: The bucket holding it.
+      prefix: The space root prefix.
+    """
+
+    kind: Literal["personal", "shared"]
+    bucket: str
+    prefix: str
+
+
+class DataQualityEnqueueRequest(TypedDict):
+    """A data-quality check. The bucket is resolved from the kind, never taken from the body.
+
+    Attributes:
+      requestId: The caller's per-submit id.
+      space: The space the location sits in.
+      location: The folder to check.
+    """
+
+    requestId: str
+    space: DataQualitySpaceRef
+    location: str
+
+
+class SelectionItem(TypedDict):
+    """One item in a selection.
+
+    Attributes:
+      kind: Whether it names a file or a folder, which is what stops one key arriving as both.
+      key: The object or folder key.
+    """
+
+    kind: Literal["file", "folder"]
+    key: str
+
+
+class FileOpItem(TypedDict, total=False):
+    """One item in a file operation's selection, which may be renamed as it lands.
+
+    ``targetName`` is what makes a rename and a same-folder numbered copy expressible at all: both send
+    the containing folder as the destination and a different name. It is optional and an empty
+    string is not a shorthand — the plane refuses that.
+
+    Attributes:
+      kind: Whether it names a file or a folder.
+      key: The absolute object or folder key.
+      targetName: The item's name at the destination, defaulting to its own leaf name.
+    """
+
+    kind: Literal["file", "folder"]
+    key: str
+    targetName: str
+
+
+class FileSendSource(TypedDict):
+    """What a send is sending.
+
+    Attributes:
+      space: The space the items live in.
+      items: The selection.
+    """
+
+    space: SpaceRef
+    items: list[SelectionItem]
+
+
+class FileSendEnqueueRequest(TypedDict):
+    """A send-files request.
+
+    Attributes:
+      requestId: The caller's per-submit id, which is also the dedup key.
+      source: The space and selection.
+      recipients: Who to send to.
+    """
+
+    requestId: str
+    source: FileSendSource
+    recipients: list[ShareRecipient]
+
+
+class FileOpDestination(TypedDict):
+    """Where a copy or move is going.
+
+    Attributes:
+      space: The destination space.
+      prefix: The destination folder.
+    """
+
+    space: SpaceRef
+    prefix: str
+
+
+class FileOpSource(TypedDict):
+    """The space and selection a file operation acts on.
+
+    Attributes:
+      space: The space the items live in.
+      items: The selection, whose items may each name a destination name.
+    """
+
+    space: SpaceRef
+    items: list[FileOpItem]
+
+
+class FileOpsEnqueueBase(TypedDict):
+    """One file operation.
+
+    Attributes:
+      requestId: The caller's per-submit id, which is also the dedup key.
+      operation: Which operation to run.
+      source: The space and selection.
+      destination: Where it lands. Absent on a delete, which the plane refuses rather than
+        ignores, so a stale destination carried over from a re-submitted request refuses the whole
+        thing.
+      onConflict: What to do about a name already taken at the destination.
+      submittedAt: When the browser submitted, which the plane requires on a copy or a move and
+        refuses on a delete. Absent on a delete for the same reason the destination is.
+    """
+
+    requestId: str
+    operation: Literal["copy", "move", "delete"]
+    source: FileOpSource
+
+
+class FileOpsEnqueueRequest(FileOpsEnqueueBase, total=False):
+    """The three fields a copy or a move carries and a delete must NOT.
+
+    Optional rather than nullable, and that distinction is the whole point: the plane tests
+    whether the key is PRESENT, not whether its value is null, so a delete carrying
+    ``"destination": null`` is refused as an unexpected field. A caller sends them or does not.
+
+    Attributes:
+      destination: Where the operation lands.
+      onConflict: What to do about a name already taken at the destination.
+      submittedAt: When the browser submitted.
+    """
+
+    destination: FileOpDestination
+    onConflict: Literal["refuse", "overwrite"]
+    submittedAt: str
+
+
+class ArchiveEnqueueRequest(TypedDict):
+    """An archive request. ``mode`` is the route, not a field: it chooses the irreversible half.
+
+    Attributes:
+      requestId: The caller's per-submit id, which is also the archive's permanent identity.
+      source: The space and selection.
+    """
+
+    requestId: str
+    source: FileSendSource
+
+
+class RestoreEnqueueRequest(TypedDict):
+    """A restore request. Its field set is the restore contract, not a superset of the archive one.
+
+    Attributes:
+      requestId: The caller's per-submit id.
+      space: The space the restore lands in, taken from the route the user is standing in.
+      archiveId: Which archive to restore.
+    """
+
+    requestId: str
+    space: SpaceRef
+    archiveId: str
+
+
 @dataclass(frozen=True)
 class Route:
     """One route, declared whole.
@@ -687,6 +1076,59 @@ class Route:
     request: Any | None
     query: Any | None
     response: Any
+
+
+@dataclass(frozen=True)
+class Queue:
+    """One FIFO request queue, as this service reaches it.
+
+    Attributes:
+      id: The queue's name in this registry, which every route names.
+      env_var: The variable holding its URL. Required with no default, so a missing one raises at
+        first read rather than sending nowhere.
+      content_based_deduplication: Whether the deployed queue hashes the body when no explicit
+        dedup id is given. Recorded so a test can hold it against the Terraform, and NEVER relied
+        on: an explicit id is set on every send, because omitting it on the three queues where
+        this is true does not error — SQS falls back to hashing the body, which still mostly
+        collapses double-submits, so the guard the plane was specified with would be gone with
+        nothing going red.
+    """
+
+    id: str
+    env_var: str
+    content_based_deduplication: bool
+
+
+QUEUES: Final[tuple[Queue, ...]] = (
+    Queue("shared-space", "SHARED_SPACE_QUEUE_URL", True),
+    Queue("notifications", "NOTIFICATIONS_QUEUE_URL", True),
+    Queue("table-builder", "TABLE_BUILD_QUEUE_URL", True),
+    Queue("table-share", "TABLE_SHARE_QUEUE_URL", False),
+    Queue("data-quality", "DATA_QUALITY_QUEUE_URL", False),
+    Queue("file-send", "FILE_SEND_QUEUE_URL", False),
+    Queue("archive", "ARCHIVE_QUEUE_URL", False),
+    Queue("file-ops", "FILE_OPS_QUEUE_URL", False),
+)
+
+
+@dataclass(frozen=True)
+class EnqueueRoute(Route):
+    """A route whose whole job is to put one message on one queue.
+
+    Attributes:
+      queue: Which queue, by registry id. Guarded for set equality against the registry in both
+        directions, so a queue with no route and a route naming no queue both fail.
+      token_field: The field the plane already reads its token out of. Transitional, and joined
+        against the dead-letter drain's own table rather than restated: a plane whose field is
+        wrong here would be caught by a dead-letter rather than by CI.
+      stamped: The top-level keys the sender writes that the caller may not. Declared rather than
+        inferred, because the envelope-agreement test needs the term and an escape hatch would let
+        a caller be handed a field that chooses behaviour.
+    """
+
+    queue: str
+    token_field: Literal["idToken", "actor"]
+    stamped: frozenset[str]
 
 
 ROUTES: Final[tuple[Route, ...]] = (
@@ -880,7 +1322,143 @@ ROUTES: Final[tuple[Route, ...]] = (
         query=TablesQuery,
         response=TablesResponse,
     ),
+    EnqueueRoute(
+        id="sharedSpace.enqueue",
+        method="POST",
+        path="/v1/enqueue/shared-space",
+        idempotent=False,
+        plane="api",
+        request=SharedSpaceEnqueueRequest,
+        query=None,
+        response=EnqueueAccepted,
+        queue="shared-space",
+        token_field="idToken",
+        stamped=frozenset({"schemaVersion", "actor"}),
+    ),
+    EnqueueRoute(
+        id="notifications.enqueue",
+        method="POST",
+        path="/v1/enqueue/notifications",
+        idempotent=False,
+        plane="api",
+        request=NotificationsEnqueueRequest,
+        query=None,
+        response=EnqueueAccepted,
+        queue="notifications",
+        token_field="idToken",
+        stamped=frozenset(),
+    ),
+    EnqueueRoute(
+        id="tableBuild.create",
+        method="POST",
+        path="/v1/enqueue/table-build",
+        idempotent=False,
+        plane="api",
+        request=TableBuildCreateRequest,
+        query=None,
+        response=EnqueueAccepted,
+        queue="table-builder",
+        token_field="idToken",
+        stamped=frozenset(),
+    ),
+    EnqueueRoute(
+        id="tableBuild.refresh",
+        method="POST",
+        path="/v1/enqueue/table-refresh",
+        idempotent=False,
+        plane="api",
+        request=TableBuildRefreshRequest,
+        query=None,
+        response=EnqueueAccepted,
+        queue="table-builder",
+        token_field="idToken",
+        stamped=frozenset({"mode"}),
+    ),
+    EnqueueRoute(
+        id="tableShare.enqueue",
+        method="POST",
+        path="/v1/enqueue/table-share",
+        idempotent=False,
+        plane="api",
+        request=TableShareEnqueueRequest,
+        query=None,
+        response=EnqueueAccepted,
+        queue="table-share",
+        token_field="actor",
+        stamped=frozenset(),
+    ),
+    EnqueueRoute(
+        id="dataQuality.enqueue",
+        method="POST",
+        path="/v1/enqueue/data-quality",
+        idempotent=False,
+        plane="api",
+        request=DataQualityEnqueueRequest,
+        query=None,
+        response=EnqueueAccepted,
+        queue="data-quality",
+        token_field="idToken",
+        stamped=frozenset(),
+    ),
+    EnqueueRoute(
+        id="fileSend.enqueue",
+        method="POST",
+        path="/v1/enqueue/file-send",
+        idempotent=False,
+        plane="api",
+        request=FileSendEnqueueRequest,
+        query=None,
+        response=EnqueueAccepted,
+        queue="file-send",
+        token_field="actor",
+        stamped=frozenset(),
+    ),
+    EnqueueRoute(
+        id="archive.archive",
+        method="POST",
+        path="/v1/enqueue/archive",
+        idempotent=False,
+        plane="api",
+        request=ArchiveEnqueueRequest,
+        query=None,
+        response=EnqueueAccepted,
+        queue="archive",
+        token_field="actor",
+        stamped=frozenset({"mode"}),
+    ),
+    EnqueueRoute(
+        id="archive.restore",
+        method="POST",
+        path="/v1/enqueue/restore",
+        idempotent=False,
+        plane="api",
+        request=RestoreEnqueueRequest,
+        query=None,
+        response=EnqueueAccepted,
+        queue="archive",
+        token_field="actor",
+        stamped=frozenset({"mode"}),
+    ),
+    EnqueueRoute(
+        id="fileOps.enqueue",
+        method="POST",
+        path="/v1/enqueue/file-ops",
+        idempotent=False,
+        plane="api",
+        request=FileOpsEnqueueRequest,
+        query=None,
+        response=EnqueueAccepted,
+        queue="file-ops",
+        token_field="actor",
+        stamped=frozenset(),
+    ),
 )
+
+
+ENQUEUE_ROUTES: Final[tuple[EnqueueRoute, ...]] = tuple(
+    route for route in ROUTES if isinstance(route, EnqueueRoute)
+)
+
 
 
 class UnsupportedTypeError(Exception):

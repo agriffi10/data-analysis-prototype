@@ -1,0 +1,584 @@
+{
+  "token": "eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig",
+  "tokenAfterRefresh": "eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-AFTER-REFRESH.sig",
+  "nowMs": 1756000000000,
+  "buckets": {
+    "user": "dat-prod-user-space",
+    "shared": "dat-prod-shared-space"
+  },
+  "vectors": [
+    {
+      "route": "sharedSpace.enqueue",
+      "inputs": {
+        "action": "add_members",
+        "space": "alice"
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/shared-space.fifo",
+        "MessageBody": "{\"schemaVersion\":1,\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"action\":\"add_members\",\"actor\":\"alice\",\"space\":\"alice\",\"payload\":{\"members\":[\"bob\",\"carol\"]},\"idToken\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\"}",
+        "MessageGroupId": "shared-space",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "sharedSpace.enqueue",
+      "inputs": {
+        "action": "add_members",
+        "space": "salesteam"
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/shared-space.fifo",
+        "MessageBody": "{\"schemaVersion\":1,\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"action\":\"add_members\",\"actor\":\"alice\",\"space\":\"salesteam\",\"payload\":{\"members\":[\"bob\",\"carol\"]},\"idToken\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\"}",
+        "MessageGroupId": "shared-space",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "notifications.enqueue",
+      "inputs": {
+        "action": "markRead",
+        "username": "alice",
+        "id": "n-1"
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/notifications.fifo",
+        "MessageBody": "{\"action\":\"markRead\",\"idToken\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"id\":\"n-1\"}",
+        "MessageGroupId": "alice",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "notifications.enqueue",
+      "inputs": {
+        "action": "markAllRead",
+        "username": "alice"
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/notifications.fifo",
+        "MessageBody": "{\"action\":\"markAllRead\",\"idToken\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\"}",
+        "MessageGroupId": "alice",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "tableBuild.create",
+      "inputs": {
+        "space": {
+          "kind": "personal",
+          "bucket": "dat-prod-user-space",
+          "prefix": "alice/",
+          "database": "alice"
+        },
+        "tableName": "orders",
+        "partitionKeys": [
+          {
+            "name": "year",
+            "type": "integer",
+            "range": [
+              2020,
+              2026
+            ],
+            "digits": 4
+          },
+          {
+            "name": "day",
+            "type": "date",
+            "range": [
+              "2020-01-01",
+              "2026-01-01"
+            ],
+            "format": "yyyy-MM-dd"
+          },
+          {
+            "name": "region",
+            "type": "string",
+            "values": [
+              "emea",
+              "amer"
+            ]
+          }
+        ]
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/table-build.fifo",
+        "MessageBody": "{\"idToken\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"space\":{\"kind\":\"personal\",\"bucket\":\"dat-prod-user-space\",\"prefix\":\"alice/\",\"database\":\"alice\"},\"tableName\":\"orders\",\"partitionKeys\":[{\"name\":\"year\",\"type\":\"integer\",\"range\":[2020,2026],\"digits\":4},{\"name\":\"day\",\"type\":\"date\",\"range\":[\"2020-01-01\",\"2026-01-01\"],\"format\":\"yyyy-MM-dd\"},{\"name\":\"region\",\"type\":\"string\",\"values\":[\"emea\",\"amer\"]}],\"requestId\":\"00000000-0000-4000-8000-00000000abcd\"}",
+        "MessageGroupId": "alice",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "tableBuild.refresh",
+      "inputs": {
+        "space": {
+          "kind": "personal",
+          "bucket": "dat-prod-user-space",
+          "prefix": "alice/",
+          "database": "alice"
+        },
+        "tableName": "orders",
+        "allowRemovals": true
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/table-build.fifo",
+        "MessageBody": "{\"idToken\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"mode\":\"refresh\",\"space\":{\"kind\":\"personal\",\"bucket\":\"dat-prod-user-space\",\"prefix\":\"alice/\",\"database\":\"alice\"},\"tableName\":\"orders\",\"partitionKeys\":[],\"allowRemovals\":true,\"requestId\":\"00000000-0000-4000-8000-00000000abcd\"}",
+        "MessageGroupId": "alice",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "tableBuild.create",
+      "inputs": {
+        "space": {
+          "kind": "shared",
+          "bucket": "dat-prod-shared-space",
+          "prefix": "salesteam/",
+          "database": "salesteam"
+        },
+        "tableName": "orders",
+        "partitionKeys": [
+          {
+            "name": "year",
+            "type": "integer",
+            "range": [
+              2020,
+              2026
+            ],
+            "digits": 4
+          },
+          {
+            "name": "day",
+            "type": "date",
+            "range": [
+              "2020-01-01",
+              "2026-01-01"
+            ],
+            "format": "yyyy-MM-dd"
+          },
+          {
+            "name": "region",
+            "type": "string",
+            "values": [
+              "emea",
+              "amer"
+            ]
+          }
+        ]
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/table-build.fifo",
+        "MessageBody": "{\"idToken\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"space\":{\"kind\":\"shared\",\"bucket\":\"dat-prod-shared-space\",\"prefix\":\"salesteam/\",\"database\":\"salesteam\"},\"tableName\":\"orders\",\"partitionKeys\":[{\"name\":\"year\",\"type\":\"integer\",\"range\":[2020,2026],\"digits\":4},{\"name\":\"day\",\"type\":\"date\",\"range\":[\"2020-01-01\",\"2026-01-01\"],\"format\":\"yyyy-MM-dd\"},{\"name\":\"region\",\"type\":\"string\",\"values\":[\"emea\",\"amer\"]}],\"requestId\":\"00000000-0000-4000-8000-00000000abcd\"}",
+        "MessageGroupId": "salesteam",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "tableBuild.refresh",
+      "inputs": {
+        "space": {
+          "kind": "shared",
+          "bucket": "dat-prod-shared-space",
+          "prefix": "salesteam/",
+          "database": "salesteam"
+        },
+        "tableName": "orders",
+        "allowRemovals": true
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/table-build.fifo",
+        "MessageBody": "{\"idToken\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"mode\":\"refresh\",\"space\":{\"kind\":\"shared\",\"bucket\":\"dat-prod-shared-space\",\"prefix\":\"salesteam/\",\"database\":\"salesteam\"},\"tableName\":\"orders\",\"partitionKeys\":[],\"allowRemovals\":true,\"requestId\":\"00000000-0000-4000-8000-00000000abcd\"}",
+        "MessageGroupId": "salesteam",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "tableShare.enqueue",
+      "inputs": {
+        "source": {
+          "database": "alice",
+          "table": "orders"
+        },
+        "tableName": "orders_copy",
+        "recipients": [
+          {
+            "kind": "space",
+            "name": "salesteam"
+          },
+          {
+            "kind": "user",
+            "name": "bob"
+          }
+        ],
+        "token": "eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig",
+        "nowMs": 1756000000000
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/table-share.fifo",
+        "MessageBody": "{\"actor\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"source\":{\"database\":\"alice\",\"table\":\"orders\"},\"tableName\":\"orders_copy\",\"recipients\":[{\"kind\":\"space\",\"name\":\"salesteam\"},{\"kind\":\"user\",\"name\":\"bob\"}]}",
+        "MessageGroupId": "alice.orders",
+        "MessageDeduplicationId": "9518081962a74d9e64c88a97c262b55f996fbf6087668fedd6cb5214ece341fb"
+      }
+    },
+    {
+      "route": "tableShare.enqueue@refreshedToken",
+      "inputs": {
+        "source": {
+          "database": "alice",
+          "table": "orders"
+        },
+        "tableName": "orders_copy",
+        "recipients": [
+          {
+            "kind": "space",
+            "name": "salesteam"
+          },
+          {
+            "kind": "user",
+            "name": "bob"
+          }
+        ],
+        "token": "eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-AFTER-REFRESH.sig",
+        "nowMs": 1756000000000
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/table-share.fifo",
+        "MessageBody": "{\"actor\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-AFTER-REFRESH.sig\",\"source\":{\"database\":\"alice\",\"table\":\"orders\"},\"tableName\":\"orders_copy\",\"recipients\":[{\"kind\":\"space\",\"name\":\"salesteam\"},{\"kind\":\"user\",\"name\":\"bob\"}]}",
+        "MessageGroupId": "alice.orders",
+        "MessageDeduplicationId": "23ec65a1529d7afe42385bf9f1224050708500c543ec9cbdfbf0f76a2110953d"
+      }
+    },
+    {
+      "route": "dataQuality.enqueue",
+      "inputs": {
+        "requestId": "00000000-0000-4000-8000-00000000abcd",
+        "space": {
+          "kind": "personal",
+          "bucket": "dat-prod-user-space",
+          "prefix": "alice/"
+        },
+        "location": "alice/data/2026/q1/"
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/data-quality.fifo",
+        "MessageBody": "{\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"idToken\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"space\":{\"kind\":\"personal\",\"bucket\":\"dat-prod-user-space\",\"prefix\":\"alice/\"},\"location\":\"alice/data/2026/q1/\"}",
+        "MessageGroupId": "5c1e2a48379ffcf578bbeab55729fd218e9305e4a46d4a2d8ca0cd2051f4a12f",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "dataQuality.enqueue",
+      "inputs": {
+        "requestId": "00000000-0000-4000-8000-00000000abcd",
+        "space": {
+          "kind": "personal",
+          "bucket": "dat-prod-user-space",
+          "prefix": "alice/"
+        },
+        "location": "/alice/data/2026/q1"
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/data-quality.fifo",
+        "MessageBody": "{\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"idToken\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"space\":{\"kind\":\"personal\",\"bucket\":\"dat-prod-user-space\",\"prefix\":\"alice/\"},\"location\":\"/alice/data/2026/q1\"}",
+        "MessageGroupId": "5c1e2a48379ffcf578bbeab55729fd218e9305e4a46d4a2d8ca0cd2051f4a12f",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "fileSend.enqueue",
+      "inputs": {
+        "requestId": "00000000-0000-4000-8000-00000000abcd",
+        "space": {
+          "kind": "personal",
+          "name": "alice"
+        },
+        "items": [
+          {
+            "kind": "file",
+            "key": "alice/reports/a.csv"
+          },
+          {
+            "kind": "folder",
+            "key": "alice/reports/2026/"
+          }
+        ],
+        "recipients": [
+          {
+            "kind": "user",
+            "name": "bob"
+          }
+        ]
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/file-send.fifo",
+        "MessageBody": "{\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"actor\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"source\":{\"space\":{\"kind\":\"personal\",\"name\":\"alice\"},\"items\":[{\"kind\":\"file\",\"key\":\"alice/reports/a.csv\"},{\"kind\":\"folder\",\"key\":\"alice/reports/2026/\"}]},\"recipients\":[{\"kind\":\"user\",\"name\":\"bob\"}]}",
+        "MessageGroupId": "fdeab79570d11a19a05ce52dba54a66b83597ae4fb6eecfd1a378e83b1b6a039",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "archive.archive",
+      "inputs": {
+        "requestId": "00000000-0000-4000-8000-00000000abcd",
+        "space": {
+          "kind": "personal",
+          "name": "alice"
+        },
+        "items": [
+          {
+            "kind": "file",
+            "key": "alice/reports/a.csv"
+          }
+        ]
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/archive.fifo",
+        "MessageBody": "{\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"mode\":\"archive\",\"actor\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"source\":{\"space\":{\"kind\":\"personal\",\"name\":\"alice\"},\"items\":[{\"kind\":\"file\",\"key\":\"alice/reports/a.csv\"}]}}",
+        "MessageGroupId": "fdeab79570d11a19a05ce52dba54a66b83597ae4fb6eecfd1a378e83b1b6a039",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "archive.restore",
+      "inputs": {
+        "requestId": "00000000-0000-4000-8000-00000000abcd",
+        "space": {
+          "kind": "personal",
+          "name": "alice"
+        },
+        "archiveId": "11111111-2222-4333-8444-555555555555"
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/archive.fifo",
+        "MessageBody": "{\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"mode\":\"restore\",\"actor\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"space\":{\"kind\":\"personal\",\"name\":\"alice\"},\"archiveId\":\"11111111-2222-4333-8444-555555555555\"}",
+        "MessageGroupId": "4f53d6eb31c5d8fd9ab0274f7960f6412f09a51cc9e6408dc14764f8ce4f7d06",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "fileOps.enqueue",
+      "inputs": {
+        "requestId": "00000000-0000-4000-8000-00000000abcd",
+        "operation": "copy",
+        "source": {
+          "space": {
+            "kind": "personal",
+            "name": "alice"
+          },
+          "items": [
+            {
+              "kind": "file",
+              "key": "alice/reports/a.csv",
+              "targetName": "a-copy.csv"
+            }
+          ]
+        },
+        "destination": {
+          "space": {
+            "kind": "personal",
+            "name": "alice"
+          },
+          "prefix": "alice/reports/"
+        },
+        "onConflict": "refuse",
+        "submittedAt": "2026-08-29T12:00:00.000Z"
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/file-ops.fifo",
+        "MessageBody": "{\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"actor\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"operation\":\"copy\",\"source\":{\"space\":{\"kind\":\"personal\",\"name\":\"alice\"},\"items\":[{\"kind\":\"file\",\"key\":\"alice/reports/a.csv\",\"targetName\":\"a-copy.csv\"}]},\"destination\":{\"space\":{\"kind\":\"personal\",\"name\":\"alice\"},\"prefix\":\"alice/reports/\"},\"onConflict\":\"refuse\",\"submittedAt\":\"2026-08-29T12:00:00.000Z\"}",
+        "MessageGroupId": "fdeab79570d11a19a05ce52dba54a66b83597ae4fb6eecfd1a378e83b1b6a039",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "fileOps.enqueue@delete",
+      "inputs": {
+        "requestId": "00000000-0000-4000-8000-00000000abcd",
+        "operation": "delete",
+        "source": {
+          "space": {
+            "kind": "personal",
+            "name": "alice"
+          },
+          "items": [
+            {
+              "kind": "folder",
+              "key": "alice/reports/old/"
+            }
+          ]
+        }
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/file-ops.fifo",
+        "MessageBody": "{\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"actor\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"operation\":\"delete\",\"source\":{\"space\":{\"kind\":\"personal\",\"name\":\"alice\"},\"items\":[{\"kind\":\"folder\",\"key\":\"alice/reports/old/\"}]}}",
+        "MessageGroupId": "fdeab79570d11a19a05ce52dba54a66b83597ae4fb6eecfd1a378e83b1b6a039",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "dataQuality.enqueue",
+      "inputs": {
+        "requestId": "00000000-0000-4000-8000-00000000abcd",
+        "space": {
+          "kind": "shared",
+          "bucket": "dat-prod-shared-space",
+          "prefix": "salesteam/"
+        },
+        "location": "salesteam/data/2026/q1/"
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/data-quality.fifo",
+        "MessageBody": "{\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"idToken\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"space\":{\"kind\":\"shared\",\"bucket\":\"dat-prod-shared-space\",\"prefix\":\"salesteam/\"},\"location\":\"salesteam/data/2026/q1/\"}",
+        "MessageGroupId": "501bfd05a1d62e167729db07b763eb1d3c350f77f7e36204900bbd7a8f5db840",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "dataQuality.enqueue",
+      "inputs": {
+        "requestId": "00000000-0000-4000-8000-00000000abcd",
+        "space": {
+          "kind": "shared",
+          "bucket": "dat-prod-shared-space",
+          "prefix": "salesteam/"
+        },
+        "location": "/salesteam/data/2026/q1"
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/data-quality.fifo",
+        "MessageBody": "{\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"idToken\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"space\":{\"kind\":\"shared\",\"bucket\":\"dat-prod-shared-space\",\"prefix\":\"salesteam/\"},\"location\":\"/salesteam/data/2026/q1\"}",
+        "MessageGroupId": "501bfd05a1d62e167729db07b763eb1d3c350f77f7e36204900bbd7a8f5db840",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "fileSend.enqueue",
+      "inputs": {
+        "requestId": "00000000-0000-4000-8000-00000000abcd",
+        "space": {
+          "kind": "shared",
+          "name": "salesteam"
+        },
+        "items": [
+          {
+            "kind": "file",
+            "key": "salesteam/reports/a.csv"
+          },
+          {
+            "kind": "folder",
+            "key": "salesteam/reports/2026/"
+          }
+        ],
+        "recipients": [
+          {
+            "kind": "user",
+            "name": "bob"
+          }
+        ]
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/file-send.fifo",
+        "MessageBody": "{\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"actor\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"source\":{\"space\":{\"kind\":\"shared\",\"name\":\"salesteam\"},\"items\":[{\"kind\":\"file\",\"key\":\"salesteam/reports/a.csv\"},{\"kind\":\"folder\",\"key\":\"salesteam/reports/2026/\"}]},\"recipients\":[{\"kind\":\"user\",\"name\":\"bob\"}]}",
+        "MessageGroupId": "04a673f54575b8017caf8c4c3aac6ead97af1a8c8f04c05a2d62f8682b305896",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "archive.archive",
+      "inputs": {
+        "requestId": "00000000-0000-4000-8000-00000000abcd",
+        "space": {
+          "kind": "shared",
+          "name": "salesteam"
+        },
+        "items": [
+          {
+            "kind": "file",
+            "key": "salesteam/reports/a.csv"
+          }
+        ]
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/archive.fifo",
+        "MessageBody": "{\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"mode\":\"archive\",\"actor\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"source\":{\"space\":{\"kind\":\"shared\",\"name\":\"salesteam\"},\"items\":[{\"kind\":\"file\",\"key\":\"salesteam/reports/a.csv\"}]}}",
+        "MessageGroupId": "04a673f54575b8017caf8c4c3aac6ead97af1a8c8f04c05a2d62f8682b305896",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "archive.restore",
+      "inputs": {
+        "requestId": "00000000-0000-4000-8000-00000000abcd",
+        "space": {
+          "kind": "shared",
+          "name": "salesteam"
+        },
+        "archiveId": "11111111-2222-4333-8444-555555555555"
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/archive.fifo",
+        "MessageBody": "{\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"mode\":\"restore\",\"actor\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"space\":{\"kind\":\"shared\",\"name\":\"salesteam\"},\"archiveId\":\"11111111-2222-4333-8444-555555555555\"}",
+        "MessageGroupId": "b7c7a858e8e98d0d20851d5a5139e38261fafa2b92bd019bbefd3b1e6e4c4deb",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "fileOps.enqueue",
+      "inputs": {
+        "requestId": "00000000-0000-4000-8000-00000000abcd",
+        "operation": "copy",
+        "source": {
+          "space": {
+            "kind": "shared",
+            "name": "salesteam"
+          },
+          "items": [
+            {
+              "kind": "file",
+              "key": "salesteam/reports/a.csv",
+              "targetName": "a-copy.csv"
+            }
+          ]
+        },
+        "destination": {
+          "space": {
+            "kind": "shared",
+            "name": "salesteam"
+          },
+          "prefix": "salesteam/reports/"
+        },
+        "onConflict": "refuse",
+        "submittedAt": "2026-08-29T12:00:00.000Z"
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/file-ops.fifo",
+        "MessageBody": "{\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"actor\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"operation\":\"copy\",\"source\":{\"space\":{\"kind\":\"shared\",\"name\":\"salesteam\"},\"items\":[{\"kind\":\"file\",\"key\":\"salesteam/reports/a.csv\",\"targetName\":\"a-copy.csv\"}]},\"destination\":{\"space\":{\"kind\":\"shared\",\"name\":\"salesteam\"},\"prefix\":\"salesteam/reports/\"},\"onConflict\":\"refuse\",\"submittedAt\":\"2026-08-29T12:00:00.000Z\"}",
+        "MessageGroupId": "04a673f54575b8017caf8c4c3aac6ead97af1a8c8f04c05a2d62f8682b305896",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    },
+    {
+      "route": "fileOps.enqueue@delete",
+      "inputs": {
+        "requestId": "00000000-0000-4000-8000-00000000abcd",
+        "operation": "delete",
+        "source": {
+          "space": {
+            "kind": "shared",
+            "name": "salesteam"
+          },
+          "items": [
+            {
+              "kind": "folder",
+              "key": "salesteam/reports/old/"
+            }
+          ]
+        }
+      },
+      "sent": {
+        "QueueUrl": "https://sqs.test/1/file-ops.fifo",
+        "MessageBody": "{\"requestId\":\"00000000-0000-4000-8000-00000000abcd\",\"actor\":\"eyJhbGciOiJSUzI1NiJ9.PINNED-ID-TOKEN-FOR-VECTORS.sig\",\"operation\":\"delete\",\"source\":{\"space\":{\"kind\":\"shared\",\"name\":\"salesteam\"},\"items\":[{\"kind\":\"folder\",\"key\":\"salesteam/reports/old/\"}]}}",
+        "MessageGroupId": "04a673f54575b8017caf8c4c3aac6ead97af1a8c8f04c05a2d62f8682b305896",
+        "MessageDeduplicationId": "00000000-0000-4000-8000-00000000abcd"
+      }
+    }
+  ]
+}

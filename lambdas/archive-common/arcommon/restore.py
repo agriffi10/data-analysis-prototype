@@ -41,7 +41,7 @@ from .config import archive_bucket
 
 logger = logging.getLogger()
 
-ALLOWED_FIELDS = frozenset({"requestId", "mode", "actor", "space", "archiveId"})
+ALLOWED_FIELDS = frozenset({"requestId", "mode", "actor", "space", "archiveId", "identity"})
 
 
 def validate(req: dict, request_id: str, actor: str) -> dict:

@@ -260,6 +260,8 @@ Vitest + React Testing Library, jsdom. Tests describe **user-observable behavior
 
 **1–3 scenarios per component**, chosen for how a user actually reaches it, not one per branch. Four or five is fine where a component genuinely earns them; a dozen is a sign the component is doing too much, and the fix is to split it (§1), not to keep the tests. **Coverage floors stay at 85% and are met this way** — if a unit cannot reach the floor from a handful of user-driven scenarios, that is the signal its scoping is wrong.
 
+**When you split a component, split its tests too** — each extracted component or hook gets its own focused test file, not one inherited suite that still drives everything through the old parent. A split that leaves the tests where they were keeps the very shape the cap is meant to surface, and the count never comes down.
+
 **Structure each test arrange / act / assert**, in that order and visibly: set up fixtures and mocked `ServiceResult`s, render and drive with `userEvent`, then assert. One act phase per `it` — a test that arranges, asserts, re-arranges and asserts again is two scenarios sharing a name.
 
 **One test per behavior, not per assertion.** A single `it` may make several assertions about one user-visible outcome. 🔴 Five `it`s for "renders name / size / date / order / icon" → ✅ one `it('renders a populated folder')`. Split only when the *scenario* differs (empty vs error vs populated), not when the field differs.

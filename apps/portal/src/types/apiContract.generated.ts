@@ -33,6 +33,28 @@ export type TablesQuery = {nextToken?: string};
 export type GlueColumnWire = {name: string; type: string};
 export type GlueTableWire = {name: string; columns: GlueColumnWire[]; tableType: string | null; location: string | null};
 export type TablesResponse = {items: GlueTableWire[]; nextToken: string | null};
+export type SharedSpacePayload = {members?: string[]};
+export type SharedSpaceEnqueueRequest = {requestId: string; action: 'create' | 'add_members' | 'remove_members' | 'leave' | 'delete' | 'forget' | 'acknowledge_membership'; space: string; payload: SharedSpacePayload};
+export type EnqueueAccepted = {requestId: string | null};
+export type NotificationsEnqueueRequest = {action: 'markRead' | 'markAllRead'; id: string | null};
+export type CatalogSpaceRef = {kind: 'personal' | 'shared'; bucket: string; prefix: string; database: string};
+export type PartitionKeyWire = {name: string; type: 'integer' | 'date' | 'string'; range?: string[]; format?: string; values?: string[]; digits?: number; interval?: number; intervalUnit?: string};
+export type TableBuildCreateRequest = {requestId: string; space: CatalogSpaceRef; tableName: string; partitionKeys: PartitionKeyWire[]};
+export type TableBuildRefreshRequest = {requestId: string; space: CatalogSpaceRef; tableName: string; partitionKeys: PartitionKeyWire[]; allowRemovals?: boolean};
+export type TableSourceRef = {database: string; table: string};
+export type ShareRecipient = {kind: 'user' | 'space'; name: string};
+export type TableShareEnqueueRequest = {source: TableSourceRef; tableName: string; recipients: ShareRecipient[]};
+export type DataQualitySpaceRef = {kind: 'personal' | 'shared'; bucket: string; prefix: string};
+export type DataQualityEnqueueRequest = {requestId: string; space: DataQualitySpaceRef; location: string};
+export type SelectionItem = {kind: 'file' | 'folder'; key: string};
+export type FileSendSource = {space: SpaceRef; items: SelectionItem[]};
+export type FileSendEnqueueRequest = {requestId: string; source: FileSendSource; recipients: ShareRecipient[]};
+export type ArchiveEnqueueRequest = {requestId: string; source: FileSendSource};
+export type RestoreEnqueueRequest = {requestId: string; space: SpaceRef; archiveId: string};
+export type FileOpItem = {kind?: 'file' | 'folder'; key?: string; targetName?: string};
+export type FileOpSource = {space: SpaceRef; items: FileOpItem[]};
+export type FileOpDestination = {space: SpaceRef; prefix: string};
+export type FileOpsEnqueueRequest = {requestId: string; operation: 'copy' | 'move' | 'delete'; source: FileOpSource; destination?: FileOpDestination; onConflict?: 'refuse' | 'overwrite'; submittedAt?: string};
 export type ErrorParams = {name?: string; attempts?: number; limit?: number};
 export type ApiErrorDetail = {code: 'InvalidRequest' | 'SessionExpired' | 'AccessDenied' | 'NotFound' | 'Conflict' | 'PayloadTooLarge' | 'UnsupportedMediaType' | 'RateLimited' | 'IdentityUnavailable' | 'InternalError' | 'ApiUnavailable' | 'QueryNotFinished' | 'QuerySyntaxError'; requestId: string; detail?: string; params?: ErrorParams};
 export type ApiErrorBody = {error: ApiErrorDetail};
@@ -60,6 +82,16 @@ export const API_ROUTES = {
   'athena.stop': {method: 'POST', path: '/v1/queries/{queryExecutionId}/stop', idempotent: true, params: ['queryExecutionId']},
   'catalog.database.get': {method: 'GET', path: '/v1/catalog/databases/{database}', idempotent: true, params: ['database']},
   'catalog.tables.list': {method: 'GET', path: '/v1/catalog/databases/{database}/tables', idempotent: true, params: ['database']},
+  'sharedSpace.enqueue': {method: 'POST', path: '/v1/enqueue/shared-space', idempotent: false, params: []},
+  'notifications.enqueue': {method: 'POST', path: '/v1/enqueue/notifications', idempotent: false, params: []},
+  'tableBuild.create': {method: 'POST', path: '/v1/enqueue/table-build', idempotent: false, params: []},
+  'tableBuild.refresh': {method: 'POST', path: '/v1/enqueue/table-refresh', idempotent: false, params: []},
+  'tableShare.enqueue': {method: 'POST', path: '/v1/enqueue/table-share', idempotent: false, params: []},
+  'dataQuality.enqueue': {method: 'POST', path: '/v1/enqueue/data-quality', idempotent: false, params: []},
+  'fileSend.enqueue': {method: 'POST', path: '/v1/enqueue/file-send', idempotent: false, params: []},
+  'archive.archive': {method: 'POST', path: '/v1/enqueue/archive', idempotent: false, params: []},
+  'archive.restore': {method: 'POST', path: '/v1/enqueue/restore', idempotent: false, params: []},
+  'fileOps.enqueue': {method: 'POST', path: '/v1/enqueue/file-ops', idempotent: false, params: []},
 } as const;
 
 export type ApiRouteId = keyof typeof API_ROUTES;
@@ -86,6 +118,16 @@ type RouteBodies = {
   'athena.stop': {request: null; query: null; response: StopQueryResponse};
   'catalog.database.get': {request: null; query: null; response: DatabaseResponse};
   'catalog.tables.list': {request: null; query: TablesQuery; response: TablesResponse};
+  'sharedSpace.enqueue': {request: SharedSpaceEnqueueRequest; query: null; response: EnqueueAccepted};
+  'notifications.enqueue': {request: NotificationsEnqueueRequest; query: null; response: EnqueueAccepted};
+  'tableBuild.create': {request: TableBuildCreateRequest; query: null; response: EnqueueAccepted};
+  'tableBuild.refresh': {request: TableBuildRefreshRequest; query: null; response: EnqueueAccepted};
+  'tableShare.enqueue': {request: TableShareEnqueueRequest; query: null; response: EnqueueAccepted};
+  'dataQuality.enqueue': {request: DataQualityEnqueueRequest; query: null; response: EnqueueAccepted};
+  'fileSend.enqueue': {request: FileSendEnqueueRequest; query: null; response: EnqueueAccepted};
+  'archive.archive': {request: ArchiveEnqueueRequest; query: null; response: EnqueueAccepted};
+  'archive.restore': {request: RestoreEnqueueRequest; query: null; response: EnqueueAccepted};
+  'fileOps.enqueue': {request: FileOpsEnqueueRequest; query: null; response: EnqueueAccepted};
 };
 
 export type RequestOf<R extends ApiRouteId> = RouteBodies[R]['request'];

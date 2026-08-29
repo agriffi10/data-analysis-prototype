@@ -60,14 +60,18 @@ Object.defineProperty(document,'hidden',{get:()=>false,configurable:true});
 document.dispatchEvent(new Event('visibilitychange'));
 window.dispatchEvent(new Event('focus'));
 
-// 2. Count Athena calls by target, and S3 writes by path.
+// 2. Count API route calls, remaining x-amz-target calls, and S3 writes by path.
+// The API arm was added when the catalog ported (SPEC-199) and has NOT been exercised live yet.
 window.__ath=[];const of=window.fetch;
 window.fetch=async function(...a){
   try{
     const r=a[0] instanceof Request?a[0]:new Request(a[0],a[1]);
     const t=r.headers.get('x-amz-target')||'', m=(r.method||'GET').toUpperCase();
+    const u=new URL(r.url);
     if(t){let b='';try{b=await r.clone().text()}catch(e){} window.__ath.push({t,body:b,ts:Date.now()})}
-    else if(m!=='GET'){window.__ath.push({t:'S3:'+m,u:new URL(r.url).pathname,ts:Date.now()})}
+    else if(u.pathname.startsWith('/v1/')){let b='';try{b=await r.clone().text()}catch(e){}
+      window.__ath.push({t:'API:'+m+' '+u.pathname,body:b,ts:Date.now()})}
+    else if(m!=='GET'){window.__ath.push({t:'S3:'+m,u:u.pathname,ts:Date.now()})}
   }catch(e){}
   return of.apply(this,a);
 };
@@ -84,8 +88,11 @@ const oc=HTMLAnchorElement.prototype.click;
 HTMLAnchorElement.prototype.click=function(){if(this.href&&/\.(csv|txt|sql|json)/.test(this.href)){window.__dl=this.href;return}return oc.apply(this,arguments)};
 ```
 
-**The network panel cannot separate `StartQueryExecution` from a poll** — it reports URL and status
-only. Count with instrument 2 and the `x-amz-target` header, never by eye.
+**Counting a query's executions is method-and-path work now, not header work.** A start is
+`POST /v1/queries`, a poll is `GET /v1/queries/{id}` and a results read is
+`GET /v1/queries/{id}/results` — distinguishable in the network panel, unlike the single Athena
+endpoint they replaced. Count with instrument 2 rather than by eye anyway: a poll fires every 1.5 s
+and the panel fills fast. `x-amz-target` now identifies only the SQS enqueues.
 
 Read a downloaded file back **inside the page**; never pull a presigned URL into your context:
 
@@ -105,7 +112,7 @@ JSON.stringify({lines:t.trim().split('\n').length, head:t.split('\n')[0], last:t
 | **Prefilled inputs are not selected on focus** | Typing appends: `explorer-shared-destexplorer-shared-filtered`. | `cmd+a` first, or set the value and dispatch `input`. |
 | **Monaco needs a click into the text layer** | `type` silently does nothing. | Click the code line, confirm `document.activeElement.className` is `native-edit-context`, `cmd+a`, type. Escape dismisses autocomplete before running. |
 | **The extension blocks returning query strings** | `[BLOCKED: Cookie/query string data]` from `javascript_tool`. | Return derived values — param *names*, booleans, counts — never the URL. |
-| **`retry: 1` doubles a failing call** | Two `StartQueryExecution` ~1.1 s apart for one failed apply. | Count executions on statements that **succeed**. |
+| **A failing Data Explorer apply used to double** | Two `StartQueryExecution` ~1.1 s apart for one gesture. | **Fixed** — `athena.start` declares no retry, so one failed apply is one `POST /v1/queries`. Counting on a failing statement is now meaningful; **two starts is a regression**, not the tool. |
 | **A dialog's `max-w-md` is 392px, not 448** | A width checker expecting 448 reads every pass as a fail. | Root font-size is **14px**. |
 
 ---
@@ -321,6 +328,26 @@ two-lock path and the pagination boundary are not reachable from the UI. They li
 | History | Records and re-runs. |
 | **Save results** | Writes a CSV where asked, with an overwrite confirm. With `sharedWorkspaces` off it offers **My files only** — a colleague's space must never be a write target. |
 
+**The catalog behind the API (SPEC-199).** Start **signed out** — a signed-in pass never tests the
+token path — and run these before anything else in this section, because the first one is the arc's
+central claim.
+
+| Do | Expect |
+|---|---|
+| **Run a real `SELECT` against your own database, and rows render** | This is the check the whole arc rests on: Lake Formation grants attach to a **principal**, and that principal is now the same portal role assumed by the API rather than vended to the browser. **Record the result against SPEC-196 as well — it discharges that spec's Phase 5 item 4.** No CloudTrail step exists to corroborate it: the account's only trail records S3 data events for the archive bucket. |
+| Expand a rail node for a database you have no `DESCRIBE` on | **403**, envelope-shaped, `code: "AccessDenied"`, **no** AWS text in `detail`, the screen says *"You don't have permission to do that."* — and **no re-login**. |
+| Run a `SELECT` against a table you have no `SELECT` on | **200** on `GET /v1/queries/{id}`, the execution reaches **FAILED**, and the banner reads *"You don't have permission to run that query."* Record both status codes: recording only the 403 above proves nothing about the shape that matters more. |
+| `GET /v1/catalog/databases/{a stranger's username}` and `…/{a name nobody has}` | **Record what each actually returns.** This is the no-existence-oracle question and the answer is Lake Formation's, not this API's. If they differ, that is a finding for SPEC-202's sweep, not a failure here. |
+| `SELECT NULL AS a, '' AS b` | Read the **raw response body** in the network panel — `"rows": [[null, ""]]`. The rendered grid shows the Value panel's rendering of both and cannot tell them apart. |
+| `curl` `GET /v1/queries/{id}/results` against a still-running execution | **409 `QueryNotFinished`**, envelope-shaped. Then submit a malformed statement and confirm it is **400 `QuerySyntaxError`** — one exception name, two codes, and getting them from the name alone is the original defect. |
+| **View DDL** on a real table, then **Options → Create view…** | One start, N polls at ~400 ms, one results call each. These are the **two** paths that send `database` on `POST /v1/queries` — `getTableDdl` and `useRunDdl` — and exercising only the first leaves the other unchecked. |
+| Stop a running query, then stop it again | Both succeed. The second is a no-op on a terminal execution, not an error. |
+| Read one record in `logs/service=api/` for a catalog route | Present: `env`, a real build sha, `route_id`, `actor`, `sql_bytes`, `state`. **Absent:** the SQL text, any `stateChangeReason`, any result cell, any bearer substring, any email. Records arrive on the 10-minute sweep — wait for it rather than concluding from an empty query. |
+| **The load-bearing negative**, after exercising this section and §4.5 end to end | **Zero** requests to `athena.*.amazonaws.com` and `glue.*.amazonaws.com`. |
+| The **first** invocation after a deploy | Succeeds. Cold start is where a layer imported and not attached fails, and it is silent everywhere else. |
+
+**Safari**, since that is the browser in use; a Chromium pass corroborates and cannot discharge.
+
 ### 4.4 Tables — build and refresh
 
 **Build.**
@@ -363,8 +390,9 @@ the **first** partition.
 
 ### 4.5 Data Explorer
 
-**Counting executions is the whole point of this section.** Use instrument 2, and count on
-statements that **succeed**.
+**Counting executions is the whole point of this section.** Use instrument 2 and count
+`POST /v1/queries`. A failing apply now issues exactly **one** of them, so a failing statement counts
+as honestly as a succeeding one.
 
 | # | Do | Expect |
 |---|---|---|
@@ -378,9 +406,11 @@ statements that **succeed**.
 | 8 | Type `qty >>> 5` into **Filter expression** → **Apply** | Error banner, the **previous** rows still beneath it, toolbar and expression bar still there. |
 | 9 | History **back**, then **forward** onto the failed step | Back: the good rows, **no** re-run. Forward: *"This set of filters failed last time it ran. Nothing has been run."* + **Run it anyway**, and **zero** executions on arrival. |
 | 10 | **Grouping** → group by `region`, `COUNT(*)`, tick **Show percentage**, Apply | **1** execution, changed figure. **Generated SQL** is a real `GROUP BY` and the percentage column is **not in it** — it is computed in the browser and its header says `(this page)`. |
-| 11 | Copy the disclosed SQL and compare it to the `QueryString` on the request | **Byte-identical.** This is the only check that proves the disclosure and the executed string have not drifted. |
+| 11 | Copy the disclosed SQL, then `aws athena get-query-execution --query-execution-id <id>` and compare `QueryString` | **Byte-identical.** The only check that proves the disclosure and the executed string have not drifted — and a JSON hop now sits in the middle, so the comparison is against Athena's own read-back, not against the request body. |
 | 12 | Leave grouping | Any sort on `count_all` is **dropped**, not carried onto the raw table. |
 | 13 | Select a dozen numeric cells → **Calc**, toggle functions, reselect | The aggregates, the line `N selected cells on this page`, and **zero** Athena requests throughout. |
+| 14 | Open `/explore`, pick a source, and watch the network panel through the QUEUED window | **Zero** `GET /v1/queries/{id}/results` until a poll reports `SUCCEEDED`. This is the surface the too-early read broke, and with the 409 mapping in place removing the gate now shows a *correct-looking* "still running" message — so the request count is the only assertion that can fail. |
+| 15 | Page a >100-row result forward and back, then let the row count finish | Cached pages, no refetch; the total lands. Every walk request carries a properly encoded `nextToken` — an unencoded `+` decodes to a space and the next page silently restarts from the beginning. |
 
 **Copy and export** (instrument 3 for the clipboard):
 

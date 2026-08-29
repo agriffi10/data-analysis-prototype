@@ -62,7 +62,7 @@ logger.setLevel(logging.INFO)
 observability.init(service="archive")
 
 _ALLOWED_FIELDS = {
-    "archive": frozenset({"requestId", "mode", "actor", "source"}),
+    "archive": frozenset({"requestId", "mode", "actor", "source", "identity"}),
     "restore": restore.ALLOWED_FIELDS,
 }
 

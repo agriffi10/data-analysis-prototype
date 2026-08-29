@@ -209,3 +209,12 @@ def test_the_SPACE_ROOT_is_refused_as_an_item():
     own IAM refuses part-way through. The browser cannot express it, so refusing costs nothing.
     """
     assert _refused(operation="delete", items=[{"kind": "folder", "key": "alice/"}]) == "space_root_not_an_item"
+
+
+def test_the_identity_block_rides_along_and_the_verb_reaches_its_normal_outcome():
+    """The plane refuses unknown top-level fields, so the block is a refusal until admitted."""
+    _setup()
+
+    result = v.handler(_event(identity={"actor": "alice", "delegated_by": None, "assurance": "interactive"}), None)
+
+    assert result["operation"] == "copy"

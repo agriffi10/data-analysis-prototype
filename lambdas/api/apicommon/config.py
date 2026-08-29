@@ -253,3 +253,28 @@ def shared_space_bucket() -> str:
       ConfigError: If the variable is unset or empty.
     """
     return _require(_IDENTITY_VARS["SHARED_SPACE_BUCKET"])
+
+
+def queue_url(queue_id: str) -> str:
+    """Returns the URL of one FIFO request queue.
+
+    Read through the queue registry rather than from a name written here, so the eight variables
+    have one home and a queue cannot be reached without being declared.
+
+    Args:
+      queue_id: The queue's registry id.
+
+    Returns:
+      The queue's URL.
+
+    Raises:
+      ConfigError: If the variable is unset or empty, or if no queue carries that id. An unset
+        repo variable renders as the empty string, so an unconfigured queue is an operator fault
+        answered as a fault, never as a refusal the caller could act on.
+    """
+    from .contract import QUEUES
+
+    for queue in QUEUES:
+        if queue.id == queue_id:
+            return _require(queue.env_var)
+    raise ConfigError(f"no queue is registered under {queue_id!r}")

@@ -69,6 +69,15 @@ user. Users define tables via DDL and may write (CTAS/INSERT) into their own pre
 design-led (`docs/design/query-workspace.html` + `design-system.md` §6). New deps at implementation:
 `@aws-sdk/client-athena`, `@aws-sdk/client-glue`, Monaco.
 
+> **SUPERSEDED in part by SPEC-199 (2026-08-29): the browser no longer calls Athena or Glue.** All
+> six calls — start, status, results, stop, get-database, list-tables — go through the API, which
+> derives the workgroup, the results location and the caller's identity from the verified token;
+> `@aws-sdk/client-athena` and `@aws-sdk/client-glue` are gone. Nothing above the service boundary
+> moved, and **the isolation model is unchanged** — Lake Formation grants attach to a principal, and
+> the principal is the same portal role, assumed by the API rather than vended to the browser. Full
+> entry: `decisions/analytics.md` → *`stateChangeReason` rides a 200*, and `decisions/identity-and-access.md`
+> → *The API makes exactly ONE AWS call per request*.
+
 ---
 
 ## Query-editor UX follow-ups (SPEC-040 → 042)
@@ -1752,6 +1761,15 @@ criterion that forbade it, and would have silently removed the ability to copy *
 per (side × operation), enumerated against the real constants, and read that file's own note first.
 
 ## API-layer & containerisation arc (SPEC-192 → 202)
+
+> **SPEC-199 MERGED 2026-08-29 and the catalog surface is behind the API.** What is left in the
+> browser is presigned S3 bytes, Cognito through Amplify, and eight `sqs:SendMessage` enqueues —
+> SPEC-200's subject. **The arc's central claim is still an argument, not an observation:** that
+> Lake Formation keeps enforcing against the assumed-role session needs one real `SELECT` returning
+> rows, and it is owed rather than run (it also discharges SPEC-196 Phase 5 item 4). So is the
+> question this spec was meant to answer and could not settle offline — whether a **foreign**
+> database and an **absent** one are distinguishable through Lake Formation, which is LF's property
+> and not the API's. Both are rows in `docs/testing/owed.md`; the steps are `e2e.md` §4.3.
 
 > **SPEC-193 APPLIED 2026-08-26, and what the apply found is worth more than what the spec
 > predicted.** The platform is live: `api.dataquarry.app` answers `/healthz`, `portal.dataquarry.app`
