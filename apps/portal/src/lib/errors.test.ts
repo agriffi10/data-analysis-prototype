@@ -77,6 +77,20 @@ describe('errorMessages', () => {
       expect(message).not.toMatch(/Contact the Administrator/i);
     });
 
+    it('gives a rejected statement the SAME sentence as a failed one, never the generic', () => {
+      // Athena rejects some statements at submit and accepts others that then fail — the user
+      // typed the same mistake either way, so they must read the same sentence. Compared against
+      // the match rule's own output rather than a literal: a third copy of a sentence is a third
+      // thing to keep in step, and it agrees with itself while the wording moves.
+      const viaFailedExecution = toUserMessage({
+        code: 'FAILED',
+        message: 'SYNTAX_ERROR: line 1:8: mismatched input FROM'
+      });
+
+      expect(toUserMessage({code: 'QuerySyntaxError'}).message).toBe(viaFailedExecution.message);
+      expect(toUserMessage({code: 'QuerySyntaxError'}).message).not.toMatch(/Contact the Administrator/i);
+    });
+
     it('says exactly the same thing when the API resolves that condition to a code', () => {
       // The API can key on the message where the browser never could, so the too-early read now
       // also arrives as a machine code — and a `code` rule outranks every message rule, so this

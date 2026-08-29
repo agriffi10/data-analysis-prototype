@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import {API_ERROR_CODES} from '../types/apiContract.generated';
-import {PASSTHROUGH_CODES, toUserText} from './errorMessages';
+import {PASSTHROUGH_CODES, USER_FIXABLE_CODES, toUserText} from './errorMessages';
 
 /** The two the client mints. Declared here as data so the guards below can reach them. */
 const CLIENT_MINTED = ['RequestTimeout', 'NetworkUnavailable', 'UnsendableParameter'] as const;
@@ -74,16 +74,30 @@ describe('the wording boundary', () => {
   it('gives every API code a rule of its own', () => {
     // A missing rule is not a crash — it is the generic fallback, which is the RIGHT behaviour
     // for an unknown code and the WRONG behaviour for a known one. Only a guard tells them apart.
+    //
+    // THE RULE THE LIST BELOW ENFORCES: the generic sentence is for a failure the user cannot act
+    // on. Every code on it is an app or deploy fault — a body that failed validation, a fault with
+    // no mapping, a content type the client should not have sent. A code a user CAN do something
+    // about does not belong here, and adding one is how "Contact the Administrator" comes to be
+    // shown to somebody looking at their own typo. `QuerySyntaxError` exists because it was.
     const generic = 'Something went wrong. Contact the Administrator.';
-    const unruled = [...API_ERROR_CODES, ...CLIENT_MINTED].filter((code) => {
-      // A code with no rule resolves to the generic sentence. Two of ours legitimately say that
-      // too, so they are named rather than inferred.
-      const saysGeneric = toUserText({code}) === generic;
-      const deliberatelyGeneric = ['InvalidRequest', 'InternalError', 'UnsupportedMediaType'].includes(code);
-      return saysGeneric && !deliberatelyGeneric;
-    });
+    const deliberatelyGeneric = ['InvalidRequest', 'InternalError', 'UnsupportedMediaType'];
+    const unruled = [...API_ERROR_CODES, ...CLIENT_MINTED].filter(
+      (code) => toUserText({code}) === generic && !deliberatelyGeneric.includes(code)
+    );
 
     expect(unruled).toEqual([]);
+  });
+
+  it('keeps the generic sentence out of the reach of anything a user can fix', () => {
+    // The other direction, and the one the list above cannot police: a code marked `userFixable`
+    // must never resolve to the sentence that tells its reader there is nothing to do. Derived
+    // from the rules rather than listed, so a new user-fixable code joins by existing.
+    const generic = 'Something went wrong. Contact the Administrator.';
+    const contradictions = USER_FIXABLE_CODES.filter((code) => toUserText({code}) === generic);
+
+    expect(contradictions).toEqual([]);
+    expect(USER_FIXABLE_CODES.length).toBeGreaterThan(0);
   });
 
   it('resolves a code from a NEWER API to the generic sentence', () => {

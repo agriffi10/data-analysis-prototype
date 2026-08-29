@@ -201,6 +201,19 @@ const CODE_RULES: readonly ErrorRule[] = [
     userFixable: false
   },
 
+  // Trigger: Athena refused the STATEMENT at submit, rather than accepting it and failing the
+  // execution. The API resolves it to a code because the engine's own text cannot cross the wire.
+  //
+  // Its own code rather than the generic `InvalidRequest`, because the generic sentence is for
+  // what a user cannot act on and this is the opposite: they can read their SQL and fix it. Most
+  // syntax errors still arrive the other way — a FAILED execution whose reason the match rule
+  // below reads — and the sentence is asserted equal to that one so the two paths cannot drift. ──
+  {
+    code: 'QuerySyntaxError',
+    message: 'There’s a syntax error in your query. Check the SQL and try again.',
+    userFixable: true
+  },
+
   {
     code: 'QueryNotFinished',
     message: 'The query is still running. Give it a moment and try again.',
@@ -350,6 +363,19 @@ const CODE_INDEX = new Map<string, ErrorRule>(CODE_RULES.map((r) => [r.code as s
 export const PASSTHROUGH_CODES: readonly string[] = CODE_RULES.filter((rule) => rule.passthrough).map(
   (rule) => rule.code as string
 );
+
+/**
+ * Every code whose rule says the user can fix the thing that went wrong.
+ *
+ * COMPUTED from the rules for the same reason as the set above. It exists so a guard can hold the
+ * one rule this module is for: **the generic "Contact the Administrator" sentence is reserved for
+ * a failure the user cannot act on.** A code marked `userFixable` that resolves to it is a
+ * contradiction — the app knows what is wrong and is telling the reader there is nothing to do —
+ * and that is not hypothetical, it is why `QuerySyntaxError` exists.
+ */
+export const USER_FIXABLE_CODES: readonly string[] = CODE_RULES.filter(
+  (rule) => rule.userFixable && rule.code !== undefined && !rule.passthrough
+).map((rule) => rule.code as string);
 
 // ── Athena engine-message patterns. ───────────────────
 // Query failures surface as {code: 'FAILED', message: stateChangeReason}; there
