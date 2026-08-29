@@ -17,19 +17,29 @@ the bytes were sent**.
 Multipart removes both, but only if the parts are sized for it. A part is its own request under its
 own URL, minted immediately before it is sent — so under the *receipt* reading no part depends on a
 long transfer, and under the *completion* reading a part still has to finish inside its window. **The
-design is only premise-independent if the part size is bounded so that both readings hold**, and
-FR-002 is where that is earned rather than asserted.
+design is only premise-independent if a part is small enough to finish inside one window on the
+slowest connection this product supports**, and FR-002 is where that is earned rather than asserted.
+
+**Working that out exposes something the single-`PUT` path already has wrong.** "What fits in one
+window on the slowest link" is the same quantity whether it bounds a part or a whole object — so it
+is *also* the largest object that can be trusted to upload in one request. Today nothing bounds
+that: a 200 MB upload on a 2 Mbps uplink takes thirteen minutes against a fifteen-minute window and
+has no part to retry. One constant therefore does both jobs, and the threshold is not a tuning knob
+(FR-005).
 
 **This spec buys back what SPEC-198 knowingly gave up.** Its FR-005 named the route trio in as many
 words — `create-multipart` / `sign-part` / `complete-multipart` — "so it is added rather than
 rediscovered". This is that spec, with a fourth route for abort and one correction to the shape: the
-create route **replaces** `objects.uploadUrl` rather than sitting beside it (FR-005).
+create route eventually **replaces** `objects.uploadUrl` rather than sitting beside it — but not in
+the same change, because the API deploys before the SPA and a same-change retirement breaks every
+live upload for the length of a rollout (FR-005).
 
 ## Scope
 
 ### In Scope
 
-- **Four routes**, one of which supersedes `objects.uploadUrl` (FR-001).
+- **Four routes**, added ADDITIVELY beside `objects.uploadUrl`, which is retired only after the
+  browser has switched and shipped (FR-001, FR-005).
 - **The part plan is computed against TWO budgets**, and the second is what makes the expiry premise
   stop mattering (FR-002).
 - **The browser's uploader**: parts in flight, aggregate progress, per-part retry (FR-003).
@@ -154,54 +164,69 @@ assumed session both authorizes and signs.
       membership claims, refusing a foreign space **403 `AccessDenied` with zero AWS calls** — the
       criterion SPEC-198 FR-001 AC7 states, asserted the same way, and easier to get wrong here
       because the `uploadId` looks like authorization (FR-006).
+- [ ] **The collision check is re-run at COMPLETE when `overwrite` is false**, with
+      `If-None-Match: *`. The create-time `head_object` answers about a moment that can be hours
+      before the object is assembled, and completing over what arrived in between reports success
+      while destroying it. This repo has already paid for that shape once: the archive restore
+      guard "runs **TWICE**, and the second pass is the spec correcting itself", because the billed
+      hours are exactly when the user re-creates the file. A long multipart upload is the same
+      window.
 
-### FR-002: The part plan, computed against two budgets
+### FR-002: The part plan, and the one bound that earns the spec's claim
 
 #### Description:
 
-Part size decides whether a part completes inside its window, whether signing becomes the
-bottleneck, and how many round trips an upload costs. **One budget is not enough**, and sizing
-against the round-trip budget alone grows parts without limit — which reproduces the tail-403 this
-spec exists to remove.
+Part size decides whether a part completes inside its window. **That is the only budget that binds**,
+and an earlier draft of this FR had a second one — a lower bound stopping signing becoming the
+bottleneck — which is removed here because it is arithmetically inert: both bounds were proportional
+to the same uplink constant, so the uplink cancelled, they could never conflict for any file size,
+and the lower one only overtook S3's own 5 MiB floor above a *minimum* supported uplink of ~42 Mbps.
+A constant that cannot change the answer is the vacuous computed cap SPEC-161 exists to prevent.
 
 #### Acceptance Criteria:
 
-- [ ] Two constants are **carried across as published S3 limits**, named as such, not derived:
-      `MULTIPART_MIN_PART_BYTES` = 5 MiB (the minimum for every part but the last) and
-      `MULTIPART_MAX_PARTS` = 10,000.
-- [ ] `PART_URL_EXPIRY_SECONDS` is declared, and it is the window
-      `signing_client(covering=PART_URL_EXPIRY_SECONDS)` asks for. It must satisfy the relation
-      SPEC-196's own guard now checks — **strictly less than `ASSUME_ROLE_DURATION_SECONDS`** —
-      because a window no session can span forces an `AssumeRole` per part, permanently and
-      silently.
-- [ ] **The UPPER bound is what makes the expiry premise stop mattering, and it is the one a
-      round-trip budget alone would omit.** `partSize` must satisfy
-      `partSize ≤ MIN_SUPPORTED_UPLINK_BYTES_PER_SEC × PART_URL_EXPIRY_SECONDS / SAFETY`, so that a
-      part sent over the slowest uplink this app supports **completes** inside its own window. Under
-      the receipt reading this bound is unnecessary; under the completion reading it is the whole
-      design. A test computes it and names the uplink it assumed — **a slow uplink is a product
-      decision and the number must be visible**, because choosing it generously is how the bound
-      silently stops binding.
-- [ ] **The LOWER bound stops signing becoming the bottleneck.**
-      `partSize ≥ MIN_SUPPORTED_UPLINK_BYTES_PER_SEC × SIGN_ROUND_TRIP_SECONDS × SAFETY`, so a
-      part takes longer to transfer than its URL takes to mint. Below it the uploader spends its
-      time waiting on the API rather than on S3, and adding parts-in-flight makes it worse rather
-      than better. It is never below `MULTIPART_MIN_PART_BYTES`, which S3 imposes anyway.
-- [ ] `ceil(size / partSize) ≤ MULTIPART_MAX_PARTS`, and where the two bounds cannot both be
-      satisfied within that ceiling **the upper bound wins** — a slow part that completes is better
-      than a fast part that 403s, and the failure the loser produces is the one this spec exists to
-      remove. A test drives a size where they conflict and asserts which gave way.
+- [ ] Three constants are **carried across as published S3 limits**, named as such, not derived:
+      `MULTIPART_MIN_PART_BYTES` = 5 MiB (the minimum for every part but the last),
+      `MULTIPART_MAX_PART_BYTES` = 5 GiB, and `MULTIPART_MAX_PARTS` = 10,000.
+- [ ] `PART_URL_EXPIRY_SECONDS` = **900**, matching the two windows SPEC-198 already ships rather
+      than differing for no reason. It must satisfy the relation SPEC-196's guard checks —
+      **strictly less than `ASSUME_ROLE_DURATION_SECONDS`** — because a window no session can span
+      forces an `AssumeRole` per part, permanently and silently. **That guard's population is a
+      hand-written dict naming `upload` and `download`; this constant is added to it, or the guard
+      passes over it vacuously** — the same failure class as a code missing from `CLIENT_MINTED`.
+- [ ] `MIN_SUPPORTED_UPLINK_BYTES_PER_SEC` = **250,000** (2 Mbps), and it is a **product decision
+      stated as one**: it is the slowest connection this product undertakes to upload large files
+      over. It is visible, and it is the number to change if that undertaking changes — below it,
+      uploads still work, they simply lose the guarantee this FR makes. Chosen conservatively,
+      because the cost of being wrong in the generous direction is the tail-403 this spec exists to
+      remove, and the cost of being wrong in the cautious direction is more round trips.
+- [ ] `PART_WINDOW_SAFETY_FACTOR` = **2**: a part must complete in **half** its window, so a
+      transient stall does not turn into an expiry.
+- [ ] **`MULTIPART_PART_BYTES` is a CONSTANT, not a function of file size**, computed by a test:
+      `clamp(MIN_SUPPORTED_UPLINK_BYTES_PER_SEC × PART_URL_EXPIRY_SECONDS / PART_WINDOW_SAFETY_FACTOR,
+      MULTIPART_MIN_PART_BYTES, MULTIPART_MAX_PART_BYTES)`. At the values above that is **107 MiB**,
+      and the test states that number so a change to any input is visible as a change to it.
+- [ ] **The per-upload plan is one line and it is determinate**:
+      `partSize = max(MULTIPART_PART_BYTES, ceil(size / MULTIPART_MAX_PARTS))`, and
+      `partCount = ceil(size / partSize)`. The size term only bites for an object needing more than
+      10,000 parts at the constant size — beyond 1 TiB, unreachable while `maxUploadBytes()` clamps
+      to 5 GiB. There is **no range and no choice**: an earlier draft left the plan free between two
+      bounds, which made every boundary assertion in this FR unwritable.
+- [ ] **The one real conflict is a REFUSAL, not a tie-break.** When `ceil(size / MULTIPART_MAX_PARTS)`
+      exceeds what the window allows, no plan can both stay inside S3's part ceiling and finish each
+      part in time — so the route answers **413 `PayloadTooLarge`** with `params: {limit}` before any
+      S3 call. An earlier draft said "the upper bound wins", which would have produced sub-5-MiB
+      parts that S3 refuses at complete with `EntityTooSmall`: shipping the failure rather than
+      refusing it. Driven by a test that moves the **constants**, since no file size reaches it at
+      the current clamp.
 - [ ] The plan is computed **server-side, in the create route**, and returned. The browser does not
-      compute it: two implementations of a part plan produce two different part counts for one file,
-      and the complete call would then disagree with what was uploaded.
-- [ ] A declared size no plan can serve is refused at create with **413 `PayloadTooLarge`** and
-      `params: {limit}`, before any S3 call — a courtesy, per FR-001 AC5, and unreachable while
-      `maxUploadBytes()` clamps to 5 GiB. Asserted anyway, because that clamp is one line from being
-      raised.
-- [ ] A test asserts the plan at four boundaries: exactly the threshold, one byte above it, exactly
-      5 GiB, and zero bytes — where an off-by-one yields a part count of 0, or a **last part below
-      the 5 MiB minimum**, which S3 refuses at complete rather than at upload. *(The zero-byte case
-      is unreachable through FR-005's fork and is still a valid direct unit test.)*
+      compute it: two implementations produce two part counts for one file, and the complete call
+      would then disagree with what was uploaded.
+- [ ] A test asserts the plan at four points: one byte below the threshold, exactly the threshold,
+      one byte above it, and exactly 5 GiB — with the comparison stated as `size > threshold`
+      (FR-005), so an off-by-one is visible rather than arguable. The last part is permitted to be
+      below `MULTIPART_MIN_PART_BYTES`, which S3 allows and which the arithmetic produces
+      constantly.
 
 ### FR-003: The browser's uploader
 
@@ -221,25 +246,45 @@ callback and the abort signal are SPEC-020's and SPEC-198's, and this spec is no
       batching optimisation would silently undo the spec.
 - [ ] Parts go over **`XMLHttpRequest`**, not `fetch` — SPEC-198 FR-005's requirement, unchanged and
       for the unchanged reason.
-- [ ] **The `XMLHttpRequest` sweep is widened to name TWO modules, and it stays a NAMED list.**
-      `apiContract.guard.test.ts` currently exempts `fileBrowser.service.ts` alone and asserts
-      `offenders` is empty; a part loop in a new module turns it red. The rule it protects is that
-      `XMLHttpRequest` is not an escape hatch from `apiRequest`, which a two-name allowlist serves
-      exactly as well as a one-name one — and a *pattern* would not. Its companion assertion (that
-      each named module still uses it) is extended to both, so an exemption cannot outlive its
-      subject.
+- [ ] **The `XMLHttpRequest` allowlist stays a NAMED list and gains whatever modules the transport
+      actually lives in.** `apiContract.guard.test.ts` exempts `fileBrowser.service.ts` alone and
+      asserts `offenders` is empty, so any new module naming `XMLHttpRequest` turns it red. The
+      outcome the rule protects is that `XMLHttpRequest` is not an escape hatch from `apiRequest` —
+      a named list of two serves that exactly as well as one, and a *pattern* would not. **Where the
+      transport lives is not specified**: one shared helper both paths call is a perfectly good
+      answer and probably the better one, since otherwise the abort handling, the progress plumbing
+      and the 403-versus-expiry mapping are each written twice. The companion assertion — that an
+      exemption cannot outlive its subject — applies to whichever modules end up on the list.
 - [ ] **`onProgress` reports the AGGREGATE**, and the assertion is on an intermediate value across a
       part boundary: a test uploads a body of three parts, drives progress on part two, and asserts
       `onProgress` is called with `loaded` greater than one part and less than the total. Per-part
       progress that resets at each boundary is the obvious wrong implementation and it looks like a
       working bar.
-- [ ] **The aggregate is computed from per-part bytes-sent, last value wins per part** — never a
-      running sum of progress events. A retried part re-sends bytes already counted, so a sum
-      over-reports and then jumps backwards, and the bar going backwards is what a user notices.
-- [ ] **A failed part is retried, and the retry count names the budget that sized it.** A part that
-      exhausts its retries fails the upload. This is the capability the spec exists to restore, so a
-      test drives a part failing once then succeeding, and asserts the **whole file was not
-      re-sent** — by counting bytes offered to the transport.
+- [ ] **The aggregate is `sum(max(seen_so_far, latest))` per part** — never a running sum of
+      progress events, and **never last-value-wins**. A retried part is a new `XMLHttpRequest` whose
+      first progress event reports a small `loaded`, so last-value-wins drops that part's
+      contribution to near zero and the bar falls: with three parts in flight and part two failing
+      at 4 MiB of 5, the aggregate goes 9.0 MiB → 5.0 MiB. A running sum has the opposite defect,
+      over-reporting and then jumping. Taking the per-part maximum is monotonic at every step, and
+      nothing downstream would hide a regression — the queue stores `loaded` verbatim with no clamp.
+- [ ] **The progress test drives a RETRY, not merely a part boundary.** A test that crosses a
+      boundary without a failure passes under all three implementations, so it cannot be the one
+      that pins this.
+- [ ] **A RETRY RE-MINTS THE PART'S URL, and that is forced rather than chosen.** A part is sized to
+      use half its window on the slowest supported uplink, so a second attempt on the *same* URL
+      starts with roughly half the window already spent and a third cannot finish inside it at all —
+      at 107 MiB, 2 Mbps and 900 s, three attempts need ~1350 s against 900. Reusing the failed URL
+      would therefore reintroduce the tail-403 by a different route, on the very path built to
+      remove it. Each attempt calls `objects.uploadPart` again.
+- [ ] **The retry count is 2, and its budget is makespan.** With re-minting each attempt has a full
+      window, so the constraint is how long one part may take before the upload is worse than
+      starting over: a test computes the worst-case per-part makespan
+      (`(1 + retries) × partSize / MIN_SUPPORTED_UPLINK_BYTES_PER_SEC`) and states it. Two is the
+      point where a third attempt against a connection that has failed twice is unlikely to succeed
+      while adding half again to that number.
+- [ ] A part that exhausts its retries fails the upload. This is the capability the spec exists to
+      restore, so a test drives a part failing once then succeeding, and asserts the **whole file
+      was not re-sent** — by counting bytes offered to the transport.
 - [ ] Parts in flight are bounded by a constant that names its budget. It is **not**
       `UPLOAD_CONCURRENCY`, which bounds files: three files each running four parts is twelve
       concurrent transfers. The budget is the browser's own connection limit per origin, and a test
@@ -254,6 +299,10 @@ callback and the abort signal are SPEC-020's and SPEC-198's, and this spec is no
 
 - [ ] Cancelling calls `objects.uploadAbort` and resolves to code `'Cancelled'` — the same code and
       wording the single-`PUT` path already produces.
+- [ ] **The abort call does NOT carry the caller's signal.** The cancel path is entered *because*
+      `signal.aborted` is true, so passing it to `apiRequest` aborts the abort — leaving the upload
+      to the seven-day lifecycle rule for a cancel the user watched succeed. `uploadFile` already
+      carries a comment about this class of mistake on the mint path.
 - [ ] The abort is **best effort and never blocks the cancel**. A user who cancels gets an immediate
       `Cancelled`; a failed abort is reported nowhere and logged in dev only. The alternative is a
       cancel that can fail, which is a control that does not work when it is most wanted.
@@ -268,7 +317,7 @@ callback and the abort signal are SPEC-020's and SPEC-198's, and this spec is no
 - [ ] The queue's existing cancel semantics are unchanged: `cancel` on a queued item removes it
       without starting; on an in-flight item it aborts and moves to `cancelled`.
 
-### FR-005: The server decides which path an upload takes
+### FR-005: The server decides which path an upload takes, and the retirement is not in this change
 
 #### Description:
 
@@ -277,27 +326,49 @@ Multipart costs a create, N sign calls and a complete. For a small file that is 
 
 #### Acceptance Criteria:
 
-- [ ] **`objects.upload` REPLACES `objects.uploadUrl`**, and returns a discriminated shape:
-      `{mode: 'single' | 'multipart', url?, expiresAt?, uploadId?, partSize?, partCount?}`. A small
-      file gets `mode: 'single'` with a presigned `PUT` — **one API call, exactly as today** — and a
-      large one gets the plan. `objects.uploadUrl` and its tests are retired in the same change.
+- [ ] **`objects.upload` ships ALONGSIDE `objects.uploadUrl`, and the retirement is a later
+      change.** The two paths differ (`/v1/objects/upload` vs `/v1/objects/upload-url`), so nothing
+      obstructs keeping both. Retiring in the same change would break every live upload for the
+      length of an SPA rollout: `decisions/identity-and-access.md` records as fact that **the API
+      deploys before the SPA image**, the three deploy workflows fire independently on a push to
+      `main` with no ordering between them, a Lambda `update-function-code` finishes in seconds
+      against an image build plus ECS rollout of minutes — and there are **two** live SPA surfaces,
+      because CloudFront is still production. SPEC-198 shipped its whole server surface additively
+      for exactly this reason; this spec is the arc's first removal and must inherit the discipline
+      rather than rediscover it.
+- [ ] The order is therefore: **add, switch, then retire.** The retirement's own change carries the
+      blast radius, which is larger than it looks and is listed here so it is planned rather than
+      discovered — `test_presign.py`'s two parameterised suites cover upload *and* download, so
+      deleting "its tests" would take the download route's coverage with it;
+      `test_real_request_shapes.py` posts to `/v1/objects/upload-url`;
+      `UploadQueueProvider.test.tsx` hard-codes `objects.uploadUrl` strings and counts `apiRequest`
+      calls that multipart inflates; `fileBrowser.service.test.ts` has five sites; and
+      `UploadUrlRequest` plus `UPLOAD_URL_EXPIRY_SECONDS` each need a keep-or-drop decision.
+- [ ] `objects.upload` returns `{mode: 'single' | 'multipart', url?, expiresAt?, uploadId?,
+      partSize?, partCount?}`. A file at or below the threshold gets `mode: 'single'` with a
+      presigned `PUT` — **one API call, exactly as today** — and a larger one gets the plan.
 - [ ] **The browser never learns the threshold, and that is the point.**
       `scripts/generate_api_contract.py` emits types, `API_ERROR_CODES` and `API_ROUTES` — **not
       constants** — so a browser-side fork would need a second copy of a policy number, and a drifted
       copy sends files down the wrong path with nothing failing. The repo's mirror-and-pin pattern
-      (`API_FUNCTION_TIMEOUT_SECONDS`, `FEATURE_FLAGS_KEY`) would catch drift but would still put a
-      policy decision in two places. **Rejected in favour of one decision site.**
-- [ ] **The discriminated shape is optional members plus a discriminant, and NOT a union**, because
-      SPEC-197's closed type vocabulary has no union other than `X | None`. Widening it for this is
-      precisely what the closed-vocabulary rule forbids. The browser narrows on `mode`; a test feeds
-      the response type to the generator and asserts the optional members emit as optional.
-- [ ] `MULTIPART_THRESHOLD_BYTES` is **two parts**: `2 × MULTIPART_MIN_PART_BYTES`. Grounded, not
-      chosen — below two parts multipart buys **no retry granularity at all** (one part failing is
-      the whole file, exactly like a single `PUT`) while costing two extra round trips. A test states
-      that reasoning as the computation.
-      *(A one-part multipart upload is legal at S3 — there is no minimum on the last part — so the
-      floor is a cost argument, not a service limit, and the earlier "cannot be multiparted at all"
-      reasoning was wrong by a factor of two.)*
+      would catch drift and would still put the decision in two places. **Rejected in favour of one
+      decision site.**
+- [ ] **The shape is optional members plus a discriminant, and it does NOT narrow in TypeScript.**
+      SPEC-197's closed vocabulary has no union other than `X | None`, and widening it for this is
+      what the closed-vocabulary rule forbids — so `walk()` emits one object type with
+      `url?: string`, and `if (res.mode === 'single')` narrows nothing else. The browser therefore
+      **checks each member it needs at runtime** and answers a named code when the route returns a
+      shape its branch cannot use. That code is browser-minted and goes in `errorMessages.ts` **and**
+      `CLIENT_MINTED` like the other two (FR-008).
+- [ ] **`MULTIPART_THRESHOLD_BYTES` IS `MULTIPART_PART_BYTES`** — one constant, because it is one
+      quantity: the largest object that can be trusted to finish inside one presigned window on the
+      slowest supported uplink. Above it a single `PUT` cannot be trusted, which is the whole reason
+      to multipart; below it multipart buys retry granularity that costs more round trips than the
+      restart it saves. The comparison is `size > threshold`, so a file of exactly one part still
+      takes the single `PUT`.
+      *(An earlier draft grounded the threshold as "two parts" and was circular — it is only two
+      parts if the plan takes the minimum part size, which it does not. It also missed that the
+      single-`PUT` path shares the window problem, which is what makes the two quantities one.)*
 - [ ] **Which path an upload took is observable in a test by route id**, and the span already
       carries `route_id` for free. Without the test half, a threshold regression sending every
       upload down one path passes everything that only asserts the upload succeeded.
@@ -349,13 +420,26 @@ deliberately.
 
 - [ ] **No code is added to `ErrorCode`.** S3's multipart faults map onto the existing set:
       `NoSuchUpload` → **404 `NotFound`**, `InvalidPart` and `InvalidPartOrder` → **400
-      `InvalidRequest`**, `EntityTooSmall` → **400 `InvalidRequest`**. Each is added to
-      `errors.DENIAL_CODES` (or the equivalent classifier entry) — **without that,
-      `errors.for_exception` returns `None`, the fault re-raises and the caller gets
-      `InternalError`, which the wording guard names as deliberately generic.** So the mapping is
-      what makes an authored sentence possible at all.
-- [ ] The browser-minted codes this path adds — an absent ETag, a part that exhausted its retries —
-      are added to `errorMessages.ts` with authored sentences **and** to `apiContract.guard.test.ts`'s
+      `InvalidRequest`**, `EntityTooSmall` → **400 `InvalidRequest`**.
+- [ ] **The mapping is a per-route `raise ApiError(...)` around each S3 verb, NOT a classifier
+      entry.** `errors.DENIAL_CODES` is `{"AccessDenied", "AccessDeniedException"}` and
+      `for_exception` maps membership to **403 `AccessDenied` unconditionally** — so adding
+      `NoSuchUpload` to it would answer 403 for an expired upload id and tell the user they lack a
+      permission. There is no AWS-code → `ErrorCode` table anywhere; the house pattern is the
+      thirteen `raise ApiError(...)` sites already in `routes/`, e.g. `objects_content.py`'s
+      `raise ApiError("NotFound", "no object at that key") from exc`. *(An earlier draft prescribed
+      `DENIAL_CODES`, which would have shipped the wrong status.)*
+- [ ] **Without a mapping the fault re-raises and becomes `InternalError`**, which the wording guard
+      names as deliberately generic — so the per-route raise is what makes an authored sentence
+      possible at all, and that is why FR-008 exists rather than being left to the classifier.
+- [ ] **`CompleteMultipartUpload` can answer `200 OK` with an error in the body**, which is this
+      repo's `delete_objects` trap in another service. The pinned botocore converts it via
+      `_handle_200_error`, so it raises rather than reading as success — **verified against the
+      pinned version, and asserted**, because a version bump that changed it would turn a failed
+      assembly into a reported success.
+- [ ] The browser-minted codes this path adds — an absent ETag, a part that exhausted its retries,
+      and a create response whose members the chosen branch cannot use (FR-005) — are added to
+      `errorMessages.ts` with authored sentences **and** to `apiContract.guard.test.ts`'s
       `CLIENT_MINTED` list, which is hand-maintained: a code left out of it is invisible to the
       "every code has a rule of its own" guard, which is how a service-minted code with no rule
       would reach a user as the generic sentence.
@@ -380,11 +464,13 @@ deliberately.
       `decisions/storage.md`'s *Bytes go to S3 presigned* entry, the CLAUDE.md digest clause, and
       **`architecture.md`'s constraint prose plus ADR row 39**, which the completion ritual names
       explicitly and which an earlier draft of this criterion missed.
-- [ ] `owed.md`'s combined row is **edited, not deleted**: it carries the expiry premise, the
-      multi-GiB check, the part-level-retry residual *and* the still-live foreign-prefix residual
-      with its declined-probe-route reasoning. The retry clause goes; the multi-GiB check is
-      re-worded to settle that a multipart upload completes; **the expiry premise stays worded as it
-      is**; the foreign-prefix residual is untouched.
+- [ ] **`owed.md` is edited across THREE rows, not one, and none is deleted.** The row carrying the
+      expiry premise and the multi-GiB check keeps the premise **worded as it is** and re-words the
+      check to settle that a multipart upload completes. The row carrying the part-level-retry
+      residual *and* the still-live foreign-prefix residual loses only its retry clause — deleting
+      the row would take the declined-probe-route reasoning with it. And the "intermediate upload
+      percentage, in a real browser" row is re-pointed at the aggregate, which is a different and
+      harder claim than the single-`PUT` one it was written for.
 - [ ] **The expiry premise is not discharged.** FR-002's upper bound makes the design correct under
       either reading, which is not the same as knowing which reading is true — and the premise still
       governs a presigned **download** of a large object, which this spec does not touch. Rounding it
@@ -434,18 +520,29 @@ class AbortUploadRequest(TypedDict):
     space: SpaceRef
     key: str
     uploadId: str
+
+# The three RESPONSES are REUSED, not redeclared — they already exist and already match:
+#   objects.uploadPart     -> PresignedUrlResponse   {url, expiresAt}
+#   objects.uploadComplete -> ObjectWrittenResponse  {key, etag}
+#   objects.uploadAbort    -> ObjectDeletedResponse  {key}
 ```
 
 ```python
 # lambdas/api/apicommon/s3_config.py — additions
-# Two are carried service limits; the rest are computed, and each names its budget.
+# Three are carried service limits. Two are decisions, stated with their values. One is computed
+# from them, and it is also the threshold — one quantity, not two (FR-005).
 
 MULTIPART_MIN_PART_BYTES: int            # 5 MiB — S3's published minimum, carried
+MULTIPART_MAX_PART_BYTES: int            # 5 GiB — S3's published maximum per part, carried
 MULTIPART_MAX_PARTS: int                 # 10,000 — S3's published maximum, carried
-PART_URL_EXPIRY_SECONDS: int             # < ASSUME_ROLE_DURATION_SECONDS (FR-002)
-MIN_SUPPORTED_UPLINK_BYTES_PER_SEC: int  # the product decision the two bounds turn on
-SIGN_ROUND_TRIP_SECONDS: float           # the lower bound's budget
-MULTIPART_THRESHOLD_BYTES: int           # 2 × MULTIPART_MIN_PART_BYTES (FR-005)
+
+PART_URL_EXPIRY_SECONDS: int             # 900; < ASSUME_ROLE_DURATION_SECONDS, and ADDED to the
+                                         #   guard's hand-written dict or it passes vacuously
+MIN_SUPPORTED_UPLINK_BYTES_PER_SEC: int  # 250,000 (2 Mbps) — a PRODUCT DECISION, stated as one
+PART_WINDOW_SAFETY_FACTOR: int           # 2 — a part completes in half its window
+
+MULTIPART_PART_BYTES: int                # computed: 107 MiB at the values above
+MULTIPART_THRESHOLD_BYTES: int           # == MULTIPART_PART_BYTES. One quantity.
 ```
 
 ## API / Interface Contract
@@ -466,7 +563,7 @@ lambdas/
 │   ├── apicommon/s3_config.py       # + the six multipart constants
 │   ├── routes/objects_upload.py     # NEW — create, sign-part, complete, abort
 │   ├── routes/objects_presign.py    # − upload_url; download_url unchanged
-│   └── test_multipart.py            # NEW — the plan's two bounds, the capability rules
+│   └── test_multipart.py            # NEW — the plan, its refusal, the capability rules
 └── test_multipart_infrastructure.py # NEW — the CORS ETag and lifecycle assertions, beside the
                                      #   existing Terraform-reading bucket tests
 
@@ -481,14 +578,16 @@ None. No new `VITE_*`, no new runtime-config key, no new Lambda variable, **and 
 
 ## Implementation Phases
 
-### Phase 1: The plan and its two bounds
-`s3_config`'s six constants with their computing tests — the upper bound first, since it is the one
-the design's claim rests on — and FR-002's conflict case and four boundaries. No routes yet.
+### Phase 1: The plan
+`s3_config`'s constants with their computing tests, `MULTIPART_PART_BYTES` stating its 107 MiB, the
+`PART_URL_EXPIRY_SECONDS` entry added to the window-vs-session guard's dict, FR-002's four boundary
+points and its refusal driven by moving the constants. No routes yet.
 
-### Phase 2: The routes
-`objects_upload.py`, the contract rows, `Route.plane` and `idempotent`, the retirement of
-`objects.uploadUrl`, FR-006 whole (re-authorization, the zero-call foreign refusal, the field rule),
-and FR-008's classifier entries. Regenerate the TypeScript contract.
+### Phase 2: The routes, ADDITIVELY
+`objects_upload.py`, the contract rows, `Route.plane` and `idempotent`, FR-006 whole
+(re-authorization, the zero-call foreign refusal, the field rule), and FR-008's per-route `ApiError`
+raises. `objects.uploadUrl` is untouched and still serves the deployed SPA. Regenerate the
+TypeScript contract.
 
 ### Phase 3: The browser
 `multipartUpload.ts`, the fork on the route's answer, per-part minting, aggregate progress with the
@@ -500,6 +599,9 @@ A real multi-part upload from the container origin: part ETags read cross-origin
 crossing a part boundary without resetting, a cancel leaving no assembled object, and a killed tab
 leaving parts the lifecycle rule owns. Added to `e2e.md` §4.2 beside SPEC-198's block.
 
-### Phase 5: Completion ritual
+### Phase 5: Retire `objects.uploadUrl`
+Only once the browser has switched and shipped. The blast radius is in FR-005 AC2.
+
+### Phase 6: Completion ritual
 `Status: Completed`, the `INDEX.md` row, the delivery doc, FR-009's superseded markers at all four
 sites, the `owed.md` edit, the register clause, and the two-clause Help correction.
