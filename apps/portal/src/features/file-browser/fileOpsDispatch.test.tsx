@@ -36,7 +36,6 @@ vi.mock('./fileBrowser.service', async (importActual) => {
     deleteObject: vi.fn(),
     moveObject: vi.fn(),
     copyObject: vi.fn(),
-    objectExists: vi.fn(),
     firstFreeName: vi.fn(),
     getDownloadUrl: vi.fn(),
     uploadFile: vi.fn(),
@@ -150,7 +149,6 @@ beforeEach(() => {
   vi.mocked(getNotifications).mockResolvedValue(ok([]));
   mock.listFiles.mockResolvedValue(ok(page()));
   mock.folderExists.mockResolvedValue(ok(true));
-  mock.objectExists.mockResolvedValue(ok(false));
   mock.deleteObject.mockResolvedValue(ok({key: 'alice/report.csv'}));
   mock.moveObject.mockResolvedValue(ok({destKey: 'alice/docs/report.csv'}));
   mock.copyObject.mockResolvedValue(ok({destKey: 'alice/docs/report.csv'}));
@@ -539,5 +537,43 @@ describe('the conflict round trip', () => {
     await user.click(within(dialog).getByRole('button', {name: 'Use a different name…'}));
     const form = await screen.findByRole('dialog', {name: 'Rename to avoid the conflict'});
     await expectContainerHasNoA11yViolations(form, COMPONENT_AXE_OPTIONS);
+  });
+});
+
+describe('with the plane switched off, a shape it alone can perform is REFUSED AT THE CONTROL', () => {
+  /**
+   * The affordance half of a refusal the services also make, and the half that matters most.
+   *
+   * The services refuse per item, after the fact, because a mixed selection must still move its
+   * files. But a folder delete that reaches the confirm asks *"Delete the folder and everything
+   * inside it? This can't be undone."* and then deletes nothing — the app's most alarming sentence,
+   * spent on an action that cannot happen. The repo already had `disabledReason` for exactly this.
+   */
+  it('disables Delete for a folder, with a reason that does not promise "later"', async () => {
+    withFlags({asyncFileOperations: false});
+    const {user} = render();
+
+    await user.click(await screen.findByRole('checkbox', {name: 'Select folder docs'}));
+    const del = screen.getByRole('button', {name: 'Delete selected items'});
+
+    await waitFor(() => expect(del).toHaveAttribute('aria-disabled', 'true'));
+    // Not "try again later": while the service is off, later is the same.
+    expect(del).toHaveAccessibleDescription(/not available/i);
+    expect(del).not.toHaveAccessibleDescription(/later/i);
+  });
+
+  it('leaves a SINGLE FILE alone, which is the whole point of the gate', async () => {
+    // A gate that blocked a single-file delete the plane never sees would take away something the
+    // user could do before, which is the one thing this switchover may not do.
+    withFlags({asyncFileOperations: false});
+    const {user} = render();
+
+    await user.click(await screen.findByRole('checkbox', {name: 'Select report.csv'}));
+    const del = screen.getByRole('button', {name: 'Delete selected items'});
+
+    expect(del).not.toHaveAttribute('aria-disabled', 'true');
+    await user.click(del);
+    await user.click(await screen.findByRole('button', {name: 'Delete'}));
+    await waitFor(() => expect(mock.deleteObject).toHaveBeenCalled());
   });
 });

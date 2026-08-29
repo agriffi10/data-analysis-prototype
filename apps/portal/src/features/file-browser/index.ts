@@ -39,7 +39,6 @@ export {
   moveObject,
   isPrefixMarkerKey,
   getDownloadUrl,
-  objectExists,
   folderExists,
   uploadFile,
   createFolder,

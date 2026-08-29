@@ -51,8 +51,12 @@ def upload_url(context: RequestContext) -> dict[str, Any]:
     space = _objects.space_from_body(context)
     key = _objects.contained(space, str(body.get("key", "")))
     overwrite = bool(body.get("overwrite", False))
-    # An upload never CREATES a marker — no surface offers it — so the stricter rule applies at both
-    # settings here, where the document route has to admit the create.
+    # The stricter rule at BOTH settings, where the document route has to admit a create. A user
+    # genuinely can pick a file called DO_NOT_DELETE.txt in the dropzone, and before this arc that
+    # upload succeeded — the bucket policies deny only the delete. It is refused now, deliberately:
+    # the object would sit at a key the listing hides by basename and nobody can ever remove, and
+    # the folder it lands in stays open around it. The only marker this app writes is the one the
+    # document route creates, with a body it chose.
     protected.assert_replaceable(space, key)
 
     client, credentials = identity.signing_client("s3", context.acting_as)

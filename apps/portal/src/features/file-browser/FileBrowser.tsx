@@ -439,8 +439,7 @@ function FileBrowserContent({
       <OperationFeedback
         op={move}
         pastVerb="Moved"
-        failVerb="move"
-        progressVerb="Moving">
+        failVerb="move">
         {/* Rename collision — Overwrite or pick a new name. Not part
             of the shared state: it is single-item, so a new name is offered too. */}
         {move.renameCollision && (
@@ -458,7 +457,6 @@ function FileBrowserContent({
         op={copy}
         pastVerb="Copied"
         failVerb="copy"
-        progressVerb="Copying"
       />
 
       {/* Mounted here rather than in FileBrowserDialogs because its state is this

@@ -312,24 +312,6 @@ export async function getDownloadUrl(params: {
 }
 
 /**
- * Does an object already exist at this key?
- *
- * A miss is `data: false`, never a failure — the route answers 200 either way, because mapping
- * absence onto the error arm would turn every collision check into something the caller has to
- * re-interpret.
- *
- * @param params.bucket - The bucket.
- * @param params.key - The exact object key.
- * @returns Whether it is there.
- */
-export async function objectExists(params: {bucket: string; key: string}): Promise<ServiceResult<boolean>> {
-  const {bucket, key} = params;
-  const answer = await apiRequest('objects.exists', {query: {...spaceQuery(bucket, key), key}});
-  if (!answer.success) return fromApiFailure(answer.error, 'Failed to check whether the object exists');
-  return ok(answer.data.exists);
-}
-
-/**
  * Does anything at all live under this prefix?
  *
  * **A RAW, UNFILTERED answer, and that is the whole point.** The browser's own listing is not an
@@ -472,7 +454,8 @@ export async function uploadFile(params: {
   if (signal?.aborted) return cancelled();
 
   const minted = await apiRequest('objects.uploadUrl', {
-    body: {space: spaceFor(bucket, key), key, contentType, overwrite}
+    body: {space: spaceFor(bucket, key), key, contentType, overwrite},
+    signal
   });
   if (!minted.success) {
     if (minted.error.code === 'Conflict') {
@@ -481,7 +464,21 @@ export async function uploadFile(params: {
     return fromApiFailure(minted.error, 'Failed to upload file');
   }
 
-  return sendBytes({url: minted.data.url, key, body, contentType, onProgress, signal});
+  // Checked AGAIN, after the mint. `addEventListener('abort')` on an already-fired signal never
+  // runs, so a cancel that lands while the URL is being minted would otherwise attach a listener
+  // to a spent signal and send the bytes anyway — the queue row going straight from `uploading` to
+  // Succeeded for a file the user stopped.
+  if (signal?.aborted) return cancelled();
+
+  return sendBytes({
+    url: minted.data.url,
+    key,
+    body,
+    contentType,
+    onProgress,
+    signal,
+    expiresAt: minted.data.expiresAt
+  });
 }
 
 /** The one wording for an upload the user stopped, minted at both of the two places it can happen. */
@@ -497,7 +494,40 @@ type TransferParams = {
   contentType: string;
   onProgress?: (loaded: number, total: number) => void;
   signal?: AbortSignal;
+  /** When the URL dies. Read on a 403 to tell an expired link from a denial — see `rejection`. */
+  expiresAt: string;
 };
+
+/**
+ * What S3 refusing the bytes means, in the user's terms.
+ *
+ * **A 403 here is routinely an EXPIRY, not a permissions problem**, and telling a user to contact
+ * an administrator about it is wrong twice over: nothing is misconfigured, and the thing that would
+ * actually help — upload it again — goes unsaid. The window is clamped to the signing session's
+ * remaining life, so a transfer that outlives it is an ordinary outcome of a large file rather than
+ * an exceptional one, and there is no part-level retry left to paper over it.
+ *
+ * This is what `expiresAt` is FOR. The route returns it so a caller can tell the two apart, and a
+ * caller that discards it leaves the field satisfying its acceptance criterion in letter only.
+ *
+ * @param status - The HTTP status S3 answered with.
+ * @param expiresAt - When the URL the transfer used was due to die.
+ * @returns The service failure, with a code `errorMessages.ts` has a sentence for.
+ */
+function rejection(status: number, expiresAt: string): ServiceResult<never> {
+  if (status === 403 && Date.parse(expiresAt) <= Date.now()) {
+    return {
+      success: false,
+      error: {message: 'The upload took longer than its secure link lasted.', code: 'UploadLinkExpired'}
+    };
+  }
+  // Never S3's own body, which is XML and names a bucket. The code is what the surface maps, and
+  // `AccessDenied` and `UploadFailed` both have authored sentences.
+  return {
+    success: false,
+    error: {message: 'Failed to upload file.', code: status === 403 ? 'AccessDenied' : 'UploadFailed'}
+  };
+}
 
 // The transfer itself. Separate from `uploadFile` so the promise wrapper — which cannot `await`
 // anything — has nothing in it but the request and its outcomes.
@@ -519,7 +549,7 @@ function sendBytes(params: TransferParams): Promise<ServiceResult<UploadResult>>
 // The request itself. Separated only so the executor above is nothing but its own guard — a `try`
 // wrapping thirty lines is a `try` whose scope nobody re-reads.
 function sendOverXhr(params: TransferParams, resolve: (result: ServiceResult<UploadResult>) => void): void {
-  const {url, key, body, contentType, onProgress, signal} = params;
+  const {url, key, body, contentType, onProgress, signal, expiresAt} = params;
   {
     const xhr = new XMLHttpRequest();
     // Listening on `xhr.upload`, not on `xhr`: the request's own progress events describe the
@@ -540,9 +570,7 @@ function sendOverXhr(params: TransferParams, resolve: (result: ServiceResult<Upl
 
     xhr.addEventListener('load', () => {
       if (xhr.status >= 200 && xhr.status < 300) return settle(ok({key}));
-      // S3's own body is XML and technical, and it is never shown: the code is what the surface
-      // maps. A 403 here is an expired or mis-signed URL, which reads to a user as a failed upload.
-      settle({success: false, error: {message: 'Failed to upload file.', code: `Http${xhr.status}`}});
+      settle(rejection(xhr.status, expiresAt));
     });
     xhr.addEventListener('error', () =>
       settle({success: false, error: {message: 'Failed to upload file.', code: 'NetworkUnavailable'}})

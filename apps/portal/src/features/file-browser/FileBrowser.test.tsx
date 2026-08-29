@@ -28,7 +28,6 @@ vi.mock('./fileBrowser.service', async (importActual) => {
     deleteObject: vi.fn(),
     moveObject: vi.fn(),
     copyObject: vi.fn(),
-    objectExists: vi.fn(),
     firstFreeName: vi.fn(),
     getDownloadUrl: vi.fn(),
     uploadFile: vi.fn(),
@@ -132,7 +131,6 @@ beforeEach(() => {
   mock.deleteObject.mockResolvedValue(ok({key: 'alice/report.csv'}));
   mock.moveObject.mockResolvedValue(ok({destKey: 'alice/docs/notes.txt'}));
   mock.copyObject.mockResolvedValue(ok({destKey: 'alice/docs/notes.txt'}));
-  mock.objectExists.mockResolvedValue(ok(false));
   mock.firstFreeName.mockResolvedValue(ok('report (1).csv'));
   mock.createFolder.mockResolvedValue(ok({prefix: 'alice/new/'}));
   mock.uploadFile.mockResolvedValue(ok({key: 'alice/up.txt'}));

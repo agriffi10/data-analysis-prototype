@@ -179,16 +179,24 @@ class TestTheCapsAreSizedAgainstABudget:
     def test_the_single_put_ceiling_matches_the_browsers_shipped_default(self) -> None:
         """Checked against the OTHER copy of the number, not against a restatement of itself.
 
-        `DEFAULT_MAX_UPLOAD_BYTES` in the browser is the same S3 limit, and the point of this
-        constant is that the single-PUT design moves the ceiling nowhere. Asserting `== 5 * 1024
-        * 1024 * 1024` here would restate the value under test, which this file's own docstring
-        forbids — it cannot fail for the reason the number exists.
+        The browser's `S3_SINGLE_PUT_MAX_BYTES` is the same S3 limit, and the point of this
+        constant is that the single-PUT design moves the ceiling nowhere. Asserting the literal
+        here would restate the value under test, which this file's own docstring forbids — so the
+        assertion is that the two sides agree, and it fails when either moves.
+
+        The path is anchored on ``__file__``, not on the working directory: CI runs pytest from the
+        repo root and a developer runs it from ``lambdas/``, and a cwd-relative path passes in one
+        and raises ``FileNotFoundError`` in the other.
         """
-        shipped = pathlib.Path("apps/portal/src/features/file-browser/uploadLimits.ts").read_text()
-        assert "5 * 1024 * 1024 * 1024" in shipped.replace(" ", "").replace(
-            "5*1024*1024*1024", "5 * 1024 * 1024 * 1024"
-        ) or "5368709120" in shipped, "the browser's cap moved; reconcile the two"
-        assert s3_config.S3_SINGLE_PUT_MAX_BYTES == 5 * 1024**3
+        repo_root = pathlib.Path(__file__).resolve().parents[2]
+        shipped = (
+            repo_root / "apps/portal/src/features/file-browser/uploadLimits.ts"
+        ).read_text()
+        compact = shipped.replace(" ", "")
+        assert (
+            f"={s3_config.S3_SINGLE_PUT_MAX_BYTES}" in compact
+            or "=5*1024*1024*1024" in compact
+        ), "the browser's cap and the API's disagree; reconcile the two"
 
     def test_the_carried_constants_are_the_shipped_values(self) -> None:
         """900s and 999 are carried across, explicitly NOT re-derived."""

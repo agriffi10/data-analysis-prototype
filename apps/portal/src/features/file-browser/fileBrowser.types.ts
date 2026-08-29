@@ -51,7 +51,16 @@ export type BulkOperationError = {key: string; message: string; code?: string};
  */
 export type BulkOperationState = {
   isBusy: boolean;
-  /** 0..100 while a folder operation runs; `null` when there is nothing to report. */
+  /**
+   * 0..100 while an operation reports progress; `null` when there is nothing to report.
+   *
+   * **Every operation reports `null` today**, and that is a consequence rather than an oversight:
+   * the only thing that ever filled it was a folder copy or move counting objects in the browser,
+   * and those belong to the file-operations plane now. Live progress lives in two other places —
+   * the upload queue's own per-file percentage, and the plane's in-flight list. Kept on the shape,
+   * and `OperationFeedback` keeps rendering it, because the next synchronous operation with
+   * something to count needs neither re-invented; the call sites simply stopped passing a verb.
+   */
   progress: number | null;
   /** A systemic failure that stopped the whole operation. Dismissible. */
   error: string | null;

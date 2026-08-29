@@ -65,10 +65,11 @@ export type PortalEnvVar = Exclude<(typeof VITE_NAME)[RuntimeConfigKey], null>;
  * Vite can only substitute what it can see statically: a computed index
  * (`import.meta.env[name]`) makes it emit the WHOLE env object into the bundle — every
  * `VITE_*` variable present at build time, including ones this app never names. That
- * would silently void the guarantee `lib/s3Client.ts` documents and depends on, which is
- * that a dev-only access key cannot reach a production bundle even though a `DEV` branch
- * references it. Measured, not assumed: with a computed index, a
- * `VITE_AWS_SECRET_ACCESS_KEY` set at build time appears verbatim in `dist/assets/`.
+ * would emit every `VITE_*` present at build time into the artifact, named or not. Measured, not
+ * assumed: with a computed index, a `VITE_AWS_SECRET_ACCESS_KEY` set at build time appeared
+ * verbatim in `dist/assets/`. That variable is gone now, along with the dev-only S3 client whose
+ * `DEV` branch referenced it — but the property is about the SUBSTITUTION, not about that one
+ * secret, and it holds for whatever the next build-time value happens to be.
  *
  * Built inside the function, never at module load, so `vi.stubEnv` is still seen.
  */

@@ -6,7 +6,6 @@ import {
   copyObject,
   moveObject,
   getDownloadUrl,
-  objectExists,
   folderExists,
   firstFreeName,
   uploadFile,
@@ -471,29 +470,6 @@ describe('getDownloadUrl', () => {
   });
 });
 
-describe('objectExists', () => {
-  it('reports an absent key as false, not as a failure', async () => {
-    api.on('objects.exists', {success: true, data: {exists: false}});
-
-    const result = await objectExists({bucket: 'user-space', key: 'alice/gone.csv'});
-
-    expect(result).toEqual({success: true, data: false});
-  });
-
-  it('asks about the exact key', async () => {
-    api.on('objects.exists', {success: true, data: {exists: true}});
-
-    const result = await objectExists({bucket: 'user-space', key: 'alice/here.csv'});
-
-    expect(result).toEqual({success: true, data: true});
-    expect(api.queryFor('objects.exists')).toEqual({
-      spaceKind: 'personal',
-      spaceName: 'alice',
-      key: 'alice/here.csv'
-    });
-  });
-});
-
 describe('folderExists', () => {
   it('asks the PREFIX question, not the object one', async () => {
     // The listing cannot answer this: it hides a folder's own marker object, so an empty folder
@@ -762,8 +738,8 @@ describe('uploadFile', () => {
     return {size, type: 'text/csv'} as Blob;
   }
 
-  function mintedUrl(url = 'https://signed.example/put') {
-    api.on('objects.uploadUrl', {success: true, data: {url, expiresAt: '2026-01-01T00:15:00Z'}});
+  function mintedUrl(url = 'https://signed.example/put', expiresAt = '2999-01-01T00:00:00Z') {
+    api.on('objects.uploadUrl', {success: true, data: {url, expiresAt}});
   }
 
   it('mints a URL and PUTs the bytes to it', async () => {
@@ -947,7 +923,31 @@ describe('uploadFile', () => {
     expect(result.error.message).toContain('open');
   });
 
-  it('reports a non-2xx from S3 as a failure carrying its status', async () => {
+  it('tells an EXPIRED link from a denial, which is what expiresAt is for', async () => {
+    // A 403 here is routinely an expiry, not a permissions problem: the window is clamped to the
+    // signing session's remaining life, and with no part-level retry a large file can simply
+    // outlast it. Telling that user to contact an administrator is wrong twice — nothing is
+    // misconfigured, and the thing that would help goes unsaid.
+    mintedUrl('https://signed.example/put', '2020-01-01T00:00:00Z');
+    const pending = uploadFile({
+      bucket: 'user-space',
+      key: 'alice/report.csv',
+      body: blob(10),
+      contentType: 'text/csv'
+    });
+    await vi.waitFor(() => expect(FakeXhr.last).toBeDefined());
+
+    FakeXhr.last!.status = 403;
+    FakeXhr.last!.fire('load');
+
+    const result = await pending;
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('UploadLinkExpired');
+    expect(toUserText(result.error)).toBe('That upload ran out of time before it finished. Upload the file again.');
+  });
+
+  it('a 403 on a link that has NOT expired is a denial, not an expiry', async () => {
     mintedUrl();
     const pending = uploadFile({
       bucket: 'user-space',
@@ -960,10 +960,60 @@ describe('uploadFile', () => {
     FakeXhr.last!.status = 403;
     FakeXhr.last!.fire('load');
 
-    expect(await pending).toEqual({
-      success: false,
-      error: {message: 'Failed to upload file.', code: 'Http403'}
+    const result = await pending;
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.code).toBe('AccessDenied');
+  });
+
+  it('gives every other refusal a sentence a user can act on, never the generic one', async () => {
+    // THE GUARD. A code with no rule resolves to "Something went wrong. Contact the
+    // Administrator." — which is the wrong advice for a transfer that wrote nothing and can simply
+    // be retried, and it is what an `Http${status}` code produced.
+    const generic = 'Something went wrong. Contact the Administrator.';
+    for (const status of [403, 500, 503]) {
+      mintedUrl();
+      const pending = uploadFile({
+        bucket: 'user-space',
+        key: 'alice/report.csv',
+        body: blob(10),
+        contentType: 'text/csv'
+      });
+      await vi.waitFor(() => expect(FakeXhr.last).toBeDefined());
+      FakeXhr.last!.status = status;
+      FakeXhr.last!.fire('load');
+
+      const result = await pending;
+      expect(result.success).toBe(false);
+      if (result.success) return;
+      expect(toUserText(result.error), `status ${status}`).not.toBe(generic);
+    }
+  });
+
+  it('does NOT send the bytes when the cancel lands while the URL is being minted', async () => {
+    // `addEventListener('abort')` on an already-fired signal never runs, so a listener attached
+    // after the mint is attached to a spent signal — the queue row would go straight from
+    // `uploading` to Succeeded for a file the user stopped.
+    const controller = new AbortController();
+    api.on('objects.uploadUrl', {
+      success: true,
+      data: {url: 'https://signed.example/put', expiresAt: '2999-01-01T00:00:00Z'}
     });
+    mockRequest.mockImplementationOnce(async () => {
+      controller.abort();
+      return {success: true, data: {url: 'https://signed.example/put', expiresAt: '2999-01-01T00:00:00Z'}};
+    });
+
+    const result = await uploadFile({
+      bucket: 'user-space',
+      key: 'alice/report.csv',
+      body: blob(10),
+      contentType: 'text/csv',
+      signal: controller.signal
+    });
+
+    expect(result).toEqual({success: false, error: {message: 'Upload cancelled.', code: 'Cancelled'}});
+    expect(FakeXhr.last).toBeUndefined();
   });
 
   it('reports a dead connection as a network failure', async () => {
