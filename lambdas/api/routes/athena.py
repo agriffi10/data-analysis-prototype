@@ -29,12 +29,24 @@ Attributes:
   NOT_FINISHED_MARKERS: The lowercased fragments that identify a too-early results read inside an
     ``InvalidRequestException``'s message. Two spellings, because Athena's own wording has
     carried both the machine name and the sentence.
+  SYNTAX_MARKERS: The fragments that identify a statement the user can FIX inside the same
+    exception. They exist so the browser can say "there is a syntax error in your query" instead
+    of the generic sentence — which is reserved for what a user cannot act on.
+
+    **They do not reproduce the browser's rules, and are not meant to.** Athena's own messages of
+    this family carry ``line N:M``, which the pattern beside this tuple matches, so a column error
+    refused at submit is classified here as a statement the user can fix while the same message on
+    the failed-execution path reaches the browser's more specific rule about a column. The two
+    paths therefore answer one message with two different sentences — accepted, because both tell
+    the user to go and look at their SQL, and the rule this serves is that neither says "contact
+    the administrator" for something they can fix.
   INVALID_REQUEST_CODE: The one Athena exception name this module reads, and it is ambiguous by
     itself — it covers a malformed query at submit, a results read before an execution finished,
     and a stop against an execution that already has. Each site says which of those it means and
     decides on the MESSAGE where the distinction matters.
 """
 
+import re
 from typing import Any
 
 from apicommon import identity
@@ -49,6 +61,10 @@ MIN_MAX_ROWS = 1
 DEFAULT_MAX_ROWS = 100
 
 NOT_FINISHED_MARKERS = ("invalid_query_execution_state", "has not yet finished")
+
+SYNTAX_MARKERS = ("syntax_error", "mismatched input", "parse error")
+
+_LINE_COLUMN_RE = re.compile(r"line \d+:\d+")
 
 INVALID_REQUEST_CODE = "InvalidRequestException"
 
@@ -117,8 +133,9 @@ def start(context: RequestContext) -> dict[str, Any]:
       The execution id.
 
     Raises:
-      ApiError: ``InvalidRequest`` when Athena refuses the query at submit; ``InternalError``
-        if it accepts the call and returns no id.
+      ApiError: ``QuerySyntaxError`` when Athena refuses the STATEMENT, ``InvalidRequest`` when
+        it refuses the request for any other reason, and ``InternalError`` if it accepts the call
+        and returns no id.
       IdentityUnavailableError: If the caller's role cannot be assumed.
       ConfigError: If the workgroup or the bucket is unset.
       Exception: Whatever Athena raised, for the classifier above.
@@ -143,7 +160,9 @@ def start(context: RequestContext) -> dict[str, Any]:
         response = _client(context).start_query_execution(**request)
     except Exception as exc:
         if identity.aws_error_code(exc) == INVALID_REQUEST_CODE:
-            raise ApiError("InvalidRequest", "athena refused the query at submit") from exc
+            if _is_syntax_error(exc):
+                raise ApiError("QuerySyntaxError", "athena rejected the statement") from exc
+            raise ApiError("InvalidRequest", "athena refused the request at submit") from exc
         raise
     execution_id = response.get("QueryExecutionId")
     if not execution_id:
@@ -298,6 +317,54 @@ def _without_header(rows: list[list[Any]], columns: list[dict[str, str]]) -> lis
     return rows
 
 
+def _athena_message(exc: BaseException) -> str:
+    """The service's own message, lowercased, or the empty string.
+
+    Read to CLASSIFY and for nothing else: it reaches no response body — ``detail`` is authored
+    at the raise site — and no log field, because Athena quotes a user's own values back in it.
+
+    Args:
+      exc: The exception Athena raised.
+
+    Returns:
+      The lowercased message, empty when there is none to read.
+
+    Raises:
+      None.
+    """
+    response = getattr(exc, "response", None)
+    error = response.get("Error") if isinstance(response, dict) else None
+    return str(error.get("Message", "") if isinstance(error, dict) else "").lower()
+
+
+def _is_syntax_error(exc: BaseException) -> bool:
+    """Whether Athena refused this statement for something the USER can fix.
+
+    **Not every submit-time refusal is one.** An unusable workgroup and a malformed request
+    parameter arrive under the same exception name and are nobody's to fix but an operator's, so
+    they keep the generic sentence. Only a statement Athena could not parse gets wording that
+    tells the user to go and look at their SQL.
+
+    Most syntax errors never reach here at all — Athena accepts the query and the execution
+    reaches FAILED, where the reason travels on a 200 and the browser reads it. This covers the
+    subset rejected at submit, which used to arrive with the engine's own text and now arrives as
+    a code.
+
+    Args:
+      exc: The exception Athena raised.
+
+    Returns:
+      True if the statement itself was refused.
+
+    Raises:
+      None.
+    """
+    message = _athena_message(exc)
+    return any(marker in message for marker in SYNTAX_MARKERS) or bool(
+        _LINE_COLUMN_RE.search(message)
+    )
+
+
 def _is_not_finished(exc: BaseException) -> bool:
     """Whether this failure is a results read against an execution that has not finished.
 
@@ -320,9 +387,7 @@ def _is_not_finished(exc: BaseException) -> bool:
     """
     if identity.aws_error_code(exc) != INVALID_REQUEST_CODE:
         return False
-    response = getattr(exc, "response", None)
-    error = response.get("Error") if isinstance(response, dict) else None
-    message = str(error.get("Message", "") if isinstance(error, dict) else "").lower()
+    message = _athena_message(exc)
     return any(marker in message for marker in NOT_FINISHED_MARKERS)
 
 

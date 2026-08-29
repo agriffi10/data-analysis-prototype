@@ -201,6 +201,19 @@ const CODE_RULES: readonly ErrorRule[] = [
     userFixable: false
   },
 
+  // Trigger: Athena refused the STATEMENT at submit, rather than accepting it and failing the
+  // execution. The API resolves it to a code because the engine's own text cannot cross the wire.
+  //
+  // Its own code rather than the generic `InvalidRequest`, because the generic sentence is for
+  // what a user cannot act on and this is the opposite: they can read their SQL and fix it. Most
+  // syntax errors still arrive the other way — a FAILED execution whose reason the match rule
+  // below reads — and the sentence is asserted equal to that one so the two paths cannot drift. ──
+  {
+    code: 'QuerySyntaxError',
+    message: 'There’s a syntax error in your query. Check the SQL and try again.',
+    userFixable: true
+  },
+
   {
     code: 'QueryNotFinished',
     message: 'The query is still running. Give it a moment and try again.',
@@ -351,6 +364,19 @@ export const PASSTHROUGH_CODES: readonly string[] = CODE_RULES.filter((rule) => 
   (rule) => rule.code as string
 );
 
+/**
+ * Every code whose rule says the user can fix the thing that went wrong.
+ *
+ * COMPUTED from the rules for the same reason as the set above. It exists so a guard can hold the
+ * one rule this module is for: **the generic "Contact the Administrator" sentence is reserved for
+ * a failure the user cannot act on.** A code marked `userFixable` that resolves to it is a
+ * contradiction — the app knows what is wrong and is telling the reader there is nothing to do —
+ * and that is not hypothetical, it is why `QuerySyntaxError` exists.
+ */
+export const USER_FIXABLE_CODES: readonly string[] = CODE_RULES.filter(
+  (rule) => rule.userFixable && rule.code !== undefined && !rule.passthrough
+).map((rule) => rule.code as string);
+
 // ── Athena engine-message patterns. ───────────────────
 // Query failures surface as {code: 'FAILED', message: stateChangeReason}; there
 // is no app code, so we match the raw engine text. Ordered by specificity: the
@@ -396,28 +422,6 @@ const MATCH_RULES: readonly ErrorRule[] = [
     match: (m) => /(access denied|not authorized|insufficient (lake formation )?permissions)/i.test(m),
     message: `You don’t have permission to run that query. ${CONTACT_ADMIN}`,
     userFixable: false
-  },
-  // Trigger: results were read before the execution finished — Athena's
-  // INVALID_QUERY_EXECUTION_STATE, "Query has not yet finished. Current state: QUEUED".
-  // Transient and OURS, not the user's: a caller asked for results too early. The gate in
-  // `ExplorationResultsRegion` is the real fix; this rule exists so that if one ever slips
-  // through again it reads as "still running" instead of the generic
-  // "Contact the Administrator", which is what a first load showed until 2026-08-15.
-  //
-  // Matched on the MESSAGE, deliberately. `InvalidRequestException` is the AWS name for a
-  // rejected `StartQueryExecution` — for a MALFORMED_QUERY as much as for this — and a
-  // `code` rule wins over every rule here, so keying on the name would have turned a
-  // rejected-at-submit syntax error into "still running". (An execution that reaches FAILED
-  // arrives as `code: 'FAILED'` and was never at risk.)
-  //
-  // Two alternatives, not three: `current state: <x>` was dropped after review. It added no
-  // coverage — the real message is already caught by the second — and it was the one able to
-  // match an unrelated error quoting a user's own value back, e.g.
-  // `Cannot cast VARCHAR 'current state: queued' to INTEGER`. ──
-  {
-    match: (m) => /(invalid_query_execution_state|query has not yet finished)/i.test(m),
-    message: 'The query is still running. Give it a moment and try again.',
-    userFixable: true
   },
   // Trigger: a SQL parse/analysis error. User-fixable — fix the SQL. ──
   {

@@ -345,27 +345,52 @@ class TestStart:
         assert answer["statusCode"] == 500
         assert _body(answer)["error"]["code"] == "InternalError"
 
-    def test_a_query_athena_REFUSES_at_submit_is_a_400(self, athena) -> None:
-        """The submit-side half of the message-not-name rule.
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "line 1:8: mismatched input 'FROM'",
+            "SYNTAX_ERROR: line 1:8: Column 'x' cannot be resolved",
+            "parse error at line 2",
+        ],
+        ids=["mismatched input", "syntax_error", "parse error"],
+    )
+    def test_a_statement_the_USER_can_fix_gets_its_own_code(self, athena, message) -> None:
+        """The generic sentence is for what a user cannot act on, and this is the opposite.
 
-        Without this mapping the refusal reaches the caller as an unpredicted fault: a 500
-        `InternalError`, with botocore's message — which quotes a fragment of the user's own
-        statement — carried into the span's stack instead of being converted here. Deleting the
-        mapping leaves the rest of this file green, which is why it has a test of its own.
+        Athena rejects some statements at submit and accepts others that then fail; the user
+        typed the same mistake either way. Under a single ``InvalidRequest`` the first group read
+        "Something went wrong. Contact the Administrator." while the second read "There is a
+        syntax error in your query" — the same mistake, two sentences, and the unhelpful one for
+        the case where the app knows exactly what is wrong.
         """
-        athena(
-            StubAthena(
-                start_query_execution=_ServiceError(
-                    "InvalidRequestException", "line 1:8: mismatched input 'FROM'"
-                )
-            )
-        )
+        athena(StubAthena(start_query_execution=_ServiceError("InvalidRequestException", message)))
 
         answer = router.route("POST", "/v1/queries", bearer(), "rq", {"sql": "SELEC 1"})
 
         assert answer["statusCode"] == 400
+        assert _body(answer)["error"]["code"] == "QuerySyntaxError"
+        assert message not in answer["body"]
+
+    @pytest.mark.parametrize(
+        "message",
+        ["WorkGroup dat-prod-portal-wg is not found", "The request was not valid"],
+        ids=["unusable workgroup", "malformed request"],
+    )
+    def test_a_refusal_the_user_can_do_NOTHING_about_stays_generic(self, athena, message) -> None:
+        """The counter-case, and the reason the classifier reads the message rather than the name.
+
+        An unusable workgroup and a malformed request parameter arrive under the same exception
+        name as a bad statement and are an operator's to fix, not a user's. Telling someone to
+        check their SQL for a workgroup misconfiguration sends them hunting for a mistake that is
+        not there — the failure mode of a rule that maps the whole family to the friendlier
+        sentence.
+        """
+        athena(StubAthena(start_query_execution=_ServiceError("InvalidRequestException", message)))
+
+        answer = router.route("POST", "/v1/queries", bearer(), "rq", {"sql": "SELECT 1"})
+
+        assert answer["statusCode"] == 400
         assert _body(answer)["error"]["code"] == "InvalidRequest"
-        assert "mismatched input" not in answer["body"]
 
     def test_a_denial_at_submit_is_still_a_denial(self, athena) -> None:
         """The 400 arm is one exception name wide, not "any failure is a bad request"."""

@@ -192,10 +192,10 @@ describe('QueryWorkspace', () => {
   const mockEnqueueRefresh = vi.mocked(enqueueTableRefresh);
   const mockEnqueueShare = vi.mocked(enqueueTableShare);
 
-  // SaveResultsDialog / runQuery outputLocation read these at render/module time.
+  // SaveResultsDialog and the space resolver read these at render/module time. Still load-bearing:
+  // removing the user-space stub fails 18 of the tests below.
   vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
   vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-bucket');
-  vi.stubEnv('VITE_ATHENA_WORKGROUP', 'primary');
 
   const ok = <T,>(data: T) => ({success: true as const, data});
   const fail = (message: string, code?: string) => ({

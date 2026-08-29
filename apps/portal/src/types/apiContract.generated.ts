@@ -34,10 +34,10 @@ export type GlueColumnWire = {name: string; type: string};
 export type GlueTableWire = {name: string; columns: GlueColumnWire[]; tableType: string | null; location: string | null};
 export type TablesResponse = {items: GlueTableWire[]; nextToken: string | null};
 export type ErrorParams = {name?: string; attempts?: number; limit?: number};
-export type ApiErrorDetail = {code: 'InvalidRequest' | 'SessionExpired' | 'AccessDenied' | 'NotFound' | 'Conflict' | 'PayloadTooLarge' | 'UnsupportedMediaType' | 'RateLimited' | 'IdentityUnavailable' | 'InternalError' | 'ApiUnavailable' | 'QueryNotFinished'; requestId: string; detail?: string; params?: ErrorParams};
+export type ApiErrorDetail = {code: 'InvalidRequest' | 'SessionExpired' | 'AccessDenied' | 'NotFound' | 'Conflict' | 'PayloadTooLarge' | 'UnsupportedMediaType' | 'RateLimited' | 'IdentityUnavailable' | 'InternalError' | 'ApiUnavailable' | 'QueryNotFinished' | 'QuerySyntaxError'; requestId: string; detail?: string; params?: ErrorParams};
 export type ApiErrorBody = {error: ApiErrorDetail};
 
-export const API_ERROR_CODES = ['InvalidRequest', 'SessionExpired', 'AccessDenied', 'NotFound', 'Conflict', 'PayloadTooLarge', 'UnsupportedMediaType', 'RateLimited', 'IdentityUnavailable', 'InternalError', 'ApiUnavailable', 'QueryNotFinished'] as const;
+export const API_ERROR_CODES = ['InvalidRequest', 'SessionExpired', 'AccessDenied', 'NotFound', 'Conflict', 'PayloadTooLarge', 'UnsupportedMediaType', 'RateLimited', 'IdentityUnavailable', 'InternalError', 'ApiUnavailable', 'QueryNotFinished', 'QuerySyntaxError'] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 
 export const API_ROUTES = {

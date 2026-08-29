@@ -50,6 +50,36 @@ beforeEach(() => {
   vi.mocked(getQueryStatus).mockResolvedValue(status({bytes: 1024, millis: 250}));
 });
 
+describe('a failing start is not retried', () => {
+  it('issues ONE runQuery even under a client that retries by default', async () => {
+    // The one behaviour this port deliberately changes, and it needs a client that would retry —
+    // the shared test harness sets `retry: false` globally, so against it the hook's own option
+    // is invisible and deleting the line leaves every other test in this file green.
+    //
+    // What it is protecting: starting a query is billed and stateful, and it inherited the app
+    // default of `retry: 1` because it looked like a read. A failing apply issued two
+    // `StartQueryExecution` calls about a second apart — two executions for one gesture.
+    const {QueryClient} = await import('@tanstack/react-query');
+    const retrying = new QueryClient({
+      // `retryDelay: 0` so the retry, if one happens, lands INSIDE `waitFor`'s window. Left at
+      // TanStack's ~1s first delay it ties RTL's 1s timeout, and which assertion reports the
+      // failure is a coin-flip on a slower machine — the count is the one this test is named for.
+      defaultOptions: {
+        queries: {retry: 1, retryDelay: 0, staleTime: 0, gcTime: 0},
+        mutations: {retry: false}
+      }
+    });
+    vi.mocked(runQuery).mockResolvedValue(fail('Athena refused', 'InvalidRequest'));
+
+    const {result} = renderHookWithProviders(() => useExploration(newExploration(TABLE)), {
+      queryClient: retrying
+    });
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(runQuery).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('useExploration — one execution per distinct rendered SQL (FR-006)', () => {
   it('renders the SQL and starts exactly one execution', async () => {
     const exploration = newExploration(TABLE);

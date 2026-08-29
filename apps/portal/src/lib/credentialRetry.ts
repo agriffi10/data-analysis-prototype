@@ -26,7 +26,7 @@ export function isExpiryError(code?: string): boolean {
  * @param op - The authenticated call to run (and possibly re-run).
  *
  * @example
- * const result = await withCredentialRetry(getS3Client, (s3) => listObjects(s3, prefix));
+ * const result = await withCredentialRetry(getSqsClient, (sqs) => sendMessage(sqs, body));
  */
 export async function withCredentialRetry<C, T>(
   getClient: (forceRefresh?: boolean) => Promise<ServiceResult<C>>,

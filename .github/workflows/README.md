@@ -69,7 +69,6 @@ Go to **Settings → Secrets and variables → Actions → Variables**.
 | `VITE_COGNITO_DOMAIN` | `tofu output cognito_domain` | Injected into the build by `deploy-app.yml` (SPEC-007) |
 | `VITE_COGNITO_IDENTITY_POOL_ID` | `tofu output cognito_identity_pool_id` | Injected into the build by `deploy-app.yml` (SPEC-011); without it the deployed app gets no AWS credentials |
 | `VITE_S3_USER_SPACE_BUCKET` | `tofu output s3_user_space_bucket_name` | Bucket provisioned in SPEC-010; read by the file browser starting SPEC-013. Required — an unset one fails the deploy at the render step |
-| `VITE_ATHENA_WORKGROUP` | `tofu output athena_workgroup_name` | Workgroup provisioned in SPEC-032; read by the query workspace starting SPEC-034. No separate results-bucket variable — the app derives `{username}/athenaresults/` from `VITE_S3_USER_SPACE_BUCKET` |
 | `API_BASE_URL` | `https://api.dataquarry.app` | The API's origin, no trailing slash. **Required**: the browser reads it on every ported route, and this workflow refuses to publish a document without it rather than shipping a portal that cannot boot. |
 
 The table above is the set an operator populates first. The queue URLs (`VITE_*_QUEUE_URL`) are

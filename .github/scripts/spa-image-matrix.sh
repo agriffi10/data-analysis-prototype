@@ -46,7 +46,6 @@ REQUIRED_ENV=(
   -e CONFIG_appUrl=https://portal.fixture.test
   -e CONFIG_awsRegion=us-east-1
   -e CONFIG_userSpaceBucket=fixture-user-space
-  -e CONFIG_athenaWorkgroup=fixture-workgroup
   -e CONFIG_cognitoUserPoolId=us-east-1_FIXTURE
   -e CONFIG_cognitoUserPoolClientId=fixtureclientid
   -e CONFIG_cognitoDomain=auth.fixture.test
@@ -338,9 +337,23 @@ check_eq "the document serves exactly version plus every key the task definition
 
 # Guard-the-guard: a fixture that stopped supplying keys would make the comparison above agree on
 # a nearly empty document.
+#
+# DERIVED from the entrypoint's own key list, not a literal. It was `-lt 21`, and a spec that
+# legitimately RETIRED a configuration key took the fixture to 20 and failed here — in a script
+# that runs in no local gate, on a line two hundred away from the one the spec edited in this same
+# file. A hand-written floor is a second copy of a count that is supposed to move, and it only
+# ever fails the change that was allowed to move it.
+DECLARED=$(
+  sed -n "s/^KEYS='\(.*\)'/\1/p" apps/portal/docker/docker-entrypoint.d/40-render-portal-config.sh \
+    | tr ' ' '\n' | grep -c .
+)
 SUPPLIED=$(printf '%s\n' "$EXPECTED_KEYS" | tr ',' '\n' | wc -l | tr -d ' ')
-if [ "$SUPPLIED" -lt 21 ]; then
-  fail "the fixture supplies the whole document" "only $SUPPLIED keys, so the check above proves little"
+# +1 for `version`, which the document carries and the entrypoint's list does not name.
+if [ "$DECLARED" -lt 2 ]; then
+  fail "the entrypoint's key list was readable" "parsed $DECLARED keys, so the floor below is not a floor"
+elif [ "$SUPPLIED" -ne $((DECLARED + 1)) ]; then
+  fail "the fixture supplies the whole document" \
+    "$SUPPLIED keys supplied, entrypoint declares $DECLARED (+version), so the check above proves little"
 else
   pass "the fixture supplies the whole document ($SUPPLIED keys)"
 fi

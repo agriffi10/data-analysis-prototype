@@ -1,203 +1,95 @@
-import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import type {MockedFunction} from 'vitest';
-import {getGlueClient} from '../../lib/glueClient';
-import {getDatabase, listTables} from './glue.service';
-import {getAthenaClient} from '../../lib/athenaClient';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {mockApi, apiFailure} from '../../test/apiMock';
+import type {ApiMock} from '../../test/apiMock';
 import {
-  ABANDONED_CODE,
   getQueryResults,
   getQueryStatus,
   getTableDdl,
-  isAbandoned,
   runQuery,
   runStatementToCompletion,
   stopQuery
 } from './athena.service';
+import {getDatabase, listTables} from './glue.service';
 
-// ─── from glue.service.test.ts ───
-vi.mock('../../lib/glueClient', () => ({getGlueClient: vi.fn()}));
+vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
 
-vi.mock('../../lib/athenaClient', () => ({getAthenaClient: vi.fn()}));
+/**
+ * The catalog services, now over the API.
+ *
+ * Every assertion that used to drive the AWS SDK is either here, or moved to the Python suite
+ * with its reasoning carried over, or kept on both sides. The disposition table in the delivery
+ * doc is the record; what this file holds is the browser's half — the wire → domain mapping, the
+ * loops that stayed here, and the codes a surface maps to wording.
+ *
+ * **The Athena-shaped arithmetic is deliberately absent.** The `+1` overfetch, the 1000 clamp and
+ * the repeated-header-row drop are asserted in `lambdas/api/test_athena_routes.py` now. Asserting
+ * them here too would be testing a fake rather than the thing that does the work.
+ */
+describe('the catalog services over the API', () => {
+  let api: ApiMock;
 
-describe('glue.service', () => {
-  const mockGetClient = getGlueClient as unknown as MockedFunction<() => Promise<unknown>>;
-
-  type Sent = {input: Record<string, unknown>};
-  function clientWithSend(send: (cmd: Sent) => Promise<unknown>) {
-    mockGetClient.mockResolvedValue({success: true, data: {send}});
-  }
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  describe('getDatabase', () => {
-    it('maps EntityNotFoundException to a clean NotFound error', async () => {
-      clientWithSend(
-        vi.fn(async () => {
-          throw Object.assign(new Error('missing'), {
-            name: 'EntityNotFoundException'
-          });
-        })
-      );
-
-      const result = await getDatabase('alice');
-
-      expect(result.success).toBe(false);
-      if (result.success) return;
-      expect(result.error.code).toBe('NotFound');
-    });
-  });
-
-  describe('listTables', () => {
-    it('normalizes tables + columns and paginates past the page cap', async () => {
-      const send = vi
-        .fn<(cmd: Sent) => Promise<unknown>>()
-        .mockResolvedValueOnce({
-          TableList: [
-            {
-              Name: 'events',
-              TableType: 'EXTERNAL_TABLE',
-              StorageDescriptor: {
-                Location: 's3://user-bucket/alice/events/',
-                Columns: [
-                  {Name: 'id', Type: 'bigint'},
-                  {Name: 'ts', Type: 'timestamp'}
-                ]
-              }
-            }
-          ],
-          NextToken: 'page2'
-        })
-        .mockResolvedValueOnce({
-          TableList: [{Name: 'lookup', StorageDescriptor: {Columns: []}}]
-        });
-      clientWithSend(send);
-
-      const result = await listTables('alice');
-
-      expect(send).toHaveBeenCalledTimes(2);
-      expect(send.mock.calls[1][0].input).toMatchObject({NextToken: 'page2'});
-      expect(result).toEqual({
-        success: true,
-        data: [
-          {
-            name: 'events',
-            tableType: 'EXTERNAL_TABLE',
-            location: 's3://user-bucket/alice/events/',
-            columns: [
-              {name: 'id', type: 'bigint'},
-              {name: 'ts', type: 'timestamp'}
-            ]
-          },
-          {name: 'lookup', tableType: undefined, location: undefined, columns: []}
-        ]
-      });
-    });
-
-    it('treats a not-yet-created database as an empty schema (not an error)', async () => {
-      clientWithSend(
-        vi.fn(async () => {
-          throw Object.assign(new Error('no db'), {
-            name: 'EntityNotFoundException'
-          });
-        })
-      );
-
-      const result = await listTables('alice');
-
-      expect(result).toEqual({success: true, data: []});
-    });
-  });
-});
-
-// ─── from query.service.test.ts ───
-
-describe('query.service', () => {
-  const mockGetClient = getAthenaClient as unknown as MockedFunction<() => Promise<unknown>>;
-
-  // Athena commands expose their params as `.input`; the fake client records them.
-  type Sent = {input: Record<string, unknown>};
-  function clientWithSend(send: (cmd: Sent) => Promise<unknown>) {
-    mockGetClient.mockResolvedValue({success: true, data: {send}});
-  }
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-bucket');
-    vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'shared-bucket');
-    vi.stubEnv('VITE_ATHENA_WORKGROUP', 'test-wg');
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
+  beforeEach(async () => {
+    const {apiRequest} = await import('../../lib/apiClient');
+    api = mockApi(vi.mocked(apiRequest));
   });
 
   describe('runQuery', () => {
-    it('starts the query against the workgroup, database, and per-user output location', async () => {
-      const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () => ({QueryExecutionId: 'q-123'}));
-      clientWithSend(send);
+    it('sends the statement and nothing that names the caller or where results go', async () => {
+      // MOVED to Python, and strengthened there: the workgroup, the output location and the
+      // username are derived from the verified claim and this function's own environment. What
+      // is asserted here is the half this side owns — that none of the three is on the wire.
+      // `username` stays on the signature so no call site changed.
+      api.on('athena.start', {success: true, data: {queryExecutionId: 'q-1'}});
 
-      const result = await runQuery({
-        sql: 'SELECT 1',
-        database: 'alice',
-        username: 'alice'
-      });
+      await runQuery({sql: 'SELECT 1', username: 'alice'});
 
-      expect(result).toEqual({success: true, data: {queryExecutionId: 'q-123'}});
-      const input = send.mock.calls[0][0].input;
-      expect(input.QueryString).toBe('SELECT 1');
-      expect(input.WorkGroup).toBe('test-wg');
-      expect(input.QueryExecutionContext).toEqual({Database: 'alice'});
-      expect(input.ResultConfiguration).toEqual({
-        OutputLocation: 's3://user-bucket/alice/athenaresults/'
-      });
+      expect(api.bodyFor('athena.start')).toEqual({sql: 'SELECT 1'});
+      expect(JSON.stringify(api.bodyFor('athena.start'))).not.toContain('alice');
     });
 
-    it('honors an explicit outputLocation (SPEC-055 shared routing)', async () => {
-      const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () => ({QueryExecutionId: 'q-shared'}));
-      clientWithSend(send);
+    it('sends the database only when the caller named one', async () => {
+      // Queries carry no active database, so every base table is fully qualified. A present but
+      // empty context changes what resolves, which is why the key must be absent rather than
+      // blank — the API omits `QueryExecutionContext` entirely on this shape.
+      api.onEach('athena.start', [
+        {success: true, data: {queryExecutionId: 'q-1'}},
+        {success: true, data: {queryExecutionId: 'q-2'}}
+      ]);
 
-      await runQuery({
-        sql: 'SELECT 1',
-        database: 'salesdata',
-        username: 'alice',
-        outputLocation: 's3://shared-bucket/salesdata/athenaresults/alice/'
-      });
+      await runQuery({sql: 'SELECT 1', username: 'alice'});
+      await runQuery({sql: 'SHOW CREATE TABLE a.b', username: 'alice', database: 'a'});
 
-      expect(send.mock.calls[0][0].input.ResultConfiguration).toEqual({
-        OutputLocation: 's3://shared-bucket/salesdata/athenaresults/alice/'
-      });
-      expect(send.mock.calls[0][0].input.QueryExecutionContext).toEqual({Database: 'salesdata'});
+      expect(api.calls[0].body).toEqual({sql: 'SELECT 1'});
+      expect(api.calls[1].body).toEqual({sql: 'SHOW CREATE TABLE a.b', database: 'a'});
     });
 
-    it('errors (no throw) when Athena returns no execution id', async () => {
-      clientWithSend(vi.fn(async () => ({})));
+    it('returns the failure envelope rather than throwing', async () => {
+      // KEPT, and widened: what used to be a client-minted `AthenaNoExecutionId` is now a 500
+      // from the API, and every service here still returns rather than throws.
+      api.on('athena.start', apiFailure('InternalError'));
 
-      const result = await runQuery({sql: 'SELECT 1', database: 'alice', username: 'alice'});
+      const result = await runQuery({sql: 'SELECT 1', username: 'alice'});
 
-      expect(result.success).toBe(false);
-      if (result.success) return;
-      expect(result.error.message).toMatch(/execution id/i);
+      expect(result).toEqual({success: false, error: {message: '', code: 'InternalError'}});
     });
   });
 
   describe('getQueryStatus', () => {
-    it('maps a succeeded execution onto QueryStatus', async () => {
-      clientWithSend(
-        vi.fn(async () => ({
-          QueryExecution: {
-            Status: {State: 'SUCCEEDED'},
-            Statistics: {
-              DataScannedInBytes: 2048,
-              EngineExecutionTimeInMillis: 123
-            },
-            ResultConfiguration: {
-              OutputLocation: 's3://user-bucket/alice/athenaresults/q-1.csv'
-            }
-          }
-        }))
-      );
+    it('maps the wire onto QueryStatus, turning null into absent', async () => {
+      // BOTH sides: Python maps the botocore shape, this maps the wire shape. The domain type
+      // says a field is absent and the wire says `null`, and nothing downstream was changed to
+      // learn the difference.
+      api.on('athena.status', {
+        success: true,
+        data: {
+          queryExecutionId: 'q-1',
+          state: 'SUCCEEDED',
+          stateChangeReason: null,
+          dataScannedBytes: 1024,
+          engineExecutionTimeMillis: 20,
+          outputLocation: 's3://bucket/alice/athenaresults/q-1.csv'
+        }
+      });
 
       const result = await getQueryStatus('q-1');
 
@@ -207,257 +99,334 @@ describe('query.service', () => {
           queryExecutionId: 'q-1',
           state: 'SUCCEEDED',
           stateChangeReason: undefined,
-          dataScannedBytes: 2048,
-          engineExecutionTimeMillis: 123,
-          outputLocation: 's3://user-bucket/alice/athenaresults/q-1.csv'
+          dataScannedBytes: 1024,
+          engineExecutionTimeMillis: 20,
+          outputLocation: 's3://bucket/alice/athenaresults/q-1.csv'
         }
       });
+      expect(api.paramsFor('athena.status')).toEqual({queryExecutionId: 'q-1'});
     });
 
-    it('surfaces stateChangeReason on a failed execution', async () => {
-      clientWithSend(
-        vi.fn(async () => ({
-          QueryExecution: {
-            Status: {State: 'FAILED', StateChangeReason: 'SYNTAX_ERROR: line 1'}
-          }
-        }))
-      );
+    it('carries a failed execution through as a SUCCESS, with its reason intact', async () => {
+      // The load-bearing one. A FAILED execution is data about the query, not a failed request:
+      // six authored sentences are chosen by reading this reason, and a service that mapped this
+      // onto the error arm would retire all six while looking perfectly correct.
+      api.on('athena.status', {
+        success: true,
+        data: {
+          queryExecutionId: 'q-1',
+          state: 'FAILED',
+          stateChangeReason: 'SYNTAX_ERROR: line 1:8: Column x cannot be resolved',
+          dataScannedBytes: null,
+          engineExecutionTimeMillis: null,
+          outputLocation: null
+        }
+      });
 
-      const result = await getQueryStatus('q-2');
+      const result = await getQueryStatus('q-1');
 
       expect(result.success).toBe(true);
-      if (!result.success) return;
-      expect(result.data.state).toBe('FAILED');
-      expect(result.data.stateChangeReason).toBe('SYNTAX_ERROR: line 1');
-    });
-
-    it('maps a failure to a ServiceResult error', async () => {
-      clientWithSend(
-        vi.fn(async () => {
-          throw Object.assign(new Error('gone'), {name: 'InvalidRequestException'});
-        })
+      expect(result.success && result.data.state).toBe('FAILED');
+      expect(result.success && result.data.stateChangeReason).toBe(
+        'SYNTAX_ERROR: line 1:8: Column x cannot be resolved'
       );
-
-      const result = await getQueryStatus('q-4');
-
-      expect(result.success).toBe(false);
     });
   });
 
   describe('stopQuery', () => {
+    it('names the execution and returns nothing', async () => {
+      api.on('athena.stop', {success: true, data: {}});
+
+      const result = await stopQuery('q-7');
+
+      expect(api.paramsFor('athena.stop')).toEqual({queryExecutionId: 'q-7'});
+      expect(result).toEqual({success: true, data: undefined});
+    });
+
     it('maps a failure to a ServiceResult error (never throws)', async () => {
-      clientWithSend(
-        vi.fn(async () => {
-          throw Object.assign(new Error('nope'), {name: 'InvalidRequestException'});
-        })
-      );
+      api.on('athena.stop', apiFailure('AccessDenied'));
 
-      const result = await stopQuery('q-6');
-
-      expect(result.success).toBe(false);
+      await expect(stopQuery('q-7')).resolves.toEqual({
+        success: false,
+        error: {message: '', code: 'AccessDenied'}
+      });
     });
   });
 
   describe('getQueryResults', () => {
-    it('strips the duplicate header row on the first page and normalizes columns/rows', async () => {
-      const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () => ({
-        ResultSet: {
-          ResultSetMetadata: {
-            ColumnInfo: [
-              {Name: 'id', Type: 'integer'},
-              {Name: 'name', Type: 'varchar'}
-            ]
-          },
-          Rows: [
-            {Data: [{VarCharValue: 'id'}, {VarCharValue: 'name'}]}, // header
-            {Data: [{VarCharValue: '1'}, {VarCharValue: 'alice'}]},
-            {Data: [{VarCharValue: '2'}, {VarCharValue: 'bob'}]}
-          ]
-        },
-        NextToken: 'tok2'
-      }));
-      clientWithSend(send);
+    it('normalizes column types and preserves a NULL cell as distinct from an empty one', async () => {
+      // BOTH sides. Python asserts the distinction on the raw response body, because that is
+      // where a `?? ''` would destroy it; this asserts the parsed page still carries it, because
+      // that is what the Value panel reads. `normalizeColumnType` stays client-side, so the wire
+      // carries Athena's own type string and this turns it into the name the schema rail shows.
+      api.on('athena.results', {
+        success: true,
+        data: {
+          columns: [
+            {name: 'id', type: 'integer'},
+            {name: 'name', type: 'varchar'}
+          ],
+          rows: [
+            ['1', null],
+            ['2', '']
+          ],
+          nextToken: 'tok2'
+        }
+      });
 
       const result = await getQueryResults({queryExecutionId: 'q-1'});
 
       expect(result).toEqual({
         success: true,
         data: {
-          // Athena's Presto engine names (`integer`, `varchar`) are mapped to the
-          // Glue/Hive DDL names (`int`, `string`) the schema rail shows.
           columns: [
             {name: 'id', type: 'int'},
             {name: 'name', type: 'string'}
           ],
           rows: [
-            ['1', 'alice'],
-            ['2', 'bob']
+            ['1', null],
+            ['2', '']
           ],
           nextToken: 'tok2'
         }
       });
     });
 
-    it('requests maxRows + 1 on the first page so a SELECT nets a full page after the header (SPEC-038 FR-001)', async () => {
-      const send = vi.fn<(cmd: Sent) => Promise<unknown>>(async () => ({
-        ResultSet: {
-          ResultSetMetadata: {ColumnInfo: [{Name: 'id', Type: 'integer'}]},
-          Rows: []
-        }
-      }));
-      clientWithSend(send);
+    it('asks for its own page size rather than depending on the server default', async () => {
+      // The two agree today. A caller that stopped naming its page size would be depending on
+      // them continuing to, across two repositories and two deploys.
+      api.onEach('athena.results', [
+        {success: true, data: {columns: [], rows: [], nextToken: null}},
+        {success: true, data: {columns: [], rows: [], nextToken: null}}
+      ]);
 
-      await getQueryResults({queryExecutionId: 'q-1', maxRows: 20});
+      await getQueryResults({queryExecutionId: 'q-1'});
+      await getQueryResults({queryExecutionId: 'q-1', maxRows: 999, nextToken: 'tok'});
 
-      expect(send.mock.calls[0][0].input).toMatchObject({
-        QueryExecutionId: 'q-1',
-        NextToken: undefined,
-        MaxResults: 21
-      });
+      expect(api.calls[0].query).toEqual({maxRows: '100'});
+      expect(api.calls[1].query).toEqual({maxRows: '999', nextToken: 'tok'});
     });
 
     it('returns an empty page (no error) for a DDL query with no result set', async () => {
-      clientWithSend(vi.fn(async () => ({})));
+      api.on('athena.results', {success: true, data: {columns: [], rows: [], nextToken: null}});
 
-      const result = await getQueryResults({queryExecutionId: 'q-ddl'});
-
-      expect(result).toEqual({
+      await expect(getQueryResults({queryExecutionId: 'q-1'})).resolves.toEqual({
         success: true,
         data: {columns: [], rows: [], nextToken: undefined}
       });
     });
-  });
 
-  // A stateful Athena fake dispatching by command class name. `statuses` is
-  // consumed one GetQueryExecution call at a time (terminal-first needs one).
-  function athenaFake(opts: {
-    startId?: string;
-    statuses: string[];
-    resultRows?: string[][];
-    resultColumns?: {Name: string; Type: string}[];
-  }) {
-    const statuses = [...opts.statuses];
-    const send = vi.fn(async (cmd: {constructor: {name: string}; input: Record<string, unknown>}) => {
-      switch (cmd.constructor.name) {
-        case 'StartQueryExecutionCommand':
-          return {QueryExecutionId: opts.startId ?? 'q-1'};
-        case 'GetQueryExecutionCommand': {
-          const state = statuses.shift() ?? 'SUCCEEDED';
-          return {
-            QueryExecution: {
-              Status: {State: state, StateChangeReason: state === 'FAILED' ? 'boom' : undefined},
-              Statistics: {DataScannedInBytes: 10, EngineExecutionTimeInMillis: 20}
-            }
-          };
-        }
-        case 'GetQueryResultsCommand':
-          return {
-            ResultSet: {
-              ResultSetMetadata: {
-                ColumnInfo: opts.resultColumns ?? [{Name: 'createtab_stmt', Type: 'varchar'}]
-              },
-              Rows: (opts.resultRows ?? []).map((r) => ({
-                Data: r.map((v) => ({VarCharValue: v}))
-              }))
-            }
-          };
-        default:
-          return {};
-      }
+    it('surfaces a too-early read as its own code, not the generic failure', async () => {
+      // The condition that reached users as "Contact the Administrator" on an ordinary first
+      // load. The API now resolves it to a code, which `errorMessages` maps to "still running".
+      api.on('athena.results', apiFailure('QueryNotFinished'));
+
+      const result = await getQueryResults({queryExecutionId: 'q-1'});
+
+      expect(result).toEqual({success: false, error: {message: '', code: 'QueryNotFinished'}});
     });
-    clientWithSend(send);
-    return send;
-  }
+  });
 
   describe('runStatementToCompletion', () => {
     it('runs and polls to a terminal state, returning the final status', async () => {
-      athenaFake({statuses: ['SUCCEEDED']});
+      // KEPT — the loop never left the browser. It polls over API calls now, and nothing else
+      // about it moved.
+      api.on('athena.start', {success: true, data: {queryExecutionId: 'q-1'}});
+      api.onEach('athena.status', [
+        {success: true, data: statusBody('RUNNING')},
+        {success: true, data: statusBody('SUCCEEDED')}
+      ]);
+
       const result = await runStatementToCompletion({
-        sql: 'DROP TABLE alice.foo',
-        database: 'alice',
+        sql: 'SHOW CREATE TABLE db.t',
+        database: 'db',
         username: 'alice'
       });
-      expect(result.success).toBe(true);
-      if (!result.success) return;
-      expect(result.data.state).toBe('SUCCEEDED');
-      expect(result.data.queryExecutionId).toBe('q-1');
+
+      expect(result.success && result.data.state).toBe('SUCCEEDED');
+      expect(api.countOf('athena.status')).toBe(2);
+    });
+
+    it('stops polling when the caller has navigated away', async () => {
+      // The abort still stops this browser waiting. It does NOT stop the statement, and it never
+      // did — what changed is only that the request in flight is now an API call.
+      const controller = new AbortController();
+      api.on('athena.start', {success: true, data: {queryExecutionId: 'q-1'}});
+      api.on('athena.status', {success: true, data: statusBody('RUNNING')});
+      controller.abort();
+
+      const result = await runStatementToCompletion({
+        sql: 'SHOW CREATE TABLE db.t',
+        database: 'db',
+        username: 'alice',
+        signal: controller.signal
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: {message: 'Stopped waiting for the query.', code: 'Abandoned'}
+      });
+      expect(api.countOf('athena.status')).toBe(0);
     });
   });
 
   describe('getTableDdl', () => {
     it('runs SHOW CREATE TABLE and joins the result rows into the DDL', async () => {
-      const send = athenaFake({
-        statuses: ['SUCCEEDED'],
-        resultRows: [['CREATE EXTERNAL TABLE foo ('], ['  id bigint'], [')']]
-      });
-      const result = await getTableDdl({
-        database: 'alice',
-        table: 'foo',
-        username: 'alice'
+      api.on('athena.start', {success: true, data: {queryExecutionId: 'q-1'}});
+      api.on('athena.status', {success: true, data: statusBody('SUCCEEDED')});
+      api.on('athena.results', {
+        success: true,
+        data: {
+          columns: [{name: 'createtab_stmt', type: 'varchar'}],
+          rows: [['CREATE EXTERNAL TABLE db.t ('], ['  id int'], [')']],
+          nextToken: null
+        }
       });
 
-      expect(result.success).toBe(true);
-      if (!result.success) return;
-      expect(result.data).toBe('CREATE EXTERNAL TABLE foo (\n  id bigint\n)');
-      const start = send.mock.calls.find((c) => c[0].constructor.name === 'StartQueryExecutionCommand');
-      expect(start?.[0].input.QueryString).toBe('SHOW CREATE TABLE alice.foo');
+      const result = await getTableDdl({database: 'db', table: 't', username: 'alice'});
+
+      expect(result).toEqual({
+        success: true,
+        data: 'CREATE EXTERNAL TABLE db.t (\n  id int\n)'
+      });
+      expect(api.bodyFor('athena.start')).toEqual({
+        sql: 'SHOW CREATE TABLE db.t',
+        database: 'db'
+      });
+      expect(api.queryFor('athena.results')).toEqual({maxRows: '999'});
+    });
+
+    it('runs SHOW CREATE VIEW for a view', async () => {
+      api.on('athena.start', {success: true, data: {queryExecutionId: 'q-1'}});
+      api.on('athena.status', {success: true, data: statusBody('SUCCEEDED')});
+      api.on('athena.results', {
+        success: true,
+        data: {columns: [{name: 'createtab_stmt', type: 'varchar'}], rows: [['CREATE VIEW v AS']], nextToken: null}
+      });
+
+      await getTableDdl({database: 'db', table: 'v', username: 'alice', isView: true});
+
+      expect(api.bodyFor('athena.start')).toEqual({sql: 'SHOW CREATE VIEW db.v', database: 'db'});
     });
 
     it('returns an error when the statement does not succeed', async () => {
-      athenaFake({statuses: ['FAILED']});
-      const result = await getTableDdl({
-        database: 'alice',
-        table: 'foo',
-        username: 'alice'
+      api.on('athena.start', {success: true, data: {queryExecutionId: 'q-1'}});
+      api.on('athena.status', {
+        success: true,
+        data: {...statusBody('FAILED'), stateChangeReason: 'Table not found'}
       });
-      expect(result.success).toBe(false);
-      if (result.success) return;
-      expect(result.error.message).toBe('boom');
-    });
 
-    it('runs SHOW CREATE VIEW for a view (SPEC-048)', async () => {
-      const send = athenaFake({
-        statuses: ['SUCCEEDED'],
-        resultRows: [['CREATE VIEW foo AS'], ['SELECT 1']]
+      const result = await getTableDdl({database: 'db', table: 'missing', username: 'alice'});
+
+      expect(result).toEqual({
+        success: false,
+        error: {message: 'Table not found', code: 'FAILED'}
       });
-      const result = await getTableDdl({
-        database: 'alice',
-        table: 'foo',
-        username: 'alice',
-        isView: true
-      });
-      expect(result.success).toBe(true);
-      const start = send.mock.calls.find((c) => c[0].constructor.name === 'StartQueryExecutionCommand');
-      expect(start?.[0].input.QueryString).toBe('SHOW CREATE VIEW alice.foo');
     });
   });
 
-  describe('runStatementToCompletion honours an AbortSignal (SPEC-155 FR-006)', () => {
-    it('stops polling when the caller has navigated away', async () => {
-      // Without this the poller kept asking for ~36 s after the workspace unmounted.
-      let calls = 0;
-      clientWithSend(async () => {
-        calls += 1;
-        return calls === 1 ? {QueryExecutionId: 'q-abandon'} : {QueryExecution: {Status: {State: 'RUNNING'}}};
-      });
+  describe('getDatabase', () => {
+    it('returns the name', async () => {
+      api.on('catalog.database.get', {success: true, data: {name: 'alice'}});
 
-      const controller = new AbortController();
-      const pending = runStatementToCompletion({
-        sql: 'DROP TABLE alice.t',
-        database: 'alice',
-        username: 'alice',
-        signal: controller.signal
-      });
-      controller.abort();
+      const result = await getDatabase('alice');
 
-      const result = await pending;
-      expect(result.success).toBe(false);
-      if (result.success) return;
-      // Its OWN code, not 'Cancelled' — that one is owned by an upload rule whose text is
-      // "Upload cancelled.", which an abandoned poll would then have announced to a user
-      // who had simply navigated away.
-      expect(result.error.code).toBe(ABANDONED_CODE);
-      expect(isAbandoned(result)).toBe(true);
+      expect(result).toEqual({success: true, data: {name: 'alice'}});
+      expect(api.paramsFor('catalog.database.get')).toEqual({database: 'alice'});
+    });
+
+    it('surfaces a missing database as NotFound', async () => {
+      // MOVED to Python (the 404) and KEPT here (the code a surface reads). The sentence the old
+      // service authored — 'Database "x" does not exist yet.' — was already discarded by
+      // `toUserMessage`'s non-passthrough `NotFound` rule, so nothing user-visible moved.
+      api.on('catalog.database.get', apiFailure('NotFound'));
+
+      const result = await getDatabase('nope');
+
+      expect(result).toEqual({success: false, error: {message: '', code: 'NotFound'}});
+    });
+  });
+
+  describe('listTables', () => {
+    it('walks every page and maps null onto absent', async () => {
+      // KEPT on the client, now over the API's `nextToken`. The API answers one page per
+      // request, so this loop is what makes `listTables` still return every table — and
+      // `useSchema` never learned that anything changed.
+      api.onEach('catalog.tables.list', [
+        {
+          success: true,
+          data: {
+            items: [
+              {
+                name: 'sales',
+                columns: [{name: 'id', type: 'bigint'}],
+                tableType: 'EXTERNAL_TABLE',
+                location: 's3://bucket/alice/sales/'
+              }
+            ],
+            nextToken: 'page2'
+          }
+        },
+        {
+          success: true,
+          data: {
+            items: [{name: 'bare', columns: [], tableType: null, location: null}],
+            nextToken: null
+          }
+        }
+      ]);
+
+      const result = await listTables('alice');
+
+      expect(result).toEqual({
+        success: true,
+        data: [
+          {
+            name: 'sales',
+            columns: [{name: 'id', type: 'bigint'}],
+            tableType: 'EXTERNAL_TABLE',
+            location: 's3://bucket/alice/sales/'
+          },
+          {name: 'bare', columns: [], tableType: undefined, location: undefined}
+        ]
+      });
+      expect(api.countOf('catalog.tables.list')).toBe(2);
+      expect(api.calls[0].query).toEqual({});
+      expect(api.calls[1].query).toEqual({nextToken: 'page2'});
+    });
+
+    it('stops the walk on a failure rather than returning a partial list', async () => {
+      // A partial list reads as "this database has three tables" to every consumer. The old
+      // service could not produce one — an SDK failure threw out of the loop — and neither can
+      // this one, but only because it returns rather than breaks.
+      api.onEach('catalog.tables.list', [
+        {success: true, data: {items: [{name: 'a', columns: [], tableType: null, location: null}], nextToken: 'p2'}},
+        apiFailure('AccessDenied')
+      ]);
+
+      const result = await listTables('alice');
+
+      expect(result).toEqual({success: false, error: {message: '', code: 'AccessDenied'}});
+    });
+
+    it('treats a not-yet-created database as an empty schema, not an error', async () => {
+      // MOVED to Python: the API answers 200 with an empty page for `EntityNotFoundException`,
+      // because the workspace lists a space's tables before anything has created any.
+      api.on('catalog.tables.list', {success: true, data: {items: [], nextToken: null}});
+
+      await expect(listTables('brand-new')).resolves.toEqual({success: true, data: []});
     });
   });
 });
+
+/** A status body with everything absent but the state, which is what most of these need. */
+function statusBody(state: string) {
+  return {
+    queryExecutionId: 'q-1',
+    state,
+    stateChangeReason: null,
+    dataScannedBytes: null,
+    engineExecutionTimeMillis: null,
+    outputLocation: null
+  };
+}

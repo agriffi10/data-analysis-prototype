@@ -28,7 +28,7 @@
 - **§18 Tooling** — StrictMode + eslint-plugin-react-hooks; never suppress the linter.
 - **§19 JSDoc component docs** — document components with JSDoc for hover/usage; let TS own types; `@typedef` props, `@example`, extend HTML attrs, element-type reference; JSDoc (not inline comments) is the primary source of context.
 - **§20 Responsive design** — mobile-first; the project's `tablet:`/`desktop:` breakpoint vocabulary; responsive-by-default (utilities on one tree) vs. a justified separate-markup branch; the one viewport hook (`useBreakpoint`) is mount-gating only.
-- **§21 Testing** — integration-style tests; render real hooks/children, mock only the AWS service boundary; one test per user-observable behavior (not per assertion); the shared `renderWithProviders` + `userEvent`; what belongs in a service unit test vs. a component test.
+- **§21 Testing** — integration-style tests; render real hooks/children, mock only the service boundary; one test per user-observable behavior (not per assertion); **assert the reason, never that something failed**; refusals are the half coverage cannot see; mutation-test the silent guard; the shared `renderWithProviders` + `userEvent`.
 
 ---
 
@@ -250,8 +250,9 @@ The app targets three widths with **project-custom breakpoints** (SPEC-095), not
 ## §21 Testing
 Vitest + React Testing Library, jsdom. Tests describe **user-observable behavior**, not implementation. The goal is few, high-value tests — coverage comes from exercising real code paths, not from many shallow tests.
 
-**The boundary: mock only AWS, nothing else.** Services (`*.service.ts`) and `src/lib` AWS clients are the app's only real seam. A component/feature/hook test mocks *those* and lets the **real** hooks and **real** child components render.
-- ✅ `vi.mock('./x.service')` (or the `src/lib/*Client` / `awsCredentials` / `aws-amplify/auth` module it calls) and drive the returned `ServiceResult`. Render the real tree.
+**The boundary: mock the SERVICE seam, nothing else.** Services (`*.service.ts`) and the API client (`lib/apiClient.ts`) are the app's only real seam — most of what used to be an `src/lib/*Client` AWS module is gone, and a test that names one is a test pointing at a file that no longer exists. A component/feature/hook test mocks *those* and lets the **real** hooks and **real** child components render.
+- ✅ `vi.mock('./x.service')` (or `lib/apiClient` / `awsCredentials` / `aws-amplify/auth`) and drive the returned `ServiceResult`. Render the real tree.
+- ✅ When you stub a module, prefer `importOriginal` and override the one export you are faking. A factory that lists exports becomes the failure case the day the module grows one — and the symptom is an unrelated suite failing on a name it never used.
 - 🔴 Don't `vi.mock` the feature's own hooks (`useFileBrowser`, `useDelete`, …) or stub its child components (`MoveDialog`, `MetadataPanel`, …). Mocking the internals is what makes tests brittle *and* fragments coverage (the mocked-out code only gets covered by its own file). One integration render covers the hook, the children, and the wiring at once.
 - ✅ A child that is genuinely heavy/global and covered elsewhere may be stubbed **by exception**, with a one-line `//` why (Monaco editor, the upload dropzone). Default is: don't.
 
@@ -259,11 +260,44 @@ Vitest + React Testing Library, jsdom. Tests describe **user-observable behavior
 
 **Use the shared harness** (`src/test/renderWithProviders.tsx`): `renderWithProviders(ui, {route, auth})` wires QueryClient (retries off) + MemoryRouter + AuthContext and returns `{user, queryClient}`; `renderHookWithProviders` does the same for hooks. Inject auth with the `authFixtures` builders (`authenticated()`, `unauthenticated()`).
 - 🔴 Don't hand-roll a `QueryClientProvider` + `MemoryRouter` wrapper per file — use the harness.
+- 🔴 **But note what "retries off" hides: a hook's own `retry` option is invisible under it.** A
+  query that must not be retried — a billed or stateful call — passes identically with the option
+  and without it, so deleting the line is green. Assert that one by passing a `queryClient` that
+  *would* retry (`{retry: 1, retryDelay: 0}`) and counting the calls. The same caution applies to
+  any behaviour the harness normalises away.
 - ✅ Interact with `userEvent` (`await user.click(...)`), not `fireEvent`, in new/reworked tests — it models real focus/typing.
 - ✅ Query by role/label/text (`getByRole`, `findByRole`); assert what the user sees. 🔴 No `data-testid` unless there's no accessible handle.
 
+**Assert the REASON, never that something failed.** A test that asserts a call rejected, or that
+a banner appeared, passes against the neighbouring failure just as happily as against the one it
+names — and the neighbouring path usually returns the same shape, which is what makes the weak
+assertion look fine forever.
+- ✅ Assert the machine `code` (`expect(result.error.code).toBe('QueryNotFinished')`), the sentence
+  a user reads, or the named item. 🔴 `expect(result.success).toBe(false)` alone; `expect(fn).toHaveBeenCalled()` alone.
+- ✅ Assert a **count** where a repeat costs something — a billed call, a mutation, a retry —
+  because "it was called" cannot see a second call. 🔴 `calls[0]` indexing when the point is that
+  there was only one.
+- ✅ Prefer comparing against **another rule's own output** over a second copy of a literal, where
+  two paths must agree. A third copy of a sentence agrees with itself while the wording moves.
+
+**Refusals are the half of the app nothing else exercises, and coverage is close to blind to
+them.** The happy path runs on every dev session and every real click; a refusal runs when a test
+drives it and never otherwise. A `return` inside an `if` is one or two lines, so deleting its test
+barely moves the percentage while the surrounding function stays covered.
+- ✅ Every refusal a surface can produce has a test naming its reason. The mechanical check is to
+  enumerate the codes a service can return against the codes its suite asserts.
+- 🔴 Don't read a coverage number as evidence a guard exists. It is evidence a *line ran*.
+
+**Mutation-test the guard whose failure would be SILENT — one, deliberately, not a sweep.** When
+you write a test for something whose breakage produces no error and no visible change — a value
+that must not be flattened, a call that must not be repeated, a type that must not widen — break
+the production code once, watch the test redden, and revert **with the editor** (a `git checkout`
+discards the fix you are also holding). This is worth a minute per load-bearing guard. Sweeping
+every assertion afterwards is not: it costs a suite run each and finds what writing the test
+carefully already would.
+
 **Where a test belongs.**
-- **Service unit test** (`*.service.test.ts`) — pure logic: request shaping, response parsing, `ServiceResult` wrapping, error mapping. Mock the SDK client here; keep these — they're cheap and exhaustive.
+- **Service unit test** (`*.service.test.ts`) — pure logic: request shaping, response parsing, `ServiceResult` wrapping, error mapping. Mock `apiRequest` here (the shared `src/test/apiMock.ts` records the route, body, query and path params of every call); keep these — they're cheap and exhaustive. Where the work moved to the API, the assertion moved with it: don't re-assert server-side arithmetic against a fake here.
 - **Component/feature test** — behavior a user drives through the UI, with services mocked at the boundary. Don't re-assert service parsing here.
 - **Hook test** (`renderHookWithProviders`) — only for hooks with non-trivial state/derivation not better exercised through a component.
 - 🔴 Don't test the same logic at two levels. If the service test covers a parse branch, the component test asserts the *rendered outcome*, not the parse.

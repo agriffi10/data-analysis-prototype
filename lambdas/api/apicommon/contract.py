@@ -62,6 +62,7 @@ ErrorCode = Literal[
     "InternalError",
     "ApiUnavailable",
     "QueryNotFinished",
+    "QuerySyntaxError",
 ]
 
 ERROR_STATUS: Final[dict[str, int]] = {
@@ -77,6 +78,7 @@ ERROR_STATUS: Final[dict[str, int]] = {
     "InternalError": 500,
     "ApiUnavailable": 503,
     "QueryNotFinished": 409,
+    "QuerySyntaxError": 400,
 }
 
 ROUTE_STATUSES: Final[frozenset[int]] = frozenset(
