@@ -401,3 +401,21 @@ def test_a_non_ascii_value_digests_the_way_the_browser_digests_it():
         ).encode("utf-8")
     ).hexdigest()
     assert digest == expected
+
+
+def test_a_space_name_carrying_a_slash_digests_the_same_as_one_without():
+    """The browser normalised this and the server-side twin must too, silently or not at all.
+
+    The file-operations plane hashes the identical string again to key its per-space lock, so a
+    group id derived from ``alice/`` while the lock is held under ``alice`` does not fail — the
+    two simply stop being the same key, delivery stops being ordered the way the lock was sized
+    for, and nothing at runtime says so.
+    """
+    principal = Principal(username="alice", claims={})
+
+    def group(name):
+        return fifo.group_id_for(
+            "fileOps.enqueue", principal, {"source": {"space": {"kind": "personal", "name": name}}}
+        )
+
+    assert group("alice") == group("alice/") == group(" alice// ")

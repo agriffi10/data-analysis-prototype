@@ -1,6 +1,7 @@
 import {readJsonDocument} from '../../lib/s3Json';
 import {ok} from '../../lib/serviceResult';
-import {enqueueFifoRequest} from '../../lib/enqueueFifo';
+import {apiRequest} from '../../lib/apiClient';
+import {discardPayload} from '../../lib/serviceResult';
 import {userSpaceBucket, userSettingsKey} from '../../lib/userSpace';
 import type {ServiceResult} from '../../types/service.types';
 import type {
@@ -9,7 +10,6 @@ import type {
   NotificationConflict,
   NotificationPayload
 } from './notifications.types';
-import {configValue} from '../../lib/runtimeConfig';
 
 // Browser data layer for the per-user notifications inbox. The browser never writes
 // notifications.json — the writer Lambda is the sole writer. This service only reads
@@ -167,8 +167,8 @@ export async function getNotifications(username: string): Promise<ServiceResult<
  * The writer applies the action asynchronously, so success means enqueued, not
  * applied. The body carries the caller's ID token — the writer derives the target
  * username from the verified claim (anti-spoofing), never from the body.
- * MessageGroupId = username serializes the user's actions behind any system
- * creates for them; a fresh dedup id lets each (idempotent) action through.
+ * The API groups these behind the VERIFIED username rather than the one the caller names,
+ * which is the one FIFO key this port tightened.
  */
 export async function enqueueNotificationAction(input: EnqueueNotificationInput): Promise<ServiceResult<void>> {
   if (input.action === 'markRead' && !input.id) {
@@ -180,18 +180,9 @@ export async function enqueueNotificationAction(input: EnqueueNotificationInput)
     return {success: false, error: {message: 'markRead requires a notification id', code: 'InvalidRequest'}};
   }
 
-  return enqueueFifoRequest<void>({
-    queueUrl: configValue('notificationsQueueUrl'),
-    notConfiguredMessage: 'Notifications are not configured',
-    build: (idToken) => ({
-      body: {
-        action: input.action,
-        idToken,
-        ...(input.action === 'markRead' ? {id: input.id} : {})
-      },
-      messageGroupId: input.username,
-      deduplicationId: crypto.randomUUID(),
-      data: undefined
+  return discardPayload(
+    await apiRequest('notifications.enqueue', {
+      body: {action: input.action, id: input.action === 'markRead' ? (input.id ?? null) : null}
     })
-  });
+  );
 }

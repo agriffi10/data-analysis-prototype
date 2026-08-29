@@ -18,7 +18,7 @@ set -eu
 # The document's keys, named rather than scooped from the environment. A bare
 # `CONFIG_*` sweep publishes whatever same-prefixed variable a task definition, a base image
 # or an orchestrator introduces — into a world-readable document.
-KEYS='apiBaseUrl appUrl awsRegion environment maxUploadBytes cognitoUserPoolId cognitoUserPoolClientId cognitoDomain cognitoIdentityPoolId userSpaceBucket sharedSpaceBucket sharedSpaceQueueUrl notificationsQueueUrl tableBuildQueueUrl tableShareQueueUrl dataQualityQueueUrl fileSendQueueUrl archiveQueueUrl fileOpsQueueUrl'
+KEYS='apiBaseUrl appUrl awsRegion environment maxUploadBytes cognitoUserPoolId cognitoUserPoolClientId cognitoDomain cognitoIdentityPoolId userSpaceBucket sharedSpaceBucket'
 
 # The ones with no degraded path. A container serving a document without these renders a boot
 # failure to every user, so it refuses to serve at all instead.

@@ -41,6 +41,10 @@ resource "aws_iam_role_policy" "api" {
     log_group_arn   = aws_cloudwatch_log_group.api.arn
     logs_queue_arn  = var.logs_queue_arn
     portal_role_arn = var.portal_role_arn
+
+    # Exactly the eight request queues. The browser's grants come off in the same change, so at
+    # no point are there two writers with nothing asserting it.
+    request_queue_arns_json = jsonencode(var.request_queue_arns)
   })
 }
 
@@ -68,6 +72,18 @@ resource "aws_lambda_function" "api" {
       ATHENA_WORKGROUP      = var.athena_workgroup
       LOGS_QUEUE_URL        = var.logs_queue_url
       ENV_NAME              = var.environment
+
+      # The eight FIFO request queues. Required with no default and read at first use, so a
+      # missing one is a fault this function reports rather than a send that goes nowhere — the
+      # browser's own version fell back to an empty string and silently digested the wrong group.
+      SHARED_SPACE_QUEUE_URL  = var.shared_space_queue_url
+      NOTIFICATIONS_QUEUE_URL = var.notifications_queue_url
+      TABLE_BUILD_QUEUE_URL   = var.table_build_queue_url
+      TABLE_SHARE_QUEUE_URL   = var.table_share_queue_url
+      DATA_QUALITY_QUEUE_URL  = var.data_quality_queue_url
+      FILE_SEND_QUEUE_URL     = var.file_send_queue_url
+      ARCHIVE_QUEUE_URL       = var.archive_queue_url
+      FILE_OPS_QUEUE_URL      = var.file_ops_queue_url
 
       # The identity layer. Same role the Identity Pool vends for, and the same variables that
       # size its tag map — so the two key sets cannot drift by transcription.

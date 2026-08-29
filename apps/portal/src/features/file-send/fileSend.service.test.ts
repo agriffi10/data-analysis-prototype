@@ -1,37 +1,30 @@
-import {describe, it, expect, vi, beforeEach, afterEach, type MockedFunction} from 'vitest';
-
-vi.mock('../../lib/sqsClient', () => ({getSqsClient: vi.fn()}));
-vi.mock('../../lib/awsCredentials', () => ({getIdToken: vi.fn()}));
-
-import {getSqsClient} from '../../lib/sqsClient';
-import {getIdToken} from '../../lib/awsCredentials';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {apiFailure, mockApi} from '../../test/apiMock';
+import type {ApiMock} from '../../test/apiMock';
 import {enqueueFileSend} from './fileSend.service';
 import {toUserText} from '../../lib/errorMessages';
 import type {FileSendRequest} from './fileSend.types';
 
-const mockGetSqs = getSqsClient as unknown as MockedFunction<() => Promise<unknown>>;
-const mockGetIdToken = getIdToken as unknown as MockedFunction<() => Promise<unknown>>;
+vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
 
-const QUEUE = 'https://sqs.us-east-1.amazonaws.com/123/dat-prod-file-send-requests.fifo';
-
-type Cmd = {input: Record<string, unknown>};
-
-function fakeQueue(rejectWith?: unknown) {
-  const send = vi.fn<(cmd: Cmd) => Promise<{MessageId: string}>>();
-  if (rejectWith !== undefined) send.mockRejectedValue(rejectWith);
-  else send.mockResolvedValue({MessageId: 'm1'});
-  mockGetSqs.mockResolvedValue({success: true, data: {send}});
-  return {send};
-}
-
-/** The digest the group id must equal, computed the same way the service does. */
-async function sha256Hex(input: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
+/**
+ * The file-send enqueue, now over the API.
+ *
+ * **The FIFO keys are deliberately absent from this file.** The group id — the digest of
+ * `{sourceBucket}/{spaceRoot}`, which is what made two sends out of one space serialize and two
+ * different spaces run in parallel — and the dedup id, which is the request id and this plane's
+ * only double-submit guard, are computed server-side now and replayed against vectors captured
+ * from this service in `lambdas/api/test_fifo_derivations.py`, for a personal and a shared source
+ * alike. So is the flat top-level token the shared DLQ drain reads and redacts.
+ *
+ * The field allowlist moved too, and got teeth it did not have here: the API refuses an unknown
+ * field rather than forwarding it, and refuses a body claiming an identity outright
+ * (`lambdas/api/test_enqueue_routes.py`).
+ *
+ * What stays is the browser's half — the two caps, which are still refused in this process before
+ * anything is sent, and which exist because a request too large for `StartExecution` never
+ * reaches the verb that would refuse it.
+ */
 const req: FileSendRequest = {
   requestId: 'req-abc',
   space: {kind: 'personal', name: 'alice'},
@@ -45,129 +38,43 @@ const req: FileSendRequest = {
   ]
 };
 
-beforeEach(() => {
-  vi.stubEnv('VITE_FILE_SEND_QUEUE_URL', QUEUE);
-  vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'dat-prod-user-space');
-  vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', 'dat-prod-shared-space');
-  mockGetIdToken.mockResolvedValue({success: true, data: 'id-token-abc'});
-});
-
-afterEach(() => {
-  vi.clearAllMocks();
-  vi.unstubAllEnvs();
-});
-
 describe('enqueueFileSend', () => {
-  it('builds the SPEC-164 envelope exactly', async () => {
-    const {send} = fakeQueue();
+  let api: ApiMock;
+
+  beforeEach(async () => {
+    const {apiRequest} = await import('../../lib/apiClient');
+    api = mockApi(vi.mocked(apiRequest));
+  });
+
+  it('sends the request once, carrying the source selection and the recipients', async () => {
+    api.on('fileSend.enqueue', {success: true, data: {requestId: 'req-abc'}});
 
     const result = await enqueueFileSend(req);
 
-    expect(result.success).toBe(true);
-    const cmd = send.mock.calls[0][0] as Cmd;
-    expect(cmd.input.QueueUrl).toBe(QUEUE);
-    expect(JSON.parse(cmd.input.MessageBody as string)).toEqual({
+    // The route answers `{requestId}` and the caller's signature is `ServiceResult<void>`.
+    expect(result).toEqual({success: true, data: undefined});
+    expect(api.routes()).toEqual(['fileSend.enqueue']);
+    // `toEqual`, not `toMatchObject`: the absence of a claimed identity is the assertion.
+    expect(api.bodyFor('fileSend.enqueue')).toEqual({
       requestId: 'req-abc',
-      actor: 'id-token-abc',
-      source: {
-        space: {kind: 'personal', name: 'alice'},
-        items: req.items
-      },
+      source: {space: {kind: 'personal', name: 'alice'}, items: req.items},
       recipients: req.recipients
     });
   });
 
-  it('puts the token at the TOP LEVEL, where the shared DLQ drain reads and redacts it', async () => {
-    // Not a style point. dlq_drain._notify_one does body.get("actor") and _redacted replaces
-    // TOP-LEVEL keys only, so a nested {actor: {idToken}} would notify nobody on a
-    // dead-lettered send AND write the raw JWT to CloudWatch. SPEC-164's contract was
-    // amended to this flat shape for exactly that reason.
-    const {send} = fakeQueue();
+  it('returns the failure as a result and never throws', async () => {
+    api.on('fileSend.enqueue', apiFailure('ApiUnavailable'));
 
-    await enqueueFileSend(req);
+    const result = await enqueueFileSend(req);
 
-    const body = JSON.parse((send.mock.calls[0][0] as Cmd).input.MessageBody as string);
-    expect(body.actor).toBe('id-token-abc');
-    expect(typeof body.actor).toBe('string');
+    expect(result.success).toBe(false);
+    expect(result.success === false && result.error.code).toBe('ApiUnavailable');
   });
 
-  it('sends no field the verb would reject as unknown', async () => {
-    // The verb rejects unknown top-level fields rather than ignoring them (FR-002), so the
-    // producer and that allowlist have to agree. This is the browser half of that agreement.
-    const {send} = fakeQueue();
-
-    await enqueueFileSend(req);
-
-    const body = JSON.parse((send.mock.calls[0][0] as Cmd).input.MessageBody as string);
-    expect(Object.keys(body).sort()).toEqual(['actor', 'recipients', 'requestId', 'source']);
-  });
-
-  it('groups by the hashed {bucket}/{root}, never the raw path', async () => {
-    const {send} = fakeQueue();
-
-    await enqueueFileSend(req);
-
-    const cmd = send.mock.calls[0][0] as Cmd;
-    expect(cmd.input.MessageGroupId).toBe(await sha256Hex('dat-prod-user-space/alice/'));
-    // SQS caps the group id at 128 characters where an S3 key reaches 1024.
-    expect((cmd.input.MessageGroupId as string).length).toBeLessThanOrEqual(128);
-  });
-
-  it('resolves a shared source to the shared-space bucket, as the verb does', async () => {
-    const {send} = fakeQueue();
-
-    await enqueueFileSend({...req, space: {kind: 'shared', name: 'sales'}});
-
-    const cmd = send.mock.calls[0][0] as Cmd;
-    expect(cmd.input.MessageGroupId).toBe(await sha256Hex('dat-prod-shared-space/sales/'));
-  });
-
-  it('gives two different source spaces different groups, so they do not serialize', async () => {
-    const {send} = fakeQueue();
-
-    await enqueueFileSend(req);
-    await enqueueFileSend({...req, requestId: 'req-2', space: {kind: 'shared', name: 'sales'}});
-
-    const [first, second] = send.mock.calls.map((c) => (c[0] as Cmd).input.MessageGroupId);
-    expect(first).not.toBe(second);
-  });
-
-  it('gives one source space one group across different selections, so they do serialize', async () => {
-    const {send} = fakeQueue();
-
-    await enqueueFileSend(req);
-    await enqueueFileSend({...req, requestId: 'req-2', items: [{kind: 'file', key: 'alice/other.csv'}]});
-
-    const [first, second] = send.mock.calls.map((c) => (c[0] as Cmd).input.MessageGroupId);
-    expect(first).toBe(second);
-  });
-
-  it('deduplicates on the requestId, which is the only double-submit guard', async () => {
-    // The queue has content-based dedup OFF, deliberately: two byte-identical sends a user
-    // genuinely repeats must not be silently absorbed by a five-minute window.
-    const {send} = fakeQueue();
-
-    await enqueueFileSend(req);
-
-    expect((send.mock.calls[0][0] as Cmd).input.MessageDeduplicationId).toBe('req-abc');
-  });
-
-  it('a resubmit with a fresh requestId is not deduplicated', async () => {
-    const {send} = fakeQueue();
-
-    await enqueueFileSend(req);
-    await enqueueFileSend({...req, requestId: 'req-def'});
-
-    const ids = send.mock.calls.map((c) => (c[0] as Cmd).input.MessageDeduplicationId);
-    expect(ids).toEqual(['req-abc', 'req-def']);
-  });
-
-  it('refuses a selection too large to start an execution, rather than letting it dead-letter', async () => {
-    // The verb enforces the same cap, but it runs in the machine's FIRST TASK — and a request
-    // too large for StartExecution never gets there, because the Pipe cannot start the
-    // execution at all. Without this the user waits for a DLQ-drain notification instead of
-    // being told now.
-    const {send} = fakeQueue();
+  it('refuses a selection too large to start an execution, without calling the API', async () => {
+    // The verb enforces the same cap, but it runs in the machine's FIRST TASK — and a request too
+    // large for StartExecution never gets there, because the Pipe cannot start the execution at
+    // all. Without this the user waits for a DLQ-drain notification instead of being told now.
     const huge = Array.from({length: 200}, (_, i) => ({
       kind: 'file' as const,
       key: 'alice/' + '"'.repeat(600) + i
@@ -175,25 +82,26 @@ describe('enqueueFileSend', () => {
 
     const result = await enqueueFileSend({...req, items: huge});
 
-    expect(result.success).toBe(false);
-    expect(send).not.toHaveBeenCalled();
-    // And the wording reaches the user: without a rule in errorMessages the refusal presents
-    // as "Something went wrong", which is the one thing a fixable limit must not say.
+    expect(result.success === false && result.error.code).toBe('SelectionTooLarge');
+    expect(api.calls).toEqual([]);
+    // And the wording reaches the user: without a rule in errorMessages the refusal presents as
+    // "Something went wrong", which is the one thing a fixable limit must not say.
     if (!result.success) expect(toUserText(result.error)).toContain('too large');
   });
 
-  it('refuses more items than the plane accepts', async () => {
-    const {send} = fakeQueue();
+  it('refuses more items than the plane accepts, without calling the API', async () => {
     const many = Array.from({length: 201}, (_, i) => ({kind: 'file' as const, key: `alice/f${i}.csv`}));
 
     const result = await enqueueFileSend({...req, items: many});
 
-    expect(result.success).toBe(false);
-    expect(send).not.toHaveBeenCalled();
+    expect(result.success === false && result.error.code).toBe('SelectionTooLarge');
+    expect(api.calls).toEqual([]);
   });
 
   it('sends an ordinary full selection without complaint', async () => {
-    const {send} = fakeQueue();
+    // The other side of both caps: a selection sitting exactly ON the item limit is legal, so a
+    // cap written as `>=` would refuse a request the plane accepts.
+    api.on('fileSend.enqueue', {success: true, data: {requestId: 'req-abc'}});
     const full = Array.from({length: 200}, (_, i) => ({
       kind: 'file' as const,
       key: `alice/reports/2026/q1/file-${i}.csv`
@@ -202,37 +110,6 @@ describe('enqueueFileSend', () => {
     const result = await enqueueFileSend({...req, items: full});
 
     expect(result.success).toBe(true);
-    expect(send).toHaveBeenCalledTimes(1);
-  });
-
-  it('fails with a user-safe message when the queue is not configured', async () => {
-    vi.stubEnv('VITE_FILE_SEND_QUEUE_URL', '');
-    const {send} = fakeQueue();
-
-    const result = await enqueueFileSend(req);
-
-    expect(result).toEqual({
-      success: false,
-      error: {message: 'Sending files is not configured', code: 'NotConfigured'}
-    });
-    expect(send).not.toHaveBeenCalled();
-  });
-
-  it('never sends when the ID token cannot be read', async () => {
-    const {send} = fakeQueue();
-    mockGetIdToken.mockResolvedValue({success: false, error: {message: 'no session'}});
-
-    const result = await enqueueFileSend(req);
-
-    expect(result.success).toBe(false);
-    expect(send).not.toHaveBeenCalled();
-  });
-
-  it('returns a failure rather than throwing when the send is rejected', async () => {
-    fakeQueue(new Error('network down'));
-
-    const result = await enqueueFileSend(req);
-
-    expect(result.success).toBe(false);
+    expect(api.countOf('fileSend.enqueue')).toBe(1);
   });
 });

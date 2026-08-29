@@ -4,12 +4,12 @@
 # unknown-at-plan ARN inside a list silently drops the change.
 
 output "archive_queue_url" {
-  description = "URL of the FIFO request queue (ends in .fifo). The browser enqueues archive requests here. Maps to VITE_ARCHIVE_QUEUE_URL."
+  description = "URL of the FIFO request queue (ends in .fifo). The API enqueues archive requests here."
   value       = aws_sqs_queue.requests.url
 }
 
 output "archive_queue_arn" {
-  description = "ARN of the FIFO request queue — the portal-role sqs:SendMessage scope."
+  description = "ARN of the FIFO request queue — the API execution role's sqs:SendMessage scope."
   value       = aws_sqs_queue.requests.arn
 }
 

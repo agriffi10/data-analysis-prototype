@@ -59,23 +59,6 @@ resource "aws_iam_role_policy" "execution" {
   })
 }
 
-# ── Portal role — archive enqueue policy ───────────────────
-# The browser's ONLY positive privilege here: sqs:SendMessage. IT IS GRANTED NOTHING ON THE
-# ARCHIVE BUCKET — not GetObject, not ListBucket, nothing — and a rendered-policy test asserts
-# the portal role has no statement of any kind naming that ARN. The only route to archived
-# bytes is a restore through this plane.
-#
-# The two `archive/` write DENIES that go with this live in the space buckets' own portal
-# templates, beside the Allows they narrow. README.md.
-resource "aws_iam_role_policy" "portal_archive" {
-  name = "archive-enqueue"
-  role = var.portal_role_name
-
-  policy = templatefile("${path.module}/policies/portal-role-archive.json.tftpl", {
-    request_queue_arn = aws_sqs_queue.requests.arn
-  })
-}
-
 # ── Step Function role (orchestrates the verbs) ──────────────────────────────
 resource "aws_iam_role" "sfn" {
   name               = local.sfn_role_name

@@ -187,6 +187,10 @@ def _rendered_execution_policy() -> dict:
         )
         .replace("${logs_queue_arn}", "arn:aws:sqs:us-east-1:696000197480:dat-prod-logs.fifo")
         .replace("${portal_role_arn}", "arn:aws:iam::696000197480:role/dat-portal-user-role")
+        .replace(
+            "${request_queue_arns_json}",
+            json.dumps([f"arn:aws:sqs:us-east-1:696000197480:q{n}.fifo" for n in range(8)]),
+        )
     )
     return json.loads(rendered)
 

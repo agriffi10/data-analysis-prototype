@@ -51,11 +51,6 @@ variable "dlq_max_receive_count" {
 
 # ── Request contract + validate-authorize ──────────────────────────
 
-variable "portal_role_name" {
-  description = "Name of the shared portal role this module attaches the browser's sqs:SendMessage (table-build queue only) inline policy to, by name — mirrors the notifications/shared-spaces modules."
-  type        = string
-}
-
 variable "user_pool_id" {
   description = "Cognito User Pool ID — passed to validate-authorize (env COGNITO_USER_POOL_ID) so it can verify caller ID tokens against the pool JWKS (offline trusted-actor binding)."
   type        = string

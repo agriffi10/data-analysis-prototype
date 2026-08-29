@@ -4,12 +4,12 @@
 # silently drops the change.
 
 output "file_ops_queue_url" {
-  description = "URL of the FIFO request queue (ends in .fifo). The browser enqueues copy/move/delete requests here. Maps to VITE_FILE_OPS_QUEUE_URL."
+  description = "URL of the FIFO request queue (ends in .fifo). The API enqueues copy/move/delete requests here."
   value       = aws_sqs_queue.requests.url
 }
 
 output "file_ops_queue_arn" {
-  description = "ARN of the FIFO request queue — the portal-role sqs:SendMessage scope."
+  description = "ARN of the FIFO request queue — the API execution role's sqs:SendMessage scope."
   value       = aws_sqs_queue.requests.arn
 }
 

@@ -184,7 +184,7 @@ function basicUtcTimestamp(now: Date): string {
  * Never throws — `ServiceResult` in, `ServiceResult` out, like every service in this repo.
  * A `parse` that throws anyway is caught and wrapped in `fallbackMessage`, but no caller
  * should rely on that: interpreting the body is the parser's whole job.
- * Follows `lib/enqueueFifo.ts`'s conventions: one options object and the user-safe wording
+ * Follows the enqueue services' conventions: one options object and the user-safe wording
  * supplied by the caller. The credential retry that used to wrap the send is gone from here: an
  * expired session is now re-assumed server-side, and an expired ID token is a 401 the transport
  * answers with one forced refresh. Neither is this module's business any more.

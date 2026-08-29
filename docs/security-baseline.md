@@ -338,10 +338,17 @@ now so the first scan has something to diff **per alert ID** rather than a judge
 Found in the SPEC-115→122 design review (2026-07-12), previously recorded only inside the cancelled
 file-converter narrative in `docs/specs/ARCS.md`; rehomed here 2026-08-03. **The shipped notifications
 pipeline is not a safe model to copy:** `notifications_writer.py::_resolve_username` takes `username`
-straight from the body for `create` messages while the portal role can `sqs:SendMessage` to that queue —
-so a browser can inject a notification into any other user's inbox today. User-action messages
+straight from the body for `create` messages, and the portal role could `sqs:SendMessage` to that
+queue — so a browser could inject a notification into any other user's inbox. User-action messages
 (`markRead`/`markAllRead`) are safe (target derived from the verified ID-token claim); only
 trusted-producer `create` trusts the body, and the queue's write access is what makes that trust wrong.
+**The premise changed again on 2026-08-29:** the portal role's `sqs:SendMessage` is gone, so no
+browser credential can write that queue at all, and the API — which now can — reaches it only
+through a route whose declared action vocabulary is `markRead`/`markAllRead`. The runtime
+`SenderId` boundary that SPEC-206 built therefore names a role that can no longer write, and does
+not name the one that can; **that is a gap to close deliberately in the trust-boundary spec, not a
+live exposure**, since `create` cannot be reached through any declared route.
+
 **Disposition: CLOSED by SPEC-206 (2026-08-24).** It was *accepted for now — real, shipped,
 low-severity* (message injection into an inbox; no data access, no privilege change) and tracked here;
 that acceptance no longer stands, because the hole no longer does. The writer now refuses a `create`

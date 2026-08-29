@@ -72,26 +72,26 @@ describe('credentialRetry', () => {
   });
 });
 
-// ─── from enqueueFifo.test.ts ───
-describe('enqueueFifo', () => {
-  // SPEC-150 FR-004. The queue-URL guard returns before `getIdToken` and before any
-  // SQS call, so nothing here needs the AWS boundary mocked — an unset env var is
-  // the whole precondition.
-
+// ─── the NotConfigured rule, now with no producer ───
+describe('NotConfigured', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  describe('enqueueFifoRequest — the missing-queue-URL guard', () => {
-    it('surfaces that wording to the user instead of the generic fallback', () => {
-      // The regression this closes: with no `code`, `toUserMessage` fell through every
-      // MATCH_RULES pattern to GENERIC, and the documented deploy gotcha presented as
-      // "Something went wrong."
-      const {message} = toUserMessage({code: 'NotConfigured', message: 'Table refresh is not configured'});
+  it('still resolves to its own wording rather than the generic fallback', () => {
+    // NO PRODUCER REMAINS. The eight enqueue paths that raised this each guarded a queue URL
+    // read in the browser, and the browser no longer reads one — the queue URLs are the API
+    // function's configuration, and an unset one is a fault it reports.
+    //
+    // The rule is kept rather than deleted because it is a passthrough rule, and the
+    // disjointness guard in `apiContract.guard.test.ts` is written against the computed
+    // passthrough set: removing it would move a code between two derived sets for no reason
+    // beyond tidiness. If a future caller mints this code, it must still reach the user as its
+    // own sentence rather than as "Something went wrong."
+    const {message} = toUserMessage({code: 'NotConfigured', message: 'Table refresh is not configured'});
 
-      expect(message).toBe('Table refresh is not configured');
-      expect(message).not.toContain('Something went wrong');
-    });
+    expect(message).toBe('Table refresh is not configured');
+    expect(message).not.toContain('Something went wrong');
   });
 });
 
@@ -174,11 +174,10 @@ describe('env', () => {
     });
 
     it('does not require the keys with their own degraded path', () => {
-      // Each queue URL degrades through `enqueueFifo`'s notConfiguredMessage, the
-      // shared bucket through "no shared spaces", the identity pool through
-      // "signed in but no credentials" — one feature each, not the app.
+      // The shared bucket degrades through "no shared spaces" and the identity pool through
+      // "signed in but no credentials" — one feature each, not the app. The queue URLs used to
+      // be the third example and are no longer browser configuration at all.
       stubAllRequired();
-      vi.stubEnv('VITE_TABLE_BUILD_QUEUE_URL', '');
       vi.stubEnv('VITE_S3_SHARED_SPACE_BUCKET', '');
       vi.stubEnv('VITE_COGNITO_IDENTITY_POOL_ID', '');
       expect(isPortalConfigured()).toBe(true);

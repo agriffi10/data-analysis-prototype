@@ -22,18 +22,3 @@ resource "aws_iam_role_policy" "writer" {
   })
 }
 
-# ── Portal role — notifications enqueue policy ──────────────
-# Attached BY NAME (the role is created in module.data). The browser's ONLY notifications
-# privilege: sqs:SendMessage. No Lambda invoke, no DLQ, no writer-role access.
-#
-# THE GRANT IS UNCONDITIONED AND CANNOT BE OTHERWISE — no SQS condition key reaches a message
-# body. The `create` boundary is enforced at RUNTIME by the writer, against SenderId.
-# README.md.
-resource "aws_iam_role_policy" "portal_notifications" {
-  name = "notifications-enqueue"
-  role = var.portal_role_name
-
-  policy = templatefile("${path.module}/policies/portal-role-notifications.json.tftpl", {
-    request_queue_arn = aws_sqs_queue.requests.arn
-  })
-}

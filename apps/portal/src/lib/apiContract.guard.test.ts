@@ -70,7 +70,7 @@ function srcPath(key: string): string {
 /**
  * The AWS packages the API surfaces retired, read by the source sweep AND the manifest check.
  *
- * NAMED, not "any `@aws-sdk` import": SQS is still called from the browser and its package stays.
+ * NAMED, not "any `@aws-sdk` import": it was true while SQS was still called from the browser. It no longer is — no `@aws-sdk` package is declared at all now, so a class-phrased sweep would finally be correct. Kept named because the next AWS package to arrive should be an argued addition rather than one a class rule silently forbids.
  * A sweep phrased as the dependency CLASS would go red on work no spec has done yet, and would be
  * loosened rather than heeded.
  *
@@ -82,7 +82,8 @@ const RETIRED = [
   '@aws-sdk/lib-storage',
   '@aws-sdk/s3-request-presigner',
   '@aws-sdk/client-athena',
-  '@aws-sdk/client-glue'
+  '@aws-sdk/client-glue',
+  '@aws-sdk/client-sqs'
 ];
 
 describe('the wording boundary', () => {
@@ -209,7 +210,6 @@ describe('the one door', () => {
     const declared = {...manifest.devDependencies, ...manifest.dependencies};
 
     expect(RETIRED.filter((pkg) => declared[pkg] !== undefined)).toEqual([]);
-    expect(declared['@aws-sdk/client-sqs']).toBeDefined();
   });
 
   it('has no module outside apiClient building a URL from the API origin', () => {

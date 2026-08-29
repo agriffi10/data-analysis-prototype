@@ -7,11 +7,14 @@ import {authenticated} from '../../test/authFixtures';
 /**
  * The whole archive flow and the whole restore flow, performed (SPEC-172 FR-007 AC5).
  *
- * Real hooks, real dialogs, the real `FileBrowser` — only the AWS boundary is mocked, which here
- * is the S3 listing service and the SQS client the enqueue reaches through (SPEC-154's
- * discipline). Mocking `archive.service` instead would leave the two things this test exists to
- * check — that the browser builds the right REQUEST, and that a success clears the selection —
- * asserted against a stub of itself.
+ * Real hooks, real dialogs, the real `FileBrowser` — only the service boundary is mocked, which
+ * here is the S3 listing service and the API client the enqueue reaches through. Mocking
+ * `archive.service` instead would leave the two things this test exists to check — that the
+ * browser builds the right REQUEST, and that a success clears the selection — asserted against a
+ * stub of itself.
+ *
+ * The enqueued body no longer carries `mode` or a token: the API stamps both from the route and
+ * the verified bearer, and refuses a body that claims either.
  */
 vi.mock('../file-browser/fileBrowser.service', async (importActual) => ({
   ...(await importActual<typeof import('../file-browser/fileBrowser.service')>()),
@@ -31,7 +34,7 @@ vi.mock('../file-browser/fileBrowser.service', async (importActual) => ({
   }),
   objectExists: vi.fn().mockResolvedValue({success: true, data: true})
 }));
-vi.mock('../../lib/sqsClient', () => ({getSqsClient: vi.fn()}));
+vi.mock('../../lib/apiClient', () => ({apiRequest: vi.fn()}));
 vi.mock('../../lib/awsCredentials', () => ({
   getIdToken: vi.fn().mockResolvedValue({success: true, data: 'id-token-abc'}),
   getSessionCredentials: vi.fn().mockResolvedValue({success: true, data: {}})
@@ -40,16 +43,27 @@ vi.mock('../../lib/awsCredentials', () => ({
 import {FileOpsInFlightProvider, UploadQueueProvider} from '../file-browser';
 import {FileBrowser} from '../file-browser/FileBrowser';
 import {listFiles} from '../file-browser/fileBrowser.service';
-import {getSqsClient} from '../../lib/sqsClient';
+import {apiRequest} from '../../lib/apiClient';
+import {apiFailure, mockApi} from '../../test/apiMock';
+import type {ApiMock} from '../../test/apiMock';
 
 const ARCHIVE_ID = '3f8a1c2e-9b4d-4a17-8c65-2e0d7b1f4a93';
 
-type Cmd = {input: Record<string, unknown>};
-
-function fakeQueue() {
-  const send = vi.fn<(cmd: Cmd) => Promise<{MessageId: string}>>().mockResolvedValue({MessageId: 'm1'});
-  vi.mocked(getSqsClient).mockResolvedValue({success: true, data: {send}} as never);
-  return send;
+/**
+ * The API, programmed by route id. Both archive routes answer success by default; a test that
+ * needs a failure re-programs the one it drives.
+ *
+ * The notifications inbox is programmed too, and it is not incidental: the browser shell polls it
+ * behind every one of these journeys, so an assertion written as "no request was made at all"
+ * would be asserting the absence of a poll rather than the absence of an enqueue. Every count
+ * below names its route for that reason.
+ */
+function programmedApi(): ApiMock {
+  const api = mockApi(vi.mocked(apiRequest));
+  api.on('archive.archive', {success: true, data: {requestId: 'r-1'}});
+  api.on('archive.restore', {success: true, data: {requestId: 'r-2'}});
+  api.on('objects.readContent', apiFailure('NotFound'));
+  return api;
 }
 
 function listing(prefix: string) {
@@ -103,14 +117,8 @@ function renderBrowser(props: Partial<Parameters<typeof FileBrowser>[0]> = {}) {
   );
 }
 
-/** The parsed body of the one message the browser enqueued. */
-function enqueued(send: ReturnType<typeof fakeQueue>) {
-  return JSON.parse(send.mock.calls[0][0].input.MessageBody as string);
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubEnv('VITE_ARCHIVE_QUEUE_URL', 'https://sqs.us-east-1.amazonaws.com/1/dat-prod-archive-requests.fifo');
   vi.stubEnv('VITE_S3_USER_SPACE_BUCKET', 'user-space');
   vi.mocked(listFiles).mockImplementation((_bucket, prefix) => Promise.resolve(listing(prefix ?? 'alice/')) as never);
 });
@@ -118,7 +126,7 @@ beforeEach(() => {
 describe('the archive journey', () => {
   it('selects, opens, confirms and enqueues — then clears the selection', async () => {
     const user = userEvent.setup();
-    const send = fakeQueue();
+    const api = programmedApi();
     renderBrowser();
 
     await user.click(await screen.findByRole('checkbox', {name: 'Select folder reports'}));
@@ -129,11 +137,9 @@ describe('the archive journey', () => {
 
     await user.click(within(dialog).getByRole('button', {name: 'Archive'}));
 
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(enqueued(send)).toEqual({
+    expect(api.countOf('archive.archive')).toBe(1);
+    expect(api.bodyFor('archive.archive')).toEqual({
       requestId: expect.any(String),
-      mode: 'archive',
-      actor: 'id-token-abc',
       source: {space: {kind: 'personal', name: 'alice'}, items: [{kind: 'folder', key: 'alice/reports/'}]}
     });
     expect(screen.queryByRole('alertdialog', {name: 'Confirm archive'})).not.toBeInTheDocument();
@@ -142,7 +148,7 @@ describe('the archive journey', () => {
 
   it('takes the WHOLE selection, unlike the data-quality check beside it', async () => {
     const user = userEvent.setup();
-    const send = fakeQueue();
+    const api = programmedApi();
     renderBrowser();
 
     await user.click(await screen.findByRole('checkbox', {name: 'Select folder reports'}));
@@ -150,7 +156,7 @@ describe('the archive journey', () => {
     await user.click(screen.getByRole('button', {name: 'Archive selected items'}));
     await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Archive'}));
 
-    expect(enqueued(send).source.items).toEqual([
+    expect((api.bodyFor('archive.archive') as {source: {items: unknown}}).source.items).toEqual([
       {kind: 'folder', key: 'alice/reports/'},
       {kind: 'file', key: 'alice/notes.txt'}
     ]);
@@ -158,7 +164,7 @@ describe('the archive journey', () => {
 
   it('confirms it STARTED, never that it finished', async () => {
     const user = userEvent.setup();
-    fakeQueue();
+    programmedApi();
     renderBrowser();
 
     await user.click(await screen.findByRole('checkbox', {name: 'Select folder reports'}));
@@ -172,8 +178,8 @@ describe('the archive journey', () => {
     // The selection is what a retry needs. Clearing it on failure leaves a dialog with nothing
     // to send — the defect SPEC-167's own journey test caught on the send flow.
     const user = userEvent.setup();
-    const send = fakeQueue();
-    send.mockRejectedValueOnce(new Error('network down'));
+    const api = programmedApi();
+    api.on('archive.archive', apiFailure('ApiUnavailable'));
     renderBrowser();
 
     await user.click(await screen.findByRole('checkbox', {name: 'Select folder reports'}));
@@ -189,21 +195,23 @@ describe('the archive journey', () => {
     // The other of the two homes a per-item action has here: there is no context menu, so this
     // is the only route to archiving something you have not ticked.
     const user = userEvent.setup();
-    const send = fakeQueue();
+    const api = programmedApi();
     renderBrowser();
 
     await user.click(await screen.findByRole('button', {name: 'Details for notes.txt'}));
     await user.click(await screen.findByRole('button', {name: 'Archive this item'}));
     await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', {name: 'Archive'}));
 
-    expect(enqueued(send).source.items).toEqual([{kind: 'file', key: 'alice/notes.txt'}]);
+    expect((api.bodyFor('archive.archive') as {source: {items: unknown}}).source.items).toEqual([
+      {kind: 'file', key: 'alice/notes.txt'}
+    ]);
   });
 
   it('refuses a portal-managed root with an explanation rather than a silent no-op', async () => {
     // FR-001 AC5, mirroring the plane's own `reserved_folder` refusal. Disabled and SAYING WHY:
     // the control stays focusable, so the reason is reachable rather than only visible on hover.
     const user = userEvent.setup();
-    const send = fakeQueue();
+    const api = programmedApi();
     renderBrowser();
 
     await user.click(await screen.findByRole('checkbox', {name: 'Select folder athenaresults'}));
@@ -213,7 +221,7 @@ describe('the archive journey', () => {
     expect(archive).toHaveAttribute('title', expect.stringContaining('athenaresults'));
     await user.click(archive);
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    expect(send).not.toHaveBeenCalled();
+    expect(api.countOf('archive.archive')).toBe(0);
   });
 
   it('refuses a file inside a reserved root FROM ITS DETAILS PANEL too', async () => {
@@ -222,7 +230,7 @@ describe('the archive journey', () => {
     // file inside it is reachable and openable, and the panel offered an Archive the plane then
     // refused as `reserved_folder`. The toolbar had the guard; the file panel had none.
     const user = userEvent.setup();
-    const send = fakeQueue();
+    const api = programmedApi();
     renderBrowser();
 
     await user.click(await screen.findByRole('button', {name: 'Open folder athenaresults'}));
@@ -233,7 +241,7 @@ describe('the archive journey', () => {
     expect(archive).toHaveAttribute('title', expect.stringContaining('athenaresults'));
     await user.click(archive);
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    expect(send).not.toHaveBeenCalled();
+    expect(api.countOf('archive.archive')).toBe(0);
   });
 
   it('is absent entirely in a read-only space', async () => {
@@ -250,7 +258,7 @@ describe('the archive journey', () => {
 describe('the restore journey', () => {
   it('opens from the toolbar, validates the id and enqueues a restore', async () => {
     const user = userEvent.setup();
-    const send = fakeQueue();
+    const api = programmedApi();
     renderBrowser();
 
     await user.click(await screen.findByRole('button', {name: 'Restore Archived Data'}));
@@ -258,16 +266,15 @@ describe('the restore journey', () => {
 
     await user.type(within(dialog).getByLabelText('Archive id'), 'nope');
     await user.click(within(dialog).getByRole('button', {name: 'Restore'}));
-    expect(send).not.toHaveBeenCalled();
+    expect(api.countOf('archive.restore')).toBe(0);
 
     await user.clear(within(dialog).getByLabelText('Archive id'));
     await user.type(within(dialog).getByLabelText('Archive id'), ARCHIVE_ID);
     await user.click(within(dialog).getByRole('button', {name: 'Restore'}));
 
-    expect(enqueued(send)).toEqual({
+    expect(api.countOf('archive.restore')).toBe(1);
+    expect(api.bodyFor('archive.restore')).toEqual({
       requestId: expect.any(String),
-      mode: 'restore',
-      actor: 'id-token-abc',
       space: {kind: 'personal', name: 'alice'},
       archiveId: ARCHIVE_ID
     });
@@ -277,7 +284,7 @@ describe('the restore journey', () => {
 
   it('names the space it will restore into', async () => {
     const user = userEvent.setup();
-    fakeQueue();
+    programmedApi();
     renderBrowser();
 
     await user.click(await screen.findByRole('button', {name: 'Restore Archived Data'}));

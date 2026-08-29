@@ -77,13 +77,12 @@ const CODE_RULES: readonly ErrorRule[] = [
     userFixable: false
   },
 
-  // Trigger: a control plane's queue URL is unset in the runtime configuration, so
-  // `enqueueFifo` refused before reaching SQS. Passthrough for exactly the reason the `ErrorRule` doc states —
-  // the six "… is not configured" strings are authored by our own service layer
-  // and embed no AWS text, they just name which control plane is missing. Not
-  // user-fixable (it is a deploy misconfiguration), but the wording has to reach
-  // the user: without this rule all six fell through to GENERIC, and the
-  // documented deploy gotcha presented as "Something went wrong."
+  // NO PRODUCER REMAINS. The enqueue services raised this when a control plane's queue URL was
+  // unset in the runtime configuration; the browser no longer reads a queue URL, and an unset one
+  // is now a fault the API reports. The rule is kept rather than deleted because `PASSTHROUGH_CODES`
+  // is COMPUTED from this list and the disjointness guard is written against it, so removing a
+  // code moves it between two derived sets for no reason beyond tidiness. If something mints this
+  // again, it must still reach the user as its own sentence rather than "Something went wrong."
   {code: 'NotConfigured', userFixable: false, passthrough: true},
 
   // Trigger: the runtime configuration document was missing, unreadable, of an

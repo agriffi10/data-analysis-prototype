@@ -1,11 +1,16 @@
-"""The browser's file-send privilege is one queue send, and the execution role cannot delete.
+"""The browser has NO file-send privilege at all, and the execution role cannot delete.
+
+The browser used to hold exactly one: ``sqs:SendMessage`` on this plane's request queue. It is
+gone — the API is the only writer now, and the grant came off in the same change that repointed
+the browser at it, so at no moment was there a trusted actor field with a browser credential able
+to forge one.
 
 Why the browser is granted no S3 action at all — the isolation model working rather than a gap —
 and why these read templates as data instead of waiting for the CI plan scan:
 ``infra/modules/file-send/README.md``.
 
 Attributes:
-  FILE_SEND_PORTAL_POLICY: The inline policy this module attaches to the portal role.
+  FILE_SEND_PORTAL_POLICY: Where the browser's enqueue grant used to be. Asserted ABSENT.
   EXECUTION_POLICY: The file-send execution role's policy, where the privilege actually lives.
   PORTAL_POLICY: The portal role's main permission policy — checked only for the negative.
 """
@@ -52,12 +57,12 @@ def _as_list(value) -> list:
     return value if isinstance(value, list) else [value]
 
 
-def test_the_browsers_only_file_send_privilege_is_one_queue_send() -> None:
-    """A user writing into another user's prefix is what this plane does ON THEIR BEHALF, under
-    a role they cannot assume — so the browser gains one enqueue and no S3 action at all.
+def test_the_browser_holds_no_file_send_privilege_at_all() -> None:
+    """The one grant it had is gone, and the main policy never learned about this plane.
 
-    The grant is its own small inline policy attached by name; nothing about sending files
-    belongs in the role's general permissions.
+    Asserted as the file's ABSENCE rather than as an empty statement list, because an emptied
+    template still renders and still attaches: a policy with no statements and a policy that was
+    never created are the same to a reader and different to IAM.
 
     Args:
       None.
@@ -66,19 +71,16 @@ def test_the_browsers_only_file_send_privilege_is_one_queue_send() -> None:
       None.
 
     Raises:
-      AssertionError: If the browser gains more than the one send, or the main portal policy
-        learned about this plane.
+      AssertionError: If the enqueue template came back, or the main portal policy learned about
+        this plane.
     """
-    statements = _statements(FILE_SEND_PORTAL_POLICY)
-
-    assert len(statements) == 1
-    assert statements[0]["Effect"] == "Allow"
-    assert _as_list(statements[0]["Action"]) == ["sqs:SendMessage"]
-    assert _as_list(statements[0]["Resource"]) == ["@{request_queue_arn}"]
+    assert not FILE_SEND_PORTAL_POLICY.exists(), (
+        "the browser's file-send enqueue grant is retired; the API is the only writer"
+    )
 
     text = PORTAL_POLICY.read_text()
     assert "file-send" not in text and "file_send" not in text, (
-        "the enqueue grant is a separate inline policy — the main one must not name this plane"
+        "the main portal policy must not learn about this plane"
     )
 
 
@@ -126,8 +128,7 @@ def test_the_execution_role_cannot_delete_enumerate_or_reach_a_wildcard() -> Non
         "the user-space bucket allowlist"
     )
 
-    for path in (FILE_SEND_PORTAL_POLICY, EXECUTION_POLICY):
-        for statement in _statements(path):
-            assert "*" not in _as_list(statement["Resource"]), (
-                f"{path.name} has a Resource: \"*\" statement ({statement.get('Sid')})"
-            )
+    for statement in statements:
+        assert "*" not in _as_list(statement["Resource"]), (
+            f"{EXECUTION_POLICY.name} has a Resource: \"*\" statement ({statement.get('Sid')})"
+        )

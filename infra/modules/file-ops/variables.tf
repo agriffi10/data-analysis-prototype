@@ -41,11 +41,6 @@ variable "dlq_max_receive_count" {
   default     = 3
 }
 
-variable "portal_role_name" {
-  description = "Name of the shared portal role this module attaches the browser's sqs:SendMessage (file-ops queue only) inline policy to, by name. No cross-prefix S3 write is ever granted to a user — that the browser cannot write into another user's prefix is why this plane exists."
-  type        = string
-}
-
 variable "user_pool_id" {
   description = "Cognito User Pool ID — passed to the verbs (env COGNITO_USER_POOL_ID) for offline ID-token verification against the pool's public JWKS. No IAM grant on the pool is issued: this plane verifies a token, it never looks a user up."
   type        = string

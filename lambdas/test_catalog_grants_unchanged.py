@@ -74,7 +74,9 @@ def _templates() -> list[str]:
       AssertionError: If git fails.
     """
     listed = _git("ls-files", "infra/modules")
-    return sorted(path for path in listed.splitlines() if POLICY_PATTERN.fullmatch(path))
+    return sorted(
+        path for path in listed.splitlines() if POLICY_PATTERN.fullmatch(path)
+    )
 
 
 def _at_base(path: str) -> str:
@@ -170,8 +172,15 @@ def test_the_sweep_reaches_the_templates_it_claims_to() -> None:
     """
     found = _templates()
 
-    assert len(found) >= 8, f"the sweep resolved onto {len(found)} templates"
-    for named in ("portal-role-analytics", "portal-role-permissions", "portal-role-shared-space"):
+    # Four, down from eleven: the seven per-plane enqueue grants are retired, because the browser
+    # no longer writes a queue. The floor is what stops the sweep going silently empty, so it
+    # tracks the real population rather than a number that was true once.
+    assert len(found) >= 4, f"the sweep resolved onto {len(found)} templates"
+    for named in (
+        "portal-role-analytics",
+        "portal-role-permissions",
+        "portal-role-shared-space",
+    ):
         assert any(named in path for path in found), named
 
 
@@ -240,6 +249,6 @@ def test_the_comparison_can_actually_FAIL() -> None:
     assert base.strip(), "the branch base carries no analytics template"
     assert _actions(base), "the action extractor found nothing to compare"
     assert _resources(base), "the resource extractor found nothing to compare"
-    assert any(
-        action.startswith(CATALOG_PREFIXES) for action in _actions(base)
-    ), "the analytics template names no catalog action, so this guard has no subject"
+    assert any(action.startswith(CATALOG_PREFIXES) for action in _actions(base)), (
+        "the analytics template names no catalog action, so this guard has no subject"
+    )

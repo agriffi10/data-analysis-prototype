@@ -159,3 +159,53 @@ variable "max_shared_memberships" {
   description = "Number of shared-space membership slots the API stamps tags for. The same variable that sizes the Cognito custom attributes, the Identity Pool tag map and the portal role's shared-space policy."
   type        = number
 }
+
+variable "shared_space_queue_url" {
+  description = "URL of the shared-space FIFO request queue. This function is its only writer."
+  type        = string
+}
+
+variable "notifications_queue_url" {
+  description = "URL of the notifications FIFO request queue. This function is its only writer."
+  type        = string
+}
+
+variable "table_build_queue_url" {
+  description = "URL of the table-builder FIFO request queue. This function is its only writer."
+  type        = string
+}
+
+variable "table_share_queue_url" {
+  description = "URL of the table-share FIFO request queue. This function is its only writer."
+  type        = string
+}
+
+variable "data_quality_queue_url" {
+  description = "URL of the data-quality FIFO request queue. This function is its only writer."
+  type        = string
+}
+
+variable "file_send_queue_url" {
+  description = "URL of the file-send FIFO request queue. This function is its only writer."
+  type        = string
+}
+
+variable "archive_queue_url" {
+  description = "URL of the archive FIFO request queue. This function is its only writer."
+  type        = string
+}
+
+variable "file_ops_queue_url" {
+  description = "URL of the file-ops FIFO request queue. This function is its only writer."
+  type        = string
+}
+
+variable "request_queue_arns" {
+  description = "Every FIFO request queue ARN this function may write. Exactly the eight; never a wildcard, never a DLQ, and never the notifications queue's writer path."
+  type        = list(string)
+
+  validation {
+    condition     = length(var.request_queue_arns) == 8
+    error_message = "The API writes exactly eight request queues; a shorter list means a plane lost its route."
+  }
+}

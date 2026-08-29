@@ -31,11 +31,6 @@ variable "dlq_max_receive_count" {
   default     = 3
 }
 
-variable "portal_role_name" {
-  description = "Name of the shared portal role this module attaches the browser's sqs:SendMessage (file-send queue only) inline policy to, by name — mirrors the table-builder/table-share/notifications modules. No cross-prefix S3 write is ever granted to a user."
-  type        = string
-}
-
 variable "user_pool_id" {
   description = "Cognito User Pool ID — passed to validate-authorize (env COGNITO_USER_POOL_ID) for offline ID-token verification, and used to build the pool ARN scoping the execution role's recipient-existence check (AdminGetUser/ListUsers)."
   type        = string

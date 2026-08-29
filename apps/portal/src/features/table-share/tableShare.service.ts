@@ -1,50 +1,21 @@
-import {enqueueFifoRequest} from '../../lib/enqueueFifo';
+import {apiRequest} from '../../lib/apiClient';
+import {discardPayload} from '../../lib/serviceResult';
 import type {ServiceResult} from '../../types/service.types';
 import type {TableShareRequest} from './tableShare.types';
-import {configValue} from '../../lib/runtimeConfig';
-
-/** Dedup window: double-submits of the identical request inside one bucket collapse. */
-const DEDUP_BUCKET_MS = 60_000;
-
-/**
- * Stable per-request dedup id: a SHA-256 of the caller's token +
- * the request content + a one-minute time bucket, so an accidental double-submit
- * dedupes on the FIFO queue while a deliberate re-share later goes through (the
- * queue has content-based dedup OFF — this id is the only guard).
- */
-async function dedupId(token: string, req: TableShareRequest): Promise<string> {
-  const recipients = [...req.recipients].map((r) => `${r.kind}:${r.name}`).sort();
-  const bucket = Math.floor(Date.now() / DEDUP_BUCKET_MS);
-  const canonical = JSON.stringify([token, req.source, req.tableName, recipients, bucket]);
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 /**
  * Enqueue a share-table request onto the table-share FIFO queue — the browser's
- * only table-share AWS call. The async control plane copies the data and creates
+ * only table-share write. The async control plane copies the data and creates
  * the recipient tables, so success means enqueued, not shared.
  *
- * MessageGroupId = the source `database.table` (repeated shares of one source
- * serialize; different sources run in parallel); MessageDeduplicationId is the
- * stable content hash above.
+ * The FIFO keys are the API's now. Its dedup digest is keyed on the VERIFIED ACTOR rather than
+ * on the ID token this used to hash, which closes a guard that lapsed silently: two submits a
+ * minute apart with a token refresh between them used to be two shares.
  */
 export async function enqueueTableShare(req: TableShareRequest): Promise<ServiceResult<void>> {
-  return enqueueFifoRequest<void>({
-    queueUrl: configValue('tableShareQueueUrl'),
-    notConfiguredMessage: 'Table sharing is not configured',
-    build: async (idToken) => ({
-      body: {
-        actor: idToken,
-        source: req.source,
-        tableName: req.tableName,
-        recipients: req.recipients
-      },
-      messageGroupId: `${req.source.database}.${req.source.table}`,
-      deduplicationId: await dedupId(idToken, req),
-      data: undefined
+  return discardPayload(
+    await apiRequest('tableShare.enqueue', {
+      body: {source: req.source, tableName: req.tableName, recipients: req.recipients}
     })
-  });
+  );
 }

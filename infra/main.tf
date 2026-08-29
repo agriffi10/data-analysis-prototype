@@ -444,14 +444,6 @@ locals {
     cognitoIdentityPoolId   = module.auth.identity_pool_id
     userSpaceBucket         = local.user_space_bucket_name
     sharedSpaceBucket       = local.shared_space_bucket_name
-    sharedSpaceQueueUrl     = module.shared_spaces.request_queue_url
-    notificationsQueueUrl   = module.notifications.notifications_queue_url
-    tableBuildQueueUrl      = module.table_builder.table_build_queue_url
-    tableShareQueueUrl      = module.table_share.table_share_queue_url
-    dataQualityQueueUrl     = module.data_quality.data_quality_queue_url
-    fileSendQueueUrl        = module.file_send.file_send_queue_url
-    archiveQueueUrl         = module.archive.archive_queue_url
-    fileOpsQueueUrl         = module.file_ops.file_ops_queue_url
   }
 }
 
@@ -747,7 +739,8 @@ module "shared_spaces" {
   user_space_bucket_name = local.user_space_bucket_name
 
   # The membership-slot count + the portal role this module attaches the
-  # membership inline policy + sqs:SendMessage + shared delete-denies to.
+  # membership inline policy and the shared delete-denies to. Its enqueue statement is gone —
+  # the API is the only writer of the request queue now.
   max_shared_memberships = var.max_shared_memberships
   portal_role_name       = local.portal_role_name
 
@@ -809,9 +802,6 @@ module "notifications" {
   # The writer reads/writes {username}/user_settings/notifications.json in Bucket 1.
   user_space_bucket_name = local.user_space_bucket_name
 
-  # The portal role this module attaches the sqs:SendMessage inline policy to, by name.
-  portal_role_name = local.portal_role_name
-
   # The identity the writer must REFUSE a `create` from. That grant is unconditioned — IAM
   # has no condition key that reaches a field inside a message body — so the boundary is a
   # runtime check against the SenderId SQS stamps, and this is the value it compares.
@@ -864,11 +854,8 @@ module "table_builder" {
   # The analytics workgroup the execute-ddl verb runs its CREATE in.
   athena_workgroup = local.athena_workgroup_name
 
-  # The portal role this module attaches the sqs:SendMessage enqueue policy
-  # to (by name), and the Cognito pool/client validate-authorize verifies tokens with.
-  portal_role_name = local.portal_role_name
-  user_pool_id     = module.auth.user_pool_id
-  app_client_id    = module.auth.user_pool_client_id
+  user_pool_id  = module.auth.user_pool_id
+  app_client_id = module.auth.user_pool_client_id
 
   # The notifications queue every verb emits its outcome to (the ARN
   # scopes each verb role's sqs:SendMessage; the URL is their NOTIFICATIONS_QUEUE_URL).
@@ -914,11 +901,6 @@ module "table_share" {
   aws_region   = var.aws_region
   account_id   = data.aws_caller_identity.current.account_id
 
-  # The portal role this module attaches the sqs:SendMessage enqueue
-  # policy to (by name), the Cognito pool/client validate-authorize verifies tokens
-  # with, and the admin bucket holding the shared-spaces registry (source authz +
-  # recipient-space existence — read-only).
-  portal_role_name  = local.portal_role_name
   user_pool_id      = module.auth.user_pool_id
   app_client_id     = module.auth.user_pool_client_id
   admin_bucket_name = local.athena_admin_bucket_name
@@ -974,11 +956,6 @@ module "file_send" {
   aws_region   = var.aws_region
   account_id   = data.aws_caller_identity.current.account_id
 
-  # The portal role this module attaches the sqs:SendMessage enqueue policy to (by name),
-  # the Cognito pool/client validate-authorize verifies tokens with, and the admin bucket
-  # holding the shared-spaces registry (source authorization + recipient-space existence —
-  # read-only).
-  portal_role_name  = local.portal_role_name
   user_pool_id      = module.auth.user_pool_id
   app_client_id     = module.auth.user_pool_client_id
   admin_bucket_name = local.athena_admin_bucket_name
@@ -1021,7 +998,7 @@ module "file_send" {
 #
 # NOT on the analytics LF admins list — this plane creates no table and runs no DDL — so
 # module.analytics does not depend on it. It passes no CSP input and no CORS origin either:
-# the browser's only relationship with it is sqs:SendMessage on this module's request queue.
+# the browser has no relationship with it at all now: the API writes the request queue.
 #
 # base grants the deploy role its file-ops perms; data creates the portal role this module
 # attaches the enqueue policy to. Settle both first.
@@ -1033,10 +1010,6 @@ module "file_ops" {
   aws_region   = var.aws_region
   account_id   = data.aws_caller_identity.current.account_id
 
-  # The portal role this module attaches the sqs:SendMessage enqueue policy to (by name),
-  # the Cognito pool/client the verbs verify tokens against, and the admin bucket holding
-  # the shared-spaces registry (read, to authorize a shared space) and this plane's locks.
-  portal_role_name  = local.portal_role_name
   user_pool_id      = module.auth.user_pool_id
   app_client_id     = module.auth.user_pool_client_id
   admin_bucket_name = local.athena_admin_bucket_name
@@ -1073,7 +1046,7 @@ module "file_ops" {
 # THE BROWSER HAS NO RELATIONSHIP WITH THE ARCHIVE BUCKET, which is why this block passes
 # no CSP input, no CORS origin and no bucket name to module.app: no CORS configuration, no
 # connect-src entry, and the portal role holds zero statements naming it. Its only browser
-# surface is sqs:SendMessage on this module's request queue.
+# surface is nothing — the API writes the request queue on the caller's behalf.
 #
 # NOT on the analytics LF admins list — this plane creates no table and runs no DDL — so
 # module.analytics does not depend on it.
@@ -1092,10 +1065,6 @@ module "archive" {
   deploy_role_arn     = local.deploy_role_arn
   execution_role_arn  = local.archive_execution_role_arn
 
-  # The portal role this module attaches the sqs:SendMessage enqueue policy to (by name),
-  # the Cognito pool/client validate-authorize verifies tokens with, and the admin bucket
-  # holding the shared-spaces registry (source authorization — read-only).
-  portal_role_name  = local.portal_role_name
   user_pool_id      = module.auth.user_pool_id
   app_client_id     = module.auth.user_pool_client_id
   admin_bucket_name = local.athena_admin_bucket_name
@@ -1177,10 +1146,6 @@ module "data_quality" {
   # one table-builder/table-share use) — Athena ties Lake Formation to the workgroup, so a
   # dedicated workgroup fails LF's table Create/Describe even for an LF-admin role.
   athena_workgroup = local.athena_workgroup_name
-
-  # The portal role this module attaches the sqs:SendMessage enqueue policy to
-  # (by name) — the browser's ONLY data-quality privilege.
-  portal_role_name = local.portal_role_name
 
   # The notifications queue the verbs emit outcomes to. Constructed-
   # string locals (known at plan, cycle-free — same as the other control planes).
@@ -1368,6 +1333,29 @@ module "verification" {
 # anyway, so the spec that starts verifying tokens inherits no surprise.
 module "api" {
   source = "./modules/api"
+
+  # The eight FIFO request queues this function is now the only writer of. Their URLs go in the
+  # environment and their ARNs into the one grant; the browser's eight grants come off in the
+  # same change, so there is never a window with two writers and nothing asserting it.
+  shared_space_queue_url  = module.shared_spaces.request_queue_url
+  notifications_queue_url = module.notifications.notifications_queue_url
+  table_build_queue_url   = module.table_builder.table_build_queue_url
+  table_share_queue_url   = module.table_share.table_share_queue_url
+  data_quality_queue_url  = module.data_quality.data_quality_queue_url
+  file_send_queue_url     = module.file_send.file_send_queue_url
+  archive_queue_url       = module.archive.archive_queue_url
+  file_ops_queue_url      = module.file_ops.file_ops_queue_url
+
+  request_queue_arns = [
+    module.shared_spaces.request_queue_arn,
+    module.notifications.notifications_queue_arn,
+    module.table_builder.table_build_queue_arn,
+    module.table_share.table_share_queue_arn,
+    module.data_quality.data_quality_queue_arn,
+    module.file_send.file_send_queue_arn,
+    module.archive.archive_queue_arn,
+    module.file_ops.file_ops_queue_arn,
+  ]
 
   project_name = var.project_name
   environment  = var.environment

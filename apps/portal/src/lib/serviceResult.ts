@@ -89,3 +89,18 @@ export function fromApiFailure(
     error: {message: error.message || fallback, code: error.code, ...(error.params ? {params: error.params} : {})}
   };
 }
+
+/**
+ * Drops a successful result's payload, keeping the failure as it is.
+ *
+ * The enqueue routes all answer `{requestId}`, but six of the services that call them have always
+ * returned `ServiceResult<void>` and their callers are written against that. Rather than widen six
+ * signatures — which would touch every hook and dialog above them for a value none of them reads —
+ * the payload is discarded here.
+ *
+ * @param result - The result to narrow.
+ * @returns The same result with its payload dropped.
+ */
+export function discardPayload<T>(result: ServiceResult<T>): ServiceResult<void> {
+  return result.success ? {success: true, data: undefined} : result;
+}

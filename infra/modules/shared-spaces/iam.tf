@@ -50,7 +50,6 @@ resource "aws_iam_role_policy" "portal_shared_space" {
     shared_space_bucket_arn = local.shared_space_bucket_arn
     aws_region              = var.aws_region
     account_id              = var.account_id
-    request_queue_arn       = aws_sqs_queue.requests.arn
     max_shared_memberships  = var.max_shared_memberships
   })
 }
