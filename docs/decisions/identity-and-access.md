@@ -21,6 +21,10 @@ explicit "do NOT build" fences for one area. **Read the entry you need, not the 
 - [Gating is by REGISTRY, not per-component opt-in (SPEC-163)](#gating-is-by-registry-not-per-component-opt-in-spec-163)
 - [The roster contradicted the connections list because a fan-out list was missing one verb](#the-roster-contradicted-the-connections-list-because-a-fan-out-list-was-missing-one-verb)
 - [A verification principal is read-only, or it is a back door](#a-verification-principal-is-read-only-or-it-is-a-back-door)
+- [The identity block is nested, and it stays nested (SPEC-200)](#the-identity-block-is-nested-and-it-stays-nested-spec-200)
+- [The browser's queue grants come off with the switchover, not with the trust flip (SPEC-200)](#the-browsers-queue-grants-come-off-with-the-switchover-not-with-the-trust-flip-spec-200)
+- [Table-share's dedup id is keyed on the verified actor, not the token (SPEC-200)](#table-shares-dedup-id-is-keyed-on-the-verified-actor-not-the-token-spec-200)
+- [The identity grant is the only path to a request queue; no resource policy (SPEC-200)](#the-identity-grant-is-the-only-path-to-a-request-queue-no-resource-policy-spec-200)
 - [The provider block is the API's verifier configuration, and it is server-side (SPEC-192)](#the-provider-block-is-the-apis-verifier-configuration-and-it-is-server-side-spec-192)
 - [Authorization lives in the router, not in an API Gateway authorizer (SPEC-193)](#authorization-lives-in-the-router-not-in-an-api-gateway-authorizer-spec-193)
 - [The API is a verifier, not an OIDC client (SPEC-195)](#the-api-is-a-verifier-not-an-oidc-client-spec-195)
@@ -787,3 +791,80 @@ every type check stayed green, and silently publish no parameters) and two overl
 (which would resolve by declaration order). There is deliberately no literal-beats-template precedence
 rule: it would be a second thing to reason about at every future declaration and only ever fires in
 the case the refusal makes unreachable.
+
+## The identity block is nested, and it stays nested (SPEC-200)
+
+Every control-plane message the API sends carries one extra top-level key, `identity`, holding
+`{actor, delegated_by, assurance}` — the verified username, `null`, and the literal `interactive`.
+
+**Nesting is forced, not stylistic.** On table-share, file-send, archive and file-ops the top-level
+field named `actor` **is the raw ID token today**. A flat verified `actor` would overwrite the very
+field those four planes verify, which is precisely the ordering failure the two-spec rollout exists
+to avoid. It stays nested after the cutover: SPEC-201 removes the token field rather than moving the
+block into its place, so there is no second migration and no window in which one plane's `actor` is a
+username while another's is still a JWT.
+
+`delegated_by` is **present rather than omitted** — an absent key and a null key are different to a
+strict parser, and the planes are written to refuse the absent one. `assurance` names the assurance
+**kind**, not the mechanism: `verified-id-token` would need renaming the day the provider changes or a
+machine-facing caller mints a delegated one.
+
+**Nothing in the block is secret, and that is load-bearing.** The dead-letter drain's redaction
+replaces TOP-LEVEL keys only, so anything nested here reaches CloudWatch verbatim when a message
+dead-letters. A key set is asserted rather than the absence of a token inspected by eye.
+
+## The browser's queue grants come off with the switchover, not with the trust flip (SPEC-200)
+
+The rollout is two specs. SPEC-200 has the API write **both** the token and the identity block,
+changes no plane's trust, and leaves every `verified_username` call working on the field it already
+reads. SPEC-201 flips the planes onto `identity.actor` and only then — as its own second step, after
+that flip is deployed — stops the token being sent. Collapsing either boundary fails all eight planes
+closed on the first request after deploy.
+
+**The eight `sqs:SendMessage` grants come off in SPEC-200, and that ordering is separate from the
+trust flip.** The Identity Pool survives until SPEC-202, so at the moment `identity.actor` becomes
+authoritative, any signed-in tab that could still write a queue could name any actor. "201 before the
+grant removal" would be a real impersonation window rather than a theoretical one.
+
+The recovery consequence is worth writing down: the eight `VITE_*_QUEUE_URL` repository variables
+become unreferenced but must be **left in place** until SPEC-202. A revert of the switchover needs
+them, and re-reading eight values from `tofu output` is the only step of that recovery which is not
+`git revert`.
+
+## Table-share's dedup id is keyed on the verified actor, not the token (SPEC-200)
+
+This is the one FIFO derivation the port deliberately changed; the other nine are reproduced
+byte-for-byte against golden vectors captured from the browser before it was deleted.
+
+The browser hashed `[idToken, source, tableName, sortedRecipients, minuteBucket]`. Table-share is the
+only plane with **no `requestId`**, so that digest is the entire double-submit guard — and because the
+token was an input, two submits a minute apart with a token refresh between them produced two
+different digests and therefore **two shares**. The guard lapsed silently, and it would have stopped
+working entirely once the token went away.
+
+It now hashes the verified actor in position 0. Two properties evidence the change rather than assert
+it: the browser's own digest **moves** across a refresh where the new one does not, and two different
+users submitting the identical share in the same minute still get **different** ids — dropping the
+actor from the canonical form entirely, which is the obvious simplification, would collapse one user's
+share into another's and deliver nothing.
+
+The canonical form is pinned field by field, because the vector replay cannot cover the one derivation
+whose whole point is that it no longer matches. `ensure_ascii` is off so a non-ASCII space name
+digests the way `JSON.stringify` would — a divergence no ASCII fixture can show.
+
+## The identity grant is the only path to a request queue; no resource policy (SPEC-200)
+
+There is no `aws_sqs_queue_policy` anywhere in `infra/`, and SPEC-200 adds none. "Only the API may
+write" is achieved by adding one grant and removing eight.
+
+The precedent for a resource-side allowlist is the user-space bucket policy, whose own recorded
+failure mode is that it is hand-maintained and a missing plane half-works. What stands in its place is
+an **enumerated** sweep — the portal-role templates are globbed from the filesystem and asserted to
+carry no `sqs:SendMessage` — because a hand-kept list is exactly what would miss the ninth plane.
+
+**Do NOT add a blanket `Deny` with a `StringNotEquals` on the API's role ARN.** It is the shape a
+reader reaches for, and it silences every outcome notification this product sends: the notifications
+request queue has eight writers and SPEC-200 removes exactly one. The other seven are execution roles
+that notify, plus the dead-letter drain. The shared-spaces producer runs with `ResultPath: null` and a
+`Catch` leading onward so it deliberately cannot fail its run, and the other planes notify
+best-effort — so archives, shares and sends would all complete and no user would ever be told.

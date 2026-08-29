@@ -1371,6 +1371,80 @@ Owed since SPEC-195, when `apiFetch` had no caller. It has one now.
 transport — and a check on a feature a user drives belongs in the guide beside every other check on
 that feature, which is where it will still be after this script is folded in and deleted.
 
+## G. The enqueue paths and the delegated actor (SPEC-200) — WRITTEN, NOT YET RUN
+
+Nothing below has been executed. The code merged and all four deploy workflows went green on
+`b0ad3f5b`, which is the whole of what is verified — every claim about how the deployed system
+behaves is offline reasoning until this section is run.
+
+**Do not start until `python3 scripts/watch_ci.py --branch main` is green for the merge sha on
+EVERY workflow that merge triggered.** `Deploy App` and `Deploy Infrastructure` race, and an IAM
+simulation run before the apply lands reads the exact inverse of the truth on both roles: the
+portal role still `allowed`, the API role still `implicitDeny`. Both misreadings point at the code.
+
+**Sign in FRESH, signed out to start.** A signed-in pass never tests the token path.
+
+### G.1 — One request per plane, ten in all
+
+Submitted from the portal UI. The load-bearing part is the **outcome**, not the 200: an enqueue that
+answers 200 and lands in the wrong FIFO group still succeeds from outside.
+
+| # | Action | What proves it arrived |
+|---|---|---|
+| 1 | Create a shared space | the space appears and reaches `active` |
+| 2 | Mark one notification read | it stays read after a reload |
+| 3 | Build a table | the table appears in the schema browser |
+| 4 | Refresh that table | the outcome notification names it |
+| 5 | Share a table | the recipient's catalog gains the copy |
+| 6 | Run a data-quality check | the report link in the notification opens a report |
+| 7 | Send files | they land in the recipient's `shared_files/{sender}/` |
+| 8 | Archive a selection | the source is gone and a receipt exists |
+| 9 | Start a restore | `restore_started` arrives — the 3–5 h wait is the archive arc's own check, not repeated here |
+| 10 | Copy a folder (Arc A's plane) | the copy exists at the destination |
+
+### G.2 — The double-submit guard, per plane
+
+Submit the same gesture twice: **one** outcome, not two.
+
+On **table-share** do it with a forced token refresh between the two submits —
+`await (await import('aws-amplify/auth')).fetchAuthSession({forceRefresh: true})` from the console.
+One share is the new behaviour and two is the old one; this is the only place the actor-keyed dedup
+digest is observable live.
+
+### G.3 — One log record per plane
+
+From `logs/service=api/…/data.jsonl`, waiting for the 10-minute sweep rather than concluding from an
+empty query. **Present:** `route_id`, `queue`, `actor`, `message_group_id`, `body_request_id`,
+`env: "prod"`, a `version` equal to the build sha and neither empty nor `0.0.0`. **Absent:** any
+bearer substring, any email, any object key, any recipient name.
+
+### G.4 — The refusals
+
+- `curl` an enqueue route with **no** `Authorization` → 401, envelope-shaped, and **zero**
+  `SendMessage` (a 401 issued after a successful send looks identical from outside).
+- `curl` one with a body carrying `actor`, `identity` and the plane's token field → 400
+  `InvalidRequest`, nothing enqueued.
+- One deliberately oversized selection → **413**, nothing on the queue.
+
+### G.5 — The grants, simulated against the DEPLOYED roles
+
+`aws iam simulate-principal-policy` on `sqs:SendMessage` against all eight request-queue ARNs:
+
+- the **portal role** → `implicitDeny` on all eight, each row paired with an `allowed` control on a
+  grant it still holds (an `s3:GetObject` under the caller's own prefix), because an `implicitDeny`
+  alone cannot tell an ungranted action from a wrong ARN;
+- the **API's execution role** → `allowed` on all eight.
+
+### G.6 — Browser
+
+**Safari** at desktop is the discharging pass, since that is the browser in use. A Chromium pass
+corroborates and cannot discharge — record it as such.
+
+### G.7 — Recorded as OWED, not discharged
+
+Anything needing a second account (a shared space where the submitter is a non-owner member), and the
+malformed-body DLQ path, which belongs to the drain's own owed check.
+
 ## 14. Cleanup
 
 **Restore the app client's ID-token validity if D.3 was run.** It is shortened to five minutes to

@@ -130,6 +130,13 @@ same-folder copy silently keeps its synchronous path.
 - [ ] With `VITE_FILE_OPS_QUEUE_URL` unset the user gets the mapped not-configured message rather than
       a silent no-op — the whole feature is otherwise a control that does nothing (SPEC-187 FR-011).
 
+      > **SUPERSEDED by SPEC-200 (2026-08-29):** the digest is no longer computed in the browser.
+      > The service issues one `apiRequest`, and the API derives the group id from the same canonical
+      > string — pinned to a golden vector captured from this very code before it was deleted. The
+      > async-submit shape this spec describes is otherwise unchanged: the `requestId` is still minted
+      > per submit in the browser, and the in-flight record still settles on the notification carrying
+      > it.
+
 ### FR-003: In-flight state
 
 #### Acceptance Criteria:

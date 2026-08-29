@@ -38,6 +38,31 @@ It is also the arc's main gift to the target-environment migration. `transition_
 the claim a synthetic `identitycenter_<subject>` and every reader silently starts operating on the wrong
 identifier. After this spec no control plane reads that claim at all.
 
+### What SPEC-200 found and does not own (added 2026-08-29, on its merge)
+
+Five things the switchover surfaced that belong here rather than there:
+
+1. **`dlq_drain.SOURCES` and `_redacted` lose their subject** when the token stops being sent. Both
+   exist to blank a JWT out of a dead-lettered body; after the flip there is none.
+2. **Shared-space carries an ADVISORY top-level `actor` username** beside the `idToken` it verifies.
+   `_redacted` blanks it too, `validate.py` does not read it, and `identity.actor` now supersedes it.
+   Removing it changes the wire for no gain until this spec is doing that anyway.
+3. **`notifications_writer._resolve_username` branches on `USER_ACTIONS = {markRead, markAllRead}`.**
+   The `create` arm is the trusted-producer path, written by the seven notifying execution roles, and
+   carries `username` in the body with **no actor and no token**. It is not an enqueue route and it
+   must survive this spec's collapse: a `trusted_actor` applied to every path refuses every
+   notification the fleet produces.
+4. **The `SenderId` boundary now names a role that cannot write, and not the one that can.**
+   SPEC-206's runtime check compares the sender's role-id half against the **portal role's** unique
+   id — which no longer holds `sqs:SendMessage` on that queue. The API's execution role, which does,
+   is not on the list. There is **no live exposure**: the notifications route's declared `action`
+   vocabulary is `markRead`/`markAllRead`, and the contract refuses both an out-of-vocabulary literal
+   and any undeclared key at any depth, so `create` reaches no declared route. But the boundary should
+   be re-pointed deliberately rather than left naming the wrong principal.
+5. **`Redacted`, `RequestContext.bearer` and the single-`reveal()` sweep are this spec's to delete**,
+   along with the tripwire asserting the token is still sent — in the same commit that stops sending
+   it, which is this spec's second internal step and not its first.
+
 ## Scope
 
 ### In Scope

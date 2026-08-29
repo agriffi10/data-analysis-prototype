@@ -1762,9 +1762,15 @@ per (side × operation), enumerated against the real constants, and read that fi
 
 ## API-layer & containerisation arc (SPEC-192 → 202)
 
-> **SPEC-199 MERGED 2026-08-29 and the catalog surface is behind the API.** What is left in the
-> browser is presigned S3 bytes, Cognito through Amplify, and eight `sqs:SendMessage` enqueues —
-> SPEC-200's subject. **The arc's central claim is still an argument, not an observation:** that
+> **SPEC-200 MERGED 2026-08-29 and the eight control-plane queues are behind the API.** The browser
+> holds no AWS grant at all now; what it still calls directly is presigned S3 bytes and Cognito
+> through Amplify. The message carries a nested `identity` block **alongside** the token it does not
+> yet replace — SPEC-201 flips the planes onto it and only then stops the token being sent, and
+> reversing either boundary fails all eight planes closed on the first request after deploy.
+> **None of SPEC-200's Phase 5 has been run** (`arc-b-api-container-e2e.md` §G): every plane's first
+> real request through the API, and the simulation proving the browser's grants are gone, are owed.
+>
+> **The arc's central claim is still an argument, not an observation:** that
 > Lake Formation keeps enforcing against the assumed-role session needs one real `SELECT` returning
 > rows, and it is owed rather than run (it also discharges SPEC-196 Phase 5 item 4). So is the
 > question this spec was meant to answer and could not settle offline — whether a **foreign**
