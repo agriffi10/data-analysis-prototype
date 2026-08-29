@@ -20,7 +20,12 @@ import type {ServiceResult} from '../types/service.types';
  * // …drive the service…
  * expect(api.queryFor('objects.readContent')).toMatchObject({spaceName: 'alice', key: 'k'});
  */
-export type ApiCall = {route: ApiRouteId; body?: unknown; query?: Record<string, string>};
+export type ApiCall = {
+  route: ApiRouteId;
+  body?: unknown;
+  query?: Record<string, string>;
+  params?: Record<string, string>;
+};
 
 export type ApiMock = {
   /** Programs one route's answer. Later calls replace earlier ones. */
@@ -35,6 +40,14 @@ export type ApiMock = {
   bodyFor: (route: ApiRouteId) => unknown;
   /** The query of the first call to a route. */
   queryFor: (route: ApiRouteId) => Record<string, string> | undefined;
+  /**
+   * The path parameters of the first call to a route.
+   *
+   * Recorded because a templated route puts its identifier in the PATH, and a test that
+   * only reads the body and the query passes whichever execution id or database the service
+   * chose — including the wrong one.
+   */
+  paramsFor: (route: ApiRouteId) => Record<string, string> | undefined;
   /** How many times a route was called. */
   countOf: (route: ApiRouteId) => number;
   /** The underlying vi mock, for the rare assertion that needs it. */
@@ -52,8 +65,11 @@ export function mockApi(apiRequest: ReturnType<typeof vi.fn>): ApiMock {
   const calls: ApiCall[] = [];
 
   apiRequest.mockImplementation(
-    async (route: ApiRouteId, options?: {body?: unknown; query?: Record<string, string>}) => {
-      calls.push({route, body: options?.body, query: options?.query});
+    async (
+      route: ApiRouteId,
+      options?: {body?: unknown; query?: Record<string, string>; params?: Record<string, string>}
+    ) => {
+      calls.push({route, body: options?.body, query: options?.query, params: options?.params});
       const queued = answers.get(route);
       if (!queued || queued.length === 0) {
         throw new Error(
@@ -72,6 +88,7 @@ export function mockApi(apiRequest: ReturnType<typeof vi.fn>): ApiMock {
     routes: () => calls.map((call) => call.route),
     bodyFor: (route) => calls.find((call) => call.route === route)?.body,
     queryFor: (route) => calls.find((call) => call.route === route)?.query,
+    paramsFor: (route) => calls.find((call) => call.route === route)?.params,
     countOf: (route) => calls.filter((call) => call.route === route).length,
     fn: apiRequest
   };

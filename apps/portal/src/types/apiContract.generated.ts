@@ -21,30 +21,50 @@ export type PresignedUrlResponse = {url: string; expiresAt: string};
 export type DownloadUrlRequest = {space: SpaceRef; key: string; fileName?: string};
 export type FreeNameRequest = {space: SpaceRef; prefix: string; baseName: string; kind: 'file' | 'folder'};
 export type FreeNameResponse = {name: string};
+export type StartQueryRequest = {sql: string; database?: string};
+export type StartQueryResponse = {queryExecutionId: string};
+export type QueryStatusResponse = {queryExecutionId: string; state: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'; stateChangeReason: string | null; dataScannedBytes: number | null; engineExecutionTimeMillis: number | null; outputLocation: string | null};
+export type QueryResultsQuery = {nextToken?: string; maxRows?: string};
+export type QueryColumnWire = {name: string; type: string};
+export type QueryResultsResponse = {columns: QueryColumnWire[]; rows: (string | null)[][]; nextToken: string | null};
+export type StopQueryResponse = Record<string, never>;
+export type DatabaseResponse = {name: string};
+export type TablesQuery = {nextToken?: string};
+export type GlueColumnWire = {name: string; type: string};
+export type GlueTableWire = {name: string; columns: GlueColumnWire[]; tableType: string | null; location: string | null};
+export type TablesResponse = {items: GlueTableWire[]; nextToken: string | null};
 export type ErrorParams = {name?: string; attempts?: number; limit?: number};
-export type ApiErrorDetail = {code: 'InvalidRequest' | 'SessionExpired' | 'AccessDenied' | 'NotFound' | 'Conflict' | 'PayloadTooLarge' | 'UnsupportedMediaType' | 'RateLimited' | 'IdentityUnavailable' | 'InternalError' | 'ApiUnavailable'; requestId: string; detail?: string; params?: ErrorParams};
+export type ApiErrorDetail = {code: 'InvalidRequest' | 'SessionExpired' | 'AccessDenied' | 'NotFound' | 'Conflict' | 'PayloadTooLarge' | 'UnsupportedMediaType' | 'RateLimited' | 'IdentityUnavailable' | 'InternalError' | 'ApiUnavailable' | 'QueryNotFinished'; requestId: string; detail?: string; params?: ErrorParams};
 export type ApiErrorBody = {error: ApiErrorDetail};
 
-export const API_ERROR_CODES = ['InvalidRequest', 'SessionExpired', 'AccessDenied', 'NotFound', 'Conflict', 'PayloadTooLarge', 'UnsupportedMediaType', 'RateLimited', 'IdentityUnavailable', 'InternalError', 'ApiUnavailable'] as const;
+export const API_ERROR_CODES = ['InvalidRequest', 'SessionExpired', 'AccessDenied', 'NotFound', 'Conflict', 'PayloadTooLarge', 'UnsupportedMediaType', 'RateLimited', 'IdentityUnavailable', 'InternalError', 'ApiUnavailable', 'QueryNotFinished'] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 
 export const API_ROUTES = {
-  'userDirectory.get': {method: 'GET', path: '/v1/user-directory', idempotent: true},
-  'featureFlags.get': {method: 'GET', path: '/v1/feature-flags', idempotent: true},
-  'objects.list': {method: 'GET', path: '/v1/objects', idempotent: true},
-  'objects.metadata': {method: 'GET', path: '/v1/objects/metadata', idempotent: true},
-  'objects.exists': {method: 'GET', path: '/v1/objects/exists', idempotent: true},
-  'objects.readContent': {method: 'GET', path: '/v1/objects/content', idempotent: true},
-  'objects.writeContent': {method: 'PUT', path: '/v1/objects/content', idempotent: false},
-  'objects.copy': {method: 'POST', path: '/v1/objects/copy', idempotent: false},
-  'objects.move': {method: 'POST', path: '/v1/objects/move', idempotent: false},
-  'objects.delete': {method: 'DELETE', path: '/v1/objects', idempotent: false},
-  'objects.uploadUrl': {method: 'POST', path: '/v1/objects/upload-url', idempotent: false},
-  'objects.downloadUrl': {method: 'POST', path: '/v1/objects/download-url', idempotent: true},
-  'objects.freeName': {method: 'POST', path: '/v1/objects/free-name', idempotent: true},
+  'userDirectory.get': {method: 'GET', path: '/v1/user-directory', idempotent: true, params: []},
+  'featureFlags.get': {method: 'GET', path: '/v1/feature-flags', idempotent: true, params: []},
+  'objects.list': {method: 'GET', path: '/v1/objects', idempotent: true, params: []},
+  'objects.metadata': {method: 'GET', path: '/v1/objects/metadata', idempotent: true, params: []},
+  'objects.exists': {method: 'GET', path: '/v1/objects/exists', idempotent: true, params: []},
+  'objects.readContent': {method: 'GET', path: '/v1/objects/content', idempotent: true, params: []},
+  'objects.writeContent': {method: 'PUT', path: '/v1/objects/content', idempotent: false, params: []},
+  'objects.copy': {method: 'POST', path: '/v1/objects/copy', idempotent: false, params: []},
+  'objects.move': {method: 'POST', path: '/v1/objects/move', idempotent: false, params: []},
+  'objects.delete': {method: 'DELETE', path: '/v1/objects', idempotent: false, params: []},
+  'objects.uploadUrl': {method: 'POST', path: '/v1/objects/upload-url', idempotent: false, params: []},
+  'objects.downloadUrl': {method: 'POST', path: '/v1/objects/download-url', idempotent: true, params: []},
+  'objects.freeName': {method: 'POST', path: '/v1/objects/free-name', idempotent: true, params: []},
+  'athena.start': {method: 'POST', path: '/v1/queries', idempotent: false, params: []},
+  'athena.status': {method: 'GET', path: '/v1/queries/{queryExecutionId}', idempotent: true, params: ['queryExecutionId']},
+  'athena.results': {method: 'GET', path: '/v1/queries/{queryExecutionId}/results', idempotent: true, params: ['queryExecutionId']},
+  'athena.stop': {method: 'POST', path: '/v1/queries/{queryExecutionId}/stop', idempotent: true, params: ['queryExecutionId']},
+  'catalog.database.get': {method: 'GET', path: '/v1/catalog/databases/{database}', idempotent: true, params: ['database']},
+  'catalog.tables.list': {method: 'GET', path: '/v1/catalog/databases/{database}/tables', idempotent: true, params: ['database']},
 } as const;
 
 export type ApiRouteId = keyof typeof API_ROUTES;
+
+export type PathParamsOf<R extends ApiRouteId> = {[K in (typeof API_ROUTES)[R]['params'][number]]: string};
 
 type RouteBodies = {
   'userDirectory.get': {request: null; query: null; response: UserDirectoryResponse};
@@ -60,6 +80,12 @@ type RouteBodies = {
   'objects.uploadUrl': {request: UploadUrlRequest; query: null; response: PresignedUrlResponse};
   'objects.downloadUrl': {request: DownloadUrlRequest; query: null; response: PresignedUrlResponse};
   'objects.freeName': {request: FreeNameRequest; query: null; response: FreeNameResponse};
+  'athena.start': {request: StartQueryRequest; query: null; response: StartQueryResponse};
+  'athena.status': {request: null; query: null; response: QueryStatusResponse};
+  'athena.results': {request: null; query: QueryResultsQuery; response: QueryResultsResponse};
+  'athena.stop': {request: null; query: null; response: StopQueryResponse};
+  'catalog.database.get': {request: null; query: null; response: DatabaseResponse};
+  'catalog.tables.list': {request: null; query: TablesQuery; response: TablesResponse};
 };
 
 export type RequestOf<R extends ApiRouteId> = RouteBodies[R]['request'];

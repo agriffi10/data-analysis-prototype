@@ -148,6 +148,40 @@ class TestTheIdentityAHandlerIsGivenIgnoresWhatTheCallerSaid:
         assert seen["body"] == {"username": "mallory", "acting_as": "mallory"}
         assert seen["query"] == {"username": "mallory"}
 
+    def test_a_PATH_SEGMENT_naming_another_user_does_not_move_the_identity_either(self) -> None:
+        """The third channel, and the one that reads least like input.
+
+        A body and a query obviously carry what a caller said; a path segment reads like routing,
+        which is exactly why it is worth asserting. It arrives as data with the same standing as
+        the other two — the identity is built from the verified claims before any of them is
+        looked at.
+        """
+        seen: dict[str, object] = {}
+
+        def _capture(context) -> _EchoResponse:  # type: ignore[no-untyped-def]
+            seen["path_params"] = dict(context.path_params)
+            return {"resolved": context.acting_as.username}
+
+        route = contract.Route(
+            id="test.echoIdentity",
+            method="GET",
+            path="/v1/_test-echo-identity/{username}",
+            idempotent=True,
+            plane="user",
+            request=None,
+            query=None,
+            response=_EchoResponse,
+        )
+        with declare_route(route, _capture):
+            answer = router.route(
+                "GET", "/v1/_test-echo-identity/mallory", bearer(), "rq", None, {}
+            )
+
+        assert seen["path_params"] == {"username": "mallory"}
+        assert answer["statusCode"] == 200
+        assert "mallory" not in answer["body"]
+        assert "alice" in answer["body"]
+
 
 class TestAQueryDeclarationIsRefusedForWhatAQueryStringCannotCarry:
     """FR-014 AC3 — the vocabulary narrows in query position, at declaration time."""

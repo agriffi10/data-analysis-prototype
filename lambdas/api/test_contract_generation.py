@@ -115,3 +115,76 @@ def test_the_status_map_is_total_and_its_image_is_the_closed_set() -> None:
     assert set(contract.ERROR_STATUS.values()) <= contract.ROUTE_STATUSES
 
 
+def test_a_nested_list_of_optionals_emits_the_type_it_is_declared_as() -> None:
+    """The results page is the contract's first nested list and its first ``list[X | None]``.
+
+    Both must survive the walk by recursion rather than by a special case, and the rendered string
+    is what a reader compares against the spec — so this asserts the BYTES, not that something
+    was emitted. The rule that decides the parentheses reads the contained node's KIND: an earlier
+    version looked for a space in the rendered inner type, which a nested list's own parentheses
+    satisfied, and it emitted ``((string | null)[])[]`` — the same type, different bytes, and the
+    regeneration gate is a byte comparison.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If the emitted type is not the declared one.
+    """
+    generator = _generator()
+
+    rendered = generator.render(contract.walk(list[list[str | None]]))
+
+    assert rendered == "(string | null)[][]"
+
+
+def test_a_type_with_no_fields_emits_something_that_still_CHECKS() -> None:
+    """``{}`` in TypeScript agrees with every non-null value, which is a fallback by another name.
+
+    The empty body arrives with the first route whose 200 carries no payload. Emitted as ``{}``,
+    its response type would accept a string, a number or an array — so the one place the contract
+    is supposed to be strongest would be the one place it checked nothing.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If an empty object emits as ``{}``.
+    """
+    generator = _generator()
+
+    class _Empty(TypedDict):
+        """A response carrying nothing."""
+
+    rendered = generator.render_declaration(contract.walk(_Empty))
+
+    assert rendered == "export type _Empty = Record<string, never>;"
+
+
+def test_the_route_table_publishes_the_parameters_each_path_names() -> None:
+    """The browser is typed from these names, so they are emitted rather than re-derived in TS.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      AssertionError: If a templated route emits no parameters, or a fixed one emits some.
+    """
+    generator = _generator()
+
+    emitted = generator.generate()
+
+    assert (
+        "'athena.results': {method: 'GET', path: '/v1/queries/{queryExecutionId}/results', "
+        "idempotent: true, params: ['queryExecutionId']}," in emitted
+    )
+    assert "path: '/v1/user-directory', idempotent: true, params: []}," in emitted

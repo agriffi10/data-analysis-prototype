@@ -77,6 +77,23 @@ describe('errorMessages', () => {
       expect(message).not.toMatch(/Contact the Administrator/i);
     });
 
+    it('says exactly the same thing when the API resolves that condition to a code', () => {
+      // The API can key on the message where the browser never could, so the too-early read now
+      // also arrives as a machine code — and a `code` rule outranks every message rule, so this
+      // sentence is the one a user gets from here on.
+      //
+      // Compared against the OTHER RULE's output rather than against a literal: a third copy of
+      // the sentence is a third thing to keep in step, and it would agree with itself while the
+      // wording moved. Both rules exist at once during the port, and the whole claim is that the
+      // move is invisible.
+      const viaMessage = toUserMessage({
+        code: 'InvalidRequestException',
+        message: 'Query has not yet finished. Current state: QUEUED'
+      });
+
+      expect(toUserMessage({code: 'QueryNotFinished'}).message).toBe(viaMessage.message);
+    });
+
     it('still calls a StartQueryExecution rejection a syntax error', () => {
       // The guard on the rule above. A rejected START surfaces with `code` = the AWS name
       // (`toServiceError`), and `InvalidRequestException` is the name for BOTH a malformed

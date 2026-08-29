@@ -39,6 +39,15 @@ class RequestContext:
       request_id: The gateway's id for this request, for correlating a refusal with a report.
       body: The validated request body, or None for a route declaring none. Never the raw event.
       query: The validated query string, or an empty mapping for a route declaring none.
+      path_params: The segments the route's own template named, extracted by the matcher. Every
+        value is caller-controlled and none of them is an identity, which is worth restating
+        because a path segment reads more like routing than like input.
+
+        **Unlike ``body`` and ``query``, these are NOT validated against a declared type** — a
+        route declares no shape for them, so a handler receives whatever survived matching: one
+        non-empty segment, of any length, holding any characters the gateway passed through. A
+        handler that needs more than that checks it itself. Said plainly because the neighbouring
+        two fields arrive checked, and a reader who assumes the third does would be wrong.
     """
 
     principal: Principal
@@ -47,3 +56,4 @@ class RequestContext:
     request_id: str
     body: object = None
     query: Mapping[str, str] = MappingProxyType({})
+    path_params: Mapping[str, str] = MappingProxyType({})

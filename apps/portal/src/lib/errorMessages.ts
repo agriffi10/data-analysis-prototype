@@ -183,6 +183,29 @@ const CODE_RULES: readonly ErrorRule[] = [
   // Trigger: an object/table/DDL target was missing (S3 404, Glue table-absent).
   // User-fixable — refresh or pick another item. ──
   {code: 'NotFound', message: 'That item no longer exists. Refresh and try again.', userFixable: true},
+  // Trigger: results were asked for before the execution finished. The API resolves what the
+  // engine text below could only be matched on — `InvalidRequestException` is also what Athena
+  // raises for a malformed query at submit, so the browser could never key on the NAME, and a
+  // rule keyed on the message is all it had.
+  //
+  // The sentence is byte-identical to the match rule's, deliberately: a code rule outranks every
+  // message rule, so while both exist the wording cannot move, and the match rule goes when the
+  // catalog services stop meeting Athena's own exception. ──
+  // Trigger: a service asked for a route whose path parameter could not be put in a URL — a
+  // value carrying a separator, or one the URL parser would collapse. The request was never sent.
+  // An app bug rather than anything a user or an administrator did, so the wording says only what
+  // is true and the code is what a developer reads. ──
+  {
+    code: 'UnsendableParameter',
+    message: `That request couldn’t be built. ${CONTACT_ADMIN}`,
+    userFixable: false
+  },
+
+  {
+    code: 'QueryNotFinished',
+    message: 'The query is still running. Give it a moment and try again.',
+    userFixable: true
+  },
 
   // ── AWS / Cognito error names (services default `code` to the AWS `name`). ──
   // Trigger: scoped credentials denied the S3/Athena/Glue call. Almost always a

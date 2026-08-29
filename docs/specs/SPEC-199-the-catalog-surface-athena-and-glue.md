@@ -1,7 +1,7 @@
 # Spec: The Catalog Surface — Athena & Glue
 
 **ID:** SPEC-199
-**Status:** Draft
+**Status:** In Progress
 **Last Updated:** 2026-08-18
 **Depends On:** SPEC-197 (the transport contract — route ids, the success/error envelopes, the generated TS↔Python agreement, `lib/apiClient.ts`, `apiRetryPolicy`, and the frozen `ServiceResult<T>`), SPEC-196 (the user credential plane — `user_client(service, identity)`, the assumed portal role that Lake Formation grants attach to, its per-container session cache, the three failure conditions this spec's routes surface, and **its Phase 5 item 4 — the Lake Formation verification, re-homed here because it needs an Athena route that does not exist until this spec**), SPEC-195 (the verified ID token whose `cognito:username` claim replaces the `username` parameter on the wire), SPEC-192 (`lib/runtimeConfig.ts` — the key this spec **removes**), SPEC-032/033/034 (the workgroup, the per-user results prefix, and the `username`-tagged Glue/Athena isolation this spec must not touch), SPEC-077/078 (no active database; the client-side `;` split), SPEC-106 (`toUserMessage` is the only source of user-facing wording, and the Athena engine-message rules that depend on `stateChangeReason` reaching the browser), SPEC-176 (`features/catalog/` — the layer being ported), SPEC-178/180/181/182/185 (the cost ledger, `null` ≠ `''`, the failure banner, the SQL disclosure, and export's `outputLocation`), SPEC-127/137/186 (`cpcommon.observability`, the field rule, `env`/`version`)
 
