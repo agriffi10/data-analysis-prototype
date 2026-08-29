@@ -20,7 +20,7 @@
 - **§8 Observability** — structured logs; log request/correlation ids; never log secrets/PII; emit metrics.
 - **§9 Security & input trust** — validate every event field; verify JWTs fully; derive identity server-side; least trust on payloads.
 - **§10 Step Function orchestration** — workflow lives in the state machine (Choice/Map/Retry/Catch), one Task = one single-task Lambda.
-- **§11 Testing** — drive the **handler**, not the functions under it; stub AWS; 1–3 scenarios per verb; every refusal reason asserted by name.
+- **§11 Testing** — drive the **handler**, not the functions under it; stub AWS; 1–3 scenarios per verb, arrange/act/assert; every refusal reason asserted by name.
 - **§12 Code/infra split & packaging** — `lambdas/` code vs Terraform infra; shared code in a common module/layer; pin + minimize deps.
 - **§13 Language conventions** — a Lambda is also code; Python Lambdas follow Python best practices on top of §1–§12.
 
@@ -122,7 +122,8 @@ Put the **workflow** in the state machine; keep each **Task** a single-task Lamb
 A verb is tested the way the state machine drives it: through `handler(event, context)`.
 
 - ✅ **Drive the handler.** A test that imports the inner function bypasses the decorator stack — `@traced`, `@notifies_on_failure` — so a verb can lose its instrumentation, or its failure notifier, with the suite green. It also couples the test to a private name, which is what makes a refactor look like a regression.
-- ✅ **1–3 scenarios per verb**, chosen for how a caller actually reaches it, not one per branch. A larger verb may need more; a dozen is a sign the verb is doing too much (§1).
+- ✅ **1–3 scenarios per verb**, chosen for how a caller actually reaches it, not one per branch. Four or five where a verb genuinely earns them; a dozen is a sign the verb is doing too much (§1). **The 85% floor is met this way** — a verb that cannot reach it from a handful of caller-driven scenarios is scoped wrong.
+- ✅ **Arrange / act / assert, in that order and visibly**: build the event and stub AWS, call `handler`, then assert. One act phase per test — arranging, asserting and re-arranging is two scenarios sharing a name.
 - ✅ **Stub/mock AWS** (e.g. `moto`, botocore stubbers, or injected client fakes) — never hit real AWS in unit tests.
 - ✅ Cover the **happy path, each terminal failure, and idempotency** (run the op twice → same end state; §3) and **authorization** rejections (§9).
 - 🔴 **Never assert only that something raised.** Assert the `TerminalError` **reason code** by name. The neighbouring path usually raises too, which is what makes the weaker assertion pass while the guard is gone — and a refusal is the half of a verb no user exercises, so nothing else will tell you.
